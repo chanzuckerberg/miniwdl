@@ -8,4 +8,7 @@ check:
 		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
 		--show-parse-errors check
 
-.PHONY: check test
+docker:
+	docker build -t miniwdl .
+
+.PHONY: check test docker
