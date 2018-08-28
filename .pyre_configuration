@@ -1,0 +1,12 @@
+{
+  "binary": "/home/mlin/.local/bin/pyre.bin",
+  "source_directories": [
+    "WDL",
+    "tests"
+  ],
+  "search_path": [
+    "/home/mlin/.local/lib/python3.6/site-packages/lark",
+    "."
+  ],
+  "typeshed": "/home/mlin/.local/lib/pyre_check/typeshed/"
+}
