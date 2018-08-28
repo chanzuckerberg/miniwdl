@@ -1,3 +1,4 @@
+# pyre-strict
 import lark
 import WDL._parser
 from WDL import Expr as E

@@ -3,6 +3,9 @@ test: check
 	coverage report
 
 check:
-	pyre --show-parse-errors check
+	pyre \
+		--search-path $(HOME)/.local/lib/python3.6/site-packages/lark \
+		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
+		--show-parse-errors check
 
 .PHONY: check test

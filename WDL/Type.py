@@ -1,3 +1,4 @@
+# pyre-strict
 from abc import ABC, abstractmethod
 
 class Base(ABC):
@@ -5,7 +6,7 @@ class Base(ABC):
     def __str__(self) -> str:
         pass
     
-    def __eq__(self, rhs):
+    def __eq__(self, rhs) -> bool:
         return str(self) == str(rhs)
 
 class Boolean(Base):
@@ -22,7 +23,7 @@ class Float(Base):
 
 class Array(Base):
     item_type : Base
-    def __init__(self, item_type : Base):
+    def __init__(self, item_type : Base) -> None:
         self.item_type = item_type
     def __str__(self) -> str:
         return "Array[" + str(self.item_type) + "]"

@@ -1,19 +1,22 @@
+# pyre-strict
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, NamedTuple
 import WDL.Type as Ty
 import WDL.Value as Val
+import WDL.StdLib
 from collections import namedtuple
 
 class Env:
     pass
 
 class StaticTypeError(Exception):
-    pass
+    def __init__(self, message : str) -> None:
+        super().__init__(message)
 
 class Base(ABC):
     type : Ty.Base
 
-    def __init__(self, type : Ty.Base):
+    def __init__(self, type : Ty.Base) -> None:
         assert isinstance(type, Ty.Base)
         self.type = type
 
@@ -24,7 +27,7 @@ class Base(ABC):
 # Boolean literal
 class Boolean(Base):
     _literal : bool
-    def __init__(self, literal : bool):
+    def __init__(self, literal : bool) -> None:
         super().__init__(Ty.Boolean())
         self._literal = literal
     def eval(self, env : Env) -> Val.Boolean:
@@ -33,7 +36,7 @@ class Boolean(Base):
 # Integer literal
 class Int(Base):
     _literal : int
-    def __init__(self, literal : int):
+    def __init__(self, literal : int) -> None:
         super().__init__(Ty.Int())
         self._literal = literal
     def eval(self, env : Env) -> Val.Int:
@@ -42,7 +45,7 @@ class Int(Base):
 # Float literal
 class Float(Base):
     _literal : float
-    def __init__(self, literal : float):
+    def __init__(self, literal : float) -> None:
         super().__init__(Ty.Float())
         self._literal = literal
     def eval(self, env : Env) -> Val.Float:
@@ -52,7 +55,7 @@ class Float(Base):
 class Array(Base):
     items : List[Base]
 
-    def __init__(self, items : List[Base], item_type : Optional[Ty.Base] = None):
+    def __init__(self, items : List[Base], item_type : Optional[Ty.Base] = None) -> None:
         if item_type is None:
             if len(items) == 0:
                 raise StaticTypeError("empty array has ambiguous type")
@@ -74,7 +77,7 @@ class IfThenElse(Base):
     consequent : Base
     alternative : Base
 
-    def __init__(self, items : List[Base]):
+    def __init__(self, items : List[Base]) -> None:
         assert len(items) == 3
         self.condition = items[0]
         if self.condition.type != Ty.Boolean():
@@ -91,48 +94,15 @@ class IfThenElse(Base):
             return self.alternative.eval(env)
         return self.consequent.eval(env)
 
-StdFunction = namedtuple("StdFunction", "argument_types return_type F")
-stdlib = {
-    "_negate" : StdFunction(argument_types=[Ty.Boolean()], return_type=Ty.Boolean(),
-                            F=lambda x: Val.Boolean(not x.value)),
-    "_land" : StdFunction(argument_types=[Ty.Boolean(), Ty.Boolean()], return_type=Ty.Boolean(),
-                          F=lambda l,r: Val.Boolean(l.value and r.value)),
-    "_lor" : StdFunction(argument_types=[Ty.Boolean(), Ty.Boolean()], return_type=Ty.Boolean(),
-                         F=lambda l,r: Val.Boolean(l.value or r.value)),
-    "_add" : StdFunction(argument_types=[Ty.Int(), Ty.Int()], return_type=Ty.Int(),
-                         F=lambda l,r: Val.Int(l.value + r.value)),
-    "_sub" : StdFunction(argument_types=[Ty.Int(), Ty.Int()], return_type=Ty.Int(),
-                         F=lambda l,r: Val.Int(l.value - r.value)),
-    "_mul" : StdFunction(argument_types=[Ty.Int(), Ty.Int()], return_type=Ty.Int(),
-                         F=lambda l,r: Val.Int(l.value * r.value)),
-    "_div" : StdFunction(argument_types=[Ty.Int(), Ty.Int()], return_type=Ty.Int(),
-                         F=lambda l,r: Val.Int(int(l.value / r.value))),
-    "_rem" : StdFunction(argument_types=[Ty.Int(), Ty.Int()], return_type=Ty.Int(),
-                         F=lambda l,r: Val.Int(l.value % r.value)),
-    "_eqeq" : StdFunction(argument_types=[None, None], return_type=Ty.Boolean(),
-                          F=lambda l,r: Val.Boolean(l == r)),
-    "_neq" : StdFunction(argument_types=[None, None], return_type=Ty.Boolean(),
-                         F=lambda l,r: Val.Boolean(l != r)),
-    "_lt" : StdFunction(argument_types=[None, None], return_type=Ty.Boolean(),
-                        F=lambda l,r: Val.Boolean(l.value < r.value)),
-    "_lte" : StdFunction(argument_types=[None, None], return_type=Ty.Boolean(),
-                         F=lambda l,r: Val.Boolean(l.value <= r.value)),
-    "_gt" : StdFunction(argument_types=[None, None], return_type=Ty.Boolean(),
-                        F=lambda l,r: Val.Boolean(l.value > r.value)),
-    "_gte" : StdFunction(argument_types=[None, None], return_type=Ty.Boolean(),
-                         F=lambda l,r: Val.Boolean(l.value >= r.value)),
-    "_get" : StdFunction(argument_types=[None, Ty.Int()], return_type=Ty.Int(), #FIXME
-                         F=lambda arr,which: arr.value[which.value])
-}
 class Apply(Base):
-    function : StdFunction
+    function : WDL.StdLib.Function
     arguments : List[Base]
 
-    def __init__(self, function : str, arguments : List[Base]):
-        self.function = stdlib[function]
+    def __init__(self, function : str, arguments : List[Base]) -> None:
+        self.function = WDL.StdLib.functions[function]
         self.arguments = arguments #TODO: check arity and types of arguments
-        super(Apply, self).__init__(self.function.return_type)
+        super().__init__(self.function.return_type) # pyre-ignore
 
     def eval(self, env : Env) -> Val.Base:
         argument_values = [arg.eval(env) for arg in self.arguments]
-        return self.function.F(*argument_values)
+        return self.function.F(*argument_values) # pyre-ignore
