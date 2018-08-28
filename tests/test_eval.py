@@ -1,4 +1,5 @@
 import unittest
+from typing import Optional
 from .context import WDL
 
 class TestEval(unittest.TestCase):
@@ -25,11 +26,13 @@ class TestEval(unittest.TestCase):
         self.assertEqual(val, WDL.Value.Boolean(False))
         self.assertNotEqual(val, WDL.Value.Boolean(True))
 
-    def _t(self, expr : str, expected_value : str, env : WDL.Expr.Env = WDL.Expr.Env()):
-        self.assertEqual(str(WDL.parse_expr(expr).eval(env)), expected_value)
+    def _t(self, expr : str, expected_value : str, env : WDL.Expr.Env = WDL.Expr.Env(),
+           expected_type : Optional[WDL.Type.Base] = None):
+        v = WDL.parse_expr(expr).eval(env).expect(expected_type)
+        self.assertEqual(str(v), expected_value)
 
     def test_logic(self):
-        self._t("true && true", "true")
+        self._t("true && true", "true", WDL.Type.Boolean())
         self._t("true && false", "false")
         self._t("false && true", "false")
         self._t("false && false", "false")
@@ -55,7 +58,7 @@ class TestEval(unittest.TestCase):
         self._t("2+3*4","14")
         self._t("1+6/3*4","9")
         self._t("1-4/3","0")
-        self._t("1--4/3","2")
+        self._t("1--4/3","3") # -4/3 == -2
         self._t("4%2","0")
         self._t("4%3","1")
 
@@ -78,7 +81,7 @@ class TestEval(unittest.TestCase):
         self._t("3<2&&1>=0||1==1","true")
 
     def test_if(self):
-        self._t("if false then 0 else 1","1")
+        self._t("if false then 0 else 1","1", WDL.Type.Int())
         self._t("if true then 0 else 1","0")
         self._t("if false then 0 else 1+2","3")
         self._t("(if false then 0 else 1)+2","3")
@@ -99,3 +102,14 @@ class TestEval(unittest.TestCase):
         self._t("[true, false][1]", "false")
 
         self._t("[1+2, 3*4][1]", "12")
+
+    def test_float_coercion(self):
+        self._t("1 + 1.0", "2.0", WDL.Type.Float())
+        self._t("1.0 + 1", "2.0", WDL.Type.Float())
+        self._t("1 == 1.0", "true")
+        self._t("1 == 1.1", "false")
+        self._t("1 != 1.1", "true")
+        self._t("1 < 1.0", "false")
+        self._t("1 <= 1.0", "true")
+
+        # TODO: test bad cases for appropriate errors

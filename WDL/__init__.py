@@ -2,6 +2,7 @@
 import lark
 import WDL._parser
 from WDL import Expr as E
+import WDL.StdLib
 
 # Transformer from lark.Tree to WDL.Expr
 class _ExprTransformer(lark.Transformer):
