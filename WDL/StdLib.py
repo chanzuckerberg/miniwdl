@@ -37,7 +37,7 @@ class _ArithmeticOperator(Expr._Function):
         return rt
 
 
-    def apply(self, arguments : List[Expr.Base], env : Expr.Env) -> Val.Base:
+    def __call__(self, arguments : List[Expr.Base], env : Expr.Env) -> Val.Base:
         ans_type = self.typecheck(arguments)
         ans = self.op(arguments[0].eval(env).coerce(ans_type).value,
                       arguments[1].eval(env).coerce(ans_type).value)
@@ -70,7 +70,7 @@ class _ComparisonOperator(Expr._Function):
            raise Ty.StaticTypeError("cannot compare {} and {}", str(arguments[0].type), str(arguments[1].type))
         return Ty.Boolean()
 
-    def apply(self, arguments : List[Expr.Base], env : Expr.Env) -> Val.Base:
+    def __call__(self, arguments : List[Expr.Base], env : Expr.Env) -> Val.Base:
         assert len(arguments) == 2
         return Val.Boolean(self.op(arguments[0].eval(env).value, arguments[1].eval(env).value))
 

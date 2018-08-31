@@ -101,7 +101,7 @@ class _Function(ABC):
         pass
 
     @abstractmethod
-    def apply(self, arguments : List[Base], env : Env) -> Val.Base:
+    def __call__(self, arguments : List[Base], env : Env) -> Val.Base:
         pass
 # Table of standard library functions, filled in below and in StdLib.py
 _stdlib : Dict[str,_Function] = {}
@@ -124,7 +124,7 @@ class Apply(Base):
         super().__init__(return_type)
 
     def eval(self, env : Env) -> Val.Base:
-        return self.function.apply(self.arguments, env)
+        return self.function(self.arguments, env)
 
 # _Function helper for simple functions with fixed argument and return types
 # (used in StdLib.py)
@@ -150,7 +150,7 @@ class _StaticFunction(_Function):
                 raise Ty.StaticTypeMismatchError(self.argument_types[i], arguments[i].type, "{} argument #{}".format(name, i+1)) from None
         return self.return_type
 
-    def apply(self, arguments : List[Base], env : Env) -> Val.Base:
+    def __call__(self, arguments : List[Base], env : Env) -> Val.Base:
         assert len(arguments) == len(self.argument_types)
         argument_values = [arg.eval(env).coerce(ty) for arg, ty in zip(arguments, self.argument_types)]
         ans : Val.Base = self.F(*argument_values)
@@ -174,7 +174,7 @@ class _ArrayGet(_Function):
             raise Ty.StaticTypeMismatchError(Ty.Int(), arguments[1].type, "Array must be accessed by Int index") from None
         return arguments[0].type.item_type
 
-    def apply(self, arguments : List[Base], env : Env) -> Val.Base:
+    def __call__(self, arguments : List[Base], env : Env) -> Val.Base:
         assert len(arguments) == 2
         arr = arguments[0].eval(env)
         assert isinstance(arr.type, Ty.Array)
