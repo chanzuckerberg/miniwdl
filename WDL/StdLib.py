@@ -24,23 +24,23 @@ class _ArithmeticOperator(Expr._Function):
         self.name = name
         self.op = op
 
-    def typecheck(self, arguments : List[Expr.Base]):
-        assert len(arguments) == 2
+    def typecheck(self, expr : Expr.Apply):
+        assert len(expr.arguments) == 2
         rt = Ty.Int()
-        if arguments[0].type == Ty.Float() or arguments[1].type == Ty.Float():
+        if expr.arguments[0].type == Ty.Float() or expr.arguments[1].type == Ty.Float():
             rt = Ty.Float()
         try:
-            arguments[0].type.expect(rt)
-            arguments[1].type.expect(rt)
-        except Ty.StaticTypeError:
-            raise Ty.StaticTypeError("non-numeric operand to" + self.name + " operator") from None
+            expr.arguments[0].typecheck(rt)
+            expr.arguments[1].typecheck(rt)
+        except Expr.StaticTypeMismatch:
+            raise Expr.IncompatibleOperand(expr, "Non-numeric operand to " + self.name + " operator") from None
         return rt
 
 
-    def __call__(self, arguments : List[Expr.Base], env : Expr.Env) -> Val.Base:
-        ans_type = self.typecheck(arguments)
-        ans = self.op(arguments[0].eval(env).coerce(ans_type).value,
-                      arguments[1].eval(env).coerce(ans_type).value)
+    def __call__(self, expr : Expr.Apply, env : Expr.Env) -> Val.Base:
+        ans_type = self.typecheck(expr)
+        ans = self.op(expr.arguments[0].eval(env).coerce(ans_type).value,
+                      expr.arguments[1].eval(env).coerce(ans_type).value)
         if ans_type == Ty.Int():
             assert isinstance(ans, int)
             return Val.Int(ans)
@@ -62,17 +62,17 @@ class _ComparisonOperator(Expr._Function):
         self.name = name
         self.op = op
 
-    def typecheck(self, arguments : List[Expr.Base]):
-        assert len(arguments) == 2
-        if not (arguments[0].type == arguments[1].type or
-                (arguments[0].type == Ty.Int() and arguments[1].type == Ty.Float()) or
-                (arguments[0].type == Ty.Float() and arguments[1].type == Ty.Int())):
-           raise Ty.StaticTypeError("cannot compare {} and {}", str(arguments[0].type), str(arguments[1].type))
+    def typecheck(self, expr : Expr.Apply):
+        assert len(expr.arguments) == 2
+        if not (expr.arguments[0].type == expr.arguments[1].type or
+                (expr.arguments[0].type == Ty.Int() and expr.arguments[1].type == Ty.Float()) or
+                (expr.arguments[0].type == Ty.Float() and expr.arguments[1].type == Ty.Int())):
+           raise Expr.IncompatibleOperand(expr, "Cannot compare {} and {}".format(str(expr.arguments[0].type), str(expr.arguments[1].type)))
         return Ty.Boolean()
 
-    def __call__(self, arguments : List[Expr.Base], env : Expr.Env) -> Val.Base:
-        assert len(arguments) == 2
-        return Val.Boolean(self.op(arguments[0].eval(env).value, arguments[1].eval(env).value))
+    def __call__(self, expr : Expr.Apply, env : Expr.Env) -> Val.Base:
+        assert len(expr.arguments) == 2
+        return Val.Boolean(self.op(expr.arguments[0].eval(env).value, expr.arguments[1].eval(env).value))
 
 Expr._stdlib["_eqeq"] = _ComparisonOperator("==", lambda l,r: l == r)
 Expr._stdlib["_neq"] = _ComparisonOperator("!=", lambda l,r: l != r)

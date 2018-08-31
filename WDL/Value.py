@@ -3,10 +3,6 @@ from abc import ABC, abstractmethod
 from typing import Any, List, Optional, TypeVar
 import WDL.Type as Ty
 
-class RuntimeTypeError(Exception):
-    def __init__(self, message : str) -> None:
-        super().__init__(message)
-
 BaseT = TypeVar('BaseT', bound='Base')
 class Base(ABC):
     type : Ty.Base
@@ -24,8 +20,7 @@ class Base(ABC):
         return str(self.value)
 
     def coerce(self, desired_type : Optional[Ty.Base] = None) -> BaseT:
-        if desired_type is not None and self.type != desired_type:
-            raise RuntimeTypeError(str(desired_type)) # TODO: better error message
+        assert desired_type is None or self.type == desired_type
         return self
     def expect(self, desired_type : Optional[Ty.Base] = None) -> BaseT:
         return self.coerce(desired_type)

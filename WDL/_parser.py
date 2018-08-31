@@ -65,5 +65,5 @@ grammar = """
 """
 
 def parse(txt : str) -> lark.Tree:
-  return lark.Lark(grammar, start="expr", parser="lalr").parse(txt)
+  return lark.Lark(grammar, start="expr", parser="lalr", propagate_positions=True).parse(txt)
 

@@ -113,3 +113,21 @@ class TestEval(unittest.TestCase):
         self._t("1 <= 1.0", "true")
 
         # TODO: test bad cases for appropriate errors
+
+    def test_errors(self):
+        with self.assertRaisesRegex(WDL.Expr.NoSuchFunction, r"\(Ln 1, Col 5\) No such function: bogus") as cm:
+            self._t("1 + bogus(2)", None)
+        with self.assertRaisesRegex(WDL.Expr.NotAnArray, r"\(Ln 1, Col 5\) Not an array") as cm:
+            self._t("1 + 2[3]", None)
+        with self.assertRaisesRegex(WDL.Expr.IncompatibleOperand, r"\(Ln 1, Col 1\) Non-numeric operand to \+ operator") as cm:
+            self._t("1 + false", None)
+        with self.assertRaisesRegex(WDL.Expr.IncompatibleOperand, r"\(Ln 1, Col 1\) Cannot compare Int and Boolean") as cm:
+            self._t("1 == false", None)
+        with self.assertRaisesRegex(WDL.Expr.StaticTypeMismatch, r"\(Ln 1, Col 1\) Expected Boolean instead of Float; in if condition") as cm:
+            self._t("if 3.14 then 0 else 1", None)
+        with self.assertRaisesRegex(WDL.Expr.StaticTypeMismatch, r"\(Ln 1, Col 1\) Expected Int instead of Boolean; if consequent & alternative must have the same type") as cm:
+            self._t("if 0 < 1 then 0 else false", None)
+        with self.assertRaisesRegex(WDL.Expr.StaticTypeMismatch, r"\(Ln 1, Col 11\) Expected Int instead of Boolean; Array index") as cm:
+            self._t("[1, 2, 3][true]", None)
+        with self.assertRaisesRegex(WDL.Expr.OutOfBounds, r"\(Ln 1, Col 11\) Array index out of bounds") as cm:
+            self._t("[1, 2, 3][4]", None)
