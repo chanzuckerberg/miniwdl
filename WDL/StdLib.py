@@ -10,7 +10,11 @@ class _ArrayGet(E._Function):
     def typecheck(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.NotAnArray(expr.arguments[0])
+            if isinstance(expr.arguments[0].type, T.AnyArray):
+                # the user wrote: [][idx]
+                raise Error.OutOfBounds(expr)
+            else:
+                raise Error.NotAnArray(expr.arguments[0])
         try:
             expr.arguments[1].typecheck(T.Int())
         except Error.StaticTypeMismatch:
@@ -20,7 +24,7 @@ class _ArrayGet(E._Function):
     def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
         assert len(expr.arguments) == 2
         arr = expr.arguments[0].eval(env)
-        assert isinstance(arr.type, T.Array)
+        assert isinstance(arr.type, T.AnyArray)
         assert isinstance(arr.value, list)
         idx = expr.arguments[1].eval(env).expect(T.Int()).value
         if idx < 0 or idx >= len(arr.value):
@@ -107,8 +111,9 @@ E._stdlib["_sub"] = _ArithmeticOperator("-", lambda l,r: l-r)  # pyre-ignore
 E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l,r: l*r)  # pyre-ignore
 E._stdlib["_div"] = _ArithmeticOperator("/", lambda l,r: l//r) # pyre-ignore
 
-# Comparison operators can compare any two operands of the same type; also,
-# given one Int and one Float, coerces the Int to Float for comparison.
+# Comparison operators can compare any two operands of the same type.
+# Furthermore,
+# - given one Int and one Float, coerces the Int to Float for comparison.
 class _ComparisonOperator(E._Function):
     name : str
     op : Callable

@@ -21,7 +21,12 @@ class Int(Base):
     def __str__(self) -> str:
         return "Int"
 
-class Array(Base):
+# AnyArray arises concretely as the type of an empty array value
+class AnyArray(Base):
+    def __str__(self) -> str:
+        return "Array[]"
+
+class Array(AnyArray):
     item_type : Base
     def __init__(self, item_type : Base) -> None:
         self.item_type = item_type

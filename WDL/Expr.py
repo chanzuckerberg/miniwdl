@@ -68,22 +68,38 @@ class Float(Base):
 # Array
 class Array(Base):
     items : List[Base]
+    item_type : Optional[T.Base]
 
-    def __init__(self, pos : SourcePosition, items : List[Base], item_type : Optional[T.Base] = None) -> None:
-        if item_type is None:
-            # TODO handle empty array
-            item_type = items[0].type
-
-        # TODO: if elements are a mix of Int and Float, coerce all to Float.
-        for item in items:
-            if item.type != item_type:
-                raise Error.StaticTypeMismatch(self, item_type, item.type, "array item type mismatch")
-
+    def __init__(self, pos : SourcePosition, items : List[Base]) -> None:
+        self.pos = pos
         self.items = items
-        super(Array, self).__init__(pos, T.Array(item_type))
+        self.item_type = None
+        if len(self.items) > 0:
+            # Use the type of the first item as the assumed item type
+            self.item_type = self.items[0].type
+            # Except, allow a mixture of Int and Float to construct Array[Float]
+            if self.item_type == T.Int():
+                for item in self.items:
+                    if item.type == T.Float():
+                        self.item_type = T.Float()
+            # Check all items are compatible with this item type
+            for item in self.items:
+                try:
+                    item.typecheck(self.item_type)
+                except Error.StaticTypeMismatch:
+                    raise Error.StaticTypeMismatch(self, self.item_type, item.type, "inconsistent types within array") from None
+        # Our type is AnyArray for a literal empty array, otherwise Array(item_type)
+        super(Array, self).__init__(pos, (T.Array(self.item_type) if self.item_type is not None else T.AnyArray()))
+
+    def typecheck(self, expected : T.Base) -> Base:
+        if len(self.items) == 0 and expected is not None and isinstance(expected, T.AnyArray):
+            # the empty array (with type T.AnyArray) satisfies any array type
+            assert self.type == T.AnyArray()
+            return self
+        return super().typecheck(expected) # pyre-ignore
 
     def eval(self, env : Env) -> V.Array:
-        return V.Array(self.type, [item.eval(env) for item in self.items])
+        return V.Array(self.type, [item.eval(env).coerce(self.item_type) for item in self.items])
 
 # If
 class IfThenElse(Base):

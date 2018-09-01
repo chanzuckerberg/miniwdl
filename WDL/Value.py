@@ -45,7 +45,7 @@ class Int(Base):
 
 class Array(Base):
     value : List[Any] = []
-    def __init__(self, type : Ty.Array, value : List[Any]) -> None:
+    def __init__(self, type : Ty.AnyArray, value : List[Any]) -> None:
         super().__init__(type, value)
     def __str__(self) -> str:
         return "[" + ", ".join([str(item) for item in self.value]) + "]"

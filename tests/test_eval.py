@@ -102,6 +102,10 @@ class TestEval(unittest.TestCase):
         self._t("[true, false][1]", "false")
 
         self._t("[1+2, 3*4][1]", "12")
+        self._t("[]","[]", WDL.Type.AnyArray())
+        self._t("[] == []","true")
+        # TODO: comparison of arrays and other composite values
+        # self._t("[1] == []","false")
 
     def test_float_coercion(self):
         self._t("1 + 1.0", "2.0", WDL.Type.Float())
@@ -111,14 +115,16 @@ class TestEval(unittest.TestCase):
         self._t("1 != 1.1", "true")
         self._t("1 < 1.0", "false")
         self._t("1 <= 1.0", "true")
-
-        # TODO: test bad cases for appropriate errors
+        self._t("[1, 2.0]", "[1.0, 2.0]", WDL.Type.Array(WDL.Type.Float()))
+        self._t("[1, 2.0][0]", "1.0", WDL.Type.Float())
 
     def test_errors(self):
         with self.assertRaisesRegex(WDL.Error.NoSuchFunction, r"\(Ln 1, Col 5\) No such function: bogus") as cm:
             self._t("1 + bogus(2)", None)
         with self.assertRaisesRegex(WDL.Error.NotAnArray, r"\(Ln 1, Col 5\) Not an array") as cm:
             self._t("1 + 2[3]", None)
+        with self.assertRaisesRegex(WDL.Error.StaticTypeMismatch, r"\(Ln 1, Col 1\) Expected Int instead of Boolean; inconsistent types within array") as cm:
+            self._t("[1, false]", None)
         with self.assertRaisesRegex(WDL.Error.IncompatibleOperand, r"\(Ln 1, Col 1\) Non-numeric operand to \+ operator") as cm:
             self._t("1 + false", None)
         with self.assertRaisesRegex(WDL.Error.IncompatibleOperand, r"\(Ln 1, Col 1\) Cannot compare Int and Boolean") as cm:
