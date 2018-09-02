@@ -80,6 +80,13 @@ class TestEval(unittest.TestCase):
         self._t("3<2&&1>=0","false")
         self._t("3<2&&1>=0||1==1","true")
 
+    def test_str(self):
+        self._t('"true"', '"true"', WDL.Type.String())
+        self._t('"true" == "true"', 'true', WDL.Type.Boolean())
+        self._t('"true" != "true"', 'false', WDL.Type.Boolean())
+        self._t('"true" == "foo"', 'false', WDL.Type.Boolean())
+        self._t('"true" != "bar"', 'true', WDL.Type.Boolean())
+
     def test_if(self):
         self._t("if false then 0 else 1","1", WDL.Type.Int())
         self._t("if true then 0 else 1","0")

@@ -1,6 +1,7 @@
 # pyre-strict
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar
+import json
 import WDL.Type as T
 import WDL.Value as V
 
@@ -64,6 +65,17 @@ class Float(Base):
         self._literal = literal
     def eval(self, env : Env) -> V.Float:
         return V.Float(self._literal)
+
+# String literal
+class String(Base):
+    _literal : str
+    def __init__(self, pos : SourcePosition, literal : str) -> None:
+        super().__init__(pos, T.String())
+        self._literal = literal
+    def eval(self, env : Env) -> V.String:
+        s = json.loads(self._literal)
+        assert isinstance(s, str)
+        return V.String(s)
 
 # Array
 class Array(Base):

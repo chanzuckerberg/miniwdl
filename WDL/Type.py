@@ -13,13 +13,17 @@ class Boolean(Base):
     def __str__(self) -> str:
         return "Boolean"
 
+class Int(Base):
+    def __str__(self) -> str:
+        return "Int"
+
 class Float(Base):
     def __str__(self) -> str:
         return "Float"
 
-class Int(Base):
+class String(Base):
     def __str__(self) -> str:
-        return "Int"
+        return "String"
 
 # AnyArray arises concretely as the type of an empty array value
 class AnyArray(Base):
