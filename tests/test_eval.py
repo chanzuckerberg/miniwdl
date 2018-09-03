@@ -86,6 +86,9 @@ class TestEval(unittest.TestCase):
         self._t('"true" != "true"', 'false', WDL.Type.Boolean())
         self._t('"true" == "foo"', 'false', WDL.Type.Boolean())
         self._t('"true" != "bar"', 'true', WDL.Type.Boolean())
+        self._t('"foo" + "bar"', '"foobar"')
+        self._t('"foo" + 1', '"foo1"')
+        self._t('2.0 + "bar"', '"2.0bar"')
 
     def test_if(self):
         self._t("if false then 0 else 1","1", WDL.Type.Int())

@@ -106,10 +106,40 @@ class _ArithmeticOperator(E._Function):
         assert isinstance(ans, float) # pyre-ignore
         return V.Float(ans)
 
-E._stdlib["_add"] = _ArithmeticOperator("+", lambda l,r: l+r)  # pyre-ignore
 E._stdlib["_sub"] = _ArithmeticOperator("-", lambda l,r: l-r)  # pyre-ignore
 E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l,r: l*r)  # pyre-ignore
 E._stdlib["_div"] = _ArithmeticOperator("/", lambda l,r: l//r) # pyre-ignore
+
+# + operator can also serve as concatenation for String.
+# String+Int and String+Float also permitted
+class _AddOperator(_ArithmeticOperator):
+    def __init__(self) -> None:
+        super().__init__("+", lambda l,r: l+r) # pyre-ignore
+
+    def typecheck(self, expr : E.Apply) -> T.Base:
+        assert len(expr.arguments) == 2
+        t2 = None
+        if isinstance(expr.arguments[0].type, T.String):
+            t2 = expr.arguments[1].type
+        elif isinstance(expr.arguments[1].type, T.String):
+            t2 = expr.arguments[0].type
+        if t2 is None:
+            # neither operand is a string; defer to _ArithmeticOperator
+            return super().typecheck(expr)
+        if sum(1 for c in [T.String, T.Int, T.Float] if isinstance(t2, c)) == 0:
+            return Error.IncompatibleOperand(expr, "Cannot add/concatenate {} and {}".format(str(expr.arguments[0].type), str(expr.arguments[1].type)))
+        return T.String()
+
+    def __call__(self, expr: E.Apply, env : E.Env) -> V.Base:
+        ans_type = self.typecheck(expr)
+        if not isinstance(ans_type, T.String):
+            return super().__call__(expr, env)
+        ans = self.op(str(expr.arguments[0].eval(env).value),
+                      str(expr.arguments[1].eval(env).value))
+        assert isinstance(ans, str) # pyre-ignore
+        return V.String(ans)
+
+E._stdlib["_add"] = _AddOperator()
 
 # Comparison operators can compare any two operands of the same type.
 # Furthermore,
