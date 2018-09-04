@@ -36,3 +36,11 @@ class IncompatibleOperand(Base):
 class OutOfBounds(Base):
     def __init__(self, expr: TVBase) -> None:
         super().__init__(expr, "Array index out of bounds")
+
+class UnknownIdentifier(Base):
+    def __init__(self, expr : TVBase) -> None:
+        super().__init__(expr, "Unknown identifier")
+
+class MissingValue(Base):
+    def __init__(self, expr : TVBase) -> None:
+        super().__init__(expr, "Optional value is missing")

@@ -1,6 +1,6 @@
 # pyre-strict
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar
+from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Tuple
 import json
 import WDL.Type as T
 import WDL.Value as V
@@ -15,8 +15,36 @@ TVBase = TypeVar('TVBase', bound='Base')
 TVApply = TypeVar('TVApply', bound='Apply')
 import WDL.Error as Error
 
+# static environment: tracks the static types of identifier bindings (before any evaluation)
+class StaticEnv:
+    _bindings : Dict[str, T.Base]
+
+    def __init__(self, *bindings : List[Tuple[str, T.Base]]) -> None:
+        self._bindings = {}
+        for id, type in bindings:
+            self._bindings[id] = type
+
+    def __getitem__(self, id : str) -> T.Base:
+        return self._bindings[id]
+
+    def __setitem__(self, id : str, type : T.Base) -> None:
+        self._bindings[id] = type
+
+# runtime environment: bindings of identifiers to values
 class Env:
-    pass
+    # placeholder, not handling namespaces yet...
+    _bindings : Dict[str, V.Base]
+
+    def __init__(self, *bindings) -> None:
+        self._bindings = {}
+        for id, value in bindings:
+            self._bindings[id] = value
+
+    def __getitem__(self, id : str) -> V.Base:
+        return self._bindings[id]
+
+    def __setitem__(self, id : str, value : V.Base) -> None:
+        self._bindings[id] = value
 
 class Base(ABC):
     pos : SourcePosition
@@ -171,3 +199,29 @@ class Apply(Base):
 
     def eval(self, env : Env) -> V.Base:
         return self.function(self, env)
+
+
+# Namespaced identifiers
+
+class Ident(Base):
+    namespace : List[str]
+    identifier : str
+
+    def __init__(self, pos : SourcePosition, parts : List[str], static_env : StaticEnv) -> None:
+        self.pos = pos
+        assert len(parts) > 0
+        self.identifier = parts[-1]
+        self.namespace = parts[:-1]
+        assert self.namespace == [] # placeholder
+        try:
+            my_type = static_env[self.identifier]
+        except KeyError:
+            raise Error.UnknownIdentifier(self)
+        super().__init__(pos, my_type)
+
+    def eval(self, env : Env) -> V.Base:
+        try:
+            # TODO: handling missing values
+            return env[self.identifier]
+        except KeyError:
+            raise Error.UnknownIdentifier(self)

@@ -37,17 +37,25 @@ class TestEval(unittest.TestCase):
             for x in tuple[2:]:
                 if isinstance(x, WDL.Expr.Env):
                     env = x
+                elif isinstance(x, WDL.Expr.StaticEnv):
+                    static_env = x
                 elif isinstance(x, WDL.Type.Base):
                     expected_type = x
                 elif inspect.isclass(x):
                     exn = x
                 else:
                     assert False
+            static_env = None
+            if env is not None:
+                static_env = WDL.Expr.StaticEnv()
+                for id, value in env._bindings.items():
+                    assert isinstance(value, WDL.Value.Base)
+                    static_env[id] = value.type
             if exn:
                 with self.assertRaises(exn, msg=expected):
-                    WDL.parse_expr(expr).eval(env)
+                    WDL.parse_expr(expr, static_env).eval(env)
             else:
-                v = WDL.parse_expr(expr).eval(env).expect(expected_type)
+                v = WDL.parse_expr(expr, static_env).eval(env).expect(expected_type)
                 self.assertEqual(str(v), expected)
 
     def test_logic(self):
@@ -163,6 +171,17 @@ class TestEval(unittest.TestCase):
             ("1 <= 1.0", "true"),
             ("[1, 2.0]", "[1.0, 2.0]", WDL.Type.Array(WDL.Type.Float())),
             ("[1, 2.0][0]", "1.0", WDL.Type.Float())
+        )
+
+    def test_ident(self):
+        env = WDL.Expr.Env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
+                           ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)))
+        self._test_tuples(
+            ("pi", "3.14159", WDL.Type.Float(), env),
+            ("bogus", "(Ln 1, Col 1) Unknown identifier", WDL.Error.UnknownIdentifier, env),
+            ("pi+e", "5.85987", env),
+            ("t||f", "true", WDL.Type.Boolean(), env),
+            ("if t then pi else e", "3.14159", env),
         )
 
     def test_errors(self):

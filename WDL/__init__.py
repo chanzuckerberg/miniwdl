@@ -11,6 +11,10 @@ def sp(meta) -> E.SourcePosition:
 
 # Transformer from lark.Tree to WDL.Expr
 class _ExprTransformer(lark.Transformer):
+    _static_env : E.StaticEnv
+
+    def __init__(self, static_env : E.StaticEnv) -> None:
+        self._static_env = static_env
 
     def boolean_true(self, items, meta) -> E.Base:
         assert items == []
@@ -41,6 +45,9 @@ class _ExprTransformer(lark.Transformer):
     def ifthenelse(self, items, meta) -> E.Base:
         return E.IfThenElse(sp(meta), items)
 
+    def ident(self, items, meta) -> E.Base:
+        return E.Ident(sp(meta), [item.value for item in items], self._static_env)
+
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for name, method in inspect.getmembers(_ExprTransformer, inspect.isfunction):
     if not name.startswith('_'):
@@ -54,5 +61,7 @@ for op in ["land", "lor", "add", "sub", "mul", "div", "rem",
         return E.Apply(sp(meta), "_"+op, items)
     setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))
 
-def parse_expr(txt : str) -> E.Base:
-    return _ExprTransformer().transform(WDL._parser.parse(txt))
+def parse_expr(txt : str, static_env : E.StaticEnv = None) -> E.Base:
+    if static_env is None:
+        static_env = E.StaticEnv()
+    return _ExprTransformer(static_env).transform(WDL._parser.parse(txt))
