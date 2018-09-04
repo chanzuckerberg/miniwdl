@@ -123,7 +123,17 @@ class TestEval(unittest.TestCase):
             ('"true" != "bar"', 'true', WDL.Type.Boolean()),
             ('"foo" + "bar"', '"foobar"'),
             ('"foo" + 1', '"foo1"'),
-            ('2.0 + "bar"', '"2.0bar"')
+            ('2.0 + "bar"', '"2.0bar"'),
+            ("""
+            'foo' + "bar"
+            """, '"foobar"'))
+        self._test_tuples(
+            (r'''"CNN is working frantically to find their \"source.\""''',
+             r'''"CNN is working frantically to find their \"source.\""'''),
+            (r"""'CNN is working frantically to find their "source."'""",
+             r'''"CNN is working frantically to find their \"source.\""'''),
+            (r"""'The fact is that many anonymous sources don\'t even exist.'""",
+             r'''"The fact is that many anonymous sources don't even exist."''')
         )
 
     def test_if(self):

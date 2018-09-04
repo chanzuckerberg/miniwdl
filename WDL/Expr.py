@@ -1,7 +1,6 @@
 # pyre-strict
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Tuple
-import json
 import WDL.Type as T
 import WDL.Value as V
 
@@ -101,9 +100,11 @@ class String(Base):
         super().__init__(pos, T.String())
         self._literal = literal
     def eval(self, env : Env) -> V.String:
-        s = json.loads(self._literal)
-        assert isinstance(s, str)
-        return V.String(s)
+        # 1. strip the double/single quotes surrounding the literal str
+        # 2. encode to bytes
+        # 3. decode from bytes to str, handling escaping
+        decoded = str.encode(self._literal[1:-1]).decode('unicode_escape')
+        return V.String(decoded)
 
 # Array
 class Array(Base):

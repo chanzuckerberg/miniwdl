@@ -1,7 +1,7 @@
 import lark
 import WDL.Expr
 
-grammar = """
+grammar = r"""
 // WDL expressions
 // start with rules handling infix operator precedence
 ?expr: expr_infix
@@ -44,7 +44,8 @@ grammar = """
           | SIGNED_INT -> int
           | FLOAT -> float
           | SIGNED_FLOAT -> float
-          | ESCAPED_STRING -> string
+          | STRING_DQ -> string
+          | STRING_SQ -> string
 
           | "[" [expr ("," expr)*] "]" -> array
           | expr_core "[" expr "]" -> get
@@ -54,11 +55,15 @@ grammar = """
           | [CNAME ("." CNAME)*] -> ident
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
+STRING_INNER_DQ: ("\\\""|/[^"]/)
+STRING_DQ: /"/ STRING_INNER_DQ* /"/
+STRING_INNER_SQ: ("\\'"|/[^']/)
+STRING_SQ: /'/ STRING_INNER_SQ* /'/
+
 %import common.INT
 %import common.SIGNED_INT
 %import common.FLOAT
 %import common.SIGNED_FLOAT
-%import common.ESCAPED_STRING
 %import common.CNAME
 %import common.WS
 %ignore WS

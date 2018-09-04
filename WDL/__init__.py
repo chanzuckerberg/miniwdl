@@ -29,8 +29,7 @@ class _ExprTransformer(lark.Transformer):
         assert len(items) == 1
         return E.Float(sp(meta), float(items[0]))
     def string(self, items, meta) -> E.Base:
-        assert len(items) == 1
-        return E.String(sp(meta), items[0])
+        return E.String(sp(meta), ''.join(item.value for item in items))
     def array(self, items, meta) -> E.Base:
         return E.Array(sp(meta), items)
 
