@@ -29,7 +29,18 @@ class _ExprTransformer(lark.Transformer):
         assert len(items) == 1
         return E.Float(sp(meta), float(items[0]))
     def string(self, items, meta) -> E.Base:
-        return E.String(sp(meta), ''.join(item.value for item in items))
+        parts = []
+        for item in items:
+            if isinstance(item, E.Base):
+                parts.append(item)
+            elif item.type.endswith("_FRAGMENT"):
+                # for an interpolation fragment, item.value will end with "${"
+                # so we strip that off. it'd be nice to make the grammar filter
+                # that out since it does later filter out the "}"...
+                parts.append(item.value[:-2])
+            else:
+                parts.append(item.value)
+        return E.String(sp(meta), parts)
     def array(self, items, meta) -> E.Base:
         return E.Array(sp(meta), items)
 

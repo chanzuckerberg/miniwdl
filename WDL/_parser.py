@@ -44,8 +44,9 @@ grammar = r"""
           | SIGNED_INT -> int
           | FLOAT -> float
           | SIGNED_FLOAT -> float
-          | STRING_DQ -> string
-          | STRING_SQ -> string
+
+          | string1
+          | string2
 
           | "[" [expr ("," expr)*] "]" -> array
           | expr_core "[" expr "]" -> get
@@ -55,10 +56,17 @@ grammar = r"""
           | [CNAME ("." CNAME)*] -> ident
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
-STRING_INNER_DQ: ("\\\""|/[^"]/)
-STRING_DQ: /"/ STRING_INNER_DQ* /"/
-STRING_INNER_SQ: ("\\'"|/[^']/)
-STRING_SQ: /'/ STRING_INNER_SQ* /'/
+// string (single-quoted)
+STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{]/
+STRING1_END: STRING1_CHAR* "$"? "'"
+STRING1_FRAGMENT: STRING1_CHAR* "${"
+string1: /'/ [(STRING1_FRAGMENT expr "}")*] STRING1_END -> string
+
+// string (double-quoted)
+STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{]/
+STRING2_END: STRING2_CHAR* "$"? /"/
+STRING2_FRAGMENT: STRING2_CHAR* "${"
+string2: /"/ [(STRING2_FRAGMENT expr "}")*] STRING2_END -> string
 
 %import common.INT
 %import common.SIGNED_INT

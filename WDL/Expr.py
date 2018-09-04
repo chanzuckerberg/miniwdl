@@ -1,6 +1,6 @@
 # pyre-strict
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Tuple
+from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Tuple, Union
 import WDL.Type as T
 import WDL.Value as V
 
@@ -93,18 +93,25 @@ class Float(Base):
     def eval(self, env : Env) -> V.Float:
         return V.Float(self._literal)
 
-# String literal
+# String: literals interleaved with interpolated expressions
 class String(Base):
-    _literal : str
-    def __init__(self, pos : SourcePosition, literal : str) -> None:
+    _parts : List[Union[str,Base]]
+    def __init__(self, pos : SourcePosition, parts : List[Union[str,Base]]) -> None:
         super().__init__(pos, T.String())
-        self._literal = literal
+        self._parts = parts
     def eval(self, env : Env) -> V.String:
-        # 1. strip the double/single quotes surrounding the literal str
-        # 2. encode to bytes
-        # 3. decode from bytes to str, handling escaping
-        decoded = str.encode(self._literal[1:-1]).decode('unicode_escape')
-        return V.String(decoded)
+        ans = []
+        for part in self._parts:
+            if isinstance(part, Base):
+                # evaluate interpolated expression & stringify
+                ans.append(str(part.eval(env)))
+            elif type(part) == str:
+                # use python builtins to decode escape sequences
+                ans.append(str.encode(part).decode('unicode_escape')) # pyre-ignore
+            else:
+                assert False
+        # concatenate the stringified parts and trim the surrounding quotes
+        return V.String(''.join(ans)[1:-1])
 
 # Array
 class Array(Base):

@@ -124,9 +124,7 @@ class TestEval(unittest.TestCase):
             ('"foo" + "bar"', '"foobar"'),
             ('"foo" + 1', '"foo1"'),
             ('2.0 + "bar"', '"2.0bar"'),
-            ("""
-            'foo' + "bar"
-            """, '"foobar"'))
+            (""" 'foo' + "bar" """, '"foobar"'))
         self._test_tuples(
             (r'''"CNN is working frantically to find their \"source.\""''',
              r'''"CNN is working frantically to find their \"source.\""'''),
@@ -192,6 +190,22 @@ class TestEval(unittest.TestCase):
             ("pi+e", "5.85987", env),
             ("t||f", "true", WDL.Type.Boolean(), env),
             ("if t then pi else e", "3.14159", env),
+        )
+
+
+    def test_interpolation(self):
+        env = WDL.Expr.Env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
+                           ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)))
+        self._test_tuples(
+            ('"${pi}"', '"3.14159"', env),
+            ('"pi = ${pi}!"', '"pi = 3.14159!"', env),
+            ('"pi+e = ${pi+e}!"', '"pi+e = 5.85987!"', env),
+            ("'This is ${t}'", '"This is true"', env),
+            ("'${f} is ${f}'", '"false is false"', env),
+            ('"$"','"$"'),
+            ('"$shell"','"$shell"'),
+            ("'c$'",'"c$"'),
+            ("'The U.$. is re$pected again!'",'"The U.$. is re$pected again!"')
         )
 
     def test_errors(self):
