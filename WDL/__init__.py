@@ -1,4 +1,5 @@
 # pyre-strict
+"""Toolkit for static analysis of Workflow Description Language (WDL)"""
 import lark
 import inspect
 import WDL._parser
@@ -72,6 +73,12 @@ for op in ["land", "lor", "add", "sub", "mul", "div", "rem",
     setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))
 
 def parse_expr(txt : str, static_env : E.StaticEnv = None) -> E.Base:
+    """
+    Parse an individual WDL expression into an abstract syntax tree
+    
+    :param txt: expression text
+    :param static_env: provides the types of any identifiers used in the expression
+    """
     if static_env is None:
         static_env = E.StaticEnv()
-    return _ExprTransformer(static_env).transform(WDL._parser.parse(txt))
+    return _ExprTransformer(static_env).transform(WDL._parser.parse(txt, "expr"))

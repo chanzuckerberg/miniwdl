@@ -1,4 +1,6 @@
 wheel
 pyre-check
 coverage
+sphinx
+sphinx-autobuild
 lark-parser==0.6.4

@@ -77,6 +77,6 @@ string2: /"/ [(STRING2_FRAGMENT expr "}")*] STRING2_END -> string
 %ignore WS
 """
 
-def parse(txt : str) -> lark.Tree:
-  return lark.Lark(grammar, start="expr", parser="lalr", propagate_positions=True).parse(txt)
+def parse(txt : str, start : str) -> lark.Tree:
+  return lark.Lark(grammar, start=start, parser="lalr", propagate_positions=True).parse(txt)
 

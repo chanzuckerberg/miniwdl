@@ -1,21 +1,30 @@
 # pyre-strict
+"""
+WDL expressions: literal values, arithmetic, comparison, conditionals, string
+interpolation, arrays & maps, standard library functions
+
+The abstract syntax tree (AST) for any expression is represented by an instance
+of a Python class deriving from ``WDL.Expr.Base``. Any such node may have other
+nodes attached "beneath" it. Given a suitable environment, expressions can be
+evaluated to a WDL `Value`.
+"""
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Tuple, Union
 import WDL.Type as T
 import WDL.Value as V
 
-# the source file line/column for each expression, attached to each AST node
 SourcePosition = NamedTuple("SourcePosition",
                             [('line',int), ('column',int),
                              ('end_line',int), ('end_column',int)])
+"""Source file line/column for each expression, attached to each AST node"""
 
 # Forward-declare certain types needed for Error definitions, then import them.
 TVBase = TypeVar('TVBase', bound='Base')
 TVApply = TypeVar('TVApply', bound='Apply')
 import WDL.Error as Error
 
-# static environment: tracks the static types of identifier bindings (before any evaluation)
 class StaticEnv:
+    """Provides the types of bound identifiers during static analysis, prior to any evaluation"""
     _bindings : Dict[str, T.Base]
 
     def __init__(self, *bindings : List[Tuple[str, T.Base]]) -> None:
@@ -24,14 +33,16 @@ class StaticEnv:
             self._bindings[id] = type
 
     def __getitem__(self, id : str) -> T.Base:
+        """
+        Look up the data type of the given identifier
+        """
         return self._bindings[id]
 
     def __setitem__(self, id : str, type : T.Base) -> None:
         self._bindings[id] = type
 
-# runtime environment: bindings of identifiers to values
 class Env:
-    # placeholder, not handling namespaces yet...
+    """Provides the bindings of identifiers to existing values during expression evaluation"""
     _bindings : Dict[str, V.Base]
 
     def __init__(self, *bindings) -> None:
@@ -40,26 +51,40 @@ class Env:
             self._bindings[id] = value
 
     def __getitem__(self, id : str) -> V.Base:
+        """
+        Look up the value bound to the given identifier
+        """
         return self._bindings[id]
 
     def __setitem__(self, id : str, value : V.Base) -> None:
         self._bindings[id] = value
 
 class Base(ABC):
+    """Superclass of all expression AST nodes"""
     pos : SourcePosition
+    """Source position for this AST node"""
     type : T.Base
+    """WDL type of this expression AST node"""
 
     def __init__(self, pos : SourcePosition, type : T.Base) -> None:
         self.type = type
         self.pos = pos
 
     def typecheck(self, expected : T.Base) -> TVBase:
+        """
+        Check that this expression's type is, or can be coerced to,
+        `expected`. 
+
+        :raise WDL.Error.StaticTypeMismatch:
+        :return: `self`
+        """
         if expected is not None and self.type != expected:
             raise Error.StaticTypeMismatch(self, expected, self.type)
         return self
 
     @abstractmethod
     def eval(self, env : Env) -> V.Base:
+        """Evaluate the expression in the given environment"""
         pass
 
 # Boolean literal
@@ -93,8 +118,8 @@ class Float(Base):
     def eval(self, env : Env) -> V.Float:
         return V.Float(self._literal)
 
-# String: literals interleaved with interpolated expressions
 class String(Base):
+    """Strings include literals possibly interleaved with interpolated expressions"""
     _parts : List[Union[str,Base]]
     def __init__(self, pos : SourcePosition, parts : List[Union[str,Base]]) -> None:
         super().__init__(pos, T.String())
@@ -116,7 +141,9 @@ class String(Base):
 # Array
 class Array(Base):
     items : List[Base]
+    """Expression for each item in the array"""
     item_type : Optional[T.Base]
+    """Type of the items, or `None` for a literal empty array"""
 
     def __init__(self, pos : SourcePosition, items : List[Base]) -> None:
         self.pos = pos
@@ -152,8 +179,13 @@ class Array(Base):
 # If
 class IfThenElse(Base):
     condition : Base
+    """A Boolean expression for the condition"""
+
     consequent : Base
+    """Expression evaluated when the condition is true"""
+
     alternative : Base
+    """Expression evaluated when the condition is false"""
 
     def __init__(self, pos : SourcePosition, items : List[Base]) -> None:
         assert len(items) == 3
@@ -192,6 +224,7 @@ class _Function(ABC):
 _stdlib : Dict[str,_Function] = {}
 
 class Apply(Base):
+    """Application of a built-in or standard library function"""
     function : _Function
     arguments : List[Base]
 
@@ -212,6 +245,7 @@ class Apply(Base):
 # Namespaced identifiers
 
 class Ident(Base):
+    """An identifier expected to resolve in the environment given during evaluation"""
     namespace : List[str]
     identifier : str
 

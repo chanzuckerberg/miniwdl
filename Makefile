@@ -11,4 +11,9 @@ check:
 docker:
 	docker build -t miniwdl .
 
-.PHONY: check test docker
+doc:
+	$(MAKE) -C docs html
+
+docs: doc
+
+.PHONY: check test docker doc docs
