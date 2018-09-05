@@ -103,6 +103,7 @@ class Int(Base):
         super().__init__(pos, T.Int())
         self._literal = literal
     def typecheck(self, expected : T.Base) -> Base:
+        """An ``Int`` expression can be coerced to ``Float`` when context demands."""
         if expected is not None and isinstance(expected, T.Float):
             return self
         return super().typecheck(expected) # pyre-ignore

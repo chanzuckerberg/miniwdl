@@ -28,6 +28,13 @@ Expr
    :show-inheritance:
 
 
+Value
+-----
+.. automodule:: WDL.Value
+   :members:
+   :show-inheritance:
+
+
 Indices and tables
 ==================
 

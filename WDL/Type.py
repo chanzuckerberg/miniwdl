@@ -5,7 +5,9 @@ WDL data types
 WDL has both atomic types such as ``Int``, ``Boolean``, and ``String``; and 
 parametric types like ``Array[String]`` and
 ``Map[String,Array[Array[Float]]]``. Here, each type is represented by an
-instance of a Python class inheriting from ``WDL.Type.Base``.
+instance of a Python class inheriting from ``WDL.Type.Base``. Such types are
+associated with expressions, statically prior to evaluation, as well as with
+values and identifier bindings after evaluation.
 
 An atomic type like ``Int`` is represented by ``WDL.Type.Int()``. All such
 instances are equivalent, so a given type instance ``t`` can be checked with either
