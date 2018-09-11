@@ -164,13 +164,12 @@ class Array(Base):
                     item.typecheck(self.item_type)
                 except Error.StaticTypeMismatch:
                     raise Error.StaticTypeMismatch(self, self.item_type, item.type, "inconsistent types within array") from None
-        # Our type is AnyArray for a literal empty array, otherwise Array(item_type)
-        super(Array, self).__init__(pos, (T.Array(self.item_type) if self.item_type is not None else T.AnyArray()))
+        super(Array, self).__init__(pos, T.Array(self.item_type))
 
     def typecheck(self, expected : T.Base) -> Base:
-        if len(self.items) == 0 and expected is not None and isinstance(expected, T.AnyArray):
-            # the empty array (with type T.AnyArray) satisfies any array type
-            assert self.type == T.AnyArray()
+        if len(self.items) == 0 and expected is not None and isinstance(expected, T.Array):
+            # the empty array satisfies any array type
+            assert self.type.item_type is None # pyre-ignore
             return self
         return super().typecheck(expected) # pyre-ignore
 

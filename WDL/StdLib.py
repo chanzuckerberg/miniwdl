@@ -10,11 +10,10 @@ class _ArrayGet(E._Function):
     def typecheck(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         if not isinstance(expr.arguments[0].type, T.Array):
-            if isinstance(expr.arguments[0].type, T.AnyArray):
-                # the user wrote: [][idx]
-                raise Error.OutOfBounds(expr)
-            else:
-                raise Error.NotAnArray(expr.arguments[0])
+            raise Error.NotAnArray(expr.arguments[0])
+        if expr.arguments[0].type.item_type is None:
+            # the user wrote: [][idx]
+            raise Error.OutOfBounds(expr)
         try:
             expr.arguments[1].typecheck(T.Int())
         except Error.StaticTypeMismatch:
@@ -24,7 +23,7 @@ class _ArrayGet(E._Function):
     def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
         assert len(expr.arguments) == 2
         arr = expr.arguments[0].eval(env)
-        assert isinstance(arr.type, T.AnyArray)
+        assert isinstance(arr.type, T.Array)
         assert isinstance(arr.value, list)
         idx = expr.arguments[1].eval(env).expect(T.Int()).value
         if idx < 0 or idx >= len(arr.value):

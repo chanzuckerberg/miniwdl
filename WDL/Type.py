@@ -53,21 +53,16 @@ class String(Base):
     def __str__(self) -> str:
         return "String"
 
-class AnyArray(Base):
+class Array(Base):
     """
-    The superclass of all array types, however parameterized.
+    Array type, paramaterized by the type of the constituent items.
 
-    ``AnyArray`` may be instantiated to represent the type of a literal empty
-    array ``[]``, which is compatible with any array type. Therefore, checking
-    ``isinstance(t,WDl.Type.AnyArray)`` should be used instead of
-    ``isinstance(t,WDl.Type.Array)``.
+    ``item_type`` may be None to represent the type of the literal empty array
+    ``[]``, which is considered compatible with any array type. This special
+    case should be considered explicitly when comparing array types.
     """
-    def __str__(self) -> str:
-        return "Array[]"
-
-class Array(AnyArray):
-    item_type : Base
-    def __init__(self, item_type : Base) -> None:
+    item_type : Optional[Base]
+    def __init__(self, item_type : Optional[Base]) -> None:
         self.item_type = item_type
     def __str__(self) -> str:
-        return "Array[" + str(self.item_type) + "]"
+        return "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]"
