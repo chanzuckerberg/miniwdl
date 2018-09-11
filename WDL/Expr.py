@@ -188,21 +188,26 @@ class IfThenElse(Base):
     alternative : Base
     """Expression evaluated when the condition is false"""
 
-    def __init__(self, pos : SourcePosition, condition, consequent, alternative) -> None:
+    def __init__(self, pos : SourcePosition, condition : Base, consequent : Base, alternative : Base) -> None:
+        self.pos = pos
         self.condition = condition
         self.consequent = consequent
         self.alternative = alternative
-        super().__init__(pos, self.consequent.type)
         if self.condition.type != T.Boolean():
             raise Error.StaticTypeMismatch(self, T.Boolean(), self.condition.type, "in if condition")
-        # TODO: allow one Int & one Float
-        if self.consequent.type != self.alternative.type:
+        self_type = consequent.type
+        if self_type == T.Int() and alternative.type == T.Float():
+            self_type = T.Float()
+        try:
+            alternative.typecheck(self_type)
+        except Error.StaticTypeMismatch:
             raise Error.StaticTypeMismatch(self, self.consequent.type, self.alternative.type, "if consequent & alternative must have the same type")
+        super().__init__(pos, self_type)
     
     def eval(self, env : Env) -> V.Base:
         if self.condition.eval(env).expect(T.Boolean()).value == False:
-            return self.alternative.eval(env)
-        return self.consequent.eval(env)
+            return self.alternative.eval(env).coerce(self.type)
+        return self.consequent.eval(env).coerce(self.type)
 
 # function applications
 

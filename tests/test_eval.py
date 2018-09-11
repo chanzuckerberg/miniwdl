@@ -143,7 +143,11 @@ class TestEval(unittest.TestCase):
             ("(if 1>0 then 1+1 else 1)+1","3"),
             ("if 1>0 then if true then 1 else 2 else 3","1"),            
             ("if 3.14 then 0 else 1", "(Ln 1, Col 1) Expected Boolean instead of Float; in if condition", WDL.Error.StaticTypeMismatch),
-            ("if 0 < 1 then 0 else false", "(Ln 1, Col 1) Expected Int instead of Boolean; if consequent & alternative must have the same type", WDL.Error.StaticTypeMismatch)
+            ("if 0 < 1 then 0 else false", "(Ln 1, Col 1) Expected Int instead of Boolean; if consequent & alternative must have the same type", WDL.Error.StaticTypeMismatch),
+            ("if true then 1 else 2.0", "1.0", WDL.Type.Float()),
+            ("if false then 1 else 2.0", "2.0", WDL.Type.Float()),
+            ("if true then 1.0 else 2", "1.0", WDL.Type.Float()),
+            ("if false then 1.0 else 2", "2.0", WDL.Type.Float())
         )
 
     def test_array(self):
