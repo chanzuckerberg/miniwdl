@@ -54,7 +54,8 @@ class _ExprTransformer(lark.Transformer):
         return E.Apply(sp(meta), "_get", items)
 
     def ifthenelse(self, items, meta) -> E.Base:
-        return E.IfThenElse(sp(meta), items)
+        assert len(items) == 3
+        return E.IfThenElse(sp(meta), *items)
 
     def ident(self, items, meta) -> E.Base:
         return E.Ident(sp(meta), [item.value for item in items], self._type_env)

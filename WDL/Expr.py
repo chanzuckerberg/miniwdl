@@ -188,11 +188,10 @@ class IfThenElse(Base):
     alternative : Base
     """Expression evaluated when the condition is false"""
 
-    def __init__(self, pos : SourcePosition, items : List[Base]) -> None:
-        assert len(items) == 3
-        self.condition = items[0]
-        self.consequent = items[1]
-        self.alternative = items[2]
+    def __init__(self, pos : SourcePosition, condition, consequent, alternative) -> None:
+        self.condition = condition
+        self.consequent = consequent
+        self.alternative = alternative
         super().__init__(pos, self.consequent.type)
         if self.condition.type != T.Boolean():
             raise Error.StaticTypeMismatch(self, T.Boolean(), self.condition.type, "in if condition")
