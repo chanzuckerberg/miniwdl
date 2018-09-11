@@ -37,25 +37,25 @@ class TestEval(unittest.TestCase):
             for x in tuple[2:]:
                 if isinstance(x, WDL.Expr.Env):
                     env = x
-                elif isinstance(x, WDL.Expr.StaticEnv):
-                    static_env = x
+                elif isinstance(x, WDL.Expr.TypeEnv):
+                    type_env = x
                 elif isinstance(x, WDL.Type.Base):
                     expected_type = x
                 elif inspect.isclass(x):
                     exn = x
                 else:
                     assert False
-            static_env = None
+            type_env = None
             if env is not None:
-                static_env = WDL.Expr.StaticEnv()
+                type_env = WDL.Expr.TypeEnv()
                 for id, value in env._bindings.items():
                     assert isinstance(value, WDL.Value.Base)
-                    static_env[id] = value.type
+                    type_env[id] = value.type
             if exn:
                 with self.assertRaises(exn, msg=expected):
-                    WDL.parse_expr(expr, static_env).eval(env)
+                    WDL.parse_expr(expr, type_env).eval(env)
             else:
-                v = WDL.parse_expr(expr, static_env).eval(env).expect(expected_type)
+                v = WDL.parse_expr(expr, type_env).eval(env).expect(expected_type)
                 self.assertEqual(str(v), expected)
 
     def test_logic(self):

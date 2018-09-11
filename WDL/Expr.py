@@ -23,7 +23,7 @@ TVBase = TypeVar('TVBase', bound='Base')
 TVApply = TypeVar('TVApply', bound='Apply')
 import WDL.Error as Error
 
-class StaticEnv:
+class TypeEnv:
     """Provides the types of bound identifiers during static analysis, prior to any evaluation"""
     _bindings : Dict[str, T.Base]
 
@@ -250,14 +250,14 @@ class Ident(Base):
     namespace : List[str]
     identifier : str
 
-    def __init__(self, pos : SourcePosition, parts : List[str], static_env : StaticEnv) -> None:
+    def __init__(self, pos : SourcePosition, parts : List[str], type_env : TypeEnv) -> None:
         self.pos = pos
         assert len(parts) > 0
         self.identifier = parts[-1]
         self.namespace = parts[:-1]
         assert self.namespace == [] # placeholder
         try:
-            my_type = static_env[self.identifier]
+            my_type = type_env[self.identifier]
         except KeyError:
             raise Error.UnknownIdentifier(self)
         super().__init__(pos, my_type)

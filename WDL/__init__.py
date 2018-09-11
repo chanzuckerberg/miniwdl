@@ -12,10 +12,10 @@ def sp(meta) -> E.SourcePosition:
 
 # Transformer from lark.Tree to WDL.Expr
 class _ExprTransformer(lark.Transformer):
-    _static_env : E.StaticEnv
+    _type_env : E.TypeEnv
 
-    def __init__(self, static_env : E.StaticEnv) -> None:
-        self._static_env = static_env
+    def __init__(self, type_env : E.TypeEnv) -> None:
+        self._type_env = type_env
 
     def boolean_true(self, items, meta) -> E.Base:
         assert items == []
@@ -57,7 +57,7 @@ class _ExprTransformer(lark.Transformer):
         return E.IfThenElse(sp(meta), items)
 
     def ident(self, items, meta) -> E.Base:
-        return E.Ident(sp(meta), [item.value for item in items], self._static_env)
+        return E.Ident(sp(meta), [item.value for item in items], self._type_env)
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for name, method in inspect.getmembers(_ExprTransformer, inspect.isfunction):
@@ -72,13 +72,13 @@ for op in ["land", "lor", "add", "sub", "mul", "div", "rem",
         return E.Apply(sp(meta), "_"+op, items)
     setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))
 
-def parse_expr(txt : str, static_env : E.StaticEnv = None) -> E.Base:
+def parse_expr(txt : str, type_env : E.TypeEnv = None) -> E.Base:
     """
     Parse an individual WDL expression into an abstract syntax tree
     
     :param txt: expression text
-    :param static_env: provides the types of any identifiers used in the expression
+    :param type_env: provides the types of any identifiers used in the expression
     """
-    if static_env is None:
-        static_env = E.StaticEnv()
-    return _ExprTransformer(static_env).transform(WDL._parser.parse(txt, "expr"))
+    if type_env is None:
+        type_env = E.TypeEnv()
+    return _ExprTransformer(type_env).transform(WDL._parser.parse(txt, "expr"))
