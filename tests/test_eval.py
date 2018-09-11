@@ -6,10 +6,10 @@ class TestEval(unittest.TestCase):
 
     def test_boolean(self):
         expr = WDL.parse_expr("true")
+        expr.infer_type(WDL.Expr.TypeEnv())
         self.assertIsInstance(expr.type, WDL.Type.Boolean)
         self.assertEqual(str(expr.type), "Boolean")
-        env = WDL.Expr.Env()
-        val = expr.eval(env)
+        val = expr.eval(WDL.Expr.Env())
         self.assertIsInstance(val, WDL.Value.Boolean)
         self.assertEqual(str(val.type), "Boolean")
         self.assertEqual(val.value, True)
@@ -17,9 +17,10 @@ class TestEval(unittest.TestCase):
         self.assertEqual(val, WDL.Value.Boolean(True))
         self.assertNotEqual(val, WDL.Value.Boolean(False))
 
-        expr = expr = WDL.parse_expr("false")
+        expr = WDL.parse_expr("false")
+        expr.infer_type(WDL.Expr.TypeEnv())
         self.assertEqual(str(expr.type), "Boolean")
-        val = expr.eval(env)
+        val = expr.eval(WDL.Expr.Env())
         self.assertEqual(str(val.type), "Boolean")
         self.assertEqual(val.value, False)
         self.assertEqual(str(val), "false")
@@ -53,9 +54,9 @@ class TestEval(unittest.TestCase):
                     type_env[id] = value.type
             if exn:
                 with self.assertRaises(exn, msg=expected):
-                    WDL.parse_expr(expr, type_env).eval(env)
+                    x = WDL.parse_expr(expr).infer_type(type_env).eval(env)
             else:
-                v = WDL.parse_expr(expr, type_env).eval(env).expect(expected_type)
+                v = WDL.parse_expr(expr).infer_type(type_env).eval(env).expect(expected_type)
                 self.assertEqual(str(v), expected)
 
     def test_logic(self):
@@ -152,6 +153,7 @@ class TestEval(unittest.TestCase):
 
     def test_array(self):
         expr = WDL.parse_expr("[true,false]")
+        expr.infer_type(WDL.Expr.TypeEnv())
         self.assertEqual(str(expr.type), "Array[Boolean]")
 
         env = WDL.Expr.Env()

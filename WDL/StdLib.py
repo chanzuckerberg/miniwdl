@@ -7,7 +7,7 @@ import WDL.Error as Error
 
 # Special function for array access arr[index], returning the element type
 class _ArrayGet(E._Function):
-    def typecheck(self, expr : E.Apply) -> T.Base:
+    def infer_type(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         if not isinstance(expr.arguments[0].type, T.Array):
             raise Error.NotAnArray(expr.arguments[0])
@@ -45,7 +45,7 @@ class _StaticFunction(E._Function):
         self.return_type = return_type
         self.F = F
 
-    def typecheck(self, expr : E.Apply) -> T.Base:
+    def infer_type(self, expr : E.Apply) -> T.Base:
         if len(expr.arguments) != len(self.argument_types):
             raise Error.WrongArity(expr, len(self.argument_types))
         for i in range(len(self.argument_types)):
@@ -82,7 +82,7 @@ class _ArithmeticOperator(E._Function):
         self.name = name
         self.op = op
 
-    def typecheck(self, expr : E.Apply) -> T.Base:
+    def infer_type(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         rt = T.Int()
         if expr.arguments[0].type == T.Float() or expr.arguments[1].type == T.Float():
@@ -96,7 +96,7 @@ class _ArithmeticOperator(E._Function):
 
 
     def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
-        ans_type = self.typecheck(expr)
+        ans_type = self.infer_type(expr)
         ans = self.op(expr.arguments[0].eval(env).coerce(ans_type).value,
                       expr.arguments[1].eval(env).coerce(ans_type).value)
         if ans_type == T.Int():
@@ -115,7 +115,7 @@ class _AddOperator(_ArithmeticOperator):
     def __init__(self) -> None:
         super().__init__("+", lambda l,r: l+r) # pyre-ignore
 
-    def typecheck(self, expr : E.Apply) -> T.Base:
+    def infer_type(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         t2 = None
         if isinstance(expr.arguments[0].type, T.String):
@@ -124,13 +124,13 @@ class _AddOperator(_ArithmeticOperator):
             t2 = expr.arguments[0].type
         if t2 is None:
             # neither operand is a string; defer to _ArithmeticOperator
-            return super().typecheck(expr)
+            return super().infer_type(expr)
         if sum(1 for c in [T.String, T.Int, T.Float] if isinstance(t2, c)) == 0:
             return Error.IncompatibleOperand(expr, "Cannot add/concatenate {} and {}".format(str(expr.arguments[0].type), str(expr.arguments[1].type)))
         return T.String()
 
     def __call__(self, expr: E.Apply, env : E.Env) -> V.Base:
-        ans_type = self.typecheck(expr)
+        ans_type = self.infer_type(expr)
         if not isinstance(ans_type, T.String):
             return super().__call__(expr, env)
         ans = self.op(str(expr.arguments[0].eval(env).value),
@@ -151,7 +151,7 @@ class _ComparisonOperator(E._Function):
         self.name = name
         self.op = op
 
-    def typecheck(self, expr : E.Apply) -> T.Base:
+    def infer_type(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         if not (expr.arguments[0].type == expr.arguments[1].type or
                 (expr.arguments[0].type == T.Int() and expr.arguments[1].type == T.Float()) or

@@ -63,12 +63,40 @@ class Base(ABC):
     """Superclass of all expression AST nodes"""
     pos : SourcePosition
     """Source position for this AST node"""
-    type : T.Base
-    """WDL type of this expression AST node"""
+    _type : Optional[T.Base] = None
 
-    def __init__(self, pos : SourcePosition, type : T.Base) -> None:
-        self.type = type
+    def __init__(self, pos : SourcePosition) -> None:
         self.pos = pos
+
+    @property
+    def type(self) -> T.Base:
+        """
+        WDL type of this expression.
+
+        Undefined on construction; populated by one invocation of ``infer_type``.
+        """
+        # Failure of this assertion indicates use of an Expr object without
+        # first calling _infer_type
+        assert self._type is not None
+        return self._type
+
+    @abstractmethod
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        pass
+
+    def infer_type(self, type_env : TypeEnv) -> TVBase:
+        """
+        Infer the expression's type within the given type environment. Must be
+        invoked exactly once prior to use of other methods.
+
+        :raise WDL.Error.StaticTypeMismatch:
+        :return: `self`
+        """
+        # Failure of this assertion indicates multiple invocations of
+        # infer_type
+        assert self._type is None
+        self._type = self._infer_type(type_env)
+        return self
 
     def typecheck(self, expected : T.Base) -> TVBase:
         """
@@ -78,7 +106,7 @@ class Base(ABC):
         :raise WDL.Error.StaticTypeMismatch:
         :return: `self`
         """
-        if expected is not None and self.type != expected:
+        if self.type != expected:
             raise Error.StaticTypeMismatch(self, expected, self.type)
         return self
 
@@ -91,8 +119,10 @@ class Base(ABC):
 class Boolean(Base):
     _literal : bool
     def __init__(self, pos : SourcePosition, literal : bool) -> None:
-        super().__init__(pos, T.Boolean())
+        super().__init__(pos)
         self._literal = literal
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        return T.Boolean()
     def eval(self, env : Env) -> V.Boolean:
         return V.Boolean(self._literal)
 
@@ -100,13 +130,15 @@ class Boolean(Base):
 class Int(Base):
     _literal : int
     def __init__(self, pos : SourcePosition, literal : int) -> None:
-        super().__init__(pos, T.Int())
+        super().__init__(pos)
         self._literal = literal
-    def typecheck(self, expected : T.Base) -> Base:
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        return T.Int()
+    def typecheck(self, expected : T.Base) -> TVBase:
         """An ``Int`` expression can be coerced to ``Float`` when context demands."""
-        if expected is not None and isinstance(expected, T.Float):
+        if expected == T.Float():
             return self
-        return super().typecheck(expected) # pyre-ignore
+        return super().typecheck(expected)
     def eval(self, env : Env) -> V.Int:
         return V.Int(self._literal)
 
@@ -114,8 +146,10 @@ class Int(Base):
 class Float(Base):
     _literal : float
     def __init__(self, pos : SourcePosition, literal : float) -> None:
-        super().__init__(pos, T.Float())
+        super().__init__(pos)
         self._literal = literal
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        return T.Float()
     def eval(self, env : Env) -> V.Float:
         return V.Float(self._literal)
 
@@ -123,8 +157,14 @@ class String(Base):
     """Strings include literals possibly interleaved with interpolated expressions"""
     _parts : List[Union[str,Base]]
     def __init__(self, pos : SourcePosition, parts : List[Union[str,Base]]) -> None:
-        super().__init__(pos, T.String())
+        super().__init__(pos)
         self._parts = parts
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        for part in self._parts:
+            if isinstance(part, Base):
+                # TODO: make sure it will make sense to coerce this to a string
+                part.infer_type(type_env)
+        return T.String()
     def eval(self, env : Env) -> V.String:
         ans = []
         for part in self._parts:
@@ -143,38 +183,40 @@ class String(Base):
 class Array(Base):
     items : List[Base]
     """Expression for each item in the array"""
-    item_type : Optional[T.Base]
-    """Type of the items, or `None` for a literal empty array"""
 
     def __init__(self, pos : SourcePosition, items : List[Base]) -> None:
-        self.pos = pos
+        super(Array, self).__init__(pos)
         self.items = items
-        self.item_type = None
-        if len(self.items) > 0:
-            # Use the type of the first item as the assumed item type
-            self.item_type = self.items[0].type
-            # Except, allow a mixture of Int and Float to construct Array[Float]
-            if self.item_type == T.Int():
-                for item in self.items:
-                    if item.type == T.Float():
-                        self.item_type = T.Float()
-            # Check all items are compatible with this item type
-            for item in self.items:
-                try:
-                    item.typecheck(self.item_type)
-                except Error.StaticTypeMismatch:
-                    raise Error.StaticTypeMismatch(self, self.item_type, item.type, "inconsistent types within array") from None
-        super(Array, self).__init__(pos, T.Array(self.item_type))
 
-    def typecheck(self, expected : T.Base) -> Base:
-        if len(self.items) == 0 and expected is not None and isinstance(expected, T.Array):
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        if len(self.items) == 0:
+            return T.Array(None)
+        for item in self.items:
+            item.infer_type(type_env)
+        # Use the type of the first item as the assumed item type
+        item_type = self.items[0].type
+        # Except, allow a mixture of Int and Float to construct Array[Float]
+        if item_type == T.Int():
+            for item in self.items:
+                if item.type == T.Float():
+                    item_type = T.Float()
+        # Check all items are compatible with this item type
+        for item in self.items:
+            try:
+                item.typecheck(item_type)
+            except Error.StaticTypeMismatch:
+                raise Error.StaticTypeMismatch(self, item_type, item.type, "inconsistent types within array") from None
+        return T.Array(item_type)
+
+    def typecheck(self, expected : Optional[T.Base]) -> Base:
+        if len(self.items) == 0 and isinstance(expected, T.Array):
             # the empty array satisfies any array type
-            assert self.type.item_type is None # pyre-ignore
             return self
         return super().typecheck(expected) # pyre-ignore
 
     def eval(self, env : Env) -> V.Array:
-        return V.Array(self.type, [item.eval(env).coerce(self.item_type) for item in self.items])
+        assert isinstance(self.type, T.Array)
+        return V.Array(self.type, [item.eval(env).coerce(self.type.item_type) for item in self.items])
 
 # If
 class IfThenElse(Base):
@@ -188,25 +230,32 @@ class IfThenElse(Base):
     """Expression evaluated when the condition is false"""
 
     def __init__(self, pos : SourcePosition, condition : Base, consequent : Base, alternative : Base) -> None:
-        self.pos = pos
+        super().__init__(pos)
         self.condition = condition
         self.consequent = consequent
         self.alternative = alternative
-        if self.condition.type != T.Boolean():
+
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        if self.condition.infer_type(type_env).type != T.Boolean():
             raise Error.StaticTypeMismatch(self, T.Boolean(), self.condition.type, "in if condition")
-        self_type = consequent.type
-        if self_type == T.Int() and alternative.type == T.Float():
+        self_type = self.consequent.infer_type(type_env).type
+        assert isinstance(self_type, T.Base) # pyre-ignore
+        self.alternative.infer_type(type_env)
+        if self_type == T.Int() and self.alternative.type == T.Float():
             self_type = T.Float()
         try:
-            alternative.typecheck(self_type)
+            self.alternative.typecheck(self_type)
         except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(self, self.consequent.type, self.alternative.type, "if consequent & alternative must have the same type")
-        super().__init__(pos, self_type)
+            raise Error.StaticTypeMismatch(self, self.consequent.type, self.alternative.type,
+                                           "if consequent & alternative must have the same type")
+        return self_type
     
     def eval(self, env : Env) -> V.Base:
-        if self.condition.eval(env).expect(T.Boolean()).value == False:
-            return self.alternative.eval(env).coerce(self.type)
-        return self.consequent.eval(env).coerce(self.type)
+        if self.condition.eval(env).expect(T.Boolean()).value != False:
+            ans = self.consequent.eval(env)
+        else:
+            ans = self.alternative.eval(env)
+        return ans
 
 # function applications
 
@@ -214,11 +263,10 @@ class IfThenElse(Base):
 # (see StdLib.py for concrete implementations)
 class _Function(ABC):
 
-    # Typecheck the given argument expressions against the function signature.
-    # raise an error or return the type of the value that the function will
-    # return when applied to these arguments.
+    # Typecheck the function invocation (incl. argument expressions); raise an
+    # exception or return the type of the value that the function will return
     @abstractmethod
-    def typecheck(self, expr : TVApply) -> T.Base:
+    def infer_type(self, expr : TVApply) -> T.Base:
         pass
 
     @abstractmethod
@@ -233,14 +281,17 @@ class Apply(Base):
     arguments : List[Base]
 
     def __init__(self, pos : SourcePosition, function : str, arguments : List[Base]) -> None:
-        self.pos = pos
+        super().__init__(pos)
         try:
             self.function = _stdlib[function]
         except KeyError:
             raise Error.NoSuchFunction(self, function) from None
         self.arguments = arguments
-        return_type = self.function.typecheck(self)
-        super().__init__(pos, return_type)
+
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        for arg in self.arguments:
+            arg.infer_type(type_env)
+        return self.function.infer_type(self)
 
     def eval(self, env : Env) -> V.Base:
         return self.function(self, env)
@@ -254,16 +305,17 @@ class Ident(Base):
     identifier : str
 
     def __init__(self, pos : SourcePosition, parts : List[str], type_env : TypeEnv) -> None:
-        self.pos = pos
+        super().__init__(pos)
         assert len(parts) > 0
         self.identifier = parts[-1]
         self.namespace = parts[:-1]
         assert self.namespace == [] # placeholder
+
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
         try:
-            my_type = type_env[self.identifier]
+            return type_env[self.identifier]
         except KeyError:
             raise Error.UnknownIdentifier(self)
-        super().__init__(pos, my_type)
 
     def eval(self, env : Env) -> V.Base:
         try:
