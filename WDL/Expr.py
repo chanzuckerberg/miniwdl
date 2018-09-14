@@ -9,64 +9,69 @@ nodes attached "beneath" it. Given a suitable environment, expressions can be
 evaluated to a WDL `Value`.
 """
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Tuple, Union
+from typing import Any, List, Optional, Dict, Callable, TypeVar, Tuple, Union
 import WDL.Type as T
 import WDL.Value as V
 
-SourcePosition = NamedTuple("SourcePosition",
-                            [('line',int), ('column',int),
-                             ('end_line',int), ('end_column',int)])
-"""Source file line/column for each expression, attached to each AST node"""
-
 # Forward-declare certain types needed for Error definitions, then import them.
-TVBase = TypeVar('TVBase', bound='Base')
 TVApply = TypeVar('TVApply', bound='Apply')
 import WDL.Error as Error
+from WDL.Error import SourcePosition, SourceNode
 
+TVTypeEnv = TypeVar('TVTypeEnv', bound='TypeEnv')
 class TypeEnv:
-    """Provides the types of bound identifiers during static analysis, prior to any evaluation"""
-    _bindings : Dict[str, T.Base]
+    """
+    Provides the types of bound identifiers during static analysis, prior to any evaluation.
+    Represented as an immutable linked list.
+    """
+    binding: Optional[Tuple[str,T.Base]]
+    parent: Optional[TVTypeEnv]
 
-    def __init__(self, *bindings : List[Tuple[str, T.Base]]) -> None:
-        self._bindings = {}
-        for id, type in bindings:
-            self._bindings[id] = type
+    def __init__(self, binding : Optional[Tuple[str,T.Base]] = None, parent : Optional[TVTypeEnv] = None) -> None:
+        self.binding = binding
+        self.parent = parent
 
     def __getitem__(self, id : str) -> T.Base:
         """
         Look up the data type of the given identifier
         """
-        return self._bindings[id]
+        if self.binding is not None and id == self.binding[0]:
+            return self.binding[1]
+        elif self.parent is not None:
+            return self.parent[id] # pyre-ignore
+        else:
+            raise KeyError()
 
-    def __setitem__(self, id : str, type : T.Base) -> None:
-        self._bindings[id] = type
-
+TVEnv = TypeVar('TVEnv', bound='Env')
 class Env:
-    """Provides the bindings of identifiers to existing values during expression evaluation"""
-    _bindings : Dict[str, V.Base]
+    """
+    Provides the bindings of identifiers to existing values during expression evaluation.
+    Represented as an immutable linked list.
+    """
+    binding: Optional[Tuple[str,V.Base]]
+    parent: Optional[TVEnv]
 
-    def __init__(self, *bindings) -> None:
-        self._bindings = {}
-        for id, value in bindings:
-            self._bindings[id] = value
+    def __init__(self, binding : Optional[Tuple[str,V.Base]] = None, parent : Optional[TVEnv] = None) -> None:
+        self.binding = binding
+        self.parent = parent
 
     def __getitem__(self, id : str) -> V.Base:
         """
         Look up the value bound to the given identifier
         """
-        return self._bindings[id]
+        if self.binding is not None and id == self.binding[0]:
+            return self.binding[1]
+        elif self.parent is not None:
+            return self.parent[id] # pyre-ignore
+        else:
+            raise KeyError()
 
-    def __setitem__(self, id : str, value : V.Base) -> None:
-        self._bindings[id] = value
-
-class Base(ABC):
+TVBase = TypeVar('TVBase', bound='Base')
+class Base(SourceNode, ABC):
     """Superclass of all expression AST nodes"""
-    pos : SourcePosition
-    """Source position for this AST node"""
     _type : Optional[T.Base] = None
-
     def __init__(self, pos : SourcePosition) -> None:
-        self.pos = pos
+        super().__init__(pos)
 
     @property
     def type(self) -> T.Base:
@@ -304,7 +309,7 @@ class Ident(Base):
     namespace : List[str]
     identifier : str
 
-    def __init__(self, pos : SourcePosition, parts : List[str], type_env : TypeEnv) -> None:
+    def __init__(self, pos : SourcePosition, parts : List[str]) -> None:
         super().__init__(pos)
         assert len(parts) > 0
         self.identifier = parts[-1]

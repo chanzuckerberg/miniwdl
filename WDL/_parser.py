@@ -45,8 +45,7 @@ grammar = r"""
           | FLOAT -> float
           | SIGNED_FLOAT -> float
 
-          | string1
-          | string2
+          | string
 
           | "[" [expr ("," expr)*] "]" -> array
           | expr_core "[" expr "]" -> get
@@ -67,6 +66,32 @@ STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{]/
 STRING2_END: STRING2_CHAR* "$"? /"/
 STRING2_FRAGMENT: STRING2_CHAR* "${"
 string2: /"/ [(STRING2_FRAGMENT expr "}")*] STRING2_END -> string
+
+?string: string1 | string2
+
+// WDL types and declarations
+type: "Int" -> int_type
+    | "Float" -> float_type
+    | "Boolean" -> boolean_type
+    | "String" -> string_type
+    | "Array[" type "]" -> array_type
+
+unbound_decl: type CNAME -> decl
+bound_decl: type CNAME "=" expr -> decl
+?any_decl: unbound_decl | bound_decl
+input_decls: "input" "{" [any_decl*] "}"
+output_decls: "output" "{" [bound_decl*] "}"
+
+// WDL tasks
+COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
+COMMAND1_END: COMMAND1_CHAR* "$"? "~"? "}"
+COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
+                 | COMMAND1_CHAR* "~{"
+command1: "command" "{" [(COMMAND1_FRAGMENT expr "}")*] COMMAND1_END -> command
+
+?command: command1
+
+task: "task" CNAME "{" input_decls? [bound_decl*] command output_decls? "}"
 
 %import common.INT
 %import common.SIGNED_INT

@@ -34,6 +34,18 @@ Value
    :members:
    :show-inheritance:
 
+Document
+--------
+.. automodule:: WDL.Document
+   :members:
+   :show-inheritance:
+
+Error
+-----
+.. automodule:: WDL.Error
+   :members:
+   :show-inheritance:
+
 
 Indices and tables
 ==================

@@ -65,7 +65,8 @@ _static_functions = [
     ("_negate", [T.Boolean()], T.Boolean(), lambda x : V.Boolean(not x.value)),
     ("_land", [T.Boolean(), T.Boolean()], T.Boolean(), lambda l,r: V.Boolean(l.value and r.value)),
     ("_lor", [T.Boolean(), T.Boolean()], T.Boolean(), lambda l,r: V.Boolean(l.value or r.value)), # pyre-ignore
-    ("_rem", [T.Int(), T.Int()], T.Int(), lambda l,r: V.Int(l.value % r.value)) # pyre-ignore
+    ("_rem", [T.Int(), T.Int()], T.Int(), lambda l,r: V.Int(l.value % r.value)), # pyre-ignore
+    ("stdout", [], T.String(), lambda: "PLACEHOLDER for stdout()")
 ]
 for name, argument_types, return_type, F in _static_functions:
     E._stdlib[name] = _StaticFunction(name, argument_types, return_type, F)

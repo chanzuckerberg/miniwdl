@@ -1,5 +1,4 @@
 import unittest, inspect
-from typing import Optional
 from .context import WDL
 
 class TestEval(unittest.TestCase):
@@ -49,9 +48,11 @@ class TestEval(unittest.TestCase):
             type_env = None
             if env is not None:
                 type_env = WDL.Expr.TypeEnv()
-                for id, value in env._bindings.items():
-                    assert isinstance(value, WDL.Value.Base)
-                    type_env[id] = value.type
+                env_walker = env
+                while env_walker is not None:
+                    if env_walker.binding is not None:
+                        type_env = WDL.Expr.TypeEnv((env_walker.binding[0], env_walker.binding[1].type), type_env)
+                    env_walker = env_walker.parent
             if exn:
                 with self.assertRaises(exn, msg=expected):
                     x = WDL.parse_expr(expr).infer_type(type_env).eval(env)
@@ -188,8 +189,8 @@ class TestEval(unittest.TestCase):
         )
 
     def test_ident(self):
-        env = WDL.Expr.Env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
-                           ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)))
+        env = cons_env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
+                        ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)))
         self._test_tuples(
             ("pi", "3.14159", WDL.Type.Float(), env),
             ("bogus", "(Ln 1, Col 1) Unknown identifier", WDL.Error.UnknownIdentifier, env),
@@ -200,8 +201,8 @@ class TestEval(unittest.TestCase):
 
 
     def test_interpolation(self):
-        env = WDL.Expr.Env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
-                           ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)))
+        env = cons_env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
+                        ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)))
         self._test_tuples(
             ('"${pi}"', '"3.14159"', env),
             ('"pi = ${pi}!"', '"pi = 3.14159!"', env),
@@ -218,3 +219,9 @@ class TestEval(unittest.TestCase):
         self._test_tuples(
             ("1 + bogus(2)", "(Ln 1, Col 5) No such function: bogus", WDL.Error.NoSuchFunction)
         )
+
+def cons_env(*bindings):
+    env = WDL.Expr.Env()
+    for p in bindings:
+        env = WDL.Expr.Env(p, env)
+    return env
