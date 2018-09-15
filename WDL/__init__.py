@@ -17,10 +17,8 @@ def sp(meta) -> SourcePosition:
 class _ExprTransformer(lark.Transformer):
 
     def boolean_true(self, items, meta) -> E.Base:
-        assert items == []
         return E.Boolean(sp(meta), True)
     def boolean_false(self, items, meta) -> E.Base:
-        assert items == []
         return E.Boolean(sp(meta), False)
     def int(self, items, meta) -> E.Base:
         assert len(items) == 1
@@ -32,7 +30,7 @@ class _ExprTransformer(lark.Transformer):
         parts = []
         for item in items:
             if isinstance(item, E.Base):
-                parts.append(item)
+                parts.append(E.Placeholder(item.pos, {}, item))
             elif item.type.endswith("_FRAGMENT"):
                 # for an interpolation fragment, item.value will end with "${"
                 # so we strip that off. it'd be nice to make the grammar filter
@@ -87,10 +85,17 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
         return {"inputs": items}
     def decls(self, items, meta):
         return {"decls": items}
+    def placeholder_option(self, items, meta):
+        assert len(items) == 2
+        return (items[0].value, items[1].value[1:-1])
+    def placeholder(self, items, meta):
+        options = dict(items[:-1])
+        # TODO: error on duplicate options
+        return E.Placeholder(sp(meta), options, items[-1])
     def command(self, items, meta):
         parts = []
         for item in items:
-            if isinstance(item, E.Base):
+            if isinstance(item, E.Placeholder):
                 parts.append(item)
             elif item.type.endswith("_FRAGMENT"):
                 parts.append(item.value[:-2])

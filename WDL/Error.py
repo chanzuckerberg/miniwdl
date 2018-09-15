@@ -2,7 +2,7 @@
 from abc import ABC
 from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar
 import WDL.Type as T
-from WDL.Expr import TVApply
+from WDL.Expr import TVApply, TVIdent
 
 SourcePosition = NamedTuple("SourcePosition",
                             [('line',int), ('column',int),
@@ -53,8 +53,8 @@ class OutOfBounds(Base):
         super().__init__(node, "Array index out of bounds")
 
 class UnknownIdentifier(Base):
-    def __init__(self, node : SourceNode) -> None:
-        super().__init__(node, "Unknown identifier")
+    def __init__(self, node : TVIdent) -> None:
+        super().__init__(node, "Unknown identifier " + node.identifier)
 
 class MissingValue(Base):
     def __init__(self, node : SourceNode) -> None:

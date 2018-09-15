@@ -45,9 +45,8 @@ class TestEval(unittest.TestCase):
                     exn = x
                 else:
                     assert False
-            type_env = None
+            type_env = WDL.Expr.TypeEnv()
             if env is not None:
-                type_env = WDL.Expr.TypeEnv()
                 env_walker = env
                 while env_walker is not None:
                     if env_walker.binding is not None:

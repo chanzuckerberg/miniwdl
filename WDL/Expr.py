@@ -15,6 +15,7 @@ import WDL.Value as V
 
 # Forward-declare certain types needed for Error definitions, then import them.
 TVApply = TypeVar('TVApply', bound='Apply')
+TVIdent = TypeVar('TVIdent', bound='Ident')
 import WDL.Error as Error
 from WDL.Error import SourcePosition, SourceNode
 
@@ -158,31 +159,58 @@ class Float(Base):
     def eval(self, env : Env) -> V.Float:
         return V.Float(self._literal)
 
-class String(Base):
-    """Strings include literals possibly interleaved with interpolated expressions"""
-    _parts : List[Union[str,Base]]
-    def __init__(self, pos : SourcePosition, parts : List[Union[str,Base]]) -> None:
+class Placeholder(Base):
+    """Expression within a string interpolation"""
+    options : Dict[str,str]
+    """Placeholder options (sep, true, false, default)"""
+    expr : Base
+    """Expression for evaluation"""
+    def __init__(self, pos : SourcePosition, options : Dict[str,str], expr : Base) -> None:
         super().__init__(pos)
-        self._parts = parts
+        self.options = options
+        self.expr = expr
     def _infer_type(self, type_env : TypeEnv) -> T.Base:
-        for part in self._parts:
-            if isinstance(part, Base):
-                # TODO: make sure it will make sense to coerce this to a string
+        self.expr.infer_type(type_env)
+        if ('true' in self.options or 'false' in self.options) and self.expr.type != T.Boolean():
+            raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "non-Boolean placeholder with 'true' and 'false' options")
+        # TODO: permit Array expr only if we have 'sep' option
+        # TODO: handle optional/default
+        return T.String()
+    def eval(self, env : Env) -> V.String:
+        # TODO: handle default, sep
+        v = self.expr.eval(env)
+        if isinstance(v, V.String):
+            return v
+        if v == V.Boolean(True) and 'true' in self.options:
+            return V.String(self.options['true'])
+        if v == V.Boolean(False) and 'false' in self.options:
+            return V.String(self.options['false'])
+        return V.String(str(v))
+
+class String(Base):
+    """Text possibly interleaved with expression placeholders for interpolation"""
+    parts : List[Union[str,Placeholder]]
+    def __init__(self, pos : SourcePosition, parts : List[Union[str,Placeholder]]) -> None:
+        super().__init__(pos)
+        self.parts = parts
+    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+        for part in self.parts:
+            if isinstance(part, Placeholder):
                 part.infer_type(type_env)
         return T.String()
     def eval(self, env : Env) -> V.String:
         ans = []
-        for part in self._parts:
-            if isinstance(part, Base):
+        for part in self.parts:
+            if isinstance(part, Placeholder):
                 # evaluate interpolated expression & stringify
-                ans.append(str(part.eval(env)))
+                ans.append(part.eval(env).value)
             elif type(part) == str:
                 # use python builtins to decode escape sequences
                 ans.append(str.encode(part).decode('unicode_escape')) # pyre-ignore
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
-        return V.String(''.join(ans)[1:-1])
+        return V.String(''.join(ans)[1:-1]) # pyre-ignore
 
 # Array
 class Array(Base):
@@ -320,11 +348,11 @@ class Ident(Base):
         try:
             return type_env[self.identifier]
         except KeyError:
-            raise Error.UnknownIdentifier(self)
+            raise Error.UnknownIdentifier(self) from None
 
     def eval(self, env : Env) -> V.Base:
         try:
             # TODO: handling missing values
             return env[self.identifier]
         except KeyError:
-            raise Error.UnknownIdentifier(self)
+            raise Error.UnknownIdentifier(self) from None

@@ -83,21 +83,36 @@ input_decls: "input" "{" [any_decl*] "}"
 output_decls: "output" "{" [bound_decl*] "}"
 
 // WDL tasks
+!?placeholder_key: "default" | "false" | "true" | "sep"
+PLACEHOLDER_VALUE: ESCAPED_STRING | ESCAPED_STRING1
+placeholder_option: placeholder_key "=" PLACEHOLDER_VALUE
+placeholder: placeholder_option* expr
+
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
 COMMAND1_END: COMMAND1_CHAR* "$"? "~"? "}"
 COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
                  | COMMAND1_CHAR* "~{"
-command1: "command" "{" [(COMMAND1_FRAGMENT expr "}")*] COMMAND1_END -> command
+command1: "command" "{" [(COMMAND1_FRAGMENT placeholder "}")*] COMMAND1_END -> command
 
-?command: command1
+COMMAND2_CHAR: /[^~>]/ | /~[^{]/ | />[^>]/ | />>[^>]/
+COMMAND2_END : COMMAND2_CHAR* ">"~0..2 ">>>"
+COMMAND2_FRAGMENT: COMMAND2_CHAR* "~{"
+command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
+
+?command: command1 | command2
 
 task: "task" CNAME "{" input_decls? [bound_decl*] command output_decls? "}"
+
+
+STRING_INNER1: ("\\\'"|/[^']/)
+ESCAPED_STRING1: "'" STRING_INNER1* "'"
 
 %import common.INT
 %import common.SIGNED_INT
 %import common.FLOAT
 %import common.SIGNED_FLOAT
 %import common.CNAME
+%import common.ESCAPED_STRING
 %import common.WS
 %ignore WS
 """
