@@ -35,17 +35,9 @@ grammar = r"""
 
 // expression core (everything but infix)
 ?expr_core: "(" expr ")"
-
-          | "true" -> boolean_true
-          | "false" -> boolean_false
-          | "!" expr -> negate
-
-          | INT -> int
-          | SIGNED_INT -> int
-          | FLOAT -> float
-          | SIGNED_FLOAT -> float
-
+          | literal
           | string
+          | "!" expr -> negate
 
           | "[" [expr ("," expr)*] "]" -> array
           | expr_core "[" expr "]" -> get
@@ -54,6 +46,13 @@ grammar = r"""
 
           | [CNAME ("." CNAME)*] -> ident
           | CNAME "(" [expr ("," expr)*] ")" -> apply
+
+?literal: "true" -> boolean_true
+        | "false" -> boolean_false
+        | INT -> int
+        | SIGNED_INT -> int
+        | FLOAT -> float
+        | SIGNED_FLOAT -> float
 
 // string (single-quoted)
 STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{]/
@@ -79,14 +78,15 @@ type: "Int" -> int_type
 unbound_decl: type CNAME -> decl
 bound_decl: type CNAME "=" expr -> decl
 ?any_decl: unbound_decl | bound_decl
-input_decls: "input" "{" [any_decl*] "}"
-output_decls: "output" "{" [bound_decl*] "}"
 
-// WDL tasks
+// WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
 !?placeholder_key: "default" | "false" | "true" | "sep"
 PLACEHOLDER_VALUE: ESCAPED_STRING | ESCAPED_STRING1
 placeholder_option: placeholder_key "=" PLACEHOLDER_VALUE
 placeholder: placeholder_option* expr
+
+STRING_INNER1: ("\\\'"|/[^']/)
+ESCAPED_STRING1: "'" STRING_INNER1* "'"
 
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
 COMMAND1_END: COMMAND1_CHAR* "$"? "~"? "}"
@@ -101,11 +101,28 @@ command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END ->
 
 ?command: command1 | command2
 
-task: "task" CNAME "{" input_decls? [bound_decl*] command output_decls? "}"
+// task meta/runtime sections (JSON-like)
+meta_object: "{" [meta_kv (","? meta_kv)*] "}"
+meta_kv: CNAME ":" meta_value
+?meta_string: ESCAPED_STRING -> string
+            | ESCAPED_STRING1 -> string
+meta_literal: literal
+            | meta_string
+?meta_value: meta_literal
+           | "[" [meta_value ("," meta_value)*] "]" -> meta_array
+           | meta_object
+META_KIND: "meta" | "parameter_meta" | "runtime"
+meta_section: META_KIND meta_object
 
-
-STRING_INNER1: ("\\\'"|/[^']/)
-ESCAPED_STRING1: "'" STRING_INNER1* "'"
+// WDL tasks
+input_decls: "input" "{" [any_decl*] "}"
+?task_sections1: input_decls
+               | bound_decl+ -> noninput_decls
+               | meta_section
+output_decls: "output" "{" [bound_decl*] "}"
+?task_sections2: output_decls
+               | meta_section
+task: "task" CNAME "{" task_sections1* command task_sections2* "}"
 
 %import common.INT
 %import common.SIGNED_INT

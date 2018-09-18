@@ -83,7 +83,7 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
         return D.Decl(sp(meta), *items)
     def input_decls(self, items, meta):
         return {"inputs": items}
-    def decls(self, items, meta):
+    def noninput_decls(self, items, meta):
         return {"decls": items}
     def placeholder_option(self, items, meta):
         assert len(items) == 2
@@ -104,6 +104,29 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
         return {"command": E.String(sp(meta), parts)}
     def output_decls(self, items, meta):
         return {"outputs": items}
+    def meta_kv(self, items, meta):
+        return (items[0].value, items[1])
+    def meta_literal(self, items, meta):
+        # Within JSON-like meta clauses, literals come out as Expr's since we
+        # reused the Expr transformer for convenience. Since the grammar
+        # constrains them to be literals, we can evaluate them immediately.
+        assert len(items) == 1
+        assert isinstance(items[0], WDL.Expr.Base)
+        items[0].infer_type(WDL.Expr.TypeEnv())
+        return items[0].eval(WDL.Expr.Env()).value
+    def meta_object(self, items, meta):
+        d = dict()
+        for k, v in items:
+            assert k not in d # TODO: helpful error for duplicate keys
+            d[k] = v
+        return d
+    def meta_array(self, items, meta):
+        return items
+    def meta_section(self, items, meta):
+        kind = items[0].value
+        d = dict()
+        d[kind] = items[1]
+        return d
     def task(self, items, meta):
         d = {}
         for item in items:
@@ -115,7 +138,9 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
                 assert isinstance(item, str)
                 assert "name" not in d
                 d["name"] = item
-        return D.Task(sp(meta), d["name"], d.get("inputs", []), d.get("decls", []), d["command"], d.get("outputs", []))
+        return D.Task(sp(meta), d["name"], d.get("inputs", []), d.get("decls", []), d["command"],
+                      d.get("outputs", []), d.get("parameter_meta", {}), d.get("runtime", {}),
+                      d.get("meta", {}))
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for _klass in [_ExprTransformer, _TypeTransformer, _TaskTransformer]:

@@ -35,15 +35,23 @@ class Task(SourceNode):
     postinputs: List[Decl]
     command: E.String
     outputs: List[Decl]
+    parameter_meta : Dict[str,Any]
+    runtime : Dict[str,Any]
+    meta : Dict[str,Any]
 
     def __init__(self, pos : SourcePosition, name : str, inputs : List[Decl], postinputs : List[Decl],
-                 command : E.String, outputs : List[Decl]) -> None:
+                 command : E.String, outputs : List[Decl], parameter_meta : Dict[str,Any],
+                 runtime : Dict[str,Any], meta : Dict[str,Any]) -> None:
         super().__init__(pos)
         self.name = name
         self.inputs = inputs
         self.postinputs = postinputs
         self.command = command
         self.outputs = outputs
+        self.parameter_meta = parameter_meta
+        self.runtime = runtime
+        self.meta = meta
+        # TODO: enforce validity constraints on parameter_meta and runtime
 
     def typecheck(self, type_env : Optional[E.TypeEnv] = None) -> None:
         """Infer and check types on all declarations and the command"""

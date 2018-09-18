@@ -38,6 +38,7 @@ class TestDoc(unittest.TestCase):
             input {
                 String in
             }
+            String d = in + "_foo"
             command <<<
                 echo "~{in}" | wc
                 echo "$USER" > /dev/null
@@ -192,3 +193,27 @@ class TestDoc(unittest.TestCase):
                 >>>
             }
             """).typecheck()
+
+    def test_meta(self):
+        task = WDL.parse_task("""
+        task wc {
+            input {
+                Boolean b
+                Int n
+            }
+            parameter_meta {
+                b: { help: "it's a boolean" }
+                n: 'x'
+            }
+            command {
+                echo "~{true='yes' false='no' b}"
+            }
+            runtime {
+                memory: "1 GB"
+                cpu: 42
+            }
+        }
+        """)
+        task.typecheck()
+        self.assertEqual(task.parameter_meta['b']['help'], "it's a boolean")
+        self.assertEqual(task.runtime['cpu'], 42)
