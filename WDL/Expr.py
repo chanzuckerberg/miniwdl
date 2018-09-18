@@ -160,7 +160,7 @@ class Float(Base):
         return V.Float(self._literal)
 
 class Placeholder(Base):
-    """Expression within a string interpolation"""
+    """Expression interpolated within a string or command"""
     options : Dict[str,str]
     """Placeholder options (sep, true, false, default)"""
     expr : Base
@@ -171,9 +171,18 @@ class Placeholder(Base):
         self.expr = expr
     def _infer_type(self, type_env : TypeEnv) -> T.Base:
         self.expr.infer_type(type_env)
-        if ('true' in self.options or 'false' in self.options) and self.expr.type != T.Boolean():
-            raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "non-Boolean placeholder with 'true' and 'false' options")
-        # TODO: permit Array expr only if we have 'sep' option
+        if isinstance(self.expr.type, T.Array):
+            if 'sep' not in self.options:
+                raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "array command placeholder must have 'sep'")
+            if self.expr.type.item_type not in [T.Int(), T.Float(), T.Boolean(), T.String()]:
+                raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "cannot use array of complex types for command placeholder")
+        elif 'sep' in self.options:
+                raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "command placeholder has 'sep' option for non-Array expression")
+        if ('true' in self.options or 'false' in self.options):
+            if self.expr.type != T.Boolean():
+                raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "command placeholder 'true' and 'false' options used with non-Boolean expression")
+            if not ('true' in self.options and 'false' in self.options):
+                raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "command placeholder with only one of 'true' and 'false' options")
         # TODO: handle optional/default
         return T.String()
     def eval(self, env : Env) -> V.String:
@@ -181,6 +190,8 @@ class Placeholder(Base):
         v = self.expr.eval(env)
         if isinstance(v, V.String):
             return v
+        if isinstance(v, V.Array):
+            return V.String(self.options['sep'].join(str(item.value) for item in v.value)) # pyre-ignore
         if v == V.Boolean(True) and 'true' in self.options:
             return V.String(self.options['true'])
         if v == V.Boolean(False) and 'false' in self.options:

@@ -142,3 +142,53 @@ class TestDoc(unittest.TestCase):
                     }
                 }
                 """).typecheck()
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_task("""
+                task wc {
+                    input {
+                        Boolean b
+                    }
+                    command {
+                        echo "~{false='no' b}"
+                    }
+                }
+                """).typecheck()
+
+        task = WDL.parse_task("""
+            task wc {
+                input {
+                    Array[String] s
+                }
+                command <<<
+                    echo "~{sep=', ' s} baz"
+                >>>
+            }
+            """)
+        task.typecheck()
+        foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [WDL.Value.String("foo"), WDL.Value.String("bar")])
+        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('s', foobar))).value, 'foo, bar')
+        foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [])
+        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('s', foobar))).value, '')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            task = WDL.parse_task("""
+            task wc {
+                input {
+                    Array[String] s
+                }
+                command <<<
+                    echo "~{s} baz"
+                >>>
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_task("""
+            task wc {
+                input {
+                    String s
+                }
+                command <<<
+                    echo "~{sep=', ' s} baz"
+                >>>
+            }
+            """).typecheck()

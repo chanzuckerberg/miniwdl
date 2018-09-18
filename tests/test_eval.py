@@ -201,13 +201,15 @@ class TestEval(unittest.TestCase):
 
     def test_interpolation(self):
         env = cons_env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
-                        ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)))
+                        ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)),
+                        ("s", WDL.Value.String("foo")))
         self._test_tuples(
             ('"${pi}"', '"3.14159"', env),
             ('"pi = ${pi}!"', '"pi = 3.14159!"', env),
             ('"pi+e = ${pi+e}!"', '"pi+e = 5.85987!"', env),
             ("'This is ${t}'", '"This is true"', env),
             ("'${f} is ${f}'", '"false is false"', env),
+            ("'${s}bar'", '"foobar"', env),
             ('"$"','"$"'),
             ('"$shell"','"$shell"'),
             ("'c$'",'"c$"'),
