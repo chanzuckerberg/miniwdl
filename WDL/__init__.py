@@ -75,8 +75,12 @@ class _TypeTransformer(lark.Transformer):
     def string_type(self, items, meta):
         return T.String()
     def array_type(self, items, meta):
-        assert len(items) == 1
-        return T.Array(items[0])
+        assert len(items) >= 1
+        assert isinstance(items[0], WDL.Type.Base)
+        nonempty = False
+        if len(items) > 1 and items[1].value == "+":
+            nonempty = True
+        return T.Array(items[0], nonempty)
 
 class _TaskTransformer(_ExprTransformer, _TypeTransformer):
     def decl(self, items, meta):

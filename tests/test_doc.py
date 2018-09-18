@@ -199,7 +199,7 @@ class TestDoc(unittest.TestCase):
         task wc {
             input {
                 Boolean b
-                Int n
+                Array[Int]+ n
             }
             parameter_meta {
                 b: { help: "it's a boolean" }
@@ -217,3 +217,4 @@ class TestDoc(unittest.TestCase):
         task.typecheck()
         self.assertEqual(task.parameter_meta['b']['help'], "it's a boolean")
         self.assertEqual(task.runtime['cpu'], 42)
+        self.assertTrue(task.inputs[1].type.nonempty)

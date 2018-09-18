@@ -73,7 +73,8 @@ type: "Int" -> int_type
     | "Float" -> float_type
     | "Boolean" -> boolean_type
     | "String" -> string_type
-    | "Array[" type "]" -> array_type
+    | "Array[" type "]" QUANT? -> array_type
+QUANT: "+"
 
 unbound_decl: type CNAME -> decl
 bound_decl: type CNAME "=" expr -> decl

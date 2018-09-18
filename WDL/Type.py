@@ -58,11 +58,20 @@ class Array(Base):
     Array type, paramaterized by the type of the constituent items.
 
     ``item_type`` may be None to represent the type of the literal empty array
-    ``[]``, which is considered compatible with any array type. This special
-    case should be considered explicitly when comparing array types.
+    ``[]``, which is considered compatible with any array type (lacking the
+    nonempty quantifier). This special case should be considered explicitly
+    when comparing array types.
     """
     item_type : Optional[Base]
-    def __init__(self, item_type : Optional[Base]) -> None:
+    nonempty : bool
+    """True in declarations with the nonempty quantifier, ``Array[type]+``"""
+
+    def __init__(self, item_type : Optional[Base], nonempty : bool = False) -> None:
         self.item_type = item_type
+        assert isinstance(nonempty, bool)
+        self.nonempty = nonempty
     def __str__(self) -> str:
-        return "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]"
+        ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]"
+        if self.nonempty:
+            ans = ans + "+"
+        return ans
