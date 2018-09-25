@@ -111,14 +111,14 @@ meta_kv: CNAME ":" meta_expr
           | "[" [meta_expr ("," meta_expr)*] "]" -> meta_array
           | meta_object
 ?meta_value: literal | string
-META_KIND: "meta" | "parameter_meta" | "runtime"
+META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures META_KIND has higher priority than CNAME
 meta_section: META_KIND meta_object
 
 // WDL tasks
 input_decls: "input" "{" [any_decl*] "}"
 ?task_sections1: input_decls
-               | bound_decl+ -> noninput_decls
                | meta_section
+               | any_decl+ -> noninput_decls
 output_decls: "output" "{" [bound_decl*] "}"
 ?task_sections2: output_decls
                | meta_section

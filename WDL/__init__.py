@@ -170,6 +170,8 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
         return D.Task(sp(meta), d["name"], d.get("inputs", []), d.get("decls", []), d["command"],
                       d.get("outputs", []), d.get("parameter_meta", {}), d.get("runtime", {}),
                       d.get("meta", {}))
+    def tasks(self, items, meta):
+        return items
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for _klass in [_ExprTransformer, _TypeTransformer, _TaskTransformer]:

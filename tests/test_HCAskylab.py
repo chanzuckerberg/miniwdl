@@ -2,7 +2,7 @@ import unittest, inspect, subprocess, tempfile, os, glob
 from .context import WDL
 
 # Crawl HumanCellAtlas/skylab/library/tasks/*.wdl and assert successful parsing
-# of all tasks
+# and type-checking of all tasks
 class TestHCAskylab(unittest.TestCase):
     pass
 
@@ -14,8 +14,8 @@ for fn in task_files:
     name = os.path.split(fn)[1]
     name = name[:-4]
     name = 'test_HCAskylab_task_' + name.replace('.', '_')
-    print(name)
     def t(self, fn=fn):
         with open(fn) as infile:
-            WDL.parse_tasks(infile.read()).typecheck()
+            for task in WDL.parse_tasks(infile.read()):
+                task.typecheck()
     setattr(TestHCAskylab, name, t)

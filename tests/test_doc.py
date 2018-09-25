@@ -245,3 +245,30 @@ class TestDoc(unittest.TestCase):
         self.assertTrue(task.inputs[0].type.optional)
         self.assertFalse(task.inputs[1].type.optional)
         self.assertTrue(task.inputs[1].type.nonempty)
+
+        task = WDL.parse_task(r"""
+        task wc {
+            input {
+                Boolean? b
+                Array[Int]+ n
+            }
+            String a_nonput_decl = "foo"
+            meta {
+                description: 'it\'s a task'
+            }
+            parameter_meta {
+                b: { help: "it's a boolean" }
+                n: 'x'
+            }
+            command {
+                echo "~{true='yes' false='no' b}"
+            }
+            runtime {
+                memory: "1 GB"
+                cpu: 42
+            }
+        }
+        """)
+        task.typecheck()
+        self.assertIsInstance(task.meta['description'], WDL.Expr.String)
+        self.assertEqual(task.meta['description'].parts, ["'", "it\\'s a task", "'"])
