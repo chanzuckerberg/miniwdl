@@ -104,15 +104,18 @@ command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END ->
 
 ?command: command1 | command2
 
-// task meta/runtime sections (JSON-like, with string expressions)
+// task meta/parameter_meta sections (effectively JSON)
 meta_object: "{" [meta_kv (","? meta_kv)*] "}"
-meta_kv: CNAME ":" meta_expr
-?meta_expr: meta_value
-          | "[" [meta_expr ("," meta_expr)*] "]" -> meta_array
-          | meta_object
+meta_kv: CNAME ":" meta_value
 ?meta_value: literal | string
+           | meta_object
+           | "[" [meta_value ("," meta_value)*] "]" -> meta_array
 META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures META_KIND has higher priority than CNAME
 meta_section: META_KIND meta_object
+
+// task runtime section (key-expression pairs)
+runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
+runtime_kv: CNAME ":" expr
 
 // WDL tasks
 input_decls: "input" "{" [any_decl*] "}"
@@ -122,6 +125,7 @@ input_decls: "input" "{" [any_decl*] "}"
 output_decls: "output" "{" [bound_decl*] "}"
 ?task_sections2: output_decls
                | meta_section
+               | runtime_section
 task: "task" CNAME "{" task_sections1* command task_sections2* "}"
 
 tasks: task*

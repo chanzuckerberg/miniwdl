@@ -156,6 +156,14 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
         d = dict()
         d[kind] = items[1]
         return d
+    def runtime_kv(self, items, meta):
+        return (items[0].value, items[1])
+    def runtime_section(self, items, meta):
+        d = dict()
+        for k,v in items:
+            assert k not in d # TODO: helpful error for duplicate keys
+            d[k] = v
+        return {"runtime": d}
     def task(self, items, meta):
         d = {}
         for item in items:
