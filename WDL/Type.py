@@ -9,9 +9,11 @@ instance of a Python class inheriting from ``WDL.Type.Base``. Such types are
 associated with expressions, statically prior to evaluation, as well as with
 values and identifier bindings after evaluation.
 
-An atomic type like ``Int`` is represented by ``WDL.Type.Int()``. All such
-instances are equivalent, so a given type instance ``t`` can be checked with either
-``t == WDL.Type.Int()`` or ``isinstance(t,WDL.Type.Int)``. 
+An atomic type like ``Int`` is represented by ``WDL.Type.Int()``. Atomic types
+can be checked either with ``isinstance(t,WDL.Type.Int)``, which ignores the
+possible optional quantifier (thus satisfied by ``Int`` or ``Int?``), or with
+``t == WDL.Type.Int(optional=True)`` to include the quantifier in the
+comparison.
 
 A parametric type like ``Array[String]`` is represented by
 ``WDL.Type.Array(WDL.Type.String())``. Any kind of array satisfies
@@ -31,6 +33,10 @@ class Base(ABC):
         assert issubclass(WDL.Type.Int, WDL.Type.Base)
         assert isinstance(WDL.Type.Array(WDL.Type.Int()), WDL.Type.Base)
     """
+
+    optional : bool
+    """True in declarations with the optional quantifier, ``Type?``"""
+
     @abstractmethod
     def __str__(self) -> str:
         pass
@@ -38,20 +44,28 @@ class Base(ABC):
         return str(self) == str(rhs)
 
 class Boolean(Base):
+    def __init__(self, optional : bool = False) -> None:
+        self.optional = optional
     def __str__(self) -> str:
-        return "Boolean"
+        return "Boolean" + ("?" if self.optional else "")
 
 class Int(Base):
+    def __init__(self, optional : bool = False) -> None:
+        self.optional = optional
     def __str__(self) -> str:
-        return "Int"
+        return "Int" + ("?" if self.optional else "")
 
 class Float(Base):
+    def __init__(self, optional : bool = False) -> None:
+        self.optional = optional
     def __str__(self) -> str:
-        return "Float"
+        return "Float" + ("?" if self.optional else "")
 
 class String(Base):
+    def __init__(self, optional : bool = False) -> None:
+        self.optional = optional
     def __str__(self) -> str:
-        return "String"
+        return "String" + ("?" if self.optional else "")
 
 class Array(Base):
     """
@@ -66,9 +80,10 @@ class Array(Base):
     nonempty : bool
     """True in declarations with the nonempty quantifier, ``Array[type]+``"""
 
-    def __init__(self, item_type : Optional[Base], nonempty : bool = False) -> None:
+    def __init__(self, item_type : Optional[Base], optional : bool = False, nonempty : bool = False) -> None:
         self.item_type = item_type
         assert isinstance(nonempty, bool)
+        self.optional = optional
         self.nonempty = nonempty
     def __str__(self) -> str:
         ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]"

@@ -69,12 +69,13 @@ string2: /"/ [(STRING2_FRAGMENT expr "}")*] STRING2_END -> string
 ?string: string1 | string2
 
 // WDL types and declarations
-type: "Int" -> int_type
-    | "Float" -> float_type
-    | "Boolean" -> boolean_type
-    | "String" -> string_type
-    | "Array[" type "]" QUANT? -> array_type
-QUANT: "+"
+type: "Int" QUANT? -> int_type
+    | "Float" QUANT? -> float_type
+    | "Boolean" QUANT? -> boolean_type
+    | "String" QUANT? -> string_type
+    | "Array[" type "]" ARRAY_QUANT? -> array_type
+QUANT: "?"
+ARRAY_QUANT: "?" | "+"
 
 unbound_decl: type CNAME -> decl
 bound_decl: type CNAME "=" expr -> decl

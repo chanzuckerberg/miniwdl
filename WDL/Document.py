@@ -28,6 +28,9 @@ class Decl(SourceNode):
             return "{} {}".format(str(self.type), self.name)
         return "{} {} = {}".format(str(self.type), self.name, str(self.expr))
 
+    # TODO: the optional/nonempty type quantifiers should be checked when the
+    # declaration is evaluated
+
 class Task(SourceNode):
     """WDL Task"""
     name : str

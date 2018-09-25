@@ -67,20 +67,36 @@ for op in ["land", "lor", "add", "sub", "mul", "div", "rem",
 
 class _TypeTransformer(lark.Transformer):
     def int_type(self, items, meta):
-        return T.Int()
+        optional = False
+        if len(items) > 0 and items[0].value == "?":
+            optional = True
+        return T.Int(optional)
     def float_type(self, items, meta):
-        return T.Float()
+        optional = False
+        if len(items) > 0 and items[0].value == "?":
+            optional = True
+        return T.Float(optional)
     def boolean_type(self, items, meta):
-        return T.Boolean()
+        optional = False
+        if len(items) > 0 and items[0].value == "?":
+            optional = True
+        return T.Boolean(optional)
     def string_type(self, items, meta):
-        return T.String()
+        optional = False
+        if len(items) > 0 and items[0].value == "?":
+            optional = True
+        return T.String(optional)
     def array_type(self, items, meta):
         assert len(items) >= 1
         assert isinstance(items[0], WDL.Type.Base)
+        optional = False
         nonempty = False
-        if len(items) > 1 and items[1].value == "+":
-            nonempty = True
-        return T.Array(items[0], nonempty)
+        if len(items) > 1:
+            if items[1].value == "?":
+                optional = True
+            if items[1].value == "+":
+                nonempty = True
+        return T.Array(items[0], optional, nonempty)
 
 class _TaskTransformer(_ExprTransformer, _TypeTransformer):
     def decl(self, items, meta):

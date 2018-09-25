@@ -52,10 +52,14 @@ class OutOfBounds(Base):
     def __init__(self, node: SourceNode) -> None:
         super().__init__(node, "Array index out of bounds")
 
+class EmptyArray(Base):
+    def __init__(self, node: SourceNode) -> None:
+        super().__init__(node, "Empty array for Array+ input/declaration")
+
 class UnknownIdentifier(Base):
     def __init__(self, node : TVIdent) -> None:
         super().__init__(node, "Unknown identifier " + node.identifier)
 
 class MissingValue(Base):
     def __init__(self, node : SourceNode) -> None:
-        super().__init__(node, "Optional value is missing")
+        super().__init__(node, "Missing value for non-optional input/declaration")

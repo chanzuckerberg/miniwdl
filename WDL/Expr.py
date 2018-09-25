@@ -174,12 +174,12 @@ class Placeholder(Base):
         if isinstance(self.expr.type, T.Array):
             if 'sep' not in self.options:
                 raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "array command placeholder must have 'sep'")
-            if self.expr.type.item_type not in [T.Int(), T.Float(), T.Boolean(), T.String()]:
+            if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String] if isinstance(self.expr.type.item_type, t)) == 0:
                 raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "cannot use array of complex types for command placeholder")
         elif 'sep' in self.options:
                 raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "command placeholder has 'sep' option for non-Array expression")
         if ('true' in self.options or 'false' in self.options):
-            if self.expr.type != T.Boolean():
+            if not isinstance(self.expr.type, T.Boolean):
                 raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "command placeholder 'true' and 'false' options used with non-Boolean expression")
             if not ('true' in self.options and 'false' in self.options):
                 raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "command placeholder with only one of 'true' and 'false' options")
@@ -240,9 +240,9 @@ class Array(Base):
         # Use the type of the first item as the assumed item type
         item_type = self.items[0].type
         # Except, allow a mixture of Int and Float to construct Array[Float]
-        if item_type == T.Int():
+        if isinstance(item_type, T.Int):
             for item in self.items:
-                if item.type == T.Float():
+                if isinstance(item.type, T.Float):
                     item_type = T.Float()
         # Check all items are compatible with this item type
         for item in self.items:
@@ -250,11 +250,16 @@ class Array(Base):
                 item.typecheck(item_type)
             except Error.StaticTypeMismatch:
                 raise Error.StaticTypeMismatch(self, item_type, item.type, "inconsistent types within array") from None
-        return T.Array(item_type)
+            if item.type.optional:
+                item_type.optional = True
+        return T.Array(item_type, False, True)
 
     def typecheck(self, expected : Optional[T.Base]) -> Base:
         if len(self.items) == 0 and isinstance(expected, T.Array):
             # the empty array satisfies any array type
+            # (unless it has the nonempty quantifier)
+            if expected.nonempty:
+                raise Error.EmptyArray(self)
             return self
         return super().typecheck(expected) # pyre-ignore
 
@@ -285,7 +290,7 @@ class IfThenElse(Base):
         self_type = self.consequent.infer_type(type_env).type
         assert isinstance(self_type, T.Base) # pyre-ignore
         self.alternative.infer_type(type_env)
-        if self_type == T.Int() and self.alternative.type == T.Float():
+        if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
             self_type = T.Float()
         try:
             self.alternative.typecheck(self_type)

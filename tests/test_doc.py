@@ -198,7 +198,7 @@ class TestDoc(unittest.TestCase):
         task = WDL.parse_task("""
         task wc {
             input {
-                Boolean b
+                Boolean? b
                 Array[Int]+ n
             }
             parameter_meta {
@@ -217,4 +217,8 @@ class TestDoc(unittest.TestCase):
         task.typecheck()
         self.assertEqual(task.parameter_meta['b']['help'], "it's a boolean")
         self.assertEqual(task.runtime['cpu'], 42)
+        self.assertTrue(task.inputs[0].type.optional)
+        self.assertFalse(task.inputs[1].type.optional)
         self.assertTrue(task.inputs[1].type.nonempty)
+
+        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, '')
