@@ -3,6 +3,7 @@
 import lark
 import inspect
 import WDL._parser
+from typing import List
 from WDL import Expr as E
 from WDL import Type as T
 from WDL import Document as D
@@ -190,3 +191,9 @@ def parse_task(txt : str) -> D.Task:
     Parse a WDL task
     """
     return _TaskTransformer().transform(WDL._parser.parse(txt, "task"))
+
+def parse_tasks(txt : str) -> List[D.Task]:
+    """
+    Parse zero or more WDL tasks
+    """
+    return _TaskTransformer().transform(WDL._parser.parse(txt, "tasks"))

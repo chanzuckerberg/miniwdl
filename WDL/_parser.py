@@ -124,6 +124,8 @@ output_decls: "output" "{" [bound_decl*] "}"
                | meta_section
 task: "task" CNAME "{" task_sections1* command task_sections2* "}"
 
+tasks: task*
+
 COMMENT: "#" /[^\r\n]*/ NEWLINE
 
 %import common.INT

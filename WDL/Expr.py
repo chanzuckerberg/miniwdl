@@ -203,6 +203,7 @@ class Placeholder(Base):
 class String(Base):
     """Text possibly interleaved with expression placeholders for interpolation"""
     parts : List[Union[str,Placeholder]]
+    """The parts list begins and ends with matching single- or double- quote marks. Between these is a sequence of literal strings and/or interleaved placeholder expressions."""
     def __init__(self, pos : SourcePosition, parts : List[Union[str,Placeholder]]) -> None:
         super().__init__(pos)
         self.parts = parts
