@@ -31,7 +31,7 @@ class NoSuchFunction(Base):
 
 class WrongArity(Base):
     def __init__(self, node : TVApply, expected : int) -> None:
-        super().__init__(node, "{} expects {} argument(s)".format(node.name, expected))
+        super().__init__(node, "{} expects {} argument(s)".format(node.function_name, expected))
 
 class NotAnArray(Base):
     def __init__(self, node : SourceNode) -> None:

@@ -142,7 +142,8 @@ class Int(Base):
         return T.Int()
     def typecheck(self, expected : T.Base) -> TVBase:
         """An ``Int`` expression can be coerced to ``Float`` when context demands."""
-        if expected == T.Float():
+        if isinstance(expected, T.Float):
+            # TODO: refactor this logic into Type?
             return self
         return super().typecheck(expected)
     def eval(self, env : Env) -> V.Int:
@@ -212,6 +213,12 @@ class String(Base):
             if isinstance(part, Placeholder):
                 part.infer_type(type_env)
         return T.String()
+    def typecheck(self, expected : Optional[T.Base]) -> Base:
+        if isinstance(expected, T.File):
+            # permit String to File coercion
+            # TODO: refactor this logic into Type?
+            return self
+        return super().typecheck(expected) # pyre-ignore
     def eval(self, env : Env) -> V.String:
         ans = []
         for part in self.parts:
@@ -261,6 +268,7 @@ class Array(Base):
         if len(self.items) == 0 and isinstance(expected, T.Array):
             # the empty array satisfies any array type
             # (unless it has the nonempty quantifier)
+            # TODO: refactor this logic into Type?
             if expected.nonempty:
                 raise Error.EmptyArray(self)
             return self
@@ -332,6 +340,7 @@ _stdlib : Dict[str,_Function] = {}
 
 class Apply(Base):
     """Application of a built-in or standard library function"""
+    function_name : str
     function : _Function
     arguments : List[Base]
 
@@ -339,6 +348,7 @@ class Apply(Base):
         super().__init__(pos)
         try:
             self.function = _stdlib[function]
+            self.function_name = function
         except KeyError:
             raise Error.NoSuchFunction(self, function) from None
         self.arguments = arguments
