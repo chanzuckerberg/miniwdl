@@ -38,6 +38,14 @@ class _ExprTransformer(lark.Transformer):
                 parts.append(item.value[:-2])
             else:
                 parts.append(item.value)
+        # fix up a parsing quirk -- the opening quote got its own item but the
+        # closing quote didn't
+        assert len(parts) >= 2
+        assert parts[0] in ['"', "'"]
+        assert parts[-1][-1] in ['"', "'"]
+        if len(parts[-1]) > 1:
+            parts.append(parts[-1][-1])
+            parts[-2] = parts[-2][:-1]
         return E.String(sp(meta), parts)
     def array(self, items, meta) -> E.Base:
         return E.Array(sp(meta), items)
@@ -134,14 +142,6 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
         return {"outputs": items}
     def meta_kv(self, items, meta):
         return (items[0].value, items[1])
-    def meta_literal(self, items, meta):
-        # Within JSON-like meta clauses, literals come out as Expr's since we
-        # reused the Expr transformer for convenience. Since the grammar
-        # constrains them to be literals, we can evaluate them immediately.
-        assert len(items) == 1
-        assert isinstance(items[0], WDL.Expr.Base)
-        items[0].infer_type(WDL.Expr.TypeEnv())
-        return items[0].eval(WDL.Expr.Env()).value
     def meta_object(self, items, meta):
         d = dict()
         for k, v in items:

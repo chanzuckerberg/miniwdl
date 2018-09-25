@@ -40,12 +40,12 @@ class Task(SourceNode):
     command: E.String
     outputs: List[Decl]
     parameter_meta : Dict[str,Any]
-    runtime : Dict[str,Any]
+    runtime : Dict[str,E.Base]
     meta : Dict[str,Any]
 
     def __init__(self, pos : SourcePosition, name : str, inputs : List[Decl], postinputs : List[Decl],
                  command : E.String, outputs : List[Decl], parameter_meta : Dict[str,Any],
-                 runtime : Dict[str,Any], meta : Dict[str,Any]) -> None:
+                 runtime : Dict[str,E.Base], meta : Dict[str,Any]) -> None:
         super().__init__(pos)
         self.name = name
         self.inputs = inputs

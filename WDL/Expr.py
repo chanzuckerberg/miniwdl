@@ -123,21 +123,21 @@ class Base(SourceNode, ABC):
 
 # Boolean literal
 class Boolean(Base):
-    _literal : bool
+    value : bool
     def __init__(self, pos : SourcePosition, literal : bool) -> None:
         super().__init__(pos)
-        self._literal = literal
+        self.value = literal
     def _infer_type(self, type_env : TypeEnv) -> T.Base:
         return T.Boolean()
     def eval(self, env : Env) -> V.Boolean:
-        return V.Boolean(self._literal)
+        return V.Boolean(self.value)
 
 # Integer literal
 class Int(Base):
-    _literal : int
+    value : int
     def __init__(self, pos : SourcePosition, literal : int) -> None:
         super().__init__(pos)
-        self._literal = literal
+        self.value = literal
     def _infer_type(self, type_env : TypeEnv) -> T.Base:
         return T.Int()
     def typecheck(self, expected : T.Base) -> TVBase:
@@ -146,18 +146,18 @@ class Int(Base):
             return self
         return super().typecheck(expected)
     def eval(self, env : Env) -> V.Int:
-        return V.Int(self._literal)
+        return V.Int(self.value)
 
 # Float literal
 class Float(Base):
-    _literal : float
+    value : float
     def __init__(self, pos : SourcePosition, literal : float) -> None:
         super().__init__(pos)
-        self._literal = literal
+        self.value = literal
     def _infer_type(self, type_env : TypeEnv) -> T.Base:
         return T.Float()
     def eval(self, env : Env) -> V.Float:
-        return V.Float(self._literal)
+        return V.Float(self.value)
 
 class Placeholder(Base):
     """Expression interpolated within a string or command"""

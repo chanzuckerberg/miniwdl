@@ -238,8 +238,10 @@ class TestDoc(unittest.TestCase):
         }
         """)
         task.typecheck()
-        self.assertEqual(task.parameter_meta['b']['help'], "it's a boolean")
-        self.assertEqual(task.runtime['cpu'], 42)
+        self.assertIsInstance(task.parameter_meta['b']['help'], WDL.Expr.String)
+        self.assertEqual(task.parameter_meta['b']['help'].parts, ['"', "it's a boolean", '"'])
+        self.assertIsInstance(task.runtime['cpu'], WDL.Expr.Int)
+        self.assertEqual(task.runtime['cpu'].value, 42)
         self.assertTrue(task.inputs[0].type.optional)
         self.assertFalse(task.inputs[1].type.optional)
         self.assertTrue(task.inputs[1].type.nonempty)

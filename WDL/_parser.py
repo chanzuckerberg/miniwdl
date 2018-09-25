@@ -104,16 +104,13 @@ command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END ->
 
 ?command: command1 | command2
 
-// task meta/runtime sections (JSON-like)
+// task meta/runtime sections (JSON-like, with string expressions)
 meta_object: "{" [meta_kv (","? meta_kv)*] "}"
-meta_kv: CNAME ":" meta_value
-?meta_string: ESCAPED_STRING -> string
-            | ESCAPED_STRING1 -> string
-meta_literal: literal
-            | meta_string
-?meta_value: meta_literal
-           | "[" [meta_value ("," meta_value)*] "]" -> meta_array
-           | meta_object
+meta_kv: CNAME ":" meta_expr
+?meta_expr: meta_value
+          | "[" [meta_expr ("," meta_expr)*] "]" -> meta_array
+          | meta_object
+?meta_value: literal | string
 META_KIND: "meta" | "parameter_meta" | "runtime"
 meta_section: META_KIND meta_object
 
