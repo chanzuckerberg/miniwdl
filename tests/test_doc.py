@@ -108,6 +108,7 @@ class TestDoc(unittest.TestCase):
         task.typecheck()
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'yes')
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(False)))).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, '')
 
         task = WDL.parse_task("""
             task wc {
@@ -122,6 +123,8 @@ class TestDoc(unittest.TestCase):
         task.typecheck()
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'yes')
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(False)))).value, 'no')
+        with self.assertRaises(WDL.Error.NullValue):
+            self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, '')
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_task("""
@@ -194,6 +197,22 @@ class TestDoc(unittest.TestCase):
             }
             """).typecheck()
 
+        task = WDL.parse_task("""
+            task wc {
+                input {
+                    Boolean? b
+                }
+                command {
+                    echo "${default='foo' b}"
+                }
+            }
+            """)
+        task.typecheck()
+        self.assertTrue(task.inputs[0].type.optional)
+        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'true')
+        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(False)))).value, 'false')
+        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, 'foo')
+
     def test_meta(self):
         task = WDL.parse_task("""
         task wc {
@@ -220,5 +239,3 @@ class TestDoc(unittest.TestCase):
         self.assertTrue(task.inputs[0].type.optional)
         self.assertFalse(task.inputs[1].type.optional)
         self.assertTrue(task.inputs[1].type.nonempty)
-
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, '')

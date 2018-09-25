@@ -105,9 +105,12 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
         return {"inputs": items}
     def noninput_decls(self, items, meta):
         return {"decls": items}
+    def string_literal(self, items, meta):
+        assert len(items) == 1
+        return items[0].value[1:-1]
     def placeholder_option(self, items, meta):
         assert len(items) == 2
-        return (items[0].value, items[1].value[1:-1])
+        return (items[0].value, items[1])
     def placeholder(self, items, meta):
         options = dict(items[:-1])
         # TODO: error on duplicate options

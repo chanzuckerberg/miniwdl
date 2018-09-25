@@ -183,11 +183,13 @@ class Placeholder(Base):
                 raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "command placeholder 'true' and 'false' options used with non-Boolean expression")
             if not ('true' in self.options and 'false' in self.options):
                 raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "command placeholder with only one of 'true' and 'false' options")
-        # TODO: handle optional/default
         return T.String()
     def eval(self, env : Env) -> V.String:
-        # TODO: handle default, sep
         v = self.expr.eval(env)
+        if isinstance(v, V.Null):
+            if 'default' in self.options:
+                return V.String(self.options['default'])
+            return V.String('')
         if isinstance(v, V.String):
             return v
         if isinstance(v, V.Array):
@@ -296,15 +298,18 @@ class IfThenElse(Base):
             self.alternative.typecheck(self_type)
         except Error.StaticTypeMismatch:
             raise Error.StaticTypeMismatch(self, self.consequent.type, self.alternative.type,
-                                           "if consequent & alternative must have the same type")
+                                           "if consequent & alternative must have the same type") from None
         return self_type
     
     def eval(self, env : Env) -> V.Base:
-        if self.condition.eval(env).expect(T.Boolean()).value != False:
-            ans = self.consequent.eval(env)
-        else:
-            ans = self.alternative.eval(env)
-        return ans
+        try:
+            if self.condition.eval(env).expect(T.Boolean()).value != False:
+                ans = self.consequent.eval(env)
+            else:
+                ans = self.alternative.eval(env)
+            return ans
+        except ReferenceError:
+            raise Error.NullValue(self) from None
 
 # function applications
 

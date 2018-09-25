@@ -60,6 +60,6 @@ class UnknownIdentifier(Base):
     def __init__(self, node : TVIdent) -> None:
         super().__init__(node, "Unknown identifier " + node.identifier)
 
-class MissingValue(Base):
+class NullValue(Base):
     def __init__(self, node : SourceNode) -> None:
-        super().__init__(node, "Missing value for non-optional input/declaration")
+        super().__init__(node, "Null value")

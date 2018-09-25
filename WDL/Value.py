@@ -37,6 +37,8 @@ class Base(ABC):
 
         The result is undefined if the coercion is not valid. Types should be
         checked statically on ``WDL.Expr`` prior to evaluation.
+
+        :raises: ReferenceError for a null value and non-optional type
         """
         return self
     def expect(self, desired_type : Optional[T.Base] = None) -> BaseT:
@@ -88,4 +90,9 @@ class Null(Base):
         self.value = None
         pass
     def __str__(self) -> str:
-        return ""
+        assert False
+        return ''
+    def coerce(self, desired_type : Optional[T.Base] = None) -> Base:
+        if desired_type is None or not desired_type.optional:
+            raise ReferenceError()
+        return self

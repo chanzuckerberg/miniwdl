@@ -68,6 +68,10 @@ string2: /"/ [(STRING2_FRAGMENT expr "}")*] STRING2_END -> string
 
 ?string: string1 | string2
 
+STRING_INNER1: ("\\\'"|/[^']/)
+ESCAPED_STRING1: "'" STRING_INNER1* "'"
+string_literal: ESCAPED_STRING | ESCAPED_STRING1
+
 // WDL types and declarations
 type: "Int" QUANT? -> int_type
     | "Float" QUANT? -> float_type
@@ -83,12 +87,8 @@ bound_decl: type CNAME "=" expr -> decl
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
 !?placeholder_key: "default" | "false" | "true" | "sep"
-PLACEHOLDER_VALUE: ESCAPED_STRING | ESCAPED_STRING1
-placeholder_option: placeholder_key "=" PLACEHOLDER_VALUE
+placeholder_option: placeholder_key "=" string_literal
 placeholder: placeholder_option* expr
-
-STRING_INNER1: ("\\\'"|/[^']/)
-ESCAPED_STRING1: "'" STRING_INNER1* "'"
 
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
 COMMAND1_END: COMMAND1_CHAR* "$"? "~"? "}"
