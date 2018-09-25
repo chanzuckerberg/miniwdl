@@ -126,6 +126,8 @@ output_decls: "output" "{" [bound_decl*] "}"
                | meta_section
 task: "task" CNAME "{" task_sections1* command task_sections2* "}"
 
+COMMENT: "#" /[^\r\n]*/ NEWLINE
+
 %import common.INT
 %import common.SIGNED_INT
 %import common.FLOAT
@@ -133,7 +135,9 @@ task: "task" CNAME "{" task_sections1* command task_sections2* "}"
 %import common.CNAME
 %import common.ESCAPED_STRING
 %import common.WS
+%import common.NEWLINE
 %ignore WS
+%ignore COMMENT
 """
 
 def parse(txt : str, start : str) -> lark.Tree:

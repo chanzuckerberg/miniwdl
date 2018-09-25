@@ -34,7 +34,9 @@ class TestDoc(unittest.TestCase):
         }
         """,
         """
+        #
         task wc {
+            # comment
             input {
                 String in
             }
@@ -44,8 +46,9 @@ class TestDoc(unittest.TestCase):
                 echo "$USER" > /dev/null
                 echo "$(env)" >> /dev/null
                 echo "${HOME}" >> /dev/null
-            >>>
-            output {
+            >>> #
+            # comment
+            output { #comment
                 String ans = stdout()
             }
         }
