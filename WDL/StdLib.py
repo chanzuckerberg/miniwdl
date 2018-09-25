@@ -68,7 +68,8 @@ _static_functions = [
     ("_rem", [T.Int(), T.Int()], T.Int(), lambda l,r: V.Int(l.value % r.value)), # pyre-ignore
     ("stdout", [], T.String(), lambda: exec('raise NotImplementedError()')),
     ("size", [T.File(), T.String()], T.Float(), lambda file: exec('raise NotImplementedError()')),
-    ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()'))
+    ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
+    ("glob", [T.String()], T.Array(T.File()), lambda pattern: exec('raise NotImplementedError()'))
 ]
 for name, argument_types, return_type, F in _static_functions:
     E._stdlib[name] = _StaticFunction(name, argument_types, return_type, F)
@@ -172,3 +173,17 @@ E._stdlib["_lt"] = _ComparisonOperator("<", lambda l,r: l < r)
 E._stdlib["_lte"] = _ComparisonOperator("<=", lambda l,r: l <= r)
 E._stdlib["_gt"] = _ComparisonOperator(">", lambda l,r: l > r)
 E._stdlib["_gte"] = _ComparisonOperator(">=", lambda l,r: l >= r)
+
+# defined(): accepts any type...
+class _Defined(E._Function):
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        return T.Boolean()
+
+    def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
+        if isinstance(expr.arguments[0].eval(env), V.Null):
+            return V.Boolean(False)
+        return V.Boolean(True)
+
+E._stdlib["defined"] = _Defined()
