@@ -52,7 +52,7 @@ class _StaticFunction(E._Function):
             try:
                 expr.arguments[i].typecheck(self.argument_types[i])
             except Error.StaticTypeMismatch:
-                raise Error.StaticTypeMismatch(expr.arguments[i], self.argument_types[i], expr.arguments[i].type, "{} argument #{}".format(name, i+1)) from None
+                raise Error.StaticTypeMismatch(expr.arguments[i], self.argument_types[i], expr.arguments[i].type, "{} argument #{}".format(self.name, i+1)) from None
         return self.return_type
 
     def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:

@@ -6,7 +6,7 @@ from .context import WDL
 class TestHCAskylab(unittest.TestCase):
     pass
 
-tdn = tempfile.mkdtemp(prefix='miniwdl_test_HCAskylab')
+tdn = tempfile.mkdtemp(prefix='miniwdl_test_HCAskylab_')
 subprocess.check_call(['wget', '-q', 'https://github.com/HumanCellAtlas/skylab/archive/master.zip'], cwd=tdn)
 subprocess.check_call(['unzip', '-q', 'master.zip'], cwd=tdn)
 task_files = glob.glob(os.path.join(tdn, 'skylab-master', 'library', 'tasks', '*.wdl'))

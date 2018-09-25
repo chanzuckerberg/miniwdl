@@ -47,31 +47,31 @@ class Boolean(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
     def __str__(self) -> str:
-        return "Boolean" + ("?" if self.optional else "")
+        return "Boolean"
 
 class Int(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
     def __str__(self) -> str:
-        return "Int" + ("?" if self.optional else "")
+        return "Int"
 
 class Float(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
     def __str__(self) -> str:
-        return "Float" + ("?" if self.optional else "")
+        return "Float"
 
 class String(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
     def __str__(self) -> str:
-        return "String" + ("?" if self.optional else "")
+        return "String"
 
 class File(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
     def __str__(self) -> str:
-        return "File" + ("?" if self.optional else "")
+        return "File"
 
 class Array(Base):
     """
