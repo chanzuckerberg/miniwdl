@@ -28,8 +28,9 @@ class Decl(SourceNode):
             return "{} {}".format(str(self.type), self.name)
         return "{} {} = {}".format(str(self.type), self.name, str(self.expr))
 
-    # TODO: the optional/nonempty type quantifiers should be checked when the
-    # declaration is evaluated
+    # TODO: when the declaration is evaluated,
+    #  - the optional/nonempty type quantifiers should be checked
+    #  - String to File coercion
 
 class Task(SourceNode):
     """WDL Task"""

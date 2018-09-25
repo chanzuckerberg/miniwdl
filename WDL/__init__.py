@@ -86,6 +86,11 @@ class _TypeTransformer(lark.Transformer):
         if len(items) > 0 and items[0].value == "?":
             optional = True
         return T.String(optional)
+    def file_type(self, items, meta):
+        optional = False
+        if len(items) > 0 and items[0].value == "?":
+            optional = True
+        return T.File(optional)
     def array_type(self, items, meta):
         assert len(items) >= 1
         assert isinstance(items[0], WDL.Type.Base)

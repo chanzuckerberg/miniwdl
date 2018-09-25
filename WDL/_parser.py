@@ -77,6 +77,7 @@ type: "Int" QUANT? -> int_type
     | "Float" QUANT? -> float_type
     | "Boolean" QUANT? -> boolean_type
     | "String" QUANT? -> string_type
+    | "File" QUANT? -> file_type
     | "Array[" type "]" ARRAY_QUANT? -> array_type
 QUANT: "?"
 ARRAY_QUANT: "?" | "+"

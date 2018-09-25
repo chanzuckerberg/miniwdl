@@ -67,6 +67,12 @@ class String(Base):
     def __str__(self) -> str:
         return "String" + ("?" if self.optional else "")
 
+class File(Base):
+    def __init__(self, optional : bool = False) -> None:
+        self.optional = optional
+    def __str__(self) -> str:
+        return "File" + ("?" if self.optional else "")
+
 class Array(Base):
     """
     Array type, paramaterized by the type of the constituent items.

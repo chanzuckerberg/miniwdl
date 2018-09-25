@@ -117,6 +117,7 @@ class TestDoc(unittest.TestCase):
             task wc {
                 input {
                     Boolean b
+                    File? f
                 }
                 command {
                     echo "${if b then 'yes' else 'no'}"
