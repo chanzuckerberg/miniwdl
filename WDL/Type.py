@@ -23,8 +23,9 @@ for example
 ``WDL.Type.Array(WDL.Type.String()) != WDL.Type.Array(WDL.Type.Float())``.
 """
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, TypeVar
 
+TVBase = TypeVar("TVBase", bound="Base")
 class Base(ABC):
     """The abstract base class for WDL types
 
@@ -37,45 +38,58 @@ class Base(ABC):
     optional : bool
     """True in declarations with the optional quantifier, ``Type?``"""
 
-    @abstractmethod
+    def coerces(self, rhs : TVBase) -> bool:
+        """True if ``rhs`` is the same type, or can be coerced to, ``self``. Optional/nonempty quantifiers are disregarded for this purpose."""
+        return (self == rhs) or isinstance(rhs, String)
+
     def __str__(self) -> str:
-        pass
+        return type(self).__name__
     def __eq__(self, rhs) -> bool:
-        return str(self) == str(rhs)
+        return isinstance(rhs,Base) and str(self) == str(rhs)
 
 class Boolean(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
-    def __str__(self) -> str:
-        return "Boolean"
-
-class Int(Base):
-    def __init__(self, optional : bool = False) -> None:
-        self.optional = optional
-    def __str__(self) -> str:
-        return "Int"
+    def coerces(self, rhs : Base) -> bool:
+        if isinstance(rhs, String):
+            return True
+        return super().coerces(rhs)
 
 class Float(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
-    def __str__(self) -> str:
-        return "Float"
+    def coerces(self, rhs : Base) -> bool:
+        if isinstance(rhs, String):
+            return True
+        return super().coerces(rhs)
 
-class String(Base):
+class Int(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
-    def __str__(self) -> str:
-        return "String"
+    def coerces(self, rhs : Base) -> bool:
+        if isinstance(rhs, Float) or isinstance(rhs, String):
+            return True
+        return super().coerces(rhs)
 
 class File(Base):
     def __init__(self, optional : bool = False) -> None:
         self.optional = optional
-    def __str__(self) -> str:
-        return "File"
+    def coerces(self, rhs : Base) -> bool:
+        if isinstance(rhs, String):
+            return True
+        return super().coerces(rhs)
+
+class String(Base):
+    def __init__(self, optional : bool = False) -> None:
+        self.optional = optional
+    def coerces(self, rhs : Base) -> bool:
+        if isinstance(rhs, File):
+            return True
+        return super().coerces(rhs)
 
 class Array(Base):
     """
-    Array type, paramaterized by the type of the constituent items.
+    Array type, parameterized by the type of the constituent items.
 
     ``item_type`` may be None to represent the type of the literal empty array
     ``[]``, which is considered compatible with any array type (lacking the
@@ -93,6 +107,13 @@ class Array(Base):
         self.nonempty = nonempty
     def __str__(self) -> str:
         ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]"
-        if self.nonempty:
-            ans = ans + "+"
         return ans
+    def coerces(self, rhs : Base) -> bool:
+        if self.item_type is None and isinstance(rhs, Array) and not rhs.nonempty:
+            return True
+        if isinstance(rhs, Array):
+            if self.item_type is None:
+                return (not rhs.nonempty)
+            else:
+                return self.item_type.coerces(rhs.item_type)
+        return super().coerces(rhs)

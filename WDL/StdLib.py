@@ -89,7 +89,7 @@ class _ArithmeticOperator(E._Function):
     def infer_type(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         rt = T.Int()
-        if expr.arguments[0].type == T.Float() or expr.arguments[1].type == T.Float():
+        if isinstance(expr.arguments[0].type, T.Float) or isinstance(expr.arguments[1].type, T.Float):
             rt = T.Float()
         try:
             expr.arguments[0].typecheck(rt)

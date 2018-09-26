@@ -154,12 +154,12 @@ class TestEval(unittest.TestCase):
     def test_array(self):
         expr = WDL.parse_expr("[true,false]")
         expr.infer_type(WDL.Expr.TypeEnv())
-        self.assertEqual(str(expr.type), "Array[Boolean]+")
+        self.assertEqual(str(expr.type), "Array[Boolean]")
 
         env = WDL.Expr.Env()
         val = expr.eval(env)
         self.assertIsInstance(val, WDL.Value.Array)
-        self.assertEqual(str(val.type), "Array[Boolean]+")
+        self.assertEqual(str(val.type), "Array[Boolean]")
         self.assertEqual(str(val), "[true, false]")
 
         self._test_tuples(

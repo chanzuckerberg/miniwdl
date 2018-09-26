@@ -112,7 +112,7 @@ class Base(SourceNode, ABC):
         :raise WDL.Error.StaticTypeMismatch:
         :return: `self`
         """
-        if self.type != expected:
+        if not self.type.coerces(expected):
             raise Error.StaticTypeMismatch(self, expected, self.type)
         return self
 
@@ -140,12 +140,6 @@ class Int(Base):
         self.value = literal
     def _infer_type(self, type_env : TypeEnv) -> T.Base:
         return T.Int()
-    def typecheck(self, expected : T.Base) -> TVBase:
-        """An ``Int`` expression can be coerced to ``Float`` when context demands."""
-        if isinstance(expected, T.Float):
-            # TODO: refactor this logic into Type?
-            return self
-        return super().typecheck(expected)
     def eval(self, env : Env) -> V.Int:
         return V.Int(self.value)
 
@@ -175,7 +169,7 @@ class Placeholder(Base):
         if isinstance(self.expr.type, T.Array):
             if 'sep' not in self.options:
                 raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "array command placeholder must have 'sep'")
-            if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String] if isinstance(self.expr.type.item_type, t)) == 0:
+            if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String, T.File] if isinstance(self.expr.type.item_type, t)) == 0:
                 raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "cannot use array of complex types for command placeholder")
         elif 'sep' in self.options:
                 raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "command placeholder has 'sep' option for non-Array expression")
@@ -214,10 +208,6 @@ class String(Base):
                 part.infer_type(type_env)
         return T.String()
     def typecheck(self, expected : Optional[T.Base]) -> Base:
-        if isinstance(expected, T.File):
-            # permit String to File coercion
-            # TODO: refactor this logic into Type?
-            return self
         return super().typecheck(expected) # pyre-ignore
     def eval(self, env : Env) -> V.String:
         ans = []
@@ -266,9 +256,8 @@ class Array(Base):
 
     def typecheck(self, expected : Optional[T.Base]) -> Base:
         if len(self.items) == 0 and isinstance(expected, T.Array):
-            # the empty array satisfies any array type
+            # the literal empty array satisfies any array type
             # (unless it has the nonempty quantifier)
-            # TODO: refactor this logic into Type?
             if expected.nonempty:
                 raise Error.EmptyArray(self)
             return self
