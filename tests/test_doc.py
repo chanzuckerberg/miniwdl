@@ -54,7 +54,7 @@ class TestDoc(unittest.TestCase):
         }
         """]
         for task_str in variants:
-            task = WDL.parse_task(task_str)
+            task = WDL.parse_tasks(task_str)[0]
             self.assertEqual(len(task.inputs), 1)
             self.assertEqual(str(task.inputs[0]), "String in")
 
@@ -72,7 +72,7 @@ class TestDoc(unittest.TestCase):
 
     def test_errors(self):
         with self.assertRaises(WDL.Error.UnknownIdentifier, msg="Unknown identifier bogus"):
-            WDL.parse_task("""
+            WDL.parse_tasks("""
             task wc {
                 input {
                     String in
@@ -81,9 +81,9 @@ class TestDoc(unittest.TestCase):
                     echo "~{bogus}" | wc
                 }
             }
-            """).typecheck()
+            """)[0].typecheck()
         with self.assertRaises(WDL.Error.UnknownIdentifier, msg="Unknown identifier bogus"):
-            WDL.parse_task("""
+            WDL.parse_tasks("""
             task wc {
                 input {
                     String in
@@ -95,10 +95,10 @@ class TestDoc(unittest.TestCase):
                     String ans = "${bogus}"
                 }
             }
-            """).typecheck()
+            """)[0].typecheck()
 
     def test_placeholders(self):
-        task = WDL.parse_task("""
+        task = WDL.parse_tasks("""
             task wc {
                 input {
                     Boolean b
@@ -107,13 +107,13 @@ class TestDoc(unittest.TestCase):
                     echo "~{true='yes' false='no' b}"
                 >>>
             }
-            """)
+            """)[0]
         task.typecheck()
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'yes')
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(False)))).value, 'no')
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, '')
 
-        task = WDL.parse_task("""
+        task = WDL.parse_tasks("""
             task wc {
                 input {
                     Boolean b
@@ -123,7 +123,7 @@ class TestDoc(unittest.TestCase):
                     echo "${if b then 'yes' else 'no'}"
                 }
             }
-            """)
+            """)[0]
         task.typecheck()
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'yes')
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(False)))).value, 'no')
@@ -131,7 +131,7 @@ class TestDoc(unittest.TestCase):
             self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, '')
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
-            WDL.parse_task("""
+            WDL.parse_tasks("""
                 task wc {
                     input {
                         Int b
@@ -140,19 +140,19 @@ class TestDoc(unittest.TestCase):
                         echo "~{true='yes' false='no' b}"
                     }
                 }
-                """).typecheck()
+                """)[0].typecheck()
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
-            WDL.parse_task("""
+            WDL.parse_tasks("""
                 task wc {
                     command {
                         echo "~{true='yes' false='no' 42}"
                     }
                 }
-                """).typecheck()
+                """)[0].typecheck()
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
-            WDL.parse_task("""
+            WDL.parse_tasks("""
                 task wc {
                     input {
                         Boolean b
@@ -161,9 +161,9 @@ class TestDoc(unittest.TestCase):
                         echo "~{false='no' b}"
                     }
                 }
-                """).typecheck()
+                """)[0].typecheck()
 
-        task = WDL.parse_task("""
+        task = WDL.parse_tasks("""
             task wc {
                 input {
                     Array[String] s
@@ -172,14 +172,14 @@ class TestDoc(unittest.TestCase):
                     echo "~{sep=', ' s} baz"
                 >>>
             }
-            """)
+            """)[0]
         task.typecheck()
         foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [WDL.Value.String("foo"), WDL.Value.String("bar")])
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('s', foobar))).value, 'foo, bar')
         foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [])
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('s', foobar))).value, '')
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
-            task = WDL.parse_task("""
+            task = WDL.parse_tasks("""
             task wc {
                 input {
                     Array[String] s
@@ -188,9 +188,9 @@ class TestDoc(unittest.TestCase):
                     echo "~{s} baz"
                 >>>
             }
-            """).typecheck()
+            """)[0].typecheck()
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
-            WDL.parse_task("""
+            WDL.parse_tasks("""
             task wc {
                 input {
                     String s
@@ -199,9 +199,9 @@ class TestDoc(unittest.TestCase):
                     echo "~{sep=', ' s} baz"
                 >>>
             }
-            """).typecheck()
+            """)[0].typecheck()
 
-        task = WDL.parse_task("""
+        task = WDL.parse_tasks("""
             task wc {
                 input {
                     Boolean? b
@@ -210,7 +210,7 @@ class TestDoc(unittest.TestCase):
                     echo "${default='foo' b}"
                 }
             }
-            """)
+            """)[0]
         task.typecheck()
         self.assertTrue(task.inputs[0].type.optional)
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'true')
@@ -218,7 +218,7 @@ class TestDoc(unittest.TestCase):
         self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, 'foo')
 
     def test_meta(self):
-        task = WDL.parse_task("""
+        task = WDL.parse_tasks("""
         task wc {
             input {
                 Boolean? b
@@ -236,7 +236,7 @@ class TestDoc(unittest.TestCase):
                 cpu: 42
             }
         }
-        """)
+        """)[0]
         task.typecheck()
         self.assertIsInstance(task.parameter_meta['b']['help'], WDL.Expr.String)
         self.assertEqual(task.parameter_meta['b']['help'].parts, ['"', "it's a boolean", '"'])
@@ -246,7 +246,7 @@ class TestDoc(unittest.TestCase):
         self.assertFalse(task.inputs[1].type.optional)
         self.assertTrue(task.inputs[1].type.nonempty)
 
-        task = WDL.parse_task(r"""
+        task = WDL.parse_tasks(r"""
         task wc {
             input {
                 Boolean? b
@@ -268,7 +268,7 @@ class TestDoc(unittest.TestCase):
                 cpu: 42
             }
         }
-        """)
+        """)[0]
         task.typecheck()
         self.assertIsInstance(task.meta['description'], WDL.Expr.String)
         self.assertEqual(task.meta['description'].parts, ["'", "it\\'s a task", "'"])

@@ -195,13 +195,6 @@ def parse_expr(txt : str) -> E.Base:
     """
     return _ExprTransformer().transform(WDL._parser.parse(txt, "expr"))
 
-
-def parse_task(txt : str) -> D.Task:
-    """
-    Parse a WDL task
-    """
-    return _TaskTransformer().transform(WDL._parser.parse(txt, "task"))
-
 def parse_tasks(txt : str) -> List[D.Task]:
     """
     Parse zero or more WDL tasks

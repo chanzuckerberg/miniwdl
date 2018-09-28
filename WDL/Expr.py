@@ -124,6 +124,7 @@ class Base(SourceNode, ABC):
 # Boolean literal
 class Boolean(Base):
     value : bool
+    """Literal value"""
     def __init__(self, pos : SourcePosition, literal : bool) -> None:
         super().__init__(pos)
         self.value = literal
@@ -135,6 +136,7 @@ class Boolean(Base):
 # Integer literal
 class Int(Base):
     value : int
+    """Literal value"""
     def __init__(self, pos : SourcePosition, literal : int) -> None:
         super().__init__(pos)
         self.value = literal
@@ -146,6 +148,7 @@ class Int(Base):
 # Float literal
 class Float(Base):
     value : float
+    """Literal value"""
     def __init__(self, pos : SourcePosition, literal : float) -> None:
         super().__init__(pos)
         self.value = literal
