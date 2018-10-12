@@ -1,0 +1,9 @@
+language: cpp
+sudo: yes
+dist: trusty
+
+script:
+  # Build and run unit tests
+  - |
+      set -ex -o pipefail
+      make docker
