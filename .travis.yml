@@ -7,3 +7,4 @@ script:
   - |
       set -ex -o pipefail
       make docker
+      # docker run --env TRAVIS_JOB_ID=${TRAVIS_JOB_ID} --env TRAVIS_BRANCH=${TRAVIS_BRANCH} miniwdl coveralls
