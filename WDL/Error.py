@@ -58,7 +58,13 @@ class EmptyArray(Base):
 
 class UnknownIdentifier(Base):
     def __init__(self, node : TVIdent) -> None:
-        super().__init__(node, "Unknown identifier " + node.identifier)
+        id = node.namespace
+        id.append(node.name)
+        super().__init__(node, "Unknown identifier " + '.'.join(id))
+
+class NoSuchInput(Base):
+    def __init__(self, node : SourceNode, name : str) -> None:
+        super().__init__(node, "No such input " + name)
 
 class NullValue(Base):
     def __init__(self, node : SourceNode) -> None:

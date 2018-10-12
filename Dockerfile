@@ -1,5 +1,5 @@
 FROM ubuntu:18.04
-RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3 python3-pip python3-setuptools tzdata
+RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3 python3-pip python3-setuptools tzdata wget zip
 COPY requirements.txt /miniwdl/requirements.txt
 RUN pip3 install --user -r /miniwdl/requirements.txt
 ADD . /miniwdl

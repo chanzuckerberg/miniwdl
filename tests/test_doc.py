@@ -2,7 +2,7 @@ import unittest, inspect
 from typing import Optional
 from .context import WDL
 
-class TestDoc(unittest.TestCase):
+class TestTasks(unittest.TestCase):
     def test_wc(self):
         variants = [
         """
@@ -59,7 +59,7 @@ class TestDoc(unittest.TestCase):
             self.assertEqual(str(task.inputs[0]), "String in")
 
             self.assertEqual(len(task.command.parts), 3)
-            self.assertEqual(task.command.parts[1].expr.identifier, "in")
+            self.assertEqual(task.command.parts[1].expr.name, "in")
 
             self.assertEqual(len(task.outputs), 1)
             self.assertEqual(str(task.outputs[0].type), "String")
@@ -68,7 +68,7 @@ class TestDoc(unittest.TestCase):
 
             task.typecheck()
 
-            self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('in', WDL.Value.String("hello")))).value, 'hello')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('in', WDL.Value.String("hello"), [])).value, 'hello')
 
     def test_errors(self):
         with self.assertRaises(WDL.Error.UnknownIdentifier, msg="Unknown identifier bogus"):
@@ -109,9 +109,9 @@ class TestDoc(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'yes')
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(False)))).value, 'no')
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, '')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Boolean(True), [])).value, 'yes')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Boolean(False), [])).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Null(), [])).value, '')
 
         task = WDL.parse_tasks("""
             task wc {
@@ -125,10 +125,10 @@ class TestDoc(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'yes')
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(False)))).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Boolean(True), [])).value, 'yes')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Boolean(False), [])).value, 'no')
         with self.assertRaises(WDL.Error.NullValue):
-            self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, '')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Null(), [])).value, '')
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
@@ -175,9 +175,9 @@ class TestDoc(unittest.TestCase):
             """)[0]
         task.typecheck()
         foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [WDL.Value.String("foo"), WDL.Value.String("bar")])
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('s', foobar))).value, 'foo, bar')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('s', foobar, [])).value, 'foo, bar')
         foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [])
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('s', foobar))).value, '')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('s', foobar, [])).value, '')
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             task = WDL.parse_tasks("""
             task wc {
@@ -213,9 +213,9 @@ class TestDoc(unittest.TestCase):
             """)[0]
         task.typecheck()
         self.assertTrue(task.inputs[0].type.optional)
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(True)))).value, 'true')
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Boolean(False)))).value, 'false')
-        self.assertEqual(task.command.parts[1].eval(WDL.Expr.Env(('b', WDL.Value.Null()))).value, 'foo')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Boolean(True), [])).value, 'true')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Boolean(False), [])).value, 'false')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('b', WDL.Value.Null(), [])).value, 'foo')
 
     def test_meta(self):
         task = WDL.parse_tasks("""
@@ -272,3 +272,220 @@ class TestDoc(unittest.TestCase):
         task.typecheck()
         self.assertIsInstance(task.meta['description'], WDL.Expr.String)
         self.assertEqual(task.meta['description'].parts, ["'", "it\\'s a task", "'"])
+
+
+class TestDoc(unittest.TestCase):
+    def test_count_foo(self):
+        doc = r"""
+        workflow count_lines_matching {
+            call grep
+            call count_lines {
+                input:
+                    in = grep.out
+            }
+        }
+        task grep {
+            File in
+            String pattern
+
+            command {
+                grep ${pattern} ${in} > ans
+            }
+
+            output {
+                File out = "ans"
+            }
+        }
+        task count_lines {
+            File in
+
+            command {
+                wc -l ${in}
+            }
+
+            output {
+                Int out = read_int(stdout())
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        self.assertIsInstance(doc.workflow, WDL.Document.Workflow)
+        self.assertEqual(len(doc.workflow.elements), 2)
+        self.assertEqual(len(doc.tasks), 2)
+        doc.workflow.typecheck(doc.tasks)
+
+    def test_bam_chrom_counter(self):
+        doc = r"""
+        workflow bam_chrom_counter {
+            File bam
+
+            call slice_bam {
+                input : bam = bam
+            }
+            scatter (slice in slice_bam.slices) {
+                call count_bam {
+                    input: bam = slice
+                }
+            }
+            output {
+                File bai = slice_bam.bai
+                Array[Int] count = count_bam.count
+            }
+        }
+
+        task slice_bam {
+            File bam
+            Int num_chrom = 22
+            command <<<
+            set -ex
+            samtools index ${bam}
+            mkdir slices/
+            for i in `seq ${num_chrom}`; do
+                samtools view -b ${bam} -o slices/$i.bam $i
+            done
+            >>>
+            runtime {
+                docker: "quay.io/ucsc_cgl/samtools"
+            }
+            output {
+                File bai = "${bam}.bai"
+                Array[File] slices = glob("slices/*.bam")
+            }
+        }
+
+        task count_bam {
+            File bam
+            command <<<
+                samtools view -c ${bam}
+            >>>
+            runtime {
+                docker: "quay.io/ucsc_cgl/samtools"
+            }
+            output {
+                Int count = read_int(stdout())
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        self.assertIsInstance(doc.workflow, WDL.Document.Workflow)
+        self.assertEqual(len(doc.workflow.elements), 3)
+        self.assertIsInstance(doc.workflow.elements[2], WDL.Document.Scatter)
+        self.assertEqual(len(doc.workflow.elements[2].elements), 1)
+        self.assertEqual(len(doc.tasks), 2)
+        doc.workflow.typecheck(doc.tasks)
+
+    def test_nested_scatter(self):
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = stdout()
+            }
+        }
+        workflow contrived {
+            Array[Int] xs = [1, 2, 3]
+            Array[Int] ys = [4, 5, 6]
+            scatter (x in xs) {
+                scatter (y in ys) {
+                    call sum { input:
+                        x = x,
+                        y = y
+                    }
+                }
+            }
+            output {
+                Array[Array[Int]] z = sum.z
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        self.assertIsInstance(doc.workflow, WDL.Document.Workflow)
+        self.assertIsInstance(doc.workflow.elements[2], WDL.Document.Scatter)
+        self.assertIsInstance(doc.workflow.elements[2].elements[0], WDL.Document.Scatter)
+        self.assertEqual(len(doc.tasks), 1)
+        doc.workflow.typecheck(doc.tasks)
+
+    def test_errors(self):
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = stdout()
+            }
+        }
+        workflow contrived {
+            Int not_array
+            scatter (x in not_array) {
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.NotAnArray):
+            doc.workflow.typecheck(doc.tasks)
+
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = stdout()
+            }
+        }
+        workflow contrived {
+            call sum { input:
+                x = 1,
+                z = 0
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.NoSuchInput):
+            doc.workflow.typecheck(doc.tasks)
+
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = stdout()
+            }
+        }
+        workflow contrived {
+            call sum { input:
+                x = 1,
+                y = 2
+            }
+            output {
+                Int z = sum.bogus
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.workflow.typecheck(doc.tasks)
+
+        doc = r"""
+        workflow contrived {
+            call bogus { input:
+                x = 1,
+                y = 2
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.workflow.typecheck(doc.tasks)

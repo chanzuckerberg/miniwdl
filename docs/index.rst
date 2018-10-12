@@ -40,6 +40,12 @@ Document
    :members:
    :show-inheritance:
 
+Env
+---
+.. automodule:: WDL.Env
+   :members:
+   :show-inheritance:
+
 Error
 -----
 .. automodule:: WDL.Error

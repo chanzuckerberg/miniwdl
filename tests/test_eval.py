@@ -5,10 +5,10 @@ class TestEval(unittest.TestCase):
 
     def test_boolean(self):
         expr = WDL.parse_expr("true")
-        expr.infer_type(WDL.Expr.TypeEnv())
+        expr.infer_type([])
         self.assertIsInstance(expr.type, WDL.Type.Boolean)
         self.assertEqual(str(expr.type), "Boolean")
-        val = expr.eval(WDL.Expr.Env())
+        val = expr.eval([])
         self.assertIsInstance(val, WDL.Value.Boolean)
         self.assertEqual(str(val.type), "Boolean")
         self.assertEqual(val.value, True)
@@ -17,9 +17,9 @@ class TestEval(unittest.TestCase):
         self.assertNotEqual(val, WDL.Value.Boolean(False))
 
         expr = WDL.parse_expr("false")
-        expr.infer_type(WDL.Expr.TypeEnv())
+        expr.infer_type([])
         self.assertEqual(str(expr.type), "Boolean")
-        val = expr.eval(WDL.Expr.Env())
+        val = expr.eval([])
         self.assertEqual(str(val.type), "Boolean")
         self.assertEqual(val.value, False)
         self.assertEqual(str(val), "false")
@@ -35,23 +35,19 @@ class TestEval(unittest.TestCase):
             expected_type = None
             exn = None
             for x in tuple[2:]:
-                if isinstance(x, WDL.Expr.Env):
+                if isinstance(x, list):
                     env = x
-                elif isinstance(x, WDL.Expr.TypeEnv):
-                    type_env = x
                 elif isinstance(x, WDL.Type.Base):
                     expected_type = x
                 elif inspect.isclass(x):
                     exn = x
                 else:
                     assert False
-            type_env = WDL.Expr.TypeEnv()
+            type_env = []
             if env is not None:
-                env_walker = env
-                while env_walker is not None:
-                    if env_walker.binding is not None:
-                        type_env = WDL.Expr.TypeEnv((env_walker.binding[0], env_walker.binding[1].type), type_env)
-                    env_walker = env_walker.parent
+                for node in env:
+                    if isinstance(node, WDL.Env.Binding):
+                        type_env = WDL.Env.bind(node.name, node.rhs.type, type_env)
             if exn:
                 with self.assertRaises(exn, msg=expected):
                     x = WDL.parse_expr(expr).infer_type(type_env).eval(env)
@@ -153,10 +149,10 @@ class TestEval(unittest.TestCase):
 
     def test_array(self):
         expr = WDL.parse_expr("[true,false]")
-        expr.infer_type(WDL.Expr.TypeEnv())
+        expr.infer_type([])
         self.assertEqual(str(expr.type), "Array[Boolean]")
 
-        env = WDL.Expr.Env()
+        env = []
         val = expr.eval(env)
         self.assertIsInstance(val, WDL.Value.Array)
         self.assertEqual(str(val.type), "Array[Boolean]")
@@ -222,7 +218,4 @@ class TestEval(unittest.TestCase):
         )
 
 def cons_env(*bindings):
-    env = WDL.Expr.Env()
-    for p in bindings:
-        env = WDL.Expr.Env(p, env)
-    return env
+    return [WDL.Env.Binding(x,y) for (x,y) in bindings]

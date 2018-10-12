@@ -1,4 +1,3 @@
-# pyre-strict
 """Toolkit for static analysis of Workflow Description Language (WDL)"""
 import lark
 import inspect
@@ -8,11 +7,18 @@ from WDL import Expr as E
 from WDL import Type as T
 from WDL import Document as D
 from WDL.Error import SourcePosition
+from WDL import Env
 import WDL.StdLib
 
 def sp(meta) -> SourcePosition:
     return SourcePosition(line=meta.line, column=meta.column,
                           end_line=meta.end_line, end_column=meta.end_column)
+
+def to_int(x):
+    return int(x)
+
+def to_float(x):
+    return float(x)
 
 # Transformer from lark.Tree to WDL.Expr
 class _ExprTransformer(lark.Transformer):
@@ -23,10 +29,10 @@ class _ExprTransformer(lark.Transformer):
         return E.Boolean(sp(meta), False)
     def int(self, items, meta) -> E.Base:
         assert len(items) == 1
-        return E.Int(sp(meta), int(items[0]))
+        return E.Int(sp(meta), to_int(items[0]))
     def float(self, items, meta) -> E.Base:
         assert len(items) == 1
-        return E.Float(sp(meta), float(items[0]))
+        return E.Float(sp(meta), to_float(items[0]))
     def string(self, items, meta) -> E.Base:
         parts = []
         for item in items:
@@ -43,10 +49,10 @@ class _ExprTransformer(lark.Transformer):
         # closing quote didn't
         assert len(parts) >= 2
         assert parts[0] in ['"', "'"]
-        assert parts[-1][-1] in ['"', "'"]
+        assert parts[-1][-1] in ['"', "'"] # pyre-fixme
         if len(parts[-1]) > 1:
-            parts.append(parts[-1][-1])
-            parts[-2] = parts[-2][:-1]
+            parts.append(parts[-1][-1]) # pyre-fixme
+            parts[-2] = parts[-2][:-1] # pyre-fixme
         return E.String(sp(meta), parts)
     def array(self, items, meta) -> E.Base:
         return E.Array(sp(meta), items)
@@ -72,7 +78,7 @@ for op in ["land", "lor", "add", "sub", "mul", "div", "rem",
     def fn(self, items, meta, op=op):
         assert len(items) == 2
         return E.Apply(sp(meta), "_"+op, items)
-    setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))
+    setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn))) # pyre-fixme
 
 class _TypeTransformer(lark.Transformer):
     def int_type(self, items, meta):
@@ -112,7 +118,7 @@ class _TypeTransformer(lark.Transformer):
                 nonempty = True
         return T.Array(items[0], optional, nonempty)
 
-class _TaskTransformer(_ExprTransformer, _TypeTransformer):
+class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def decl(self, items, meta):
         return D.Decl(sp(meta), *items)
     def input_decls(self, items, meta):
@@ -180,12 +186,59 @@ class _TaskTransformer(_ExprTransformer, _TypeTransformer):
                       d.get("meta", {}))
     def tasks(self, items, meta):
         return items
+    def call_input(self, items, meta):
+        return (items[0].value, items[1])
+    def call_inputs(self, items, meta):
+        d = dict()
+        for k, v in items:
+            assert k not in d # TODO: helpful error for duplicate keys
+            d[k] = v
+        return d
+    def call(self, items, meta):
+        return D.Call(sp(meta), items[0], None, items[1] if len(items)>1 else dict())
+    def call_as(self, items, meta):
+        return D.Call(sp(meta), items[0], items[1].value, items[2] if len(items)>2 else dict())
+    def scatter(self, items, meta):
+        return D.Scatter(sp(meta), items[0].value, items[1], items[2:])
+    def workflow(self, items, meta):
+        elements = []
+        outputs = None
+        parameter_meta = dict()
+        meta_section = dict()
+        for item in items[1:]:
+            if isinstance(item, dict):
+                if "outputs" in item:
+                    assert outputs is None # TODO helpful error message
+                    outputs = item["outputs"]
+                elif "meta" in item:
+                    meta = item["meta"]
+                elif "parameter_meta" in item:
+                    parameter_meta = item["parameter_meta"]
+                else:
+                    assert False
+            elif isinstance(item, D.Decl) or isinstance(item, D.Call) or isinstance(item, D.Scatter):
+                elements.append(item)
+            else:
+                assert False
+        return D.Workflow(sp(meta), items[0].value, elements, outputs, parameter_meta, meta_section)
+    def document(self, items, meta):
+        tasks = []
+        workflow = None
+        for item in items:
+            if isinstance(item, D.Task):
+                tasks.append(item)
+            elif isinstance(item, D.Workflow):
+                assert workflow is None
+                workflow = item
+            else:
+                assert False
+        return D.Document(sp(meta), tasks, workflow)
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
-for _klass in [_ExprTransformer, _TypeTransformer, _TaskTransformer]:
+for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
     for name, method in inspect.getmembers(_klass, inspect.isfunction):
         if not name.startswith('_'):
-            setattr(_klass, name, lark.v_args(meta=True)(method))
+            setattr(_klass, name, lark.v_args(meta=True)(method)) # pyre-fixme
 
 def parse_expr(txt : str) -> E.Base:
     """
@@ -193,10 +246,16 @@ def parse_expr(txt : str) -> E.Base:
     
     :param txt: expression text
     """
-    return _ExprTransformer().transform(WDL._parser.parse(txt, "expr"))
+    return _ExprTransformer().transform(WDL._parser.parse(txt, "expr")) # pyre-fixme
 
 def parse_tasks(txt : str) -> List[D.Task]:
     """
     Parse zero or more WDL tasks
     """
-    return _TaskTransformer().transform(WDL._parser.parse(txt, "tasks"))
+    return _DocTransformer().transform(WDL._parser.parse(txt, "tasks")) # pyre-fixme
+
+def parse_document(txt : str) -> D.Document:
+    """
+    Parse a WDL document, zero or more tasks with zero or one workflow.
+    """
+    return _DocTransformer().transform(WDL._parser.parse(txt, "document")) # pyre-fixme

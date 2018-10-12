@@ -12,60 +12,13 @@ from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Dict, Callable, TypeVar, Tuple, Union
 import WDL.Type as T
 import WDL.Value as V
+import WDL.Env as Env
 
 # Forward-declare certain types needed for Error definitions, then import them.
 TVApply = TypeVar('TVApply', bound='Apply')
 TVIdent = TypeVar('TVIdent', bound='Ident')
 import WDL.Error as Error
 from WDL.Error import SourcePosition, SourceNode
-
-TVTypeEnv = TypeVar('TVTypeEnv', bound='TypeEnv')
-class TypeEnv:
-    """
-    Provides the types of bound identifiers during static analysis, prior to any evaluation.
-    Represented as an immutable linked list.
-    """
-    binding: Optional[Tuple[str,T.Base]]
-    parent: Optional[TVTypeEnv]
-
-    def __init__(self, binding : Optional[Tuple[str,T.Base]] = None, parent : Optional[TVTypeEnv] = None) -> None:
-        self.binding = binding
-        self.parent = parent
-
-    def __getitem__(self, id : str) -> T.Base:
-        """
-        Look up the data type of the given identifier
-        """
-        if self.binding is not None and id == self.binding[0]:
-            return self.binding[1]
-        elif self.parent is not None:
-            return self.parent[id] # pyre-ignore
-        else:
-            raise KeyError()
-
-TVEnv = TypeVar('TVEnv', bound='Env')
-class Env:
-    """
-    Provides the bindings of identifiers to existing values during expression evaluation.
-    Represented as an immutable linked list.
-    """
-    binding: Optional[Tuple[str,V.Base]]
-    parent: Optional[TVEnv]
-
-    def __init__(self, binding : Optional[Tuple[str,V.Base]] = None, parent : Optional[TVEnv] = None) -> None:
-        self.binding = binding
-        self.parent = parent
-
-    def __getitem__(self, id : str) -> V.Base:
-        """
-        Look up the value bound to the given identifier
-        """
-        if self.binding is not None and id == self.binding[0]:
-            return self.binding[1]
-        elif self.parent is not None:
-            return self.parent[id] # pyre-ignore
-        else:
-            raise KeyError()
 
 TVBase = TypeVar('TVBase', bound='Base')
 class Base(SourceNode, ABC):
@@ -87,10 +40,10 @@ class Base(SourceNode, ABC):
         return self._type
 
     @abstractmethod
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         pass
 
-    def infer_type(self, type_env : TypeEnv) -> TVBase:
+    def infer_type(self, type_env : Env.Types) -> TVBase:
         """
         Infer the expression's type within the given type environment. Must be
         invoked exactly once prior to use of other methods.
@@ -117,7 +70,7 @@ class Base(SourceNode, ABC):
         return self
 
     @abstractmethod
-    def eval(self, env : Env) -> V.Base:
+    def eval(self, env : Env.Values) -> V.Base:
         """Evaluate the expression in the given environment"""
         pass
 
@@ -128,9 +81,9 @@ class Boolean(Base):
     def __init__(self, pos : SourcePosition, literal : bool) -> None:
         super().__init__(pos)
         self.value = literal
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         return T.Boolean()
-    def eval(self, env : Env) -> V.Boolean:
+    def eval(self, env : Env.Values) -> V.Boolean:
         return V.Boolean(self.value)
 
 # Integer literal
@@ -140,9 +93,9 @@ class Int(Base):
     def __init__(self, pos : SourcePosition, literal : int) -> None:
         super().__init__(pos)
         self.value = literal
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         return T.Int()
-    def eval(self, env : Env) -> V.Int:
+    def eval(self, env : Env.Values) -> V.Int:
         return V.Int(self.value)
 
 # Float literal
@@ -152,9 +105,9 @@ class Float(Base):
     def __init__(self, pos : SourcePosition, literal : float) -> None:
         super().__init__(pos)
         self.value = literal
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         return T.Float()
-    def eval(self, env : Env) -> V.Float:
+    def eval(self, env : Env.Values) -> V.Float:
         return V.Float(self.value)
 
 class Placeholder(Base):
@@ -167,7 +120,7 @@ class Placeholder(Base):
         super().__init__(pos)
         self.options = options
         self.expr = expr
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         self.expr.infer_type(type_env)
         if isinstance(self.expr.type, T.Array):
             if 'sep' not in self.options:
@@ -182,7 +135,7 @@ class Placeholder(Base):
             if not ('true' in self.options and 'false' in self.options):
                 raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "command placeholder with only one of 'true' and 'false' options")
         return T.String()
-    def eval(self, env : Env) -> V.String:
+    def eval(self, env : Env.Values) -> V.String:
         v = self.expr.eval(env)
         if isinstance(v, V.Null):
             if 'default' in self.options:
@@ -205,14 +158,14 @@ class String(Base):
     def __init__(self, pos : SourcePosition, parts : List[Union[str,Placeholder]]) -> None:
         super().__init__(pos)
         self.parts = parts
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         for part in self.parts:
             if isinstance(part, Placeholder):
                 part.infer_type(type_env)
         return T.String()
     def typecheck(self, expected : Optional[T.Base]) -> Base:
         return super().typecheck(expected) # pyre-ignore
-    def eval(self, env : Env) -> V.String:
+    def eval(self, env : Env.Values) -> V.String:
         ans = []
         for part in self.parts:
             if isinstance(part, Placeholder):
@@ -220,7 +173,7 @@ class String(Base):
                 ans.append(part.eval(env).value)
             elif type(part) == str:
                 # use python builtins to decode escape sequences
-                ans.append(str.encode(part).decode('unicode_escape')) # pyre-ignore
+                ans.append(str.encode(part).decode('unicode_escape'))
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
@@ -235,7 +188,7 @@ class Array(Base):
         super(Array, self).__init__(pos)
         self.items = items
 
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         if len(self.items) == 0:
             return T.Array(None)
         for item in self.items:
@@ -266,7 +219,7 @@ class Array(Base):
             return self
         return super().typecheck(expected) # pyre-ignore
 
-    def eval(self, env : Env) -> V.Array:
+    def eval(self, env : Env.Values) -> V.Array:
         assert isinstance(self.type, T.Array)
         return V.Array(self.type, [item.eval(env).coerce(self.type.item_type) for item in self.items])
 
@@ -287,11 +240,11 @@ class IfThenElse(Base):
         self.consequent = consequent
         self.alternative = alternative
 
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         if self.condition.infer_type(type_env).type != T.Boolean():
             raise Error.StaticTypeMismatch(self, T.Boolean(), self.condition.type, "in if condition")
         self_type = self.consequent.infer_type(type_env).type
-        assert isinstance(self_type, T.Base) # pyre-ignore
+        assert isinstance(self_type, T.Base)
         self.alternative.infer_type(type_env)
         if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
             self_type = T.Float()
@@ -302,7 +255,7 @@ class IfThenElse(Base):
                                            "if consequent & alternative must have the same type") from None
         return self_type
     
-    def eval(self, env : Env) -> V.Base:
+    def eval(self, env : Env.Values) -> V.Base:
         try:
             if self.condition.eval(env).expect(T.Boolean()).value != False:
                 ans = self.consequent.eval(env)
@@ -325,7 +278,7 @@ class _Function(ABC):
         pass
 
     @abstractmethod
-    def __call__(self, expr : TVApply, env : Env) -> V.Base:
+    def __call__(self, expr : TVApply, env : Env.Values) -> V.Base:
         pass
 # Table of standard library functions, filled in below and in StdLib.py
 _stdlib : Dict[str,_Function] = {}
@@ -345,12 +298,12 @@ class Apply(Base):
             raise Error.NoSuchFunction(self, function) from None
         self.arguments = arguments
 
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         for arg in self.arguments:
             arg.infer_type(type_env)
         return self.function.infer_type(self)
 
-    def eval(self, env : Env) -> V.Base:
+    def eval(self, env : Env.Values) -> V.Base:
         return self.function(self, env)
 
 
@@ -359,24 +312,24 @@ class Apply(Base):
 class Ident(Base):
     """An identifier expected to resolve in the environment given during evaluation"""
     namespace : List[str]
-    identifier : str
+    name : str
 
     def __init__(self, pos : SourcePosition, parts : List[str]) -> None:
         super().__init__(pos)
         assert len(parts) > 0
-        self.identifier = parts[-1]
+        self.name = parts[-1]
         self.namespace = parts[:-1]
-        assert self.namespace == [] # placeholder
 
-    def _infer_type(self, type_env : TypeEnv) -> T.Base:
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
         try:
-            return type_env[self.identifier]
+            ans : T.Base = Env.resolve(type_env, self.namespace, self.name)
+            return ans
         except KeyError:
             raise Error.UnknownIdentifier(self) from None
 
-    def eval(self, env : Env) -> V.Base:
+    def eval(self, env : Env.Values) -> V.Base:
         try:
-            # TODO: handling missing values
-            return env[self.identifier]
+            ans : V.Base = Env.resolve(env, self.namespace, self.name)
+            return ans
         except KeyError:
             raise Error.UnknownIdentifier(self) from None

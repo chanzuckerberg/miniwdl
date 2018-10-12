@@ -44,7 +44,7 @@ grammar = r"""
 
           | "if" expr "then" expr "else" expr -> ifthenelse
 
-          | [CNAME ("." CNAME)*] -> ident
+          | ident
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
 ?literal: "true" -> boolean_true
@@ -72,13 +72,21 @@ STRING_INNER1: ("\\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
+ident: [CNAME ("." CNAME)*]
+
 // WDL types and declarations
-type: "Int" QUANT? -> int_type
-    | "Float" QUANT? -> float_type
-    | "Boolean" QUANT? -> boolean_type
-    | "String" QUANT? -> string_type
-    | "File" QUANT? -> file_type
-    | "Array[" type "]" ARRAY_QUANT? -> array_type
+type: _INT QUANT? -> int_type
+    | _FLOAT QUANT? -> float_type
+    | _BOOLEAN QUANT? -> boolean_type
+    | _STRING QUANT? -> string_type
+    | _FILE QUANT? -> file_type
+    | _ARRAY "[" type "]" ARRAY_QUANT? -> array_type
+_INT.2: "Int"           // .2 ensures higher priority than CNAME
+_FLOAT.2: "Float"
+_BOOLEAN.2: "Boolean"
+_STRING.2: "String"
+_FILE.2: "File"
+_ARRAY.2: "Array"
 QUANT: "?"
 ARRAY_QUANT: "?" | "+"
 
@@ -110,7 +118,7 @@ meta_kv: CNAME ":" meta_value
 ?meta_value: literal | string
            | meta_object
            | "[" [meta_value ("," meta_value)*] "]" -> meta_array
-META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures META_KIND has higher priority than CNAME
+META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures higher priority than CNAME
 meta_section: META_KIND meta_object
 
 // task runtime section (key-expression pairs)
@@ -129,6 +137,23 @@ output_decls: "output" "{" [bound_decl*] "}"
 task: "task" CNAME "{" task_sections1* command task_sections2* "}"
 
 tasks: task*
+
+// WDL workflows
+call_input: CNAME "=" expr
+call_inputs: "input" ":" [call_input ("," call_input)*]
+?call_body: "{" call_inputs? "}"
+call: "call" ident call_body? -> call
+    | "call" ident "as" CNAME call_body? -> call_as
+
+?scatter_element: bound_decl | call | scatter
+scatter: "scatter" "(" CNAME "in" expr ")" "{" [scatter_element*] "}"
+
+?workflow_element: any_decl | call | scatter | meta_section | output_decls
+workflow: "workflow" CNAME "{" workflow_element* "}"
+
+// WDL document: tasks and (at most one) workflow
+document: task* workflow?
+        | workflow task*
 
 COMMENT: "#" /[^\r\n]*/ NEWLINE
 

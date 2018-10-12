@@ -1,5 +1,5 @@
 wheel
-pyre-check
+pyre-check==0.0.16
 coverage
 sphinx
 sphinx-autobuild
