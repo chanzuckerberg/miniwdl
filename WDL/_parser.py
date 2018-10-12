@@ -152,8 +152,9 @@ scatter: "scatter" "(" CNAME "in" expr ")" "{" [scatter_element*] "}"
 workflow: "workflow" CNAME "{" workflow_element* "}"
 
 // WDL document: tasks and (at most one) workflow
-document: task* workflow?
-        | workflow task*
+version: "version" /[^ \t\r\n]+/
+document: version? task* workflow?
+        | version? workflow task*
 
 COMMENT: "#" /[^\r\n]*/ NEWLINE
 

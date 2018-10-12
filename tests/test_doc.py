@@ -454,6 +454,7 @@ class TestDoc(unittest.TestCase):
             doc.workflow.typecheck(doc.tasks)
 
         doc = r"""
+        version 1.0
         task sum {
             Int x
             Int y

@@ -230,6 +230,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             elif isinstance(item, D.Workflow):
                 assert workflow is None
                 workflow = item
+            elif isinstance(item, lark.Tree) and item.data == "version":
+                pass
             else:
                 assert False
         return D.Document(sp(meta), tasks, workflow)
