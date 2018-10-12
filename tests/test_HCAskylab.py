@@ -7,9 +7,9 @@ class TestHCAskylab(unittest.TestCase):
     pass
 
 tdn = tempfile.mkdtemp(prefix='miniwdl_test_HCAskylab_')
-subprocess.check_call(['wget', '-q', 'https://github.com/HumanCellAtlas/skylab/archive/master.zip'], cwd=tdn)
-subprocess.check_call(['unzip', '-q', 'master.zip'], cwd=tdn)
-task_files = glob.glob(os.path.join(tdn, 'skylab-master', 'library', 'tasks', '*.wdl'))
+subprocess.check_call(['wget', '-q', '-O', 'skylab.zip', 'https://github.com/HumanCellAtlas/skylab/archive/face906.zip'], cwd=tdn)
+subprocess.check_call(['unzip', '-q', 'skylab.zip'], cwd=tdn)
+task_files = glob.glob(os.path.join(tdn, 'skylab-*', 'library', 'tasks', '*.wdl'))
 for fn in task_files:
     name = os.path.split(fn)[1]
     name = name[:-4]
