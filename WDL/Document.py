@@ -135,13 +135,14 @@ class Call(SourceNode):
             outputs_env = Env.bind(outp.name, outp.type, outputs_env)
         return outputs_env
 
+TVScatter = TypeVar("TVScatter", bound="Scatter")
 class Scatter(SourceNode):
     """A scatter stanza within a workflow"""
     variable : str
     """The scatter variable name"""
     expr : E.Base
     """Expression for the array over which to scatter"""
-    elements: List[Union[Decl,Call]]
+    elements: List[Union[Decl,Call,TVScatter]]
     """Calls and/or bound declarations"""
 
     def __init__(self, pos : SourcePosition, variable : str, expr : E.Base, elements : List[Union[Decl,Call]]) -> None:

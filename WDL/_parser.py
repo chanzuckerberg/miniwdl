@@ -151,10 +151,12 @@ scatter: "scatter" "(" CNAME "in" expr ")" "{" [scatter_element*] "}"
 ?workflow_element: any_decl | call | scatter | meta_section | output_decls
 workflow: "workflow" CNAME "{" workflow_element* "}"
 
-// WDL document: tasks and (at most one) workflow
+// WDL document: version, imports, tasks and (at most one) workflow
 version: "version" /[^ \t\r\n]+/
-document: version? task* workflow?
-        | version? workflow task*
+import: "import" string_literal ["as" CNAME]
+?document_element: import | task | workflow
+document: version? document_element*
+        | version? document_element*
 
 COMMENT: "#" /[^\r\n]*/ NEWLINE
 
