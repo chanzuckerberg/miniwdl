@@ -376,6 +376,7 @@ class TestDoc(unittest.TestCase):
 
     def test_nested_scatter(self):
         doc = r"""
+        import "x.wdl"
         task sum {
             Int x
             Int y
@@ -386,6 +387,7 @@ class TestDoc(unittest.TestCase):
                 Int z = stdout()
             }
         }
+        import "y.wdl" as z
         workflow contrived {
             Array[Int] xs = [1, 2, 3]
             Array[Int] ys = [4, 5, 6]
@@ -408,6 +410,7 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow.elements[2].elements[0], WDL.Document.Scatter)
         self.assertEqual(len(doc.tasks), 1)
         doc.workflow.typecheck(doc.tasks)
+        self.assertEqual(doc.imports, [("x.wdl","x"), ("y.wdl","z")])
 
     def test_errors(self):
         doc = r"""

@@ -153,8 +153,8 @@ workflow: "workflow" CNAME "{" workflow_element* "}"
 
 // WDL document: version, imports, tasks and (at most one) workflow
 version: "version" /[^ \t\r\n]+/
-import: "import" string_literal ["as" CNAME]
-?document_element: import | task | workflow
+import_doc: "import" string_literal ["as" CNAME]
+?document_element: import_doc | task | workflow
 document: version? document_element*
         | version? document_element*
 

@@ -228,12 +228,16 @@ class Workflow(SourceNode):
 
 class Document(SourceNode):
     """Top-level document"""
+    imports : List[Tuple[str,str]]
+    """Import statements in the document (filename/URI and namespace)"""
     tasks : List[Task]
     """Tasks in the document"""
     workflow : Optional[Workflow]
     """Workflow in the document, if any"""
 
-    def __init__(self, pos : SourcePosition, tasks : List[Task], workflow : Optional[Workflow]) -> None:
+    def __init__(self, pos : SourcePosition, imports : List[Tuple[str,str]],
+                 tasks : List[Task], workflow : Optional[Workflow]) -> None:
         super().__init__(pos)
+        self.imports = imports
         self.tasks = tasks
         self.workflow = workflow

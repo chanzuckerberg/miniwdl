@@ -241,7 +241,22 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 assert False
         return D.Workflow(sp(self.filename, meta), items[0].value, elements, outputs,
                           parameter_meta or dict(), meta_section or dict())
+    def import_doc(self, items, meta):
+        uri = items[0]
+        if len(items) > 1:
+            namespace = items[1]
+        else:
+            namespace = uri
+            try:
+                namespace = namespace[namespace.rindex('/')+1:]
+            except ValueError:
+                pass
+            if namespace.endswith(".wdl"):
+                namespace = namespace[:-4]
+        # TODO: validate namespace
+        return {"import": (uri,namespace)}
     def document(self, items, meta):
+        imports = []
         tasks = []
         workflow = None
         for item in items:
@@ -253,9 +268,11 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 workflow = item
             elif isinstance(item, lark.Tree) and item.data == "version":
                 pass
+            elif isinstance(item, dict) and "import" in item:
+                imports.append(item["import"])
             else:
                 assert False
-        return D.Document(sp(self.filename, meta), tasks, workflow)
+        return D.Document(sp(self.filename, meta), imports, tasks, workflow)
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
