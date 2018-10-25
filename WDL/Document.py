@@ -68,6 +68,7 @@ class Task(SourceNode):
         self.runtime = runtime
         self.meta = meta
         # TODO: enforce validity constraints on parameter_meta and runtime
+        # TODO: complain of name collisions in inputs/postinputs
 
     def typecheck(self, type_env : Env.Types = []) -> None:
         """Infer and check types on all input/output declarations and the command, including any expression placeholders within the command"""
@@ -88,42 +89,65 @@ def _typecheck_decl(decl : Decl, type_env : Env.Types) -> Env.Types:
     ans : Env.Types = Env.bind(decl.name, decl.type, type_env)
     return ans
 
+# forward-declaration of Document type
+TVDocument = TypeVar('TVDocument',bound='Document')
+TVWorkflow = TypeVar('TVWorkflow',bound='Workflow')
+
 class Call(SourceNode):
     """A call (within a workflow) to a task or sub-workflow"""
-    callee : E.Ident
-    """Identifier of the desired task"""
+    callee_id : E.Ident
+    """Identifier of the desired task/workflow"""
     name : str
-    """Name of the call (defaults to task name)"""
+    """Name of the call (defaults to task/workflow name)"""
     inputs: Dict[str,E.Base]
     """Call inputs provided"""
 
-    def __init__(self, pos : SourcePosition, callee : E.Ident, alias : Optional[str], inputs : Dict[str,E.Base]) -> None:
+    callee : Optional[Union[Task,TVWorkflow]]
+    """After typechecking, holds the task/workflow object to call"""
+
+    def __init__(self, pos : SourcePosition, callee_id : E.Ident, alias : Optional[str], inputs : Dict[str,E.Base]) -> None:
         super().__init__(pos)
-        self.callee = callee
-        self.name = alias if alias is not None else self.callee.name
+        self.callee_id = callee_id
+        self.name = alias if alias is not None else self.callee_id.name
         self.inputs = inputs
+        self.callee = None
 
-    def typecheck(self, type_env : Env.Types, callables : List[Task]) -> Env.Types:
-        """Resolve the callee within the type environment, and check the types of provided inputs against the callee inputs. Return a type environment describing the call outputs only."""
+    def typecheck(self, type_env : Env.Types, doc : TVDocument) -> Env.Types:
+        """Resolve the callee_id within the type environment, and check the types of provided inputs against the callee_id inputs. Return a type environment describing the call outputs only."""
 
-        # resolve callee to task; not handling imports yet
-        assert len(self.callee.namespace) == 0
-        task = None
-        for callable in callables:
-            if isinstance(callable, Task) and callable.name == self.callee.name:
-                task = callable
-        if not isinstance(task, Task):
-            raise Err.UnknownIdentifier(self.callee)
+        # resolve callee_id to a known task/workflow, either within the
+        # current document or one of its imported sub-documents
+        if len(self.callee_id.namespace) == 0:
+            callee_doc = doc
+        elif len(self.callee_id.namespace) == 1:
+            for (uri,ns,subdoc) in doc.imports:
+                if ns == self.callee_id.namespace[0]:
+                    callee_doc = subdoc
+        if callee_doc:
+            if callee_doc.workflow and callee_doc.workflow.name == self.callee_id.name:
+                self.callee = callee_doc.workflow
+            else:
+                for task in callee_doc.tasks:
+                    if task.name == self.callee_id.name:
+                        self.callee = task
+        if self.callee is None:
+            raise Err.UnknownIdentifier(self.callee_id)
 
-        # typecheck call inputs against task input declarations
+        # typecheck call inputs against task/workflow input declarations
         for name, expr in self.inputs.items():
             decl = None
-            for d in task.postinputs:
-                if d.name == name:
-                    decl = d
-            for d in task.inputs:
-                if d.name == name:
-                    decl = d
+            if isinstance(self.callee, Task):
+                for d in self.callee.postinputs:
+                    if d.name == name:
+                        decl = d
+                for d in self.callee.inputs:
+                    if d.name == name:
+                        decl = d
+            else:
+                assert isinstance(self.callee, Workflow)
+                for ele in self.callee.elements:
+                    if isinstance(ele, Decl) and ele.name == name:
+                        decl = ele
             if decl is None:
                 raise Err.NoSuchInput(expr, name)
             else:
@@ -131,7 +155,7 @@ class Call(SourceNode):
 
         # return a TypeEnv with ONLY the outputs (not including the input TypeEnv)
         outputs_env = []
-        for outp in task.outputs:
+        for outp in self.callee.outputs:
             outputs_env = Env.bind(outp.name, outp.type, outputs_env)
         return outputs_env
 
@@ -151,7 +175,7 @@ class Scatter(SourceNode):
         self.expr = expr
         self.elements = elements
 
-    def typecheck(self, type_env : Env.Types, callables : List[Task]) -> Env.Types:
+    def typecheck(self, type_env : Env.Types, doc : TVDocument) -> Env.Types:
         """Typecheck the scatter array and each element of the body; return a type environment describing the scatter outputs only (namespaced with their respective call names)."""
 
         # typecheck the array to determine the element type
@@ -172,11 +196,11 @@ class Scatter(SourceNode):
                 type_env = _typecheck_decl(element, type_env)
                 # are declarations within scatters visible as arrays after the scatter?
             elif isinstance(element, Call):
-                call_outputs_env = element.typecheck(type_env, callables)
+                call_outputs_env = element.typecheck(type_env, doc)
                 type_env = Env.namespace(element.name, call_outputs_env, type_env)
                 outputs_env = Env.namespace(element.name, call_outputs_env, outputs_env)
             elif isinstance(element, Scatter):
-                subscatter_outputs_env = element.typecheck(type_env, callables)
+                subscatter_outputs_env = element.typecheck(type_env, doc)
                 type_env = subscatter_outputs_env + type_env
                 outputs_env = subscatter_outputs_env + outputs_env
             else:
@@ -205,7 +229,7 @@ class Workflow(SourceNode):
         self.parameter_meta = parameter_meta
         self.meta = meta
 
-    def typecheck(self, callables : List[Task]) -> None:
+    def typecheck(self, doc : TVDocument) -> None:
         """Typecheck each workflow element and the outputs, given all the tasks/subworkflows available to be called."""
 
         type_env = []
@@ -213,10 +237,10 @@ class Workflow(SourceNode):
             if isinstance(element, Decl):
                 type_env = _typecheck_decl(element, type_env)
             elif isinstance(element, Call):
-                outputs_env = element.typecheck(type_env, callables)
+                outputs_env = element.typecheck(type_env, doc)
                 type_env = Env.namespace(element.name, outputs_env, type_env)
             elif isinstance(element, Scatter):
-                outputs_env = element.typecheck(type_env, callables)
+                outputs_env = element.typecheck(type_env, doc)
                 type_env = outputs_env + type_env
             else:
                 assert False
@@ -228,8 +252,8 @@ class Workflow(SourceNode):
 
 class Document(SourceNode):
     """Top-level document"""
-    imports : List[Tuple[str,str]]
-    """Import statements in the document (filename/URI and namespace)"""
+    imports : List[Tuple[str,str,Optional[TVDocument]]]
+    """Imports in the document (filename/URI, namespace, and later the sub-document)"""
     tasks : List[Task]
     """Tasks in the document"""
     workflow : Optional[Workflow]
@@ -238,6 +262,15 @@ class Document(SourceNode):
     def __init__(self, pos : SourcePosition, imports : List[Tuple[str,str]],
                  tasks : List[Task], workflow : Optional[Workflow]) -> None:
         super().__init__(pos)
-        self.imports = imports
+        self.imports = []
+        for (uri,namespace) in imports:
+            # TODO: complain of namespace collisions
+
+            # The sub-document is initially None. The WDL.load() function
+            # populates it, after construction of this object but before
+            # typechecking the contents.
+            self.imports.append((uri,namespace,None))
         self.tasks = tasks
         self.workflow = workflow
+
+        # TODO: complain about name collisions amongst tasks and/or the workflow

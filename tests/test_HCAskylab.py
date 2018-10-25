@@ -15,7 +15,5 @@ for fn in task_files:
     name = name[:-4]
     name = 'test_HCAskylab_task_' + name.replace('.', '_')
     def t(self, fn=fn):
-        with open(fn) as infile:
-            for task in WDL.parse_tasks(infile.read()):
-                task.typecheck()
+        WDL.load(fn)
     setattr(TestHCAskylab, name, t)

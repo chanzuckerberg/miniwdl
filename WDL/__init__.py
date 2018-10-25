@@ -294,8 +294,27 @@ def parse_tasks(txt : str) -> List[D.Task]:
     """
     return _DocTransformer('').transform(WDL._parser.parse(txt, "tasks")) # pyre-fixme
 
-def parse_document(txt : str) -> D.Document:
+def parse_document(txt : str, uri='') -> D.Document:
     """
     Parse a WDL document, zero or more tasks with zero or one workflow.
     """
-    return _DocTransformer('').transform(WDL._parser.parse(txt, "document")) # pyre-fixme
+    return _DocTransformer(uri).transform(WDL._parser.parse(txt, "document")) # pyre-fixme
+
+def load(uri : str) -> D.Document:
+    """
+    Load a WDL document: read and parse it, recursively descend into imported documents, then typecheck the tasks and workflow
+    """
+    with open(uri, 'r') as infile:
+        # read and parse the document
+        doc = parse_document(infile.read(), uri)
+        # recursively descend into document's imports, and store the imported
+        # documents into doc.imports
+        for imp in doc.imports:
+            imp[2] = load(imp[0])
+        # typecheck each task
+        for task in doc.tasks:
+            task.typecheck()
+        # typecheck the workflow
+        if doc.workflow:
+            doc.workflow.typecheck(doc.tasks)
+        return doc
