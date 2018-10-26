@@ -1,4 +1,5 @@
 """Toolkit for static analysis of Workflow Description Language (WDL)"""
+import os, errno
 import lark
 import inspect
 import WDL._parser
@@ -298,23 +299,28 @@ def parse_document(txt : str, uri='') -> D.Document:
     """
     Parse a WDL document, zero or more tasks with zero or one workflow.
     """
-    return _DocTransformer(uri).transform(WDL._parser.parse(txt, "document")) # pyre-fixme
+    try:
+        return _DocTransformer(uri).transform(WDL._parser.parse(txt, "document"))
+    except lark.exceptions.UnexpectedCharacters as exn:
+        raise Err.ParserError(uri if uri != '' else '(in buffer)') from exn
 
-def load(uri : str) -> D.Document:
+def load(uri : str, path : List[str] = []) -> D.Document:
     """
     Load a WDL document: read and parse it, recursively descend into imported documents, then typecheck the tasks and workflow
     """
-    with open(uri, 'r') as infile:
-        # read and parse the document
-        doc = parse_document(infile.read(), uri)
-        # recursively descend into document's imports, and store the imported
-        # documents into doc.imports
-        for imp in doc.imports:
-            imp[2] = load(imp[0])
-        # typecheck each task
-        for task in doc.tasks:
-            task.typecheck()
-        # typecheck the workflow
-        if doc.workflow:
-            doc.workflow.typecheck(doc.tasks)
-        return doc
+    for dn in ([''] + list(reversed(path))):
+        fn = uri
+        if dn != '':
+            fn = os.path.join(dn, fn)
+        if os.path.exists(fn):
+            with open(fn, 'r') as infile:
+                # read and parse the document
+                doc = parse_document(infile.read(), uri)
+                # recursively descend into document's imports, and store the imported
+                # documents into doc.imports
+                for i in range(len(doc.imports)):
+                    subdoc = load(doc.imports[i][0], path)
+                    doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
+                doc.typecheck()
+                return doc
+    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)

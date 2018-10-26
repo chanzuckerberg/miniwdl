@@ -9,6 +9,10 @@ SourcePosition = NamedTuple("SourcePosition",
                              ('end_line',int), ('end_column',int)])
 """Source file, line, and column, attached to each AST node"""
 
+class ParserError(Exception):
+    def __init__(self, filename : str) -> None:
+        super().__init__(filename)
+
 class SourceNode:
     """Base class for an AST node, recording the source position"""
 

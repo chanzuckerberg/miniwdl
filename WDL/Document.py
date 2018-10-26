@@ -124,6 +124,7 @@ class Call(SourceNode):
                 if ns == self.callee_id.namespace[0]:
                     callee_doc = subdoc
         if callee_doc:
+            assert isinstance(callee_doc,Document)
             if callee_doc.workflow and callee_doc.workflow.name == self.callee_id.name:
                 self.callee = callee_doc.workflow
             else:
@@ -274,3 +275,11 @@ class Document(SourceNode):
         self.workflow = workflow
 
         # TODO: complain about name collisions amongst tasks and/or the workflow
+
+    def typecheck(self) -> None:
+        # typecheck each task
+        for task in self.tasks:
+            task.typecheck()
+        # typecheck the workflow
+        if self.workflow:
+            self.workflow.typecheck(self)

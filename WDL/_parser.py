@@ -140,7 +140,7 @@ tasks: task*
 
 // WDL workflows
 call_input: CNAME "=" expr
-call_inputs: "input" ":" [call_input ("," call_input)*]
+call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
 call: "call" ident call_body? -> call
     | "call" ident "as" CNAME call_body? -> call_as
