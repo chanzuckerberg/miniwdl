@@ -4,10 +4,14 @@ from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar
 import WDL.Type as T
 from WDL.Expr import TVApply, TVIdent
 
+class ParserError(Exception):
+    def __init__(self, filename : str) -> None:
+        super().__init__(filename)
+
 SourcePosition = NamedTuple("SourcePosition",
-                            [('line',int), ('column',int),
+                            [('filename',str), ('line',int), ('column',int),
                              ('end_line',int), ('end_column',int)])
-"""Source file line/column for each nodeession, attached to each AST node"""
+"""Source file, line, and column, attached to each AST node"""
 
 class SourceNode:
     """Base class for an AST node, recording the source position"""
@@ -69,3 +73,7 @@ class NoSuchInput(Base):
 class NullValue(Base):
     def __init__(self, node : SourceNode) -> None:
         super().__init__(node, "Null value")
+
+class MultipleDefinitions(Base):
+    def __init__(self, node : SourceNode, message : str) -> None:
+        super().__init__(node, message)

@@ -1,5 +1,5 @@
 test: check
-	coverage run --include "WDL/*" -m unittest discover
+	coverage run --include "WDL/*" -m unittest -v
 	coverage report
 
 check:

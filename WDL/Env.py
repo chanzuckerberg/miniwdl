@@ -1,6 +1,6 @@
 # pyre-strict
 """
-Environments, for name resolution during WDL type-checking and evaluation
+Environments, for identifier resolution during WDL typechecking and evaluation
 """
 from typing import List, TypeVar, Generic, Union
 import WDL.Type as T
@@ -74,18 +74,6 @@ def resolve(tree : 'Tree[R]', namespace : List[str], name : str) -> R:
         else:
             assert False
     raise KeyError()
-
-def arrayize(type_env : Types) -> Types:
-    """Given a type environment, recursively promote each binding of type x to Array[x]"""
-    ans = []
-    for node in type_env:
-        if isinstance(node, Binding):
-            ans.append(Binding(node.name, T.Array(node.rhs)))
-        elif isinstance(node, Namespace):
-            ans.append(Namespace(node.namespace, arrayize(node.bindings)))
-        else:
-            assert False
-    return ans
 
 #print(arrayize([Binding('x',T.Int())])[0].rhs)
 #assert resolve([Binding('x',T.Int())], [], 'x') == T.Int()

@@ -312,7 +312,7 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow, WDL.Document.Workflow)
         self.assertEqual(len(doc.workflow.elements), 2)
         self.assertEqual(len(doc.tasks), 2)
-        doc.workflow.typecheck(doc.tasks)
+        doc.workflow.typecheck(doc)
 
     def test_bam_chrom_counter(self):
         doc = r"""
@@ -372,10 +372,11 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow.elements[2], WDL.Document.Scatter)
         self.assertEqual(len(doc.workflow.elements[2].elements), 1)
         self.assertEqual(len(doc.tasks), 2)
-        doc.workflow.typecheck(doc.tasks)
+        doc.workflow.typecheck(doc)
 
     def test_nested_scatter(self):
         doc = r"""
+        import "x.wdl"
         task sum {
             Int x
             Int y
@@ -386,6 +387,7 @@ class TestDoc(unittest.TestCase):
                 Int z = stdout()
             }
         }
+        import "y.wdl" as z
         workflow contrived {
             Array[Int] xs = [1, 2, 3]
             Array[Int] ys = [4, 5, 6]
@@ -407,7 +409,8 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow.elements[2], WDL.Document.Scatter)
         self.assertIsInstance(doc.workflow.elements[2].elements[0], WDL.Document.Scatter)
         self.assertEqual(len(doc.tasks), 1)
-        doc.workflow.typecheck(doc.tasks)
+        doc.workflow.typecheck(doc)
+        self.assertEqual(doc.imports, [("x.wdl","x",None), ("y.wdl","z",None)])
 
     def test_errors(self):
         doc = r"""
@@ -429,7 +432,7 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.NotAnArray):
-            doc.workflow.typecheck(doc.tasks)
+            doc.workflow.typecheck(doc)
 
         doc = r"""
         task sum {
@@ -451,7 +454,7 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.NoSuchInput):
-            doc.workflow.typecheck(doc.tasks)
+            doc.workflow.typecheck(doc)
 
         doc = r"""
         version 1.0
@@ -477,7 +480,7 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.UnknownIdentifier):
-            doc.workflow.typecheck(doc.tasks)
+            doc.workflow.typecheck(doc)
 
         doc = r"""
         workflow contrived {
@@ -489,4 +492,4 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.UnknownIdentifier):
-            doc.workflow.typecheck(doc.tasks)
+            doc.workflow.typecheck(doc)

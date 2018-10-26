@@ -140,7 +140,7 @@ tasks: task*
 
 // WDL workflows
 call_input: CNAME "=" expr
-call_inputs: "input" ":" [call_input ("," call_input)*]
+call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
 call: "call" ident call_body? -> call
     | "call" ident "as" CNAME call_body? -> call_as
@@ -151,10 +151,12 @@ scatter: "scatter" "(" CNAME "in" expr ")" "{" [scatter_element*] "}"
 ?workflow_element: any_decl | call | scatter | meta_section | output_decls
 workflow: "workflow" CNAME "{" workflow_element* "}"
 
-// WDL document: tasks and (at most one) workflow
+// WDL document: version, imports, tasks and (at most one) workflow
 version: "version" /[^ \t\r\n]+/
-document: version? task* workflow?
-        | version? workflow task*
+import_doc: "import" string_literal ["as" CNAME]
+?document_element: import_doc | task | workflow
+document: version? document_element*
+        | version? document_element*
 
 COMMENT: "#" /[^\r\n]*/ NEWLINE
 
@@ -170,6 +172,9 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 %ignore COMMENT
 """
 
+larks_by_start = {} # memoize Lark parsers constructed for various start symbols
 def parse(txt : str, start : str) -> lark.Tree:
-  return lark.Lark(grammar, start=start, parser="lalr", propagate_positions=True).parse(txt)
+    if start not in larks_by_start:
+        larks_by_start[start] = lark.Lark(grammar, start=start, parser="lalr", propagate_positions=True)
+    return larks_by_start[start].parse(txt)
 

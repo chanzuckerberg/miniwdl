@@ -15,7 +15,14 @@ for fn in task_files:
     name = name[:-4]
     name = 'test_HCAskylab_task_' + name.replace('.', '_')
     def t(self, fn=fn):
-        with open(fn) as infile:
-            for task in WDL.parse_tasks(infile.read()):
-                task.typecheck()
+        WDL.load(fn)
     setattr(TestHCAskylab, name, t)
+workflow_files = glob.glob(os.path.join(tdn, 'skylab-*', 'pipelines', '**', '*.wdl'), recursive=True)
+for fn in workflow_files:
+    name = os.path.split(fn)[1]
+    name = name[:-4]
+    if name not in ['Optimus','count','make_fastq']:
+        name = 'test_HCAskylab_workflow_' + name.replace('.', '_')
+        def t(self, fn=fn):
+            WDL.load(fn, path=[glob.glob(os.path.join(tdn, 'skylab-*', 'library', 'tasks'))[0]])
+        setattr(TestHCAskylab, name, t)
