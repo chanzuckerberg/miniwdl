@@ -290,10 +290,12 @@ def parse_expr(txt : str) -> E.Base:
 def parse_tasks(txt : str) -> List[D.Task]:
     return _DocTransformer('').transform(WDL._parser.parse(txt, "tasks")) # pyre-fixme
 
-def parse_document(txt : str, uri='') -> D.Document:
+def parse_document(txt : str, uri : str = '') -> D.Document:
     """
     Parse WDL document text into an abstract syntax tree. Doesn't descend into
     imported documents nor typecheck the AST.
+
+    :param uri: filename/URI for error reporting (not otherwise used)
     """
     try:
         return _DocTransformer(uri).transform(WDL._parser.parse(txt, "document"))
