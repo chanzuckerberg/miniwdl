@@ -283,21 +283,17 @@ for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
 
 def parse_expr(txt : str) -> E.Base:
     """
-    Parse an individual WDL expression into an abstract syntax tree
-    
-    :param txt: expression text
+    Parse an isolated WDL expression text into an abstract syntax tree
     """
     return _ExprTransformer('').transform(WDL._parser.parse(txt, "expr")) # pyre-fixme
 
 def parse_tasks(txt : str) -> List[D.Task]:
-    """
-    Parse zero or more WDL tasks
-    """
     return _DocTransformer('').transform(WDL._parser.parse(txt, "tasks")) # pyre-fixme
 
 def parse_document(txt : str, uri='') -> D.Document:
     """
-    Parse a WDL document, zero or more tasks with zero or one workflow.
+    Parse WDL document text into an abstract syntax tree. Doesn't descend into
+    imported documents nor typecheck the AST.
     """
     try:
         return _DocTransformer(uri).transform(WDL._parser.parse(txt, "document"))
@@ -306,12 +302,11 @@ def parse_document(txt : str, uri='') -> D.Document:
 
 def load(uri : str, path : List[str] = []) -> D.Document:
     """
-    Load a WDL document: read and parse it, recursively descend into imported documents, then typecheck the tasks and workflow
+    Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
+
+    :param path: local filesystem directories to search for imports, in addition to the current working directory
     """
-    for dn in ([''] + list(reversed(path))):
-        fn = uri
-        if dn != '':
-            fn = os.path.join(dn, fn)
+    for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)]):
         if os.path.exists(fn):
             with open(fn, 'r') as infile:
                 # read and parse the document

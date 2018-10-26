@@ -1,6 +1,6 @@
 # pyre-strict
 """
-A WDL Document (source file) includes tasks and up to one workflow
+Abstract syntax tree (AST) for WDL documents, encompassing declarations, tasks, calls, and workflows. The AST is typically constructed and returned by :func:`~WDL.load` or :func:`~WDL.parse_document`.
 """
 
 from abc import ABC, abstractmethod
@@ -71,7 +71,6 @@ class Task(SourceNode):
         # TODO: complain of name collisions in inputs/postinputs
 
     def typecheck(self, type_env : Env.Types = []) -> None:
-        """Infer and check types on all input/output declarations and the command, including any expression placeholders within the command"""
         for decl in (self.inputs+self.postinputs):
             type_env = _typecheck_decl(decl, type_env)
         self.command.infer_type(type_env).typecheck(T.String())
@@ -83,13 +82,15 @@ class Task(SourceNode):
     def required_inputs(self) -> List[Decl]:
         return [decl for decl in (self.inputs+self.postinputs) if decl.expr is None]
 
+# type-check a declaration within a type environment, and return the type
+# environment with the new binding
 def _typecheck_decl(decl : Decl, type_env : Env.Types) -> Env.Types:
     if decl.expr is not None:
         decl.expr.infer_type(type_env).typecheck(decl.type)
     ans : Env.Types = Env.bind(decl.name, decl.type, type_env)
     return ans
 
-# forward-declaration of Document type
+# forward-declaration of Document and Workflow types
 TVDocument = TypeVar('TVDocument',bound='Document')
 TVWorkflow = TypeVar('TVWorkflow',bound='Workflow')
 
@@ -103,7 +104,7 @@ class Call(SourceNode):
     """Call inputs provided"""
 
     callee : Optional[Union[Task,TVWorkflow]]
-    """After typechecking, holds the task/workflow object to call"""
+    """After the AST is typechecked, refers to the Task or Workflow object to call"""
 
     def __init__(self, pos : SourcePosition, callee_id : E.Ident, alias : Optional[str], inputs : Dict[str,E.Base]) -> None:
         super().__init__(pos)
@@ -113,8 +114,6 @@ class Call(SourceNode):
         self.callee = None
 
     def typecheck(self, type_env : Env.Types, doc : TVDocument) -> Env.Types:
-        """Resolve the callee_id within the type environment, and check the types of provided inputs against the callee_id inputs. Return a type environment describing the call outputs only."""
-
         # resolve callee_id to a known task/workflow, either within the
         # current document or one of its imported sub-documents
         if len(self.callee_id.namespace) == 0:
@@ -160,6 +159,19 @@ class Call(SourceNode):
             outputs_env = Env.bind(outp.name, outp.type, outputs_env)
         return outputs_env
 
+
+# Given a type environment, recursively promote each binding of type T to Array[T]
+def _arrayize_types(type_env : Env.Types) -> Env.Types:
+    ans = []
+    for node in type_env:
+        if isinstance(node, Env.Binding):
+            ans.append(Env.Binding(node.name, T.Array(node.rhs)))
+        elif isinstance(node, Env.Namespace):
+            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
+        else:
+            assert False
+    return ans
+
 TVScatter = TypeVar("TVScatter", bound="Scatter")
 class Scatter(SourceNode):
     """A scatter stanza within a workflow"""
@@ -177,8 +189,6 @@ class Scatter(SourceNode):
         self.elements = elements
 
     def typecheck(self, type_env : Env.Types, doc : TVDocument) -> Env.Types:
-        """Typecheck the scatter array and each element of the body; return a type environment describing the scatter outputs only (namespaced with their respective call names)."""
-
         # typecheck the array to determine the element type
         self.expr.infer_type(type_env)
         if not isinstance(self.expr.type, T.Array):
@@ -194,21 +204,25 @@ class Scatter(SourceNode):
 
         for element in self.elements:
             if isinstance(element, Decl):
+                # typecheck the declaration and add binding to type environment
                 type_env = _typecheck_decl(element, type_env)
-                # are declarations within scatters visible as arrays after the scatter?
+                # TODO: are declarations within scatters visible as arrays after the scatter?
             elif isinstance(element, Call):
                 call_outputs_env = element.typecheck(type_env, doc)
+                # add call outputs to type environment, under the call namespace
+                # TODO: complain of namespace collisions
                 type_env = Env.namespace(element.name, call_outputs_env, type_env)
                 outputs_env = Env.namespace(element.name, call_outputs_env, outputs_env)
             elif isinstance(element, Scatter):
+                # add outputs of calls within the subscatter to the type environment.
                 subscatter_outputs_env = element.typecheck(type_env, doc)
                 type_env = subscatter_outputs_env + type_env
                 outputs_env = subscatter_outputs_env + outputs_env
             else:
                 assert False
 
-        # promote each output type t to Array[t]
-        return Env.arrayize(outputs_env)
+        # promote each output type T to Array[T]
+        return _arrayize_types(outputs_env)
 
 class Workflow(SourceNode):
     name : str
@@ -231,17 +245,20 @@ class Workflow(SourceNode):
         self.meta = meta
 
     def typecheck(self, doc : TVDocument) -> None:
-        """Typecheck each workflow element and the outputs, given all the tasks/subworkflows available to be called."""
-
         type_env = []
         for element in self.elements:
             if isinstance(element, Decl):
+                # typecheck the declaration and add binding to type environment
                 type_env = _typecheck_decl(element, type_env)
             elif isinstance(element, Call):
                 outputs_env = element.typecheck(type_env, doc)
+                # add call outputs to type environment, under the call namespace
+                # TODO: complain of namespace collisions
                 type_env = Env.namespace(element.name, outputs_env, type_env)
             elif isinstance(element, Scatter):
                 outputs_env = element.typecheck(type_env, doc)
+                # add outputs of calls within the scatter to the type environment.
+                # Scatter.typecheck already "arrayized" them.
                 type_env = outputs_env + type_env
             else:
                 assert False
@@ -252,7 +269,7 @@ class Workflow(SourceNode):
                 _typecheck_decl(output, type_env)
 
 class Document(SourceNode):
-    """Top-level document"""
+    """Top-level document, with imports, tasks, and a workflow. Typically returned by :func:`~WDL.load` with imported sub-documents loaded, and everything typechecked. Alternatively, :func:`~WDL.parse_document` constructs the AST but doesn't process imports nor perform typechecking."""
     imports : List[Tuple[str,str,Optional[TVDocument]]]
     """Imports in the document (filename/URI, namespace, and later the sub-document)"""
     tasks : List[Task]
@@ -277,6 +294,7 @@ class Document(SourceNode):
         # TODO: complain about name collisions amongst tasks and/or the workflow
 
     def typecheck(self) -> None:
+        """Typecheck each task in the document, then the workflow, if any. Documents returned by :func:`~WDL.load` have already been typechecked."""
         # typecheck each task
         for task in self.tasks:
             task.typecheck()

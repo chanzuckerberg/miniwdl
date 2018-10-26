@@ -172,6 +172,9 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 %ignore COMMENT
 """
 
+larks_by_start = {} # memoize Lark parsers constructed for various start symbols
 def parse(txt : str, start : str) -> lark.Tree:
-  return lark.Lark(grammar, start=start, parser="lalr", propagate_positions=True).parse(txt)
+    if start not in larks_by_start:
+        larks_by_start[start] = lark.Lark(grammar, start=start, parser="lalr", propagate_positions=True)
+    return larks_by_start[start].parse(txt)
 
