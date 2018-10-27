@@ -412,6 +412,39 @@ class TestDoc(unittest.TestCase):
         doc.workflow.typecheck(doc)
         self.assertEqual(doc.imports, [("x.wdl","x",None), ("y.wdl","z",None)])
 
+    def test_scatter_conditional(self):
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = stdout()
+            }
+        }
+        workflow contrived {
+            Array[Int] xs = [1, 2, 3]
+            Array[Int] ys = [4, 5, 6]
+            scatter (x in xs) {
+                scatter (y in ys) {
+                    if (x + y < 5) {
+                        call sum { input:
+                            x = x,
+                            y = y
+                        }
+                    }
+                }
+            }
+            output {
+                Array[Array[Int?]] z = sum.z
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.workflow.typecheck(doc)
+
     def test_errors(self):
         doc = r"""
         task sum {
@@ -492,4 +525,27 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.workflow.typecheck(doc)
+
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = stdout()
+            }
+        }
+        workflow contrived {
+            if ([1]) {
+                call sum { input:
+                    x = 1, y = 2
+                }
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
             doc.workflow.typecheck(doc)

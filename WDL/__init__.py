@@ -215,6 +215,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return D.Call(sp(self.filename, meta), items[0], items[1].value, items[2] if len(items)>2 else dict())
     def scatter(self, items, meta):
         return D.Scatter(sp(self.filename, meta), items[0].value, items[1], items[2:])
+    def conditional(self, items, meta):
+        return D.Conditional(sp(self.filename, meta), items[0], items[1:])
     def workflow(self, items, meta):
         elements = []
         outputs = None
@@ -236,7 +238,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                     parameter_meta = item["parameter_meta"]
                 else:
                     assert False
-            elif isinstance(item, D.Decl) or isinstance(item, D.Call) or isinstance(item, D.Scatter):
+            elif isinstance(item, D.Decl) or isinstance(item, D.Call) or isinstance(item, D.Scatter) or isinstance(item, D.Conditional):
                 elements.append(item)
             else:
                 assert False

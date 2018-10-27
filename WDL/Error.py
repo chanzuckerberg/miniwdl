@@ -26,7 +26,7 @@ class Base(Exception):
     node : SourceNode
     def __init__(self, node : SourceNode, message : str) -> None:
         self.node = node
-        message = "(Ln {}, Col {}) {}".format(node.pos.line, node.pos.column, message)
+        message = "({} Ln {}, Col {}) {}".format(node.pos.filename, node.pos.line, node.pos.column, message)
         super().__init__(message)
 
 class NoSuchFunction(Base):

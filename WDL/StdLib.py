@@ -3,7 +3,9 @@ from typing import List, Tuple, Callable, Any
 import WDL.Type as T
 import WDL.Value as V
 import WDL.Expr as E
+import WDL.Env as Env
 import WDL.Error as Error
+import copy
 
 # Special function for array access arr[index], returning the element type
 class _ArrayGet(E._Function):
@@ -70,7 +72,8 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("size", [T.File(), T.String()], T.Float(), lambda file: exec('raise NotImplementedError()')),
     ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("glob", [T.String()], T.Array(T.File()), lambda pattern: exec('raise NotImplementedError()')),
-    ("read_int", [T.String()], T.Int(), lambda pattern: exec('raise NotImplementedError()'))
+    ("read_int", [T.String()], T.Int(), lambda pattern: exec('raise NotImplementedError()')),
+    ("range", [T.Int()], T.Array(T.Int()), lambda high: exec('raise NotImplementedError()'))
 ]
 for name, argument_types, return_type, F in _static_functions:
     E._stdlib[name] = _StaticFunction(name, argument_types, return_type, F)
@@ -182,9 +185,41 @@ class _Defined(E._Function):
             raise Error.WrongArity(expr, 1)
         return T.Boolean()
 
-    def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         if isinstance(expr.arguments[0].eval(env), V.Null):
             return V.Boolean(False)
         return V.Boolean(True)
-
 E._stdlib["defined"] = _Defined()
+
+class _Length(E._Function):
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        if not isinstance(expr.arguments[0].type, T.Array):
+            raise Error.StaticTypeMismatch(expr, T.Array(None), expr.arguments[0].type)
+        return T.Int()
+
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
+        v = expr.arguments[0].eval(env)
+        if isinstance(v, V.Null):
+            return V.Int(0)
+        assert isinstance(v.value, list)
+        return V.Int(len(v.value))
+E._stdlib["length"] = _Length()
+
+class _SelectFirst(E._Function):
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        if not isinstance(expr.arguments[0].type, T.Array):
+            raise Error.StaticTypeMismatch(expr, T.Array(None), expr.arguments[0].type)
+        if expr.arguments[0].type.item_type is None:
+            raise Error.EmptyArray(expr.arguments[0])
+        ty = copy.copy(expr.arguments[0].type.item_type)
+        assert isinstance(ty, T.Base)
+        ty.optional = False
+        return ty
+
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
+        raise NotImplementedError()
+E._stdlib["select_first"] = _SelectFirst()

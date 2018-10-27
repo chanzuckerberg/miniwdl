@@ -145,10 +145,11 @@ call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 call: "call" ident call_body? -> call
     | "call" ident "as" CNAME call_body? -> call_as
 
-?scatter_element: bound_decl | call | scatter
-scatter: "scatter" "(" CNAME "in" expr ")" "{" [scatter_element*] "}"
+?inner_workflow_element: bound_decl | call | scatter | conditional
+scatter: "scatter" "(" CNAME "in" expr ")" "{" [inner_workflow_element*] "}"
+conditional: "if" "(" expr ")" "{" [inner_workflow_element*] "}"
 
-?workflow_element: any_decl | call | scatter | meta_section | output_decls
+?workflow_element: any_decl | call | scatter | conditional | meta_section | output_decls
 workflow: "workflow" CNAME "{" workflow_element* "}"
 
 // WDL document: version, imports, tasks and (at most one) workflow

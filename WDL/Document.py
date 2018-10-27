@@ -11,6 +11,7 @@ import WDL.Expr as E
 import WDL.Env as Env
 import WDL.Error as Err
 from WDL.Error import SourcePosition, SourceNode
+import copy
 
 class Decl(SourceNode):
     """A declaration such as an input/output variable"""
@@ -159,7 +160,6 @@ class Call(SourceNode):
             outputs_env = Env.bind(outp.name, outp.type, outputs_env)
         return outputs_env
 
-
 # Given a type environment, recursively promote each binding of type T to Array[T]
 def _arrayize_types(type_env : Env.Types) -> Env.Types:
     ans = []
@@ -172,17 +172,59 @@ def _arrayize_types(type_env : Env.Types) -> Env.Types:
             assert False
     return ans
 
+# Given a type environment, recursively make each binding optional
+def _optionalize_types(type_env : Env.Types) -> Env.Types:
+    ans = []
+    for node in type_env:
+        if isinstance(node, Env.Binding):
+            ty = copy.copy(node.rhs)
+            ty.optional = True
+            ans.append(Env.Binding(node.name, ty))
+        elif isinstance(node, Env.Namespace):
+            ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
+        else:
+            assert False
+    return ans
+
 TVScatter = TypeVar("TVScatter", bound="Scatter")
+TVConditional = TypeVar("TVConditional", bound="Conditional")
+
+# typecheck the workflow elements and return a type environment with the
+# outputs of the calls within (only -- not including the input type env)
+def _typecheck_workflow_body(elements : List[Union[Decl,Call,TVScatter,TVConditional]], type_env : Env.Types, doc : TVDocument) -> Env.Types:
+    outputs_env = []
+
+    for element in elements:
+        if isinstance(element, Decl):
+            # typecheck the declaration and add binding to type environment
+            type_env = _typecheck_decl(element, type_env)
+            outputs_env = Env.bind(element.name, element.type, outputs_env)
+        elif isinstance(element, Call):
+            call_outputs_env = element.typecheck(type_env, doc)
+            # add call outputs to type environment, under the call namespace
+            # TODO: complain of namespace collisions
+            type_env = Env.namespace(element.name, call_outputs_env, type_env)
+            outputs_env = Env.namespace(element.name, call_outputs_env, outputs_env)
+        elif isinstance(element, Scatter) or isinstance(element, Conditional):
+            # add outputs of calls within the subscatter to the type environment.
+            sub_outputs_env = element.typecheck(type_env, doc)
+            type_env = sub_outputs_env + type_env
+            outputs_env = sub_outputs_env + outputs_env
+        else:
+            assert False
+
+    return outputs_env
+
 class Scatter(SourceNode):
     """A scatter stanza within a workflow"""
     variable : str
     """The scatter variable name"""
     expr : E.Base
     """Expression for the array over which to scatter"""
-    elements: List[Union[Decl,Call,TVScatter]]
-    """Calls and/or bound declarations"""
+    elements : List[Union[Decl,Call,TVScatter,TVConditional]]
+    """Scatter body"""
 
-    def __init__(self, pos : SourcePosition, variable : str, expr : E.Base, elements : List[Union[Decl,Call]]) -> None:
+    def __init__(self, pos : SourcePosition, variable : str, expr : E.Base, elements : List[Union[Decl,Call,TVScatter,TVConditional]]) -> None:
         super().__init__(pos)
         self.variable = variable
         self.expr = expr
@@ -196,38 +238,40 @@ class Scatter(SourceNode):
         if self.expr.type.item_type is None:
             return type_env
 
-        # type environment within the scatter body, including the scatter
-        # variable and call outputs as they appear
+        # add scatter variable to environment for typechecking body
         type_env = Env.bind(self.variable, self.expr.type.item_type, type_env)
-        # type environment with the call outputs only
-        outputs_env = []
-
-        for element in self.elements:
-            if isinstance(element, Decl):
-                # typecheck the declaration and add binding to type environment
-                type_env = _typecheck_decl(element, type_env)
-                # TODO: are declarations within scatters visible as arrays after the scatter?
-            elif isinstance(element, Call):
-                call_outputs_env = element.typecheck(type_env, doc)
-                # add call outputs to type environment, under the call namespace
-                # TODO: complain of namespace collisions
-                type_env = Env.namespace(element.name, call_outputs_env, type_env)
-                outputs_env = Env.namespace(element.name, call_outputs_env, outputs_env)
-            elif isinstance(element, Scatter):
-                # add outputs of calls within the subscatter to the type environment.
-                subscatter_outputs_env = element.typecheck(type_env, doc)
-                type_env = subscatter_outputs_env + type_env
-                outputs_env = subscatter_outputs_env + outputs_env
-            else:
-                assert False
+        outputs_env = _typecheck_workflow_body(self.elements, type_env, doc)
 
         # promote each output type T to Array[T]
         return _arrayize_types(outputs_env)
 
+class Conditional(SourceNode):
+    """A conditional (if) stanza within a workflow"""
+    expr : E.Base
+    """Boolean expression"""
+    elements : List[Union[Decl,Call,TVScatter,TVConditional]]
+    """Conditional body"""
+
+    def __init__(self, pos : SourcePosition, expr : E.Base, elements : List[Union[Decl,Call,TVScatter,TVConditional]]) -> None:
+        super().__init__(pos)
+        self.expr = expr
+        self.elements = elements
+
+    def typecheck(self, type_env : Env.Types, doc : TVDocument) -> Env.Types:
+        # check expr : Boolean
+        self.expr.infer_type(type_env)
+        if not self.expr.type.coerces(T.Boolean()):
+            raise Err.StaticTypeMismatch(self.expr, T.Boolean(), self.expr.type)
+
+        outputs_env = _typecheck_workflow_body(self.elements, type_env, doc)
+
+        # promote each output type T to T?
+        return _optionalize_types(outputs_env) # pyre-fixme
+
 class Workflow(SourceNode):
     name : str
     """Workflow name"""
-    elements: List[Union[Decl,Call,Scatter]]
+    elements: List[Union[Decl,Call,Scatter,Conditional]]
     """Declarations, calls, and/or scatters"""
     outputs: Optional[List[Decl]]
     """Workflow outputs"""
@@ -245,23 +289,7 @@ class Workflow(SourceNode):
         self.meta = meta
 
     def typecheck(self, doc : TVDocument) -> None:
-        type_env = []
-        for element in self.elements:
-            if isinstance(element, Decl):
-                # typecheck the declaration and add binding to type environment
-                type_env = _typecheck_decl(element, type_env)
-            elif isinstance(element, Call):
-                outputs_env = element.typecheck(type_env, doc)
-                # add call outputs to type environment, under the call namespace
-                # TODO: complain of namespace collisions
-                type_env = Env.namespace(element.name, outputs_env, type_env)
-            elif isinstance(element, Scatter):
-                outputs_env = element.typecheck(type_env, doc)
-                # add outputs of calls within the scatter to the type environment.
-                # Scatter.typecheck already "arrayized" them.
-                type_env = outputs_env + type_env
-            else:
-                assert False
+        type_env = _typecheck_workflow_body(self.elements, [], doc)
 
         # typecheck the output declarations
         if self.outputs is not None:
