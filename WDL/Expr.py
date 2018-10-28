@@ -322,9 +322,9 @@ class Ident(Base):
 
     def _infer_type(self, type_env : Env.Types) -> T.Base:
         if len(self.namespace) > 0 and (self.name in ['left', 'right']):
-            # TODO: this only works for an identifier that resolves to a pair,
-            # not any syntactic pair. .left and .right should be treated as
-            # postfix function applications.
+            # Handle pair access IDENT.left or IDENT.right
+            # Pair access through non-identifier expressions goes a different
+            # path, through the get_left and get_right terminals.
             pair_name = self.namespace[-1]
             pair_namespace = self.namespace[:-1]
             try:

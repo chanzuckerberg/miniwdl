@@ -42,6 +42,9 @@ grammar = r"""
           | "[" [expr ("," expr)*] "]" -> array
           | expr_core "[" expr "]" -> get
 
+          | expr_core "." _LEFT -> get_left
+          | expr_core "." _RIGHT -> get_right
+
           | "if" expr "then" expr "else" expr -> ifthenelse
 
           | ident
@@ -72,6 +75,8 @@ STRING_INNER1: ("\\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
+_LEFT.2: "left"
+_RIGHT.2: "right"
 ident: [CNAME ("." CNAME)*]
 
 // WDL types and declarations

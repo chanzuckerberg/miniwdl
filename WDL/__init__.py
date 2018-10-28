@@ -69,6 +69,11 @@ class _ExprTransformer(lark.Transformer):
     def get(self, items, meta) -> E.Base:
         return E.Apply(sp(self.filename, meta), "_get", items)
 
+    def get_left(self, items, meta) -> E.Base:
+        return E.Apply(sp(self.filename, meta), "_get_left", items)
+    def get_right(self, items, meta) -> E.Base:
+        return E.Apply(sp(self.filename, meta), "_get_right", items)
+
     def ifthenelse(self, items, meta) -> E.Base:
         assert len(items) == 3
         return E.IfThenElse(sp(self.filename, meta), *items)
