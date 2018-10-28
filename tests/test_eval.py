@@ -121,7 +121,9 @@ class TestEval(unittest.TestCase):
             ('"foo" + "bar"', '"foobar"'),
             ('"foo" + 1', '"foo1"'),
             ('2.0 + "bar"', '"2.0bar"'),
-            (""" 'foo' + "bar" """, '"foobar"'))
+            (""" 'foo' + "bar" """, '"foobar"'),
+            ('"{"', '"{"', WDL.Type.String()),
+            ('"$" + "$"', '"$$"', WDL.Type.String()))
         self._test_tuples(
             (r'''"CNN is working frantically to find their \"source.\""''',
              r'''"CNN is working frantically to find their \"source.\""'''),

@@ -55,13 +55,13 @@ grammar = r"""
         | SIGNED_FLOAT -> float
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{]/
+STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{']/
 STRING1_END: STRING1_CHAR* "$"? "'"
 STRING1_FRAGMENT: STRING1_CHAR* "${"
 string1: /'/ [(STRING1_FRAGMENT expr "}")*] STRING1_END -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{]/
+STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{"]/
 STRING2_END: STRING2_CHAR* "$"? /"/
 STRING2_FRAGMENT: STRING2_CHAR* "${"
 string2: /"/ [(STRING2_FRAGMENT expr "}")*] STRING2_END -> string
@@ -81,12 +81,16 @@ type: _INT QUANT? -> int_type
     | _STRING QUANT? -> string_type
     | _FILE QUANT? -> file_type
     | _ARRAY "[" type "]" ARRAY_QUANT? -> array_type
+    | _MAP "[" type "," type "]" QUANT? -> map_type
+    | _PAIR "[" type "," type "]" QUANT? -> pair_type
 _INT.2: "Int"           // .2 ensures higher priority than CNAME
 _FLOAT.2: "Float"
 _BOOLEAN.2: "Boolean"
 _STRING.2: "String"
 _FILE.2: "File"
 _ARRAY.2: "Array"
+_MAP.2: "Map"
+_PAIR.2: "Pair"
 QUANT: "?"
 ARRAY_QUANT: "?" | "+"
 

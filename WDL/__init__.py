@@ -124,6 +124,24 @@ class _TypeTransformer(lark.Transformer):
             if items[1].value == "+":
                 nonempty = True
         return T.Array(items[0], optional, nonempty)
+    def map_type(self, items, meta):
+        assert len(items) >= 2
+        assert isinstance(items[0], WDL.Type.Base)
+        assert isinstance(items[1], WDL.Type.Base)
+        optional = False
+        if len(items) > 2:
+            if items[2].value == "?":
+                optional = True
+        return T.Map((items[0], items[1]), optional)
+    def pair_type(self, items, meta):
+        assert len(items) >= 2
+        assert isinstance(items[0], WDL.Type.Base)
+        assert isinstance(items[1], WDL.Type.Base)
+        optional = False
+        if len(items) > 2:
+            if items[2].value == "?":
+                optional = True
+        return T.Pair(items[0], items[1], optional)
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def __init__(self, file : str) -> None:
@@ -302,6 +320,8 @@ def parse_document(txt : str, uri : str = '') -> D.Document:
     try:
         return _DocTransformer(uri).transform(WDL._parser.parse(txt, "document"))
     except lark.exceptions.UnexpectedCharacters as exn:
+        raise Err.ParserError(uri if uri != '' else '(in buffer)') from exn
+    except lark.exceptions.UnexpectedToken as exn:
         raise Err.ParserError(uri if uri != '' else '(in buffer)') from exn
 
 def load(uri : str, path : List[str] = []) -> D.Document:

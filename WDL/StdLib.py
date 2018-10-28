@@ -73,7 +73,15 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("glob", [T.String()], T.Array(T.File()), lambda pattern: exec('raise NotImplementedError()')),
     ("read_int", [T.String()], T.Int(), lambda pattern: exec('raise NotImplementedError()')),
-    ("range", [T.Int()], T.Array(T.Int()), lambda high: exec('raise NotImplementedError()'))
+    ("read_boolean", [T.String()], T.Boolean(), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_string", [T.String()], T.String(), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_float", [T.String()], T.Float(), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_array", [T.String()], T.Array(None), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_map", [T.String()], T.Map(None), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_lines", [T.String()], T.Array(None), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_tsv", [T.String()], T.Array(T.Array(T.String())), lambda pattern: exec('raise NotImplementedError()')),
+    ("write_map", [T.Map(None)], T.String(), lambda pattern: exec('raise NotImplementedError()')),
+    ("range", [T.Int()], T.Array(T.Int()), lambda high: exec('raise NotImplementedError()')),
 ]
 for name, argument_types, return_type, F in _static_functions:
     E._stdlib[name] = _StaticFunction(name, argument_types, return_type, F)
@@ -212,9 +220,9 @@ class _SelectFirst(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(expr, T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
-            raise Error.EmptyArray(expr.arguments[0])
+            raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
         ty = copy.copy(expr.arguments[0].type.item_type)
         assert isinstance(ty, T.Base)
         ty.optional = False
@@ -223,3 +231,22 @@ class _SelectFirst(E._Function):
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
 E._stdlib["select_first"] = _SelectFirst()
+
+class _Zip(E._Function):
+    # 'a array -> 'b array -> ('a,'b) array
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+        if not isinstance(expr.arguments[0].type, T.Array):
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
+        if expr.arguments[0].type.item_type is None:
+            raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
+        if not isinstance(expr.arguments[1].type, T.Array):
+            raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(None), expr.arguments[0].type)
+        if expr.arguments[1].type.item_type is None:
+            raise Error.EmptyArray(expr.arguments[1]) # TODO: error for 'indeterminate type'
+        return T.Array(T.Pair(expr.arguments[0].type.item_type, expr.arguments[1].type.item_type))
+
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
+        raise NotImplementedError()
+E._stdlib["zip"] = _Zip()

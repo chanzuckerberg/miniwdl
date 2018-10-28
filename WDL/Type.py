@@ -23,7 +23,7 @@ for example
 ``WDL.Type.Array(WDL.Type.String()) != WDL.Type.Array(WDL.Type.Float())``.
 """
 from abc import ABC, abstractmethod
-from typing import Optional, TypeVar
+from typing import Optional, TypeVar, Tuple
 
 TVBase = TypeVar("TVBase", bound="Base")
 class Base(ABC):
@@ -91,10 +91,10 @@ class Array(Base):
     """
     Array type, parameterized by the type of the constituent items.
 
-    ``item_type`` may be None to represent the type of the literal empty array
-    ``[]``, which is considered compatible with any array type (lacking the
-    nonempty quantifier). This special case should be considered explicitly
-    when comparing array types.
+    ``item_type`` may be None to represent an array whose item type isn't
+    known statically, such as a literal empty array ``[]``, or the result
+    of the ``read_array()`` standard library function. This is considered
+    statically coercible to any array type (but may fail at runtime)
     """
     item_type : Optional[Base]
     nonempty : bool
@@ -109,11 +109,47 @@ class Array(Base):
         ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]"
         return ans
     def coerces(self, rhs : Base) -> bool:
-        if self.item_type is None and isinstance(rhs, Array) and not rhs.nonempty:
-            return True
         if isinstance(rhs, Array):
-            if self.item_type is None:
-                return (not rhs.nonempty)
+            if self.item_type is None or rhs.item_type is None:
+                return True
             else:
                 return self.item_type.coerces(rhs.item_type)
         return super().coerces(rhs)
+
+class Map(Base):
+    """
+    Map type, parameterized by the (key,value) item type.
+
+    ``item_type`` may be None to represent a map whose type isn't known
+    statically, such as a literal empty may ``{}``, or the result of the
+    ``read_map()`` standard library function. This is considered statically
+    coercible to any map type (but may fail at runtime)
+    """
+    item_type : Optional[Tuple[Base,Base]]
+
+    def __init__(self, item_type : Optional[Tuple[Base,Base]], optional : bool = False) -> None:
+        self.optional = optional
+        self.item_type = item_type
+    def __str__(self) -> str:
+        return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1]) if self.item_type is not None else "") + "]" # pyre-fixme
+    def coerces(self, rhs : Base) -> bool:
+        if isinstance(rhs, Map):
+            if self.item_type is None or rhs.item_type is None:
+                return True
+            else:
+                return self.item_type[0].coerces(rhs.item_type[0]) and self.item_type[1].coerces(rhs.item_type[1]) # pyre-fixme
+        return super().coerces(rhs)
+
+class Pair(Base):
+    """
+    Pair type, parameterized by the left and right item types.
+    """
+    left_type : Base
+    right_type : Base
+
+    def __init__(self, left_type : Base, right_type : Base, optional : bool = False) -> None:
+        self.optional = optional
+        self.left_type = left_type
+        self.right_type = right_type
+    def __str__(self) -> str:
+        return "Pair[" + (str(self.left_type) + "," + str(self.right_type)) + "]"
