@@ -322,9 +322,11 @@ class Ident(Base):
 
     def _infer_type(self, type_env : Env.Types) -> T.Base:
         if len(self.namespace) > 0 and (self.name in ['left', 'right']):
-            # Handle pair access IDENT.left or IDENT.right
+            # Special case for pair access, IDENT.left or IDENT.right
             # Pair access through non-identifier expressions goes a different
             # path, through the get_left and get_right terminals.
+            # TODO: avoid having two paths by ensuring .left and .right can't
+            #       parse as Ident
             pair_name = self.namespace[-1]
             pair_namespace = self.namespace[:-1]
             try:
@@ -344,7 +346,6 @@ class Ident(Base):
             pair_name = self.namespace[-1]
             pair_namespace = self.namespace[:-1]
             try:
-                
                 ans : V.Base = Env.resolve(env, pair_namespace, pair_name)
                 return ans
             except KeyError:
