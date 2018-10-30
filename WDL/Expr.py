@@ -125,8 +125,8 @@ class Placeholder(Base):
         if isinstance(self.expr.type, T.Array):
             if 'sep' not in self.options:
                 raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "array command placeholder must have 'sep'")
-            if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String, T.File] if isinstance(self.expr.type.item_type, t)) == 0:
-                raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "cannot use array of complex types for command placeholder")
+            #if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String, T.File] if isinstance(self.expr.type.item_type, t)) == 0:
+            #    raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "cannot use array of complex types for command placeholder")
         elif 'sep' in self.options:
                 raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "command placeholder has 'sep' option for non-Array expression")
         if ('true' in self.options or 'false' in self.options):
@@ -144,7 +144,7 @@ class Placeholder(Base):
         if isinstance(v, V.String):
             return v
         if isinstance(v, V.Array):
-            return V.String(self.options['sep'].join(str(item.value) for item in v.value)) # pyre-ignore
+            return V.String(self.options['sep'].join(str(item.value) for item in v.value))
         if v == V.Boolean(True) and 'true' in self.options:
             return V.String(self.options['true'])
         if v == V.Boolean(False) and 'false' in self.options:
@@ -321,6 +321,20 @@ class Ident(Base):
         self.namespace = parts[:-1]
 
     def _infer_type(self, type_env : Env.Types) -> T.Base:
+        if len(self.namespace) > 0 and (self.name in ['left', 'right']):
+            # Special case for pair access, IDENT.left or IDENT.right
+            # Pair access through non-identifier expressions goes a different
+            # path, through the get_left and get_right terminals.
+            # TODO: avoid having two paths by ensuring .left and .right can't
+            #       parse as Ident
+            pair_name = self.namespace[-1]
+            pair_namespace = self.namespace[:-1]
+            try:
+                ans : T.Base = Env.resolve(type_env, pair_namespace, pair_name)
+            except KeyError:
+                pass
+            if isinstance(ans, T.Pair):
+                return ans.left_type if self.name == 'left' else ans.right_type
         try:
             ans : T.Base = Env.resolve(type_env, self.namespace, self.name)
             return ans
@@ -328,8 +342,74 @@ class Ident(Base):
             raise Error.UnknownIdentifier(self) from None
 
     def eval(self, env : Env.Values) -> V.Base:
+        if len(self.namespace) > 0 and (self.name in ['left', 'right']):
+            pair_name = self.namespace[-1]
+            pair_namespace = self.namespace[:-1]
+            try:
+                ans : V.Base = Env.resolve(env, pair_namespace, pair_name)
+                if isinstance(ans, V.Pair):
+                    assert ans.value is not None
+                    return ans.value[0] if self.name == 'left' else ans.value[1]
+            except KeyError:
+                pass
         try:
             ans : V.Base = Env.resolve(env, self.namespace, self.name)
             return ans
         except KeyError:
             raise Error.UnknownIdentifier(self) from None
+
+# Pair literal
+class Pair(Base):
+    left : Base
+    right : Base
+
+    def __init__(self, pos : SourcePosition, left : Base, right : Base) -> None:
+        super().__init__(pos)
+        self.left = left
+        self.right = right
+
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
+        self.left.infer_type(type_env)
+        self.right.infer_type(type_env)
+        return T.Pair(self.left.type, self.right.type)
+
+    def eval(self, env : Env.Values) -> V.Base:
+        assert isinstance(self.type, T.Pair)
+        lv = self.left.eval(env)
+        rv = self.right.eval(env)
+        return V.Pair(self.type, (lv,rv))
+
+# Map literal
+class Map(Base):
+    items : List[Tuple[Base,Base]]
+
+    def __init__(self, pos : SourcePosition, items : List[Tuple[Base,Base]]) -> None:
+        super().__init__(pos)
+        self.items = items
+
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
+        kty = None
+        vty = None
+        for k,v in self.items:
+            k.infer_type(type_env)
+            if kty is None:
+                kty = k.type
+            else:
+                k.typecheck(kty)
+            v.infer_type(type_env)
+            if vty is None or vty == T.Array(None) or vty == T.Map(None):
+                vty = v.type
+            else:
+                v.typecheck(vty)
+        if kty is None:
+            return T.Map(None)
+        assert vty is not None
+        return T.Map((kty,vty))
+
+    def eval(self, env : Env.Values) -> V.Base:
+        assert isinstance(self.type, T.Map)
+        eitems = []
+        for k,v in self.items:
+            eitems.append((k.eval(env), v.eval(env)))
+        # TODO: complain of duplicate keys
+        return V.Map(self.type, eitems)

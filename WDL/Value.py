@@ -6,7 +6,7 @@ Each value is represented by an instance of a Python class inheriting from
 ``WDL.Value.Base``.
 """
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, TypeVar
+from typing import Any, List, Optional, TypeVar, Tuple
 import WDL.Type as T
 import json
 
@@ -75,11 +75,26 @@ class String(Base):
 
 class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value`` instances"""
-    value : List[Any] = []
-    def __init__(self, type : T.Array, value : List[Any]) -> None:
+    value : List[Base] = []
+    def __init__(self, type : T.Array, value : List[Base]) -> None:
         super().__init__(type, value)
     def __str__(self) -> str:
         return "[" + ", ".join([str(item) for item in self.value]) + "]"
+
+class Map(Base):
+    value : List[Tuple[Base,Base]] = []
+    def __init__(self, type : T.Map, value : List[Tuple[Base,Base]]) -> None:
+        super().__init__(type, value)
+    def __str__(self) -> str:
+        raise NotImplementedError() # TODO
+
+class Pair(Base):
+    value : Optional[Tuple[Base,Base]] = None
+    def __init__(self, type : T.Pair, value : Tuple[Base,Base]) -> None:
+        super().__init__(type, value)
+    def __str__(self) -> str:
+        assert isinstance(self.value, tuple)
+        return "(" + str(self.value[0]) + "," + str(self.value[1]) + ")" # pyre-fixme
 
 class Null(Base):
     """Represents the missing value which optional inputs may take. ``type`` and ``value`` are both None."""

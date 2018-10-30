@@ -8,31 +8,83 @@ import WDL.Error as Error
 import copy
 
 # Special function for array access arr[index], returning the element type
-class _ArrayGet(E._Function):
+#                      or map access map[key], returning the value type
+class _Get(E._Function):
     def infer_type(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
-        if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.NotAnArray(expr.arguments[0])
-        if expr.arguments[0].type.item_type is None:
-            # the user wrote: [][idx]
-            raise Error.OutOfBounds(expr)
-        try:
-            expr.arguments[1].typecheck(T.Int())
-        except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(expr.arguments[1], T.Int(), expr.arguments[1].type, "Array index") from None
-        return expr.arguments[0].type.item_type
+        lhs = expr.arguments[0]
+        rhs = expr.arguments[1]
+        if isinstance(lhs.type, T.Array):
+            if lhs.type.item_type is None:
+                # the user wrote: [][idx]
+                raise Error.OutOfBounds(expr)
+            try:
+                rhs.typecheck(T.Int())
+            except Error.StaticTypeMismatch:
+                raise Error.StaticTypeMismatch(rhs, T.Int(), rhs.type, "Array index") from None
+            return lhs.type.item_type
+        elif isinstance(lhs.type, T.Map):
+            if lhs.type.item_type is None:
+                raise Error.OutOfBounds(expr)
+            try:
+                rhs.typecheck(lhs.type.item_type[0])
+            except Error.StaticTypeMismatch:
+                raise Error.StaticTypeMismatch(rhs, lhs.type.item_type[0], rhs.type, "Map key") from None
+            return lhs.type.item_type[1]
+        else:
+            raise Error.NotAnArray(lhs)
 
     def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
         assert len(expr.arguments) == 2
-        arr = expr.arguments[0].eval(env)
-        assert isinstance(arr.type, T.Array)
-        assert isinstance(arr.value, list)
-        idx = expr.arguments[1].eval(env).expect(T.Int()).value
-        if idx < 0 or idx >= len(arr.value):
-            raise Error.OutOfBounds(expr.arguments[1])
-        return arr.value[idx] # pyre-ignore
-E._stdlib["_get"] = _ArrayGet()
+        lhs = expr.arguments[0]
+        rhs = expr.arguments[1]
+        if isinstance(lhs.type, T.Array): # pyre-fixme
+            arr = lhs.eval(env)
+            assert isinstance(arr, V.Array)
+            assert isinstance(arr.type, T.Array)
+            assert isinstance(arr.value, list)
+            idx = rhs.eval(env).expect(T.Int()).value
+            if idx < 0 or idx >= len(arr.value):
+                raise Error.OutOfBounds(rhs)
+            return arr.value[idx] # pyre-fixme
+        elif isinstance(lhs.type, T.Map):
+            mp = lhs.eval(env)
+            assert isinstance(mp, V.Map)
+            assert isinstance(mp.type, T.Map)
+            assert mp.type.item_type is not None
+            assert isinstance(mp.value, list)
+            ans = None
+            key = rhs.eval(env).expect(mp.type.item_type[0])
+            for k,v in mp.value:
+                if key == k:
+                    ans = v.expect(mp.type.item_type[1])
+            if ans is None:
+                raise Error.OutOfBounds(rhs) # TODO: KeyNotFound
+            return ans # pyre-fixme
+        else:
+            assert False
+E._stdlib["_get"] = _Get()
 
+# Pair get (EXPR.left/EXPR.right)
+# The special case where EXPR is an identifier goes a different path, through
+# Expr.Ident.
+class _PairGet(E._Function):
+    left : bool
+    def __init__(self, left : bool) -> None:
+        self.left = left
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        assert len(expr.arguments) == 1
+        if not isinstance(expr.arguments[0].type, T.Pair):
+            raise Error.NotAPair(expr.arguments[0])
+        return expr.arguments[0].type.left_type if self.left else expr.arguments[0].type.right_type
+    def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
+        assert len(expr.arguments) == 1
+        pair = expr.arguments[0].eval(env)
+        assert isinstance(pair.type, T.Pair)
+        assert isinstance(pair.value, tuple)
+        return pair.value[0] if self.left else pair.value[1]
+E._stdlib["_get_left"] = _PairGet(True)
+E._stdlib["_get_right"] = _PairGet(False)
 
 # _Function helper for simple functions with fixed argument and return types
 class _StaticFunction(E._Function):
@@ -73,7 +125,15 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("glob", [T.String()], T.Array(T.File()), lambda pattern: exec('raise NotImplementedError()')),
     ("read_int", [T.String()], T.Int(), lambda pattern: exec('raise NotImplementedError()')),
-    ("range", [T.Int()], T.Array(T.Int()), lambda high: exec('raise NotImplementedError()'))
+    ("read_boolean", [T.String()], T.Boolean(), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_string", [T.String()], T.String(), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_float", [T.String()], T.Float(), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_array", [T.String()], T.Array(None), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_map", [T.String()], T.Map(None), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_lines", [T.String()], T.Array(None), lambda pattern: exec('raise NotImplementedError()')),
+    ("read_tsv", [T.String()], T.Array(T.Array(T.String())), lambda pattern: exec('raise NotImplementedError()')),
+    ("write_map", [T.Map(None)], T.String(), lambda pattern: exec('raise NotImplementedError()')),
+    ("range", [T.Int()], T.Array(T.Int()), lambda high: exec('raise NotImplementedError()')),
 ]
 for name, argument_types, return_type, F in _static_functions:
     E._stdlib[name] = _StaticFunction(name, argument_types, return_type, F)
@@ -212,9 +272,9 @@ class _SelectFirst(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(expr, T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
-            raise Error.EmptyArray(expr.arguments[0])
+            raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
         ty = copy.copy(expr.arguments[0].type.item_type)
         assert isinstance(ty, T.Base)
         ty.optional = False
@@ -223,3 +283,22 @@ class _SelectFirst(E._Function):
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
 E._stdlib["select_first"] = _SelectFirst()
+
+class _Zip(E._Function):
+    # 'a array -> 'b array -> ('a,'b) array
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+        if not isinstance(expr.arguments[0].type, T.Array):
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
+        if expr.arguments[0].type.item_type is None:
+            raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
+        if not isinstance(expr.arguments[1].type, T.Array):
+            raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(None), expr.arguments[0].type)
+        if expr.arguments[1].type.item_type is None:
+            raise Error.EmptyArray(expr.arguments[1]) # TODO: error for 'indeterminate type'
+        return T.Array(T.Pair(expr.arguments[0].type.item_type, expr.arguments[1].type.item_type))
+
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
+        raise NotImplementedError()
+E._stdlib["zip"] = _Zip()

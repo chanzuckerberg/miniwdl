@@ -121,7 +121,9 @@ class TestEval(unittest.TestCase):
             ('"foo" + "bar"', '"foobar"'),
             ('"foo" + 1', '"foo1"'),
             ('2.0 + "bar"', '"2.0bar"'),
-            (""" 'foo' + "bar" """, '"foobar"'))
+            (""" 'foo' + "bar" """, '"foobar"'),
+            ('"{"', '"{"', WDL.Type.String()),
+            ('"$" + "$"', '"$$"', WDL.Type.String()))
         self._test_tuples(
             (r'''"CNN is working frantically to find their \"source.\""''',
              r'''"CNN is working frantically to find their \"source.\""'''),
@@ -191,7 +193,7 @@ class TestEval(unittest.TestCase):
             ("bogus", "(Ln 1, Col 1) Unknown identifier", WDL.Error.UnknownIdentifier, env),
             ("pi+e", "5.85987", env),
             ("t||f", "true", WDL.Type.Boolean(), env),
-            ("if t then pi else e", "3.14159", env),
+            ("if t then pi else e", "3.14159", env)
         )
 
 
@@ -210,6 +212,29 @@ class TestEval(unittest.TestCase):
             ('"$shell"','"$shell"'),
             ("'c$'",'"c$"'),
             ("'The U.$. is re$pected again!'",'"The U.$. is re$pected again!"')
+        )
+
+    def test_pair(self):
+        env = cons_env(("p", WDL.Value.Pair(WDL.Type.Pair(WDL.Type.Float(), WDL.Type.Float()),
+                                            (WDL.Value.Float(3.14159), WDL.Value.Float(2.71828)))))
+        self._test_tuples(
+            ("(1,2)", "(1,2)", WDL.Type.Pair(WDL.Type.Int(), WDL.Type.Int())),
+            ("(1,2).left", "1"),
+            ("(1,false).right", "false"),
+            ("(false,[1,2]).right[1]", "2"),
+            ("[1,2].left", "", WDL.Error.NotAPair),
+            ("false.right", "", WDL.Error.NotAPair),
+            ("p.left", "3.14159", env),
+            ("p.right", "2.71828", env)
+        )
+
+    def test_map(self):
+        self._test_tuples(
+            ("{'foo': 1, 'bar': 2}['bar']", "2"),
+            ("{0: 1, 2: 3}['foo']", "", WDL.Error.StaticTypeMismatch),
+            ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
+            ("{3: 1, false: 2}", "", WDL.Error.StaticTypeMismatch),
+            ("{'foo': true, 'bar': 0}", "", WDL.Error.StaticTypeMismatch)
         )
 
     def test_errors(self):

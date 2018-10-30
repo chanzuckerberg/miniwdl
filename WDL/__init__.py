@@ -69,6 +69,19 @@ class _ExprTransformer(lark.Transformer):
     def get(self, items, meta) -> E.Base:
         return E.Apply(sp(self.filename, meta), "_get", items)
 
+    def pair(self, items, meta) -> E.Base:
+        assert len(items) == 2
+        return E.Pair(sp(self.filename, meta), items[0], items[1])
+    def get_left(self, items, meta) -> E.Base:
+        return E.Apply(sp(self.filename, meta), "_get_left", items)
+    def get_right(self, items, meta) -> E.Base:
+        return E.Apply(sp(self.filename, meta), "_get_right", items)
+
+    def map_kv(self, items, meta) -> E.Base:
+        assert len(items) == 2
+        return (items[0], items[1])
+    def map(self, items, meta) -> E.Base:
+        return E.Map(sp(self.filename, meta), items)
     def ifthenelse(self, items, meta) -> E.Base:
         assert len(items) == 3
         return E.IfThenElse(sp(self.filename, meta), *items)
@@ -124,6 +137,24 @@ class _TypeTransformer(lark.Transformer):
             if items[1].value == "+":
                 nonempty = True
         return T.Array(items[0], optional, nonempty)
+    def map_type(self, items, meta):
+        assert len(items) >= 2
+        assert isinstance(items[0], WDL.Type.Base)
+        assert isinstance(items[1], WDL.Type.Base)
+        optional = False
+        if len(items) > 2:
+            if items[2].value == "?":
+                optional = True
+        return T.Map((items[0], items[1]), optional)
+    def pair_type(self, items, meta):
+        assert len(items) >= 2
+        assert isinstance(items[0], WDL.Type.Base)
+        assert isinstance(items[1], WDL.Type.Base)
+        optional = False
+        if len(items) > 2:
+            if items[2].value == "?":
+                optional = True
+        return T.Pair(items[0], items[1], optional)
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def __init__(self, file : str) -> None:
@@ -302,6 +333,8 @@ def parse_document(txt : str, uri : str = '') -> D.Document:
     try:
         return _DocTransformer(uri).transform(WDL._parser.parse(txt, "document"))
     except lark.exceptions.UnexpectedCharacters as exn:
+        raise Err.ParserError(uri if uri != '' else '(in buffer)') from exn
+    except lark.exceptions.UnexpectedToken as exn:
         raise Err.ParserError(uri if uri != '' else '(in buffer)') from exn
 
 def load(uri : str, path : List[str] = []) -> D.Document:

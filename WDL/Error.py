@@ -41,6 +41,10 @@ class NotAnArray(Base):
     def __init__(self, node : SourceNode) -> None:
         super().__init__(node, "Not an array")
 
+class NotAPair(Base):
+    def __init__(self, node : SourceNode) -> None:
+        super().__init__(node, "Not a pair (taking left or right)")
+
 class StaticTypeMismatch(Base):
     def __init__(self, node : SourceNode, expected : T.Base, actual : T.Base, message : Optional[str] = None) -> None:
         msg = "Expected {} instead of {}".format(str(expected), str(actual))

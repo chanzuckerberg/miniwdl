@@ -224,6 +224,9 @@ class TestTasks(unittest.TestCase):
                 Boolean? b
                 Array[Int]+ n
             }
+            String dollar = "$"
+            String lbrace = "{"
+            String rbrace = "}"
             parameter_meta {
                 b: { help: "it's a boolean" }
                 n: 'x'
