@@ -228,6 +228,15 @@ class TestEval(unittest.TestCase):
             ("p.right", "2.71828", env)
         )
 
+    def test_map(self):
+        self._test_tuples(
+            ("{'foo': 1, 'bar': 2}['bar']", "2"),
+            ("{0: 1, 2: 3}['foo']", "", WDL.Error.StaticTypeMismatch),
+            ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
+            ("{3: 1, false: 2}", "", WDL.Error.StaticTypeMismatch),
+            ("{'foo': true, 'bar': 0}", "", WDL.Error.StaticTypeMismatch)
+        )
+
     def test_errors(self):
         self._test_tuples(
             ("1 + bogus(2)", "(Ln 1, Col 5) No such function: bogus", WDL.Error.NoSuchFunction)

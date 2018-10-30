@@ -359,7 +359,6 @@ class Ident(Base):
             raise Error.UnknownIdentifier(self) from None
 
 # Pair literal
-
 class Pair(Base):
     left : Base
     right : Base
@@ -379,3 +378,38 @@ class Pair(Base):
         lv = self.left.eval(env)
         rv = self.right.eval(env)
         return V.Pair(self.type, (lv,rv))
+
+# Map literal
+class Map(Base):
+    items : List[Tuple[Base,Base]]
+
+    def __init__(self, pos : SourcePosition, items : List[Tuple[Base,Base]]) -> None:
+        super().__init__(pos)
+        self.items = items
+
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
+        kty = None
+        vty = None
+        for k,v in self.items:
+            k.infer_type(type_env)
+            if kty is None:
+                kty = k.type
+            else:
+                k.typecheck(kty)
+            v.infer_type(type_env)
+            if vty is None or vty == T.Array(None) or vty == T.Map(None):
+                vty = v.type
+            else:
+                v.typecheck(vty)
+        if kty is None:
+            return T.Map(None)
+        assert vty is not None
+        return T.Map((kty,vty))
+
+    def eval(self, env : Env.Values) -> V.Base:
+        assert isinstance(self.type, T.Map)
+        eitems = []
+        for k,v in self.items:
+            eitems.append((k.eval(env), v.eval(env)))
+        # TODO: complain of duplicate keys
+        return V.Map(self.type, eitems)

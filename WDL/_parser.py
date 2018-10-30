@@ -46,6 +46,8 @@ grammar = r"""
           | expr_core "." _LEFT -> get_left
           | expr_core "." _RIGHT -> get_right
 
+          | "{" [map_kv ("," map_kv)*] "}" -> map
+
           | "if" expr "then" expr "else" expr -> ifthenelse
 
           | ident
@@ -79,6 +81,9 @@ string_literal: ESCAPED_STRING | ESCAPED_STRING1
 _LEFT.2: "left"
 _RIGHT.2: "right"
 ident: [CNAME ("." CNAME)*]
+
+?map_key: literal | string
+map_kv: map_key ":" expr
 
 // WDL types and declarations
 type: _INT QUANT? -> int_type

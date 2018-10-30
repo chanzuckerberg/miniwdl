@@ -77,6 +77,11 @@ class _ExprTransformer(lark.Transformer):
     def get_right(self, items, meta) -> E.Base:
         return E.Apply(sp(self.filename, meta), "_get_right", items)
 
+    def map_kv(self, items, meta) -> E.Base:
+        assert len(items) == 2
+        return (items[0], items[1])
+    def map(self, items, meta) -> E.Base:
+        return E.Map(sp(self.filename, meta), items)
     def ifthenelse(self, items, meta) -> E.Base:
         assert len(items) == 3
         return E.IfThenElse(sp(self.filename, meta), *items)

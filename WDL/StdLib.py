@@ -8,30 +8,62 @@ import WDL.Error as Error
 import copy
 
 # Special function for array access arr[index], returning the element type
-class _ArrayGet(E._Function):
+#                      or map access map[key], returning the value type
+class _Get(E._Function):
     def infer_type(self, expr : E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
-        if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.NotAnArray(expr.arguments[0])
-        if expr.arguments[0].type.item_type is None:
-            # the user wrote: [][idx]
-            raise Error.OutOfBounds(expr)
-        try:
-            expr.arguments[1].typecheck(T.Int())
-        except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(expr.arguments[1], T.Int(), expr.arguments[1].type, "Array index") from None
-        return expr.arguments[0].type.item_type
+        lhs = expr.arguments[0]
+        rhs = expr.arguments[1]
+        if isinstance(lhs.type, T.Array):
+            if lhs.type.item_type is None:
+                # the user wrote: [][idx]
+                raise Error.OutOfBounds(expr)
+            try:
+                rhs.typecheck(T.Int())
+            except Error.StaticTypeMismatch:
+                raise Error.StaticTypeMismatch(rhs, T.Int(), rhs.type, "Array index") from None
+            return lhs.type.item_type
+        elif isinstance(lhs.type, T.Map):
+            if lhs.type.item_type is None:
+                raise Error.OutOfBounds(expr)
+            try:
+                rhs.typecheck(lhs.type.item_type[0])
+            except Error.StaticTypeMismatch:
+                raise Error.StaticTypeMismatch(rhs, lhs.type.item_type[0], rhs.type, "Map key") from None
+            return lhs.type.item_type[1]
+        else:
+            raise Error.NotAnArray(lhs)
 
     def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
         assert len(expr.arguments) == 2
-        arr = expr.arguments[0].eval(env)
-        assert isinstance(arr.type, T.Array)
-        assert isinstance(arr.value, list)
-        idx = expr.arguments[1].eval(env).expect(T.Int()).value
-        if idx < 0 or idx >= len(arr.value):
-            raise Error.OutOfBounds(expr.arguments[1])
-        return arr.value[idx] # pyre-ignore
-E._stdlib["_get"] = _ArrayGet()
+        lhs = expr.arguments[0]
+        rhs = expr.arguments[1]
+        if isinstance(lhs.type, T.Array): # pyre-fixme
+            arr = lhs.eval(env)
+            assert isinstance(arr, V.Array)
+            assert isinstance(arr.type, T.Array)
+            assert isinstance(arr.value, list)
+            idx = rhs.eval(env).expect(T.Int()).value
+            if idx < 0 or idx >= len(arr.value):
+                raise Error.OutOfBounds(rhs)
+            return arr.value[idx] # pyre-fixme
+        elif isinstance(lhs.type, T.Map):
+            mp = lhs.eval(env)
+            assert isinstance(mp, V.Map)
+            assert isinstance(mp.type, T.Map)
+            assert mp.type.item_type is not None
+            assert isinstance(mp.value, list)
+            ans = None
+            key = rhs.eval(env).expect(mp.type.item_type[0])
+            for k,v in mp.value:
+                if key == k:
+                    ans = v.expect(mp.type.item_type[1])
+            if ans is None:
+                raise Error.OutOfBounds(rhs) # TODO: KeyNotFound
+            return ans # pyre-fixme
+        else:
+            assert False
+E._stdlib["_get"] = _Get()
 
 # Pair get (EXPR.left/EXPR.right)
 # The special case where EXPR is an identifier goes a different path, through
