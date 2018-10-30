@@ -43,3 +43,10 @@ test_corpus_zip(TestGATK, "gatk4_germline_snps_indels",
 test_corpus_zip(TestGATK, "broad_prod_wgs",
                 'https://github.com/gatk-workflows/broad-prod-wgs-germline-snps-indels/archive/5585cdf.zip', blacklist=['JointGenotypingWf'])
 
+class TestGTEx(unittest.TestCase):
+    pass
+test_corpus_zip(TestGTEx, "GTEx",
+                'https://github.com/broadinstitute/gtex-pipeline/archive/a228198.zip',
+                # need URI import
+                # something weird (in lark) with metasoft
+                blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq","metasoft"])

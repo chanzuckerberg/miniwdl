@@ -426,6 +426,9 @@ class TestDoc(unittest.TestCase):
             output {
                 Int z = stdout()
             }
+            meta {
+                foo: "bar"
+            }
         }
         workflow contrived {
             Array[Int] xs = [1, 2, 3]

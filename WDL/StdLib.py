@@ -132,6 +132,7 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("read_map", [T.String()], T.Map(None), lambda pattern: exec('raise NotImplementedError()')),
     ("read_lines", [T.String()], T.Array(None), lambda pattern: exec('raise NotImplementedError()')),
     ("read_tsv", [T.String()], T.Array(T.Array(T.String())), lambda pattern: exec('raise NotImplementedError()')),
+    ("write_lines", [T.Array(T.String())], T.String(), lambda pattern: exec('raise NotImplementedError()')),
     ("write_map", [T.Map(None)], T.String(), lambda pattern: exec('raise NotImplementedError()')),
     ("range", [T.Int()], T.Array(T.Int()), lambda high: exec('raise NotImplementedError()')),
     ("sub", [T.String(), T.String(), T.String()], T.String(), lambda high: exec('raise NotImplementedError()')),
