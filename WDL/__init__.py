@@ -210,8 +210,9 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def runtime_section(self, items, meta):
         d = dict()
         for k,v in items:
-            if k in d:
-                raise Err.MultipleDefinitions(sp(self.filename, meta), "duplicate keys in runtime section")
+            # TODO: restore duplicate check, cf. https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/blob/89f11befc13abae97ab8fb1b457731f390c8728d/tasks_pipelines/qc.wdl#L288
+            #if k in d:
+            #    raise Err.MultipleDefinitions(sp(self.filename, meta), "duplicate keys in runtime section")
             d[k] = v
         return {"runtime": d}
     def task(self, items, meta):
@@ -318,7 +319,10 @@ def parse_expr(txt : str) -> E.Base:
     """
     Parse an isolated WDL expression text into an abstract syntax tree
     """
-    return _ExprTransformer('').transform(WDL._parser.parse(txt, "expr")) # pyre-fixme
+    try:
+        return _ExprTransformer(txt).transform(WDL._parser.parse(txt, "expr"))
+    except lark.exceptions.UnexpectedToken as exn:
+        raise Err.ParserError(txt) from exn
 
 def parse_tasks(txt : str) -> List[D.Task]:
     return _DocTransformer('').transform(WDL._parser.parse(txt, "tasks")) # pyre-fixme
@@ -350,8 +354,9 @@ def load(uri : str, path : List[str] = []) -> D.Document:
                 doc = parse_document(infile.read(), uri)
                 # recursively descend into document's imports, and store the imported
                 # documents into doc.imports
+                # TODO: limit recursion; prevent mutual recursion
                 for i in range(len(doc.imports)):
-                    subdoc = load(doc.imports[i][0], path)
+                    subdoc = load(doc.imports[i][0], [os.path.dirname(fn)]+path)
                     doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
                 doc.typecheck()
                 return doc

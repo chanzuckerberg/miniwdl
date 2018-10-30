@@ -40,6 +40,7 @@ class Base(ABC):
 
         :raises: ReferenceError for a null value and non-optional type
         """
+        # TODO: coerce T to Array[T] (x to [x])
         return self
     def expect(self, desired_type : Optional[T.Base] = None) -> BaseT:
         """Alias for coerce"""
