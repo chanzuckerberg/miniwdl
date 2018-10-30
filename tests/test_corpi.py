@@ -6,10 +6,10 @@ def test_corpus_zip(test_klass, prefix, zip_url, dir=['**'], path=[], blacklist=
     tdn = tempfile.mkdtemp(prefix='miniwdl_test_'+prefix+"_")
     subprocess.check_call(['wget', '-q', '-O', 'corpus.zip', zip_url], cwd=tdn)
     subprocess.check_call(['unzip', '-q', 'corpus.zip'], cwd=tdn)
-    files = glob.glob(os.path.join(*([tdn] + dir + ['*.wdl'])))
+    files = glob.glob(os.path.join(*([tdn] + dir + ['*.wdl'])), recursive=True)
     gpath = []
     for p in path:
-        gpath = gpath + glob.glob(os.path.join(*([tdn] + p)))
+        gpath = gpath + glob.glob(os.path.join(*([tdn] + p)), recursive=True)
     for fn in files:
         name = os.path.split(fn)[1]
         name = name[:-4]
@@ -29,7 +29,8 @@ test_corpus_zip(TestHCAskylab, "HCAskylab_workflow",
 class TestGATK(unittest.TestCase):
     pass
 test_corpus_zip(TestGATK, "GATK_five_dollar",
-                'https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/archive/89f11be.zip', blacklist=['fc_germline_single_sample_workflow'])
+                'https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/archive/89f11be.zip',
+                blacklist=['fc_germline_single_sample_workflow', 'split_large_readgroup', 'unmapped_bam_to_aligned_bam'])
 test_corpus_zip(TestGATK, "gatk4_germline_snps_indels",
                 'https://github.com/gatk-workflows/gatk4-germline-snps-indels/archive/b9bbbdc.zip',
                 # TODO: support pre-1.0 style of workflow outputs (identifiers and wildcards)
