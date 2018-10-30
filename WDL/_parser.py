@@ -53,12 +53,17 @@ grammar = r"""
           | ident
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
-?literal: "true" -> boolean_true
-        | "false" -> boolean_false
+?literal: _TRUE-> boolean_true
+        | _FALSE -> boolean_false
         | INT -> int
         | SIGNED_INT -> int
         | FLOAT -> float
         | SIGNED_FLOAT -> float
+
+_TRUE.2: "true"
+_FALSE.2: "false"
+_LEFT.2: "left"
+_RIGHT.2: "right"
 
 // string (single-quoted)
 STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{']/
@@ -78,8 +83,6 @@ STRING_INNER1: ("\\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
-_LEFT.2: "left"
-_RIGHT.2: "right"
 ident: [CNAME ("." CNAME)*]
 
 ?map_key: literal | string
@@ -111,7 +114,10 @@ bound_decl: type CNAME "=" expr -> decl
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
 !?placeholder_key: "default" | "false" | "true" | "sep"
-placeholder_option: placeholder_key "=" string_literal
+?placeholder_value: string_literal
+                  | INT -> int
+                  | FLOAT -> float
+placeholder_option: placeholder_key "=" placeholder_value
 placeholder: placeholder_option* expr
 
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/

@@ -1,6 +1,6 @@
 # pyre-strict
 from abc import ABC
-from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar
+from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Union
 import WDL.Type as T
 from WDL.Expr import TVApply, TVIdent
 
@@ -23,10 +23,14 @@ class SourceNode:
         self.pos = pos
 
 class Base(Exception):
-    node : SourceNode
-    def __init__(self, node : SourceNode, message : str) -> None:
-        self.node = node
-        message = "({} Ln {}, Col {}) {}".format(node.pos.filename, node.pos.line, node.pos.column, message)
+    node : Optional[SourceNode]
+    def __init__(self, node : Union[SourceNode,SourcePosition], message : str) -> None:
+        if isinstance(node,SourceNode):
+            self.node = node
+            self.pos = node.pos
+        else:
+            self.pos = node
+        message = "({} Ln {}, Col {}) {}".format(self.pos.filename, self.pos.line, self.pos.column, message)
         super().__init__(message)
 
 class NoSuchFunction(Base):
@@ -79,5 +83,5 @@ class NullValue(Base):
         super().__init__(node, "Null value")
 
 class MultipleDefinitions(Base):
-    def __init__(self, node : SourceNode, message : str) -> None:
+    def __init__(self, node : Union[SourceNode,SourcePosition], message : str) -> None:
         super().__init__(node, message)

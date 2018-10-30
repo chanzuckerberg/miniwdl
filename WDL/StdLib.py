@@ -134,6 +134,7 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("read_tsv", [T.String()], T.Array(T.Array(T.String())), lambda pattern: exec('raise NotImplementedError()')),
     ("write_map", [T.Map(None)], T.String(), lambda pattern: exec('raise NotImplementedError()')),
     ("range", [T.Int()], T.Array(T.Int()), lambda high: exec('raise NotImplementedError()')),
+    ("sub", [T.String(), T.String(), T.String()], T.String(), lambda high: exec('raise NotImplementedError()')),
 ]
 for name, argument_types, return_type, F in _static_functions:
     E._stdlib[name] = _StaticFunction(name, argument_types, return_type, F)
@@ -283,6 +284,7 @@ class _SelectFirst(E._Function):
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
 E._stdlib["select_first"] = _SelectFirst()
+E._stdlib["select_all"] = _SelectFirst() # TODO
 
 class _Zip(E._Function):
     # 'a array -> 'b array -> ('a,'b) array
@@ -302,3 +304,18 @@ class _Zip(E._Function):
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
 E._stdlib["zip"] = _Zip()
+E._stdlib["cross"] = _Zip() # TODO
+
+class _Basename(E._Function):
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) not in [1,2]:
+            raise Error.WrongArity(expr, 2)
+        expr.arguments[0].typecheck(T.String())
+        if len(expr.arguments) == 2:
+            expr.arguments[1].typecheck(T.String())
+        return T.String()
+
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
+        raise NotImplementedError()
+E._stdlib["basename"] = _Basename()
+
