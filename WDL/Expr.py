@@ -347,7 +347,9 @@ class Ident(Base):
             pair_namespace = self.namespace[:-1]
             try:
                 ans : V.Base = Env.resolve(env, pair_namespace, pair_name)
-                return ans
+                if isinstance(ans, V.Pair):
+                    assert ans.value is not None
+                    return ans.value[0] if self.name == 'left' else ans.value[1]
             except KeyError:
                 pass
         try:
@@ -355,3 +357,25 @@ class Ident(Base):
             return ans
         except KeyError:
             raise Error.UnknownIdentifier(self) from None
+
+# Pair literal
+
+class Pair(Base):
+    left : Base
+    right : Base
+
+    def __init__(self, pos : SourcePosition, left : Base, right : Base) -> None:
+        super().__init__(pos)
+        self.left = left
+        self.right = right
+
+    def _infer_type(self, type_env : Env.Types) -> T.Base:
+        self.left.infer_type(type_env)
+        self.right.infer_type(type_env)
+        return T.Pair(self.left.type, self.right.type)
+
+    def eval(self, env : Env.Values) -> V.Base:
+        assert isinstance(self.type, T.Pair)
+        lv = self.left.eval(env)
+        rv = self.right.eval(env)
+        return V.Pair(self.type, (lv,rv))

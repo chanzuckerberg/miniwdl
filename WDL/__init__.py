@@ -69,6 +69,9 @@ class _ExprTransformer(lark.Transformer):
     def get(self, items, meta) -> E.Base:
         return E.Apply(sp(self.filename, meta), "_get", items)
 
+    def pair(self, items, meta) -> E.Base:
+        assert len(items) == 2
+        return E.Pair(sp(self.filename, meta), items[0], items[1])
     def get_left(self, items, meta) -> E.Base:
         return E.Apply(sp(self.filename, meta), "_get_left", items)
     def get_right(self, items, meta) -> E.Base:

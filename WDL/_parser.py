@@ -42,6 +42,7 @@ grammar = r"""
           | "[" [expr ("," expr)*] "]" -> array
           | expr_core "[" expr "]" -> get
 
+          | "(" expr "," expr ")" -> pair
           | expr_core "." _LEFT -> get_left
           | expr_core "." _RIGHT -> get_right
 

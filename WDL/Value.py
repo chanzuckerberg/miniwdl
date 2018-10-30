@@ -90,10 +90,11 @@ class Map(Base):
 
 class Pair(Base):
     value : Optional[Tuple[Base,Base]] = None
-    def __init__(self, type : T.Map, value : Tuple[Base,Base]) -> None:
+    def __init__(self, type : T.Pair, value : Tuple[Base,Base]) -> None:
         super().__init__(type, value)
     def __str__(self) -> str:
-        raise NotImplementedError() # TODO
+        assert isinstance(self.value, tuple)
+        return "(" + str(self.value[0]) + "," + str(self.value[1]) + ")" # pyre-fixme
 
 class Null(Base):
     """Represents the missing value which optional inputs may take. ``type`` and ``value`` are both None."""
