@@ -123,6 +123,7 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("stdout", [], T.String(), lambda: exec('raise NotImplementedError()')),
     ("size", [T.File(), T.String()], T.Float(), lambda file: exec('raise NotImplementedError()')),
     ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
+    ("round", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("glob", [T.String()], T.Array(T.File()), lambda pattern: exec('raise NotImplementedError()')),
     ("read_int", [T.String()], T.Int(), lambda pattern: exec('raise NotImplementedError()')),
     ("read_boolean", [T.String()], T.Boolean(), lambda pattern: exec('raise NotImplementedError()')),
@@ -320,3 +321,19 @@ class _Basename(E._Function):
         raise NotImplementedError()
 E._stdlib["basename"] = _Basename()
 
+class _Flatten(E._Function):
+    # t array array -> t array
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        expr.arguments[0].typecheck(T.Array(None))
+        # TODO: won't handle implicit coercion from T to Array[T]
+        assert isinstance(expr.arguments[0].type, T.Array)
+        if expr.arguments[0].type.item_type is None:
+            return T.Array(None)
+        elif not isinstance(expr.arguments[0].type.item_type, T.Array):
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(T.Array(None)), expr.arguments[0].type)
+        return T.Array(expr.arguments[0].type.item_type.item_type) #pyre-fixme
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
+        raise NotImplementedError()
+E._stdlib["flatten"] = _Flatten()
