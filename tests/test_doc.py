@@ -434,8 +434,10 @@ class TestDoc(unittest.TestCase):
             Array[Int] xs = [1, 2, 3]
             Array[Int] ys = [4, 5, 6]
             scatter (x in xs) {
+                Int x2 = x*x
                 scatter (y in ys) {
                     if (x + y < 5) {
+                        Int xy = x * y
                         call sum { input:
                             x = x,
                             y = y
@@ -445,6 +447,8 @@ class TestDoc(unittest.TestCase):
             }
             output {
                 Array[Array[Int?]] z = sum.z
+                Array[Array[Int?]] xy = xy
+                Array[Int] x2 = x2
             }
         }
         """
