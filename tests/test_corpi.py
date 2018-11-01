@@ -48,8 +48,7 @@ class TestGTEx(unittest.TestCase):
 test_corpus_zip(TestGTEx, "GTEx",
                 'https://github.com/broadinstitute/gtex-pipeline/archive/a228198.zip',
                 # need URI import
-                # something weird (in lark) with metasoft, possibly a lark bug -- try lark 0.7
-                blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq","metasoft"])
+                blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq"])
 
 class TestTOPMed(unittest.TestCase):
     pass
@@ -58,3 +57,10 @@ test_corpus_zip(TestTOPMed, "TOPMed",
                 # need urI import
                 blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
                            'topmed_freeze3_calling', 'topmed_freeze3_calling_checker', 'u_of_michigan_aligner_checker'])
+
+class TestViralNGS(unittest.TestCase):
+    pass
+test_corpus_zip(TestViralNGS, "ViralNGS",
+                'https://github.com/broadinstitute/viral-ngs/archive/v1.21.2.zip',
+                ['viral-ngs-*', 'pipes', 'WDL', 'workflows'],
+                path=[['viral-ngs-*', 'pipes', 'WDL', 'workflows', 'tasks']])

@@ -83,7 +83,7 @@ STRING_INNER1: ("\\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
-ident: [CNAME ("." CNAME)*]
+ident: CNAME ("." CNAME)*
 
 ?map_key: literal | string
 map_kv: map_key ":" expr
