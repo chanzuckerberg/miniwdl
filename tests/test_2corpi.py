@@ -1,4 +1,4 @@
-import unittest, inspect, subprocess, tempfile, os, glob, subprocess
+import unittest, inspect, subprocess, tempfile, os, glob
 from .context import WDL
 
 # download and extract a zip file with a corpus of WDL documents; load each one
