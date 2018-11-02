@@ -422,7 +422,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             else:
                 assert isinstance(item, str)
                 assert "name" not in d
-                d["name"] = item
+                d["name"] = item.value
         return D.Task(sp(self.filename, meta), d["name"], d.get("inputs", []), d.get("decls", []), d["command"],
                       d.get("outputs", []), d.get("parameter_meta", {}), d.get("runtime", {}),
                       d.get("meta", {}))
@@ -475,7 +475,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def import_doc(self, items, meta):
         uri = items[0]
         if len(items) > 1:
-            namespace = items[1]
+            namespace = items[1].value
         else:
             namespace = uri
             try:

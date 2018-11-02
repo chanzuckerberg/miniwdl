@@ -3,7 +3,7 @@ import os, errno
 import lark
 import inspect
 import WDL._parser
-import WDL.Expr, WDL.Document
+import WDL.Expr, WDL.Document, WDL.Walker
 import WDL.StdLib # NEEDED to initialize standard library
 from typing import List
 
