@@ -3,6 +3,7 @@ from abc import ABC
 from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Union
 import WDL.Type as T
 from WDL.Expr import TVApply, TVIdent
+from functools import total_ordering
 
 class ParserError(Exception):
     def __init__(self, filename : str) -> None:
@@ -13,6 +14,7 @@ SourcePosition = NamedTuple("SourcePosition",
                              ('end_line',int), ('end_column',int)])
 """Source file, line, and column, attached to each AST node"""
 
+@total_ordering
 class SourceNode:
     """Base class for an AST node, recording the source position"""
 
@@ -21,6 +23,23 @@ class SourceNode:
 
     def __init__(self, pos : SourcePosition) -> None:
         self.pos = pos
+
+    def __lt__(self, rhs) -> bool:
+        if isinstance(rhs, SourceNode):
+            if self.pos.filename < rhs.pos.filename:
+                return True
+            if self.pos.line < rhs.pos.line:
+                return True
+            if self.pos.column < rhs.pos.column:
+                return True
+            if self.pos.end_line < rhs.pos.end_line:
+                return True
+            if self.pos.end_column < rhs.pos.end_column:
+                return True
+        return False
+
+    def __eq__(self, rhs) -> bool:
+        return self.pos == rhs.pos
 
 class Base(Exception):
     node : Optional[SourceNode]

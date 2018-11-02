@@ -267,7 +267,7 @@ class Conditional(SourceNode):
         outputs_env = _typecheck_workflow_body(self.elements, type_env, doc)
 
         # promote each output type T to T?
-        return _optionalize_types(outputs_env) # pyre-fixme
+        return _optionalize_types(outputs_env)
 
 class Workflow(SourceNode):
     name : str

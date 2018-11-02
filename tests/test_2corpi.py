@@ -1,4 +1,4 @@
-import unittest, inspect, subprocess, tempfile, os, glob
+import unittest, inspect, subprocess, tempfile, os, glob, subprocess
 from .context import WDL
 
 # download and extract a zip file with a corpus of WDL documents; load each one
@@ -16,7 +16,12 @@ def test_corpus_zip(test_klass, prefix, zip_url, dir=['**'], path=[], blacklist=
         if name not in blacklist:
             name = "test_" + prefix + "_" + name.replace('.', '_')
             def t(self, fn=fn):
-                WDL.load(fn, path=gpath)
+                cmd = ['check']
+                for dn in gpath:
+                    cmd.append('--path')
+                    cmd.append(dn)
+                cmd.append(fn)
+                WDL.CLI.main(cmd)
             setattr(test_klass, name, t)
 
 class TestHCAskylab(unittest.TestCase):
