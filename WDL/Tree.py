@@ -11,7 +11,8 @@ import WDL.Expr as E
 import WDL.Env as Env
 import WDL.Error as Err
 from WDL.Error import SourcePosition, SourceNode
-import copy
+import copy, os, errno
+import WDL._parser
 
 class Decl(SourceNode):
     """A declaration such as an input/output variable"""
@@ -266,7 +267,7 @@ class Conditional(SourceNode):
         outputs_env = _typecheck_workflow_body(self.elements, type_env, doc)
 
         # promote each output type T to T?
-        return _optionalize_types(outputs_env) # pyre-fixme
+        return _optionalize_types(outputs_env)
 
 class Workflow(SourceNode):
     name : str
@@ -329,3 +330,20 @@ class Document(SourceNode):
         # typecheck the workflow
         if self.workflow:
             self.workflow.typecheck(self)
+
+def load(uri : str, path : List[str] = []) -> Document:
+    for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)]):
+        if os.path.exists(fn):
+            with open(fn, 'r') as infile:
+                # read and parse the document
+                doc = WDL._parser.parse_document(infile.read(), uri)
+                assert isinstance(doc, Document)
+                # recursively descend into document's imports, and store the imported
+                # documents into doc.imports
+                # TODO: limit recursion; prevent mutual recursion
+                for i in range(len(doc.imports)):
+                    subdoc = load(doc.imports[i][0], [os.path.dirname(fn)]+path)
+                    doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
+                doc.typecheck()
+                return doc
+    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
