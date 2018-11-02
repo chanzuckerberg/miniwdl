@@ -27,51 +27,51 @@ class Base():
         pass
 
     def __call__(self, obj : WDL.Error.SourceNode) -> Any:
-        if isinstance(obj, WDL.Document.Document):
+        if isinstance(obj, WDL.Tree.Document):
             return self.document(obj)
-        elif isinstance(obj, WDL.Document.Workflow):
+        elif isinstance(obj, WDL.Tree.Workflow):
             return self.workflow(obj)
-        elif isinstance(obj, WDL.Document.Call):
+        elif isinstance(obj, WDL.Tree.Call):
             return self.call(obj)
-        elif isinstance(obj, WDL.Document.Scatter):
+        elif isinstance(obj, WDL.Tree.Scatter):
             return self.scatter(obj)
-        elif isinstance(obj, WDL.Document.Conditional):
+        elif isinstance(obj, WDL.Tree.Conditional):
             return self.conditional(obj)
-        elif isinstance(obj, WDL.Document.Decl):
+        elif isinstance(obj, WDL.Tree.Decl):
             return self.decl(obj)
-        elif isinstance(obj, WDL.Document.Task):
+        elif isinstance(obj, WDL.Tree.Task):
             return self.task(obj)
         else:
             assert False
 
-    def document(self, obj : WDL.Document.Document) -> Any:
+    def document(self, obj : WDL.Tree.Document) -> Any:
         for namespace, uri, subdoc in obj.imports:
-            assert isinstance(subdoc, WDL.Document.Document)
+            assert isinstance(subdoc, WDL.Tree.Document)
             self(subdoc)
         for task in obj.tasks:
             self(task)
         if obj.workflow:
             self(obj.workflow)
 
-    def workflow(self, obj : WDL.Document.Workflow) -> Any:
+    def workflow(self, obj : WDL.Tree.Workflow) -> Any:
         for elt in obj.elements:
             self(elt)
 
-    def call(self, obj : WDL.Document.Call) -> Any:
+    def call(self, obj : WDL.Tree.Call) -> Any:
         pass
 
-    def scatter(self, obj : WDL.Document.Scatter) -> Any:
+    def scatter(self, obj : WDL.Tree.Scatter) -> Any:
         for elt in obj.elements:
             self(elt)
 
-    def conditional(self, obj : WDL.Document.Conditional) -> Any:
+    def conditional(self, obj : WDL.Tree.Conditional) -> Any:
         for elt in obj.elements:
             self(elt)
 
-    def decl(self, obj : WDL.Document.Decl) -> Any:
+    def decl(self, obj : WDL.Tree.Decl) -> Any:
         pass
 
-    def task(self, obj : WDL.Document.Task) -> Any:
+    def task(self, obj : WDL.Tree.Task) -> Any:
         for elt in obj.inputs + obj.postinputs + obj.outputs:
             self(elt)
 
@@ -88,7 +88,7 @@ class SetParents(Base):
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
     """
-    def document(self, obj : WDL.Document.Document) -> None:
+    def document(self, obj : WDL.Tree.Document) -> None:
         super().document(obj)
         obj.parent = None
         for namespace,uri,subdoc in obj.imports:
@@ -97,22 +97,22 @@ class SetParents(Base):
             task.parent = obj
         if obj.workflow:
             obj.workflow.parent = obj
-    def workflow(self, obj : WDL.Document.Workflow) -> None:
+    def workflow(self, obj : WDL.Tree.Workflow) -> None:
         super().workflow(obj)
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
-    def scatter(self, obj : WDL.Document.Scatter) -> None:
+    def scatter(self, obj : WDL.Tree.Scatter) -> None:
         super().scatter(obj)
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
-    def conditional(self, obj : WDL.Document.Conditional) -> None:
+    def conditional(self, obj : WDL.Tree.Conditional) -> None:
         super().conditional(obj)
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
-    def task(self, obj : WDL.Document.Task) -> None:
+    def task(self, obj : WDL.Tree.Task) -> None:
         super().task(obj)
         obj.parent = None
         for elt in obj.inputs + obj.postinputs + obj.outputs:
@@ -125,7 +125,7 @@ class MarkCalled(Base):
     calls). Requires SetParents to have been applied previously.
     """
     marking : bool = False # True while recursing from the top-level workflow
-    def workflow(self, obj : WDL.Document.Workflow) -> None:
+    def workflow(self, obj : WDL.Tree.Workflow) -> None:
         obj.called = False
         if obj.parent.parent is None: # pyre-ignore
             assert not self.marking
@@ -134,10 +134,10 @@ class MarkCalled(Base):
             self.marking = False
         elif self.marking:
             super().workflow(obj)
-    def call(self, obj : WDL.Document.Call) -> None:
+    def call(self, obj : WDL.Tree.Call) -> None:
         assert self.marking
-        obj.callee.called = True
-        if isinstance(obj.callee, WDL.Document.Workflow):
+        if isinstance(obj.callee, WDL.Tree.Workflow):
             self(obj.callee)
-    def task(self, obj : WDL.Document.Task) -> None:
+        obj.callee.called = True
+    def task(self, obj : WDL.Tree.Task) -> None:
         obj.called = False

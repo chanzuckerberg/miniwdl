@@ -197,7 +197,7 @@ import inspect
 from typing import List
 from WDL import Expr as E
 from WDL import Type as T
-from WDL import Document as D
+from WDL import Tree as D
 from WDL import Error as Err
 from WDL.Error import SourcePosition
 from WDL import Env

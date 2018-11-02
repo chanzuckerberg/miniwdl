@@ -20,7 +20,7 @@ class Linter(WDL.Walker.Base):
         obj.lint.append((pos, self.__class__.__name__, message))
 
 class ImpliedStringCoercion(Linter):
-    def decl(self, obj : WDL.Document.Decl) -> Any:
+    def decl(self, obj : WDL.Decl) -> Any:
         if isinstance(obj.type, WDL.Type.String) \
             and obj.expr is not None \
             and not isinstance(obj.expr.type, WDL.Type.String) \

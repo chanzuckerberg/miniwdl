@@ -34,9 +34,9 @@ Value
    :members:
    :show-inheritance:
 
-Document
---------
-.. automodule:: WDL.Document
+Tree
+----
+.. automodule:: WDL.Tree
    :members:
    :show-inheritance:
 

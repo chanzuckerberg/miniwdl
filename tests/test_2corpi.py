@@ -21,6 +21,7 @@ def test_corpus_zip(test_klass, prefix, zip_url, dir=['**'], path=[], blacklist=
                     cmd.append('--path')
                     cmd.append(dn)
                 cmd.append(fn)
+                print()
                 WDL.CLI.main(cmd)
             setattr(test_klass, name, t)
 

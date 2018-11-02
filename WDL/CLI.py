@@ -52,7 +52,7 @@ def outline(obj, level, file=sys.stdout):
             print('{}(Ln {}, Col {}) {}: {}'.format(s,pos.line,pos.column,klass,msg), file=file)
 
     # document
-    if isinstance(obj, WDL.Document.Document):
+    if isinstance(obj, WDL.Document):
         # workflow
         if obj.workflow:
             if level<=1 or obj.workflow.called:
@@ -74,18 +74,18 @@ def outline(obj, level, file=sys.stdout):
             print("{}{} : {}".format(s, namespace, os.path.basename(uri)), file=file)
             outline(subdoc, level+1, file)
     # call
-    elif isinstance(obj, WDL.Document.Call):
+    elif isinstance(obj, WDL.Call):
         print("{}call {}".format(s, '.'.join(obj.callee_id.namespace + [obj.callee_id.name])), file=file)
     # scatter
-    elif isinstance(obj, WDL.Document.Scatter):
+    elif isinstance(obj, WDL.Scatter):
         print("{}scatter {}".format(s, obj.variable), file=file)
         for elt in obj.elements:
             outline(elt, level+1, file)
     # if
-    elif isinstance(obj, WDL.Document.Conditional):
+    elif isinstance(obj, WDL.Conditional):
         print("{}if".format(s), file=file)
         for elt in obj.elements:
             outline(elt, level+1, file)
     # decl
-    elif isinstance(obj, WDL.Document.Decl):
+    elif isinstance(obj, WDL.Decl):
         pass
