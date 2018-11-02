@@ -48,8 +48,8 @@ def outline(obj, level, file=sys.stdout):
 
     # show any lint for this node
     if hasattr(obj, 'lint'):
-        for (pos,klass,msg) in sorted(obj.lint):
-            print('{}(Ln {}, Col {}) {}: {}'.format(s,pos.line,pos.column,klass,msg), file=file)
+        for (node,klass,msg) in sorted(obj.lint, key=lambda t: t[0]):
+            print('{}(Ln {}, Col {}) {}: {}'.format(s,node.pos.line,node.pos.column,klass,msg), file=file)
 
     # document
     if isinstance(obj, WDL.Document):

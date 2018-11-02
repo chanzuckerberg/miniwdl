@@ -25,17 +25,10 @@ class SourceNode:
         self.pos = pos
 
     def __lt__(self, rhs) -> bool:
+        assert False
         if isinstance(rhs, SourceNode):
-            if self.pos.filename < rhs.pos.filename:
-                return True
-            if self.pos.line < rhs.pos.line:
-                return True
-            if self.pos.column < rhs.pos.column:
-                return True
-            if self.pos.end_line < rhs.pos.end_line:
-                return True
-            if self.pos.end_column < rhs.pos.end_column:
-                return True
+            return ((self.pos.filename, self.pos.line, self.pos.column, self.pos.end_line, self.pos.end_column) <
+                    (rhs.pos.filename, rhs.pos.line, rhs.pos.column, rhs.pos.end_line, rhs.pos.end_column))
         return False
 
     def __eq__(self, rhs) -> bool:
