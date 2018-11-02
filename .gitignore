@@ -2,3 +2,4 @@ __pycache__
 .coverage
 .pyre
 docs/_build/
+.vscode/
