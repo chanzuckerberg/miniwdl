@@ -12,7 +12,7 @@ miniwdl is available on PyPI:
 
 ``pip3 install miniwdl``
 
-This will also install the [Lark parsing library](https://github.com/lark-parser/lark) automatically.
+This will also install the [Lark parsing library](https://github.com/lark-parser/lark) automatically. 
 
 ## `miniwdl check`
 
@@ -45,7 +45,7 @@ SmartSeq2SingleSample.wdl
 
 ## `WDL` package
 
-The `WDL` package provides programmatic access to the WDL parser and AST. This simple example prints all declarations in a workflow, including those within scatter and if stanzas.
+The `WDL` package provides programmatic access to the WDL parser and AST. This simple example prints all declarations in a workflow, descending into `scatter` and `if` blocks.
 
 ```
 $ python3 -c "
@@ -84,3 +84,5 @@ File barcoded_bam
 ## Contributing
 
 Contributions and feedback are welcome on this repository. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker.
+
+``make docker`` runs miniwdl's test suite and [pyre](https://pyre-check.org/) type-checker, in a suitably configured docker container. 
