@@ -4,7 +4,7 @@
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/master/LICENSE)
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
 
-*miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree, providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes a command-line tool which validates WDL documents and generates lint and style warnings. 
+*miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes a command-line tool which validates WDL documents and generates lint/style warnings. 
 
 ## Install
 
@@ -19,7 +19,7 @@ This will also install the [Lark parsing library](https://github.com/lark-parser
 Once installed, ``miniwdl check /path/to/workflow.wdl`` loads the workflow and shows a brief outline with any lint warnings. Add ``--path /path/to/tasks/`` to specify a directory to search for imports (can be specified more than once). Abbreviated example with a checkout of [HumanCellAtlas/skylab](https://github.com/HumanCellAtlas/skylab):
 
 ```
-# miniwdl check --path skylab/library/tasks/ skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl 
+$ miniwdl check --path skylab/library/tasks/ skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl 
 SmartSeq2SingleSample.wdl
     workflow SmartSeq2SingleCell
         call HISAT2.HISAT2PairedEnd
@@ -43,7 +43,39 @@ SmartSeq2SingleSample.wdl
     ...
 ```
 
-## WDL library
+## `WDL` package
+
+The `WDL` package provides programmatic access to the WDL parser and AST. This simple example prints all declarations in a workflow, including those within scatter and if stanzas.
+
+```
+$ python3 -c "
+import WDL
+
+doc = WDL.load('skylab/pipelines/optimus/Optimus.wdl',
+               path=['skylab/library/tasks/'])
+
+def show(elements):
+  for elt in elements:
+    if isinstance(elt, WDL.Decl):
+      print(str(elt.type) + ' ' + elt.name)
+    elif isinstance(elt, WDL.Scatter) or isinstance(elt, WDL.Conditional):
+      show(elt.elements)
+show(doc.workflow.elements)
+"
+String version
+Array[File] r1_fastq
+Array[File] r2_fastq
+Array[File] i1_fastq
+String sample_id
+File tar_star_reference
+File annotations_gtf
+File ref_genome_fasta
+File whitelist
+String fastq_suffix
+Array[Int] indices
+Array[File] non_optional_i1_fastq
+File barcoded_bam
+```
 
 ## Documentation
 
