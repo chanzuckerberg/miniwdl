@@ -5,3 +5,5 @@ sphinx
 sphinx-autobuild
 lark-parser==0.6.4
 python-coveralls
+setuptools
+twine

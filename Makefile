@@ -11,9 +11,16 @@ check:
 docker:
 	docker build -t miniwdl .
 
+pypi_test: bdist
+	twine upload --repository-url https://test.pypi.org/legacy/ dist/*
+
+bdist:
+	rm -rf dist/
+	python3 setup.py sdist bdist_wheel
+
 doc:
 	$(MAKE) -C docs html
 
 docs: doc
 
-.PHONY: check test docker doc docs
+.PHONY: check test docker doc docs pypi_test bdist
