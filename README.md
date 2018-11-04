@@ -10,21 +10,21 @@
 
 ## Install
 
-miniwdl is available on PyPI:
-
 ``pip3 install miniwdl``
 
 This will also install the [Lark parsing library](https://github.com/lark-parser/lark) automatically. 
 
-For development, check out this repository and try ``make docker`` to run miniwdl's test suite and [pyre](https://pyre-check.org/) type-checker, in a suitably configured docker container. The [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) illustrates how to configure another environment.
+For development, clone this repository and ``docker build -t miniwdl .`` to run miniwdl's test suite in a locally-built docker container. The [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) illustrates how to configure another environment.
 
 
 ## `miniwdl check`
 
-Once installed, ``miniwdl check /path/to/workflow.wdl`` loads the workflow and shows a brief outline with any lint warnings. Add ``--path /path/to/tasks/`` to specify a directory to search for imports (can be specified more than once). Abbreviated example with a checkout of [HumanCellAtlas/skylab](https://github.com/HumanCellAtlas/skylab):
+Once installed, ``miniwdl check /path/to/workflow.wdl`` loads the WDL document and shows a brief outline with any lint warnings. Specify ``--path /path/to/tasks/`` to add a directory to search for imported documents (one or more times). Example with a checkout of [HumanCellAtlas/skylab](https://github.com/HumanCellAtlas/skylab):
 
 ```
-$ miniwdl check --path skylab/library/tasks/ skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl 
+$ miniwdl check --path skylab/library/tasks/ \
+    skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl 
+
 SmartSeq2SingleSample.wdl
     workflow SmartSeq2SingleCell
         call HISAT2.HISAT2PairedEnd
@@ -45,6 +45,7 @@ SmartSeq2SingleSample.wdl
         task HISAT2RSEM
         task HISAT2InspectIndex (not called)
         task HISAT2SingleEnd (not called)
+
     ...
 ```
 
@@ -67,6 +68,7 @@ def show(elements):
       show(elt.elements)
 show(doc.workflow.elements)
 "
+
 String version
 Array[File] r1_fastq
 Array[File] r2_fastq
@@ -84,7 +86,9 @@ File barcoded_bam
 
 ## Documentation
 
-A link to hosted documentation will go here. In the meantime, `make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate it under `docs/_build/html/`. Or following `make docker`, you can copy them out of the image with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
+*(Link to hosted documentation will go here)*
+
+`make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate the documentation under `docs/_build/html/`. Or following `make docker`, you can copy them out of the image with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
 
 ## Contributing
 
