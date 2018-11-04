@@ -14,6 +14,9 @@ miniwdl is available on PyPI:
 
 This will also install the [Lark parsing library](https://github.com/lark-parser/lark) automatically. 
 
+For development, check out this repository and try ``make docker`` to run miniwdl's test suite and [pyre](https://pyre-check.org/) type-checker, in a suitably configured docker container. The [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) illustrates how to configure another environment.
+
+
 ## `miniwdl check`
 
 Once installed, ``miniwdl check /path/to/workflow.wdl`` loads the workflow and shows a brief outline with any lint warnings. Add ``--path /path/to/tasks/`` to specify a directory to search for imports (can be specified more than once). Abbreviated example with a checkout of [HumanCellAtlas/skylab](https://github.com/HumanCellAtlas/skylab):
@@ -79,10 +82,9 @@ File barcoded_bam
 
 ## Documentation
 
-(Link to generated documentation goes here)
+A link to hosted documentation will go here. In the meantime, `make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate it under `docs/_build/html/`. Or following `make docker`, you can copy them out of the image with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
 
 ## Contributing
 
 Contributions and feedback are welcome on this repository. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker.
 
-``make docker`` runs miniwdl's test suite and [pyre](https://pyre-check.org/) type-checker, in a suitably configured docker container. 
