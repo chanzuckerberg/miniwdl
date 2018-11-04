@@ -49,6 +49,8 @@ SmartSeq2SingleSample.wdl
     ...
 ```
 
+If you haven't installed the PyPI package to get the `miniwdl` entry point, equivalently `python3 -m /path/to/miniwdl/WDL check ...`.
+
 ## `WDL` package
 
 The `WDL` package provides programmatic access to the WDL parser and AST. This simple example prints all declarations in a workflow, descending into `scatter` and `if` blocks.
