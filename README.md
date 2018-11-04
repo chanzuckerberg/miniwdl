@@ -19,9 +19,10 @@ For development, clone this repository and ``docker build -t miniwdl .`` to run 
 
 ## `miniwdl check`
 
-Once installed, ``miniwdl check /path/to/workflow.wdl`` loads the WDL document and shows a brief outline with any lint warnings. Specify ``--path /path/to/tasks/`` to add a directory to search for imported documents (one or more times). Example with a checkout of [HumanCellAtlas/skylab](https://github.com/HumanCellAtlas/skylab):
+Once installed, ``miniwdl check /path/to/workflow.wdl`` loads the WDL document and shows a brief outline with any lint warnings. Add ``--path /path/to/tasks/`` with a directory to search for imported documents (one or more times). Example with [HumanCellAtlas/skylab](https://github.com/HumanCellAtlas/skylab):
 
 ```
+$ git clone https://github.com/HumanCellAtlas/skylab.git
 $ miniwdl check --path skylab/library/tasks/ \
     skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl 
 
@@ -53,7 +54,7 @@ If you haven't installed the PyPI package to get the `miniwdl` entry point, equi
 
 ## `WDL` package
 
-The `WDL` package provides programmatic access to the WDL parser and AST. This simple example prints all declarations in a workflow, descending into `scatter` and `if` blocks.
+The `WDL` package provides programmatic access to the WDL parser and AST. The following example prints all declarations in a workflow, descending into `scatter` and `if` stanzas as needed.
 
 ```
 $ python3 -c "
