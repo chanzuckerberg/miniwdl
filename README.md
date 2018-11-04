@@ -90,7 +90,7 @@ File barcoded_bam
 
 *(Link to hosted documentation will go here)*
 
-`make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate the documentation under `docs/_build/html/`. Or, after building the docker image, you can copy them out with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
+`make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate the documentation under `docs/_build/html/`. Or, after building the docker image, copy them out with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
 
 ## Contributing
 
