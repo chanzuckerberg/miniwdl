@@ -1,9 +1,3 @@
-wheel
-pyre-check==0.0.16
-coverage
-sphinx
-sphinx-autobuild
+# Packages needed for miniwdl to run in common use. Additional packages needed
+# for miniwdl development are listed in requirements.dev.txt.
 lark-parser==0.6.4
-python-coveralls
-setuptools
-twine

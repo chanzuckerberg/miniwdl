@@ -1,8 +1,8 @@
-test: check
+test: typecheck
 	coverage run --include "WDL/*" -m unittest -v
 	coverage report
 
-check:
+typecheck:
 	pyre \
 		--search-path $(HOME)/.local/lib/python3.6/site-packages/lark \
 		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
@@ -23,4 +23,4 @@ doc:
 
 docs: doc
 
-.PHONY: check test docker doc docs pypi_test bdist
+.PHONY: typecheck test docker doc docs pypi_test bdist

@@ -1,0 +1,11 @@
+# Packages needed for miniwdl development, in addition to those in
+# requirements.txt which are needed for miniwdl to run in common use.
+pyre-check==0.0.16
+sphinx
+sphinx-autobuild
+coverage
+python-coveralls
+wheel
+setuptools
+pbr
+twine
