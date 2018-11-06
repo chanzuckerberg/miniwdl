@@ -3,3 +3,6 @@ __pycache__
 .pyre
 docs/_build/
 .vscode/
+dist/
+build/
+*.egg-info/
