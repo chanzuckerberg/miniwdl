@@ -7,6 +7,8 @@
 
 *miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes a command-line tool which validates WDL documents and generates lint/style warnings.
 
+This project in prealpha development; interfaces are liable to change substantially.
+
 ## Installation
 
 ``pip3 install miniwdl``
@@ -94,5 +96,4 @@ File barcoded_bam
 
 ## Contributing
 
-Contributions and feedback are welcome on this repository. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker.
-
+Feedback and contributions are welcome on this repository. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker. Please send pull requests on a dedicated branch, and ensure their compatibility with this project's MIT license.
