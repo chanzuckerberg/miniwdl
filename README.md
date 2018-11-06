@@ -96,4 +96,6 @@ File barcoded_bam
 
 ## Contributing
 
-Feedback and contributions are welcome on this repository. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker. Please send pull requests on a dedicated branch, and ensure their compatibility with this project's MIT license.
+Feedback and contributions are welcome on this repository. Please send pull requests on a dedicated branch, and ensure their compatibility with this project's MIT license.
+
+The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker.
