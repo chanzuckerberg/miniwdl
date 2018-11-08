@@ -70,3 +70,8 @@ test_corpus_zip(TestViralNGS, "ViralNGS",
                 'https://github.com/broadinstitute/viral-ngs/archive/v1.21.2.zip',
                 ['viral-ngs-*', 'pipes', 'WDL', 'workflows'],
                 path=[['viral-ngs-*', 'pipes', 'WDL', 'workflows', 'tasks']])
+
+class TestENCODE(unittest.TestCase):
+    pass
+test_corpus_zip(TestENCODE, "EncodeChipSeq",
+                'https://github.com/ENCODE-DCC/chip-seq-pipeline2/archive/3c87ffd.zip')

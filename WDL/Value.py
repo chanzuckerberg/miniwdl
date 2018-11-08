@@ -40,6 +40,8 @@ class Base(ABC):
 
         :raises: ReferenceError for a null value and non-optional type
         """
+        if isinstance(desired_type, T.String):
+            return String(str(self.value))
         # TODO: coerce T to Array[T] (x to [x])
         return self
     def expect(self, desired_type : Optional[T.Base] = None) -> BaseT:

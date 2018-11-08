@@ -164,6 +164,8 @@ class TestEval(unittest.TestCase):
             ("[true, false][0]", "true"),
             ("[true, false][1]", "false"),
             ("[1+2, 3*4][1]", "12"),
+            ("[1,2,3,]", "[1, 2, 3]"),
+            ("[1,'a']", '["1", "a"]'),
             ("[]","[]", WDL.Type.Array(None)),
             ("[] == []","true"),
             ("[1, false]", "(Ln 1, Col 1) Expected Int instead of Boolean; inconsistent types within array", WDL.Error.StaticTypeMismatch),
@@ -187,13 +189,19 @@ class TestEval(unittest.TestCase):
 
     def test_ident(self):
         env = cons_env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
-                        ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)))
+                        ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)),
+                        ("true_rep_only", WDL.Value.Boolean(False)),
+                        ("lefty", WDL.Value.Boolean(False)),
+                        ("left_recursive", WDL.Value.Boolean(False)))
         self._test_tuples(
             ("pi", "3.14159", WDL.Type.Float(), env),
             ("bogus", "(Ln 1, Col 1) Unknown identifier", WDL.Error.UnknownIdentifier, env),
             ("pi+e", "5.85987", env),
             ("t||f", "true", WDL.Type.Boolean(), env),
-            ("if t then pi else e", "3.14159", env)
+            ("if t then pi else e", "3.14159", env),
+            ("true_rep_only", "false", env),
+            ("lefty", "false", env),
+            ("left_recursive", "false", env)
         )
 
 

@@ -36,12 +36,12 @@ grammar = r"""
           | string
           | "!" expr -> negate
 
-          | "[" [expr ("," expr)*] "]" -> array
+          | "[" [expr ("," expr)*] ","? "]" -> array
           | expr_core "[" expr "]" -> get
 
           | "(" expr "," expr ")" -> pair
-          | expr_core "." _LEFT -> get_left
-          | expr_core "." _RIGHT -> get_right
+          | expr_core "." "left" -> get_left
+          | expr_core "." "right" -> get_right
 
           | "{" [map_kv ("," map_kv)*] "}" -> map
 
@@ -50,17 +50,12 @@ grammar = r"""
           | ident
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
-?literal: _TRUE-> boolean_true
-        | _FALSE -> boolean_false
+?literal: "true"-> boolean_true
+        | "false" -> boolean_false
         | INT -> int
         | SIGNED_INT -> int
         | FLOAT -> float
         | SIGNED_FLOAT -> float
-
-_TRUE.2: "true"
-_FALSE.2: "false"
-_LEFT.2: "left"
-_RIGHT.2: "right"
 
 // string (single-quoted)
 STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{']/

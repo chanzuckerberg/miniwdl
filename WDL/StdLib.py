@@ -133,8 +133,9 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("read_map", [T.String()], T.Map(None), lambda pattern: exec('raise NotImplementedError()')),
     ("read_lines", [T.String()], T.Array(None), lambda pattern: exec('raise NotImplementedError()')),
     ("read_tsv", [T.String()], T.Array(T.Array(T.String())), lambda pattern: exec('raise NotImplementedError()')),
-    ("write_lines", [T.Array(T.String())], T.String(), lambda pattern: exec('raise NotImplementedError()')),
-    ("write_map", [T.Map(None)], T.String(), lambda pattern: exec('raise NotImplementedError()')),
+    ("write_lines", [T.Array(T.String())], T.File(), lambda pattern: exec('raise NotImplementedError()')),
+    ("write_tsv", [T.Array(T.Array(T.String()))], T.File(), lambda pattern: exec('raise NotImplementedError()')),
+    ("write_map", [T.Map(None)], T.File(), lambda pattern: exec('raise NotImplementedError()')),
     ("range", [T.Int()], T.Array(T.Int()), lambda high: exec('raise NotImplementedError()')),
     ("sub", [T.String(), T.String(), T.String()], T.String(), lambda high: exec('raise NotImplementedError()')),
 ]
@@ -286,7 +287,23 @@ class _SelectFirst(E._Function):
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
 E._stdlib["select_first"] = _SelectFirst()
-E._stdlib["select_all"] = _SelectFirst() # TODO
+
+class _SelectAll(E._Function):
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        if not isinstance(expr.arguments[0].type, T.Array):
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
+        if expr.arguments[0].type.item_type is None:
+            raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
+        ty = copy.copy(expr.arguments[0].type.item_type)
+        assert isinstance(ty, T.Base)
+        ty.optional = False
+        return T.Array(ty)
+
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
+        raise NotImplementedError()
+E._stdlib["select_all"] = _SelectAll()
 
 class _Zip(E._Function):
     # 'a array -> 'b array -> ('a,'b) array
@@ -337,3 +354,20 @@ class _Flatten(E._Function):
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
 E._stdlib["flatten"] = _Flatten()
+
+class _Transpose(E._Function):
+    # t array array -> t array array
+    def infer_type(self, expr : E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        expr.arguments[0].typecheck(T.Array(None))
+        # TODO: won't handle implicit coercion from T to Array[T]
+        assert isinstance(expr.arguments[0].type, T.Array)
+        if expr.arguments[0].type.item_type is None:
+            return T.Array(None)
+        elif not isinstance(expr.arguments[0].type.item_type, T.Array):
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(T.Array(None)), expr.arguments[0].type)
+        return expr.arguments[0].type
+    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
+        raise NotImplementedError()
+E._stdlib["transpose"] = _Transpose()

@@ -193,14 +193,18 @@ class Array(Base):
             return T.Array(None)
         for item in self.items:
             item.infer_type(type_env)
-        # Use the type of the first item as the assumed item type
+        # Start by assuming the type of the first item is the item type
         item_type = self.items[0].type
-        # Except, allow a mixture of Int and Float to construct Array[Float]
+        # Allow a mixture of Int and Float to construct Array[Float]
         if isinstance(item_type, T.Int):
             for item in self.items:
                 if isinstance(item.type, T.Float):
                     item_type = T.Float()
-        # Check all items are compatible with this item type
+        # If any item is String, assume item type is String
+        for item in self.items:
+            if isinstance(item.type, T.String):
+                item_type = T.String()
+        # Check all items are coercible to item_type
         for item in self.items:
             try:
                 item.typecheck(item_type)
