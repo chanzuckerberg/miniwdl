@@ -75,3 +75,17 @@ test_corpus(TestENCODE, "ENCODE_ChIPseq", ["test_corpi/ENCODE-DCC/chip-seq-pipel
 test_corpus(TestENCODE, "ENCODE_ATACseq", ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"])
 test_corpus(TestENCODE, "ENCODE_RNAseq", ["test_corpi/ENCODE-DCC/rna-seq-pipeline/**"])
 test_corpus(TestENCODE, "ENCODE_WGBS", ["test_corpi/ENCODE-DCC/wgbs-pipeline/**"])
+
+class TestDxWDL(unittest.TestCase):
+    pass
+test_corpus(TestDxWDL, "dxWDL", ["test_corpi/dnanexus/dxWDL/test/**"],
+            blacklist=[
+                # library_math and docs that import it use Object
+                "cast","complex","decl_mid_wf","dict","library_math","math","math2","optionals","toplevel_calls","trivial","trivial2",
+                # use dnanexus extensions
+                "call_native", "call_native_app",
+                # pre-1.0 style outputs
+                "movie", "foo_toplevel", "foo_if_flag", "foo",
+                # double quantifier
+                "conditionals_base"
+            ])

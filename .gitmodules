@@ -31,3 +31,6 @@
 [submodule "test_corpi/HumanCellAtlas/skylab"]
 	path = test_corpi/HumanCellAtlas/skylab
 	url = https://github.com/HumanCellAtlas/skylab.git
+[submodule "test_corpi/dnanexus/dxWDL"]
+	path = test_corpi/dnanexus/dxWDL
+	url = https://github.com/dnanexus/dxWDL.git

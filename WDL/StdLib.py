@@ -100,9 +100,15 @@ class _StaticFunction(E._Function):
         self.F = F
 
     def infer_type(self, expr : E.Apply) -> T.Base:
-        if len(expr.arguments) != len(self.argument_types):
+        min_args = len(self.argument_types)
+        for ty in reversed(self.argument_types):
+            if ty.optional:
+                min_args = min_args - 1
+            else:
+                break
+        if len(expr.arguments) < min_args:
             raise Error.WrongArity(expr, len(self.argument_types))
-        for i in range(len(self.argument_types)):
+        for i in range(len(expr.arguments)):
             try:
                 expr.arguments[i].typecheck(self.argument_types[i])
             except Error.StaticTypeMismatch:
@@ -121,7 +127,8 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("_lor", [T.Boolean(), T.Boolean()], T.Boolean(), lambda l,r: V.Boolean(l.value or r.value)), # pyre-fixme
     ("_rem", [T.Int(), T.Int()], T.Int(), lambda l,r: V.Int(l.value % r.value)), # pyre-fixme
     ("stdout", [], T.String(), lambda: exec('raise NotImplementedError()')),
-    ("size", [T.File(), T.String()], T.Float(), lambda file: exec('raise NotImplementedError()')),
+    ("basename", [T.String(), T.String(optional=True)], T.String(), lambda file: exec('raise NotImplementedError()')),
+    ("size", [T.File(), T.String(optional=True)], T.Float(), lambda file: exec('raise NotImplementedError()')),
     ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("round", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("glob", [T.String()], T.Array(T.File()), lambda pattern: exec('raise NotImplementedError()')),
@@ -323,19 +330,6 @@ class _Zip(E._Function):
         raise NotImplementedError()
 E._stdlib["zip"] = _Zip()
 E._stdlib["cross"] = _Zip() # TODO
-
-class _Basename(E._Function):
-    def infer_type(self, expr : E.Apply) -> T.Base:
-        if len(expr.arguments) not in [1,2]:
-            raise Error.WrongArity(expr, 2)
-        expr.arguments[0].typecheck(T.String())
-        if len(expr.arguments) == 2:
-            expr.arguments[1].typecheck(T.String())
-        return T.String()
-
-    def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
-        raise NotImplementedError()
-E._stdlib["basename"] = _Basename()
 
 class _Flatten(E._Function):
     # t array array -> t array

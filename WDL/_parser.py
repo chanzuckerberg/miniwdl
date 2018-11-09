@@ -142,6 +142,7 @@ runtime_kv: CNAME ":" expr
 input_decls: "input" "{" [any_decl*] "}"
 ?task_sections1: input_decls
                | meta_section
+               | runtime_section
                | any_decl+ -> noninput_decls
 output_decls: "output" "{" [bound_decl*] "}"
 ?task_sections2: output_decls
@@ -516,6 +517,8 @@ def parse_tasks(txt : str) -> List[D.Task]:
     return _DocTransformer('').transform(parse(txt, "tasks")) # pyre-fixme
 
 def parse_document(txt : str, uri : str = '') -> D.Document:
+    if len(txt.strip()) == 0:
+        return D.Document(SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0), [], [], None)
     try:
         return _DocTransformer(uri).transform(parse(txt, "document"))
     except lark.exceptions.UnexpectedCharacters as exn:
