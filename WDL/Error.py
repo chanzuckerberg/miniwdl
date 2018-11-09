@@ -9,6 +9,13 @@ class ParserError(Exception):
     def __init__(self, filename : str) -> None:
         super().__init__(filename)
 
+class ImportError(Exception):
+    def __init__(self, document : str, import_uri : str, message : Optional[str] = None) -> None:
+        msg = "Failed to import {} to {}".format(import_uri, document)
+        if message:
+            msg = msg + ": " + message
+        super().__init__(msg)
+
 SourcePosition = NamedTuple("SourcePosition",
                             [('filename',str), ('line',int), ('column',int),
                              ('end_line',int), ('end_column',int)])

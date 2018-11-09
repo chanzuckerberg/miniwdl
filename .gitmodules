@@ -1,0 +1,33 @@
+[submodule "tests/corpi/ENCODE-DCC/rna-seq-pipeline"]
+	path = test_corpi/ENCODE-DCC/rna-seq-pipeline
+	url = https://github.com/ENCODE-DCC/rna-seq-pipeline.git
+[submodule "tests/corpi/ENCODE-DCC/wgbs-pipeline"]
+	path = test_corpi/ENCODE-DCC/wgbs-pipeline
+	url = https://github.com/ENCODE-DCC/wgbs-pipeline.git
+[submodule "test_corpi/ENCODE-DCC/atac-seq-pipeline"]
+	path = test_corpi/ENCODE-DCC/atac-seq-pipeline
+	url = https://github.com/ENCODE-DCC/atac-seq-pipeline.git
+[submodule "test_corpi/ENCODE-DCC/chip-seq-pipeline2"]
+	path = test_corpi/ENCODE-DCC/chip-seq-pipeline2
+	url = https://github.com/ENCODE-DCC/chip-seq-pipeline2.git
+[submodule "test_corpi/broadinstitute/viral-ngs"]
+	path = test_corpi/broadinstitute/viral-ngs
+	url = https://github.com/broadinstitute/viral-ngs.git
+[submodule "test_corpi/DataBiosphere/topmed-workflows"]
+	path = test_corpi/DataBiosphere/topmed-workflows
+	url = https://github.com/DataBiosphere/topmed-workflows.git
+[submodule "test_corpi/broadinstitute/gtex-pipeline"]
+	path = test_corpi/broadinstitute/gtex-pipeline
+	url = https://github.com/broadinstitute/gtex-pipeline.git
+[submodule "test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels"]
+	path = test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels
+	url = https://github.com/gatk-workflows/broad-prod-wgs-germline-snps-indels.git
+[submodule "test_corpi/gatk-workflows/gatk4-germline-snps-indels"]
+	path = test_corpi/gatk-workflows/gatk4-germline-snps-indels
+	url = https://github.com/gatk-workflows/gatk4-germline-snps-indels.git
+[submodule "test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]
+	path = test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline
+	url = https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline.git
+[submodule "test_corpi/HumanCellAtlas/skylab"]
+	path = test_corpi/HumanCellAtlas/skylab
+	url = https://github.com/HumanCellAtlas/skylab.git

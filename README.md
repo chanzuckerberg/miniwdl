@@ -16,7 +16,7 @@ This project in prealpha development; interfaces are liable to change substantia
 
 This will also install the [Lark parsing library](https://github.com/lark-parser/lark) automatically. 
 
-For development, clone this repository and ``docker build -t miniwdl .`` to run miniwdl's test suite in a locally-built docker container. The [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) illustrates how to configure another environment.
+For development, `git clone --recursive` this repository and ``docker build -t miniwdl .`` to run miniwdl's test suite in a locally-built docker container. The [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) illustrates how to configure another environment.
 
 
 ## `miniwdl check`
