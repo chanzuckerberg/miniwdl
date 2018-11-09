@@ -1,0 +1,6 @@
+[submodule "tests/corpi/ENCODE-DCC/rna-seq-pipeline"]
+	path = tests/corpi/ENCODE-DCC/rna-seq-pipeline
+	url = https://github.com/ENCODE-DCC/rna-seq-pipeline.git
+[submodule "tests/corpi/ENCODE-DCC/wgbs-pipeline"]
+	path = tests/corpi/ENCODE-DCC/wgbs-pipeline
+	url = https://github.com/ENCODE-DCC/wgbs-pipeline.git
