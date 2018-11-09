@@ -73,5 +73,11 @@ test_corpus_zip(TestViralNGS, "ViralNGS",
 
 class TestENCODE(unittest.TestCase):
     pass
-test_corpus_zip(TestENCODE, "EncodeChipSeq",
+test_corpus_zip(TestENCODE, "ENCODE_ChIPseq",
                 'https://github.com/ENCODE-DCC/chip-seq-pipeline2/archive/3c87ffd.zip')
+test_corpus_zip(TestENCODE, "ENCODE_ATACseq",
+                'https://github.com/ENCODE-DCC/atac-seq-pipeline/archive/c91b505.zip')
+test_corpus_zip(TestENCODE, "ENCODE_RNAseq",
+                'https://github.com/ENCODE-DCC/rna-seq-pipeline/archive/d68e281c.zip')
+test_corpus_zip(TestENCODE, "ENCODE_WGBS",
+                'https://github.com/ENCODE-DCC/wgbs-pipeline/archive/b214706.zip')

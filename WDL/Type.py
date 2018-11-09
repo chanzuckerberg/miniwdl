@@ -116,6 +116,8 @@ class Array(Base):
                 return True
             else:
                 return self.item_type.coerces(rhs.item_type)
+        if isinstance(rhs, String):
+            return self.item_type is None or self.item_type.coerces(String())
         return super().coerces(rhs)
 
 class Map(Base):

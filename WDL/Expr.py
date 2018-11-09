@@ -55,6 +55,7 @@ class Base(SourceNode, ABC):
         # infer_type
         assert self._type is None
         self._type = self._infer_type(type_env)
+        assert isinstance(self.type, T.Base), str(self.pos)
         return self
 
     def typecheck(self, expected : T.Base) -> TVBase:

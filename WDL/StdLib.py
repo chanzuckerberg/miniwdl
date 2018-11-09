@@ -182,7 +182,6 @@ E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l,r: l*r)  # pyre-ignore
 E._stdlib["_div"] = _ArithmeticOperator("/", lambda l,r: l//r) # pyre-ignore
 
 # + operator can also serve as concatenation for String.
-# String+Int and String+Float also permitted
 class _AddOperator(_ArithmeticOperator):
     def __init__(self) -> None:
         super().__init__("+", lambda l,r: l+r) # pyre-ignore
@@ -197,8 +196,8 @@ class _AddOperator(_ArithmeticOperator):
         if t2 is None:
             # neither operand is a string; defer to _ArithmeticOperator
             return super().infer_type(expr)
-        if sum(1 for c in [T.String, T.Int, T.Float] if isinstance(t2, c)) == 0:
-            return Error.IncompatibleOperand(expr, "Cannot add/concatenate {} and {}".format(str(expr.arguments[0].type), str(expr.arguments[1].type)))
+        if not t2.coerces(T.String()):
+            raise Error.IncompatibleOperand(expr, "Cannot add/concatenate {} and {}".format(str(expr.arguments[0].type), str(expr.arguments[1].type)))
         return T.String()
 
     def __call__(self, expr: E.Apply, env : E.Env) -> V.Base:
