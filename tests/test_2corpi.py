@@ -1,15 +1,12 @@
 import unittest, inspect, subprocess, tempfile, os, glob
 from .context import WDL
 
-# download and extract a zip file with a corpus of WDL documents; load each one
-def test_corpus_zip(test_klass, prefix, zip_url, dir=['**'], path=[], blacklist=[]):
-    tdn = tempfile.mkdtemp(prefix='miniwdl_test_'+prefix+"_")
-    subprocess.check_call(['wget', '-q', '-O', 'corpus.zip', zip_url], cwd=tdn)
-    subprocess.check_call(['unzip', '-q', 'corpus.zip'], cwd=tdn)
-    files = glob.glob(os.path.join(*([tdn] + dir + ['*.wdl'])), recursive=True)
+def test_corpus(test_klass, prefix, dir, path=[], blacklist=[]):
+    files = glob.glob(os.path.join(*(dir + ['*.wdl'])), recursive=True)
+    assert len(files) > 0, "{} test corpus missing from {}; please `git submodule update --init --recursive`".format(prefix, os.path.join(*dir))
     gpath = []
     for p in path:
-        gpath = gpath + glob.glob(os.path.join(*([tdn] + p)), recursive=True)
+        gpath = gpath + glob.glob(os.path.join(*p), recursive=True)
     for fn in files:
         name = os.path.split(fn)[1]
         name = name[:-4]
@@ -24,6 +21,13 @@ def test_corpus_zip(test_klass, prefix, zip_url, dir=['**'], path=[], blacklist=
                 print()
                 WDL.CLI.main(cmd)
             setattr(test_klass, name, t)
+
+# download and extract a zip file with a corpus of WDL documents; load each one
+def test_corpus_zip(test_klass, prefix, zip_url, dir=['**'], path=[], blacklist=[]):
+    tdn = tempfile.mkdtemp(prefix='miniwdl_test_'+prefix+"_")
+    subprocess.check_call(['wget', '-q', '-O', 'corpus.zip', zip_url], cwd=tdn)
+    subprocess.check_call(['unzip', '-q', 'corpus.zip'], cwd=tdn)
+    return test_corpus(test_klass, prefix, [tdn] + dir, [[tdn] + p for p in path], blacklist)
 
 class TestHCAskylab(unittest.TestCase):
     pass
@@ -66,18 +70,12 @@ test_corpus_zip(TestTOPMed, "TOPMed",
 
 class TestViralNGS(unittest.TestCase):
     pass
-test_corpus_zip(TestViralNGS, "ViralNGS",
-                'https://github.com/broadinstitute/viral-ngs/archive/v1.21.2.zip',
-                ['viral-ngs-*', 'pipes', 'WDL', 'workflows'],
-                path=[['viral-ngs-*', 'pipes', 'WDL', 'workflows', 'tasks']])
+test_corpus(TestViralNGS, "ViralNGS", ["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows"],
+            path=[["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"]])
 
 class TestENCODE(unittest.TestCase):
     pass
-test_corpus_zip(TestENCODE, "ENCODE_ChIPseq",
-                'https://github.com/ENCODE-DCC/chip-seq-pipeline2/archive/3c87ffd.zip')
-test_corpus_zip(TestENCODE, "ENCODE_ATACseq",
-                'https://github.com/ENCODE-DCC/atac-seq-pipeline/archive/c91b505.zip')
-test_corpus_zip(TestENCODE, "ENCODE_RNAseq",
-                'https://github.com/ENCODE-DCC/rna-seq-pipeline/archive/d68e281c.zip')
-test_corpus_zip(TestENCODE, "ENCODE_WGBS",
-                'https://github.com/ENCODE-DCC/wgbs-pipeline/archive/b214706.zip')
+test_corpus(TestENCODE, "ENCODE_ChIPseq", ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"])
+test_corpus(TestENCODE, "ENCODE_ATACseq", ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"])
+test_corpus(TestENCODE, "ENCODE_RNAseq", ["test_corpi/ENCODE-DCC/rna-seq-pipeline/**"])
+test_corpus(TestENCODE, "ENCODE_WGBS", ["test_corpi/ENCODE-DCC/wgbs-pipeline/**"])

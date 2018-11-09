@@ -1,6 +1,15 @@
 [submodule "tests/corpi/ENCODE-DCC/rna-seq-pipeline"]
-	path = tests/corpi/ENCODE-DCC/rna-seq-pipeline
+	path = test_corpi/ENCODE-DCC/rna-seq-pipeline
 	url = https://github.com/ENCODE-DCC/rna-seq-pipeline.git
 [submodule "tests/corpi/ENCODE-DCC/wgbs-pipeline"]
-	path = tests/corpi/ENCODE-DCC/wgbs-pipeline
+	path = test_corpi/ENCODE-DCC/wgbs-pipeline
 	url = https://github.com/ENCODE-DCC/wgbs-pipeline.git
+[submodule "test_corpi/ENCODE-DCC/atac-seq-pipeline"]
+	path = test_corpi/ENCODE-DCC/atac-seq-pipeline
+	url = https://github.com/ENCODE-DCC/atac-seq-pipeline.git
+[submodule "test_corpi/ENCODE-DCC/chip-seq-pipeline2"]
+	path = test_corpi/ENCODE-DCC/chip-seq-pipeline2
+	url = https://github.com/ENCODE-DCC/chip-seq-pipeline2.git
+[submodule "test_corpi/broadinstitute/viral-ngs"]
+	path = test_corpi/broadinstitute/viral-ngs
+	url = git@github.com:broadinstitute/viral-ngs.git
