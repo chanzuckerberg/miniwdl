@@ -31,42 +31,38 @@ def test_corpus_zip(test_klass, prefix, zip_url, dir=['**'], path=[], blacklist=
 
 class TestHCAskylab(unittest.TestCase):
     pass
-test_corpus_zip(TestHCAskylab, "HCAskylab_task",
-                'https://github.com/HumanCellAtlas/skylab/archive/face906.zip', ['skylab-*', 'library', 'tasks'])
-test_corpus_zip(TestHCAskylab, "HCAskylab_workflow",
-                'https://github.com/HumanCellAtlas/skylab/archive/face906.zip', ['skylab-*', 'pipelines', '**'], [['skylab-*', 'library', 'tasks']])
+test_corpus(TestHCAskylab, "HCAskylab_task", ["test_corpi/HumanCellAtlas/skylab/library/tasks/**"])
+test_corpus(TestHCAskylab, "HCAskylab_workflow", ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
+            path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]])
 
 class TestGATK(unittest.TestCase):
     pass
-test_corpus_zip(TestGATK, "GATK_five_dollar",
-                'https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/archive/89f11be.zip',
-                blacklist=['fc_germline_single_sample_workflow', 'split_large_readgroup', 'unmapped_bam_to_aligned_bam'])
-test_corpus_zip(TestGATK, "gatk4_germline_snps_indels",
-                'https://github.com/gatk-workflows/gatk4-germline-snps-indels/archive/b9bbbdc.zip',
-                # TODO: support pre-1.0 style of workflow outputs (identifiers and wildcards)
-                # https://github.com/gatk-workflows/gatk4-germline-snps-indels/blob/b9bbbdcfca7ece0d011ac1225ce6818b33720f48/joint-discovery-gatk4-local.wdl#L345
-                # also needed for the CNN variant filter repo.
-                blacklist=['joint-discovery-gatk4-local', 'joint-discovery-gatk4'])
+test_corpus(TestGATK, "GATK_five_dollar", ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
+            path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
+            blacklist=['fc_germline_single_sample_workflow'])
+test_corpus(TestGATK, "gatk4_germline_snps_indels", ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
+            # TODO: support pre-1.0 style of workflow outputs (identifiers and wildcards)
+            # https://github.com/gatk-workflows/gatk4-germline-snps-indels/blob/b9bbbdcfca7ece0d011ac1225ce6818b33720f48/joint-discovery-gatk4-local.wdl#L345
+            # also needed for the CNN variant filter repo.
+            blacklist=['joint-discovery-gatk4-local', 'joint-discovery-gatk4'])
+test_corpus(TestGATK, "broad_prod_wgs", ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
+            blacklist=['JointGenotypingWf'])
 # TODO: support out-of-order use of artifact_modes in https://github.com/gatk-workflows/gatk4-somatic-snvs-indels/blob/0a82bedcedd2a2176ccced7cc2ed700e37a025f5/mutect2.wdl#L90
 #test_corpus_zip(TestGATK, "gatk4_somatic_snvs_indels",
 #                'https://github.com/gatk-workflows/gatk4-somatic-snvs-indels/archive/0a82bed.zip')
-test_corpus_zip(TestGATK, "broad_prod_wgs",
-                'https://github.com/gatk-workflows/broad-prod-wgs-germline-snps-indels/archive/5585cdf.zip', blacklist=['JointGenotypingWf'])
 
 class TestGTEx(unittest.TestCase):
     pass
-test_corpus_zip(TestGTEx, "GTEx",
-                'https://github.com/broadinstitute/gtex-pipeline/archive/a228198.zip',
-                # need URI import
-                blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq"])
+test_corpus(TestGTEx, "GTEx", ["test_corpi/broadinstitute/gtex-pipeline/**"],
+            # need URI import
+            blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq"])
 
 class TestTOPMed(unittest.TestCase):
     pass
-test_corpus_zip(TestTOPMed, "TOPMed",
-                'https://github.com/DataBiosphere/topmed-workflows/archive/31ba8a7.zip',
-                # need urI import
-                blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
-                           'topmed_freeze3_calling', 'topmed_freeze3_calling_checker', 'u_of_michigan_aligner_checker'])
+test_corpus(TestTOPMed, "TOPMed", ["test_corpi/DataBiosphere/topmed-workflows/**"],
+            # need URI import
+            blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
+                       'topmed_freeze3_calling', 'topmed_freeze3_calling_checker', 'u_of_michigan_aligner_checker'])
 
 class TestViralNGS(unittest.TestCase):
     pass

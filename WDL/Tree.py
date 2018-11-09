@@ -342,7 +342,10 @@ def load(uri : str, path : List[str] = []) -> Document:
                 # documents into doc.imports
                 # TODO: limit recursion; prevent mutual recursion
                 for i in range(len(doc.imports)):
-                    subdoc = load(doc.imports[i][0], [os.path.dirname(fn)]+path)
+                    try:
+                        subdoc = load(doc.imports[i][0], [os.path.dirname(fn)]+path)
+                    except Exception as exn:
+                        raise Err.ImportError(uri, doc.imports[i][0]) from exn
                     doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
                 doc.typecheck()
                 return doc
