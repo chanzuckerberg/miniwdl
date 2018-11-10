@@ -82,7 +82,7 @@ class Task(SourceNode):
 
     @property
     def required_inputs(self) -> List[Decl]:
-        return [decl for decl in (self.inputs+self.postinputs) if decl.expr is None]
+        return [decl for decl in (self.inputs+self.postinputs) if decl.expr is None and decl.type.optional is False]
 
 # type-check a declaration within a type environment, and return the type
 # environment with the new binding
@@ -134,6 +134,12 @@ class Call(SourceNode):
                         self.callee = task
         if self.callee is None:
             raise Err.UnknownIdentifier(self.callee_id)
+        assert isinstance(self.callee, Task) or isinstance(self.callee, Workflow)
+
+        # Make a set of the input names which are required for this call to
+        # typecheck. In the top-level workflow, nothing is actually required
+        # as missing call inputs become workflow inputs required at runtime.
+        required_inputs = set(decl.name for decl in self.callee.required_inputs) if doc.imported else set()
 
         # typecheck call inputs against task/workflow input declarations
         for name, expr in self.inputs.items():
@@ -152,8 +158,12 @@ class Call(SourceNode):
                         decl = ele
             if decl is None:
                 raise Err.NoSuchInput(expr, name)
-            else:
-                expr.infer_type(type_env).typecheck(decl.type)
+            expr.infer_type(type_env).typecheck(decl.type)
+            if name in required_inputs:
+                required_inputs.remove(name)
+
+        if len(required_inputs) > 0:
+            raise Err.MissingInput(self, self.name, required_inputs)
 
         # return a TypeEnv with ONLY the outputs (not including the input TypeEnv)
         outputs_env = []
@@ -297,6 +307,11 @@ class Workflow(SourceNode):
             for output in self.outputs:
                 _typecheck_decl(output, type_env)
 
+    @property
+    def required_inputs(self) -> List[Decl]:
+        return [decl for decl in self.elements if isinstance(decl, Decl) and decl.expr is None and decl.type.optional is False]
+
+
 class Document(SourceNode):
     """Top-level document, with imports, tasks, and a workflow. Typically returned by :func:`~WDL.load` with imported sub-documents loaded, and everything typechecked. Alternatively, :func:`~WDL.parse_document` constructs the AST but doesn't process imports nor perform typechecking."""
     imports : List[Tuple[str,str,Optional[TVDocument]]]
@@ -305,9 +320,11 @@ class Document(SourceNode):
     """Tasks in the document"""
     workflow : Optional[Workflow]
     """Workflow in the document, if any"""
+    imported : bool
+    """True iff this document has been loaded as an import from another document"""
 
     def __init__(self, pos : SourcePosition, imports : List[Tuple[str,str]],
-                 tasks : List[Task], workflow : Optional[Workflow]) -> None:
+                 tasks : List[Task], workflow : Optional[Workflow], imported : bool) -> None:
         super().__init__(pos)
         self.imports = []
         for (uri,namespace) in imports:
@@ -319,6 +336,7 @@ class Document(SourceNode):
             self.imports.append((uri,namespace,None))
         self.tasks = tasks
         self.workflow = workflow
+        self.imported = imported
 
         # TODO: complain about name collisions amongst tasks and/or the workflow
 
@@ -331,7 +349,7 @@ class Document(SourceNode):
         if self.workflow:
             self.workflow.typecheck(self)
 
-def load(uri : str, path : List[str] = []) -> Document:
+def load(uri : str, path : List[str] = [], imported : Optional[bool] = False) -> Document:
     for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)]):
         if os.path.exists(fn):
             with open(fn, 'r') as infile:
@@ -343,7 +361,7 @@ def load(uri : str, path : List[str] = []) -> Document:
                 # TODO: limit recursion; prevent mutual recursion
                 for i in range(len(doc.imports)):
                     try:
-                        subdoc = load(doc.imports[i][0], [os.path.dirname(fn)]+path)
+                        subdoc = load(doc.imports[i][0], [os.path.dirname(fn)]+path, True)
                     except Exception as exn:
                         raise Err.ImportError(uri, doc.imports[i][0]) from exn
                     doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)

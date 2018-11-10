@@ -190,7 +190,7 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 import os, errno
 import lark
 import inspect
-from typing import List
+from typing import List, Optional
 from WDL import Expr as E
 from WDL import Type as T
 from WDL import Tree as D
@@ -349,8 +349,9 @@ class _TypeTransformer(lark.Transformer):
         return T.Pair(items[0], items[1], optional)
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
-    def __init__(self, file : str) -> None:
+    def __init__(self, file : str, imported : bool) -> None:
         self.filename = file
+        self.imported = imported
 
     def decl(self, items, meta):
         return D.Decl(sp(self.filename, meta), *items)
@@ -499,7 +500,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 imports.append(item["import"])
             else:
                 assert False
-        return D.Document(sp(self.filename, meta), imports, tasks, workflow)
+        return D.Document(sp(self.filename, meta), imports, tasks, workflow, self.imported)
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
@@ -514,13 +515,13 @@ def parse_expr(txt : str) -> E.Base:
         raise Err.ParserError(txt) from exn
 
 def parse_tasks(txt : str) -> List[D.Task]:
-    return _DocTransformer('').transform(parse(txt, "tasks")) # pyre-fixme
+    return _DocTransformer('', False).transform(parse(txt, "tasks")) # pyre-fixme
 
-def parse_document(txt : str, uri : str = '') -> D.Document:
+def parse_document(txt : str, uri : str = '', imported : bool = False) -> D.Document:
     if len(txt.strip()) == 0:
-        return D.Document(SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0), [], [], None)
+        return D.Document(SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0), [], [], None, imported)
     try:
-        return _DocTransformer(uri).transform(parse(txt, "document"))
+        return _DocTransformer(uri, imported).transform(parse(txt, "document"))
     except lark.exceptions.UnexpectedCharacters as exn:
         raise Err.ParserError(uri if uri != '' else '(in buffer)') from exn
     except lark.exceptions.UnexpectedToken as exn:

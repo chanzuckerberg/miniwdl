@@ -4,6 +4,9 @@ test: typecheck
 	coverage run --include "WDL/*" -m unittest -v
 	coverage report
 
+qtest:
+	python -m unittest -v -f
+
 typecheck:
 	pyre \
 		--search-path $(HOME)/.local/lib/python3.6/site-packages/lark \

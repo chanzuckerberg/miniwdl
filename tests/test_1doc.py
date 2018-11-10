@@ -387,7 +387,7 @@ class TestDoc(unittest.TestCase):
                 echo $(( ~{x} + ~{y} ))
             >>>
             output {
-                Int z = stdout()
+                Int z = read_int(stdout())
             }
         }
         import "y.wdl" as z
@@ -412,7 +412,7 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow.elements[2], WDL.Tree.Scatter)
         self.assertIsInstance(doc.workflow.elements[2].elements[0], WDL.Tree.Scatter)
         self.assertEqual(len(doc.tasks), 1)
-        doc.workflow.typecheck(doc)
+        doc.typecheck()
         self.assertEqual(doc.imports, [("x.wdl","x",None), ("y.wdl","z",None)])
 
     def test_scatter_conditional(self):
@@ -424,7 +424,7 @@ class TestDoc(unittest.TestCase):
                 echo $(( ~{x} + ~{y} ))
             >>>
             output {
-                Int z = stdout()
+                Int z = read_int(stdout())
             }
             meta {
                 foo: "bar"
@@ -453,7 +453,7 @@ class TestDoc(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(doc)
-        doc.workflow.typecheck(doc)
+        doc.typecheck()
 
     def test_errors(self):
         doc = r"""
@@ -464,7 +464,7 @@ class TestDoc(unittest.TestCase):
                 echo $(( ~{x} + ~{y} ))
             >>>
             output {
-                Int z = stdout()
+                Int z = read_int(stdout())
             }
         }
         workflow contrived {
@@ -475,7 +475,7 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.NotAnArray):
-            doc.workflow.typecheck(doc)
+            doc.typecheck()
 
         doc = r"""
         task sum {
@@ -485,7 +485,7 @@ class TestDoc(unittest.TestCase):
                 echo $(( ~{x} + ~{y} ))
             >>>
             output {
-                Int z = stdout()
+                Int z = read_int(stdout())
             }
         }
         workflow contrived {
@@ -497,7 +497,7 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.NoSuchInput):
-            doc.workflow.typecheck(doc)
+            doc.typecheck()
 
         doc = r"""
         version 1.0
@@ -508,7 +508,7 @@ class TestDoc(unittest.TestCase):
                 echo $(( ~{x} + ~{y} ))
             >>>
             output {
-                Int z = stdout()
+                Int z = read_int(stdout())
             }
         }
         workflow contrived {
@@ -523,7 +523,7 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.UnknownIdentifier):
-            doc.workflow.typecheck(doc)
+            doc.typecheck()
 
         doc = r"""
         workflow contrived {
@@ -545,7 +545,7 @@ class TestDoc(unittest.TestCase):
                 echo $(( ~{x} + ~{y} ))
             >>>
             output {
-                Int z = stdout()
+                Int z = read_int(stdout())
             }
         }
         workflow contrived {
@@ -558,4 +558,4 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
-            doc.workflow.typecheck(doc)
+            doc.typecheck()

@@ -1,6 +1,6 @@
 # pyre-strict
 from abc import ABC
-from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Union
+from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Union, Iterable
 import WDL.Type as T
 from WDL.Expr import TVApply, TVIdent
 from functools import total_ordering
@@ -96,6 +96,10 @@ class UnknownIdentifier(Base):
 class NoSuchInput(Base):
     def __init__(self, node : SourceNode, name : str) -> None:
         super().__init__(node, "No such input " + name)
+
+class MissingInput(Base):
+    def __init__(self, node : SourceNode, name : str, inputs : Iterable[str]) -> None:
+        super().__init__(node, "Call {} missing required input(s) {}".format(name, ', '.join(inputs)))
 
 class NullValue(Base):
     def __init__(self, node : SourceNode) -> None:
