@@ -108,11 +108,8 @@ class _StaticFunction(E._Function):
         if len(expr.arguments) < min_args:
             raise Error.WrongArity(expr, len(self.argument_types))
         for i in range(len(expr.arguments)):
-            # TODO: we allow null for any argument during static typechecking
-            # Can this be tightened whilst retaining Cromwell compatibility?
-            aty = self.argument_types[i].copy(optional=True)
             try:
-                expr.arguments[i].typecheck(aty)
+                expr.arguments[i].typecheck(self.argument_types[i])
             except Error.StaticTypeMismatch:
                 raise Error.StaticTypeMismatch(expr.arguments[i], self.argument_types[i], expr.arguments[i].type, "for {} argument #{}".format(self.name, i+1)) from None
         return self.return_type
@@ -130,7 +127,12 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("_rem", [T.Int(), T.Int()], T.Int(), lambda l,r: V.Int(l.value % r.value)), # pyre-fixme
     ("stdout", [], T.File(), lambda: exec('raise NotImplementedError()')),
     ("basename", [T.String(), T.String(optional=True)], T.String(), lambda file: exec('raise NotImplementedError()')),
-    ("size", [T.File(), T.String(optional=True)], T.Float(), lambda file: exec('raise NotImplementedError()')),
+    # TODO: size() argument is optional to admit a pattern seen in the test corpi:
+    #         if (defined(f)) then size(f) else 100
+    #       unclear how this should apply generaly to functions other than size().
+    #       alternatively, during typechecking, we could infer that the f can't
+    #       be null in the consequent branch specifically.
+    ("size", [T.File(optional=True), T.String(optional=True)], T.Float(), lambda file: exec('raise NotImplementedError()')),
     ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("round", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("glob", [T.String()], T.Array(T.File()), lambda pattern: exec('raise NotImplementedError()')),

@@ -126,7 +126,7 @@ class Array(Base):
         self._optional = optional
         self._nonempty = nonempty
     def __str__(self) -> str:
-        ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]"
+        ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]" + ('?' if self.optional else '')
         return ans
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, Array):
@@ -161,7 +161,7 @@ class Map(Base):
         self._optional = optional
         self.item_type = item_type
     def __str__(self) -> str:
-        return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1]) if self.item_type is not None else "") + "]" # pyre-fixme
+        return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1]) if self.item_type is not None else "") + "]" + ('?' if self.optional else '') # pyre-fixme
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, Map):
             if self.item_type is None or rhs.item_type is None:
@@ -182,4 +182,4 @@ class Pair(Base):
         self.left_type = left_type
         self.right_type = right_type
     def __str__(self) -> str:
-        return "Pair[" + (str(self.left_type) + "," + str(self.right_type)) + "]"
+        return "Pair[" + (str(self.left_type) + "," + str(self.right_type)) + "]" + ('?' if self.optional else '')
