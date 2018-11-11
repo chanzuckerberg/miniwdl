@@ -202,17 +202,18 @@ class Array(Base):
                 if isinstance(item.type, T.Float):
                     item_type = T.Float()
         # If any item is String, assume item type is String
+        # If any item has optional type, assume item type is optional
         for item in self.items:
             if isinstance(item.type, T.String):
-                item_type = T.String()
+                item_type = T.String(optional=item_type.optional)
+            if item.type.optional:
+                item_type.optional = True
         # Check all items are coercible to item_type
         for item in self.items:
             try:
                 item.typecheck(item_type)
             except Error.StaticTypeMismatch:
                 raise Error.StaticTypeMismatch(self, item_type, item.type, "inconsistent types within array") from None
-            if item.type.optional:
-                item_type.optional = True
         return T.Array(item_type, False, True)
 
     def typecheck(self, expected : Optional[T.Base]) -> Base:
@@ -251,8 +252,10 @@ class IfThenElse(Base):
         self_type = self.consequent.infer_type(type_env).type
         assert isinstance(self_type, T.Base)
         self.alternative.infer_type(type_env)
+        if self.alternative.type.optional:
+            self_type.optional = True
         if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
-            self_type = T.Float()
+            self_type = T.Float(optional=self_type.optional)
         try:
             self.alternative.typecheck(self_type)
         except Error.StaticTypeMismatch:

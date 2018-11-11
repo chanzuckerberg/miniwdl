@@ -87,9 +87,18 @@ class Task(SourceNode):
 # type-check a declaration within a type environment, and return the type
 # environment with the new binding
 def _typecheck_decl(decl : Decl, type_env : Env.Types) -> Env.Types:
+    # subtlety: in a declaration like: String? x = "who"
+    # we record x in the type environment as String instead of String?
+    # since it can't actually be null at runtime
+    nonnull = False
     if decl.expr is not None:
         decl.expr.infer_type(type_env).typecheck(decl.type)
-    ans : Env.Types = Env.bind(decl.name, decl.type, type_env)
+        if decl.expr.type.optional is False:
+            nonnull = True
+    ty = copy.copy(decl.type)
+    if nonnull:
+        ty.optional = False
+    ans : Env.Types = Env.bind(decl.name, ty, type_env)
     return ans
 
 # forward-declaration of Document and Workflow types

@@ -203,7 +203,7 @@ class _AddOperator(_ArithmeticOperator):
         if t2 is None:
             # neither operand is a string; defer to _ArithmeticOperator
             return super().infer_type(expr)
-        if not t2.coerces(T.String()):
+        if not t2.coerces(T.String(optional=True)):
             raise Error.IncompatibleOperand(expr, "Cannot add/concatenate {} and {}".format(str(expr.arguments[0].type), str(expr.arguments[1].type)))
         return T.String()
 

@@ -42,10 +42,10 @@ class Base(ABC):
         """True if ``rhs`` is the same type, or can be coerced to, ``self``. Optional/nonempty quantifiers are disregarded for this purpose."""
         if isinstance(rhs, Array) and rhs.item_type == self: # coerce T to Array[T]
             return True
-        return (self == rhs)
+        return (type(self).__name__ == type(rhs).__name__) and (not self.optional or rhs.optional)
 
     def __str__(self) -> str:
-        return type(self).__name__
+        return type(self).__name__ + ('?' if self.optional else '')
     def __eq__(self, rhs) -> bool:
         return isinstance(rhs,Base) and str(self) == str(rhs)
 
