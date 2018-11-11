@@ -11,7 +11,7 @@ import WDL.Expr as E
 import WDL.Env as Env
 import WDL.Error as Err
 from WDL.Error import SourcePosition, SourceNode
-import copy, os, errno
+import os, errno
 import WDL._parser
 
 class Decl(SourceNode):
@@ -87,9 +87,16 @@ class Task(SourceNode):
 # type-check a declaration within a type environment, and return the type
 # environment with the new binding
 def _typecheck_decl(decl : Decl, type_env : Env.Types) -> Env.Types:
+    # subtlety: in a declaration like: String? x = "who"
+    # we record x in the type environment as String instead of String?
+    # since it can't actually be null at runtime
+    nonnull = False
     if decl.expr is not None:
         decl.expr.infer_type(type_env).typecheck(decl.type)
-    ans : Env.Types = Env.bind(decl.name, decl.type, type_env)
+        if decl.expr.type.optional is False:
+            nonnull = True
+    ty = decl.type.copy(optional=False) if nonnull else decl.type
+    ans : Env.Types = Env.bind(decl.name,ty, type_env)
     return ans
 
 # forward-declaration of Document and Workflow types
@@ -158,7 +165,10 @@ class Call(SourceNode):
                         decl = ele
             if decl is None:
                 raise Err.NoSuchInput(expr, name)
-            expr.infer_type(type_env).typecheck(decl.type)
+            try:
+                expr.infer_type(type_env).typecheck(decl.type)
+            except Err.StaticTypeMismatch as exn:
+                raise Err.StaticTypeMismatch(expr, decl.type, expr.type, "for input " + decl.name) from None
             if name in required_inputs:
                 required_inputs.remove(name)
 
@@ -188,8 +198,7 @@ def _optionalize_types(type_env : Env.Types) -> Env.Types:
     ans = []
     for node in type_env:
         if isinstance(node, Env.Binding):
-            ty = copy.copy(node.rhs)
-            ty.optional = True
+            ty = node.rhs.copy(optional=True)
             ans.append(Env.Binding(node.name, ty))
         elif isinstance(node, Env.Namespace):
             ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))

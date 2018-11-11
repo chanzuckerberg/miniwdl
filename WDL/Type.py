@@ -24,6 +24,7 @@ for example
 """
 from abc import ABC, abstractmethod
 from typing import Optional, TypeVar, Tuple
+import copy
 
 TVBase = TypeVar("TVBase", bound="Base")
 class Base(ABC):
@@ -35,23 +36,40 @@ class Base(ABC):
         assert isinstance(WDL.Type.Array(WDL.Type.Int()), WDL.Type.Base)
     """
 
-    optional : bool
-    """True in declarations with the optional quantifier, ``Type?``"""
+    _optional : bool # immutable!!!
 
     def coerces(self, rhs : TVBase) -> bool:
-        """True if ``rhs`` is the same type, or can be coerced to, ``self``. Optional/nonempty quantifiers are disregarded for this purpose."""
+        """
+        True if ``rhs`` is the same type, or can be coerced to, ``self``.
+
+        ``T`` coerces to ``Array[T]`` (an array of length 1).
+
+        ``T`` coerces to ``T?`` but the reverse is not true in general.
+        """
         if isinstance(rhs, Array) and rhs.item_type == self: # coerce T to Array[T]
             return True
-        return (self == rhs)
+        return (type(self).__name__ == type(rhs).__name__) and (not self.optional or rhs.optional)
+
+    @property
+    def optional(self) -> bool:
+        """True in declarations with the optional quantifier, ``T?``"""
+        return self._optional
+
+    def copy(self, optional : Optional[bool] = None) -> TVBase:
+        """Return a copy of the type with a different setting of the ``optional`` quantifier."""
+        ans : Base = copy.copy(self)
+        if optional is not None:
+            ans._optional = optional
+        return ans
 
     def __str__(self) -> str:
-        return type(self).__name__
+        return type(self).__name__ + ('?' if self.optional else '')
     def __eq__(self, rhs) -> bool:
         return isinstance(rhs,Base) and str(self) == str(rhs)
 
 class Boolean(Base):
     def __init__(self, optional : bool = False) -> None:
-        self.optional = optional
+        self._optional = optional
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, String):
             return True
@@ -59,7 +77,7 @@ class Boolean(Base):
 
 class Float(Base):
     def __init__(self, optional : bool = False) -> None:
-        self.optional = optional
+        self._optional = optional
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, String):
             return True
@@ -67,7 +85,7 @@ class Float(Base):
 
 class Int(Base):
     def __init__(self, optional : bool = False) -> None:
-        self.optional = optional
+        self._optional = optional
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, Float) or isinstance(rhs, String):
             return True
@@ -75,7 +93,7 @@ class Int(Base):
 
 class File(Base):
     def __init__(self, optional : bool = False) -> None:
-        self.optional = optional
+        self._optional = optional
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, String):
             return True
@@ -83,7 +101,7 @@ class File(Base):
 
 class String(Base):
     def __init__(self, optional : bool = False) -> None:
-        self.optional = optional
+        self._optional = optional
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, File):
             return True
@@ -99,16 +117,16 @@ class Array(Base):
     statically coercible to any array type (but may fail at runtime)
     """
     item_type : Optional[Base]
-    nonempty : bool
+    _nonempty : bool
     """True in declarations with the nonempty quantifier, ``Array[type]+``"""
 
     def __init__(self, item_type : Optional[Base], optional : bool = False, nonempty : bool = False) -> None:
         self.item_type = item_type
         assert isinstance(nonempty, bool)
-        self.optional = optional
-        self.nonempty = nonempty
+        self._optional = optional
+        self._nonempty = nonempty
     def __str__(self) -> str:
-        ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]"
+        ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]" + ('?' if self.optional else '')
         return ans
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, Array):
@@ -119,6 +137,14 @@ class Array(Base):
         if isinstance(rhs, String):
             return self.item_type is None or self.item_type.coerces(String())
         return super().coerces(rhs)
+    def copy(self, optional : Optional[bool] = None, nonempty : Optional[bool] = None) -> Base:
+        ans : Array = super().copy(optional)
+        if nonempty is not None:
+            ans._nonempty = nonempty
+        return ans
+    @property
+    def nonempty(self) -> bool:
+        return self._nonempty
 
 class Map(Base):
     """
@@ -132,10 +158,10 @@ class Map(Base):
     item_type : Optional[Tuple[Base,Base]]
 
     def __init__(self, item_type : Optional[Tuple[Base,Base]], optional : bool = False) -> None:
-        self.optional = optional
+        self._optional = optional
         self.item_type = item_type
     def __str__(self) -> str:
-        return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1]) if self.item_type is not None else "") + "]" # pyre-fixme
+        return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1]) if self.item_type is not None else "") + "]" + ('?' if self.optional else '') # pyre-fixme
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, Map):
             if self.item_type is None or rhs.item_type is None:
@@ -152,8 +178,8 @@ class Pair(Base):
     right_type : Base
 
     def __init__(self, left_type : Base, right_type : Base, optional : bool = False) -> None:
-        self.optional = optional
+        self._optional = optional
         self.left_type = left_type
         self.right_type = right_type
     def __str__(self) -> str:
-        return "Pair[" + (str(self.left_type) + "," + str(self.right_type)) + "]"
+        return "Pair[" + (str(self.left_type) + "," + str(self.right_type)) + "]" + ('?' if self.optional else '')

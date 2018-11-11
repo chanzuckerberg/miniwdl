@@ -74,3 +74,23 @@ class TestCalls(unittest.TestCase):
         """
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc = WDL.parse_document(txt)
+
+    def test_optional(self):
+        txt = tsk + r"""
+        workflow contrived {
+            Int? x
+            call sum { input: x = x }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        txt = tsk + r"""
+        workflow contrived {
+            Int? x = 0
+            call sum { input: x = x }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()

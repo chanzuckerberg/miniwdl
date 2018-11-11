@@ -5,7 +5,6 @@ import WDL.Value as V
 import WDL.Expr as E
 import WDL.Env as Env
 import WDL.Error as Error
-import copy
 
 # Special function for array access arr[index], returning the element type
 #                      or map access map[key], returning the value type
@@ -112,7 +111,7 @@ class _StaticFunction(E._Function):
             try:
                 expr.arguments[i].typecheck(self.argument_types[i])
             except Error.StaticTypeMismatch:
-                raise Error.StaticTypeMismatch(expr.arguments[i], self.argument_types[i], expr.arguments[i].type, "{} argument #{}".format(self.name, i+1)) from None
+                raise Error.StaticTypeMismatch(expr.arguments[i], self.argument_types[i], expr.arguments[i].type, "for {} argument #{}".format(self.name, i+1)) from None
         return self.return_type
 
     def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
@@ -128,7 +127,12 @@ _static_functions : List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("_rem", [T.Int(), T.Int()], T.Int(), lambda l,r: V.Int(l.value % r.value)), # pyre-fixme
     ("stdout", [], T.File(), lambda: exec('raise NotImplementedError()')),
     ("basename", [T.String(), T.String(optional=True)], T.String(), lambda file: exec('raise NotImplementedError()')),
-    ("size", [T.File(), T.String(optional=True)], T.Float(), lambda file: exec('raise NotImplementedError()')),
+    # TODO: size() argument is optional to admit a pattern seen in the test corpi:
+    #         if (defined(f)) then size(f) else 100
+    #       unclear how this should apply generaly to functions other than size().
+    #       alternatively, during typechecking, we could infer that the f can't
+    #       be null in the consequent branch specifically.
+    ("size", [T.File(optional=True), T.String(optional=True)], T.Float(), lambda file: exec('raise NotImplementedError()')),
     ("ceil", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("round", [T.Float()], T.Int(), lambda x: exec('raise NotImplementedError()')),
     ("glob", [T.String()], T.Array(T.File()), lambda pattern: exec('raise NotImplementedError()')),
@@ -203,7 +207,7 @@ class _AddOperator(_ArithmeticOperator):
         if t2 is None:
             # neither operand is a string; defer to _ArithmeticOperator
             return super().infer_type(expr)
-        if not t2.coerces(T.String()):
+        if not t2.coerces(T.String(optional=True)):
             raise Error.IncompatibleOperand(expr, "Cannot add/concatenate {} and {}".format(str(expr.arguments[0].type), str(expr.arguments[1].type)))
         return T.String()
 
@@ -285,10 +289,9 @@ class _SelectFirst(E._Function):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
             raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
-        ty = copy.copy(expr.arguments[0].type.item_type)
+        ty = expr.arguments[0].type.item_type
         assert isinstance(ty, T.Base)
-        ty.optional = False
-        return ty
+        return ty.copy(optional=False)
 
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
@@ -302,10 +305,9 @@ class _SelectAll(E._Function):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
             raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
-        ty = copy.copy(expr.arguments[0].type.item_type)
+        ty = expr.arguments[0].type.item_type
         assert isinstance(ty, T.Base)
-        ty.optional = False
-        return T.Array(ty)
+        return T.Array(ty.copy(optional=False))
 
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
