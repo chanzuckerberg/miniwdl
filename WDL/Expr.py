@@ -195,7 +195,7 @@ class Array(Base):
         for item in self.items:
             item.infer_type(type_env)
         # Start by assuming the type of the first item is the item type
-        item_type = self.items[0].type
+        item_type : T.Base = self.items[0].type
         # Allow a mixture of Int and Float to construct Array[Float]
         if isinstance(item_type, T.Int):
             for item in self.items:
@@ -207,7 +207,7 @@ class Array(Base):
             if isinstance(item.type, T.String):
                 item_type = T.String(optional=item_type.optional)
             if item.type.optional:
-                item_type.optional = True
+                item_type = item_type.copy(optional=True)
         # Check all items are coercible to item_type
         for item in self.items:
             try:
@@ -253,7 +253,7 @@ class IfThenElse(Base):
         assert isinstance(self_type, T.Base)
         self.alternative.infer_type(type_env)
         if self.alternative.type.optional:
-            self_type.optional = True
+            self_type = self_type.copy(optional=True)
         if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
             self_type = T.Float(optional=self_type.optional)
         try:

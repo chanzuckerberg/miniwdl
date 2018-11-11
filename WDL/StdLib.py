@@ -5,7 +5,6 @@ import WDL.Value as V
 import WDL.Expr as E
 import WDL.Env as Env
 import WDL.Error as Error
-import copy
 
 # Special function for array access arr[index], returning the element type
 #                      or map access map[key], returning the value type
@@ -109,10 +108,13 @@ class _StaticFunction(E._Function):
         if len(expr.arguments) < min_args:
             raise Error.WrongArity(expr, len(self.argument_types))
         for i in range(len(expr.arguments)):
+            # TODO: we allow null for any argument during static typechecking
+            # Can this be tightened whilst retaining Cromwell compatibility?
+            aty = self.argument_types[i].copy(optional=True)
             try:
-                expr.arguments[i].typecheck(self.argument_types[i])
+                expr.arguments[i].typecheck(aty)
             except Error.StaticTypeMismatch:
-                raise Error.StaticTypeMismatch(expr.arguments[i], self.argument_types[i], expr.arguments[i].type, "{} argument #{}".format(self.name, i+1)) from None
+                raise Error.StaticTypeMismatch(expr.arguments[i], self.argument_types[i], expr.arguments[i].type, "for {} argument #{}".format(self.name, i+1)) from None
         return self.return_type
 
     def __call__(self, expr : E.Apply, env : E.Env) -> V.Base:
@@ -285,10 +287,9 @@ class _SelectFirst(E._Function):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
             raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
-        ty = copy.copy(expr.arguments[0].type.item_type)
+        ty = expr.arguments[0].type.item_type
         assert isinstance(ty, T.Base)
-        ty.optional = False
-        return ty
+        return ty.copy(optional=False)
 
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
@@ -302,10 +303,9 @@ class _SelectAll(E._Function):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
             raise Error.EmptyArray(expr.arguments[0]) # TODO: error for 'indeterminate type'
-        ty = copy.copy(expr.arguments[0].type.item_type)
+        ty = expr.arguments[0].type.item_type
         assert isinstance(ty, T.Base)
-        ty.optional = False
-        return T.Array(ty)
+        return T.Array(ty.copy(optional=False))
 
     def __call__(self, expr : E.Apply, env : Env.Values) -> V.Base:
         raise NotImplementedError()
