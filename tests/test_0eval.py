@@ -152,12 +152,12 @@ class TestEval(unittest.TestCase):
     def test_array(self):
         expr = WDL.parse_expr("[true,false]")
         expr.infer_type([])
-        self.assertEqual(str(expr.type), "Array[Boolean]")
+        self.assertEqual(str(expr.type), "Array[Boolean]+")
 
         env = []
         val = expr.eval(env)
         self.assertIsInstance(val, WDL.Value.Array)
-        self.assertEqual(str(val.type), "Array[Boolean]")
+        self.assertEqual(str(val.type), "Array[Boolean]+")
         self.assertEqual(str(val), "[true, false]")
 
         self._test_tuples(
@@ -184,7 +184,9 @@ class TestEval(unittest.TestCase):
             ("1 < 1.0", "false"),
             ("1 <= 1.0", "true"),
             ("[1, 2.0]", "[1.0, 2.0]", WDL.Type.Array(WDL.Type.Float())),
-            ("[1, 2.0][0]", "1.0", WDL.Type.Float())
+            ("[1, 2.0][0]", "1.0", WDL.Type.Float()),
+            # TODO: more sophisticated unification algo to handle this
+            # ("[[1],[2.0]]", "[[1.0], [2.0]]", WDL.Type.Array(WDL.Type.Float())),
         )
 
     def test_ident(self):

@@ -87,12 +87,21 @@ class Task(SourceNode):
 # type-check a declaration within a type environment, and return the type
 # environment with the new binding
 def _typecheck_decl(decl : Decl, type_env : Env.Types) -> Env.Types:
-    # subtlety: in a declaration like: String? x = "who"
-    # we record x in the type environment as String instead of String?
-    # since it can't actually be null at runtime
+    # Subtleties:
+    # 1. In a declaration like: String? x = "who", we record x in the type
+    #    environment as String instead of String? since it won't actually
+    #    be null at runtime
+    # 2. A declaration of Array[T]+ = <expr> is accepted even if we can't
+    #    prove <expr> is nonempty statically. Its nonemptiness should be
+    #    checked at runtime. Exception when <expr> is an empty array literal
     nonnull = False
     if decl.expr is not None:
-        decl.expr.infer_type(type_env).typecheck(decl.type)
+        check_type = decl.type
+        if isinstance(check_type, T.Array):
+            if check_type.nonempty and isinstance(decl.expr, E.Array) and len(decl.expr.items) == 0:
+                raise Err.EmptyArray(decl.expr)
+            check_type = check_type.copy(nonempty=False)
+        decl.expr.infer_type(type_env).typecheck(check_type)
         if decl.expr.type.optional is False:
             nonnull = True
     ty = decl.type.copy(optional=False) if nonnull else decl.type
@@ -165,10 +174,7 @@ class Call(SourceNode):
                         decl = ele
             if decl is None:
                 raise Err.NoSuchInput(expr, name)
-            try:
-                expr.infer_type(type_env).typecheck(decl.type)
-            except Err.StaticTypeMismatch as exn:
-                raise Err.StaticTypeMismatch(expr, decl.type, expr.type, "for input " + decl.name) from None
+            expr.infer_type(type_env).typecheck(decl.type)
             if name in required_inputs:
                 required_inputs.remove(name)
 

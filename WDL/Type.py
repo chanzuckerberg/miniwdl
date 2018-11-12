@@ -118,7 +118,6 @@ class Array(Base):
     """
     item_type : Optional[Base]
     _nonempty : bool
-    """True in declarations with the nonempty quantifier, ``Array[type]+``"""
 
     def __init__(self, item_type : Optional[Base], optional : bool = False, nonempty : bool = False) -> None:
         self.item_type = item_type
@@ -126,17 +125,19 @@ class Array(Base):
         self._optional = optional
         self._nonempty = nonempty
     def __str__(self) -> str:
-        ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]" + ('?' if self.optional else '')
+        ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]" \
+                + ('+' if self.nonempty else '') \
+                + ('?' if self.optional else '')
         return ans
     def coerces(self, rhs : Base) -> bool:
         if isinstance(rhs, Array):
             if self.item_type is None or rhs.item_type is None:
                 return True
             else:
-                return self.item_type.coerces(rhs.item_type)
+                return self.item_type.coerces(rhs.item_type) and (not rhs.nonempty or self.nonempty)
         if isinstance(rhs, String):
             return self.item_type is None or self.item_type.coerces(String())
-        return super().coerces(rhs)
+        return False
     def copy(self, optional : Optional[bool] = None, nonempty : Optional[bool] = None) -> Base:
         ans : Array = super().copy(optional)
         if nonempty is not None:
@@ -144,6 +145,7 @@ class Array(Base):
         return ans
     @property
     def nonempty(self) -> bool:
+        """True in declarations with the nonempty quantifier, ``Array[type]+``"""
         return self._nonempty
 
 class Map(Base):

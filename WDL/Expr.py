@@ -202,19 +202,26 @@ class Array(Base):
                 if isinstance(item.type, T.Float):
                     item_type = T.Float()
         # If any item is String, assume item type is String
-        # If any item has optional type, assume item type is optional
+        # If any item has optional quantifier, assume item type is optional
+        # If all items have nonempty quantifier, assume item type is nonempty
+        all_nonempty = len(self.items) > 0
         for item in self.items:
             if isinstance(item.type, T.String):
                 item_type = T.String(optional=item_type.optional)
             if item.type.optional:
                 item_type = item_type.copy(optional=True)
+            if isinstance(item.type, T.Array) and not item.type.nonempty:
+                all_nonempty = False
+        if isinstance(item_type, T.Array):
+            item_type = item_type.copy(nonempty=all_nonempty)
         # Check all items are coercible to item_type
         for item in self.items:
             try:
                 item.typecheck(item_type)
             except Error.StaticTypeMismatch:
-                raise Error.StaticTypeMismatch(self, item_type, item.type, "inconsistent types within array") from None
-        return T.Array(item_type, False, True)
+                self._type = T.Array(item_type, optional=False, nonempty=True)
+                raise Error.StaticTypeMismatch(self, item_type, item.type, "(inconsistent types within array)") from None
+        return T.Array(item_type, optional=False, nonempty=True)
 
     def typecheck(self, expected : Optional[T.Base]) -> Base:
         if len(self.items) == 0 and isinstance(expected, T.Array):
@@ -252,15 +259,19 @@ class IfThenElse(Base):
         self_type = self.consequent.infer_type(type_env).type
         assert isinstance(self_type, T.Base)
         self.alternative.infer_type(type_env)
-        if self.alternative.type.optional:
-            self_type = self_type.copy(optional=True)
+        # unify inferred consequent & alternative types wrt quantifiers & float promotion
         if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
             self_type = T.Float(optional=self_type.optional)
+        if self.alternative.type.optional:
+            self_type = self_type.copy(optional=True)
+        if isinstance(self_type, T.Array) and isinstance(self.consequent.type, T.Array) and isinstance(self.alternative.type, T.Array):
+            self_type = self_type.copy(nonempty=(self.consequent.type.nonempty and self.alternative.type.nonempty)) # pyre-fixme
         try:
+            self.consequent.typecheck(self_type)
             self.alternative.typecheck(self_type)
         except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(self, self.consequent.type, self.alternative.type,
-                                           "if consequent & alternative must have the same type") from None
+            raise Error.StaticTypeMismatch(self, self.consequent.type, self.alternative.type, # pyre-fixme
+                                           " (if consequent & alternative must have the same type)") from None
         return self_type
     
     def eval(self, env : Env.Values) -> V.Base:

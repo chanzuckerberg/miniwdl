@@ -94,3 +94,61 @@ class TestCalls(unittest.TestCase):
         """
         doc = WDL.parse_document(txt)
         doc.typecheck()
+
+    def test_nonempty(self):
+        txt = r"""
+        task p {
+            Array[Int]+ x
+            command <<<
+                echo "~{sep=', ' x}"
+            >>>
+            output {
+                String z = stdout()
+            }
+        }
+        workflow contrived {
+            Array[Int] x
+            Array[Int]+ y = x
+            call p { input: x=x }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        txt = r"""
+        task p {
+            Array[Int]+ x
+            command <<<
+                echo "~{sep=', ' x}"
+            >>>
+            output {
+                String z = stdout()
+            }
+        }
+        workflow contrived {
+            Array[Int] x
+            Array[Int]+ y = x
+            call p { input: x=y }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+        txt = r"""
+        workflow contrived {
+            Array[Int] x = []
+            Array[Int]+ y = [1]
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+        txt = r"""
+        workflow contrived {
+            Array[Int]+ y = []
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.EmptyArray):
+            doc.typecheck()
