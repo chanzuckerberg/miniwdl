@@ -41,6 +41,8 @@ class Base():
             return self.decl(obj)
         elif isinstance(obj, WDL.Tree.Task):
             return self.task(obj)
+        elif isinstance(obj, WDL.Expr.Base):
+            return self.expr(obj)
         else:
             assert False
 
@@ -58,7 +60,8 @@ class Base():
             self(elt)
 
     def call(self, obj : WDL.Tree.Call) -> Any:
-        pass
+        for nm, expr in obj.inputs.items():
+            self(expr)
 
     def scatter(self, obj : WDL.Tree.Scatter) -> Any:
         for elt in obj.elements:
@@ -69,11 +72,43 @@ class Base():
             self(elt)
 
     def decl(self, obj : WDL.Tree.Decl) -> Any:
-        pass
+        if obj.expr:
+            self(obj.expr)
 
     def task(self, obj : WDL.Tree.Task) -> Any:
-        for elt in obj.inputs + obj.postinputs + obj.outputs:
+        for elt in obj.inputs + obj.postinputs:
             self(elt)
+        self(obj.command)
+        for elt in obj.outputs:
+            self(elt)
+        # TODO: traverse runtime section
+
+    def expr(self, obj : WDL.Expr.Base) -> Any:
+        if isinstance(obj, WDL.Expr.Placeholder):
+            self(obj.expr)
+        elif isinstance(obj, WDL.Expr.String):
+            for p in obj.parts:
+                if isinstance(p, WDL.Expr.Base):
+                    self(p)
+        elif isinstance(obj, WDL.Expr.Array):
+            for elt in obj.items:
+                self(elt)
+        elif isinstance(obj, WDL.Expr.IfThenElse):
+            self(obj.condition)
+            self(obj.consequent)
+            self(obj.alternative)
+        elif isinstance(obj, WDL.Expr.Apply):
+            for elt in obj.arguments:
+                self(elt)
+        elif isinstance(obj, WDL.Expr.Pair):
+            self(obj.left)
+            self(obj.right)
+        elif isinstance(obj, WDL.Expr.Map):
+            for k,v in obj.items.items():
+                self(k)
+                self(v)
+        else:
+            pass
 
 class SetParents(Base):
     """
