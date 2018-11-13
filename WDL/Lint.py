@@ -17,7 +17,7 @@ class Linter(WDL.Walker.Base):
             obj.lint = []
         obj.lint.append((subnode or obj, self.__class__.__name__, message))
 
-class ImpliedStringCoercion(Linter):
+class StringCoercion(Linter):
     # String declaration with non-String rhs expression
     def decl(self, obj : WDL.Decl) -> Any:
         if isinstance(obj.type, WDL.Type.String) \
@@ -38,16 +38,38 @@ class ImpliedStringCoercion(Linter):
                         any_string = True
                     else:
                         all_string = False
-                if any_string and not all_string:
-                    self.add(obj, "string concatenation (+) has non-String argument")
+                if any_string and not all_string and not isinstance(getattr(obj,'parent'), WDL.Task):
+                    # exception when parent is Task (i.e. we're in the task
+                    # command) because the coercion is probably intentional
+                    self.add(getattr(obj,'parent'), "string concatenation (+) has non-String argument", obj)
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):
                     for i in range(min(len(F.argument_types),len(obj.arguments))):
                         if isinstance(F.argument_types[i], WDL.Type.String) \
-                           and not isinstance(obj.arguments[i], WDL.Type.String) \
-                           and not isinstance(obj.arguments[i], WDL.Type.File):
-                            self.add(obj, "non-String value for String function argument", obj.arguments[i])
+                           and not isinstance(obj.arguments[i].type, WDL.Type.String) \
+                           and not isinstance(obj.arguments[i].type, WDL.Type.File):
+                            self.add(getattr(obj,'parent'), "non-String value for String function argument", obj.arguments[i])
+        super().expr(obj)
+
+class OptionalCoercion(Linter):
+    # Expressions that could blow up at runtime with empty optional values
+    def expr(self, obj : WDL.Expr.Base) -> Any:
+        if isinstance(obj, WDL.Expr.Apply):
+            if obj.function_name == "_add":
+                for arg in obj.arguments:
+                    if arg.type.optional and not isinstance(getattr(obj,'parent'), WDL.Task):
+                        # exception when parent is Task (i.e. we're in the
+                        # task command) because the coercion is probably
+                        # intentional, per "Prepending a String to an
+                        # Optional Parameter"
+                        self.add(getattr(obj,'parent'), "optional value passed to +", arg)
+            else:
+                F = WDL.Expr._stdlib[obj.function_name]
+                if isinstance(F, WDL.StdLib._StaticFunction):
+                    for i in range(min(len(F.argument_types),len(obj.arguments))):
+                        if obj.arguments[i].type.optional and not F.argument_types[i].optional:
+                            self.add(getattr(obj,'parent'), "optional value passed for mandatory function argument", obj.arguments[i])
         super().expr(obj)
 
 class IncompleteCall(Linter):

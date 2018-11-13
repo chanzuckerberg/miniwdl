@@ -122,6 +122,8 @@ class SetParents(Base):
     Conditional.
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
+
+    On each Expr, the containing Decl or (for command placeholders) Task
     """
     def document(self, obj : WDL.Tree.Document) -> None:
         super().document(obj)
@@ -148,10 +150,18 @@ class SetParents(Base):
         for elt in obj.elements:
             elt.parent = obj
     def task(self, obj : WDL.Tree.Task) -> None:
+        setattr(self,'_parent_task',obj)
         super().task(obj)
         obj.parent = None
         for elt in obj.inputs + obj.postinputs + obj.outputs:
             elt.parent = obj
+    def decl(self, obj : WDL.Tree.Decl) -> None:
+        setattr(self,'_parent_decl',obj)
+        super().decl(obj)
+        delattr(self,'_parent_decl')
+    def expr(self, obj : WDL.Expr.Base) -> None:
+        super().expr(obj)
+        obj.parent = getattr(self, '_parent_decl', getattr(self, '_parent_task'))
 
 class MarkCalled(Base):
     """

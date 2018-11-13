@@ -35,7 +35,8 @@ def check(args):
     WDL.Walker.MarkCalled()(doc)
 
     linters = [
-        WDL.Lint.ImpliedStringCoercion(),
+        WDL.Lint.StringCoercion(),
+        WDL.Lint.OptionalCoercion(),
         WDL.Lint.IncompleteCall(),
         WDL.Lint.CallImportNameCollision(),
         WDL.Lint.UnusedImport()
@@ -45,7 +46,7 @@ def check(args):
 
     # Print an outline
     print(os.path.basename(args.uri))
-    outline(doc,1)
+    outline(doc,0)
 
 # recursively pretty-print a brief outline of the workflow
 def outline(obj, level, file=sys.stdout):
@@ -65,23 +66,29 @@ def outline(obj, level, file=sys.stdout):
     if isinstance(obj, WDL.Document):
         # workflow
         if obj.workflow:
-            if level<=1 or obj.workflow.called:
-                print("{}workflow {}".format(s, obj.workflow.name), file=file)
-                for elt in obj.workflow.elements:
-                    descend(elt)
-            else:
-                # omit the outline of an imported workflow that isn't
-                # actually called from the top level
-                print("{}workflow {} (not called)".format(s, obj.workflow.name), file=file)
+            descend(obj.workflow)
         # tasks
         for task in sorted(obj.tasks, key=lambda task: (not task.called,task.name)):
-            print("{}task {}{}".format(s, task.name, " (not called)" if not task.called else ""), file=file)
-            for decl in task.inputs + task.postinputs + task.outputs:
-                descend(decl)
+            descend(task)
         # imports
         for uri, namespace, subdoc in sorted(obj.imports, key=lambda t: t[1]):
-            print("{}{} : {}".format(s, namespace, os.path.basename(uri)), file=file)
+            print("    {}{} : {}".format(s, namespace, os.path.basename(uri)), file=file)
             descend(subdoc)
+    # workflow
+    elif isinstance(obj, WDL.Workflow):
+        if level<=1 or obj.called:
+            print("{}workflow {}".format(s, obj.name), file=file)
+            for elt in obj.elements:
+                descend(elt)
+        else:
+            # omit the outline of an imported workflow that isn't
+            # actually called from the top level
+            print("{}workflow {} (not called)".format(s, obj.name), file=file)
+    # task
+    elif isinstance(obj, WDL.Task):
+        print("{}task {}{}".format(s, obj.name, " (not called)" if not obj.called else ""), file=file)
+        for decl in obj.inputs + obj.postinputs + obj.outputs:
+            descend(decl)
     # call
     elif isinstance(obj, WDL.Call):
         print("{}call {}".format(s, '.'.join(obj.callee_id.namespace + [obj.callee_id.name])), file=file)
