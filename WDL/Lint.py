@@ -2,7 +2,7 @@
 Linting: annotate WDL AST with hygiene warning
 """
 import WDL
-from typing import Any, Optional
+from typing import Any, Optional, Set
 
 class Linter(WDL.Walker.Base):
     """

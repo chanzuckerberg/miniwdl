@@ -152,3 +152,63 @@ class TestCalls(unittest.TestCase):
         doc = WDL.parse_document(txt)
         with self.assertRaises(WDL.Error.EmptyArray):
             doc.typecheck()
+
+    def test_collision(self):
+        tasks = tsk + r"""
+        task p {
+            Array[Int]+ x
+            command <<<
+                echo "~{sep=', ' x}"
+            >>>
+            output {
+                String z = stdout()
+            }
+        }
+        """
+        txt = tasks + r"""
+        workflow contrived {
+            call sum
+            call sum as sum2
+        }
+        """
+        WDL.parse_document(txt).typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            call sum
+            call sum
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            call sum
+            call p as sum
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            call sum as foo
+            call p as foo
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            if (true) {
+                call sum as foo
+            }
+            scatter (i in [1,2]) {
+                call p as foo
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()

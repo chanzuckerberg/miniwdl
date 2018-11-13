@@ -62,17 +62,21 @@ def namespace(namespace : str, bindings : 'Tree[R]', tree : 'Tree[R]') -> 'Tree[
     """Prepend a namespace to an environment"""
     return [Namespace(namespace, bindings)] + tree
 
+def resolve_namespace(tree : 'Tree[R]', namespace : List[str]) -> R:
+    if len(namespace) == 0:
+        return tree
+    for node in tree:
+        if isinstance(node, Namespace):
+            if len(namespace) > 0 and namespace[0] == node.namespace:
+                return resolve_namespace(node.bindings, namespace[1:])
+    raise KeyError()
+
 def resolve(tree : 'Tree[R]', namespace : List[str], name : str) -> R:
     """Resolve a name within an environment"""
-    for node in tree:
-        if isinstance(node, Binding):
-            if len(namespace) == 0 and node.name == name:
-                return node.rhs
-        elif isinstance(node, Namespace):
-            if len(namespace) > 0 and namespace[0] == node.namespace:
-                return resolve(node.bindings, namespace[1:], name)
-        else:
-            assert False
+    ns = resolve_namespace(tree, namespace)
+    for node in ns:
+        if isinstance(node, Binding) and node.name == name:
+            return node.rhs
     raise KeyError()
 
 #print(arrayize([Binding('x',T.Int())])[0].rhs)

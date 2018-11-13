@@ -87,6 +87,11 @@ class Task(SourceNode):
 # type-check a declaration within a type environment, and return the type
 # environment with the new binding
 def _typecheck_decl(decl : Decl, type_env : Env.Types) -> Env.Types:
+    try:
+        Env.resolve(type_env, [], decl.name)
+        raise Err.MultipleDefinitions(decl, "Multiple declarations of " + decl.name)
+    except KeyError:
+        pass
     # Subtleties:
     # 1. In a declaration like: String? x = "who", we record x in the type
     #    environment as String instead of String? since it won't actually
@@ -228,7 +233,11 @@ def _typecheck_workflow_body(elements : List[Union[Decl,Call,TVScatter,TVConditi
         elif isinstance(element, Call):
             call_outputs_env = element.typecheck(type_env, doc)
             # add call outputs to type environment, under the call namespace
-            # TODO: complain of namespace collisions
+            try:
+                Env.resolve_namespace(type_env, [element.name])
+                raise Err.MultipleDefinitions(element, "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(element.name, element.callee.name))
+            except KeyError:
+                pass
             type_env = Env.namespace(element.name, call_outputs_env, type_env)
             outputs_env = Env.namespace(element.name, call_outputs_env, outputs_env)
         elif isinstance(element, Scatter) or isinstance(element, Conditional):
@@ -357,11 +366,22 @@ class Document(SourceNode):
 
     def typecheck(self) -> None:
         """Typecheck each task in the document, then the workflow, if any. Documents returned by :func:`~WDL.load` have already been typechecked."""
+        names = set()
+        for (uri,namespace,subdoc) in self.imports:
+            if namespace in names:
+                raise Err.MultipleDefinitions(self, "Multiple imports with namespace " + namespace)
+            names.add(namespace)
+        names = set()
         # typecheck each task
         for task in self.tasks:
+            if task.name in names:
+                raise Err.MultipleDefinitions(task, "Multiple tasks named " + task.name)
+            names.add(task.name)
             task.typecheck()
         # typecheck the workflow
         if self.workflow:
+            if self.workflow.name in names:
+                raise Err.MultipleDefinitions(task, "Workflow name collides with a task also named " + self.workflow.name)
             self.workflow.typecheck(self)
 
 def load(uri : str, path : List[str] = [], imported : Optional[bool] = False) -> Document:

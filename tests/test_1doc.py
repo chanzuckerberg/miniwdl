@@ -434,10 +434,10 @@ class TestDoc(unittest.TestCase):
             Array[Int] xs = [1, 2, 3]
             Array[Int] ys = [4, 5, 6]
             scatter (x in xs) {
-                Int x2 = x*x
+                Int x2_ = x*x
                 scatter (y in ys) {
                     if (x + y < 5) {
-                        Int xy = x * y
+                        Int xy_ = x * y
                         call sum { input:
                             x = x,
                             y = y
@@ -447,8 +447,8 @@ class TestDoc(unittest.TestCase):
             }
             output {
                 Array[Array[Int?]] z = sum.z
-                Array[Array[Int?]] xy = xy
-                Array[Int] x2 = x2
+                Array[Array[Int?]] xy = xy_
+                Array[Int] x2 = x2_
             }
         }
         """
@@ -558,4 +558,87 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        task sum {
+            command {}
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        workflow sum {
+            call sum
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            File y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        doc = r"""
+        workflow contrived {
+            Int x
+            if (true) {
+                Int x = 1
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        doc = r"""
+        import "x.wdl"
+        import "x.wdl"
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        doc = r"""
+        import "x.wdl"
+        import "y.wdl" as x
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()

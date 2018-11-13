@@ -354,7 +354,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         self.imported = imported
 
     def decl(self, items, meta):
-        return D.Decl(sp(self.filename, meta), *items)
+        return D.Decl(sp(self.filename, meta), items[0], items[1].value, (items[2] if len(items) > 2 else None))
     def input_decls(self, items, meta):
         return {"inputs": items}
     def noninput_decls(self, items, meta):
