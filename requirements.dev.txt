@@ -3,6 +3,7 @@
 pyre-check==0.0.16
 sphinx
 sphinx-autobuild
+sphinx_rtd_theme
 coverage
 python-coveralls
 wheel

@@ -5,9 +5,9 @@ WDL data types
 WDL has both atomic types such as ``Int``, ``Boolean``, and ``String``; and 
 parametric types like ``Array[String]`` and
 ``Map[String,Array[Array[Float]]]``. Here, each type is represented by an
-instance of a Python class inheriting from ``WDL.Type.Base``. Such types are
-associated with expressions, statically prior to evaluation, as well as with
-values and identifier bindings after evaluation.
+immutable instance of a Python class inheriting from ``WDL.Type.Base``. Such
+types are associated with expressions, statically prior to evaluation, as well
+as with values and identifier bindings after evaluation.
 
 An atomic type like ``Int`` is represented by ``WDL.Type.Int()``. Atomic types
 can be checked either with ``isinstance(t,WDL.Type.Int)``, which ignores the
@@ -21,6 +21,15 @@ A parametric type like ``Array[String]`` is represented by
 ``WDL.Type.Array(WDL.Type.String()) == WDL.Type.Array(WDL.Type.String())``, but
 for example
 ``WDL.Type.Array(WDL.Type.String()) != WDL.Type.Array(WDL.Type.Float())``.
+
+The type classes include a method indicating if a value of the type can be
+coerced to some other desired type, according to the following rules:
+
+1. ``Boolean``, ``Int``, ``Float``, and ``File`` coerce to ``String``
+2. ``Array[T]`` coerces to ``String`` provided ``T`` does as well.
+3. ``T`` coerces to ``T?`` but the reverse is not true in general.
+4. ``T`` coerces to ``Array[T]`` (an array of length 1).
+
 """
 from abc import ABC, abstractmethod
 from typing import Optional, TypeVar, Tuple
@@ -34,17 +43,15 @@ class Base(ABC):
 
         assert issubclass(WDL.Type.Int, WDL.Type.Base)
         assert isinstance(WDL.Type.Array(WDL.Type.Int()), WDL.Type.Base)
+
+    All instances are immutable.
     """
 
     _optional : bool # immutable!!!
 
     def coerces(self, rhs : TVBase) -> bool:
         """
-        True if ``rhs`` is the same type, or can be coerced to, ``self``.
-
-        ``T`` coerces to ``Array[T]`` (an array of length 1).
-
-        ``T`` coerces to ``T?`` but the reverse is not true in general.
+        True if this is the same type as, or can be coerced to, ``rhs``.
         """
         if isinstance(rhs, Array) and rhs.item_type == self: # coerce T to Array[T]
             return True
@@ -52,11 +59,17 @@ class Base(ABC):
 
     @property
     def optional(self) -> bool:
-        """True in declarations with the optional quantifier, ``T?``"""
+        """
+        :type: bool
+
+        True when the type has the optional quantifier, ``T?``"""
         return self._optional
 
     def copy(self, optional : Optional[bool] = None) -> TVBase:
-        """Return a copy of the type with a different setting of the ``optional`` quantifier."""
+        """
+        copy(self, optional : Optional[bool] = None) -> WDL.Type.Base
+        
+        Create a copy of the type, possibly with a different setting of the ``optional`` quantifier."""
         ans : Base = copy.copy(self)
         if optional is not None:
             ans._optional = optional
@@ -71,6 +84,7 @@ class Boolean(Base):
     def __init__(self, optional : bool = False) -> None:
         self._optional = optional
     def coerces(self, rhs : Base) -> bool:
+        ""
         if isinstance(rhs, String):
             return True
         return super().coerces(rhs)
@@ -79,6 +93,7 @@ class Float(Base):
     def __init__(self, optional : bool = False) -> None:
         self._optional = optional
     def coerces(self, rhs : Base) -> bool:
+        ""
         if isinstance(rhs, String):
             return True
         return super().coerces(rhs)
@@ -87,6 +102,7 @@ class Int(Base):
     def __init__(self, optional : bool = False) -> None:
         self._optional = optional
     def coerces(self, rhs : Base) -> bool:
+        ""
         if isinstance(rhs, Float) or isinstance(rhs, String):
             return True
         return super().coerces(rhs)
@@ -95,6 +111,7 @@ class File(Base):
     def __init__(self, optional : bool = False) -> None:
         self._optional = optional
     def coerces(self, rhs : Base) -> bool:
+        ""
         if isinstance(rhs, String):
             return True
         return super().coerces(rhs)
@@ -103,6 +120,7 @@ class String(Base):
     def __init__(self, optional : bool = False) -> None:
         self._optional = optional
     def coerces(self, rhs : Base) -> bool:
+        ""
         if isinstance(rhs, File):
             return True
         return super().coerces(rhs)
@@ -110,13 +128,16 @@ class String(Base):
 class Array(Base):
     """
     Array type, parameterized by the type of the constituent items.
+    """
+    item_type : Optional[Base] # TODO: make immutable property
+    """
+    :type: Optional[WDL.Type.Base]
 
     ``item_type`` may be None to represent an array whose item type isn't
     known statically, such as a literal empty array ``[]``, or the result
-    of the ``read_array()`` standard library function. This is considered
-    statically coercible to any array type (but may fail at runtime)
+    of the ``read_array()`` standard library function. This is statically
+    coercible to any array type (but may fail at runtime).
     """
-    item_type : Optional[Base]
     _nonempty : bool
 
     def __init__(self, item_type : Optional[Base], optional : bool = False, nonempty : bool = False) -> None:
@@ -129,7 +150,16 @@ class Array(Base):
                 + ('+' if self.nonempty else '') \
                 + ('?' if self.optional else '')
         return ans
+    @property
+    def nonempty(self) -> bool:
+        """
+        :type: bool
+
+        True when the type has the nonempty quantifier, ``Array[T]+``
+        """
+        return self._nonempty
     def coerces(self, rhs : Base) -> bool:
+        ""
         if isinstance(rhs, Array):
             if self.item_type is None or rhs.item_type is None:
                 return True
@@ -143,21 +173,21 @@ class Array(Base):
         if nonempty is not None:
             ans._nonempty = nonempty
         return ans
-    @property
-    def nonempty(self) -> bool:
-        """True in declarations with the nonempty quantifier, ``Array[type]+``"""
-        return self._nonempty
 
 class Map(Base):
     """
     Map type, parameterized by the (key,value) item type.
+    """
+
+    item_type : Optional[Tuple[Base,Base]]
+    """
+    :type: Optional[Tuple[WDL.Type.Base,WDL.Type.Base]]
 
     ``item_type`` may be None to represent a map whose type isn't known
-    statically, such as a literal empty may ``{}``, or the result of the
-    ``read_map()`` standard library function. This is considered statically
-    coercible to any map type (but may fail at runtime)
+    statically, such as a literal empty map ``{}``, or the result of the
+    ``read_map()`` standard library function. This is statically coercible
+    to any map type (but may fail at runtime).
     """
-    item_type : Optional[Tuple[Base,Base]]
 
     def __init__(self, item_type : Optional[Tuple[Base,Base]], optional : bool = False) -> None:
         self._optional = optional
@@ -165,6 +195,7 @@ class Map(Base):
     def __str__(self) -> str:
         return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1]) if self.item_type is not None else "") + "]" + ('?' if self.optional else '') # pyre-fixme
     def coerces(self, rhs : Base) -> bool:
+        ""
         if isinstance(rhs, Map):
             if self.item_type is None or rhs.item_type is None:
                 return True
@@ -177,7 +208,13 @@ class Pair(Base):
     Pair type, parameterized by the left and right item types.
     """
     left_type : Base
+    """
+    :type: WDL.Type.Base
+    """
     right_type : Base
+    """
+    :type: WDL.Type.Base
+    """
 
     def __init__(self, left_type : Base, right_type : Base, optional : bool = False) -> None:
         self._optional = optional

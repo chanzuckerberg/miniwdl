@@ -6,9 +6,7 @@
 miniwdl
 =======
 
-.. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+.. contents::
 
 .. automodule:: WDL
    :members:

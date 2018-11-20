@@ -1,6 +1,8 @@
 # pyre-strict
 """
 Abstract syntax tree (AST) for WDL documents, encompassing declarations, tasks, calls, and workflows. The AST is typically constructed and returned by :func:`~WDL.load` or :func:`~WDL.parse_document`.
+
+The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e. ``WDL.Tree.Document`` can be abbreviated ``WDL.Document``.
 """
 
 from abc import ABC, abstractmethod
@@ -15,13 +17,17 @@ import os, errno
 import WDL._parser
 
 class Decl(SourceNode):
-    """A declaration such as an input/output variable"""
+    """A variable declaration within a task or workflow"""
     type : T.Base
-    """WDL type"""
+    ":type: WDL.Type.Base"
     name : str
-    """Identifier declared"""
+    """Declared variable name
+
+    :type: str"""
     expr : Optional[E.Base]
-    """Expression bound"""
+    """Bound expression, if any
+
+    :type: Optional[WDL.Expr.Base]"""
 
     def __init__(self, pos : SourcePosition, type : T.Base, name: str, expr : Optional[E.Base] = None) -> None:
         super().__init__(pos)
@@ -41,21 +47,34 @@ class Decl(SourceNode):
 class Task(SourceNode):
     """WDL Task"""
     name : str
-    """Task name"""
+    """:type: str"""
     inputs : List[Decl]
-    """Inputs declared within the ``input{}`` task section"""
+    """:type: List[WDL.Tree.Decl]
+
+    Inputs declared within the ``input{}`` task section
+    """
     postinputs: List[Decl]
-    """Declarations outside of the ``input{}`` task section"""
+    """:type: List[WDL.Tree.Decl]
+    
+    Declarations outside of the ``input{}`` task section"""
     command: E.String
-    """Task command"""
+    ":type: WDL.Expr.String"
     outputs: List[Decl]
-    """Output declarations"""
+    """:type: List[WDL.Tree.Decl]
+
+    Output declarations"""
     parameter_meta : Dict[str,Any]
-    """``parameter_meta{}`` section as a JSON-like dict"""
+    """:type: Dict[str,Any]
+
+    ``parameter_meta{}`` section as a JSON-like dict"""
     runtime : Dict[str,E.Base]
-    """``runtime{}`` section, with keys and corresponding expressions to be evaluated"""
+    """:type: Dict[str,WDL.Expr.Base]
+
+    ``runtime{}`` section, with keys and corresponding expressions to be evaluated"""
     meta : Dict[str,Any]
-    """``meta{}`` section as a JSON-like dict"""
+    """:type: Dict[str,Any]
+
+    ``meta{}`` section as a JSON-like dict"""
 
     def __init__(self, pos : SourcePosition, name : str, inputs : List[Decl], postinputs : List[Decl],
                  command : E.String, outputs : List[Decl], parameter_meta : Dict[str,Any],
@@ -120,14 +139,25 @@ TVWorkflow = TypeVar('TVWorkflow',bound='Workflow')
 class Call(SourceNode):
     """A call (within a workflow) to a task or sub-workflow"""
     callee_id : E.Ident
-    """Identifier of the desired task/workflow"""
+    """
+    :type: WDL.Expr.Ident
+
+    Identifier of the desired task/workflow"""
     name : str
-    """Name of the call (defaults to task/workflow name)"""
+    """:type: string
+
+    defaults to task/workflow name"""
     inputs: Dict[str,E.Base]
-    """Call inputs provided"""
+    """
+    :type: Dict[str,WDL.Expr.Base]
+
+    Call inputs provided"""
 
     callee : Optional[Union[Task,TVWorkflow]]
-    """After the AST is typechecked, refers to the Task or Workflow object to call"""
+    """
+    :type: Union[WDL.Tree.Task, WDL.Tree.Workflow]
+
+    After the AST is typechecked, refers to the Task or Workflow object to call"""
 
     def __init__(self, pos : SourcePosition, callee_id : E.Ident, alias : Optional[str], inputs : Dict[str,E.Base]) -> None:
         super().__init__(pos)
@@ -253,11 +283,20 @@ def _typecheck_workflow_body(elements : List[Union[Decl,Call,TVScatter,TVConditi
 class Scatter(SourceNode):
     """A scatter stanza within a workflow"""
     variable : str
-    """The scatter variable name"""
+    """
+    :type: string
+
+    Scatter variable name"""
     expr : E.Base
-    """Expression for the array over which to scatter"""
+    """
+    :type: WDL.Expr.Base
+
+    Expression for the array over which to scatter"""
     elements : List[Union[Decl,Call,TVScatter,TVConditional]]
-    """Scatter body"""
+    """
+    :type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional]]
+
+    Scatter body"""
 
     def __init__(self, pos : SourcePosition, variable : str, expr : E.Base, elements : List[Union[Decl,Call,TVScatter,TVConditional]]) -> None:
         super().__init__(pos)
@@ -283,9 +322,15 @@ class Scatter(SourceNode):
 class Conditional(SourceNode):
     """A conditional (if) stanza within a workflow"""
     expr : E.Base
-    """Boolean expression"""
+    """
+    :tree: WDL.Expr.Base
+
+    Boolean expression"""
     elements : List[Union[Decl,Call,TVScatter,TVConditional]]
-    """Conditional body"""
+    """
+    :type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional]]
+
+    Conditional body"""
 
     def __init__(self, pos : SourcePosition, expr : E.Base, elements : List[Union[Decl,Call,TVScatter,TVConditional]]) -> None:
         super().__init__(pos)
@@ -305,15 +350,23 @@ class Conditional(SourceNode):
 
 class Workflow(SourceNode):
     name : str
-    """Workflow name"""
+    ":type: str"
     elements: List[Union[Decl,Call,Scatter,Conditional]]
-    """Declarations, calls, and/or scatters"""
+    ":type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional]]"
     outputs: Optional[List[Decl]]
-    """Workflow outputs"""
+    """:type: Optional[List[Decl]]
+
+    Workflow outputs, if the ``output{}`` stanza is present"""
     parameter_meta : Dict[str,Any]
-    """``parameter_meta{}`` section as a JSON-like dict"""
+    """
+    :type: Dict[str,Any]
+
+    ``parameter_meta{}`` section as a JSON-like dict"""
     meta : Dict[str,Any]
-    """``meta{}`` section as a JSON-like dict"""
+    """
+    :type: Dict[str,Any]
+
+    ``meta{}`` section as a JSON-like dict"""
 
     def __init__(self, pos : SourcePosition, name : str, elements : List[Union[Decl,Call,Scatter]], outputs : Optional[List[Decl]], parameter_meta : Dict[str,Any], meta : Dict[str,Any]) -> None:
         super().__init__(pos)
@@ -339,13 +392,20 @@ class Workflow(SourceNode):
 class Document(SourceNode):
     """Top-level document, with imports, tasks, and a workflow. Typically returned by :func:`~WDL.load` with imported sub-documents loaded, and everything typechecked. Alternatively, :func:`~WDL.parse_document` constructs the AST but doesn't process imports nor perform typechecking."""
     imports : List[Tuple[str,str,Optional[TVDocument]]]
-    """Imports in the document (filename/URI, namespace, and later the sub-document)"""
+    """
+    :type: List[Tuple[str,str,Optional[WDL.Tree.Document]]]
+
+    Imports in the document (filename/URI, namespace, and later the sub-document)"""
     tasks : List[Task]
-    """Tasks in the document"""
+    """:type: List[WDL.Tree.Task]"""
     workflow : Optional[Workflow]
-    """Workflow in the document, if any"""
+    """:type: Optional[WDL.Tree.Workflow]"""
+
     imported : bool
-    """True iff this document has been loaded as an import from another document"""
+    """
+    :type: bool
+
+    True iff this document has been loaded as an import from another document"""
 
     def __init__(self, pos : SourcePosition, imports : List[Tuple[str,str]],
                  tasks : List[Task], workflow : Optional[Workflow], imported : bool) -> None:

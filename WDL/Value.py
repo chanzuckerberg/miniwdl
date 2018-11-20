@@ -15,7 +15,7 @@ class Base(ABC):
     """The abstract base class for WDL values"""
 
     type : T.Base
-    """WDL Type of this value"""
+    ":type: WDL.Type.Base"
 
     value : Any # pyre-ignore
     """The "raw" Python value"""
@@ -36,7 +36,7 @@ class Base(ABC):
         Coerce the value to the desired type and return it
 
         The result is undefined if the coercion is not valid. Types should be
-        checked statically on ``WDL.Expr`` prior to evaluation.
+        checked statically on ``WDL.Expr.Base`` prior to evaluation.
 
         :raises: ReferenceError for a null value and non-optional type
         """
@@ -65,6 +65,7 @@ class Int(Base):
     def __init__(self, value : int) -> None:
         super().__init__(T.Int(), value)
     def coerce(self, desired_type : Optional[T.Base] = None) -> Base:
+        ""
         if desired_type is not None and isinstance(desired_type, T.Float):
             return Float(float(self.value)) # pyre-ignore
         return super().coerce(desired_type)
@@ -77,7 +78,7 @@ class String(Base):
         return json.dumps(self.value)
 
 class Array(Base):
-    """``value`` is a Python ``list`` of other ``WDL.Value`` instances"""
+    """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
     value : List[Base] = []
     def __init__(self, type : T.Array, value : List[Base]) -> None:
         super().__init__(type, value)
@@ -111,6 +112,7 @@ class Null(Base):
         assert False
         return ''
     def coerce(self, desired_type : Optional[T.Base] = None) -> Base:
+        ""
         if desired_type is None or not desired_type.optional:
             raise ReferenceError()
         return self
