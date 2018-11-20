@@ -1,6 +1,6 @@
 # pyre-strict
 """
-Environments, for identifier resolution during WDL typechecking and evaluation
+Environments, for identifier resolution during WDL typechecking and evaluation.
 """
 from typing import List, TypeVar, Generic, Union
 import WDL.Type as T
@@ -27,9 +27,9 @@ Tree = TypeVar('Tree', bound='List[Node[R]]')
 class Binding(Generic[R]):
     """A single binding"""
     name : str
-    """bound name"""
+    ":type: str"
     rhs : R
-    """a WDL type or value"""
+    """:type: Union[WDL.Type.Base,WDL.Value.Base]"""
 
     def __init__(self, name : str, rhs : R) -> None:
         self.name = name
@@ -38,9 +38,12 @@ class Binding(Generic[R]):
 class Namespace(Generic[R]):
     """Encapsulates binding(s) under a namespace"""
     namespace : str
-    """namespace"""
+    """:type: str"""
     bindings : 'Tree[R]'
-    """a list of bindings and/or sub-namespaces"""
+    """
+    :type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
+
+    a list of bindings and/or sub-namespaces"""
 
     def __init__(self, namespace : str, bindings : 'Tree[R]') -> None:
         self.namespace = namespace

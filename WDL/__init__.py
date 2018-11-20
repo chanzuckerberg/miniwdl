@@ -9,14 +9,13 @@ from typing import List
 SourcePosition = Error.SourcePosition
 SourceNode = Error.SourceNode
 
-def parse_expr(txt : str) -> Expr.Base:
+def load(uri : str, path : List[str] = []) -> Document:
     """
-    Parse an isolated WDL expression text into an abstract syntax tree
-    """
-    return _parser.parse_expr(txt)
+    Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
 
-def parse_tasks(txt : str) -> List[Task]:
-    return _parser.parse_tasks(txt)
+    :param path: local filesystem directories to search for imports, in addition to the current working directory
+    """
+    return Tree.load(uri, path)
 
 def parse_document(txt : str, uri : str = '') -> Document:
     """
@@ -27,10 +26,11 @@ def parse_document(txt : str, uri : str = '') -> Document:
     """
     return _parser.parse_document(txt, uri)
 
-def load(uri : str, path : List[str] = []) -> Document:
+def parse_expr(txt : str) -> Expr.Base:
     """
-    Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
+    Parse an isolated WDL expression text into an abstract syntax tree
+    """
+    return _parser.parse_expr(txt)
 
-    :param path: local filesystem directories to search for imports, in addition to the current working directory
-    """
-    return Tree.load(uri, path)
+def parse_tasks(txt : str) -> List[Task]:
+    return _parser.parse_tasks(txt)

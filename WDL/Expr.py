@@ -5,8 +5,8 @@ interpolation, arrays & maps, standard library functions
 
 The abstract syntax tree (AST) for any expression is represented by an instance
 of a Python class deriving from ``WDL.Expr.Base``. Any such node may have other
-nodes attached "beneath" it. Given a suitable environment, expressions can be
-evaluated to a WDL `Value`.
+nodes attached "beneath" it. An expression can be evaluated to a Value given
+a suitable Env.
 """
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Dict, Callable, TypeVar, Tuple, Union
@@ -30,9 +30,9 @@ class Base(SourceNode, ABC):
     @property
     def type(self) -> T.Base:
         """
-        WDL type of this expression.
+        :type: WDL.Type.Base
 
-        Undefined on construction; populated by one invocation of ``infer_type``.
+        WDL type of this expression. Undefined on construction; populated by one invocation of ``infer_type``.
         """
         # Failure of this assertion indicates use of an Expr object without
         # first calling _infer_type
@@ -44,11 +44,12 @@ class Base(SourceNode, ABC):
         pass
 
     def infer_type(self, type_env : Env.Types) -> TVBase:
-        """
+        """infer_type(self, type_env : Env.Types) -> WDL.Expr.Base
+
         Infer the expression's type within the given type environment. Must be
         invoked exactly once prior to use of other methods.
 
-        :raise WDL.Error.StaticTypeMismatch:
+        :raise WDL.Error.StaticTypeMismatch: when the expression fails to type-check
         :return: `self`
         """
         # Failure of this assertion indicates multiple invocations of
@@ -59,9 +60,10 @@ class Base(SourceNode, ABC):
         return self
 
     def typecheck(self, expected : T.Base) -> TVBase:
-        """
+        """typecheck(self, expected : T.Base) -> WDL.Expr.Base
+
         Check that this expression's type is, or can be coerced to,
-        `expected`. 
+        ``expected``.
 
         :raise WDL.Error.StaticTypeMismatch:
         :return: `self`
@@ -78,45 +80,70 @@ class Base(SourceNode, ABC):
 # Boolean literal
 class Boolean(Base):
     value : bool
-    """Literal value"""
+    """
+    :type: bool
+
+    Literal value
+    """
     def __init__(self, pos : SourcePosition, literal : bool) -> None:
         super().__init__(pos)
         self.value = literal
     def _infer_type(self, type_env : Env.Types) -> T.Base:
         return T.Boolean()
     def eval(self, env : Env.Values) -> V.Boolean:
+        ""
         return V.Boolean(self.value)
 
 # Integer literal
 class Int(Base):
     value : int
-    """Literal value"""
+    """
+    :type: int
+
+    Literal value
+    """
     def __init__(self, pos : SourcePosition, literal : int) -> None:
         super().__init__(pos)
         self.value = literal
     def _infer_type(self, type_env : Env.Types) -> T.Base:
         return T.Int()
     def eval(self, env : Env.Values) -> V.Int:
+        ""
         return V.Int(self.value)
 
 # Float literal
 class Float(Base):
     value : float
-    """Literal value"""
+    """
+    :type: float
+
+    Literal value
+    """
     def __init__(self, pos : SourcePosition, literal : float) -> None:
         super().__init__(pos)
         self.value = literal
     def _infer_type(self, type_env : Env.Types) -> T.Base:
         return T.Float()
     def eval(self, env : Env.Values) -> V.Float:
+        ""
         return V.Float(self.value)
 
 class Placeholder(Base):
     """Expression interpolated within a string or command"""
+
     options : Dict[str,str]
-    """Placeholder options (sep, true, false, default)"""
+    """
+    :type: Dict[str,str]
+
+    Placeholder options (sep, true, false, default)"""
+
     expr : Base
-    """Expression for evaluation"""
+    """
+    :type: WDL.Expr.Base
+
+    Expression for evaluation
+    """
+
     def __init__(self, pos : SourcePosition, options : Dict[str,str], expr : Base) -> None:
         super().__init__(pos)
         self.options = options
@@ -137,6 +164,7 @@ class Placeholder(Base):
                 raise Error.StaticTypeMismatch(self, T.Boolean(), self.expr.type, "command placeholder with only one of 'true' and 'false' options")
         return T.String()
     def eval(self, env : Env.Values) -> V.String:
+        ""
         v = self.expr.eval(env)
         if isinstance(v, V.Null):
             if 'default' in self.options:
@@ -153,9 +181,13 @@ class Placeholder(Base):
         return V.String(str(v))
 
 class String(Base):
-    """Text possibly interleaved with expression placeholders for interpolation"""
+    """Text, possibly interleaved with expression placeholders for interpolation"""
+
     parts : List[Union[str,Placeholder]]
-    """The parts list begins and ends with matching single- or double- quote marks. Between these is a sequence of literal strings and/or interleaved placeholder expressions. Escape sequences in the literals have NOT been decoded."""
+    """
+    :type: List[Union[str,WDL.Expr.Placeholder]]
+
+    The parts list begins and ends with matching single- or double- quote marks. Between these is a sequence of literal strings and/or interleaved placeholder expressions. Escape sequences in the literals have NOT been decoded."""
     def __init__(self, pos : SourcePosition, parts : List[Union[str,Placeholder]]) -> None:
         super().__init__(pos)
         self.parts = parts
@@ -165,8 +197,10 @@ class String(Base):
                 part.infer_type(type_env)
         return T.String()
     def typecheck(self, expected : Optional[T.Base]) -> Base:
+        ""
         return super().typecheck(expected) # pyre-ignore
     def eval(self, env : Env.Values) -> V.String:
+        ""
         ans = []
         for part in self.parts:
             if isinstance(part, Placeholder):
@@ -183,7 +217,11 @@ class String(Base):
 # Array
 class Array(Base):
     items : List[Base]
-    """Expression for each item in the array"""
+    """
+    :type: List[WDL.Expr.Base]
+
+    Expression for each item in the array literal
+    """
 
     def __init__(self, pos : SourcePosition, items : List[Base]) -> None:
         super(Array, self).__init__(pos)
@@ -224,6 +262,7 @@ class Array(Base):
         return T.Array(item_type, optional=False, nonempty=True)
 
     def typecheck(self, expected : Optional[T.Base]) -> Base:
+        ""
         if len(self.items) == 0 and isinstance(expected, T.Array):
             # the literal empty array satisfies any array type
             # (unless it has the nonempty quantifier)
@@ -233,19 +272,32 @@ class Array(Base):
         return super().typecheck(expected) # pyre-ignore
 
     def eval(self, env : Env.Values) -> V.Array:
+        ""
         assert isinstance(self.type, T.Array)
         return V.Array(self.type, [item.eval(env).coerce(self.type.item_type) for item in self.items])
 
 # If
 class IfThenElse(Base):
     condition : Base
-    """A Boolean expression for the condition"""
+    """
+    :type: WDL.Expr.Base
+
+    A Boolean expression for the condition
+    """
 
     consequent : Base
-    """Expression evaluated when the condition is true"""
+    """
+    :type: WDL.Expr.Base
+
+    Expression evaluated when the condition is true
+    """
 
     alternative : Base
-    """Expression evaluated when the condition is false"""
+    """
+    :type: WDL.Expr.Base
+
+    Expression evaluated when the condition is false
+    """
 
     def __init__(self, pos : SourcePosition, condition : Base, consequent : Base, alternative : Base) -> None:
         super().__init__(pos)
@@ -275,6 +327,7 @@ class IfThenElse(Base):
         return self_type
     
     def eval(self, env : Env.Values) -> V.Base:
+        ""
         try:
             if self.condition.eval(env).expect(T.Boolean()).value != False:
                 ans = self.consequent.eval(env)
@@ -305,8 +358,17 @@ _stdlib : Dict[str,_Function] = {}
 class Apply(Base):
     """Application of a built-in or standard library function"""
     function_name : str
-    function : _Function
+    """Name of the function applied
+
+    :type: str"""
     arguments : List[Base]
+    """
+    :type: List[WDL.Expr.Base]
+
+    Expressions for each function argument
+    """
+
+    function : _Function
 
     def __init__(self, pos : SourcePosition, function : str, arguments : List[Base]) -> None:
         super().__init__(pos)
@@ -323,6 +385,7 @@ class Apply(Base):
         return self.function.infer_type(self)
 
     def eval(self, env : Env.Values) -> V.Base:
+        ""
         return self.function(self, env)
 
 
@@ -331,7 +394,13 @@ class Apply(Base):
 class Ident(Base):
     """An identifier expected to resolve in the environment given during evaluation"""
     namespace : List[str]
+    """
+    :type: List[str]
+
+    Namespace (empty for an unqualified name)
+    """
     name : str
+    ":type: str"
 
     def __init__(self, pos : SourcePosition, parts : List[str]) -> None:
         super().__init__(pos)
@@ -361,6 +430,7 @@ class Ident(Base):
             raise Error.UnknownIdentifier(self) from None
 
     def eval(self, env : Env.Values) -> V.Base:
+        ""
         if len(self.namespace) > 0 and (self.name in ['left', 'right']):
             pair_name = self.namespace[-1]
             pair_namespace = self.namespace[:-1]
@@ -380,7 +450,17 @@ class Ident(Base):
 # Pair literal
 class Pair(Base):
     left : Base
+    """
+    :type: WDL.Expr.Base
+
+    Left-hand expression in the pair literal
+    """
     right : Base
+    """
+    :type: WDL.Expr.Base
+
+    Right-hand expression in the pair literal
+    """
 
     def __init__(self, pos : SourcePosition, left : Base, right : Base) -> None:
         super().__init__(pos)
@@ -393,6 +473,7 @@ class Pair(Base):
         return T.Pair(self.left.type, self.right.type)
 
     def eval(self, env : Env.Values) -> V.Base:
+        ""
         assert isinstance(self.type, T.Pair)
         lv = self.left.eval(env)
         rv = self.right.eval(env)
@@ -401,6 +482,11 @@ class Pair(Base):
 # Map literal
 class Map(Base):
     items : List[Tuple[Base,Base]]
+    """
+    :type: List[Tuple[WDL.Expr.Base,WDL.Expr.Base]]
+
+    Expressions for the map literal keys and values
+    """
 
     def __init__(self, pos : SourcePosition, items : List[Tuple[Base,Base]]) -> None:
         super().__init__(pos)
@@ -426,6 +512,7 @@ class Map(Base):
         return T.Map((kty,vty))
 
     def eval(self, env : Env.Values) -> V.Base:
+        ""
         assert isinstance(self.type, T.Map)
         eitems = []
         for k,v in self.items:
