@@ -5,33 +5,33 @@ WDL values instantiated at runtime
 Each value is represented by an instance of a Python class inheriting from
 ``WDL.Value.Base``.
 """
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Any, List, Optional, TypeVar, Tuple
-import WDL.Type as T
 import json
+import WDL.Type as T
 
 BaseT = TypeVar('BaseT', bound='Base')
 class Base(ABC):
     """The abstract base class for WDL values"""
 
-    type : T.Base
+    type: T.Base
     ":type: WDL.Type.Base"
 
-    value : Any # pyre-ignore
+    value: Any # pyre-ignore
     """The "raw" Python value"""
 
-    def __init__(self, type : T.Base, value : Any) -> None:
+    def __init__(self, type: T.Base, value: Any) -> None:
         assert isinstance(type, T.Base)
         self.type = type
         self.value = value
 
     def __eq__(self, other) -> bool:
-        return (self.type == other.type and self.value == other.value)
+        return self.type == other.type and self.value == other.value
 
     def __str__(self) -> str:
         return str(self.value)
 
-    def coerce(self, desired_type : Optional[T.Base] = None) -> BaseT:
+    def coerce(self, desired_type: Optional[T.Base] = None) -> BaseT:
         """
         Coerce the value to the desired type and return it
 
@@ -44,27 +44,27 @@ class Base(ABC):
             return String(str(self.value))
         # TODO: coerce T to Array[T] (x to [x])
         return self
-    def expect(self, desired_type : Optional[T.Base] = None) -> BaseT:
+    def expect(self, desired_type: Optional[T.Base] = None) -> BaseT:
         """Alias for coerce"""
         return self.coerce(desired_type)
 
 class Boolean(Base):
     """``value`` has Python type ``bool``"""
-    def __init__(self, value : bool) -> None:
+    def __init__(self, value: bool) -> None:
         super().__init__(T.Boolean(), value)
     def __str__(self) -> str:
         return str(self.value).lower()
 
 class Float(Base):
     """``value`` has Python type ``float``"""
-    def __init__(self, value : float) -> None:
+    def __init__(self, value: float) -> None:
         super().__init__(T.Float(), value)
 
 class Int(Base):
     """``value`` has Python type ``int``"""
-    def __init__(self, value : int) -> None:
+    def __init__(self, value: int) -> None:
         super().__init__(T.Int(), value)
-    def coerce(self, desired_type : Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
         if desired_type is not None and isinstance(desired_type, T.Float):
             return Float(float(self.value)) # pyre-ignore
@@ -72,46 +72,47 @@ class Int(Base):
 
 class String(Base):
     """``value`` has Python type ``str``"""
-    def __init__(self, value : str) -> None:
+    def __init__(self, value: str) -> None:
         super().__init__(T.String(), value)
     def __str__(self) -> str:
         return json.dumps(self.value)
 
 class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
-    value : List[Base] = []
-    def __init__(self, type : T.Array, value : List[Base]) -> None:
+    value: List[Base] = []
+    def __init__(self, type: T.Array, value: List[Base]) -> None:
         super().__init__(type, value)
     def __str__(self) -> str:
         return "[" + ", ".join([str(item) for item in self.value]) + "]"
 
 class Map(Base):
-    value : List[Tuple[Base,Base]] = []
-    def __init__(self, type : T.Map, value : List[Tuple[Base,Base]]) -> None:
+    value: List[Tuple[Base, Base]] = []
+    def __init__(self, type: T.Map, value: List[Tuple[Base, Base]]) -> None:
         super().__init__(type, value)
     def __str__(self) -> str:
         raise NotImplementedError() # TODO
 
 class Pair(Base):
-    value : Optional[Tuple[Base,Base]] = None
-    def __init__(self, type : T.Pair, value : Tuple[Base,Base]) -> None:
+    value: Optional[Tuple[Base, Base]] = None
+    def __init__(self, type: T.Pair, value: Tuple[Base, Base]) -> None:
         super().__init__(type, value)
     def __str__(self) -> str:
         assert isinstance(self.value, tuple)
         return "(" + str(self.value[0]) + "," + str(self.value[1]) + ")" # pyre-fixme
 
 class Null(Base):
-    """Represents the missing value which optional inputs may take. ``type`` and ``value`` are both None."""
-    type : Optional[Any] # pyre-ignore
-    value : Optional[Any] # pyre-ignore
+    """Represents the missing value which optional inputs may take.
+    ``type`` and ``value`` are both None."""
+    type: Optional[Any] # pyre-ignore
+    value: Optional[Any] # pyre-ignore
     def __init__(self) -> None:
+        # pylint: disable=super-init-not-called
         self.type = None
         self.value = None
-        pass
     def __str__(self) -> str:
         assert False
         return ''
-    def coerce(self, desired_type : Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
         if desired_type is None or not desired_type.optional:
             raise ReferenceError()

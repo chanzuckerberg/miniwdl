@@ -1,6 +1,7 @@
 # Packages needed for miniwdl development, in addition to those in
 # requirements.txt which are needed for miniwdl to run in common use.
 pyre-check==0.0.16
+pylint
 sphinx
 sphinx-autobuild
 sphinx_rtd_theme

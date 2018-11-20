@@ -13,6 +13,9 @@ typecheck:
 		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
 		--show-parse-errors check
 
+pylint:
+	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name WDL
+
 docker:
 	docker build -t miniwdl .
 
@@ -32,4 +35,4 @@ doc:
 
 docs: doc
 
-.PHONY: typecheck test docker doc docs pypi_test pypi bdist
+.PHONY: typecheck pylint test docker doc docs pypi_test pypi bdist

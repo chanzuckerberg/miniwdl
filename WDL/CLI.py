@@ -1,14 +1,15 @@
 """
 miniwdl command-line interface
 """
-import sys, os
+import sys
+import os
 from argparse import ArgumentParser
 import WDL
 import WDL.Lint
 
 def main(args=None):
     parser = ArgumentParser()
-    
+
     subparsers = parser.add_subparsers()
     subparsers.required = True
     subparsers.dest = 'command'
@@ -55,9 +56,9 @@ def outline(obj, level, file=sys.stdout):
     first_descent = []
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
-        if len(first_descent) == 0 and hasattr(obj, 'lint'):
-            for (node,klass,msg) in sorted(obj.lint, key=lambda t: t[0]):
-                print('{}  (Ln {}, Col {}) {}: {}'.format(s,node.pos.line,node.pos.column,klass,msg), file=file)
+        if not first_descent and hasattr(obj, 'lint'):
+            for (node, klass, msg) in sorted(obj.lint, key=lambda t: t[0]):
+                print('{}  (Ln {}, Col {}) {}: {}'.format(s, node.pos.line, node.pos.column, klass, msg), file=file)
         first_descent.append(False)
         if dobj:
             outline(dobj, level+1, file=file)
@@ -68,7 +69,7 @@ def outline(obj, level, file=sys.stdout):
         if obj.workflow:
             descend(obj.workflow)
         # tasks
-        for task in sorted(obj.tasks, key=lambda task: (not task.called,task.name)):
+        for task in sorted(obj.tasks, key=lambda task: (not task.called, task.name)):
             descend(task)
         # imports
         for uri, namespace, subdoc in sorted(obj.imports, key=lambda t: t[1]):
@@ -76,7 +77,7 @@ def outline(obj, level, file=sys.stdout):
             descend(subdoc)
     # workflow
     elif isinstance(obj, WDL.Workflow):
-        if level<=1 or obj.called:
+        if level <= 1 or obj.called:
             print("{}workflow {}".format(s, obj.name), file=file)
             for elt in obj.elements:
                 descend(elt)
