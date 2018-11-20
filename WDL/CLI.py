@@ -16,11 +16,17 @@ def main(args=None):
     subparsers.dest = 'command'
 
     check_parser = subparsers.add_parser(
-        'check', help='Load and typecheck a WDL document; show an outline with lint warnings')
+        'check',
+        help='Load and typecheck a WDL document; show an outline with lint warnings')
     check_parser.add_argument('uri', metavar='URI',
                               type=str, help="WDL document filename/URI")
-    check_parser.add_argument('-p', '--path', metavar='DIR', type=str,
-                              action='append', help="local directory to search for imports")
+    check_parser.add_argument(
+        '-p',
+        '--path',
+        metavar='DIR',
+        type=str,
+        action='append',
+        help="local directory to search for imports")
 
     args = parser.parse_args(args if args is not None else sys.argv[1:])
 
@@ -58,7 +64,7 @@ def check(args):
 
 
 def outline(obj, level, file=sys.stdout):
-    s = ''.join(' ' for i in range(level*4))
+    s = ''.join(' ' for i in range(level * 4))
 
     first_descent = []
 
@@ -70,7 +76,7 @@ def outline(obj, level, file=sys.stdout):
                     s, node.pos.line, node.pos.column, klass, msg), file=file)
         first_descent.append(False)
         if dobj:
-            outline(dobj, level+1, file=file)
+            outline(dobj, level + 1, file=file)
 
     # document
     if isinstance(obj, WDL.Document):
@@ -78,7 +84,8 @@ def outline(obj, level, file=sys.stdout):
         if obj.workflow:
             descend(obj.workflow)
         # tasks
-        for task in sorted(obj.tasks, key=lambda task: (not task.called, task.name)):
+        for task in sorted(obj.tasks, key=lambda task: (
+                not task.called, task.name)):
             descend(task)
         # imports
         for uri, namespace, subdoc in sorted(obj.imports, key=lambda t: t[1]):
@@ -97,8 +104,12 @@ def outline(obj, level, file=sys.stdout):
             print("{}workflow {} (not called)".format(s, obj.name), file=file)
     # task
     elif isinstance(obj, WDL.Task):
-        print("{}task {}{}".format(s, obj.name,
-                                   " (not called)" if not obj.called else ""), file=file)
+        print(
+            "{}task {}{}".format(
+                s,
+                obj.name,
+                " (not called)" if not obj.called else ""),
+            file=file)
         for decl in obj.inputs + obj.postinputs + obj.outputs:
             descend(decl)
     # call

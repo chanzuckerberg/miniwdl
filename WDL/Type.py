@@ -2,7 +2,7 @@
 """
 WDL data types
 
-WDL has both atomic types such as ``Int``, ``Boolean``, and ``String``; and 
+WDL has both atomic types such as ``Int``, ``Boolean``, and ``String``; and
 parametric types like ``Array[String]`` and
 ``Map[String,Array[Array[Float]]]``. Here, each type is represented by an
 immutable instance of a Python class inheriting from ``WDL.Type.Base``. Such
@@ -55,9 +55,11 @@ class Base(ABC):
         """
         True if this is the same type as, or can be coerced to, ``rhs``.
         """
-        if isinstance(rhs, Array) and rhs.item_type == self:  # coerce T to Array[T]
+        if isinstance(
+                rhs, Array) and rhs.item_type == self:  # coerce T to Array[T]
             return True
-        return (type(self).__name__ == type(rhs).__name__) and (not self.optional or rhs.optional)
+        return (type(self).__name__ == type(rhs).__name__) and (
+            not self.optional or rhs.optional)
 
     @property
     def optional(self) -> bool:
@@ -154,7 +156,11 @@ class Array(Base):
     """
     _nonempty: bool
 
-    def __init__(self, item_type: Optional[Base], optional: bool = False, nonempty: bool = False) -> None:
+    def __init__(
+            self,
+            item_type: Optional[Base],
+            optional: bool = False,
+            nonempty: bool = False) -> None:
         self.item_type = item_type
         assert isinstance(nonempty, bool)
         self._optional = optional
@@ -181,12 +187,14 @@ class Array(Base):
             if self.item_type is None or rhs.item_type is None:
                 return True
             else:
-                return self.item_type.coerces(rhs.item_type) and (not rhs.nonempty or self.nonempty)
+                return self.item_type.coerces(rhs.item_type) and (
+                    not rhs.nonempty or self.nonempty)
         if isinstance(rhs, String):
             return self.item_type is None or self.item_type.coerces(String())
         return False
 
-    def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
+    def copy(self, optional: Optional[bool] = None,
+             nonempty: Optional[bool] = None) -> Base:
         ans: Array = super().copy(optional)
         if nonempty is not None:
             ans._nonempty = nonempty
@@ -208,13 +216,15 @@ class Map(Base):
     to any map type (but may fail at runtime).
     """
 
-    def __init__(self, item_type: Optional[Tuple[Base, Base]], optional: bool = False) -> None:
+    def __init__(
+            self, item_type: Optional[Tuple[Base, Base]], optional: bool = False) -> None:
         self._optional = optional
         self.item_type = item_type
 
     def __str__(self) -> str:
         # pyre-fixme
-        return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1]) if self.item_type is not None else "") + "]" + ('?' if self.optional else '')
+        return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1])
+                         if self.item_type is not None else "") + "]" + ('?' if self.optional else '')
 
     def coerces(self, rhs: Base) -> bool:
         ""
@@ -223,7 +233,9 @@ class Map(Base):
                 return True
             else:
                 # pyre-fixme
-                return self.item_type[0].coerces(rhs.item_type[0]) and self.item_type[1].coerces(rhs.item_type[1])
+                return self.item_type[0].coerces(
+                    rhs.item_type[0]) and self.item_type[1].coerces(
+                    rhs.item_type[1])
         return super().coerces(rhs)
 
 
@@ -240,10 +252,12 @@ class Pair(Base):
     :type: WDL.Type.Base
     """
 
-    def __init__(self, left_type: Base, right_type: Base, optional: bool = False) -> None:
+    def __init__(self, left_type: Base, right_type: Base,
+                 optional: bool = False) -> None:
         self._optional = optional
         self.left_type = left_type
         self.right_type = right_type
 
     def __str__(self) -> str:
-        return "Pair[" + (str(self.left_type) + "," + str(self.right_type)) + "]" + ('?' if self.optional else '')
+        return "Pair[" + (str(self.left_type) + "," + \
+                          str(self.right_type)) + "]" + ('?' if self.optional else '')

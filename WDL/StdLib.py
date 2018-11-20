@@ -107,7 +107,11 @@ class _StaticFunction(E._Function):
     return_type: T.Base
     F: Callable
 
-    def __init__(self, name: str, argument_types: List[T.Base], return_type: T.Base, F: Callable) -> None:
+    def __init__(self,
+                 name: str,
+                 argument_types: List[T.Base],
+                 return_type: T.Base,
+                 F: Callable) -> None:
         self.name = name
         self.argument_types = argument_types
         self.return_type = return_type
@@ -127,7 +131,12 @@ class _StaticFunction(E._Function):
                 expr.arguments[i].typecheck(self.argument_types[i])
             except Error.StaticTypeMismatch:
                 raise Error.StaticTypeMismatch(
-                    expr.arguments[i], self.argument_types[i], expr.arguments[i].type, "for {} argument #{}".format(self.name, i+1)) from None
+                    expr.arguments[i],
+                    self.argument_types[i],
+                    expr.arguments[i].type,
+                    "for {} argument #{}".format(
+                        self.name,
+                        i + 1)) from None
         return self.return_type
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
@@ -210,14 +219,18 @@ class _ArithmeticOperator(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         rt = T.Int()
-        if isinstance(expr.arguments[0].type, T.Float) or isinstance(expr.arguments[1].type, T.Float):
+        if isinstance(expr.arguments[0].type, T.Float) or isinstance(
+                expr.arguments[1].type, T.Float):
             rt = T.Float()
         try:
             expr.arguments[0].typecheck(rt)
             expr.arguments[1].typecheck(rt)
         except Error.StaticTypeMismatch:
             raise Error.IncompatibleOperand(
-                expr, "Non-numeric operand to " + self.name + " operator") from None
+                expr,
+                "Non-numeric operand to " +
+                self.name +
+                " operator") from None
         return rt
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
@@ -231,16 +244,17 @@ class _ArithmeticOperator(E._Function):
         return V.Float(ans)
 
 
-E._stdlib["_sub"] = _ArithmeticOperator("-", lambda l, r: l-r)  # pyre-ignore
-E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l, r: l*r)  # pyre-ignore
-E._stdlib["_div"] = _ArithmeticOperator("/", lambda l, r: l//r)  # pyre-ignore
+E._stdlib["_sub"] = _ArithmeticOperator("-", lambda l, r: l - r)  # pyre-ignore
+E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l, r: l * r)  # pyre-ignore
+E._stdlib["_div"] = _ArithmeticOperator(
+    "/", lambda l, r: l // r)  # pyre-ignore
 
 # + operator can also serve as concatenation for String.
 
 
 class _AddOperator(_ArithmeticOperator):
     def __init__(self) -> None:
-        super().__init__("+", lambda l, r: l+r)  # pyre-ignore
+        super().__init__("+", lambda l, r: l + r)  # pyre-ignore
 
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
@@ -284,9 +298,10 @@ class _ComparisonOperator(E._Function):
 
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
-        if not (expr.arguments[0].type == expr.arguments[1].type or
-                (expr.arguments[0].type == T.Int() and expr.arguments[1].type == T.Float()) or
-                (expr.arguments[0].type == T.Float() and expr.arguments[1].type == T.Int())):
+        if not (
+            expr.arguments[0].type == expr.arguments[1].type or (
+                expr.arguments[0].type == T.Int() and expr.arguments[1].type == T.Float()) or (
+                expr.arguments[0].type == T.Float() and expr.arguments[1].type == T.Int())):
             raise Error.IncompatibleOperand(expr, "Cannot compare {} and {}".format(
                 str(expr.arguments[0].type), str(expr.arguments[1].type)))
         return T.Boolean()
@@ -294,7 +309,8 @@ class _ComparisonOperator(E._Function):
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
         assert len(expr.arguments) == 2
         # pyre-ignore
-        return V.Boolean(self.op(expr.arguments[0].eval(env).value, expr.arguments[1].eval(env).value))
+        return V.Boolean(self.op(expr.arguments[0].eval(
+            env).value, expr.arguments[1].eval(env).value))
 
 
 E._stdlib["_eqeq"] = _ComparisonOperator("==", lambda l, r: l == r)
@@ -403,7 +419,10 @@ class _Zip(E._Function):
         if expr.arguments[1].type.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[1])
-        return T.Array(T.Pair(expr.arguments[0].type.item_type, expr.arguments[1].type.item_type))
+        return T.Array(
+            T.Pair(
+                expr.arguments[0].type.item_type,
+                expr.arguments[1].type.item_type))
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         raise NotImplementedError()

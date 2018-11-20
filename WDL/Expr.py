@@ -159,7 +159,8 @@ class Placeholder(Base):
     Expression for evaluation
     """
 
-    def __init__(self, pos: SourcePosition, options: Dict[str, str], expr: Base) -> None:
+    def __init__(self, pos: SourcePosition,
+                 options: Dict[str, str], expr: Base) -> None:
         super().__init__(pos)
         self.options = options
         self.expr = expr
@@ -168,20 +169,32 @@ class Placeholder(Base):
         self.expr.infer_type(type_env)
         if isinstance(self.expr.type, T.Array):
             if 'sep' not in self.options:
-                raise Error.StaticTypeMismatch(self, T.Array(
-                    None), self.expr.type, "array command placeholder must have 'sep'")
+                raise Error.StaticTypeMismatch(
+                    self,
+                    T.Array(None),
+                    self.expr.type,
+                    "array command placeholder must have 'sep'")
             # if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String, T.File] if isinstance(self.expr.type.item_type, t)) == 0:
             #    raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "cannot use array of complex types for command placeholder")
         elif 'sep' in self.options:
-            raise Error.StaticTypeMismatch(self, T.Array(
-                None), self.expr.type, "command placeholder has 'sep' option for non-Array expression")
+            raise Error.StaticTypeMismatch(
+                self,
+                T.Array(None),
+                self.expr.type,
+                "command placeholder has 'sep' option for non-Array expression")
         if ('true' in self.options or 'false' in self.options):
             if not isinstance(self.expr.type, T.Boolean):
-                raise Error.StaticTypeMismatch(self, T.Boolean(
-                ), self.expr.type, "command placeholder 'true' and 'false' options used with non-Boolean expression")
+                raise Error.StaticTypeMismatch(
+                    self,
+                    T.Boolean(),
+                    self.expr.type,
+                    "command placeholder 'true' and 'false' options used with non-Boolean expression")
             if not ('true' in self.options and 'false' in self.options):
-                raise Error.StaticTypeMismatch(self, T.Boolean(
-                ), self.expr.type, "command placeholder with only one of 'true' and 'false' options")
+                raise Error.StaticTypeMismatch(
+                    self,
+                    T.Boolean(),
+                    self.expr.type,
+                    "command placeholder with only one of 'true' and 'false' options")
         return T.String()
 
     def eval(self, env: Env.Values) -> V.String:
@@ -194,7 +207,8 @@ class Placeholder(Base):
         if isinstance(v, V.String):
             return v
         if isinstance(v, V.Array):
-            return V.String(self.options['sep'].join(str(item.value) for item in v.value))
+            return V.String(self.options['sep'].join(
+                str(item.value) for item in v.value))
         if v == V.Boolean(True) and 'true' in self.options:
             return V.String(self.options['true'])
         if v == V.Boolean(False) and 'false' in self.options:
@@ -211,7 +225,8 @@ class String(Base):
 
     The parts list begins and ends with matching single- or double- quote marks. Between these is a sequence of literal strings and/or interleaved placeholder expressions. Escape sequences in the literals have NOT been decoded."""
 
-    def __init__(self, pos: SourcePosition, parts: List[Union[str, Placeholder]]) -> None:
+    def __init__(self, pos: SourcePosition,
+                 parts: List[Union[str, Placeholder]]) -> None:
         super().__init__(pos)
         self.parts = parts
 
@@ -232,7 +247,7 @@ class String(Base):
             if isinstance(part, Placeholder):
                 # evaluate interpolated expression & stringify
                 ans.append(part.eval(env).value)
-            elif type(part) == str:
+            elif isinstance(part, str):
                 # use python builtins to decode escape sequences
                 ans.append(str.encode(part).decode('unicode_escape'))
             else:
@@ -303,7 +318,8 @@ class Array(Base):
     def eval(self, env: Env.Values) -> V.Array:
         ""
         assert isinstance(self.type, T.Array)
-        return V.Array(self.type, [item.eval(env).coerce(self.type.item_type) for item in self.items])
+        return V.Array(self.type, [item.eval(env).coerce(
+            self.type.item_type) for item in self.items])
 
 # If
 
@@ -330,7 +346,8 @@ class IfThenElse(Base):
     Expression evaluated when the condition is false
     """
 
-    def __init__(self, pos: SourcePosition, condition: Base, consequent: Base, alternative: Base) -> None:
+    def __init__(self, pos: SourcePosition, condition: Base,
+                 consequent: Base, alternative: Base) -> None:
         super().__init__(pos)
         self.condition = condition
         self.consequent = consequent
@@ -343,12 +360,20 @@ class IfThenElse(Base):
         self_type = self.consequent.infer_type(type_env).type
         assert isinstance(self_type, T.Base)
         self.alternative.infer_type(type_env)
-        # unify inferred consequent & alternative types wrt quantifiers & float promotion
-        if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
+        # unify inferred consequent & alternative types wrt quantifiers & float
+        # promotion
+        if isinstance(self_type, T.Int) and isinstance(
+                self.alternative.type, T.Float):
             self_type = T.Float(optional=self_type.optional)
         if self.alternative.type.optional:
             self_type = self_type.copy(optional=True)
-        if isinstance(self_type, T.Array) and isinstance(self.consequent.type, T.Array) and isinstance(self.alternative.type, T.Array):
+        if isinstance(
+                self_type,
+                T.Array) and isinstance(
+                self.consequent.type,
+                T.Array) and isinstance(
+                self.alternative.type,
+                T.Array):
             self_type = self_type.copy(nonempty=(  # pyre-fixme
                 self.consequent.type.nonempty and self.alternative.type.nonempty))  # pyre-fixme
         try:
@@ -362,7 +387,7 @@ class IfThenElse(Base):
     def eval(self, env: Env.Values) -> V.Base:
         ""
         try:
-            if self.condition.eval(env).expect(T.Boolean()).value != False:
+            if self.condition.eval(env).expect(T.Boolean()).value:
                 ans = self.consequent.eval(env)
             else:
                 ans = self.alternative.eval(env)
@@ -411,7 +436,8 @@ class Apply(Base):
 
     function: _Function
 
-    def __init__(self, pos: SourcePosition, function: str, arguments: List[Base]) -> None:
+    def __init__(self, pos: SourcePosition, function: str,
+                 arguments: List[Base]) -> None:
         super().__init__(pos)
         try:
             self.function = _stdlib[function]
@@ -533,7 +559,8 @@ class Map(Base):
     Expressions for the map literal keys and values
     """
 
-    def __init__(self, pos: SourcePosition, items: List[Tuple[Base, Base]]) -> None:
+    def __init__(self, pos: SourcePosition,
+                 items: List[Tuple[Base, Base]]) -> None:
         super().__init__(pos)
         self.items = items
 

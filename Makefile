@@ -16,6 +16,9 @@ typecheck:
 pylint:
 	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name WDL
 
+autopep8:
+	autopep8 --aggressive --aggressive --in-place WDL/*.py
+
 docker:
 	docker build -t miniwdl .
 
@@ -35,4 +38,4 @@ doc:
 
 docs: doc
 
-.PHONY: typecheck pylint test docker doc docs pypi_test pypi bdist
+.PHONY: typecheck pylint autopep8 test docker doc docs pypi_test pypi bdist

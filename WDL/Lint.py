@@ -13,7 +13,8 @@ class Linter(WDL.Walker.Base):
     node it's attached to), short codename, and message.
     """
 
-    def add(self, obj: WDL.SourceNode, message: str, subnode: Optional[WDL.SourceNode] = None):
+    def add(self, obj: WDL.SourceNode, message: str,
+            subnode: Optional[WDL.SourceNode] = None):
         if not hasattr(obj, 'lint'):
             obj.lint = []
         obj.lint.append((subnode or obj, self.__class__.__name__, message))
@@ -41,20 +42,34 @@ class StringCoercion(Linter):
                         any_string = True
                     else:
                         all_string = False
-                if any_string and not all_string and not isinstance(getattr(obj, 'parent'), WDL.Task):
+                if any_string and not all_string and not isinstance(
+                        getattr(obj, 'parent'), WDL.Task):
                     # exception when parent is Task (i.e. we're in the task
                     # command) because the coercion is probably intentional
-                    self.add(getattr(obj, 'parent'),
-                             "string concatenation (+) has non-String argument", obj)
+                    self.add(
+                        getattr(
+                            obj,
+                            'parent'),
+                        "string concatenation (+) has non-String argument",
+                        obj)
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):
-                    for i in range(min(len(F.argument_types), len(obj.arguments))):
-                        if isinstance(F.argument_types[i], WDL.Type.String) \
-                           and not isinstance(obj.arguments[i].type, WDL.Type.String) \
-                           and not isinstance(obj.arguments[i].type, WDL.Type.File):
-                            self.add(getattr(
-                                obj, 'parent'), "non-String value for String function argument", obj.arguments[i])
+                    for i in range(min(len(F.argument_types),
+                                       len(obj.arguments))):
+                        if isinstance(
+                            F.argument_types[i],
+                            WDL.Type.String) and not isinstance(
+                            obj.arguments[i].type,
+                            WDL.Type.String) and not isinstance(
+                            obj.arguments[i].type,
+                                WDL.Type.File):
+                            self.add(
+                                getattr(
+                                    obj,
+                                    'parent'),
+                                "non-String value for String function argument",
+                                obj.arguments[i])
         super().expr(obj)
 
 
@@ -64,7 +79,8 @@ class OptionalCoercion(Linter):
         if isinstance(obj, WDL.Expr.Apply):
             if obj.function_name == "_add":
                 for arg in obj.arguments:
-                    if arg.type.optional and not isinstance(getattr(obj, 'parent'), WDL.Task):
+                    if arg.type.optional and not isinstance(
+                            getattr(obj, 'parent'), WDL.Task):
                         # exception when parent is Task (i.e. we're in the
                         # task command) because the coercion is probably
                         # intentional, per "Prepending a String to an
@@ -74,10 +90,15 @@ class OptionalCoercion(Linter):
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):
-                    for i in range(min(len(F.argument_types), len(obj.arguments))):
+                    for i in range(min(len(F.argument_types),
+                                       len(obj.arguments))):
                         if obj.arguments[i].type.optional and not F.argument_types[i].optional:
-                            self.add(getattr(
-                                obj, 'parent'), "optional value passed for mandatory function argument", obj.arguments[i])
+                            self.add(
+                                getattr(
+                                    obj,
+                                    'parent'),
+                                "optional value passed for mandatory function argument",
+                                obj.arguments[i])
         super().expr(obj)
 
 
@@ -90,8 +111,11 @@ class IncompleteCall(Linter):
             if name in required_inputs:
                 required_inputs.remove(name)
         if len(required_inputs) > 0:
-            self.add(obj, "required input(s) {} omitted in call to {}; these become workflow inputs and prevent composition".format(
-                ", ".join(required_inputs), obj.callee.name))
+            self.add(
+                obj,
+                "required input(s) {} omitted in call to {}; these become workflow inputs and prevent composition".format(
+                    ", ".join(required_inputs),
+                    obj.callee.name))
         super().call(obj)
 
 
@@ -105,7 +129,9 @@ class CallImportNameCollision(Linter):
         for uri, namespace, subdoc in doc.imports:
             if namespace == obj.name:
                 self.add(
-                    obj, "call name {} collides with imported document namespace".format(obj.name))
+                    obj,
+                    "call name {} collides with imported document namespace".format(
+                        obj.name))
         super().call(obj)
 
 

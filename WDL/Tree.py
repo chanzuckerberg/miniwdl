@@ -31,7 +31,8 @@ class Decl(SourceNode):
 
     :type: Optional[WDL.Expr.Base]"""
 
-    def __init__(self, pos: SourcePosition, type: T.Base, name: str, expr: Optional[E.Base] = None) -> None:
+    def __init__(self, pos: SourcePosition, type: T.Base,
+                 name: str, expr: Optional[E.Base] = None) -> None:
         super().__init__(pos)
         self.type = type
         self.name = name
@@ -58,7 +59,7 @@ class Task(SourceNode):
     """
     postinputs: List[Decl]
     """:type: List[WDL.Tree.Decl]
-    
+
     Declarations outside of the ``input{}`` task section"""
     command: E.String
     ":type: WDL.Expr.String"
@@ -79,9 +80,19 @@ class Task(SourceNode):
 
     ``meta{}`` section as a JSON-like dict"""
 
-    def __init__(self, pos: SourcePosition, name: str, inputs: List[Decl], postinputs: List[Decl],
-                 command: E.String, outputs: List[Decl], parameter_meta: Dict[str, Any],
-                 runtime: Dict[str, E.Base], meta: Dict[str, Any]) -> None:
+    def __init__(self,
+                 pos: SourcePosition,
+                 name: str,
+                 inputs: List[Decl],
+                 postinputs: List[Decl],
+                 command: E.String,
+                 outputs: List[Decl],
+                 parameter_meta: Dict[str,
+                                      Any],
+                 runtime: Dict[str,
+                               E.Base],
+                 meta: Dict[str,
+                            Any]) -> None:
         super().__init__(pos)
         self.name = name
         self.inputs = inputs
@@ -95,7 +106,7 @@ class Task(SourceNode):
         # TODO: complain of name collisions in inputs/postinputs
 
     def typecheck(self, type_env: Env.Types = []) -> None:
-        for decl in (self.inputs+self.postinputs):
+        for decl in (self.inputs + self.postinputs):
             type_env = _typecheck_decl(decl, type_env)
         self.command.infer_type(type_env).typecheck(T.String())
         for decl in self.outputs:
@@ -104,7 +115,8 @@ class Task(SourceNode):
 
     @property
     def required_inputs(self) -> List[Decl]:
-        return [decl for decl in (self.inputs+self.postinputs) if decl.expr is None and decl.type.optional is False]
+        return [decl for decl in (self.inputs + self.postinputs)
+                if decl.expr is None and decl.type.optional is False]
 
 # type-check a declaration within a type environment, and return the type
 # environment with the new binding
@@ -128,7 +140,8 @@ def _typecheck_decl(decl: Decl, type_env: Env.Types) -> Env.Types:
     if decl.expr is not None:
         check_type = decl.type
         if isinstance(check_type, T.Array):
-            if check_type.nonempty and isinstance(decl.expr, E.Array) and len(decl.expr.items) == 0:
+            if check_type.nonempty and isinstance(
+                    decl.expr, E.Array) and len(decl.expr.items) == 0:
                 raise Err.EmptyArray(decl.expr)
             check_type = check_type.copy(nonempty=False)
         decl.expr.infer_type(type_env).typecheck(check_type)
@@ -167,7 +180,8 @@ class Call(SourceNode):
 
     After the AST is typechecked, refers to the Task or Workflow object to call"""
 
-    def __init__(self, pos: SourcePosition, callee_id: E.Ident, alias: Optional[str], inputs: Dict[str, E.Base]) -> None:
+    def __init__(self, pos: SourcePosition, callee_id: E.Ident,
+                 alias: Optional[str], inputs: Dict[str, E.Base]) -> None:
         super().__init__(pos)
         self.callee_id = callee_id
         self.name = alias if alias is not None else self.callee_id.name
@@ -226,13 +240,15 @@ class Call(SourceNode):
         if len(required_inputs) > 0:
             raise Err.MissingInput(self, self.name, required_inputs)
 
-        # return a TypeEnv with ONLY the outputs (not including the input TypeEnv)
+        # return a TypeEnv with ONLY the outputs (not including the input
+        # TypeEnv)
         outputs_env = []
         for outp in self.callee.outputs:
             outputs_env = Env.bind(outp.name, outp.type, outputs_env)
         return outputs_env
 
-# Given a type environment, recursively promote each binding of type T to Array[T]
+# Given a type environment, recursively promote each binding of type T to
+# Array[T]
 
 
 def _arrayize_types(type_env: Env.Types) -> Env.Types:
@@ -271,7 +287,12 @@ TVConditional = TypeVar("TVConditional", bound="Conditional")
 # outputs of the calls within (only -- not including the input type env)
 
 
-def _typecheck_workflow_body(elements: List[Union[Decl, Call, TVScatter, TVConditional]], type_env: Env.Types, doc: TVDocument) -> Env.Types:
+def _typecheck_workflow_body(elements: List[Union[Decl,
+                                                  Call,
+                                                  TVScatter,
+                                                  TVConditional]],
+                             type_env: Env.Types,
+                             doc: TVDocument) -> Env.Types:
     outputs_env = []
 
     for element in elements:
@@ -284,15 +305,19 @@ def _typecheck_workflow_body(elements: List[Union[Decl, Call, TVScatter, TVCondi
             # add call outputs to type environment, under the call namespace
             try:
                 Env.resolve_namespace(type_env, [element.name])
-                raise Err.MultipleDefinitions(element, "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
-                    element.name, element.callee.name))
+                raise Err.MultipleDefinitions(
+                    element,
+                    "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
+                        element.name,
+                        element.callee.name))
             except KeyError:
                 pass
             type_env = Env.namespace(element.name, call_outputs_env, type_env)
             outputs_env = Env.namespace(
                 element.name, call_outputs_env, outputs_env)
         elif isinstance(element, Scatter) or isinstance(element, Conditional):
-            # add outputs of calls within the subscatter to the type environment.
+            # add outputs of calls within the subscatter to the type
+            # environment.
             sub_outputs_env = element.typecheck(type_env, doc)
             type_env = sub_outputs_env + type_env
             outputs_env = sub_outputs_env + outputs_env
@@ -320,7 +345,8 @@ class Scatter(SourceNode):
 
     Scatter body"""
 
-    def __init__(self, pos: SourcePosition, variable: str, expr: E.Base, elements: List[Union[Decl, Call, TVScatter, TVConditional]]) -> None:
+    def __init__(self, pos: SourcePosition, variable: str, expr: E.Base,
+                 elements: List[Union[Decl, Call, TVScatter, TVConditional]]) -> None:
         super().__init__(pos)
         self.variable = variable
         self.expr = expr
@@ -355,7 +381,13 @@ class Conditional(SourceNode):
 
     Conditional body"""
 
-    def __init__(self, pos: SourcePosition, expr: E.Base, elements: List[Union[Decl, Call, TVScatter, TVConditional]]) -> None:
+    def __init__(self,
+                 pos: SourcePosition,
+                 expr: E.Base,
+                 elements: List[Union[Decl,
+                                      Call,
+                                      TVScatter,
+                                      TVConditional]]) -> None:
         super().__init__(pos)
         self.expr = expr
         self.elements = elements
@@ -393,7 +425,17 @@ class Workflow(SourceNode):
 
     ``meta{}`` section as a JSON-like dict"""
 
-    def __init__(self, pos: SourcePosition, name: str, elements: List[Union[Decl, Call, Scatter]], outputs: Optional[List[Decl]], parameter_meta: Dict[str, Any], meta: Dict[str, Any]) -> None:
+    def __init__(self,
+                 pos: SourcePosition,
+                 name: str,
+                 elements: List[Union[Decl,
+                                      Call,
+                                      Scatter]],
+                 outputs: Optional[List[Decl]],
+                 parameter_meta: Dict[str,
+                                      Any],
+                 meta: Dict[str,
+                            Any]) -> None:
         super().__init__(pos)
         self.name = name
         self.elements = elements
@@ -411,7 +453,8 @@ class Workflow(SourceNode):
 
     @property
     def required_inputs(self) -> List[Decl]:
-        return [decl for decl in self.elements if isinstance(decl, Decl) and decl.expr is None and decl.type.optional is False]
+        return [decl for decl in self.elements if isinstance(
+            decl, Decl) and decl.expr is None and decl.type.optional is False]
 
 
 class Document(SourceNode):
@@ -432,8 +475,13 @@ class Document(SourceNode):
 
     True iff this document has been loaded as an import from another document"""
 
-    def __init__(self, pos: SourcePosition, imports: List[Tuple[str, str]],
-                 tasks: List[Task], workflow: Optional[Workflow], imported: bool) -> None:
+    def __init__(self,
+                 pos: SourcePosition,
+                 imports: List[Tuple[str,
+                                     str]],
+                 tasks: List[Task],
+                 workflow: Optional[Workflow],
+                 imported: bool) -> None:
         super().__init__(pos)
         self.imports = []
         for (uri, namespace) in imports:
@@ -447,7 +495,8 @@ class Document(SourceNode):
         self.workflow = workflow
         self.imported = imported
 
-        # TODO: complain about name collisions amongst tasks and/or the workflow
+        # TODO: complain about name collisions amongst tasks and/or the
+        # workflow
 
     def typecheck(self) -> None:
         """Typecheck each task in the document, then the workflow, if any. Documents returned by :func:`~WDL.load` have already been typechecked."""
@@ -473,7 +522,8 @@ class Document(SourceNode):
             self.workflow.typecheck(self)
 
 
-def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Document:
+def load(uri: str, path: List[str] = [],
+         imported: Optional[bool] = False) -> Document:
     for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)]):
         if os.path.exists(fn):
             with open(fn, 'r') as infile:
@@ -486,7 +536,7 @@ def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Do
                 for i in range(len(doc.imports)):
                     try:
                         subdoc = load(doc.imports[i][0], [
-                                      os.path.dirname(fn)]+path, True)
+                                      os.path.dirname(fn)] + path, True)
                     except Exception as exn:
                         raise Err.ImportError(uri, doc.imports[i][0]) from exn
                     doc.imports[i] = (doc.imports[i][0],

@@ -210,8 +210,12 @@ def parse(txt: str, start: str) -> lark.Tree:
 
 
 def sp(filename, meta) -> SourcePosition:
-    return SourcePosition(filename=filename, line=meta.line, column=meta.column,
-                          end_line=meta.end_line, end_column=meta.end_column)
+    return SourcePosition(
+        filename=filename,
+        line=meta.line,
+        column=meta.column,
+        end_line=meta.end_line,
+        end_column=meta.end_column)
 
 
 def to_int(x):
@@ -307,7 +311,7 @@ for op in ["land", "lor", "add", "sub", "mul", "div", "rem",
            "eqeq", "neq", "lt", "lte", "gt", "gte"]:
     def fn(self, items, meta, op=op):
         assert len(items) == 2
-        return E.Apply(sp(self.filename, meta), "_"+op, items)
+        return E.Apply(sp(self.filename, meta), "_" + op, items)
     setattr(_ExprTransformer, op, lark.v_args(  # pyre-fixme
         meta=True)(classmethod(fn)))
 
@@ -385,7 +389,11 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         self.imported = imported
 
     def decl(self, items, meta):
-        return D.Decl(sp(self.filename, meta), items[0], items[1].value, (items[2] if len(items) > 2 else None))
+        return D.Decl(sp(self.filename,
+                         meta),
+                      items[0],
+                      items[1].value,
+                      (items[2] if len(items) > 2 else None))
 
     def input_decls(self, items, meta):
         return {"inputs": items}
@@ -468,10 +476,15 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 assert isinstance(item, str)
                 assert "name" not in d
                 d["name"] = item.value
-        return D.Task(sp(self.filename, meta), d["name"], d.get("inputs", []), d.get("decls", []), d["command"],
-                      d.get("outputs", []), d.get(
-                          "parameter_meta", {}), d.get("runtime", {}),
-                      d.get("meta", {}))
+        return D.Task(
+            sp(
+                self.filename, meta), d["name"], d.get(
+                "inputs", []), d.get(
+                "decls", []), d["command"], d.get(
+                    "outputs", []), d.get(
+                        "parameter_meta", {}), d.get(
+                            "runtime", {}), d.get(
+                                "meta", {}))
 
     def tasks(self, items, meta):
         return items
@@ -489,13 +502,19 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return d
 
     def call(self, items, meta):
-        return D.Call(sp(self.filename, meta), items[0], None, items[1] if len(items) > 1 else dict())
+        return D.Call(sp(self.filename, meta),
+                      items[0], None, items[1] if len(items) > 1 else dict())
 
     def call_as(self, items, meta):
-        return D.Call(sp(self.filename, meta), items[0], items[1].value, items[2] if len(items) > 2 else dict())
+        return D.Call(sp(self.filename,
+                         meta),
+                      items[0],
+                      items[1].value,
+                      items[2] if len(items) > 2 else dict())
 
     def scatter(self, items, meta):
-        return D.Scatter(sp(self.filename, meta), items[0].value, items[1], items[2:])
+        return D.Scatter(sp(self.filename, meta),
+                         items[0].value, items[1], items[2:])
 
     def conditional(self, items, meta):
         return D.Conditional(sp(self.filename, meta), items[0], items[1:])
@@ -528,8 +547,13 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 elements.append(item)
             else:
                 assert False
-        return D.Workflow(sp(self.filename, meta), items[0].value, elements, outputs,
-                          parameter_meta or dict(), meta_section or dict())
+        return D.Workflow(sp(self.filename,
+                             meta),
+                          items[0].value,
+                          elements,
+                          outputs,
+                          parameter_meta or dict(),
+                          meta_section or dict())
 
     def import_doc(self, items, meta):
         uri = items[0]
@@ -538,7 +562,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         else:
             namespace = uri
             try:
-                namespace = namespace[namespace.rindex('/')+1:]
+                namespace = namespace[namespace.rindex('/') + 1:]
             except ValueError:
                 pass
             if namespace.endswith(".wdl"):
@@ -564,7 +588,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 imports.append(item["import"])
             else:
                 assert False
-        return D.Document(sp(self.filename, meta), imports, tasks, workflow, self.imported)
+        return D.Document(sp(self.filename, meta), imports,
+                          tasks, workflow, self.imported)
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
@@ -586,9 +611,20 @@ def parse_tasks(txt: str) -> List[D.Task]:
     return _DocTransformer('', False).transform(parse(txt, "tasks"))
 
 
-def parse_document(txt: str, uri: str = '', imported: bool = False) -> D.Document:
+def parse_document(txt: str, uri: str = '',
+                   imported: bool = False) -> D.Document:
     if len(txt.strip()) == 0:
-        return D.Document(SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0), [], [], None, imported)
+        return D.Document(
+            SourcePosition(
+                filename=uri,
+                line=0,
+                column=0,
+                end_line=0,
+                end_column=0),
+            [],
+            [],
+            None,
+            imported)
     try:
         return _DocTransformer(uri, imported).transform(parse(txt, "document"))
     except lark.exceptions.UnexpectedCharacters as exn:

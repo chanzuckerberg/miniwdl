@@ -66,7 +66,8 @@ def bind(name: str, rhs: R, tree: 'Tree[R]') -> 'Tree[R]':
     return [Binding(name, rhs)] + tree
 
 
-def namespace(namespace: str, bindings: 'Tree[R]', tree: 'Tree[R]') -> 'Tree[R]':
+def namespace(namespace: str,
+              bindings: 'Tree[R]', tree: 'Tree[R]') -> 'Tree[R]':
     """Prepend a namespace to an environment"""
     return [Namespace(namespace, bindings)] + tree
 

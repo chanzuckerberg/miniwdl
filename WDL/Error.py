@@ -11,7 +11,8 @@ class ParserError(Exception):
 
 
 class ImportError(Exception):
-    def __init__(self, document: str, import_uri: str, message: Optional[str] = None) -> None:
+    def __init__(self, document: str, import_uri: str,
+                 message: Optional[str] = None) -> None:
         msg = "Failed to import {} to {}".format(import_uri, document)
         if message:
             msg = msg + ": " + message
@@ -36,8 +37,15 @@ class SourceNode:
 
     def __lt__(self, rhs) -> bool:
         if isinstance(rhs, SourceNode):
-            return ((self.pos.filename, self.pos.line, self.pos.column, self.pos.end_line, self.pos.end_column) <
-                    (rhs.pos.filename, rhs.pos.line, rhs.pos.column, rhs.pos.end_line, rhs.pos.end_column))
+            return ((self.pos.filename,
+                     self.pos.line,
+                     self.pos.column,
+                     self.pos.end_line,
+                     self.pos.end_column) < (rhs.pos.filename,
+                                             rhs.pos.line,
+                                             rhs.pos.column,
+                                             rhs.pos.end_line,
+                                             rhs.pos.end_column))
         return False
 
     def __eq__(self, rhs) -> bool:
@@ -47,7 +55,8 @@ class SourceNode:
 class Base(Exception):
     node: Optional[SourceNode]
 
-    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
+    def __init__(self, node: Union[SourceNode,
+                                   SourcePosition], message: str) -> None:
         if isinstance(node, SourceNode):
             self.node = node
             self.pos = node.pos
@@ -82,7 +91,8 @@ class NotAPair(Base):
 
 
 class StaticTypeMismatch(Base):
-    def __init__(self, node: SourceNode, expected: T.Base, actual: T.Base, message: Optional[str] = None) -> None:
+    def __init__(self, node: SourceNode, expected: T.Base,
+                 actual: T.Base, message: Optional[str] = None) -> None:
         msg = "Expected {} instead of {}".format(str(expected), str(actual))
         if message is not None:
             msg = msg + " " + message
@@ -120,8 +130,11 @@ class NoSuchInput(Base):
 
 
 class MissingInput(Base):
-    def __init__(self, node: SourceNode, name: str, inputs: Iterable[str]) -> None:
-        super().__init__(node, "Call {} missing required input(s) {}".format(name, ', '.join(inputs)))
+    def __init__(self, node: SourceNode, name: str,
+                 inputs: Iterable[str]) -> None:
+        super().__init__(
+            node, "Call {} missing required input(s) {}".format(
+                name, ', '.join(inputs)))
 
 
 class NullValue(Base):
@@ -130,5 +143,6 @@ class NullValue(Base):
 
 
 class MultipleDefinitions(Base):
-    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
+    def __init__(self, node: Union[SourceNode,
+                                   SourcePosition], message: str) -> None:
         super().__init__(node, message)
