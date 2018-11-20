@@ -20,7 +20,7 @@ pretty:
 	autopep8 --aggressive --aggressive --in-place WDL/*.py
 	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name --exit-zero WDL
 
-# for use in CI: complain if the source code is not at a fixed point for autopep8
+# for use in CI: complain if source code isn't at a fixed point for autopep8
 # (assumes we start from a clean checkout)
 sopretty: pretty
 	@git diff --quiet || (echo "Source files were modified by autopep8; please fix up this commit with 'make pretty'"; exit 1)
