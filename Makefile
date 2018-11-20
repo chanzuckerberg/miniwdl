@@ -23,7 +23,7 @@ pretty:
 # for use in CI: complain if the source code is not at a fixed point for autopep8
 # (assumes we start from a clean checkout)
 sopretty: pretty
-	git diff --quiet || (echo "Source files were modified by autopep8; please fix up this commit with 'make pretty'"; exit 1)
+	@git diff --quiet || (echo "Source files were modified by autopep8; please fix up this commit with 'make pretty'"; exit 1)
 
 # run tests in a docker image
 docker:
