@@ -7,6 +7,7 @@ from argparse import ArgumentParser
 import WDL
 import WDL.Lint
 
+
 def main(args=None):
     parser = ArgumentParser()
 
@@ -14,9 +15,12 @@ def main(args=None):
     subparsers.required = True
     subparsers.dest = 'command'
 
-    check_parser = subparsers.add_parser('check', help='Load and typecheck a WDL document; show an outline with lint warnings')
-    check_parser.add_argument('uri', metavar='URI', type=str, help="WDL document filename/URI")
-    check_parser.add_argument('-p', '--path', metavar='DIR', type=str, action='append', help="local directory to search for imports")
+    check_parser = subparsers.add_parser(
+        'check', help='Load and typecheck a WDL document; show an outline with lint warnings')
+    check_parser.add_argument('uri', metavar='URI',
+                              type=str, help="WDL document filename/URI")
+    check_parser.add_argument('-p', '--path', metavar='DIR', type=str,
+                              action='append', help="local directory to search for imports")
 
     args = parser.parse_args(args if args is not None else sys.argv[1:])
 
@@ -24,6 +28,7 @@ def main(args=None):
         check(args)
     else:
         assert False
+
 
 def check(args):
     # Load the document (read, parse, and typecheck)
@@ -47,18 +52,22 @@ def check(args):
 
     # Print an outline
     print(os.path.basename(args.uri))
-    outline(doc,0)
+    outline(doc, 0)
 
 # recursively pretty-print a brief outline of the workflow
+
+
 def outline(obj, level, file=sys.stdout):
     s = ''.join(' ' for i in range(level*4))
 
     first_descent = []
+
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, 'lint'):
             for (node, klass, msg) in sorted(obj.lint, key=lambda t: t[0]):
-                print('{}  (Ln {}, Col {}) {}: {}'.format(s, node.pos.line, node.pos.column, klass, msg), file=file)
+                print('{}  (Ln {}, Col {}) {}: {}'.format(
+                    s, node.pos.line, node.pos.column, klass, msg), file=file)
         first_descent.append(False)
         if dobj:
             outline(dobj, level+1, file=file)
@@ -73,7 +82,8 @@ def outline(obj, level, file=sys.stdout):
             descend(task)
         # imports
         for uri, namespace, subdoc in sorted(obj.imports, key=lambda t: t[1]):
-            print("    {}{} : {}".format(s, namespace, os.path.basename(uri)), file=file)
+            print("    {}{} : {}".format(s, namespace,
+                                         os.path.basename(uri)), file=file)
             descend(subdoc)
     # workflow
     elif isinstance(obj, WDL.Workflow):
@@ -87,12 +97,14 @@ def outline(obj, level, file=sys.stdout):
             print("{}workflow {} (not called)".format(s, obj.name), file=file)
     # task
     elif isinstance(obj, WDL.Task):
-        print("{}task {}{}".format(s, obj.name, " (not called)" if not obj.called else ""), file=file)
+        print("{}task {}{}".format(s, obj.name,
+                                   " (not called)" if not obj.called else ""), file=file)
         for decl in obj.inputs + obj.postinputs + obj.outputs:
             descend(decl)
     # call
     elif isinstance(obj, WDL.Call):
-        print("{}call {}".format(s, '.'.join(obj.callee_id.namespace + [obj.callee_id.name])), file=file)
+        print("{}call {}".format(s, '.'.join(
+            obj.callee_id.namespace + [obj.callee_id.name])), file=file)
     # scatter
     elif isinstance(obj, WDL.Scatter):
         print("{}scatter {}".format(s, obj.variable), file=file)

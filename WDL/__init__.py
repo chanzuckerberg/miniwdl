@@ -1,5 +1,6 @@
 """Toolkit for static analysis of Workflow Description Language (WDL)"""
-import os, errno
+import os
+import errno
 import lark
 import inspect
 from WDL import _parser, Error, Type, Value, Env, Expr, Tree, Walker, StdLib
@@ -9,7 +10,8 @@ from typing import List
 SourcePosition = Error.SourcePosition
 SourceNode = Error.SourceNode
 
-def load(uri : str, path : List[str] = []) -> Document:
+
+def load(uri: str, path: List[str] = []) -> Document:
     """
     Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
 
@@ -17,7 +19,8 @@ def load(uri : str, path : List[str] = []) -> Document:
     """
     return Tree.load(uri, path)
 
-def parse_document(txt : str, uri : str = '') -> Document:
+
+def parse_document(txt: str, uri: str = '') -> Document:
     """
     Parse WDL document text into an abstract syntax tree. Doesn't descend into
     imported documents nor typecheck the AST.
@@ -26,11 +29,13 @@ def parse_document(txt : str, uri : str = '') -> Document:
     """
     return _parser.parse_document(txt, uri)
 
-def parse_expr(txt : str) -> Expr.Base:
+
+def parse_expr(txt: str) -> Expr.Base:
     """
     Parse an isolated WDL expression text into an abstract syntax tree
     """
     return _parser.parse_expr(txt)
 
-def parse_tasks(txt : str) -> List[Task]:
+
+def parse_tasks(txt: str) -> List[Task]:
     return _parser.parse_tasks(txt)

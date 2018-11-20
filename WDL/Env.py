@@ -24,30 +24,33 @@ to share code for both type and value environments.
 R = TypeVar('R')
 Tree = TypeVar('Tree', bound='List[Node[R]]')
 
+
 class Binding(Generic[R]):
     """A single binding"""
-    name : str
+    name: str
     ":type: str"
-    rhs : R
+    rhs: R
     """:type: Union[WDL.Type.Base,WDL.Value.Base]"""
 
-    def __init__(self, name : str, rhs : R) -> None:
+    def __init__(self, name: str, rhs: R) -> None:
         self.name = name
         self.rhs = rhs
 
+
 class Namespace(Generic[R]):
     """Encapsulates binding(s) under a namespace"""
-    namespace : str
+    namespace: str
     """:type: str"""
-    bindings : 'Tree[R]'
+    bindings: 'Tree[R]'
     """
     :type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
 
     a list of bindings and/or sub-namespaces"""
 
-    def __init__(self, namespace : str, bindings : 'Tree[R]') -> None:
+    def __init__(self, namespace: str, bindings: 'Tree[R]') -> None:
         self.namespace = namespace
         self.bindings = bindings
+
 
 Node = TypeVar('Node', Binding[R], Namespace[R])
 
@@ -57,15 +60,18 @@ Types = TypeVar('Types', bound='Tree[Type.Base]')
 Values = TypeVar('Values', bound='Tree[Value.Base]')
 """Environment of values, an immutable list of bindings to values and/or namespaces"""
 
-def bind(name : str, rhs : R, tree : 'Tree[R]') -> 'Tree[R]':
+
+def bind(name: str, rhs: R, tree: 'Tree[R]') -> 'Tree[R]':
     """Prepend a new binding to an environment"""
     return [Binding(name, rhs)] + tree
 
-def namespace(namespace : str, bindings : 'Tree[R]', tree : 'Tree[R]') -> 'Tree[R]':
+
+def namespace(namespace: str, bindings: 'Tree[R]', tree: 'Tree[R]') -> 'Tree[R]':
     """Prepend a namespace to an environment"""
     return [Namespace(namespace, bindings)] + tree
 
-def resolve_namespace(tree : 'Tree[R]', namespace : List[str]) -> R:
+
+def resolve_namespace(tree: 'Tree[R]', namespace: List[str]) -> R:
     if len(namespace) == 0:
         return tree
     for node in tree:
@@ -74,7 +80,8 @@ def resolve_namespace(tree : 'Tree[R]', namespace : List[str]) -> R:
                 return resolve_namespace(node.bindings, namespace[1:])
     raise KeyError()
 
-def resolve(tree : 'Tree[R]', namespace : List[str], name : str) -> R:
+
+def resolve(tree: 'Tree[R]', namespace: List[str], name: str) -> R:
     """Resolve a name within an environment"""
     ns = resolve_namespace(tree, namespace)
     for node in ns:
@@ -82,5 +89,5 @@ def resolve(tree : 'Tree[R]', namespace : List[str], name : str) -> R:
             return node.rhs
     raise KeyError()
 
-#print(arrayize([Binding('x',T.Int())])[0].rhs)
+# print(arrayize([Binding('x',T.Int())])[0].rhs)
 #assert resolve([Binding('x',T.Int())], [], 'x') == T.Int()
