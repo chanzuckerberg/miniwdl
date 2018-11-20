@@ -21,8 +21,9 @@ pretty:
 	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name --exit-zero WDL
 
 # for use in CI: complain if source code isn't at a fixed point for autopep8
-# (assumes we start from a clean checkout)
-sopretty: pretty
+sopretty:
+	@git diff --quiet || (echo "ERROR: 'make sopretty' must start with a clean working tree"; exit 1)
+	$(MAKE) pretty
 	@git diff --quiet || (echo "ERROR: source files were modified by autopep8; please fix up this commit with 'make pretty'"; exit 1)
 
 # run tests in a docker image
