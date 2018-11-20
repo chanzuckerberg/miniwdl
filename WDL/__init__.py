@@ -1,11 +1,10 @@
 """Toolkit for static analysis of Workflow Description Language (WDL)"""
 import os
 import errno
-import lark
 import inspect
+from typing import List
 from WDL import _parser, Error, Type, Value, Env, Expr, Tree, Walker, StdLib
 from WDL.Tree import Decl, Task, Call, Scatter, Conditional, Workflow, Document
-from typing import List
 
 SourcePosition = Error.SourcePosition
 SourceNode = Error.SourceNode
@@ -13,9 +12,11 @@ SourceNode = Error.SourceNode
 
 def load(uri: str, path: List[str] = []) -> Document:
     """
-    Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
+    Parse a WDL document given filename/URI, recursively descend into imported
+    documents, then typecheck the tasks and workflow.
 
-    :param path: local filesystem directories to search for imports, in addition to the current working directory
+    :param path: local filesystem directories to search for imports, in
+    addition to the current working directory
     """
     return Tree.load(uri, path)
 

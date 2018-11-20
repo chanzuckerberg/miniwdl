@@ -9,7 +9,7 @@ nodes attached "beneath" it. An expression can be evaluated to a Value given
 a suitable Env.
 """
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Dict, Callable, TypeVar, Tuple, Union
+from typing import List, Optional, Dict, TypeVar, Tuple, Union
 import WDL.Type as T
 import WDL.Value as V
 import WDL.Env as Env
@@ -31,7 +31,8 @@ class Base(SourceNode, ABC):
         """
         :type: WDL.Type.Base
 
-        WDL type of this expression. Undefined on construction; populated by one invocation of ``infer_type``.
+        WDL type of this expression. Undefined on construction; populated by one
+        invocation of ``infer_type``.
         """
         # Failure of this assertion indicates use of an Expr object without
         # first calling _infer_type
@@ -223,7 +224,11 @@ class String(Base):
     """
     :type: List[Union[str,WDL.Expr.Placeholder]]
 
-    The parts list begins and ends with matching single- or double- quote marks. Between these is a sequence of literal strings and/or interleaved placeholder expressions. Escape sequences in the literals have NOT been decoded."""
+    The parts list begins and ends with matching single- or double- quote
+    marks. Between these is a sequence of literal strings and/or
+    interleaved placeholder expressions. Escape sequences in the literals
+    have NOT been decoded.
+    """
 
     def __init__(self, pos: SourcePosition,
                  parts: List[Union[str, Placeholder]]) -> None:
@@ -271,7 +276,7 @@ class Array(Base):
         self.items = items
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        if len(self.items) == 0:
+        if not self.items:
             return T.Array(None)
         for item in self.items:
             item.infer_type(type_env)
@@ -307,7 +312,7 @@ class Array(Base):
 
     def typecheck(self, expected: Optional[T.Base]) -> Base:
         ""
-        if len(self.items) == 0 and isinstance(expected, T.Array):
+        if not self.items and isinstance(expected, T.Array):
             # the literal empty array satisfies any array type
             # (unless it has the nonempty quantifier)
             if expected.nonempty:
@@ -471,12 +476,12 @@ class Ident(Base):
 
     def __init__(self, pos: SourcePosition, parts: List[str]) -> None:
         super().__init__(pos)
-        assert len(parts) > 0
+        assert parts
         self.name = parts[-1]
         self.namespace = parts[:-1]
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        if len(self.namespace) > 0 and (self.name in ['left', 'right']):
+        if self.namespace and (self.name in ['left', 'right']):
             # Special case for pair access, IDENT.left or IDENT.right
             # Pair access through non-identifier expressions goes a different
             # path, through the get_left and get_right terminals.
@@ -498,7 +503,7 @@ class Ident(Base):
 
     def eval(self, env: Env.Values) -> V.Base:
         ""
-        if len(self.namespace) > 0 and (self.name in ['left', 'right']):
+        if self.namespace and (self.name in ['left', 'right']):
             pair_name = self.namespace[-1]
             pair_namespace = self.namespace[:-1]
             try:

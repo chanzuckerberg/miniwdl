@@ -1,14 +1,12 @@
-import errno
-import os
-from WDL import Env
+import inspect
+from typing import List
+import lark
 from WDL.Error import SourcePosition
 from WDL import Error as Err
 from WDL import Tree as D
 from WDL import Type as T
 from WDL import Expr as E
-from typing import List, Optional
-import inspect
-import lark
+
 grammar = r"""
 // WDL expressions
 // start with rules handling infix operator precedence
@@ -229,6 +227,8 @@ def to_float(x):
 
 
 class _ExprTransformer(lark.Transformer):
+    # pylint: disable=no-self-use,unused-argument
+
     def __init__(self, file: str) -> None:
         self.filename = file
 
@@ -317,36 +317,38 @@ for op in ["land", "lor", "add", "sub", "mul", "div", "rem",
 
 
 class _TypeTransformer(lark.Transformer):
+    # pylint: disable=no-self-use,unused-argument
+
     def __init__(self, file: str) -> None:
         self.filename = file
 
     def int_type(self, items, meta):
         optional = False
-        if len(items) > 0 and items[0].value == "?":
+        if items and items[0].value == "?":
             optional = True
         return T.Int(optional)
 
     def float_type(self, items, meta):
         optional = False
-        if len(items) > 0 and items[0].value == "?":
+        if items and items[0].value == "?":
             optional = True
         return T.Float(optional)
 
     def boolean_type(self, items, meta):
         optional = False
-        if len(items) > 0 and items[0].value == "?":
+        if items and items[0].value == "?":
             optional = True
         return T.Boolean(optional)
 
     def string_type(self, items, meta):
         optional = False
-        if len(items) > 0 and items[0].value == "?":
+        if items and items[0].value == "?":
             optional = True
         return T.String(optional)
 
     def file_type(self, items, meta):
         optional = False
-        if len(items) > 0 and items[0].value == "?":
+        if items and items[0].value == "?":
             optional = True
         return T.File(optional)
 
@@ -384,7 +386,10 @@ class _TypeTransformer(lark.Transformer):
 
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
+    # pylint: disable=no-self-use,unused-argument
+
     def __init__(self, file: str, imported: bool) -> None:
+        # pylint: disable=super-init-not-called
         self.filename = file
         self.imported = imported
 
@@ -543,7 +548,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                     parameter_meta = item["parameter_meta"]
                 else:
                     assert False
-            elif isinstance(item, D.Decl) or isinstance(item, D.Call) or isinstance(item, D.Scatter) or isinstance(item, D.Conditional):
+            elif isinstance(item, (D.Call, D.Conditional, D.Decl, D.Scatter)):
                 elements.append(item)
             else:
                 assert False
@@ -613,7 +618,7 @@ def parse_tasks(txt: str) -> List[D.Task]:
 
 def parse_document(txt: str, uri: str = '',
                    imported: bool = False) -> D.Document:
-    if len(txt.strip()) == 0:
+    if not txt.strip():
         return D.Document(
             SourcePosition(
                 filename=uri,

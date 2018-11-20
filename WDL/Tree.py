@@ -1,20 +1,22 @@
 # pyre-strict
 """
-Abstract syntax tree (AST) for WDL documents, encompassing declarations, tasks, calls, and workflows. The AST is typically constructed and returned by :func:`~WDL.load` or :func:`~WDL.parse_document`.
+Abstract syntax tree (AST) for WDL documents, containing tasks and workflows,
+which contain declarations, calls, and scatter & if sections. The AST is
+typically constructed and returned by :func:`~WDL.load` or
+:func:`~WDL.parse_document`.
 
-The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e. ``WDL.Tree.Document`` can be abbreviated ``WDL.Document``.
+The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e.
+``WDL.Tree.Document`` can be abbreviated ``WDL.Document``.
 """
 
-from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Dict, Callable, TypeVar, Tuple, Union
+import os
+import errno
+from typing import Any, List, Optional, Dict, TypeVar, Tuple, Union
 import WDL.Type as T
-import WDL.Value as V
 import WDL.Expr as E
 import WDL.Env as Env
 import WDL.Error as Err
 from WDL.Error import SourcePosition, SourceNode
-import os
-import errno
 import WDL._parser
 
 
@@ -106,7 +108,7 @@ class Task(SourceNode):
         # TODO: complain of name collisions in inputs/postinputs
 
     def typecheck(self, type_env: Env.Types = []) -> None:
-        for decl in (self.inputs + self.postinputs):
+        for decl in self.inputs + self.postinputs:
             type_env = _typecheck_decl(decl, type_env)
         self.command.infer_type(type_env).typecheck(T.String())
         for decl in self.outputs:
@@ -141,7 +143,7 @@ def _typecheck_decl(decl: Decl, type_env: Env.Types) -> Env.Types:
         check_type = decl.type
         if isinstance(check_type, T.Array):
             if check_type.nonempty and isinstance(
-                    decl.expr, E.Array) and len(decl.expr.items) == 0:
+                    decl.expr, E.Array) and not decl.expr.items:
                 raise Err.EmptyArray(decl.expr)
             check_type = check_type.copy(nonempty=False)
         decl.expr.infer_type(type_env).typecheck(check_type)
@@ -191,10 +193,10 @@ class Call(SourceNode):
     def typecheck(self, type_env: Env.Types, doc: TVDocument) -> Env.Types:
         # resolve callee_id to a known task/workflow, either within the
         # current document or one of its imported sub-documents
-        if len(self.callee_id.namespace) == 0:
+        if not self.callee_id.namespace:
             callee_doc = doc
         elif len(self.callee_id.namespace) == 1:
-            for (uri, ns, subdoc) in doc.imports:
+            for _, ns, subdoc in doc.imports:
                 if ns == self.callee_id.namespace[0]:
                     callee_doc = subdoc
         if callee_doc:
@@ -207,8 +209,7 @@ class Call(SourceNode):
                         self.callee = task
         if self.callee is None:
             raise Err.UnknownIdentifier(self.callee_id)
-        assert isinstance(self.callee, Task) or isinstance(
-            self.callee, Workflow)
+        assert isinstance(self.callee, (Task, Workflow))
 
         # Make a set of the input names which are required for this call to
         # typecheck. In the top-level workflow, nothing is actually required
@@ -237,7 +238,7 @@ class Call(SourceNode):
             if name in required_inputs:
                 required_inputs.remove(name)
 
-        if len(required_inputs) > 0:
+        if required_inputs:
             raise Err.MissingInput(self, self.name, required_inputs)
 
         # return a TypeEnv with ONLY the outputs (not including the input
@@ -315,7 +316,7 @@ def _typecheck_workflow_body(elements: List[Union[Decl,
             type_env = Env.namespace(element.name, call_outputs_env, type_env)
             outputs_env = Env.namespace(
                 element.name, call_outputs_env, outputs_env)
-        elif isinstance(element, Scatter) or isinstance(element, Conditional):
+        elif isinstance(element, (Scatter, Conditional)):
             # add outputs of calls within the subscatter to the type
             # environment.
             sub_outputs_env = element.typecheck(type_env, doc)
@@ -458,7 +459,12 @@ class Workflow(SourceNode):
 
 
 class Document(SourceNode):
-    """Top-level document, with imports, tasks, and a workflow. Typically returned by :func:`~WDL.load` with imported sub-documents loaded, and everything typechecked. Alternatively, :func:`~WDL.parse_document` constructs the AST but doesn't process imports nor perform typechecking."""
+    """
+    Top-level document, with imports, tasks, and a workflow. Typically returned
+    by :func:`~WDL.load` with imported sub-documents loaded, and everything
+    typechecked. Alternatively, :func:`~WDL.parse_document` constructs the AST
+    but doesn't process imports nor perform typechecking.
+    """
     imports: List[Tuple[str, str, Optional[TVDocument]]]
     """
     :type: List[Tuple[str,str,Optional[WDL.Tree.Document]]]
@@ -501,7 +507,7 @@ class Document(SourceNode):
     def typecheck(self) -> None:
         """Typecheck each task in the document, then the workflow, if any. Documents returned by :func:`~WDL.load` have already been typechecked."""
         names = set()
-        for (uri, namespace, subdoc) in self.imports:
+        for _, namespace, _ in self.imports:
             if namespace in names:
                 raise Err.MultipleDefinitions(
                     self, "Multiple imports with namespace " + namespace)
@@ -518,7 +524,9 @@ class Document(SourceNode):
         if self.workflow:
             if self.workflow.name in names:
                 raise Err.MultipleDefinitions(
-                    task, "Workflow name collides with a task also named " + self.workflow.name)
+                    self.workflow,
+                    "Workflow name collides with a task also named " +
+                    self.workflow.name)
             self.workflow.typecheck(self)
 
 
@@ -528,7 +536,7 @@ def load(uri: str, path: List[str] = [],
         if os.path.exists(fn):
             with open(fn, 'r') as infile:
                 # read and parse the document
-                doc = WDL._parser.parse_document(infile.read(), uri)
+                doc = WDL._parser.parse_document(infile.read(), uri, imported)
                 assert isinstance(doc, Document)
                 # recursively descend into document's imports, and store the imported
                 # documents into doc.imports

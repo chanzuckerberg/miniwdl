@@ -1,8 +1,7 @@
 # pyre-strict
-from abc import ABC
-from typing import Any, List, Optional, Dict, Callable, NamedTuple, TypeVar, Union, Iterable
-import WDL.Type as T
+from typing import List, Optional, NamedTuple, Union, Iterable
 from functools import total_ordering
+import WDL.Type as T
 
 
 class ParserError(Exception):

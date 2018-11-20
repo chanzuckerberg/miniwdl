@@ -30,25 +30,24 @@ class Base():
     def __call__(self, obj: WDL.Error.SourceNode) -> Any:
         if isinstance(obj, WDL.Tree.Document):
             return self.document(obj)
-        elif isinstance(obj, WDL.Tree.Workflow):
+        if isinstance(obj, WDL.Tree.Workflow):
             return self.workflow(obj)
-        elif isinstance(obj, WDL.Tree.Call):
+        if isinstance(obj, WDL.Tree.Call):
             return self.call(obj)
-        elif isinstance(obj, WDL.Tree.Scatter):
+        if isinstance(obj, WDL.Tree.Scatter):
             return self.scatter(obj)
-        elif isinstance(obj, WDL.Tree.Conditional):
+        if isinstance(obj, WDL.Tree.Conditional):
             return self.conditional(obj)
-        elif isinstance(obj, WDL.Tree.Decl):
+        if isinstance(obj, WDL.Tree.Decl):
             return self.decl(obj)
-        elif isinstance(obj, WDL.Tree.Task):
+        if isinstance(obj, WDL.Tree.Task):
             return self.task(obj)
-        elif isinstance(obj, WDL.Expr.Base):
+        if isinstance(obj, WDL.Expr.Base):
             return self.expr(obj)
-        else:
-            assert False
+        assert False
 
     def document(self, obj: WDL.Tree.Document) -> Any:
-        for namespace, uri, subdoc in obj.imports:
+        for _, _, subdoc in obj.imports:
             assert isinstance(subdoc, WDL.Tree.Document)
             self(subdoc)
         for task in obj.tasks:
@@ -61,7 +60,7 @@ class Base():
             self(elt)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
-        for nm, expr in obj.inputs.items():
+        for _, expr in obj.inputs.items():
             self(expr)
 
     def scatter(self, obj: WDL.Tree.Scatter) -> Any:
@@ -131,7 +130,7 @@ class SetParents(Base):
     def document(self, obj: WDL.Tree.Document) -> None:
         super().document(obj)
         obj.parent = None
-        for namespace, uri, subdoc in obj.imports:
+        for _, _, subdoc in obj.imports:
             subdoc.parent = obj
         for task in obj.tasks:
             task.parent = obj

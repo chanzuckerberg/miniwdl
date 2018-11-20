@@ -25,13 +25,14 @@ for example
 The type classes include a method indicating if a value of the type can be
 coerced to some other desired type, according to the following rules:
 
-1. ``Boolean``, ``Int``, ``Float``, and ``File`` coerce to ``String``
-2. ``Array[T]`` coerces to ``String`` provided ``T`` does as well.
-3. ``T`` coerces to ``T?`` but the reverse is not true in general.
-4. ``T`` coerces to ``Array[T]`` (an array of length 1).
+1. ``Int`` coerces to ``Float``
+2. ``Boolean``, ``Int``, ``Float``, and ``File`` coerce to ``String``
+3. ``Array[T]`` coerces to ``String`` provided ``T`` does as well.
+4. ``T`` coerces to ``T?`` but the reverse is not true in general.
+5. ``T`` coerces to ``Array[T]`` (an array of length 1).
 
 """
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import Optional, TypeVar, Tuple
 import copy
 
@@ -73,7 +74,9 @@ class Base(ABC):
         """
         copy(self, optional : Optional[bool] = None) -> WDL.Type.Base
 
-        Create a copy of the type, possibly with a different setting of the ``optional`` quantifier."""
+        Create a copy of the type, possibly with a different setting of the
+        ``optional`` quantifier.
+        """
         ans: Base = copy.copy(self)
         if optional is not None:
             ans._optional = optional
@@ -114,7 +117,7 @@ class Int(Base):
 
     def coerces(self, rhs: Base) -> bool:
         ""
-        if isinstance(rhs, Float) or isinstance(rhs, String):
+        if isinstance(rhs, (Float, String)):
             return True
         return super().coerces(rhs)
 
@@ -186,9 +189,8 @@ class Array(Base):
         if isinstance(rhs, Array):
             if self.item_type is None or rhs.item_type is None:
                 return True
-            else:
-                return self.item_type.coerces(rhs.item_type) and (
-                    not rhs.nonempty or self.nonempty)
+            return self.item_type.coerces(rhs.item_type) and (
+                not rhs.nonempty or self.nonempty)
         if isinstance(rhs, String):
             return self.item_type is None or self.item_type.coerces(String())
         return False
@@ -223,19 +225,19 @@ class Map(Base):
 
     def __str__(self) -> str:
         # pyre-fixme
-        return "Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1])
-                         if self.item_type is not None else "") + "]" + ('?' if self.optional else '')
+        return ("Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1])
+                          if self.item_type is not None else "") + "]"
+                       + ('?' if self.optional else ''))
 
     def coerces(self, rhs: Base) -> bool:
         ""
         if isinstance(rhs, Map):
             if self.item_type is None or rhs.item_type is None:
                 return True
-            else:
-                # pyre-fixme
-                return self.item_type[0].coerces(
-                    rhs.item_type[0]) and self.item_type[1].coerces(
-                    rhs.item_type[1])
+            # pyre-fixme
+            return self.item_type[0].coerces(
+                rhs.item_type[0]) and self.item_type[1].coerces(
+                rhs.item_type[1])
         return super().coerces(rhs)
 
 

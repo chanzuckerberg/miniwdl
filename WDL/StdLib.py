@@ -1,4 +1,5 @@
 # pyre-strict
+# pylint: disable=protected-access,exec-used
 from typing import List, Tuple, Callable, Any
 import WDL.Type as T
 import WDL.Value as V
@@ -41,7 +42,7 @@ class _Get(E._Function):
         assert len(expr.arguments) == 2
         lhs = expr.arguments[0]
         rhs = expr.arguments[1]
-        if isinstance(lhs.type, T.Array):  # pyre-fixme
+        if isinstance(lhs.type, T.Array):
             arr = lhs.eval(env)
             assert isinstance(arr, V.Array)
             assert isinstance(arr.type, T.Array)
@@ -50,7 +51,7 @@ class _Get(E._Function):
             if idx < 0 or idx >= len(arr.value):
                 raise Error.OutOfBounds(rhs)
             return arr.value[idx]  # pyre-fixme
-        elif isinstance(lhs.type, T.Map):
+        if isinstance(lhs.type, T.Map):
             mp = lhs.eval(env)
             assert isinstance(mp, V.Map)
             assert isinstance(mp.type, T.Map)
@@ -64,8 +65,7 @@ class _Get(E._Function):
             if ans is None:
                 raise Error.OutOfBounds(rhs)  # TODO: KeyNotFound
             return ans  # pyre-fixme
-        else:
-            assert False
+        assert False  # pyre-fixme
 
 
 E._stdlib["_get"] = _Get()
@@ -442,10 +442,9 @@ class _Flatten(E._Function):
         assert isinstance(expr.arguments[0].type, T.Array)
         if expr.arguments[0].type.item_type is None:
             return T.Array(None)
-        elif not isinstance(expr.arguments[0].type.item_type, T.Array):
+        if not isinstance(expr.arguments[0].type.item_type, T.Array):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(
                 T.Array(None)), expr.arguments[0].type)
-        # pyre-fixme
         return T.Array(expr.arguments[0].type.item_type.item_type)
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
@@ -465,7 +464,7 @@ class _Transpose(E._Function):
         assert isinstance(expr.arguments[0].type, T.Array)
         if expr.arguments[0].type.item_type is None:
             return T.Array(None)
-        elif not isinstance(expr.arguments[0].type.item_type, T.Array):
+        if not isinstance(expr.arguments[0].type.item_type, T.Array):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(
                 T.Array(None)), expr.arguments[0].type)
         return expr.arguments[0].type

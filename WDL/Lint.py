@@ -1,8 +1,8 @@
 """
 Linting: annotate WDL AST with hygiene warning
 """
+from typing import Any, Optional
 import WDL
-from typing import Any, Optional, Set
 
 
 class Linter(WDL.Walker.Base):
@@ -107,10 +107,10 @@ class IncompleteCall(Linter):
     def call(self, obj: WDL.Call) -> Any:
         assert obj.callee is not None
         required_inputs = set(decl.name for decl in obj.callee.required_inputs)
-        for name, expr in obj.inputs.items():
+        for name, _ in obj.inputs.items():
             if name in required_inputs:
                 required_inputs.remove(name)
-        if len(required_inputs) > 0:
+        if required_inputs:
             self.add(
                 obj,
                 "required input(s) {} omitted in call to {}; these become workflow inputs and prevent composition".format(
@@ -126,7 +126,7 @@ class CallImportNameCollision(Linter):
         doc = obj
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, 'parent')
-        for uri, namespace, subdoc in doc.imports:
+        for _, namespace, _ in doc.imports:
             if namespace == obj.name:
                 self.add(
                     obj,
@@ -138,7 +138,7 @@ class CallImportNameCollision(Linter):
 class UnusedImport(Linter):
     # Nothing used from an imported document
     def document(self, obj: WDL.Document) -> Any:
-        for uri, namespace, subdoc in obj.imports:
+        for _, namespace, subdoc in obj.imports:
             assert subdoc is not None
             any_called = False
             for task in subdoc.tasks:

@@ -2,7 +2,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, TypeVar, Generic, Union
+from typing import List, TypeVar, Generic
 import WDL.Type as T
 import WDL.Value as V
 
@@ -73,11 +73,11 @@ def namespace(namespace: str,
 
 
 def resolve_namespace(tree: 'Tree[R]', namespace: List[str]) -> R:
-    if len(namespace) == 0:
+    if not namespace:
         return tree
     for node in tree:
         if isinstance(node, Namespace):
-            if len(namespace) > 0 and namespace[0] == node.namespace:
+            if namespace and namespace[0] == node.namespace:
                 return resolve_namespace(node.bindings, namespace[1:])
     raise KeyError()
 
