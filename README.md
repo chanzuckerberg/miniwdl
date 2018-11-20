@@ -92,9 +92,11 @@ File barcoded_bam
 
 ## Documentation
 
-*(Link to hosted documentation will go here)*
+Online Python developer documentation for the `WDL` package: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
-`make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate the documentation under `docs/_build/html/`. Or, after building the docker image, copy them out with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
+(Read the Docs currently builds from the [mlin/miniwdl](https://github.com/mlin/miniwdl) fork of this repository.)
+
+Locally, `make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate the docs under `docs/_build/html/`. Or, after building the docker image, copy them out with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
 
 ## Contributing
 
