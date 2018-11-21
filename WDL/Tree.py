@@ -221,10 +221,7 @@ class Call(SourceNode):
         for name, expr in self.inputs.items():
             decl = None
             if isinstance(self.callee, Task):
-                for d in self.callee.postinputs:
-                    if d.name == name:
-                        decl = d
-                for d in self.callee.inputs:
+                for d in self.callee.inputs + self.callee.postinputs:
                     if d.name == name:
                         decl = d
             else:

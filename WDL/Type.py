@@ -56,10 +56,11 @@ class Base(ABC):
         """
         True if this is the same type as, or can be coerced to, ``rhs``.
         """
-        if isinstance(
-                rhs, Array) and rhs.item_type == self:  # coerce T to Array[T]
+        if isinstance(rhs, Array) and self.coerces(rhs.item_type):
+            # coerce T to Array[T]
             return True
-        return (type(self).__name__ == type(rhs).__name__) and (
+        return (
+            type(self).__name__ == type(rhs).__name__) and (
             not self.optional or rhs.optional)
 
     @property

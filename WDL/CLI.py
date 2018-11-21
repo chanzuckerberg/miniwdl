@@ -48,6 +48,7 @@ def check(args):
 
     linters = [
         WDL.Lint.StringCoercion(),
+        WDL.Lint.ArrayCoercion(),
         WDL.Lint.OptionalCoercion(),
         WDL.Lint.IncompleteCall(),
         WDL.Lint.CallImportNameCollision(),
