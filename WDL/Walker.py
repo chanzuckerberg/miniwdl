@@ -169,8 +169,7 @@ class SetParents(Base):
 
     def expr(self, obj: WDL.Expr.Base) -> None:
         super().expr(obj)
-        obj.parent = getattr(self, '_parent_decl',
-                             getattr(self, '_parent_task'))
+        obj.parent = getattr(self, '_parent_decl', getattr(self, '_parent_task'))
 
 
 class MarkCalled(Base):

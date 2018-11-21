@@ -373,12 +373,9 @@ class IfThenElse(Base):
         if self.alternative.type.optional:
             self_type = self_type.copy(optional=True)
         if isinstance(
-                self_type,
-                T.Array) and isinstance(
-                self.consequent.type,
-                T.Array) and isinstance(
-                self.alternative.type,
-                T.Array):
+                self_type, T.Array) and isinstance(
+                    self.consequent.type, T.Array) and isinstance(
+                        self.alternative.type, T.Array):
             self_type = self_type.copy(nonempty=(  # pyre-fixme
                 self.consequent.type.nonempty and self.alternative.type.nonempty))  # pyre-fixme
         try:

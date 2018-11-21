@@ -23,10 +23,9 @@ class _Get(E._Function):
             try:
                 rhs.typecheck(T.Int())
             except Error.StaticTypeMismatch:
-                raise Error.StaticTypeMismatch(
-                    rhs, T.Int(), rhs.type, "Array index") from None
+                raise Error.StaticTypeMismatch(rhs, T.Int(), rhs.type, "Array index") from None
             return lhs.type.item_type
-        elif isinstance(lhs.type, T.Map):
+        if isinstance(lhs.type, T.Map):
             if lhs.type.item_type is None:
                 raise Error.OutOfBounds(expr)
             try:
@@ -35,8 +34,7 @@ class _Get(E._Function):
                 raise Error.StaticTypeMismatch(
                     rhs, lhs.type.item_type[0], rhs.type, "Map key") from None
             return lhs.type.item_type[1]
-        else:
-            raise Error.NotAnArray(lhs)
+        raise Error.NotAnArray(lhs)
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
         assert len(expr.arguments) == 2
@@ -147,57 +145,41 @@ class _StaticFunction(E._Function):
         return ans.coerce(self.return_type)
 
 
+def _notimpl(one: Any = None, two: Any = None) -> None:
+    exec('raise NotImplementedError()')
+
+
 _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
-    ("_negate", [T.Boolean()], T.Boolean(),
-     lambda x: V.Boolean(not x.value)),  # pyre-fixme
+    ("_negate", [T.Boolean()], T.Boolean(), lambda x: V.Boolean(not x.value)),  # pyre-fixme
     ("_land", [T.Boolean(), T.Boolean()], T.Boolean(),
      lambda l, r: V.Boolean(l.value and r.value)),  # pyre-fixme
     ("_lor", [T.Boolean(), T.Boolean()], T.Boolean(),
      lambda l, r: V.Boolean(l.value or r.value)),  # pyre-fixme
-    ("_rem", [T.Int(), T.Int()], T.Int(), lambda l,
-     r: V.Int(l.value % r.value)),  # pyre-fixme
-    ("stdout", [], T.File(), lambda: exec('raise NotImplementedError()')),
-    ("basename", [T.String(), T.String(optional=True)],
-     T.String(), lambda file: exec('raise NotImplementedError()')),
+    ("_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)),  # pyre-fixme
+    ("stdout", [], T.File(), _notimpl),
+    ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
     # TODO: size() argument is optional to admit a pattern seen in the test corpi:
     #         if (defined(f)) then size(f) else 100
     #       unclear how this should apply generaly to functions other than size().
     #       alternatively, during typechecking, we could infer that the f can't
     #       be null in the consequent branch specifically.
-    ("size", [T.File(optional=True), T.String(optional=True)],
-     T.Float(), lambda file: exec('raise NotImplementedError()')),
-    ("ceil", [T.Float()], T.Int(), lambda x: exec(
-        'raise NotImplementedError()')),
-    ("round", [T.Float()], T.Int(), lambda x: exec(
-        'raise NotImplementedError()')),
-    ("glob", [T.String()], T.Array(T.File()),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("read_int", [T.String()], T.Int(),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("read_boolean", [T.String()], T.Boolean(),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("read_string", [T.String()], T.String(),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("read_float", [T.String()], T.Float(),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("read_array", [T.String()], T.Array(None),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("read_map", [T.String()], T.Map(None),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("read_lines", [T.String()], T.Array(None),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("read_tsv", [T.String()], T.Array(T.Array(T.String())),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("write_lines", [T.Array(T.String())], T.File(),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("write_tsv", [T.Array(T.Array(T.String()))], T.File(),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("write_map", [T.Map(None)], T.File(),
-     lambda pattern: exec('raise NotImplementedError()')),
-    ("range", [T.Int()], T.Array(T.Int()),
-     lambda high: exec('raise NotImplementedError()')),
-    ("sub", [T.String(), T.String(), T.String()], T.String(),
-     lambda high: exec('raise NotImplementedError()')),
+    ("size", [T.File(optional=True), T.String(optional=True)], T.Float(), _notimpl),
+    ("ceil", [T.Float()], T.Int(), _notimpl),
+    ("round", [T.Float()], T.Int(), _notimpl),
+    ("glob", [T.String()], T.Array(T.File()), _notimpl),
+    ("read_int", [T.String()], T.Int(), _notimpl),
+    ("read_boolean", [T.String()], T.Boolean(), _notimpl),
+    ("read_string", [T.String()], T.String(), _notimpl),
+    ("read_float", [T.String()], T.Float(), _notimpl),
+    ("read_array", [T.String()], T.Array(None), _notimpl),
+    ("read_map", [T.String()], T.Map(None), _notimpl),
+    ("read_lines", [T.String()], T.Array(None), _notimpl),
+    ("read_tsv", [T.String()], T.Array(T.Array(T.String())), _notimpl),
+    ("write_lines", [T.Array(T.String())], T.File(), _notimpl),
+    ("write_tsv", [T.Array(T.Array(T.String()))], T.File(), _notimpl),
+    ("write_map", [T.Map(None)], T.File(), _notimpl),
+    ("range", [T.Int()], T.Array(T.Int()), _notimpl),
+    ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
 ]
 for name, argument_types, return_type, F in _static_functions:
     E._stdlib[name] = _StaticFunction(name, argument_types, return_type, F)
@@ -298,10 +280,9 @@ class _ComparisonOperator(E._Function):
 
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
-        if not (
-            expr.arguments[0].type == expr.arguments[1].type or (
+        if not (expr.arguments[0].type == expr.arguments[1].type or (
                 expr.arguments[0].type == T.Int() and expr.arguments[1].type == T.Float()) or (
-                expr.arguments[0].type == T.Float() and expr.arguments[1].type == T.Int())):
+                    expr.arguments[0].type == T.Float() and expr.arguments[1].type == T.Int())):
             raise Error.IncompatibleOperand(expr, "Cannot compare {} and {}".format(
                 str(expr.arguments[0].type), str(expr.arguments[1].type)))
         return T.Boolean()
@@ -316,11 +297,9 @@ class _ComparisonOperator(E._Function):
 E._stdlib["_eqeq"] = _ComparisonOperator("==", lambda l, r: l == r)
 E._stdlib["_neq"] = _ComparisonOperator("!=", lambda l, r: l != r)
 E._stdlib["_lt"] = _ComparisonOperator("<", lambda l, r: l < r)  # pyre-fixme
-E._stdlib["_lte"] = _ComparisonOperator(
-    "<=", lambda l, r: l <= r)  # pyre-fixme
+E._stdlib["_lte"] = _ComparisonOperator("<=", lambda l, r: l <= r)  # pyre-fixme
 E._stdlib["_gt"] = _ComparisonOperator(">", lambda l, r: l > r)  # pyre-fixme
-E._stdlib["_gte"] = _ComparisonOperator(
-    ">=", lambda l, r: l >= r)  # pyre-fixme
+E._stdlib["_gte"] = _ComparisonOperator(">=", lambda l, r: l >= r)  # pyre-fixme
 
 # defined(): accepts any type...
 
@@ -345,8 +324,7 @@ class _Length(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(
-                expr, T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(expr, T.Array(None), expr.arguments[0].type)
         return T.Int()
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
@@ -365,8 +343,7 @@ class _SelectFirst(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(
-                expr.arguments[0], T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
@@ -386,8 +363,7 @@ class _SelectAll(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(
-                expr.arguments[0], T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
@@ -408,21 +384,16 @@ class _Zip(E._Function):
         if len(expr.arguments) != 2:
             raise Error.WrongArity(expr, 2)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(
-                expr.arguments[0], T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
         if expr.arguments[0].type.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
         if not isinstance(expr.arguments[1].type, T.Array):
-            raise Error.StaticTypeMismatch(
-                expr.arguments[1], T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(None), expr.arguments[0].type)
         if expr.arguments[1].type.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[1])
-        return T.Array(
-            T.Pair(
-                expr.arguments[0].type.item_type,
-                expr.arguments[1].type.item_type))
+        return T.Array(T.Pair(expr.arguments[0].type.item_type, expr.arguments[1].type.item_type))
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         raise NotImplementedError()

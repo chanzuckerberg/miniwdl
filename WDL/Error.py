@@ -54,8 +54,7 @@ class SourceNode:
 class Base(Exception):
     node: Optional[SourceNode]
 
-    def __init__(self, node: Union[SourceNode,
-                                   SourcePosition], message: str) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
         if isinstance(node, SourceNode):
             self.node = node
             self.pos = node.pos
@@ -75,8 +74,8 @@ class WrongArity(Base):
     def __init__(self, node: SourceNode, expected: int) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Apply)
-        super().__init__(node, "{} expects {} argument(s)".format(
-            getattr(node, 'function_name'), expected))
+        msg = "{} expects {} argument(s)".format(getattr(node, 'function_name'), expected)
+        super().__init__(node, msg)
 
 
 class NotAnArray(Base):
@@ -142,6 +141,5 @@ class NullValue(Base):
 
 
 class MultipleDefinitions(Base):
-    def __init__(self, node: Union[SourceNode,
-                                   SourcePosition], message: str) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
         super().__init__(node, message)

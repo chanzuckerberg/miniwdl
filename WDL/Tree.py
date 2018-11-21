@@ -33,8 +33,8 @@ class Decl(SourceNode):
 
     :type: Optional[WDL.Expr.Base]"""
 
-    def __init__(self, pos: SourcePosition, type: T.Base,
-                 name: str, expr: Optional[E.Base] = None) -> None:
+    def __init__(self, pos: SourcePosition, type: T.Base, name: str,
+                 expr: Optional[E.Base] = None) -> None:
         super().__init__(pos)
         self.type = type
         self.name = name
@@ -89,12 +89,9 @@ class Task(SourceNode):
                  postinputs: List[Decl],
                  command: E.String,
                  outputs: List[Decl],
-                 parameter_meta: Dict[str,
-                                      Any],
-                 runtime: Dict[str,
-                               E.Base],
-                 meta: Dict[str,
-                            Any]) -> None:
+                 parameter_meta: Dict[str, Any],
+                 runtime: Dict[str, E.Base],
+                 meta: Dict[str, Any]) -> None:
         super().__init__(pos)
         self.name = name
         self.inputs = inputs
@@ -127,8 +124,7 @@ class Task(SourceNode):
 def _typecheck_decl(decl: Decl, type_env: Env.Types) -> Env.Types:
     try:
         Env.resolve(type_env, [], decl.name)
-        raise Err.MultipleDefinitions(
-            decl, "Multiple declarations of " + decl.name)
+        raise Err.MultipleDefinitions(decl, "Multiple declarations of " + decl.name)
     except KeyError:
         pass
     # Subtleties:
@@ -142,8 +138,7 @@ def _typecheck_decl(decl: Decl, type_env: Env.Types) -> Env.Types:
     if decl.expr is not None:
         check_type = decl.type
         if isinstance(check_type, T.Array):
-            if check_type.nonempty and isinstance(
-                    decl.expr, E.Array) and not decl.expr.items:
+            if check_type.nonempty and isinstance(decl.expr, E.Array) and not decl.expr.items:
                 raise Err.EmptyArray(decl.expr)
             check_type = check_type.copy(nonempty=False)
         decl.expr.infer_type(type_env).typecheck(check_type)
@@ -255,8 +250,7 @@ def _arrayize_types(type_env: Env.Types) -> Env.Types:
         if isinstance(node, Env.Binding):
             ans.append(Env.Binding(node.name, T.Array(node.rhs)))
         elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace,
-                                     _arrayize_types(node.bindings)))
+            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
         else:
             assert False
     return ans
@@ -271,8 +265,7 @@ def _optionalize_types(type_env: Env.Types) -> Env.Types:
             ty = node.rhs.copy(optional=True)
             ans.append(Env.Binding(node.name, ty))
         elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace,
-                                     _optionalize_types(node.bindings)))
+            ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
         else:
             assert False
     return ans
@@ -285,10 +278,7 @@ TVConditional = TypeVar("TVConditional", bound="Conditional")
 # outputs of the calls within (only -- not including the input type env)
 
 
-def _typecheck_workflow_body(elements: List[Union[Decl,
-                                                  Call,
-                                                  TVScatter,
-                                                  TVConditional]],
+def _typecheck_workflow_body(elements: List[Union[Decl, Call, TVScatter, TVConditional]],
                              type_env: Env.Types,
                              doc: TVDocument) -> Env.Types:
     outputs_env = []
@@ -311,8 +301,7 @@ def _typecheck_workflow_body(elements: List[Union[Decl,
             except KeyError:
                 pass
             type_env = Env.namespace(element.name, call_outputs_env, type_env)
-            outputs_env = Env.namespace(
-                element.name, call_outputs_env, outputs_env)
+            outputs_env = Env.namespace(element.name, call_outputs_env, outputs_env)
         elif isinstance(element, (Scatter, Conditional)):
             # add outputs of calls within the subscatter to the type
             # environment.
@@ -382,10 +371,7 @@ class Conditional(SourceNode):
     def __init__(self,
                  pos: SourcePosition,
                  expr: E.Base,
-                 elements: List[Union[Decl,
-                                      Call,
-                                      TVScatter,
-                                      TVConditional]]) -> None:
+                 elements: List[Union[Decl, Call, TVScatter, TVConditional]]) -> None:
         super().__init__(pos)
         self.expr = expr
         self.elements = elements
@@ -394,8 +380,7 @@ class Conditional(SourceNode):
         # check expr : Boolean
         self.expr.infer_type(type_env)
         if not self.expr.type.coerces(T.Boolean()):
-            raise Err.StaticTypeMismatch(
-                self.expr, T.Boolean(), self.expr.type)
+            raise Err.StaticTypeMismatch(self.expr, T.Boolean(), self.expr.type)
 
         outputs_env = _typecheck_workflow_body(self.elements, type_env, doc)
 
@@ -426,12 +411,9 @@ class Workflow(SourceNode):
     def __init__(self,
                  pos: SourcePosition,
                  name: str,
-                 elements: List[Union[Decl,
-                                      Call,
-                                      Scatter]],
+                 elements: List[Union[Decl, Call, Scatter]],
                  outputs: Optional[List[Decl]],
-                 parameter_meta: Dict[str,
-                                      Any],
+                 parameter_meta: Dict[str, Any],
                  meta: Dict[str,
                             Any]) -> None:
         super().__init__(pos)
@@ -480,8 +462,7 @@ class Document(SourceNode):
 
     def __init__(self,
                  pos: SourcePosition,
-                 imports: List[Tuple[str,
-                                     str]],
+                 imports: List[Tuple[str, str]],
                  tasks: List[Task],
                  workflow: Optional[Workflow],
                  imported: bool) -> None:
@@ -506,15 +487,13 @@ class Document(SourceNode):
         names = set()
         for _, namespace, _ in self.imports:
             if namespace in names:
-                raise Err.MultipleDefinitions(
-                    self, "Multiple imports with namespace " + namespace)
+                raise Err.MultipleDefinitions(self, "Multiple imports with namespace " + namespace)
             names.add(namespace)
         names = set()
         # typecheck each task
         for task in self.tasks:
             if task.name in names:
-                raise Err.MultipleDefinitions(
-                    task, "Multiple tasks named " + task.name)
+                raise Err.MultipleDefinitions(task, "Multiple tasks named " + task.name)
             names.add(task.name)
             task.typecheck()
         # typecheck the workflow
@@ -527,8 +506,7 @@ class Document(SourceNode):
             self.workflow.typecheck(self)
 
 
-def load(uri: str, path: List[str] = [],
-         imported: Optional[bool] = False) -> Document:
+def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Document:
     for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)]):
         if os.path.exists(fn):
             with open(fn, 'r') as infile:
@@ -540,8 +518,8 @@ def load(uri: str, path: List[str] = [],
                 # TODO: limit recursion; prevent mutual recursion
                 for i in range(len(doc.imports)):
                     try:
-                        subdoc = load(doc.imports[i][0], [
-                                      os.path.dirname(fn)] + path, True)
+                        subpath = [os.path.dirname(fn)] + path
+                        subdoc = load(doc.imports[i][0], subpath, True)
                     except Exception as exn:
                         raise Err.ImportError(uri, doc.imports[i][0]) from exn
                     doc.imports[i] = (doc.imports[i][0],

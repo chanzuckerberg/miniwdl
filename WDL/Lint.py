@@ -25,8 +25,7 @@ class StringCoercion(Linter):
     def decl(self, obj: WDL.Decl) -> Any:
         if isinstance(obj.type, WDL.Type.String) and obj.expr:
             if not isinstance(obj.expr.type, (WDL.Type.String, WDL.Type.File)):
-                self.add(obj, "String {} = <{}>".format(
-                    obj.name, str(obj.expr.type)))
+                self.add(obj, "String {} = <{}>".format(obj.name, str(obj.expr.type)))
         super().decl(obj)
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
@@ -41,24 +40,20 @@ class StringCoercion(Linter):
                         any_string = True
                     elif not isinstance(arg.type, WDL.Type.File):
                         all_string = False
-                if any_string and not all_string and not isinstance(
-                        pt, WDL.Task):
+                if any_string and not all_string and not isinstance(pt, WDL.Task):
                     # exception when parent is Task (i.e. we're in the task
                     # command) because the coercion is probably intentional
-                    self.add(
-                        pt, "string concatenation (+) has non-String argument", obj)
+                    self.add(pt, "string concatenation (+) has non-String argument", obj)
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):
-                    for i in range(min(len(F.argument_types),
-                                       len(obj.arguments))):
+                    for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
                         arg_i = obj.arguments[i]
                         if isinstance(
                                 F_i, WDL.Type.String) and not isinstance(
-                                arg_i.type, (WDL.Type.String, WDL.Type.File)):
-                            msg = "{} coerced to String argument".format(
-                                arg_i.type)
+                                    arg_i.type, (WDL.Type.String, WDL.Type.File)):
+                            msg = "{} coerced to String argument".format(arg_i.type)
                             self.add(pt, msg, arg_i)
         elif isinstance(obj, WDL.Expr.Array):
             # Array literal with mixed item types, one of which is String,
@@ -94,10 +89,8 @@ class StringCoercion(Linter):
             # note: in a workflow call, we want to flag File=>String coercions,
             # which are OK within tasks
             if isinstance(
-                    decl.type,
-                    WDL.Type.String) and not isinstance(
-                    inp_expr.type,
-                    WDL.Type.String):
+                    decl.type, WDL.Type.String) and not isinstance(
+                        inp_expr.type, WDL.Type.String):
                 msg = "{} input coerced to String {}".format(
                     str(inp_expr.type), str(decl.name))
                 self.add(obj, msg, inp_expr)
@@ -127,8 +120,7 @@ class ArrayCoercion(Linter):
         if isinstance(obj, WDL.Expr.Apply):
             F = WDL.Expr._stdlib[obj.function_name]
             if isinstance(F, WDL.StdLib._StaticFunction):
-                for i in range(min(len(F.argument_types),
-                                   len(obj.arguments))):
+                for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
                     if _is_array_coercion(F_i, arg_i.type):
@@ -168,13 +160,11 @@ class OptionalCoercion(Linter):
                         # task command) because the coercion is probably
                         # intentional, per "Prepending a String to an
                         # Optional Parameter"
-                        self.add(getattr(obj, 'parent'),
-                                 "optional value passed to +", arg)
+                        self.add(getattr(obj, 'parent'), "optional value passed to +", arg)
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):
-                    for i in range(min(len(F.argument_types),
-                                       len(obj.arguments))):
+                    for i in range(min(len(F.argument_types), len(obj.arguments))):
                         if obj.arguments[i].type.optional and not F.argument_types[i].optional:
                             self.add(
                                 getattr(
@@ -194,11 +184,9 @@ class IncompleteCall(Linter):
             if name in required_inputs:
                 required_inputs.remove(name)
         if required_inputs:
-            self.add(
-                obj,
-                "required input(s) {} omitted in call to {}; these become workflow inputs and prevent composition".format(
-                    ", ".join(required_inputs),
-                    obj.callee.name))
+            msg = "required input(s) {} omitted in call to {}; these become workflow inputs and prevent composition".format(
+                ", ".join(required_inputs), obj.callee.name)
+            self.add(obj, msg)
         super().call(obj)
 
 
@@ -211,10 +199,8 @@ class CallImportNameCollision(Linter):
             doc = getattr(doc, 'parent')
         for _, namespace, _ in doc.imports:
             if namespace == obj.name:
-                self.add(
-                    obj,
-                    "call name {} collides with imported document namespace".format(
-                        obj.name))
+                msg = "call name {} collides with imported document namespace".format(obj.name)
+                self.add(obj, msg)
         super().call(obj)
 
 

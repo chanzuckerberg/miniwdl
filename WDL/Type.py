@@ -59,9 +59,7 @@ class Base(ABC):
         if isinstance(rhs, Array) and self.coerces(rhs.item_type):
             # coerce T to Array[T]
             return True
-        return (
-            type(self).__name__ == type(rhs).__name__) and (
-            not self.optional or rhs.optional)
+        return (type(self).__name__ == type(rhs).__name__) and (not self.optional or rhs.optional)
 
     @property
     def optional(self) -> bool:
@@ -190,8 +188,7 @@ class Array(Base):
         if isinstance(rhs, Array):
             if self.item_type is None or rhs.item_type is None:
                 return True
-            return self.item_type.coerces(rhs.item_type) and (
-                not rhs.nonempty or self.nonempty)
+            return self.item_type.coerces(rhs.item_type) and (not rhs.nonempty or self.nonempty)
         if isinstance(rhs, String):
             return self.item_type is None or self.item_type.coerces(String())
         return False
@@ -219,16 +216,15 @@ class Map(Base):
     to any map type (but may fail at runtime).
     """
 
-    def __init__(
-            self, item_type: Optional[Tuple[Base, Base]], optional: bool = False) -> None:
+    def __init__(self, item_type: Optional[Tuple[Base, Base]], optional: bool = False) -> None:
         self._optional = optional
         self.item_type = item_type
 
     def __str__(self) -> str:
         # pyre-fixme
         return ("Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1])
-                          if self.item_type is not None else "") + "]"
-                       + ('?' if self.optional else ''))
+                          if self.item_type is not None else "")
+                + "]" + ('?' if self.optional else ''))
 
     def coerces(self, rhs: Base) -> bool:
         ""
@@ -237,8 +233,7 @@ class Map(Base):
                 return True
             # pyre-fixme
             return self.item_type[0].coerces(
-                rhs.item_type[0]) and self.item_type[1].coerces(
-                rhs.item_type[1])
+                rhs.item_type[0]) and self.item_type[1].coerces(rhs.item_type[1])
         return super().coerces(rhs)
 
 
@@ -255,12 +250,11 @@ class Pair(Base):
     :type: WDL.Type.Base
     """
 
-    def __init__(self, left_type: Base, right_type: Base,
-                 optional: bool = False) -> None:
+    def __init__(self, left_type: Base, right_type: Base, optional: bool = False) -> None:
         self._optional = optional
         self.left_type = left_type
         self.right_type = right_type
 
     def __str__(self) -> str:
-        return "Pair[" + (str(self.left_type) + "," + \
+        return "Pair[" + (str(self.left_type) + "," +
                           str(self.right_type)) + "]" + ('?' if self.optional else '')

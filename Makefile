@@ -17,7 +17,7 @@ check:
 
 # uses autopep8 to rewrite source files!
 pretty:
-	autopep8 --aggressive --aggressive --in-place WDL/*.py
+	autopep8 --aggressive --aggressive --max-line-length 100 --in-place WDL/*.py
 	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name --exit-zero WDL
 
 # for use in CI: complain if source code isn't at a fixed point for autopep8
