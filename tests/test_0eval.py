@@ -252,5 +252,13 @@ class TestEval(unittest.TestCase):
             ("1 + bogus(2)", "(Ln 1, Col 5) No such function: bogus", WDL.Error.NoSuchFunction)
         )
 
+    def test_short_circuit(self):
+        self._test_tuples(
+            ("true && 1/0 == 1", "", WDL.Error.IncompatibleOperand),
+            ("false && 1/0 == 1", "false"),
+            ("false || 1/0 == 1", "", WDL.Error.IncompatibleOperand),
+            ("true || 1/0 == 1", "true"),
+        )
+
 def cons_env(*bindings):
     return [WDL.Env.Binding(x,y) for (x,y) in bindings]

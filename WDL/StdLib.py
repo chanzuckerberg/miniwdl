@@ -96,6 +96,50 @@ class _PairGet(E._Function):
 E._stdlib["_get_left"] = _PairGet(True)
 E._stdlib["_get_right"] = _PairGet(False)
 
+# logical && with short-circuit evaluation
+
+
+class _And(E._Function):
+
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        assert len(expr.arguments) == 2
+        for arg in expr.arguments:
+            if not isinstance(arg.type, T.Boolean):
+                raise Error.IncompatibleOperand(arg, "non-Boolean operand to &&")
+            if arg.type.optional:
+                raise Error.IncompatibleOperand(arg, "optional Boolean? operand to &&")
+        return T.Boolean()
+
+    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+        lhs = expr.arguments[0].eval(env).value
+        if not lhs:
+            return V.Boolean(False)
+        return expr.arguments[1].eval(env)
+
+
+E._stdlib["_land"] = _And()
+
+
+class _Or(E._Function):
+
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        assert len(expr.arguments) == 2
+        for arg in expr.arguments:
+            if not isinstance(arg.type, T.Boolean):
+                raise Error.IncompatibleOperand(arg, "non-Boolean operand to ||")
+            if arg.type.optional:
+                raise Error.IncompatibleOperand(arg, "optional Boolean? operand to ||")
+        return T.Boolean()
+
+    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+        lhs = expr.arguments[0].eval(env).value
+        if lhs:
+            return V.Boolean(True)
+        return expr.arguments[1].eval(env)
+
+
+E._stdlib["_lor"] = _Or()
+
 # _Function helper for simple functions with fixed argument and return types
 
 
@@ -151,10 +195,6 @@ def _notimpl(one: Any = None, two: Any = None) -> None:
 
 _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("_negate", [T.Boolean()], T.Boolean(), lambda x: V.Boolean(not x.value)),  # pyre-fixme
-    ("_land", [T.Boolean(), T.Boolean()], T.Boolean(),
-     lambda l, r: V.Boolean(l.value and r.value)),  # pyre-fixme
-    ("_lor", [T.Boolean(), T.Boolean()], T.Boolean(),
-     lambda l, r: V.Boolean(l.value or r.value)),  # pyre-fixme
     ("_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)),  # pyre-fixme
     ("stdout", [], T.File(), _notimpl),
     ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
@@ -217,8 +257,12 @@ class _ArithmeticOperator(E._Function):
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
         ans_type = self.infer_type(expr)
-        ans = self.op(expr.arguments[0].eval(env).coerce(ans_type).value,
-                      expr.arguments[1].eval(env).coerce(ans_type).value)
+        try:
+            ans = self.op(expr.arguments[0].eval(env).coerce(ans_type).value,
+                          expr.arguments[1].eval(env).coerce(ans_type).value)
+        except ZeroDivisionError:
+            # TODO: different runtime error?
+            raise Error.IncompatibleOperand(expr.arguments[1], "Division by zero") from None
         if ans_type == T.Int():
             assert isinstance(ans, int)
             return V.Int(ans)
@@ -228,13 +272,11 @@ class _ArithmeticOperator(E._Function):
 
 E._stdlib["_sub"] = _ArithmeticOperator("-", lambda l, r: l - r)  # pyre-ignore
 E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l, r: l * r)  # pyre-ignore
-E._stdlib["_div"] = _ArithmeticOperator(
-    "/", lambda l, r: l // r)  # pyre-ignore
-
-# + operator can also serve as concatenation for String.
+E._stdlib["_div"] = _ArithmeticOperator("/", lambda l, r: l // r)  # pyre-ignore
 
 
 class _AddOperator(_ArithmeticOperator):
+    # + operator can also serve as concatenation for String.
     def __init__(self) -> None:
         super().__init__("+", lambda l, r: l + r)  # pyre-ignore
 

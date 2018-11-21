@@ -6,7 +6,7 @@ test: check
 
 # fail fast
 qtest:
-	python -m unittest -v -f
+	python3 -m unittest -v -f
 
 check:
 	pylint --errors-only WDL
