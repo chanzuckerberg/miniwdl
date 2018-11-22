@@ -42,20 +42,7 @@ def check(args):
         args.path = []
     doc = WDL.load(args.uri, args.path)
 
-    # Mark up the AST
-    WDL.Walker.SetParents()(doc)
-    WDL.Walker.MarkCalled()(doc)
-
-    linters = [
-        WDL.Lint.StringCoercion(),
-        WDL.Lint.ArrayCoercion(),
-        WDL.Lint.OptionalCoercion(),
-        WDL.Lint.IncompleteCall(),
-        WDL.Lint.CallImportNameCollision(),
-        WDL.Lint.UnusedImport()
-    ]
-    for linter in linters:
-        linter(doc)
+    WDL.Lint.lint(doc)
 
     # Print an outline
     print(os.path.basename(args.uri))
