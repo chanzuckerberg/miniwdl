@@ -7,7 +7,7 @@ import WDL
 
 class Linter(WDL.Walker.Base):
     """
-    Linters are Walkers which annotate each tree node with
+    Linters are Walkers which annotate each Tree node with
         ``lint : List[Tuple[SourceNode,str,str]]``
     providing lint warnings with a node (possibly more-specific than the
     node it's attached to), short codename, and message.
@@ -15,11 +15,93 @@ class Linter(WDL.Walker.Base):
 
     def add(self, obj: WDL.SourceNode, message: str,
             subnode: Optional[WDL.SourceNode] = None):
+        """
+        Used by subclasses to attach lint to a node.
+
+        Note, lint attaches to Tree nodes (Decl, Task, Workflow, Scatter,
+        Conditional, Doucemnt). Warnings about individual expressinos should
+        attach to their parent Tree node.
+        """
+        assert not isinstance(obj, WDL.Expr.Base)
         if not hasattr(obj, 'lint'):
             obj.lint = []
         obj.lint.append((subnode or obj, self.__class__.__name__, message))
 
 
+_all_linters = []
+
+
+def a_linter(cls):
+    """
+    Decorator for subclasses of ``Linter`` to register them for use
+    """
+    _all_linters.append(cls)
+
+
+def lint(doc):
+    """
+    Apply all linters to the document
+    """
+
+    # Add additional markups to the AST for use by the linters
+    WDL.Walker.SetParents()(doc)
+    WDL.Walker.MarkCalled()(doc)
+
+    for linter in _all_linters:
+        linter()(doc)
+
+    return doc
+
+
+class _Collector(WDL.Walker.Base):
+    def __init__(self):
+        super().__init__()
+        self.lint = []
+
+    def _collect(self, obj):
+        if hasattr(obj, 'lint'):
+            self.lint.extend(getattr(obj, 'lint'))
+
+    def document(self, obj) -> Any:
+        self._collect(obj)
+        super().document(obj)
+
+    def workflow(self, obj) -> Any:
+        self._collect(obj)
+        super().workflow(obj)
+
+    def call(self, obj) -> Any:
+        self._collect(obj)
+        super().call(obj)
+
+    def scatter(self, obj) -> Any:
+        self._collect(obj)
+        super().scatter(obj)
+
+    def conditional(self, obj) -> Any:
+        self._collect(obj)
+        super().conditional(obj)
+
+    def decl(self, obj) -> Any:
+        self._collect(obj)
+        super().decl(obj)
+
+    def task(self, obj) -> Any:
+        self._collect(obj)
+        super().task(obj)
+
+
+def collect(doc):
+    """
+    Recursively traverse the already-linted document and collect a flat list of
+    (tree node, linter_class, message)
+    """
+    collector = _Collector()
+    collector(doc)
+    return collector.lint
+
+
+@a_linter
 class StringCoercion(Linter):
     # String declaration with non-String rhs expression
     def decl(self, obj: WDL.Decl) -> Any:
@@ -107,6 +189,7 @@ def _is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
         value_type) > _array_levels(expr_type)
 
 
+@a_linter
 class ArrayCoercion(Linter):
 
     def decl(self, obj: WDL.Decl) -> Any:
@@ -148,6 +231,7 @@ class ArrayCoercion(Linter):
                 self.add(obj, msg, inp_expr)
 
 
+@a_linter
 class OptionalCoercion(Linter):
     # Expressions that could blow up at runtime with empty optional values
     def expr(self, obj: WDL.Expr.Base) -> Any:
@@ -175,6 +259,7 @@ class OptionalCoercion(Linter):
         super().expr(obj)
 
 
+@a_linter
 class IncompleteCall(Linter):
     # Call without all required inputs (allowed for top-level workflow)
     def call(self, obj: WDL.Call) -> Any:
@@ -190,6 +275,7 @@ class IncompleteCall(Linter):
         super().call(obj)
 
 
+@a_linter
 class CallImportNameCollision(Linter):
     # A call name collides with the namespace of an imported document; allowed
     # but potentially confusing.
@@ -204,6 +290,7 @@ class CallImportNameCollision(Linter):
         super().call(obj)
 
 
+@a_linter
 class UnusedImport(Linter):
     # Nothing used from an imported document
     def document(self, obj: WDL.Document) -> Any:
