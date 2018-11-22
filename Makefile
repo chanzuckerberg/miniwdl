@@ -3,6 +3,7 @@ SHELL := /bin/bash
 test: check
 	coverage run --include "WDL/*" -m unittest -v
 	coverage report
+	prove -v tests/cli.t
 
 # fail fast
 qtest:

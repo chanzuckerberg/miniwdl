@@ -40,3 +40,6 @@
 [submodule "test_corpi/gatk-workflows/gatk4-cnn-variant-filter"]
 	path = test_corpi/gatk-workflows/gatk4-cnn-variant-filter
 	url = https://github.com/gatk-workflows/gatk4-cnn-variant-filter.git
+[submodule "tests/bash-tap"]
+	path = tests/bash-tap
+	url = https://github.com/illusori/bash-tap.git
