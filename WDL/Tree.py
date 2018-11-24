@@ -102,20 +102,57 @@ class Task(SourceNode):
         self.runtime = runtime
         self.meta = meta
         # TODO: enforce validity constraints on parameter_meta and runtime
-        # TODO: complain of name collisions in inputs/postinputs
 
-    def typecheck(self, type_env: Env.Types = []) -> None:
+    def typecheck(self) -> None:
+        # First collect a type environment for all the input & postinput
+        # declarations, so that we're prepared for possible forward-references
+        # in their right-hand side expressions.
+        type_env = []
         for decl in self.inputs + self.postinputs:
-            type_env = _typecheck_decl(decl, type_env)
+            type_env = _add_decl_to_type_env(decl, type_env)
+        # Pass through input & postinput declarations again, typecheck their
+        # right-hand side expressions against the type environment.
+        for decl in self.inputs + self.postinputs:
+            _typecheck_decl_expr(decl, type_env)
+        # TODO: detect circular dependencies among input & postinput decls
+        # Typecheck the command (string)
         self.command.infer_type(type_env).typecheck(T.String())
+        # Add output declarations to type environment
         for decl in self.outputs:
-            type_env = _typecheck_decl(decl, type_env)
+            type_env = _add_decl_to_type_env(decl, type_env)
+        # Typecheck the output expressions
+        for decl in self.outputs:
+            _typecheck_decl_expr(decl, type_env)
+        # TODO: detect circularities in output declarations
         # TODO: check runtime section
 
     @property
     def required_inputs(self) -> List[Decl]:
         return [decl for decl in (self.inputs + self.postinputs)
                 if decl.expr is None and decl.type.optional is False]
+
+def _add_decl_to_type_env(decl: Decl, type_env: Env.Types) -> Env.Types:
+    try:
+        Env.resolve(type_env, [], decl.name)
+        raise Err.MultipleDefinitions(decl, "Multiple declarations of " + decl.name)
+    except KeyError:
+        pass
+    ans: Env.Types = Env.bind(decl.name, decl.type, type_env)
+    return ans
+
+
+def _typecheck_decl_expr(decl: Decl, type_env: Env.Types) -> Env.Types:
+    # 2. A declaration of Array[T]+ = <expr> is accepted even if we can't
+    #    prove <expr> is nonempty statically. Its nonemptiness should be
+    #    checked at runtime. Exception when <expr> is an empty array literal
+    if decl.expr:
+        check_type = decl.type
+        if isinstance(check_type, T.Array):
+            if check_type.nonempty and isinstance(decl.expr, E.Array) and not decl.expr.items:
+                raise Err.EmptyArray(decl.expr)
+            check_type = check_type.copy(nonempty=False)
+        decl.expr.infer_type(type_env).typecheck(check_type)
+
 
 # type-check a declaration within a type environment, and return the type
 # environment with the new binding
