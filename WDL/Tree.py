@@ -113,7 +113,7 @@ class Task(SourceNode):
         # Pass through input & postinput declarations again, typecheck their
         # right-hand side expressions against the type environment.
         for decl in self.inputs + self.postinputs:
-            _typecheck_decl_expr(decl, type_env)
+            _typecheck_decl_expr(decl, type_env) # pyre-ignore
         # TODO: detect circular dependencies among input & postinput decls
         # Typecheck the command (string)
         self.command.infer_type(type_env).typecheck(T.String())
@@ -122,7 +122,7 @@ class Task(SourceNode):
             type_env = _add_decl_to_type_env(decl, type_env)
         # Typecheck the output expressions
         for decl in self.outputs:
-            _typecheck_decl_expr(decl, type_env)
+            _typecheck_decl_expr(decl, type_env) # pyre-ignore
         # TODO: detect circularities in output declarations
         # TODO: check runtime section
 
@@ -141,7 +141,7 @@ def _add_decl_to_type_env(decl: Decl, type_env: Env.Types) -> Env.Types:
     return ans
 
 
-def _typecheck_decl_expr(decl: Decl, type_env: Env.Types) -> Env.Types:
+def _typecheck_decl_expr(decl: Decl, type_env: Env.Types) -> None:
     # 2. A declaration of Array[T]+ = <expr> is accepted even if we can't
     #    prove <expr> is nonempty statically. Its nonemptiness should be
     #    checked at runtime. Exception when <expr> is an empty array literal
