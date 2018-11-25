@@ -15,16 +15,16 @@ check:
 		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
 		--show-parse-errors check
 
-# uses autopep8 to rewrite source files!
+# uses black to rewrite source files!
 pretty:
-	autopep8 --aggressive --aggressive --max-line-length 100 --in-place WDL/*.py
-	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name --exit-zero WDL
+	black --line-length 100 --py36 WDL/
+	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name,bad-continuation --exit-zero WDL
 
-# for use in CI: complain if source code isn't at a fixed point for autopep8
+# for use in CI: complain if source code isn't at a fixed point for black
 sopretty:
 	@git diff --quiet || (echo "ERROR: 'make sopretty' must start with a clean working tree"; exit 1)
 	$(MAKE) pretty
-	@git diff --quiet || (echo "ERROR: source files were modified by autopep8; please fix up this commit with 'make pretty'"; exit 1)
+	@git diff --quiet || (echo "ERROR: source files were modified by black; please fix up this commit with 'make pretty'"; exit 1)
 
 # run tests in a docker image
 docker:

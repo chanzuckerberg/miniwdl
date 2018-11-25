@@ -16,11 +16,12 @@ import WDL.Env as Env
 from WDL.Error import SourcePosition, SourceNode
 import WDL.Error as Error
 
-TVBase = TypeVar('TVBase', bound='Base')
+TVBase = TypeVar("TVBase", bound="Base")
 
 
 class Base(SourceNode, ABC):
     """Superclass of all expression AST nodes"""
+
     _type: Optional[T.Base] = None
 
     def __init__(self, pos: SourcePosition) -> None:
@@ -77,6 +78,7 @@ class Base(SourceNode, ABC):
         """Evaluate the expression in the given environment"""
         pass
 
+
 # Boolean literal
 
 
@@ -99,6 +101,7 @@ class Boolean(Base):
         ""
         return V.Boolean(self.value)
 
+
 # Integer literal
 
 
@@ -120,6 +123,7 @@ class Int(Base):
     def eval(self, env: Env.Values) -> V.Int:
         ""
         return V.Int(self.value)
+
 
 # Float literal
 
@@ -160,8 +164,7 @@ class Placeholder(Base):
     Expression for evaluation
     """
 
-    def __init__(self, pos: SourcePosition,
-                 options: Dict[str, str], expr: Base) -> None:
+    def __init__(self, pos: SourcePosition, options: Dict[str, str], expr: Base) -> None:
         super().__init__(pos)
         self.options = options
         self.expr = expr
@@ -169,51 +172,51 @@ class Placeholder(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         self.expr.infer_type(type_env)
         if isinstance(self.expr.type, T.Array):
-            if 'sep' not in self.options:
+            if "sep" not in self.options:
                 raise Error.StaticTypeMismatch(
-                    self,
-                    T.Array(None),
-                    self.expr.type,
-                    "array command placeholder must have 'sep'")
+                    self, T.Array(None), self.expr.type, "array command placeholder must have 'sep'"
+                )
             # if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String, T.File] if isinstance(self.expr.type.item_type, t)) == 0:
             #    raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "cannot use array of complex types for command placeholder")
-        elif 'sep' in self.options:
+        elif "sep" in self.options:
             raise Error.StaticTypeMismatch(
                 self,
                 T.Array(None),
                 self.expr.type,
-                "command placeholder has 'sep' option for non-Array expression")
-        if ('true' in self.options or 'false' in self.options):
+                "command placeholder has 'sep' option for non-Array expression",
+            )
+        if "true" in self.options or "false" in self.options:
             if not isinstance(self.expr.type, T.Boolean):
                 raise Error.StaticTypeMismatch(
                     self,
                     T.Boolean(),
                     self.expr.type,
-                    "command placeholder 'true' and 'false' options used with non-Boolean expression")
-            if not ('true' in self.options and 'false' in self.options):
+                    "command placeholder 'true' and 'false' options used with non-Boolean expression",
+                )
+            if not ("true" in self.options and "false" in self.options):
                 raise Error.StaticTypeMismatch(
                     self,
                     T.Boolean(),
                     self.expr.type,
-                    "command placeholder with only one of 'true' and 'false' options")
+                    "command placeholder with only one of 'true' and 'false' options",
+                )
         return T.String()
 
     def eval(self, env: Env.Values) -> V.String:
         ""
         v = self.expr.eval(env)
         if isinstance(v, V.Null):
-            if 'default' in self.options:
-                return V.String(self.options['default'])
-            return V.String('')
+            if "default" in self.options:
+                return V.String(self.options["default"])
+            return V.String("")
         if isinstance(v, V.String):
             return v
         if isinstance(v, V.Array):
-            return V.String(self.options['sep'].join(
-                str(item.value) for item in v.value))
-        if v == V.Boolean(True) and 'true' in self.options:
-            return V.String(self.options['true'])
-        if v == V.Boolean(False) and 'false' in self.options:
-            return V.String(self.options['false'])
+            return V.String(self.options["sep"].join(str(item.value) for item in v.value))
+        if v == V.Boolean(True) and "true" in self.options:
+            return V.String(self.options["true"])
+        if v == V.Boolean(False) and "false" in self.options:
+            return V.String(self.options["false"])
         return V.String(str(v))
 
 
@@ -230,8 +233,7 @@ class String(Base):
     have NOT been decoded.
     """
 
-    def __init__(self, pos: SourcePosition,
-                 parts: List[Union[str, Placeholder]]) -> None:
+    def __init__(self, pos: SourcePosition, parts: List[Union[str, Placeholder]]) -> None:
         super().__init__(pos)
         self.parts = parts
 
@@ -254,11 +256,12 @@ class String(Base):
                 ans.append(part.eval(env).value)
             elif isinstance(part, str):
                 # use python builtins to decode escape sequences
-                ans.append(str.encode(part).decode('unicode_escape'))
+                ans.append(str.encode(part).decode("unicode_escape"))
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
-        return V.String(''.join(ans)[1:-1])  # pyre-ignore
+        return V.String("".join(ans)[1:-1])  # pyre-ignore
+
 
 # Array
 
@@ -307,7 +310,8 @@ class Array(Base):
             except Error.StaticTypeMismatch:
                 self._type = T.Array(item_type, optional=False, nonempty=True)
                 raise Error.StaticTypeMismatch(
-                    self, item_type, item.type, "(inconsistent types within array)") from None
+                    self, item_type, item.type, "(inconsistent types within array)"
+                ) from None
         return T.Array(item_type, optional=False, nonempty=True)
 
     def typecheck(self, expected: Optional[T.Base]) -> Base:
@@ -323,8 +327,10 @@ class Array(Base):
     def eval(self, env: Env.Values) -> V.Array:
         ""
         assert isinstance(self.type, T.Array)
-        return V.Array(self.type, [item.eval(env).coerce(
-            self.type.item_type) for item in self.items])
+        return V.Array(
+            self.type, [item.eval(env).coerce(self.type.item_type) for item in self.items]
+        )
+
 
 # If
 
@@ -351,8 +357,9 @@ class IfThenElse(Base):
     Expression evaluated when the condition is false
     """
 
-    def __init__(self, pos: SourcePosition, condition: Base,
-                 consequent: Base, alternative: Base) -> None:
+    def __init__(
+        self, pos: SourcePosition, condition: Base, consequent: Base, alternative: Base
+    ) -> None:
         super().__init__(pos)
         self.condition = condition
         self.consequent = consequent
@@ -361,29 +368,37 @@ class IfThenElse(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         if self.condition.infer_type(type_env).type != T.Boolean():
             raise Error.StaticTypeMismatch(
-                self, T.Boolean(), self.condition.type, "in if condition")
+                self, T.Boolean(), self.condition.type, "in if condition"
+            )
         self_type = self.consequent.infer_type(type_env).type
         assert isinstance(self_type, T.Base)
         self.alternative.infer_type(type_env)
         # unify inferred consequent & alternative types wrt quantifiers & float
         # promotion
-        if isinstance(self_type, T.Int) and isinstance(
-                self.alternative.type, T.Float):
+        if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
             self_type = T.Float(optional=self_type.optional)
         if self.alternative.type.optional:
             self_type = self_type.copy(optional=True)
-        if isinstance(
-                self_type, T.Array) and isinstance(
-                    self.consequent.type, T.Array) and isinstance(
-                        self.alternative.type, T.Array):
-            self_type = self_type.copy(nonempty=(  # pyre-fixme
-                self.consequent.type.nonempty and self.alternative.type.nonempty))  # pyre-fixme
+        if (
+            isinstance(self_type, T.Array)
+            and isinstance(self.consequent.type, T.Array)
+            and isinstance(self.alternative.type, T.Array)
+        ):
+            self_type = self_type.copy(
+                nonempty=(  # pyre-ignore
+                    self.consequent.type.nonempty and self.alternative.type.nonempty  # pyre-ignore
+                )
+            )
         try:
             self.consequent.typecheck(self_type)
             self.alternative.typecheck(self_type)
         except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(self, self.consequent.type, self.alternative.type,  # pyre-fixme
-                                           " (if consequent & alternative must have the same type)") from None
+            raise Error.StaticTypeMismatch(
+                self,
+                self.consequent.type,  # pyre-ignore
+                self.alternative.type,
+                " (if consequent & alternative must have the same type)",
+            ) from None
         return self_type
 
     def eval(self, env: Env.Values) -> V.Base:
@@ -397,13 +412,14 @@ class IfThenElse(Base):
         except ReferenceError:
             raise Error.NullValue(self) from None
 
+
 # function applications
 
 # Abstract interface to an internal function implementation
 # (see StdLib.py for concrete implementations)
 
 
-TVApply = TypeVar('TVApply', bound='Apply')
+TVApply = TypeVar("TVApply", bound="Apply")
 
 
 class _Function(ABC):
@@ -425,6 +441,7 @@ _stdlib: Dict[str, _Function] = {}
 
 class Apply(Base):
     """Application of a built-in or standard library function"""
+
     function_name: str
     """Name of the function applied
 
@@ -438,8 +455,7 @@ class Apply(Base):
 
     function: _Function
 
-    def __init__(self, pos: SourcePosition, function: str,
-                 arguments: List[Base]) -> None:
+    def __init__(self, pos: SourcePosition, function: str, arguments: List[Base]) -> None:
         super().__init__(pos)
         try:
             self.function = _stdlib[function]
@@ -460,8 +476,10 @@ class Apply(Base):
 
 # Namespaced identifiers
 
+
 class Ident(Base):
     """An identifier expected to resolve in the environment given during evaluation"""
+
     namespace: List[str]
     """
     :type: List[str]
@@ -478,7 +496,7 @@ class Ident(Base):
         self.namespace = parts[:-1]
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        if self.namespace and (self.name in ['left', 'right']):
+        if self.namespace and (self.name in ["left", "right"]):
             # Special case for pair access, IDENT.left or IDENT.right
             # Pair access through non-identifier expressions goes a different
             # path, through the get_left and get_right terminals.
@@ -491,7 +509,7 @@ class Ident(Base):
             except KeyError:
                 pass
             if isinstance(ans, T.Pair):
-                return ans.left_type if self.name == 'left' else ans.right_type
+                return ans.left_type if self.name == "left" else ans.right_type
         try:
             ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
             return ans
@@ -500,14 +518,14 @@ class Ident(Base):
 
     def eval(self, env: Env.Values) -> V.Base:
         ""
-        if self.namespace and (self.name in ['left', 'right']):
+        if self.namespace and (self.name in ["left", "right"]):
             pair_name = self.namespace[-1]
             pair_namespace = self.namespace[:-1]
             try:
                 ans: V.Base = Env.resolve(env, pair_namespace, pair_name)
                 if isinstance(ans, V.Pair):
                     assert ans.value is not None
-                    return ans.value[0] if self.name == 'left' else ans.value[1]
+                    return ans.value[0] if self.name == "left" else ans.value[1]
             except KeyError:
                 pass
         try:
@@ -515,6 +533,7 @@ class Ident(Base):
             return ans
         except KeyError:
             raise Error.UnknownIdentifier(self) from None
+
 
 # Pair literal
 
@@ -550,6 +569,7 @@ class Pair(Base):
         rv = self.right.eval(env)
         return V.Pair(self.type, (lv, rv))
 
+
 # Map literal
 
 
@@ -561,8 +581,7 @@ class Map(Base):
     Expressions for the map literal keys and values
     """
 
-    def __init__(self, pos: SourcePosition,
-                 items: List[Tuple[Base, Base]]) -> None:
+    def __init__(self, pos: SourcePosition, items: List[Tuple[Base, Base]]) -> None:
         super().__init__(pos)
         self.items = items
 

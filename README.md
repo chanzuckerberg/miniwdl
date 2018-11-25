@@ -4,6 +4,7 @@
 ![Project Status](https://img.shields.io/badge/status-prealpha-red.svg)
 [![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/master/LICENSE)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
@@ -104,7 +105,7 @@ Feedback and contributions are welcome on this repository. Please:
 
 1. Send pull requests from a dedicated branch without unrelated edits
 2. Add appropriate tests to the automatic suite
-3. Use `make pretty` to reformat the code with [autopep8](https://github.com/hhatto/autopep8)
+3. Use `make pretty` to reformat the code with [black](https://github.com/ambv/black)
 4. Ensure compatibility with this project's MIT license
 
 The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker.

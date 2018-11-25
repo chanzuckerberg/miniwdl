@@ -1,7 +1,7 @@
 # Packages needed for miniwdl development, in addition to those in
 # requirements.txt which are needed for miniwdl to run in common use.
-pyre-check==0.0.16
-autopep8==1.4.3
+pyre-check==0.0.17
+black==18.9b0
 pylint
 sphinx
 sphinx-autobuild

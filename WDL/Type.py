@@ -82,7 +82,7 @@ class Base(ABC):
         return ans
 
     def __str__(self) -> str:
-        return type(self).__name__ + ('?' if self.optional else '')
+        return type(self).__name__ + ("?" if self.optional else "")
 
     def __eq__(self, rhs) -> bool:
         return isinstance(rhs, Base) and str(self) == str(rhs)
@@ -147,6 +147,7 @@ class Array(Base):
     """
     Array type, parameterized by the type of the constituent items.
     """
+
     item_type: Optional[Base]  # TODO: make immutable property
     """
     :type: Optional[WDL.Type.Base]
@@ -159,19 +160,21 @@ class Array(Base):
     _nonempty: bool
 
     def __init__(
-            self,
-            item_type: Optional[Base],
-            optional: bool = False,
-            nonempty: bool = False) -> None:
+        self, item_type: Optional[Base], optional: bool = False, nonempty: bool = False
+    ) -> None:
         self.item_type = item_type
         assert isinstance(nonempty, bool)
         self._optional = optional
         self._nonempty = nonempty
 
     def __str__(self) -> str:
-        ans = "Array[" + (str(self.item_type) if self.item_type is not None else "") + "]" \
-            + ('+' if self.nonempty else '') \
-            + ('?' if self.optional else '')
+        ans = (
+            "Array["
+            + (str(self.item_type) if self.item_type is not None else "")
+            + "]"
+            + ("+" if self.nonempty else "")
+            + ("?" if self.optional else "")
+        )
         return ans
 
     @property
@@ -193,8 +196,7 @@ class Array(Base):
             return self.item_type is None or self.item_type.coerces(String())
         return False
 
-    def copy(self, optional: Optional[bool] = None,
-             nonempty: Optional[bool] = None) -> Base:
+    def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
         ans: Array = super().copy(optional)
         if nonempty is not None:
             ans._nonempty = nonempty
@@ -221,10 +223,16 @@ class Map(Base):
         self.item_type = item_type
 
     def __str__(self) -> str:
-        # pyre-fixme
-        return ("Map[" + (str(self.item_type[0]) + "," + str(self.item_type[1])
-                          if self.item_type is not None else "")
-                + "]" + ('?' if self.optional else ''))
+        return (
+            "Map["
+            + (
+                str(self.item_type[0]) + "," + str(self.item_type[1])  # pyre-fixme
+                if self.item_type is not None
+                else ""
+            )
+            + "]"
+            + ("?" if self.optional else "")
+        )
 
     def coerces(self, rhs: Base) -> bool:
         ""
@@ -232,8 +240,9 @@ class Map(Base):
             if self.item_type is None or rhs.item_type is None:
                 return True
             # pyre-fixme
-            return self.item_type[0].coerces(
-                rhs.item_type[0]) and self.item_type[1].coerces(rhs.item_type[1])
+            return self.item_type[0].coerces(rhs.item_type[0]) and self.item_type[1].coerces(
+                rhs.item_type[1]
+            )
         return super().coerces(rhs)
 
 
@@ -241,6 +250,7 @@ class Pair(Base):
     """
     Pair type, parameterized by the left and right item types.
     """
+
     left_type: Base
     """
     :type: WDL.Type.Base
@@ -256,5 +266,9 @@ class Pair(Base):
         self.right_type = right_type
 
     def __str__(self) -> str:
-        return "Pair[" + (str(self.left_type) + "," +
-                          str(self.right_type)) + "]" + ('?' if self.optional else '')
+        return (
+            "Pair["
+            + (str(self.left_type) + "," + str(self.right_type))
+            + "]"
+            + ("?" if self.optional else "")
+        )
