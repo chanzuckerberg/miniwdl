@@ -1,5 +1,7 @@
 # Start with ubuntu:18.04 plus some apt packages
 FROM ubuntu:18.04
+ENV LC_ALL C.UTF-8
+ENV LANG C.UTF-8
 RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3 python3-pip python3-setuptools tzdata wget zip git-core
 # pip install the requirements files for run & dev
 COPY requirements.txt requirements.dev.txt /miniwdl/
