@@ -32,7 +32,8 @@ class _Get(E._Function):
                 rhs.typecheck(lhs.type.item_type[0])
             except Error.StaticTypeMismatch:
                 raise Error.StaticTypeMismatch(
-                    rhs, lhs.type.item_type[0], rhs.type, "Map key") from None
+                    rhs, lhs.type.item_type[0], rhs.type, "Map key"
+                ) from None
             return lhs.type.item_type[1]
         raise Error.NotAnArray(lhs)
 
@@ -100,7 +101,6 @@ E._stdlib["_get_right"] = _PairGet(False)
 
 
 class _And(E._Function):
-
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         for arg in expr.arguments:
@@ -121,7 +121,6 @@ E._stdlib["_land"] = _And()
 
 
 class _Or(E._Function):
-
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         for arg in expr.arguments:
@@ -149,11 +148,9 @@ class _StaticFunction(E._Function):
     return_type: T.Base
     F: Callable
 
-    def __init__(self,
-                 name: str,
-                 argument_types: List[T.Base],
-                 return_type: T.Base,
-                 F: Callable) -> None:
+    def __init__(
+        self, name: str, argument_types: List[T.Base], return_type: T.Base, F: Callable
+    ) -> None:
         self.name = name
         self.argument_types = argument_types
         self.return_type = return_type
@@ -176,21 +173,21 @@ class _StaticFunction(E._Function):
                     expr.arguments[i],
                     self.argument_types[i],
                     expr.arguments[i].type,
-                    "for {} argument #{}".format(
-                        self.name,
-                        i + 1)) from None
+                    "for {} argument #{}".format(self.name, i + 1),
+                ) from None
         return self.return_type
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
         assert len(expr.arguments) == len(self.argument_types)
-        argument_values = [arg.eval(env).coerce(ty) for arg, ty in zip(
-            expr.arguments, self.argument_types)]
+        argument_values = [
+            arg.eval(env).coerce(ty) for arg, ty in zip(expr.arguments, self.argument_types)
+        ]
         ans: V.Base = self.F(*argument_values)
         return ans.coerce(self.return_type)
 
 
 def _notimpl(one: Any = None, two: Any = None) -> None:
-    exec('raise NotImplementedError()')
+    exec("raise NotImplementedError()")
 
 
 _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
@@ -242,24 +239,25 @@ class _ArithmeticOperator(E._Function):
         assert len(expr.arguments) == 2
         rt = T.Int()
         if isinstance(expr.arguments[0].type, T.Float) or isinstance(
-                expr.arguments[1].type, T.Float):
+            expr.arguments[1].type, T.Float
+        ):
             rt = T.Float()
         try:
             expr.arguments[0].typecheck(rt)
             expr.arguments[1].typecheck(rt)
         except Error.StaticTypeMismatch:
             raise Error.IncompatibleOperand(
-                expr,
-                "Non-numeric operand to " +
-                self.name +
-                " operator") from None
+                expr, "Non-numeric operand to " + self.name + " operator"
+            ) from None
         return rt
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
         ans_type = self.infer_type(expr)
         try:
-            ans = self.op(expr.arguments[0].eval(env).coerce(ans_type).value,
-                          expr.arguments[1].eval(env).coerce(ans_type).value)
+            ans = self.op(
+                expr.arguments[0].eval(env).coerce(ans_type).value,
+                expr.arguments[1].eval(env).coerce(ans_type).value,
+            )
         except ZeroDivisionError:
             # TODO: different runtime error?
             raise Error.IncompatibleOperand(expr.arguments[1], "Division by zero") from None
@@ -291,16 +289,21 @@ class _AddOperator(_ArithmeticOperator):
             # neither operand is a string; defer to _ArithmeticOperator
             return super().infer_type(expr)
         if not t2.coerces(T.String(optional=True)):
-            raise Error.IncompatibleOperand(expr, "Cannot add/concatenate {} and {}".format(
-                str(expr.arguments[0].type), str(expr.arguments[1].type)))
+            raise Error.IncompatibleOperand(
+                expr,
+                "Cannot add/concatenate {} and {}".format(
+                    str(expr.arguments[0].type), str(expr.arguments[1].type)
+                ),
+            )
         return T.String()
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
         ans_type = self.infer_type(expr)
         if not isinstance(ans_type, T.String):
             return super().__call__(expr, env)
-        ans = self.op(str(expr.arguments[0].eval(env).value),
-                      str(expr.arguments[1].eval(env).value))
+        ans = self.op(
+            str(expr.arguments[0].eval(env).value), str(expr.arguments[1].eval(env).value)
+        )
         assert isinstance(ans, str)
         return V.String(ans)
 
@@ -322,18 +325,25 @@ class _ComparisonOperator(E._Function):
 
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
-        if not (expr.arguments[0].type == expr.arguments[1].type or (
-                expr.arguments[0].type == T.Int() and expr.arguments[1].type == T.Float()) or (
-                    expr.arguments[0].type == T.Float() and expr.arguments[1].type == T.Int())):
-            raise Error.IncompatibleOperand(expr, "Cannot compare {} and {}".format(
-                str(expr.arguments[0].type), str(expr.arguments[1].type)))
+        if not (
+            expr.arguments[0].type == expr.arguments[1].type
+            or (expr.arguments[0].type == T.Int() and expr.arguments[1].type == T.Float())
+            or (expr.arguments[0].type == T.Float() and expr.arguments[1].type == T.Int())
+        ):
+            raise Error.IncompatibleOperand(
+                expr,
+                "Cannot compare {} and {}".format(
+                    str(expr.arguments[0].type), str(expr.arguments[1].type)
+                ),
+            )
         return T.Boolean()
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
         assert len(expr.arguments) == 2
-        # pyre-ignore
-        return V.Boolean(self.op(expr.arguments[0].eval(
-            env).value, expr.arguments[1].eval(env).value))
+        return V.Boolean(
+            # pyre-fixme
+            self.op(expr.arguments[0].eval(env).value, expr.arguments[1].eval(env).value)
+        )
 
 
 E._stdlib["_eqeq"] = _ComparisonOperator("==", lambda l, r: l == r)
@@ -456,8 +466,9 @@ class _Flatten(E._Function):
         if expr.arguments[0].type.item_type is None:
             return T.Array(None)
         if not isinstance(expr.arguments[0].type.item_type, T.Array):
-            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(
-                T.Array(None)), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], T.Array(T.Array(None)), expr.arguments[0].type
+            )
         return T.Array(expr.arguments[0].type.item_type.item_type)
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
@@ -478,8 +489,9 @@ class _Transpose(E._Function):
         if expr.arguments[0].type.item_type is None:
             return T.Array(None)
         if not isinstance(expr.arguments[0].type.item_type, T.Array):
-            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(
-                T.Array(None)), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], T.Array(T.Array(None)), expr.arguments[0].type
+            )
         return expr.arguments[0].type
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:

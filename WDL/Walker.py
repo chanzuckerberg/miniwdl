@@ -2,7 +2,7 @@ from typing import Any
 import WDL
 
 
-class Base():
+class Base:
     """
     Helper base class for traversing the WDL abstract syntax tree. When called
     on a node, invokes the appropriate method (document, workflow, call,
@@ -156,20 +156,20 @@ class SetParents(Base):
             elt.parent = obj
 
     def task(self, obj: WDL.Tree.Task) -> None:
-        setattr(self, '_parent_task', obj)
+        setattr(self, "_parent_task", obj)
         super().task(obj)
         obj.parent = None
         for elt in obj.inputs + obj.postinputs + obj.outputs:
             elt.parent = obj
 
     def decl(self, obj: WDL.Tree.Decl) -> None:
-        setattr(self, '_parent_decl', obj)
+        setattr(self, "_parent_decl", obj)
         super().decl(obj)
-        delattr(self, '_parent_decl')
+        delattr(self, "_parent_decl")
 
     def expr(self, obj: WDL.Expr.Base) -> None:
         super().expr(obj)
-        obj.parent = getattr(self, '_parent_decl', getattr(self, '_parent_task'))
+        obj.parent = getattr(self, "_parent_decl", getattr(self, "_parent_task"))
 
 
 class MarkCalled(Base):
@@ -178,6 +178,7 @@ class MarkCalled(Base):
     there exists a Call to it in the top-level workflow (or a subworkflow it
     calls). Requires SetParents to have been applied previously.
     """
+
     marking: bool = False  # True while recursing from the top-level workflow
 
     def workflow(self, obj: WDL.Tree.Workflow) -> None:

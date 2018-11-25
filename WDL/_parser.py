@@ -203,7 +203,8 @@ larks_by_start = {}  # memoize Lark parsers constructed for various start symbol
 def parse(txt: str, start: str) -> lark.Tree:
     if start not in larks_by_start:
         larks_by_start[start] = lark.Lark(
-            grammar, start=start, parser="lalr", propagate_positions=True)
+            grammar, start=start, parser="lalr", propagate_positions=True
+        )
     return larks_by_start[start].parse(txt)
 
 
@@ -213,7 +214,8 @@ def sp(filename, meta) -> SourcePosition:
         line=meta.line,
         column=meta.column,
         end_line=meta.end_line,
-        end_column=meta.end_column)
+        end_column=meta.end_column,
+    )
 
 
 def to_int(x):
@@ -222,6 +224,7 @@ def to_int(x):
 
 def to_float(x):
     return float(x)
+
 
 # Transformer from lark.Tree to WDL.Expr
 
@@ -307,13 +310,27 @@ class _ExprTransformer(lark.Transformer):
 
 
 # _ExprTransformer infix operators
-for op in ["land", "lor", "add", "sub", "mul", "div", "rem",
-           "eqeq", "neq", "lt", "lte", "gt", "gte"]:
+for op in [
+    "land",
+    "lor",
+    "add",
+    "sub",
+    "mul",
+    "div",
+    "rem",
+    "eqeq",
+    "neq",
+    "lt",
+    "lte",
+    "gt",
+    "gte",
+]:
+
     def fn(self, items, meta, op=op):
         assert len(items) == 2
         return E.Apply(sp(self.filename, meta), "_" + op, items)
-    setattr(_ExprTransformer, op, lark.v_args(  # pyre-fixme
-        meta=True)(classmethod(fn)))
+
+    setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))  # pyre-fixme
 
 
 class _TypeTransformer(lark.Transformer):
@@ -394,11 +411,12 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         self.imported = imported
 
     def decl(self, items, meta):
-        return D.Decl(sp(self.filename,
-                         meta),
-                      items[0],
-                      items[1].value,
-                      (items[2] if len(items) > 2 else None))
+        return D.Decl(
+            sp(self.filename, meta),
+            items[0],
+            items[1].value,
+            (items[2] if len(items) > 2 else None),
+        )
 
     def input_decls(self, items, meta):
         return {"inputs": items}
@@ -418,7 +436,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         options = dict(items[:-1])
         if len(options.items()) < len(items) - 1:
             raise Err.MultipleDefinitions(
-                sp(self.filename, meta), "duplicate options in expression placeholder")
+                sp(self.filename, meta), "duplicate options in expression placeholder"
+            )
         return E.Placeholder(sp(self.filename, meta), options, items[-1])
 
     def command(self, items, meta):
@@ -443,7 +462,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         for k, v in items:
             if k in d:
                 raise Err.MultipleDefinitions(
-                    sp(self.filename, meta), "duplicate keys in meta object")
+                    sp(self.filename, meta), "duplicate keys in meta object"
+                )
             d[k] = v
         return d
 
@@ -475,7 +495,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 for k, v in item.items():
                     if k in d:
                         raise Err.MultipleDefinitions(
-                            sp(self.filename, meta), "redundant sections in task")
+                            sp(self.filename, meta), "redundant sections in task"
+                        )
                     d[k] = v
             else:
                 assert isinstance(item, str)
@@ -490,7 +511,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             d.get("outputs", []),
             d.get("parameter_meta", {}),
             d.get("runtime", {}),
-            d.get("meta", {}))
+            d.get("meta", {}),
+        )
 
     def tasks(self, items, meta):
         return items
@@ -503,23 +525,26 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         for k, v in items:
             if k in d:
                 raise Err.MultipleDefinitions(
-                    sp(self.filename, meta), "duplicate keys in call inputs")
+                    sp(self.filename, meta), "duplicate keys in call inputs"
+                )
             d[k] = v
         return d
 
     def call(self, items, meta):
-        return D.Call(sp(self.filename, meta),
-                      items[0], None, items[1] if len(items) > 1 else dict())
+        return D.Call(
+            sp(self.filename, meta), items[0], None, items[1] if len(items) > 1 else dict()
+        )
 
     def call_as(self, items, meta):
-        return D.Call(sp(self.filename, meta),
-                      items[0],
-                      items[1].value,
-                      items[2] if len(items) > 2 else dict())
+        return D.Call(
+            sp(self.filename, meta),
+            items[0],
+            items[1].value,
+            items[2] if len(items) > 2 else dict(),
+        )
 
     def scatter(self, items, meta):
-        return D.Scatter(sp(self.filename, meta),
-                         items[0].value, items[1], items[2:])
+        return D.Scatter(sp(self.filename, meta), items[0].value, items[1], items[2:])
 
     def conditional(self, items, meta):
         return D.Conditional(sp(self.filename, meta), items[0], items[1:])
@@ -534,17 +559,20 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 if "outputs" in item:
                     if outputs is not None:
                         raise Err.MultipleDefinitions(
-                            sp(self.filename, meta), "redundant sections in workflow")
+                            sp(self.filename, meta), "redundant sections in workflow"
+                        )
                     outputs = item["outputs"]
                 elif "meta" in item:
                     if meta_section is not None:
                         raise Err.MultipleDefinitions(
-                            sp(self.filename, meta), "redundant sections in workflow")
+                            sp(self.filename, meta), "redundant sections in workflow"
+                        )
                     meta_section = item["meta"]
                 elif "parameter_meta" in item:
                     if parameter_meta is not None:
                         raise Err.MultipleDefinitions(
-                            sp(self.filename, meta), "redundant sections in workflow")
+                            sp(self.filename, meta), "redundant sections in workflow"
+                        )
                     parameter_meta = item["parameter_meta"]
                 else:
                     assert False
@@ -552,12 +580,14 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 elements.append(item)
             else:
                 assert False
-        return D.Workflow(sp(self.filename, meta),
-                          items[0].value,
-                          elements,
-                          outputs,
-                          parameter_meta or dict(),
-                          meta_section or dict())
+        return D.Workflow(
+            sp(self.filename, meta),
+            items[0].value,
+            elements,
+            outputs,
+            parameter_meta or dict(),
+            meta_section or dict(),
+        )
 
     def import_doc(self, items, meta):
         uri = items[0]
@@ -566,7 +596,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         else:
             namespace = uri
             try:
-                namespace = namespace[namespace.rindex('/') + 1:]
+                namespace = namespace[namespace.rindex("/") + 1 :]
             except ValueError:
                 pass
             if namespace.endswith(".wdl"):
@@ -584,7 +614,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             elif isinstance(item, D.Workflow):
                 if workflow is not None:
                     raise Err.MultipleDefinitions(
-                        sp(self.filename, meta), "Document has multiple workflows")
+                        sp(self.filename, meta), "Document has multiple workflows"
+                    )
                 workflow = item
             elif isinstance(item, lark.Tree) and item.data == "version":
                 pass
@@ -592,14 +623,13 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 imports.append(item["import"])
             else:
                 assert False
-        return D.Document(sp(self.filename, meta), imports,
-                          tasks, workflow, self.imported)
+        return D.Document(sp(self.filename, meta), imports, tasks, workflow, self.imported)
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
     for name, method in inspect.getmembers(_klass, inspect.isfunction):
-        if not name.startswith('_'):
+        if not name.startswith("_"):
             setattr(_klass, name, lark.v_args(meta=True)(method))  # pyre-fixme
 
 
@@ -612,26 +642,21 @@ def parse_expr(txt: str) -> E.Base:
 
 def parse_tasks(txt: str) -> List[D.Task]:
     # pyre-fixme
-    return _DocTransformer('', False).transform(parse(txt, "tasks"))
+    return _DocTransformer("", False).transform(parse(txt, "tasks"))
 
 
-def parse_document(txt: str, uri: str = '',
-                   imported: bool = False) -> D.Document:
+def parse_document(txt: str, uri: str = "", imported: bool = False) -> D.Document:
     if not txt.strip():
         return D.Document(
-            SourcePosition(
-                filename=uri,
-                line=0,
-                column=0,
-                end_line=0,
-                end_column=0),
+            SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0),
             [],
             [],
             None,
-            imported)
+            imported,
+        )
     try:
         return _DocTransformer(uri, imported).transform(parse(txt, "document"))
     except lark.exceptions.UnexpectedCharacters as exn:
-        raise Err.ParserError(uri if uri != '' else '(in buffer)') from exn
+        raise Err.ParserError(uri if uri != "" else "(in buffer)") from exn
     except lark.exceptions.UnexpectedToken as exn:
-        raise Err.ParserError(uri if uri != '' else '(in buffer)') from exn
+        raise Err.ParserError(uri if uri != "" else "(in buffer)") from exn

@@ -10,7 +10,7 @@ from typing import Any, List, Optional, TypeVar, Tuple
 import json
 import WDL.Type as T
 
-BaseT = TypeVar('BaseT', bound='Base')
+BaseT = TypeVar("BaseT", bound="Base")
 
 
 class Base(ABC):
@@ -94,6 +94,7 @@ class String(Base):
 
 class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
+
     value: List[Base] = []
 
     def __init__(self, type: T.Array, value: List[Base]) -> None:
@@ -128,6 +129,7 @@ class Pair(Base):
 class Null(Base):
     """Represents the missing value which optional inputs may take.
     ``type`` and ``value`` are both None."""
+
     type: Optional[Any]  # pyre-ignore
     value: Optional[Any]  # pyre-ignore
 
@@ -138,7 +140,7 @@ class Null(Base):
 
     def __str__(self) -> str:
         assert False
-        return ''
+        return ""
 
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
