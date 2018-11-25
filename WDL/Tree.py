@@ -214,10 +214,11 @@ class Call(SourceNode):
         self.inputs = inputs
         self.callee = None
 
-    def resolve(self, doc: TVDocument):
+    def resolve(self, doc: TVDocument) -> None:
         # Set self.callee to the Task/Workflow being called. Use exactly once
-        # prior to add_outputs_to_type_env() or typecheck_input()
-        assert not self.callee
+        # prior to add_to_type_env() or typecheck_input()
+        if self.callee:
+            return
         if not self.callee_id.namespace:
             callee_doc = doc
         elif len(self.callee_id.namespace) == 1:
@@ -236,7 +237,7 @@ class Call(SourceNode):
             raise Err.UnknownIdentifier(self.callee_id)
         assert isinstance(self.callee, (Task, Workflow))
 
-    def add_outputs_to_type_env(self, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
@@ -289,68 +290,8 @@ class Call(SourceNode):
             raise Err.MissingInput(self, self.name, required_inputs)
 
 
-def _arrayize_types(type_env: Env.Types) -> Env.Types:
-    # Given a type environment, recursively promote each binding of type T to
-    # Array[T]
-    ans = []
-    for node in type_env:
-        if isinstance(node, Env.Binding):
-            ans.append(Env.Binding(node.name, T.Array(node.rhs)))
-        elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
-        else:
-            assert False
-    return ans
-
-
-def _optionalize_types(type_env: Env.Types) -> Env.Types:
-    # Given a type environment, recursively make each binding optional
-    ans = []
-    for node in type_env:
-        if isinstance(node, Env.Binding):
-            ty = node.rhs.copy(optional=True)
-            ans.append(Env.Binding(node.name, ty))
-        elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
-        else:
-            assert False
-    return ans
-
-
 TVScatter = TypeVar("TVScatter", bound="Scatter")
 TVConditional = TypeVar("TVConditional", bound="Conditional")
-
-
-def _typecheck_workflow_body(
-    elements: List[Union[Decl, Call, TVScatter, TVConditional]],
-    type_env: Env.Types,
-    doc: TVDocument,
-) -> Env.Types:
-    # typecheck the workflow elements and return a type environment with the
-    # outputs of the calls within (only -- not including the input type env)
-    outputs_env = []
-
-    for element in elements:
-        if isinstance(element, Decl):
-            # typecheck the declaration and add binding to type environment
-            element.typecheck(type_env)
-            type_env = element.add_to_type_env(type_env)
-            outputs_env = element.add_to_type_env(outputs_env)
-        elif isinstance(element, Call):
-            element.resolve(doc)
-            element.typecheck_input(type_env, doc)
-            type_env = element.add_outputs_to_type_env(type_env)
-            outputs_env = element.add_outputs_to_type_env(outputs_env)
-        elif isinstance(element, (Scatter, Conditional)):
-            # add outputs of calls within the subscatter to the type
-            # environment.
-            sub_outputs_env = element.typecheck(type_env, doc)
-            type_env = sub_outputs_env + type_env
-            outputs_env = sub_outputs_env + outputs_env
-        else:
-            assert False
-
-    return outputs_env
 
 
 class Scatter(SourceNode):
@@ -395,20 +336,11 @@ class Scatter(SourceNode):
         self.expr = expr
         self.elements = elements
 
-    def typecheck(self, type_env: Env.Types, doc: TVDocument) -> Env.Types:
-        # typecheck the array to determine the element type
-        self.expr.infer_type(type_env)
-        if not isinstance(self.expr.type, T.Array):
-            raise Err.NotAnArray(self.expr)
-        if self.expr.type.item_type is None:
-            return type_env
-
-        # add scatter variable to environment for typechecking body
-        type_env = Env.bind(self.variable, self.expr.type.item_type, type_env)
-        outputs_env = _typecheck_workflow_body(self.elements, type_env, doc)
-
-        # promote each output type T to Array[T]
-        return _arrayize_types(outputs_env)
+    def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+        inner_type_env = []
+        for elt in self.elements:
+            inner_type_env = elt.add_to_type_env(inner_type_env)
+        return _arrayize_types(inner_type_env) + type_env
 
 
 class Conditional(SourceNode):
@@ -445,16 +377,11 @@ class Conditional(SourceNode):
         self.expr = expr
         self.elements = elements
 
-    def typecheck(self, type_env: Env.Types, doc: TVDocument) -> Env.Types:
-        # check expr : Boolean
-        self.expr.infer_type(type_env)
-        if not self.expr.type.coerces(T.Boolean()):
-            raise Err.StaticTypeMismatch(self.expr, T.Boolean(), self.expr.type)
-
-        outputs_env = _typecheck_workflow_body(self.elements, type_env, doc)
-
-        # promote each output type T to T?
-        return _optionalize_types(outputs_env)
+    def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+        inner_type_env = []
+        for elt in self.elements:
+            inner_type_env = elt.add_to_type_env(inner_type_env)
+        return _optionalize_types(inner_type_env) + type_env
 
 
 class Workflow(SourceNode):
@@ -501,14 +428,6 @@ class Workflow(SourceNode):
         self.outputs = outputs
         self.parameter_meta = parameter_meta
         self.meta = meta
-
-    def typecheck(self, doc: TVDocument) -> None:
-        type_env = _typecheck_workflow_body(self.elements, [], doc)
-
-        # typecheck the output declarations
-        if self.outputs is not None:
-            for output in self.outputs:
-                output.typecheck(type_env)
 
     @property
     def required_inputs(self) -> List[Decl]:
@@ -568,7 +487,9 @@ class Document(SourceNode):
         # workflow
 
     def typecheck(self) -> None:
-        """Typecheck each task in the document, then the workflow, if any. Documents returned by :func:`~WDL.load` have already been typechecked."""
+        """Typecheck each task in the document, then the workflow, if any.
+
+        Documents returned by :func:`~WDL.load` have already been typechecked."""
         names = set()
         for _, namespace, _ in self.imports:
             if namespace in names:
@@ -588,7 +509,125 @@ class Document(SourceNode):
                     self.workflow,
                     "Workflow name collides with a task also named " + self.workflow.name,
                 )
-            self.workflow.typecheck(self)
+            _resolve_calls(self)
+            _build_workflow_type_env(self)
+            _typecheck_workflow(self)
+
+
+def _resolve_calls(
+    doc: TVDocument, element: Optional[Union[Workflow, Scatter, Conditional]] = None
+) -> None:
+    element = element or doc.workflow
+    for child in element.elements:
+        if isinstance(child, Call):
+            child.resolve(doc)
+        elif isinstance(child, (Scatter, Conditional)):
+            _resolve_calls(doc, child)
+
+
+def _build_workflow_type_env(
+    doc: TVDocument,
+    element: Optional[Union[Workflow, Scatter, Conditional]] = None,
+    outer_type_env: Env.Types = [],
+) -> None:
+    # Populate each Workflow, Scatter, and Conditional object with its
+    # _type_env attribute containing the type environment available in the body
+    # of the respective section. (Starting from the workflow, recursively
+    # descends into scatter & conditional sections.) This is tricky because
+    # names have different types in & out of scatters, ditto for conditionals.
+    # side effects (all recursive):
+    # - invokes resolve() on each call
+    # - invokes infer_type() on scatter and conditional expressions
+    # - sets _type_env attribute
+    element = element or doc.workflow
+    if not element:
+        return
+    assert isinstance(element, (Scatter, Conditional)) or element is doc.workflow
+    assert element._type_env is None
+
+    type_env = outer_type_env
+    if isinstance(element, Workflow):
+        assert element is doc.workflow
+    elif isinstance(element, Scatter):
+        element.expr.infer_type(type_env)
+        if not isinstance(element.expr.type, T.Array):
+            raise Err.NotAnArray(element.expr)
+        if element.expr.type.item_type is None:
+            raise Err.EmptyArray(element.expr)
+        type_env = Env.bind(element.variable, element.expr.type.item_type, type_env)
+    elif isinstance(element, Conditional):
+        # check expr : Boolean
+        element.expr.infer_type(type_env)
+        if not element.expr.type.coerces(T.Boolean()):
+            raise Err.StaticTypeMismatch(element.expr, T.Boolean(), element.expr.type)
+    else:
+        assert False
+
+    for child in element.elements:
+        if isinstance(child, (Scatter, Conditional)):
+            # prepare for descent into child: add everything from its siblings
+            # to its outer_type_env
+            child_outer_type_env = type_env
+            for sibling in element.elements:
+                if sibling is not child:
+                    if isinstance(sibling, Call):
+                        sibling.resolve(doc)
+                    child_outer_type_env = sibling.add_to_type_env(child_outer_type_env)
+            _build_workflow_type_env(doc, child, child_outer_type_env)
+
+    for child in element.elements:
+        if isinstance(child, Call):
+            child.resolve(doc)
+        type_env = child.add_to_type_env(type_env)
+
+    element._type_env = type_env
+
+
+def _typecheck_workflow(
+    doc: Document, element: Optional[Union[Workflow, Scatter, Conditional]] = None
+) -> None:
+    element = element or doc.workflow
+    assert element and element._type_env
+    for child in element.elements:
+        if isinstance(child, Decl):
+            child.typecheck(element._type_env)
+        elif isinstance(child, Call):
+            child.typecheck_input(element._type_env, doc)
+        elif isinstance(child, (Scatter, Conditional)):
+            _typecheck_workflow(doc, child)
+        else:
+            assert False
+    if isinstance(element, Workflow) and element.outputs:
+        for output in element.outputs:
+            output.typecheck(element._type_env)
+
+
+def _arrayize_types(type_env: Env.Types) -> Env.Types:
+    # Given a type environment, recursively promote each binding of type T to
+    # Array[T]
+    ans = []
+    for node in type_env:
+        if isinstance(node, Env.Binding):
+            ans.append(Env.Binding(node.name, T.Array(node.rhs)))
+        elif isinstance(node, Env.Namespace):
+            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
+        else:
+            assert False
+    return ans
+
+
+def _optionalize_types(type_env: Env.Types) -> Env.Types:
+    # Given a type environment, recursively make each binding optional
+    ans = []
+    for node in type_env:
+        if isinstance(node, Env.Binding):
+            ty = node.rhs.copy(optional=True)
+            ans.append(Env.Binding(node.name, ty))
+        elif isinstance(node, Env.Namespace):
+            ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
+        else:
+            assert False
+    return ans
 
 
 def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Document:
