@@ -172,7 +172,9 @@ class Task(SourceNode):
         ]
 
 
-# forward-declaration of Document and Workflow types
+# forward-declarations
+TVScatter = TypeVar("TVScatter", bound="Scatter")
+TVConditional = TypeVar("TVConditional", bound="Conditional")
 TVDocument = TypeVar("TVDocument", bound="Document")
 TVWorkflow = TypeVar("TVWorkflow", bound="Workflow")
 
@@ -290,10 +292,6 @@ class Call(SourceNode):
             raise Err.MissingInput(self, self.name, required_inputs)
 
 
-TVScatter = TypeVar("TVScatter", bound="Scatter")
-TVConditional = TypeVar("TVConditional", bound="Conditional")
-
-
 class Scatter(SourceNode):
     """A scatter stanza within a workflow"""
 
@@ -337,6 +335,9 @@ class Scatter(SourceNode):
         self.elements = elements
 
     def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+        # Add declarations and call outputs in this section as they'll be
+        # available outside of the section (i.e. a declaration of type T is
+        # seen as Array[T] outside)
         inner_type_env = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(inner_type_env)
@@ -378,6 +379,9 @@ class Conditional(SourceNode):
         self.elements = elements
 
     def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+        # Add declarations and call outputs in this section as they'll be
+        # available outside of the section (i.e. a declaration of type T is
+        # seen as T? outside)
         inner_type_env = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(inner_type_env)
@@ -437,6 +441,23 @@ class Workflow(SourceNode):
             if isinstance(decl, Decl) and decl.expr is None and decl.type.optional is False
         ]
 
+    def typecheck(self, doc: TVDocument) -> None:
+        assert doc.workflow is self
+        assert self._type_env is None
+        # 1. resolve all calls
+        _resolve_calls(doc)
+        # 2. build type environments in the workflow and each scatter &
+        #    conditional section therein
+        _build_workflow_type_env(doc)
+        # 3. typecheck the right-hand side expressions of each declaration
+        #    and the inputs to each call (desconding into scatter & conditional
+        #    sections)
+        _typecheck_workflow_elements(doc)
+        # 4. typecheck the output expressions
+        if self.outputs:
+            for output in self.outputs:
+                output.typecheck(self._type_env)
+
 
 class Document(SourceNode):
     """
@@ -473,8 +494,6 @@ class Document(SourceNode):
         super().__init__(pos)
         self.imports = []
         for (uri, namespace) in imports:
-            # TODO: complain of namespace collisions
-
             # The sub-document is initially None. The WDL.load() function
             # populates it, after construction of this object but before
             # typechecking the contents.
@@ -482,9 +501,6 @@ class Document(SourceNode):
         self.tasks = tasks
         self.workflow = workflow
         self.imported = imported
-
-        # TODO: complain about name collisions amongst tasks and/or the
-        # workflow
 
     def typecheck(self) -> None:
         """Typecheck each task in the document, then the workflow, if any.
@@ -509,97 +525,131 @@ class Document(SourceNode):
                     self.workflow,
                     "Workflow name collides with a task also named " + self.workflow.name,
                 )
-            _resolve_calls(self)
-            _build_workflow_type_env(self)
-            _typecheck_workflow(self)
+            self.workflow.typecheck(self)
+
+
+def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Document:
+    for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
+        if os.path.exists(fn):
+            with open(fn, "r") as infile:
+                # read and parse the document
+                doc = WDL._parser.parse_document(infile.read(), uri, imported)
+                assert isinstance(doc, Document)
+                # recursively descend into document's imports, and store the imported
+                # documents into doc.imports
+                # TODO: limit recursion; prevent mutual recursion
+                for i in range(len(doc.imports)):
+                    try:
+                        subpath = [os.path.dirname(fn)] + path
+                        subdoc = load(doc.imports[i][0], subpath, True)
+                    except Exception as exn:
+                        raise Err.ImportError(uri, doc.imports[i][0]) from exn
+                    doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
+                doc.typecheck()
+                return doc
+    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+
+
+#
+# Typechecking helper functions
+#
 
 
 def _resolve_calls(
-    doc: TVDocument, element: Optional[Union[Workflow, Scatter, Conditional]] = None
+    doc: Document, element: Optional[Union[Workflow, Scatter, Conditional]] = None
 ) -> None:
+    # Resolve all calls in the workflow (descending into scatter & conditional
+    # sections)
     element = element or doc.workflow
-    for child in element.elements:
-        if isinstance(child, Call):
-            child.resolve(doc)
-        elif isinstance(child, (Scatter, Conditional)):
-            _resolve_calls(doc, child)
+    if element:
+        for child in element.elements:
+            if isinstance(child, Call):
+                child.resolve(doc)
+            elif isinstance(child, (Scatter, Conditional)):
+                _resolve_calls(doc, child) # pyre-ignore
 
 
 def _build_workflow_type_env(
     doc: TVDocument,
-    element: Optional[Union[Workflow, Scatter, Conditional]] = None,
+    self: Optional[Union[Workflow, Scatter, Conditional]] = None,
     outer_type_env: Env.Types = [],
 ) -> None:
     # Populate each Workflow, Scatter, and Conditional object with its
     # _type_env attribute containing the type environment available in the body
-    # of the respective section. (Starting from the workflow, recursively
-    # descends into scatter & conditional sections.) This is tricky because
-    # names have different types in & out of scatters, ditto for conditionals.
+    # of the respective section. This is tricky because:
+    # - forward-references to any declaration or call output in the workflow
+    #   are valid, except
+    #   - circular dependencies, direct or indirect
+    #   - (corollary) scatter and conditional expressions can't refer to
+    #     anything within the respective section
+    # - a scatter variable is visible only inside the scatter
+    # - declarations & call outputs of type T within a scatter have type
+    #   Array[T] outside of the scatter
+    # - declarations & call outputs of type T within a conditional have type T?
+    #   outside of the conditional
+    #
     # side effects (all recursive):
-    # - invokes resolve() on each call
-    # - invokes infer_type() on scatter and conditional expressions
-    # - sets _type_env attribute
-    element = element or doc.workflow
-    if not element:
+    # - typechecks scatter and conditional expressions
+    # - sets _type_env attributes on each Workflow/Scatter/Conditional
+    self = self or doc.workflow
+    if not self:
         return
-    assert isinstance(element, (Scatter, Conditional)) or element is doc.workflow
-    assert element._type_env is None
+    assert isinstance(self, (Scatter, Conditional)) or self is doc.workflow
+    assert self._type_env is None
 
+    # When we've been called recursively on a scatter or conditional section,
+    # the 'outer' type environment has everything available in the workflow
+    # -except- the body of self.
     type_env = outer_type_env
-    if isinstance(element, Workflow):
-        assert element is doc.workflow
-    elif isinstance(element, Scatter):
-        element.expr.infer_type(type_env)
-        if not isinstance(element.expr.type, T.Array):
-            raise Err.NotAnArray(element.expr)
-        if element.expr.type.item_type is None:
-            raise Err.EmptyArray(element.expr)
-        type_env = Env.bind(element.variable, element.expr.type.item_type, type_env)
-    elif isinstance(element, Conditional):
-        # check expr : Boolean
-        element.expr.infer_type(type_env)
-        if not element.expr.type.coerces(T.Boolean()):
-            raise Err.StaticTypeMismatch(element.expr, T.Boolean(), element.expr.type)
-    else:
-        assert False
+    if isinstance(self, Scatter):
+        # typecheck scatter array
+        self.expr.infer_type(type_env)
+        if not isinstance(self.expr.type, T.Array):
+            raise Err.NotAnArray(self.expr)
+        if self.expr.type.item_type is None:
+            raise Err.EmptyArray(self.expr)
+        # bind the scatter variable to the array item type within the body
+        # TODO: check for variable name collision
+        type_env = Env.bind(self.variable, self.expr.type.item_type, type_env)
+    elif isinstance(self, Conditional):
+        # typecheck the condition
+        self.expr.infer_type(type_env)
+        if not self.expr.type.coerces(T.Boolean()):
+            raise Err.StaticTypeMismatch(self.expr, T.Boolean(), self.expr.type)
 
-    for child in element.elements:
+    # descend into child scatter & conditional elements, if any.
+    for child in self.elements:
         if isinstance(child, (Scatter, Conditional)):
-            # prepare for descent into child: add everything from its siblings
-            # to its outer_type_env
+            # prepare the 'outer' type environment for the child element, by
+            # adding all its sibling declarations and call outputs
             child_outer_type_env = type_env
-            for sibling in element.elements:
+            for sibling in self.elements:
                 if sibling is not child:
-                    if isinstance(sibling, Call):
-                        sibling.resolve(doc)
                     child_outer_type_env = sibling.add_to_type_env(child_outer_type_env)
             _build_workflow_type_env(doc, child, child_outer_type_env)
 
-    for child in element.elements:
-        if isinstance(child, Call):
-            child.resolve(doc)
+    # finally, populate self._type_env with all our children
+    for child in self.elements:
         type_env = child.add_to_type_env(type_env)
+    self._type_env = type_env
 
-    element._type_env = type_env
 
-
-def _typecheck_workflow(
-    doc: Document, element: Optional[Union[Workflow, Scatter, Conditional]] = None
+def _typecheck_workflow_elements(
+    doc: Document, self: Optional[Union[Workflow, Scatter, Conditional]] = None
 ) -> None:
-    element = element or doc.workflow
-    assert element and element._type_env
-    for child in element.elements:
+    # following _resolve_calls() and _build_workflow_type_env(), typecheck all
+    # the declaration expressions and call inputs
+    self = self or doc.workflow
+    assert self and self._type_env
+    for child in self.elements:
         if isinstance(child, Decl):
-            child.typecheck(element._type_env)
+            child.typecheck(self._type_env)
         elif isinstance(child, Call):
-            child.typecheck_input(element._type_env, doc)
+            child.typecheck_input(self._type_env, doc)
         elif isinstance(child, (Scatter, Conditional)):
-            _typecheck_workflow(doc, child)
+            _typecheck_workflow_elements(doc, child) # pyre-ignore
         else:
             assert False
-    if isinstance(element, Workflow) and element.outputs:
-        for output in element.outputs:
-            output.typecheck(element._type_env)
 
 
 def _arrayize_types(type_env: Env.Types) -> Env.Types:
@@ -628,25 +678,3 @@ def _optionalize_types(type_env: Env.Types) -> Env.Types:
         else:
             assert False
     return ans
-
-
-def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Document:
-    for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
-        if os.path.exists(fn):
-            with open(fn, "r") as infile:
-                # read and parse the document
-                doc = WDL._parser.parse_document(infile.read(), uri, imported)
-                assert isinstance(doc, Document)
-                # recursively descend into document's imports, and store the imported
-                # documents into doc.imports
-                # TODO: limit recursion; prevent mutual recursion
-                for i in range(len(doc.imports)):
-                    try:
-                        subpath = [os.path.dirname(fn)] + path
-                        subdoc = load(doc.imports[i][0], subpath, True)
-                    except Exception as exn:
-                        raise Err.ImportError(uri, doc.imports[i][0]) from exn
-                    doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
-                doc.typecheck()
-                return doc
-    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
