@@ -47,6 +47,38 @@ class Decl(SourceNode):
             return "{} {}".format(str(self.type), self.name)
         return "{} {} = {}".format(str(self.type), self.name, str(self.expr))
 
+    def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+        # Add an appropriate binding in the type env, after checking for name
+        # collision.
+        try:
+            Env.resolve(type_env, [], self.name)
+            raise Err.MultipleDefinitions(self, "Multiple declarations of " + self.name)
+        except KeyError:
+            pass
+        # Subtlety: if the declared type is optional, but the expression is
+        # some literal value, make a non-optional entry in the type env since
+        # the value won't actually be null at runtime
+        ty = self.type
+        if isinstance(self.expr, (E.Int, E.Float, E.String, E.Array, E.Pair, E.Map)):
+            ty = ty.copy(optional=False)
+        ans: Env.Types = Env.bind(self.name, ty, type_env)
+        return ans
+
+    def typecheck(self, type_env: Env.Types) -> None:
+        # Infer the expression's type and ensure it checks against the declared
+        # type. One time use!
+        #
+        # Subtlety: accept Array[T]+ = <expr> is accepted even if we can't
+        # statically prove <expr> is nonempty. Its nonemptiness should be
+        # checked at runtime. We do reject an empty array literal for <expr>.
+        if self.expr:
+            check_type = self.type
+            if isinstance(check_type, T.Array):
+                if check_type.nonempty and isinstance(self.expr, E.Array) and not self.expr.items:
+                    raise Err.EmptyArray(self.expr)
+                check_type = check_type.copy(nonempty=False)
+            self.expr.infer_type(type_env).typecheck(check_type)
+
     # TODO: when the declaration is evaluated,
     #  - the optional/nonempty type quantifiers should be checked
     #  - String to File coercion
@@ -114,20 +146,20 @@ class Task(SourceNode):
         # in their right-hand side expressions.
         type_env = []
         for decl in self.inputs + self.postinputs:
-            type_env = _add_decl_to_type_env(decl, type_env)
+            type_env = decl.add_to_type_env(type_env)
         # Pass through input & postinput declarations again, typecheck their
         # right-hand side expressions against the type environment.
         for decl in self.inputs + self.postinputs:
-            _typecheck_decl_expr(decl, type_env)  # pyre-ignore
+            decl.typecheck(type_env)
         # TODO: detect circular dependencies among input & postinput decls
         # Typecheck the command (string)
         self.command.infer_type(type_env).typecheck(T.String())
         # Add output declarations to type environment
         for decl in self.outputs:
-            type_env = _add_decl_to_type_env(decl, type_env)
+            type_env = decl.add_to_type_env(type_env)
         # Typecheck the output expressions
         for decl in self.outputs:
-            _typecheck_decl_expr(decl, type_env)  # pyre-ignore
+            decl.typecheck(type_env)
         # TODO: detect circularities in output declarations
         # TODO: check runtime section
 
@@ -138,61 +170,6 @@ class Task(SourceNode):
             for decl in (self.inputs + self.postinputs)
             if decl.expr is None and decl.type.optional is False
         ]
-
-
-def _add_decl_to_type_env(decl: Decl, type_env: Env.Types) -> Env.Types:
-    try:
-        Env.resolve(type_env, [], decl.name)
-        raise Err.MultipleDefinitions(decl, "Multiple declarations of " + decl.name)
-    except KeyError:
-        pass
-    ans: Env.Types = Env.bind(decl.name, decl.type, type_env)
-    return ans
-
-
-def _typecheck_decl_expr(decl: Decl, type_env: Env.Types) -> None:
-    # 2. A declaration of Array[T]+ = <expr> is accepted even if we can't
-    #    prove <expr> is nonempty statically. Its nonemptiness should be
-    #    checked at runtime. Exception when <expr> is an empty array literal
-    if decl.expr:
-        check_type = decl.type
-        if isinstance(check_type, T.Array):
-            if check_type.nonempty and isinstance(decl.expr, E.Array) and not decl.expr.items:
-                raise Err.EmptyArray(decl.expr)
-            check_type = check_type.copy(nonempty=False)
-        decl.expr.infer_type(type_env).typecheck(check_type)
-
-
-# type-check a declaration within a type environment, and return the type
-# environment with the new binding
-
-
-def _typecheck_decl(decl: Decl, type_env: Env.Types) -> Env.Types:
-    try:
-        Env.resolve(type_env, [], decl.name)
-        raise Err.MultipleDefinitions(decl, "Multiple declarations of " + decl.name)
-    except KeyError:
-        pass
-    # Subtleties:
-    # 1. In a declaration like: String? x = "who", we record x in the type
-    #    environment as String instead of String? since it won't actually
-    #    be null at runtime
-    # 2. A declaration of Array[T]+ = <expr> is accepted even if we can't
-    #    prove <expr> is nonempty statically. Its nonemptiness should be
-    #    checked at runtime. Exception when <expr> is an empty array literal
-    nonnull = False
-    if decl.expr is not None:
-        check_type = decl.type
-        if isinstance(check_type, T.Array):
-            if check_type.nonempty and isinstance(decl.expr, E.Array) and not decl.expr.items:
-                raise Err.EmptyArray(decl.expr)
-            check_type = check_type.copy(nonempty=False)
-        decl.expr.infer_type(type_env).typecheck(check_type)
-        if decl.expr.type.optional is False:
-            nonnull = True
-    ty = decl.type.copy(optional=False) if nonnull else decl.type
-    ans: Env.Types = Env.bind(decl.name, ty, type_env)
-    return ans
 
 
 # forward-declaration of Document and Workflow types
@@ -237,9 +214,10 @@ class Call(SourceNode):
         self.inputs = inputs
         self.callee = None
 
-    def typecheck(self, type_env: Env.Types, doc: TVDocument) -> Env.Types:
-        # resolve callee_id to a known task/workflow, either within the
-        # current document or one of its imported sub-documents
+    def resolve(self, doc: TVDocument):
+        # Set self.callee to the Task/Workflow being called. Use exactly once
+        # prior to add_outputs_to_type_env() or typecheck_input()
+        assert not self.callee
         if not self.callee_id.namespace:
             callee_doc = doc
         elif len(self.callee_id.namespace) == 1:
@@ -257,6 +235,29 @@ class Call(SourceNode):
         if self.callee is None:
             raise Err.UnknownIdentifier(self.callee_id)
         assert isinstance(self.callee, (Task, Workflow))
+
+    def add_outputs_to_type_env(self, type_env: Env.Types) -> Env.Types:
+        # Add the call's outputs to the type environment under the appropriate
+        # namespace, after checking for namespace collisions.
+        assert self.callee
+        try:
+            Env.resolve_namespace(type_env, [self.name])
+            raise Err.MultipleDefinitions(
+                self,
+                "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
+                    self.name, self.callee.name
+                ),
+            )
+        except KeyError:
+            pass
+        outputs_env = []
+        for outp in self.callee.outputs:
+            outputs_env = Env.bind(outp.name, outp.type, outputs_env)
+        return Env.namespace(self.name, outputs_env, type_env)
+
+    def typecheck_input(self, type_env: Env.Types, doc: TVDocument) -> None:
+        # Check the input expressions against the callee's inputs. One-time use
+        assert self.callee
 
         # Make a set of the input names which are required for this call to
         # typecheck. In the top-level workflow, nothing is actually required
@@ -283,22 +284,14 @@ class Call(SourceNode):
             if name in required_inputs:
                 required_inputs.remove(name)
 
+        # Check whether any required inputs were missed
         if required_inputs:
             raise Err.MissingInput(self, self.name, required_inputs)
 
-        # return a TypeEnv with ONLY the outputs (not including the input
-        # TypeEnv)
-        outputs_env = []
-        for outp in self.callee.outputs:
-            outputs_env = Env.bind(outp.name, outp.type, outputs_env)
-        return outputs_env
-
-
-# Given a type environment, recursively promote each binding of type T to
-# Array[T]
-
 
 def _arrayize_types(type_env: Env.Types) -> Env.Types:
+    # Given a type environment, recursively promote each binding of type T to
+    # Array[T]
     ans = []
     for node in type_env:
         if isinstance(node, Env.Binding):
@@ -310,10 +303,8 @@ def _arrayize_types(type_env: Env.Types) -> Env.Types:
     return ans
 
 
-# Given a type environment, recursively make each binding optional
-
-
 def _optionalize_types(type_env: Env.Types) -> Env.Types:
+    # Given a type environment, recursively make each binding optional
     ans = []
     for node in type_env:
         if isinstance(node, Env.Binding):
@@ -329,37 +320,27 @@ def _optionalize_types(type_env: Env.Types) -> Env.Types:
 TVScatter = TypeVar("TVScatter", bound="Scatter")
 TVConditional = TypeVar("TVConditional", bound="Conditional")
 
-# typecheck the workflow elements and return a type environment with the
-# outputs of the calls within (only -- not including the input type env)
-
 
 def _typecheck_workflow_body(
     elements: List[Union[Decl, Call, TVScatter, TVConditional]],
     type_env: Env.Types,
     doc: TVDocument,
 ) -> Env.Types:
+    # typecheck the workflow elements and return a type environment with the
+    # outputs of the calls within (only -- not including the input type env)
     outputs_env = []
 
     for element in elements:
         if isinstance(element, Decl):
             # typecheck the declaration and add binding to type environment
-            type_env = _typecheck_decl(element, type_env)
-            outputs_env = Env.bind(element.name, element.type, outputs_env)
+            element.typecheck(type_env)
+            type_env = element.add_to_type_env(type_env)
+            outputs_env = element.add_to_type_env(outputs_env)
         elif isinstance(element, Call):
-            call_outputs_env = element.typecheck(type_env, doc)
-            # add call outputs to type environment, under the call namespace
-            try:
-                Env.resolve_namespace(type_env, [element.name])
-                raise Err.MultipleDefinitions(
-                    element,
-                    "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
-                        element.name, element.callee.name
-                    ),
-                )
-            except KeyError:
-                pass
-            type_env = Env.namespace(element.name, call_outputs_env, type_env)
-            outputs_env = Env.namespace(element.name, call_outputs_env, outputs_env)
+            element.resolve(doc)
+            element.typecheck_input(type_env, doc)
+            type_env = element.add_outputs_to_type_env(type_env)
+            outputs_env = element.add_outputs_to_type_env(outputs_env)
         elif isinstance(element, (Scatter, Conditional)):
             # add outputs of calls within the subscatter to the type
             # environment.
@@ -391,7 +372,7 @@ class Scatter(SourceNode):
 
     Scatter body"""
 
-    _type_env : Optional[Env.Types] = None
+    _type_env: Optional[Env.Types] = None
     """
     After typechecking: the type environment, inside the scatter, consisting of
     - all available declarations outside of the scatter
@@ -444,7 +425,7 @@ class Conditional(SourceNode):
 
     Conditional body"""
 
-    _type_env : Optional[Env.Types] = None
+    _type_env: Optional[Env.Types] = None
     """
     After typechecking: the type environment, inside the conditional:
     - all available declarations outside of the conditional
@@ -496,7 +477,7 @@ class Workflow(SourceNode):
 
     ``meta{}`` section as a JSON-like dict"""
 
-    _type_env : Optional[Env.Types] = None
+    _type_env: Optional[Env.Types] = None
     """
     After typechecking: the type environment in the main workflow body,
     - declarations at the top level of the workflow body
@@ -504,7 +485,6 @@ class Workflow(SourceNode):
     - declarations & outputs inside scatter sections (as arrays)
     - declarations & outputs inside conditional sections (as optionals)
     """
-
 
     def __init__(
         self,
@@ -528,7 +508,7 @@ class Workflow(SourceNode):
         # typecheck the output declarations
         if self.outputs is not None:
             for output in self.outputs:
-                _typecheck_decl(output, type_env)
+                output.typecheck(type_env)
 
     @property
     def required_inputs(self) -> List[Decl]:
