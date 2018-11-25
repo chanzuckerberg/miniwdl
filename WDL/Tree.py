@@ -391,6 +391,17 @@ class Scatter(SourceNode):
 
     Scatter body"""
 
+    _type_env : Optional[Env.Types] = None
+    """
+    After typechecking: the type environment, inside the scatter, consisting of
+    - all available declarations outside of the scatter
+    - the scatter variable (singleton)
+    - declarations in the scatter (singleton)
+    - call outputs in the scatter (singleton)
+    - declarations & outputs in sub-scatter sections (as arrays)
+    - declarations & outputs in sub-conditional sections (as optionals)
+    """
+
     def __init__(
         self,
         pos: SourcePosition,
@@ -433,6 +444,16 @@ class Conditional(SourceNode):
 
     Conditional body"""
 
+    _type_env : Optional[Env.Types] = None
+    """
+    After typechecking: the type environment, inside the conditional:
+    - all available declarations outside of the conditional
+    - declarations in the conditional
+    - call outputs in the conditional
+    - declarations & outputs in sub-scatter sections (as arrays)
+    - declarations & outputs in sub-conditional sections (as optionals)
+    """
+
     def __init__(
         self,
         pos: SourcePosition,
@@ -474,6 +495,16 @@ class Workflow(SourceNode):
     :type: Dict[str,Any]
 
     ``meta{}`` section as a JSON-like dict"""
+
+    _type_env : Optional[Env.Types] = None
+    """
+    After typechecking: the type environment in the main workflow body,
+    - declarations at the top level of the workflow body
+    - outputs of calls at the top level the workflow body
+    - declarations & outputs inside scatter sections (as arrays)
+    - declarations & outputs inside conditional sections (as optionals)
+    """
+
 
     def __init__(
         self,
