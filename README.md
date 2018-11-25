@@ -104,7 +104,7 @@ Feedback and contributions are welcome on this repository. Please:
 
 1. Send pull requests from a dedicated branch without unrelated edits
 2. Add appropriate tests to the automatic suite
-3. Use `make pretty` to reformat the code with [autopep8](https://github.com/hhatto/autopep8)
+3. Use `make pretty` to reformat the code with [black](https://github.com/ambv/black)
 4. Ensure compatibility with this project's MIT license
 
 The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker.
