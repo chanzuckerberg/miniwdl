@@ -2,7 +2,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, TypeVar, Generic
+from typing import List, TypeVar, Generic, Any
 import WDL.Type as T
 import WDL.Value as V
 
@@ -33,9 +33,13 @@ class Binding(Generic[R]):
     rhs: R
     """:type: Union[WDL.Type.Base,WDL.Value.Base]"""
 
-    def __init__(self, name: str, rhs: R) -> None:
+    ctx: Any
+    "Arbitrary context value"
+
+    def __init__(self, name: str, rhs: R, ctx: Any = None) -> None:
         self.name = name
         self.rhs = rhs
+        self.ctx = ctx
 
 
 class Namespace(Generic[R]):
@@ -63,9 +67,9 @@ Values = TypeVar("Values", bound="Tree[Value.Base]")
 """Environment of values, an immutable list of bindings to values and/or namespaces"""
 
 
-def bind(name: str, rhs: R, tree: "Tree[R]") -> "Tree[R]":
+def bind(name: str, rhs: R, tree: "Tree[R]", ctx: Any = None) -> "Tree[R]":
     """Prepend a new binding to an environment"""
-    return [Binding(name, rhs)] + tree
+    return [Binding(name, rhs, ctx)] + tree
 
 
 def namespace(namespace: str, bindings: "Tree[R]", tree: "Tree[R]") -> "Tree[R]":
@@ -89,6 +93,15 @@ def resolve(tree: "Tree[R]", namespace: List[str], name: str) -> R:
     for node in ns:
         if isinstance(node, Binding) and node.name == name:
             return node.rhs
+    raise KeyError()
+
+
+def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any:
+    """Resolve a name to its secondary context value"""
+    ns = resolve_namespace(tree, namespace)
+    for node in ns:
+        if isinstance(node, Binding) and node.name == name:
+            return node.ctx
     raise KeyError()
 
 

@@ -9,7 +9,7 @@ class Base:
     scatter, conditional, decl, task). The base implementations of these
     methods recurse into the node's "children." Overriding subclasses can thus
     invoke their super at the appropriate point for preorder or postorder
-    traversal.
+    traversal (or omit super to prevent further descent).
 
     ``
     class PrintUnconditionalCallNames(Walker.Base):

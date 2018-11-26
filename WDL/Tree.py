@@ -61,7 +61,7 @@ class Decl(SourceNode):
         ty = self.type
         if isinstance(self.expr, (E.Int, E.Float, E.String, E.Array, E.Pair, E.Map)):
             ty = ty.copy(optional=False)
-        ans: Env.Types = Env.bind(self.name, ty, type_env)
+        ans: Env.Types = Env.bind(self.name, ty, type_env, ctx=self)
         return ans
 
     def typecheck(self, type_env: Env.Types) -> None:
@@ -255,7 +255,7 @@ class Call(SourceNode):
             pass
         outputs_env = []
         for outp in self.callee.outputs:
-            outputs_env = Env.bind(outp.name, outp.type, outputs_env)
+            outputs_env = Env.bind(outp.name, outp.type, outputs_env, ctx=self)
         return Env.namespace(self.name, outputs_env, type_env)
 
     def typecheck_input(self, type_env: Env.Types, doc: TVDocument) -> None:
@@ -625,7 +625,7 @@ def _build_workflow_type_env(
             )
         except KeyError:
             pass
-        type_env = Env.bind(self.variable, self.expr.type.item_type, type_env)
+        type_env = Env.bind(self.variable, self.expr.type.item_type, type_env, ctx=self)
     elif isinstance(self, Conditional):
         # typecheck the condition
         self.expr.infer_type(type_env)
