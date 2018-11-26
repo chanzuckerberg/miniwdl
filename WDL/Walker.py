@@ -199,3 +199,18 @@ class MarkCalled(Base):
 
     def task(self, obj: WDL.Tree.Task) -> None:
         obj.called = False
+
+
+class SetReferrers(Base):
+    """
+    Add ``referrers`` to each Decl and Call in all tasks and workflows.
+
+    It lists each Expr.Ident which uses the value (of a Decl) or any output of
+    the Call. The Expr.Ident instances may be in declarations, call inputs,
+    task commands, outputs, scatter arrays, if conditions.
+    """
+
+    def expr(self, obj: WDL.Expr.Base) -> None:
+        if isinstance(obj, WDL.Expr.Ident) and isinstance(obj.ctx, (WDL.Tree.Decl, WDL.Tree.Call)):
+            setattr(obj.ctx, "referrers", getattr(obj.ctx, "referrers", []) + [obj])
+        return super().expr(obj)

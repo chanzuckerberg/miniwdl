@@ -45,6 +45,7 @@ def lint(doc):
     # Add additional markups to the AST for use by the linters
     WDL.Walker.SetParents()(doc)
     WDL.Walker.MarkCalled()(doc)
+    WDL.Walker.SetReferrers()(doc)
 
     for linter in _all_linters:
         linter()(doc)
@@ -317,3 +318,32 @@ class ForwardReference(Linter):
                 msg = "reference to call output lexically precedes the call"
             self.add(getattr(obj, "parent"), msg, obj)
         super().expr(obj)
+
+
+@a_linter
+class UnusedDeclaration(Linter):
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
+        pt = getattr(obj, "parent")
+        is_output = (
+            isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs
+        )
+        uncalled = isinstance(pt, WDL.Tree.Task) and not pt.called
+        if not is_output and not uncalled and not getattr(obj, "referrers", []):
+            self.add(obj, "nothing refers to " + obj.name)
+
+
+@a_linter
+class UnusedCall(Linter):
+    def workflow(self, obj: WDL.Tree.Workflow) -> Any:
+        self._workflow_has_outputs = obj.outputs is not None
+        super().workflow(obj)
+        del self._workflow_has_outputs
+
+    def call(self, obj: WDL.Tree.Call) -> Any:
+        if self._workflow_has_outputs and not getattr(obj, "referrers", []):
+            self.add(
+                obj,
+                "the outputs of call "
+                + obj.name
+                + " aren't output from the workflow nor otherwise used",
+            )
