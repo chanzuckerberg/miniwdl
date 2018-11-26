@@ -9,7 +9,7 @@ qtest:
 	python3 -m unittest -v -f
 
 check:
-	pylint --errors-only WDL
+	pylint -j `nproc` --errors-only WDL
 	pyre \
 		--search-path $(HOME)/.local/lib/python3.6/site-packages/lark \
 		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \

@@ -34,7 +34,7 @@ class Binding(Generic[R]):
     """:type: Union[WDL.Type.Base,WDL.Value.Base]"""
 
     ctx: Any
-    "Arbitrary context value"
+    "Arbitrary, secondary context also associated with name"
 
     def __init__(self, name: str, rhs: R, ctx: Any = None) -> None:
         self.name = name
@@ -87,22 +87,28 @@ def resolve_namespace(tree: "Tree[R]", namespace: List[str]) -> R:
     raise KeyError()
 
 
+def resolve_binding(tree: "Tree[R]", namespace: List[str], name: str) -> Binding[R]:
+    """
+    Resolve a name within an environment to the corresponding Binding object
+    """
+    ns = resolve_namespace(tree, namespace)
+    for node in ns:
+        if isinstance(node, Binding) and node.name == name:
+            ans: Binding[R] = node
+            return ans
+    raise KeyError()
+
+
 def resolve(tree: "Tree[R]", namespace: List[str], name: str) -> R:
     """Resolve a name within an environment"""
-    ns = resolve_namespace(tree, namespace)
-    for node in ns:
-        if isinstance(node, Binding) and node.name == name:
-            return node.rhs
-    raise KeyError()
+    ans: R = resolve_binding(tree, namespace, name).rhs
+    return ans
 
 
-def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any:
+def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any: # pyre-ignore
     """Resolve a name to its secondary context value"""
-    ns = resolve_namespace(tree, namespace)
-    for node in ns:
-        if isinstance(node, Binding) and node.name == name:
-            return node.ctx
-    raise KeyError()
+    ans: Any = resolve_binding(tree, namespace, name).ctx
+    return ans
 
 
 # print(arrayize([Binding('x',T.Int())])[0].rhs)
