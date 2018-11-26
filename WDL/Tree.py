@@ -566,7 +566,7 @@ def _resolve_calls(
             if isinstance(child, Call):
                 child.resolve(doc)
             elif isinstance(child, (Scatter, Conditional)):
-                _resolve_calls(doc, child) # pyre-ignore
+                _resolve_calls(doc, child)  # pyre-ignore
 
 
 def _build_workflow_type_env(
@@ -609,7 +609,13 @@ def _build_workflow_type_env(
         if self.expr.type.item_type is None:
             raise Err.EmptyArray(self.expr)
         # bind the scatter variable to the array item type within the body
-        # TODO: check for variable name collision
+        try:
+            Env.resolve(type_env, [], self.variable)
+            raise Err.MultipleDefinitions(
+                self, "Name collision for scatter variable " + self.variable
+            )
+        except KeyError:
+            pass
         type_env = Env.bind(self.variable, self.expr.type.item_type, type_env)
     elif isinstance(self, Conditional):
         # typecheck the condition
@@ -634,6 +640,35 @@ def _build_workflow_type_env(
     self._type_env = type_env
 
 
+def _arrayize_types(type_env: Env.Types) -> Env.Types:
+    # Given a type environment, recursively promote each binding of type T to
+    # Array[T] -- used in Scatter.add_to_type_env
+    ans = []
+    for node in type_env:
+        if isinstance(node, Env.Binding):
+            ans.append(Env.Binding(node.name, T.Array(node.rhs)))
+        elif isinstance(node, Env.Namespace):
+            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
+        else:
+            assert False
+    return ans
+
+
+def _optionalize_types(type_env: Env.Types) -> Env.Types:
+    # Given a type environment, recursively make each binding optional -- used
+    # in Conditional.add_to_type_env
+    ans = []
+    for node in type_env:
+        if isinstance(node, Env.Binding):
+            ty = node.rhs.copy(optional=True)
+            ans.append(Env.Binding(node.name, ty))
+        elif isinstance(node, Env.Namespace):
+            ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
+        else:
+            assert False
+    return ans
+
+
 def _typecheck_workflow_elements(
     doc: Document, self: Optional[Union[Workflow, Scatter, Conditional]] = None
 ) -> None:
@@ -647,34 +682,6 @@ def _typecheck_workflow_elements(
         elif isinstance(child, Call):
             child.typecheck_input(self._type_env, doc)
         elif isinstance(child, (Scatter, Conditional)):
-            _typecheck_workflow_elements(doc, child) # pyre-ignore
+            _typecheck_workflow_elements(doc, child)  # pyre-ignore
         else:
             assert False
-
-
-def _arrayize_types(type_env: Env.Types) -> Env.Types:
-    # Given a type environment, recursively promote each binding of type T to
-    # Array[T]
-    ans = []
-    for node in type_env:
-        if isinstance(node, Env.Binding):
-            ans.append(Env.Binding(node.name, T.Array(node.rhs)))
-        elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
-        else:
-            assert False
-    return ans
-
-
-def _optionalize_types(type_env: Env.Types) -> Env.Types:
-    # Given a type environment, recursively make each binding optional
-    ans = []
-    for node in type_env:
-        if isinstance(node, Env.Binding):
-            ty = node.rhs.copy(optional=True)
-            ans.append(Env.Binding(node.name, ty))
-        elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
-        else:
-            assert False
-    return ans
