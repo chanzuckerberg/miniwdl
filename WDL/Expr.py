@@ -444,7 +444,11 @@ def _retype(type_env: Env.Types, namespace: List[str], name: str, new_type: T.Ba
                 ans.append(node)
         elif isinstance(node, Env.Namespace):
             if namespace and namespace[0] == node.namespace:
-                ans.append(_retype(node.bindings, namespace[1:], name, new_type))
+                ans.append(
+                    Env.Namespace(
+                        namespace[0], _retype(node.bindings, namespace[1:], name, new_type)
+                    )
+                )
             else:
                 ans.append(node)
         else:
