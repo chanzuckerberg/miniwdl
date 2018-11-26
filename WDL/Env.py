@@ -105,7 +105,7 @@ def resolve(tree: "Tree[R]", namespace: List[str], name: str) -> R:
     return ans
 
 
-def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any: # pyre-ignore
+def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any:  # pyre-ignore
     """Resolve a name to its secondary context value"""
     ans: Any = resolve_binding(tree, namespace, name).ctx
     return ans
