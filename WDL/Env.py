@@ -2,7 +2,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, TypeVar, Generic
+from typing import List, TypeVar, Generic, Any
 import WDL.Type as T
 import WDL.Value as V
 
@@ -33,9 +33,13 @@ class Binding(Generic[R]):
     rhs: R
     """:type: Union[WDL.Type.Base,WDL.Value.Base]"""
 
-    def __init__(self, name: str, rhs: R) -> None:
+    ctx: Any
+    "Arbitrary, secondary context also associated with name"
+
+    def __init__(self, name: str, rhs: R, ctx: Any = None) -> None:
         self.name = name
         self.rhs = rhs
+        self.ctx = ctx
 
 
 class Namespace(Generic[R]):
@@ -63,9 +67,9 @@ Values = TypeVar("Values", bound="Tree[Value.Base]")
 """Environment of values, an immutable list of bindings to values and/or namespaces"""
 
 
-def bind(name: str, rhs: R, tree: "Tree[R]") -> "Tree[R]":
+def bind(name: str, rhs: R, tree: "Tree[R]", ctx: Any = None) -> "Tree[R]":
     """Prepend a new binding to an environment"""
-    return [Binding(name, rhs)] + tree
+    return [Binding(name, rhs, ctx)] + tree
 
 
 def namespace(namespace: str, bindings: "Tree[R]", tree: "Tree[R]") -> "Tree[R]":
@@ -83,13 +87,28 @@ def resolve_namespace(tree: "Tree[R]", namespace: List[str]) -> R:
     raise KeyError()
 
 
-def resolve(tree: "Tree[R]", namespace: List[str], name: str) -> R:
-    """Resolve a name within an environment"""
+def resolve_binding(tree: "Tree[R]", namespace: List[str], name: str) -> Binding[R]:
+    """
+    Resolve a name within an environment to the corresponding Binding object
+    """
     ns = resolve_namespace(tree, namespace)
     for node in ns:
         if isinstance(node, Binding) and node.name == name:
-            return node.rhs
+            ans: Binding[R] = node
+            return ans
     raise KeyError()
+
+
+def resolve(tree: "Tree[R]", namespace: List[str], name: str) -> R:
+    """Resolve a name within an environment"""
+    ans: R = resolve_binding(tree, namespace, name).rhs
+    return ans
+
+
+def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any:  # pyre-ignore
+    """Resolve a name to its secondary context value"""
+    ans: Any = resolve_binding(tree, namespace, name).ctx
+    return ans
 
 
 # print(arrayize([Binding('x',T.Int())])[0].rhs)

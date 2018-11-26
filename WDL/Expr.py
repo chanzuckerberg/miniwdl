@@ -9,7 +9,7 @@ nodes attached "beneath" it. An expression can be evaluated to a Value given
 a suitable Env.
 """
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, TypeVar, Tuple, Union
+from typing import List, Optional, Dict, TypeVar, Tuple, Union, Any
 import WDL.Type as T
 import WDL.Value as V
 import WDL.Env as Env
@@ -532,6 +532,16 @@ class Ident(Base):
     name: str
     ":type: str"
 
+    ctx: Any = None
+    """
+    After typechecking, stores context about the binding from the type
+    environment.
+
+    The ``Tree`` typechecker typically stores here a reference to a ``Decl``
+    (for value references in tasks and workflows), a ``Call`` (for references
+    to a call output), or a ``Scatter`` (for references to a scatter variable).
+    """
+
     def __init__(self, pos: SourcePosition, parts: List[str]) -> None:
         super().__init__(pos)
         assert parts
@@ -555,9 +565,10 @@ class Ident(Base):
                 return ans.left_type if self.name == "left" else ans.right_type
         try:
             ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
-            return ans
         except KeyError:
             raise Error.UnknownIdentifier(self) from None
+        self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
+        return ans
 
     def eval(self, env: Env.Values) -> V.Base:
         ""

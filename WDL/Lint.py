@@ -299,3 +299,21 @@ class UnusedImport(Linter):
             if not any_called:
                 self.add(obj, "nothing used from the import " + namespace)
         super().document(obj)
+
+
+@a_linter
+class ForwardReference(Linter):
+    def expr(self, obj: WDL.Expr.Base) -> Any:
+        if (
+            isinstance(obj, WDL.Expr.Ident)
+            and isinstance(obj.ctx, (WDL.Decl, WDL.Call))
+            and (
+                obj.ctx.pos.line > obj.pos.line
+                or (obj.ctx.pos.line == obj.pos.line and obj.ctx.pos.column > obj.pos.column)
+            )
+        ):
+            msg = "identifier lexically precedes the referenced declaration"
+            if isinstance(obj.ctx, WDL.Call):
+                msg = "reference to call output lexically precedes the call"
+            self.add(getattr(obj, "parent"), msg, obj)
+        super().expr(obj)
