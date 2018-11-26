@@ -113,8 +113,7 @@ class TestCalls(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(txt)
-        with self.assertRaises(WDL.Error.StaticTypeMismatch):
-            doc.typecheck()
+        doc.typecheck()
 
         txt = r"""
         task p {

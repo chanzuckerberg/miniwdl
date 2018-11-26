@@ -283,7 +283,13 @@ class Call(SourceNode):
                         decl = ele
             if decl is None:
                 raise Err.NoSuchInput(expr, name)
-            expr.infer_type(type_env).typecheck(decl.type)
+            check_type = decl.type
+            if isinstance(check_type, T.Array):
+                # Accept Array[T] value for Array[T]+ input in static
+                # typechecking; e.g.
+                # https://github.com/gatk-workflows/gatk4-somatic-snvs-indels/blob/28132cbec2fc9178e50cd3a36aa8f94023619428/mutect2.wdl#L255
+                check_type = check_type.copy(nonempty=False)
+            expr.infer_type(type_env).typecheck(check_type)
             if name in required_inputs:
                 required_inputs.remove(name)
 

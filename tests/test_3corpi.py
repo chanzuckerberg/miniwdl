@@ -82,7 +82,7 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
-    path=[["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels"]],
+    expected_lint={'StringCoercion': 20},
 )
 class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
