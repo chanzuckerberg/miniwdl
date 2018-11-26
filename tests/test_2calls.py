@@ -262,7 +262,8 @@ class TestCalls(unittest.TestCase):
             if (b) {
                 call sum
             }
-            Int y = if defined(sum.z) then sum.z+1 else 42
+            call sum as s2
+            Int y = if defined(sum.z) then sum.z+1 else s2.z
         }
         """
         doc = WDL.parse_document(txt)
@@ -275,7 +276,7 @@ class TestCalls(unittest.TestCase):
                 call sum
             }
             call sum as s2
-            Int y = if true then sum.z else 42
+            Int y = if true then sum.z else s2.z
         }
         """
         doc = WDL.parse_document(txt)
