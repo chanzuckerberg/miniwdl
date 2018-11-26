@@ -233,6 +233,29 @@ class TestCalls(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
+    def test_if_defined(self):
+        # test special case for typechecking the construct
+        #   if defined(x) then EXPR_WITH_x else SOME_DEFAULT
+        # where we can treat x as non-optional when typechecking EXPR_WITH_x
+        txt = r"""
+        workflow contrived {
+            Int? x
+            Int y = if defined(x) then x+1 else 42
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+        txt = r"""
+        workflow contrived {
+            Int? x
+            Int y = if true then x+1 else 42
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.IncompatibleOperand):
+            doc.typecheck()
+
+
     def test_forward_reference(self):
         txt = tsk + r"""
         workflow contrived {
