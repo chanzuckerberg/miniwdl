@@ -450,7 +450,7 @@ class Workflow(SourceNode):
         #    conditional section therein
         _build_workflow_type_env(doc)
         # 3. typecheck the right-hand side expressions of each declaration
-        #    and the inputs to each call (desconding into scatter & conditional
+        #    and the inputs to each call (descending into scatter & conditional
         #    sections)
         _typecheck_workflow_elements(doc)
         # 4. typecheck the output expressions
@@ -588,8 +588,11 @@ def _build_workflow_type_env(
     # - declarations & call outputs of type T within a conditional have type T?
     #   outside of the conditional
     #
-    # side effects (all recursive):
-    # - typechecks scatter and conditional expressions
+    # preconditions:
+    # - _resolve_calls()
+    #
+    # postconditions:
+    # - typechecks scatter and conditional expressions (recursively)
     # - sets _type_env attributes on each Workflow/Scatter/Conditional
     self = self or doc.workflow
     if not self:
