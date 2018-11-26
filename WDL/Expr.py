@@ -389,10 +389,7 @@ class IfThenElse(Base):
         ):
             arg: Ident = self.condition.arguments[0]
             consequent_type_env = _retype(
-                consequent_type_env,
-                arg.namespace,
-                arg.name,
-                arg.type.copy(optional=False),
+                consequent_type_env, arg.namespace, arg.name, arg.type.copy(optional=False)
             )
         self_type = self.consequent.infer_type(consequent_type_env).type
         assert isinstance(self_type, T.Base)
