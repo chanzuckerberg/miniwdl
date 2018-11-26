@@ -254,6 +254,7 @@ class TestCalls(unittest.TestCase):
             if (b) {
                 call sum
             }
+            call sum as s2
             Int y = if true then sum.z else 42
         }
         """
