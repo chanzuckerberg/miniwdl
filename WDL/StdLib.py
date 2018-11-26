@@ -195,12 +195,8 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)),  # pyre-fixme
     ("stdout", [], T.File(), _notimpl),
     ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
-    # TODO: size() argument is optional to admit a pattern seen in the test corpi:
-    #         if (defined(f)) then size(f) else 100
-    #       unclear how this should apply generaly to functions other than size().
-    #       alternatively, during typechecking, we could infer that the f can't
-    #       be null in the consequent branch specifically.
-    # FILED https://github.com/openwdl/wdl/issues/271
+    # note: size() can take an empty value and probably returns 0 in that case.
+    #       e.g. https://github.com/DataBiosphere/topmed-workflows/blob/31ba8a714b36ada929044f2ba3d130936e6c740e/CRAM-no-header-md5sum/md5sum/CRAM_md5sum.wdl#L39
     ("size", [T.File(optional=True), T.String(optional=True)], T.Float(), _notimpl),
     ("ceil", [T.Float()], T.Int(), _notimpl),
     ("round", [T.Float()], T.Int(), _notimpl),

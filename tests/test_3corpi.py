@@ -58,9 +58,10 @@ class HCAskylab_task(unittest.TestCase):
 class HCAskylab_workflow(unittest.TestCase):
     pass
 
-# TODO: why is path needed for these?
 @test_corpus(
     ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
+    # path is needed expressly here as a wdl imports from "./tasks_pipelines/import.wdl"
+    # when it itself is in ./tasks_pipelines
     path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
     blacklist=['fc_germline_single_sample_workflow'],
     expected_lint={'CallImportNameCollision': 2, 'ArrayCoercion': 4, 'StringCoercion': 5}
