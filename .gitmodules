@@ -34,3 +34,6 @@
 [submodule "test_corpi/dnanexus/dxWDL"]
 	path = test_corpi/dnanexus/dxWDL
 	url = https://github.com/dnanexus/dxWDL.git
+[submodule "test_corpi/gatk-workflows/gatk4-somatic-snvs-indels"]
+	path = test_corpi/gatk-workflows/gatk4-somatic-snvs-indels
+	url = https://github.com/gatk-workflows/gatk4-somatic-snvs-indels.git

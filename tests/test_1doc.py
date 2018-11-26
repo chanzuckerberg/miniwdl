@@ -315,7 +315,7 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow, WDL.Tree.Workflow)
         self.assertEqual(len(doc.workflow.elements), 2)
         self.assertEqual(len(doc.tasks), 2)
-        doc.workflow.typecheck(doc)
+        doc.typecheck()
 
     def test_bam_chrom_counter(self):
         doc = r"""
@@ -375,7 +375,7 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow.elements[2], WDL.Tree.Scatter)
         self.assertEqual(len(doc.workflow.elements[2].elements), 1)
         self.assertEqual(len(doc.tasks), 2)
-        doc.workflow.typecheck(doc)
+        doc.typecheck()
 
     def test_nested_scatter(self):
         doc = r"""
@@ -535,7 +535,7 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.UnknownIdentifier):
-            doc.workflow.typecheck(doc)
+            doc.typecheck()
 
         doc = r"""
         task sum {
@@ -642,3 +642,23 @@ class TestDoc(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
+
+    def test_task_forward_reference(self):
+        doc = r"""
+        task sum {
+            input {
+                Int x = y
+            }
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        # TODO: test circular reference
