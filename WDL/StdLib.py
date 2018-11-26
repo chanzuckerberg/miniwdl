@@ -200,6 +200,7 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     #       unclear how this should apply generaly to functions other than size().
     #       alternatively, during typechecking, we could infer that the f can't
     #       be null in the consequent branch specifically.
+    # FILED https://github.com/openwdl/wdl/issues/271
     ("size", [T.File(optional=True), T.String(optional=True)], T.Float(), _notimpl),
     ("ceil", [T.Float()], T.Int(), _notimpl),
     ("round", [T.Float()], T.Int(), _notimpl),

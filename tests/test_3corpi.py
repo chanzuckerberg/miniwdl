@@ -58,6 +58,7 @@ class HCAskylab_task(unittest.TestCase):
 class HCAskylab_workflow(unittest.TestCase):
     pass
 
+# TODO: why is path needed for these?
 @test_corpus(
     ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
     path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
@@ -66,10 +67,6 @@ class HCAskylab_workflow(unittest.TestCase):
 )
 class GATK_five_dollar(unittest.TestCase):
     pass
-
-# TODO: support out-of-order use of artifact_modes in https://github.com/gatk-workflows/gatk4-somatic-snvs-indels/blob/0a82bedcedd2a2176ccced7cc2ed700e37a025f5/mutect2.wdl#L90
-#test_corpus_zip(TestGATK, "gatk4_somatic_snvs_indels",
-#                'https://github.com/gatk-workflows/gatk4-somatic-snvs-indels/archive/0a82bed.zip')
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
@@ -80,6 +77,13 @@ class GATK_five_dollar(unittest.TestCase):
     expected_lint={'StringCoercion': 2}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
+    pass
+
+@test_corpus(
+    ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
+    path=[["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels"]],
+)
+class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
 
 @test_corpus(
