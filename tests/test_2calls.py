@@ -212,3 +212,53 @@ class TestCalls(unittest.TestCase):
         doc = WDL.parse_document(txt)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
+
+    def test_if_defined(self):
+        # test special case for typechecking the construct
+        #   if defined(x) then EXPR_WITH_x else SOME_DEFAULT
+        # where we can treat x as non-optional when typechecking EXPR_WITH_x
+        txt = r"""
+        workflow contrived {
+            Int? x
+            Int y = if defined(x) then x+1 else 42
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+        txt = r"""
+        workflow contrived {
+            Int? x
+            Int y = if true then x+1 else 42
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.IncompatibleOperand):
+            doc.typecheck()
+
+        txt = tsk + r"""
+        workflow contrived {
+            Boolean b
+            if (b) {
+                call sum
+            }
+            call sum as s2
+            Int y = if defined(sum.z) then sum.z+1 else s2.z
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+        txt = tsk + r"""
+        workflow contrived {
+            Boolean b
+            if (b) {
+                call sum
+            }
+            call sum as s2
+            Int y = if true then sum.z else s2.z
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
