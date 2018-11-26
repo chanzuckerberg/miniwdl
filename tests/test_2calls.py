@@ -211,3 +211,77 @@ class TestCalls(unittest.TestCase):
         doc = WDL.parse_document(txt)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            Int i
+            scatter (i in [1,2]) {
+                call sum
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            scatter (i in [1,2]) {
+                Int i = 42
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+    def test_forward_reference(self):
+        txt = tsk + r"""
+        workflow contrived {
+            Int y = x
+            Int x
+            Array[Int?] w_out = w
+            scatter (z in [1,2,3]) {
+                if (true) {
+                    Int w = z
+                }
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+        txt = tsk + r"""
+        workflow contrived {
+            Int y = z
+            scatter (z in [1,2,3]) {
+                call sum
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.typecheck()
+        txt = tsk + r"""
+        workflow contrived {
+            scatter (z in [1,2,3]) {
+                call sum
+            }
+            Int y = z
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.typecheck()
+
+        txt = tsk + r"""
+        workflow contrived {
+            Array[Int] s = sum.z
+            scatter (z in [1,2,3]) {
+                call sum { input: x = s2.z }
+            }
+            call sum as s2
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+        # TODO: test cycle detection
