@@ -154,6 +154,9 @@ class Task(SourceNode):
         # TODO: detect circular dependencies among input & postinput decls
         # Typecheck the command (string)
         self.command.infer_type(type_env).typecheck(T.String())
+        # Typecheck runtime expressions
+        for _, runtime_expr in self.runtime.items():
+            runtime_expr.infer_type(type_env).typecheck(T.String())
         # Add output declarations to type environment
         for decl in self.outputs:
             type_env = decl.add_to_type_env(type_env)
@@ -161,7 +164,7 @@ class Task(SourceNode):
         for decl in self.outputs:
             decl.typecheck(type_env)
         # TODO: detect circularities in output declarations
-        # TODO: check runtime section
+
 
     @property
     def required_inputs(self) -> List[Decl]:

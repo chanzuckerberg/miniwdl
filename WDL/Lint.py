@@ -331,7 +331,7 @@ class UnusedDeclaration(Linter):
         if not is_output and not uncalled and not getattr(obj, "referrers", []):
             self.add(obj, "nothing refers to " + obj.name)
 
-
+"""
 @a_linter
 class UnusedCall(Linter):
     _workflow_with_outputs: bool = False
@@ -349,3 +349,4 @@ class UnusedCall(Linter):
                 + obj.name
                 + " aren't output from the workflow nor otherwise used",
             )
+"""

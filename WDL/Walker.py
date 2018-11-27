@@ -81,12 +81,15 @@ class Base:
         for elt in obj.inputs + obj.postinputs:
             self(elt)
         self(obj.command)
+        for _, runtime_expr in obj.runtime.items():
+            self(runtime_expr)
         for elt in obj.outputs:
             self(elt)
-        # TODO: traverse runtime section
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if isinstance(obj, WDL.Expr.Placeholder):
+#            if hasattr(obj.expr, 'name'):
+#                print(">>> " + obj.expr.name)
             self(obj.expr)
         elif isinstance(obj, WDL.Expr.String):
             for p in obj.parts:
