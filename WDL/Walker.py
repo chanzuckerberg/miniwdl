@@ -197,6 +197,8 @@ class MarkCalled(Base):
     Mark each Task and Workflow with ``called : bool`` according to whether
     there exists a Call to it in the top-level workflow (or a subworkflow it
     calls). Requires SetParents to have been applied previously.
+
+    The top-level workflow is considered called.
     """
 
     marking: bool = False  # True while recursing from the top-level workflow
@@ -205,6 +207,7 @@ class MarkCalled(Base):
         obj.called = False
         if obj.parent.parent is None:  # pyre-ignore
             assert not self.marking
+            obj.called = True
             self.marking = True
             super().workflow(obj)
             self.marking = False

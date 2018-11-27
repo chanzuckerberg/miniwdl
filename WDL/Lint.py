@@ -142,15 +142,20 @@ class StringCoercion(Linter):
             # causing coercion of the others
             any_string = False
             all_string = True
+            any_optional = False
             item_types = []
             for elt in obj.items:
                 if isinstance(elt.type, WDL.Type.String):
                     any_string = True
                 elif not isinstance(elt.type, WDL.Type.File):
                     all_string = False
+                if elt.type.optional:
+                    any_optional = True
                 item_types.append(str(elt.type))
             if any_string and not all_string:
-                msg = "literal Array[String] has item types: [{}]".format(", ".join(item_types))
+                msg = "literal Array[String{}] has item types: [{}]".format(
+                    "?" if any_optional else "", ", ".join(item_types)
+                )
                 self.add(pt, msg, obj)
         super().expr(obj)
 
@@ -350,13 +355,12 @@ class UnusedDeclaration(Linter):
                 self.add(obj, "nothing refers to " + obj.name)
 
 
-"""
 @a_linter
 class UnusedCall(Linter):
     _workflow_with_outputs: bool = False
 
     def workflow(self, obj: WDL.Tree.Workflow) -> Any:
-        self._workflow_with_outputs = obj.outputs is not None
+        self._workflow_with_outputs = getattr(obj, "called", False) and obj.outputs is not None
         super().workflow(obj)
         self._workflow_with_outputs = False
 
@@ -368,4 +372,3 @@ class UnusedCall(Linter):
                 + obj.name
                 + " aren't output from the workflow nor otherwise used",
             )
-"""

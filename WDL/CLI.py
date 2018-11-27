@@ -102,10 +102,18 @@ def outline(obj, level, file=sys.stdout):
             descend(decl)
     # call
     elif isinstance(obj, WDL.Call):
-        print(
-            "{}call {}".format(s, ".".join(obj.callee_id.namespace + [obj.callee_id.name])),
-            file=file,
-        )
+        if obj.name != obj.callee_id.name:
+            print(
+                "{}call {} as {}".format(
+                    s, ".".join(obj.callee_id.namespace + [obj.callee_id.name]), obj.name
+                ),
+                file=file,
+            )
+        else:
+            print(
+                "{}call {}".format(s, ".".join(obj.callee_id.namespace + [obj.callee_id.name])),
+                file=file,
+            )
     # scatter
     elif isinstance(obj, WDL.Scatter):
         print("{}scatter {}".format(s, obj.variable), file=file)
