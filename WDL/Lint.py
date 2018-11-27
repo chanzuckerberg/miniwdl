@@ -316,9 +316,7 @@ class ForwardReference(Linter):
             if isinstance(obj.ctx, WDL.Decl):
                 msg = "reference to {} precedes its declaration".format(obj.name)
             elif isinstance(obj.ctx, WDL.Call):
-                msg = "reference to output of {} precedes the call".format(
-                    ".".join(obj.namespace)
-                )
+                msg = "reference to output of {} precedes the call".format(".".join(obj.namespace))
             else:
                 assert False
             self.add(getattr(obj, "parent"), msg, obj)
