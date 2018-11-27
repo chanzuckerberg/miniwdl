@@ -215,23 +215,9 @@ command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END ->
 """
 
 
-def _effective_version(version: Optional[str]) -> str:
-    if version:
-        version = version.strip()
-    if version and not version[0].isdigit():
-        # For now: assume any given version that isn't numeric is draft-2
-        return "draft-2"
-    # otherwise default to 1.0 here
-    # Note: WDL.load() implements the spec-compliant logic which assumes
-    # draft-2 unless a 1.0+ "version" string starts the document, before we get
-    # down here.
-    return "1.0"
-
-
-def _grammar_for_version(version: str) -> str:
+def _grammar_for_version(version: Optional[str]) -> str:
     if version == "draft-2":
         return common_grammar + commands_pre_1_0
-    assert version == "1.0"
     return common_grammar + commands_1_0
 
 
@@ -240,7 +226,6 @@ _lark_cache = {}
 
 
 def parse(txt: str, start: str, version: Optional[str] = None) -> lark.Tree:
-    version = _effective_version(version)
     if (version, start) not in _lark_cache:
         _lark_cache[(version, start)] = lark.Lark(
             _grammar_for_version(version), start=start, parser="lalr", propagate_positions=True
@@ -696,6 +681,16 @@ def parse_document(
             None,
             imported,
         )
+    if version is None:
+        # for now assume the version is 1.0 if the first line is "version <number>"
+        # otherwise draft-2
+        version = "draft-2"
+        for line in txt.split("\n"):
+            line = line.strip()
+            if line and line[0] != "#":
+                if line.startswith("version ") and line[8].isdigit():
+                    version = "1.0"
+                break
     try:
         return _DocTransformer(uri, imported).transform(parse(txt, "document", version))
     except lark.exceptions.UnexpectedCharacters as exn:

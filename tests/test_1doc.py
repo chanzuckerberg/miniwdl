@@ -768,5 +768,6 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
+        self.assertEqual(len(doc.tasks[0].command.parts), 5)
 
         # TODO: test circular reference
