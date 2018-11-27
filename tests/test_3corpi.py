@@ -169,7 +169,7 @@ class dxWDL(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 2, 'NameCollision': 10, 'OptionalCoercion': 2, 'StringCoercion': 1, 'NonemptyArrayCoercion': 1, 'ArrayCoercion': 1},
+    expected_lint={'UnusedImport': 2, 'ArrayCoercion': 2, 'NameCollision': 13, 'OptionalCoercion': 2, 'StringCoercion': 1, 'NonemptyArrayCoercion': 1, 'IncompleteCall': 1},
 )
 class Contrived(unittest.TestCase):
     pass

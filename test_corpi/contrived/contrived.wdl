@@ -12,6 +12,7 @@ workflow contrived {
         i = contrived,
         y = contrived
     }
+    call popular as contrived
 }
 
 task popular {
@@ -23,6 +24,6 @@ task popular {
 
     command {
         echo "~{popular}"
-        echo "${x} ${sep=';' y}"
+        echo "${x} ${write_tsv(y)}"
     }
 }
