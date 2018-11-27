@@ -276,6 +276,105 @@ class TestTasks(unittest.TestCase):
         self.assertIsInstance(task.meta['description'], WDL.Expr.String)
         self.assertEqual(task.meta['description'].parts, ["'", "it\\'s a task", "'"])
 
+    def test_compare_md5sums(self):
+        txt = """
+task compare_md5sum {
+	Array[String] labels
+	Array[File] files
+	Array[File] ref_files
+
+	command <<<
+		python <<CODE	
+		from collections import OrderedDict
+		import os
+		import json
+		import hashlib
+
+		def md5sum(filename, blocksize=65536):
+		    hash = hashlib.md5()
+		    with open(filename, 'rb') as f:
+		        for block in iter(lambda: f.read(blocksize), b""):
+		            hash.update(block)
+		    return hash.hexdigest()
+
+		with open('${write_lines(labels)}','r') as fp:
+			labels = fp.read().splitlines()
+		with open('${write_lines(files)}','r') as fp:
+			files = fp.read().splitlines()
+		with open('${write_lines(ref_files)}','r') as fp:
+			ref_files = fp.read().splitlines()
+
+		result = OrderedDict()
+		match = OrderedDict()
+		match_overall = True
+
+		result['tasks'] = []
+		result['failed_task_labels'] = []
+		result['succeeded_task_labels'] = []
+		for i, label in enumerate(labels):
+			f = files[i]
+			ref_f = ref_files[i]
+			md5 = md5sum(f)
+			ref_md5 = md5sum(ref_f)
+			# if text file, read in contents
+			if f.endswith('.qc') or f.endswith('.txt') or \
+				f.endswith('.log') or f.endswith('.out'):
+				with open(f,'r') as fp:
+					contents = fp.read()
+				with open(ref_f,'r') as fp:
+					ref_contents = fp.read()
+			else:
+				contents = ''
+				ref_contents = ''
+			matched = md5==ref_md5
+			result['tasks'].append(OrderedDict([
+				('label', label),
+				('match', matched),
+				('md5sum', md5),
+				('ref_md5sum', ref_md5),
+				('basename', os.path.basename(f)),
+				('ref_basename', os.path.basename(ref_f)),
+				('contents', contents),
+				('ref_contents', ref_contents),
+				]))
+			match[label] = matched
+			match_overall &= matched
+			if matched:
+				result['succeeded_task_labels'].append(label)
+			else:
+				result['failed_task_labels'].append(label)		
+		result['match_overall'] = match_overall
+
+		with open('result.json','w') as fp:
+			fp.write(json.dumps(result, indent=4))
+		match_tmp = []
+		for key in match:
+			val = match[key]
+			match_tmp.append('{}\t{}'.format(key, val))
+		with open('match.tsv','w') as fp:
+			fp.writelines('\n'.join(match_tmp))
+		with open('match_overall.txt','w') as fp:
+			fp.write(str(match_overall))
+		CODE
+	>>>
+	output {
+		Map[String,String] match = read_map('match.tsv') # key:label, val:match
+		Boolean match_overall = read_boolean('match_overall.txt')
+		File json = glob('result.json')[0] # details (json file)
+		String json_str = read_string('result.json') # details (string)
+	}
+	runtime {
+		cpu : 1
+		memory : "4000 MB"
+		time : 1
+		disks : "local-disk 50 HDD"		
+	}
+}
+"""
+        task = WDL.parse_tasks(txt, version="draft-2")[0]
+        task.typecheck()
+        self.assertEqual(len(task.command.parts), 7)
+
 
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
@@ -340,12 +439,12 @@ class TestDoc(unittest.TestCase):
             File bam
             Int num_chrom = 22
             command <<<
-            set -ex
-            samtools index ${bam}
-            mkdir slices/
-            for i in `seq ${num_chrom}`; do
-                samtools view -b ${bam} -o slices/$i.bam $i
-            done
+                set -ex
+                samtools index ${bam}
+                mkdir slices/
+                for i in `seq ${num_chrom}`; do
+                    samtools view -b ${bam} -o slices/$i.bam $i
+                done
             >>>
             runtime {
                 docker: "quay.io/ucsc_cgl/samtools"
@@ -369,12 +468,14 @@ class TestDoc(unittest.TestCase):
             }
         }
         """
-        doc = WDL.parse_document(doc)
+        doc = WDL.parse_document(doc, version="draft-2")
         self.assertIsInstance(doc.workflow, WDL.Tree.Workflow)
         self.assertEqual(len(doc.workflow.elements), 3)
         self.assertIsInstance(doc.workflow.elements[2], WDL.Tree.Scatter)
         self.assertEqual(len(doc.workflow.elements[2].elements), 1)
         self.assertEqual(len(doc.tasks), 2)
+        self.assertEqual(doc.tasks[0].name, "slice_bam")
+        self.assertEqual(len(doc.tasks[0].command.parts), 7)
         doc.typecheck()
 
     def test_nested_scatter(self):
@@ -457,6 +558,7 @@ class TestDoc(unittest.TestCase):
 
     def test_errors(self):
         doc = r"""
+        version 1.0
         task sum {
             Int x
             Int y
@@ -478,6 +580,7 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = r"""
+        version 1.0
         task sum {
             Int x
             Int y
@@ -538,6 +641,7 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = r"""
+        version 1.0
         task sum {
             Int x
             Int y
@@ -561,6 +665,7 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = r"""
+        version 1.0
         task sum {
             Int x
             Int y
@@ -580,6 +685,7 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = r"""
+        version 1.0
         task sum {
             Int x
             Int y
@@ -599,6 +705,7 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = r"""
+        version 1.0
         task sum {
             Int x
             Int y
@@ -645,6 +752,7 @@ class TestDoc(unittest.TestCase):
 
     def test_task_forward_reference(self):
         doc = r"""
+        version 1.0
         task sum {
             input {
                 Int x = y
@@ -660,5 +768,6 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
+        self.assertEqual(len(doc.tasks[0].command.parts), 5)
 
         # TODO: test circular reference

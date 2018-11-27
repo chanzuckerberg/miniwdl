@@ -154,6 +154,9 @@ class Task(SourceNode):
         # TODO: detect circular dependencies among input & postinput decls
         # Typecheck the command (string)
         self.command.infer_type(type_env).typecheck(T.String())
+        # Typecheck runtime expressions
+        for _, runtime_expr in self.runtime.items():
+            runtime_expr.infer_type(type_env).typecheck(T.String())
         # Add output declarations to type environment
         for decl in self.outputs:
             type_env = decl.add_to_type_env(type_env)
@@ -161,7 +164,6 @@ class Task(SourceNode):
         for decl in self.outputs:
             decl.typecheck(type_env)
         # TODO: detect circularities in output declarations
-        # TODO: check runtime section
 
     @property
     def required_inputs(self) -> List[Decl]:
@@ -539,7 +541,7 @@ def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Do
         if os.path.exists(fn):
             with open(fn, "r") as infile:
                 # read and parse the document
-                doc = WDL._parser.parse_document(infile.read(), uri, imported)
+                doc = WDL._parser.parse_document(infile.read(), uri=uri, imported=imported)
                 assert isinstance(doc, Document)
                 # recursively descend into document's imports, and store the imported
                 # documents into doc.imports
@@ -655,7 +657,7 @@ def _arrayize_types(type_env: Env.Types) -> Env.Types:
     ans = []
     for node in type_env:
         if isinstance(node, Env.Binding):
-            ans.append(Env.Binding(node.name, T.Array(node.rhs)))
+            ans.append(Env.Binding(node.name, T.Array(node.rhs), node.ctx))
         elif isinstance(node, Env.Namespace):
             ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
         else:
@@ -670,7 +672,7 @@ def _optionalize_types(type_env: Env.Types) -> Env.Types:
     for node in type_env:
         if isinstance(node, Env.Binding):
             ty = node.rhs.copy(optional=True)
-            ans.append(Env.Binding(node.name, ty))
+            ans.append(Env.Binding(node.name, ty, node.ctx))
         elif isinstance(node, Env.Namespace):
             ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
         else:

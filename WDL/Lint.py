@@ -45,6 +45,7 @@ def lint(doc):
     # Add additional markups to the AST for use by the linters
     WDL.Walker.SetParents()(doc)
     WDL.Walker.MarkCalled()(doc)
+    WDL.Walker.SetReferrers()(doc)
 
     for linter in _all_linters:
         linter()(doc)
@@ -149,7 +150,7 @@ class StringCoercion(Linter):
                     all_string = False
                 item_types.append(str(elt.type))
             if any_string and not all_string:
-                msg = "literal Array[String] has item types: [{}]".format(", ".join(item_types))
+                msg = "literal {} has item types: [{}]".format(str(obj.type), ", ".join(item_types))
                 self.add(pt, msg, obj)
         super().expr(obj)
 
@@ -312,8 +313,67 @@ class ForwardReference(Linter):
                 or (obj.ctx.pos.line == obj.pos.line and obj.ctx.pos.column > obj.pos.column)
             )
         ):
-            msg = "identifier lexically precedes the referenced declaration"
-            if isinstance(obj.ctx, WDL.Call):
-                msg = "reference to call output lexically precedes the call"
+            if isinstance(obj.ctx, WDL.Decl):
+                msg = "reference to {} precedes its declaration".format(obj.name)
+            elif isinstance(obj.ctx, WDL.Call):
+                msg = "reference to output of {} precedes the call".format(".".join(obj.namespace))
+            else:
+                assert False
             self.add(getattr(obj, "parent"), msg, obj)
         super().expr(obj)
+
+
+@a_linter
+class UnusedDeclaration(Linter):
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
+        pt = getattr(obj, "parent")
+        is_output = (
+            isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs
+        )
+        if not is_output and not getattr(obj, "referrers", []):
+            # heuristic exception: File whose name suggests it's an hts index
+            # file; as these commonly need to be localized, but not explicitly
+            # used in task command
+            index_suffixes = [
+                "index",
+                "indexes",
+                "indices",
+                "idx",
+                "tbi",
+                "bai",
+                "crai",
+                "csi",
+                "fai",
+                "dict",
+            ]
+            if not (
+                (
+                    isinstance(obj.type, WDL.Type.File)
+                    and sum(1 for sfx in index_suffixes if obj.name.endswith(sfx))
+                )
+                or (
+                    isinstance(obj.type, WDL.Type.Array)
+                    and isinstance(obj.type.item_type, WDL.Type.File)
+                    and sum(1 for sfx in index_suffixes if obj.name.endswith(sfx))
+                )
+            ):
+                self.add(obj, "nothing refers to " + obj.name)
+
+
+@a_linter
+class UnusedCall(Linter):
+    _workflow_with_outputs: bool = False
+
+    def workflow(self, obj: WDL.Tree.Workflow) -> Any:
+        self._workflow_with_outputs = getattr(obj, "called", False) and obj.outputs is not None
+        super().workflow(obj)
+        self._workflow_with_outputs = False
+
+    def call(self, obj: WDL.Tree.Call) -> Any:
+        if self._workflow_with_outputs and not getattr(obj, "referrers", []):
+            self.add(
+                obj,
+                "the outputs of call "
+                + obj.name
+                + " aren't output from the workflow nor otherwise used",
+            )

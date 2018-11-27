@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 import WDL
 
 
@@ -58,16 +58,21 @@ class Base:
     def workflow(self, obj: WDL.Tree.Workflow) -> Any:
         for elt in obj.elements:
             self(elt)
+        if obj.outputs:
+            for decl in obj.outputs or []:
+                self(decl)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for _, expr in obj.inputs.items():
             self(expr)
 
     def scatter(self, obj: WDL.Tree.Scatter) -> Any:
+        self(obj.expr)
         for elt in obj.elements:
             self(elt)
 
     def conditional(self, obj: WDL.Tree.Conditional) -> Any:
+        self(obj.expr)
         for elt in obj.elements:
             self(elt)
 
@@ -79,9 +84,10 @@ class Base:
         for elt in obj.inputs + obj.postinputs:
             self(elt)
         self(obj.command)
+        for _, runtime_expr in obj.runtime.items():
+            self(runtime_expr)
         for elt in obj.outputs:
             self(elt)
-        # TODO: traverse runtime section
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if isinstance(obj, WDL.Expr.Placeholder):
@@ -124,8 +130,10 @@ class SetParents(Base):
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
 
-    On each Expr, the containing Decl or (for command placeholders) Task
+    On each Expr, the containing Decl, Call, Scatter, Conditional, or Task.
     """
+
+    _parent_stack: List[WDL.Error.SourceNode] = []
 
     def document(self, obj: WDL.Tree.Document) -> None:
         super().document(obj)
@@ -142,34 +150,46 @@ class SetParents(Base):
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
+        for decl in obj.outputs or []:
+            decl.parent = obj
+
+    def call(self, obj: WDL.Tree.Call) -> None:
+        self._parent_stack.append(obj)
+        super().call(obj)
+        self._parent_stack.pop()
 
     def scatter(self, obj: WDL.Tree.Scatter) -> None:
+        self._parent_stack.append(obj)
         super().scatter(obj)
+        self._parent_stack.pop()
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
 
     def conditional(self, obj: WDL.Tree.Conditional) -> None:
+        self._parent_stack.append(obj)
         super().conditional(obj)
+        self._parent_stack.pop()
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
 
     def task(self, obj: WDL.Tree.Task) -> None:
-        setattr(self, "_parent_task", obj)
+        self._parent_stack.append(obj)
         super().task(obj)
+        self._parent_stack.pop()
         obj.parent = None
         for elt in obj.inputs + obj.postinputs + obj.outputs:
             elt.parent = obj
 
     def decl(self, obj: WDL.Tree.Decl) -> None:
-        setattr(self, "_parent_decl", obj)
+        self._parent_stack.append(obj)
         super().decl(obj)
-        delattr(self, "_parent_decl")
+        self._parent_stack.pop()
 
     def expr(self, obj: WDL.Expr.Base) -> None:
         super().expr(obj)
-        obj.parent = getattr(self, "_parent_decl", getattr(self, "_parent_task"))
+        obj.parent = self._parent_stack[-1]
 
 
 class MarkCalled(Base):
@@ -177,6 +197,8 @@ class MarkCalled(Base):
     Mark each Task and Workflow with ``called : bool`` according to whether
     there exists a Call to it in the top-level workflow (or a subworkflow it
     calls). Requires SetParents to have been applied previously.
+
+    The top-level workflow is considered called.
     """
 
     marking: bool = False  # True while recursing from the top-level workflow
@@ -185,6 +207,7 @@ class MarkCalled(Base):
         obj.called = False
         if obj.parent.parent is None:  # pyre-ignore
             assert not self.marking
+            obj.called = True
             self.marking = True
             super().workflow(obj)
             self.marking = False
@@ -199,3 +222,18 @@ class MarkCalled(Base):
 
     def task(self, obj: WDL.Tree.Task) -> None:
         obj.called = False
+
+
+class SetReferrers(Base):
+    """
+    Add ``referrers`` to each Decl and Call in all tasks and workflows.
+
+    It lists each Expr.Ident which uses the value (of a Decl) or any output of
+    the Call. The Expr.Ident instances may be in declarations, call inputs,
+    task commands, outputs, scatter arrays, if conditions.
+    """
+
+    def expr(self, obj: WDL.Expr.Base) -> None:
+        if isinstance(obj, WDL.Expr.Ident) and isinstance(obj.ctx, (WDL.Tree.Decl, WDL.Tree.Call)):
+            setattr(obj.ctx, "referrers", getattr(obj.ctx, "referrers", []) + [obj])
+        return super().expr(obj)

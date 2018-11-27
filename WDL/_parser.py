@@ -1,5 +1,5 @@
 import inspect
-from typing import List
+from typing import List, Optional
 import lark
 from WDL.Error import SourcePosition
 from WDL import Error as Err
@@ -7,7 +7,7 @@ from WDL import Tree as D
 from WDL import Type as T
 from WDL import Expr as E
 
-grammar = r"""
+common_grammar = r"""
 // WDL expressions
 // start with rules handling infix operator precedence
 ?expr: expr_infix
@@ -121,17 +121,6 @@ bound_decl: type CNAME "=" expr -> decl
 placeholder_option: placeholder_key "=" placeholder_value
 placeholder: placeholder_option* expr
 
-COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
-COMMAND1_END: COMMAND1_CHAR* "$"? "~"? "}"
-COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
-                 | COMMAND1_CHAR* "~{"
-command1: "command" "{" [(COMMAND1_FRAGMENT placeholder "}")*] COMMAND1_END -> command
-
-COMMAND2_CHAR: /[^~>]/ | /~[^{]/ | />[^>]/ | />>[^>]/
-COMMAND2_END : COMMAND2_CHAR* ">"~0..2 ">>>"
-COMMAND2_FRAGMENT: COMMAND2_CHAR* "~{"
-command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
-
 ?command: command1 | command2
 
 // task meta/parameter_meta sections (effectively JSON)
@@ -196,16 +185,52 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 %ignore COMMENT
 """
 
+# pre-1.0 commands, where both { } and <<< >>> styles have placeholders
+# delimited by ${ }
+commands_pre_1_0 = r"""
+COMMAND1_CHAR: /[^$}]/ | /\$[^{]/
+COMMAND1_END: COMMAND1_CHAR* "$"? "}"
+COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
+command1: "command" "{" [(COMMAND1_FRAGMENT placeholder "}")*] COMMAND1_END -> command
 
-larks_by_start = {}  # memoize Lark parsers constructed for various start symbols
+COMMAND2_CHAR: /[^$>]/ | /\$[^{]/ | />[^>]/ | />>[^>]/
+COMMAND2_END : COMMAND2_CHAR* ">"~0..2 ">>>"
+COMMAND2_FRAGMENT: COMMAND2_CHAR* "${"
+command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
+"""
+
+# 1.0+ commands, where ~{ } placeholders are supported in both styles, and ${ }
+# is not recognized within <<< >>>
+commands_1_0 = r"""
+COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
+COMMAND1_END: COMMAND1_CHAR* "$"? "~"? "}"
+COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
+                 | COMMAND1_CHAR* "~{"
+command1: "command" "{" [(COMMAND1_FRAGMENT placeholder "}")*] COMMAND1_END -> command
+
+COMMAND2_CHAR: /[^~>]/ | /~[^{]/ | />[^>]/ | />>[^>]/
+COMMAND2_END : COMMAND2_CHAR* ">"~0..2 ">>>"
+COMMAND2_FRAGMENT: COMMAND2_CHAR* "~{"
+command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
+"""
 
 
-def parse(txt: str, start: str) -> lark.Tree:
-    if start not in larks_by_start:
-        larks_by_start[start] = lark.Lark(
-            grammar, start=start, parser="lalr", propagate_positions=True
+def _grammar_for_version(version: Optional[str]) -> str:
+    if version == "draft-2":
+        return common_grammar + commands_pre_1_0
+    return common_grammar + commands_1_0
+
+
+# memoize Lark parsers constructed for version & start symbol
+_lark_cache = {}
+
+
+def parse(txt: str, start: str, version: Optional[str] = None) -> lark.Tree:
+    if (version, start) not in _lark_cache:
+        _lark_cache[(version, start)] = lark.Lark(
+            _grammar_for_version(version), start=start, parser="lalr", propagate_positions=True
         )
-    return larks_by_start[start].parse(txt)
+    return _lark_cache[(version, start)].parse(txt)
 
 
 def sp(filename, meta) -> SourcePosition:
@@ -633,19 +658,31 @@ for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
             setattr(_klass, name, lark.v_args(meta=True)(method))  # pyre-fixme
 
 
-def parse_expr(txt: str) -> E.Base:
+def parse_expr(txt: str, version: Optional[str] = None) -> E.Base:
     try:
-        return _ExprTransformer(txt).transform(parse(txt, "expr"))
+        return _ExprTransformer(txt).transform(parse(txt, "expr", version))
     except lark.exceptions.UnexpectedToken as exn:
         raise Err.ParserError(txt) from exn
 
 
-def parse_tasks(txt: str) -> List[D.Task]:
+def parse_tasks(txt: str, version: Optional[str] = None) -> List[D.Task]:
     # pyre-fixme
-    return _DocTransformer("", False).transform(parse(txt, "tasks"))
+    return _DocTransformer("", False).transform(parse(txt, "tasks", version))
 
 
-def parse_document(txt: str, uri: str = "", imported: bool = False) -> D.Document:
+def parse_document(
+    txt: str, version: Optional[str] = None, uri: str = "", imported: bool = False
+) -> D.Document:
+    if version is None:
+        # for now assume the version is 1.0 if the first line is "version <number>"
+        # otherwise draft-2
+        version = "draft-2"
+        for line in txt.split("\n"):
+            line = line.strip()
+            if line and line[0] != "#":
+                if line.startswith("version ") and line[8].isdigit():
+                    version = "1.0"
+                break
     if not txt.strip():
         return D.Document(
             SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0),
@@ -655,7 +692,7 @@ def parse_document(txt: str, uri: str = "", imported: bool = False) -> D.Documen
             imported,
         )
     try:
-        return _DocTransformer(uri, imported).transform(parse(txt, "document"))
+        return _DocTransformer(uri, imported).transform(parse(txt, "document", version))
     except lark.exceptions.UnexpectedCharacters as exn:
         raise Err.ParserError(uri if uri != "" else "(in buffer)") from exn
     except lark.exceptions.UnexpectedToken as exn:

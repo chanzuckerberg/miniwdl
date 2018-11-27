@@ -439,7 +439,7 @@ def _retype(type_env: Env.Types, namespace: List[str], name: str, new_type: T.Ba
     for node in type_env:
         if isinstance(node, Env.Binding):
             if not namespace and name == node.name:
-                ans.append(Env.Binding(node.name, new_type))
+                ans.append(Env.Binding(node.name, new_type, node.ctx))
             else:
                 ans.append(node)
         elif isinstance(node, Env.Namespace):
@@ -562,6 +562,7 @@ class Ident(Base):
             except KeyError:
                 pass
             if isinstance(ans, T.Pair):
+                self.ctx = Env.resolve_ctx(type_env, pair_namespace, pair_name)
                 return ans.left_type if self.name == "left" else ans.right_type
         try:
             ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
