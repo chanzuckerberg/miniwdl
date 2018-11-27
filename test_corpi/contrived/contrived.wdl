@@ -1,25 +1,28 @@
-# examples contrived to cover obscured Linter code paths otherwise missed
+# examples contrived to cover obscure Linter code paths otherwise missed
 version 1.0
 
 import "empty.wdl" as popular
+import "empty.wdl" as contrived
 
 workflow contrived {
     String popular = "fox"
-    call echo as popular { input:
+    Int contrived = 42
+    call popular { input:
         popular = popular,
-        i = 42
+        i = contrived,
+        y = contrived
     }
 }
 
-task echo {
+task popular {
     String popular
     String? opt
     Float? i
     String x = popular + opt
-    String y = popular + i
+    Array[String]+ y = select_all([popular + i])
 
     command {
         echo "~{popular}"
-        echo "${x} ${y}"
+        echo "${x} ${sep=';' y}"
     }
 }

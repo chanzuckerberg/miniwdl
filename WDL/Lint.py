@@ -308,7 +308,12 @@ class NameCollision(Linter):
     # Name collisions between
     # - call and import
     # - call and decl
+    # - call and its containing workflow
     # - decl and import
+    # - decl and workflow
+    # - decl and task
+    # - workflow and import
+    # - task and import
     # These are allowed, but potentially confusing.
     # TODO: cover scatter variables
     def call(self, obj: WDL.Call) -> Any:
@@ -317,12 +322,15 @@ class NameCollision(Linter):
             doc = getattr(doc, "parent")
         for _, namespace, _ in doc.imports:
             if namespace == obj.name:
-                msg = "call name {} collides with imported document namespace".format(obj.name)
+                msg = "call name '{}' collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
+        if doc.workflow and doc.workflow.name == obj.name:
+            msg = "call name '{}' collides with workflow name".format(obj.name)
+            self.add(obj, msg)
         type_env = getattr(obj, "parent")._type_env
         try:
             WDL.Env.resolve(type_env, [], obj.name)
-            msg = "call name {} collides with declared value".format(obj.name)
+            msg = "call name '{}' collides with declared value".format(obj.name)
             self.add(obj, msg)
         except KeyError:
             pass
@@ -334,8 +342,39 @@ class NameCollision(Linter):
             doc = getattr(doc, "parent")
         for _, namespace, _ in doc.imports:
             if namespace == obj.name:
-                msg = "declaration of {} collides with imported document namespace".format(obj.name)
+                msg = "declaration of '{}' collides with imported document namespace".format(
+                    obj.name
+                )
                 self.add(obj, msg)
+        if doc.workflow and doc.workflow.name == obj.name:
+            msg = "declaration of '{}' collides with workflow name".format(obj.name)
+            self.add(obj, msg)
+        for task in doc.tasks:
+            if obj.name == task.name:
+                msg = "declaration of '{}' collides with a task name".format(obj.name)
+                self.add(obj, msg)
+
+    def workflow(self, obj: WDL.Workflow) -> Any:
+        doc = obj
+        while not isinstance(doc, WDL.Document):
+            doc = getattr(doc, "parent")
+        for _, namespace, _ in doc.imports:
+            if namespace == obj.name:
+                msg = "workflow name '{}' collides with imported document namespace".format(
+                    obj.name
+                )
+                self.add(obj, msg)
+        super().workflow(obj)
+
+    def task(self, obj: WDL.Task) -> Any:
+        doc = obj
+        while not isinstance(doc, WDL.Document):
+            doc = getattr(doc, "parent")
+        for _, namespace, _ in doc.imports:
+            if namespace == obj.name:
+                msg = "task name '{}' collides with imported document namespace".format(obj.name)
+                self.add(obj, msg)
+        super().task(obj)
 
 
 @a_linter
@@ -433,3 +472,4 @@ class UnusedCall(Linter):
                 + obj.name
                 + " nor are are they output from the workflow",
             )
+        super().call(obj)

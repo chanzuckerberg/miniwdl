@@ -99,7 +99,7 @@ class broad_prod_wgs(unittest.TestCase):
     ["test_corpi/broadinstitute/gtex-pipeline/**"],
     # need URI import
     blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq"],
-    expected_lint={'IncompleteCall': 30, 'UnusedDeclaration': 3}
+    expected_lint={'IncompleteCall': 30, 'UnusedDeclaration': 3, 'NameCollision': 4},
 )
 class GTEx(unittest.TestCase):
     pass
@@ -117,14 +117,14 @@ class TOPMed(unittest.TestCase):
 @test_corpus(
     ["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows"],
     path=[["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"]],
-    expected_lint={'UnusedDeclaration': 23, 'IncompleteCall': 44, 'UnusedImport': 1}
+    expected_lint={'UnusedDeclaration': 23, 'NameCollision': 9, 'IncompleteCall': 44, 'UnusedImport': 1},
 )
 class ViralNGS(unittest.TestCase):
     pass
 
 @test_corpus(
      ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
-     expected_lint={'StringCoercion': 192, 'ArrayCoercion': 64, 'OptionalCoercion': 64}
+     expected_lint={'StringCoercion': 192, 'NameCollision': 16, 'ArrayCoercion': 64, 'OptionalCoercion': 64},
 )
 class ENCODE_ChIPseq(unittest.TestCase):
     pass
@@ -162,14 +162,14 @@ class ENCODE_WGBS(unittest.TestCase):
         # double quantifier
         "conditionals_base"
     ],
-    expected_lint={'UnusedDeclaration': 20, 'UnusedCall': 15}
+    expected_lint={'UnusedDeclaration': 20, 'UnusedCall': 15, 'NameCollision': 2}
 )
 class dxWDL(unittest.TestCase):
     pass
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint= {'UnusedImport': 1, 'NameCollision': 4, 'OptionalCoercion': 2, 'StringCoercion': 1},
+    expected_lint={'UnusedImport': 2, 'NameCollision': 10, 'OptionalCoercion': 2, 'StringCoercion': 1, 'NonemptyArrayCoercion': 1, 'ArrayCoercion': 1},
 )
 class Contrived(unittest.TestCase):
     pass
