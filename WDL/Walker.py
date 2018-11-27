@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, List
 import WDL
 
 
@@ -129,8 +129,9 @@ class SetParents(Base):
     On each Expr, the containing Decl, Call, Scatter, Conditional, or Task.
     """
 
+    _parent_stack: List[WDL.Error.SourceNode] = []
+
     def document(self, obj: WDL.Tree.Document) -> None:
-        self._parent_stack = []
         super().document(obj)
         obj.parent = None
         for _, _, subdoc in obj.imports:

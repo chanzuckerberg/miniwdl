@@ -1,7 +1,7 @@
 """
 Linting: annotate WDL AST with hygiene warning
 """
-from typing import Any, Optional
+from typing import Any, Optional, List
 import WDL
 
 
@@ -327,20 +327,22 @@ class UnusedDeclaration(Linter):
         is_output = (
             isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs
         )
-        uncalled = isinstance(pt, WDL.Tree.Task) and not pt.called
+        uncalled = isinstance(pt, WDL.Tree.Task) and getattr(pt, "called") is False
         if not is_output and not uncalled and not getattr(obj, "referrers", []):
             self.add(obj, "nothing refers to " + obj.name)
 
 
 @a_linter
 class UnusedCall(Linter):
+    _workflow_with_outputs: bool = False
+
     def workflow(self, obj: WDL.Tree.Workflow) -> Any:
-        self._workflow_has_outputs = obj.outputs is not None
+        self._workflow_with_outputs = obj.outputs is not None
         super().workflow(obj)
-        del self._workflow_has_outputs
+        self._workflow_with_outputs = False
 
     def call(self, obj: WDL.Tree.Call) -> Any:
-        if self._workflow_has_outputs and not getattr(obj, "referrers", []):
+        if self._workflow_with_outputs and not getattr(obj, "referrers", []):
             self.add(
                 obj,
                 "the outputs of call "
