@@ -32,19 +32,20 @@ $ miniwdl check --path skylab/library/tasks/ \
 
 SmartSeq2SingleSample.wdl
     workflow SmartSeq2SingleCell
+        (Ln 14, Col 3) UnusedDeclaration, nothing references File gtf_file
         call HISAT2.HISAT2PairedEnd
         call Picard.CollectMultipleMetrics
         call Picard.CollectRnaMetrics
         call Picard.CollectDuplicationMetrics
-        call HISAT2.HISAT2RSEM
+        call HISAT2.HISAT2RSEM as HISAT2Transcriptome
         call RSEM.RSEMExpression
         call GroupQCs.GroupQCOutputs
         call ZarrUtils.SmartSeq2ZarrConversion
     GroupQCs : GroupMetricsOutputs.wdl
         task GroupQCOutputs
-            (Ln 10, Col 3) ImpliedStringCoercion: String mem = <Int>
-            (Ln 11, Col 3) ImpliedStringCoercion: String cpu = <Int>
-            (Ln 12, Col 3) ImpliedStringCoercion: String disk_space = <Int>
+            (Ln 10, Col 3) StringCoercion, String mem = :Int:
+            (Ln 11, Col 3) StringCoercion, String cpu = :Int:
+            (Ln 12, Col 3) StringCoercion, String disk_space = :Int:
     HISAT2 : HISAT2.wdl
         task HISAT2PairedEnd
         task HISAT2RSEM
