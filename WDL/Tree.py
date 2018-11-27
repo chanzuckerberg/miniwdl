@@ -536,13 +536,24 @@ class Document(SourceNode):
                 )
             self.workflow.typecheck(self)
 
+def _detect_version(fn):
+    # if the first line of the file is "version <number>", assume for now the
+    # version is 1.0; otherwise draft-2
+    with open(fn, "r") as infile:
+        for line in infile:
+            if line.strip() and line[0] != '#':
+                if line.startswith("version ") and line[8].isdigit():
+                    return "1.0"
+                return "draft-2"
+    return "draft-2"
 
 def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Document:
     for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
         if os.path.exists(fn):
+            version = _detect_version(fn)
             with open(fn, "r") as infile:
                 # read and parse the document
-                doc = WDL._parser.parse_document(infile.read(), uri, imported)
+                doc = WDL._parser.parse_document(infile.read(), version, uri, imported)
                 assert isinstance(doc, Document)
                 # recursively descend into document's imports, and store the imported
                 # documents into doc.imports
