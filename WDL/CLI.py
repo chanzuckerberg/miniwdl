@@ -62,7 +62,7 @@ def outline(obj, level, file=sys.stdout):
         if not first_descent and hasattr(obj, "lint"):
             for (node, klass, msg) in sorted(obj.lint, key=lambda t: t[0].pos):
                 print(
-                    "{}    (Ln {}, Col {}) {}: {}".format(
+                    "{}    (Ln {}, Col {}) {}, {}".format(
                         s, node.pos.line, node.pos.column, klass, msg
                     ),
                     file=file,
@@ -85,14 +85,12 @@ def outline(obj, level, file=sys.stdout):
             descend(subdoc)
     # workflow
     elif isinstance(obj, WDL.Workflow):
-        if level <= 1 or obj.called:
-            print("{}workflow {}".format(s, obj.name), file=file)
-            for elt in obj.elements:
-                descend(elt)
-        else:
-            # omit the outline of an imported workflow that isn't
-            # actually called from the top level
-            print("{}workflow {} (not called)".format(s, obj.name), file=file)
+        print(
+            "{}workflow {}{}".format(s, obj.name, " (not called)" if not obj.called else ""),
+            file=file,
+        )
+        for elt in obj.elements:
+            descend(elt)
     # task
     elif isinstance(obj, WDL.Task):
         print(

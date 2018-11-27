@@ -101,13 +101,26 @@ def collect(doc):
     return collector.lint
 
 
+def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
+    if isinstance(obj.callee, WDL.Tree.Task):
+        for d in obj.callee.inputs + obj.callee.postinputs:
+            if d.name == name:
+                return d
+    else:
+        assert isinstance(obj.callee, WDL.Tree.Workflow)
+        for ele in obj.callee.elements:
+            if isinstance(ele, WDL.Tree.Decl) and ele.name == name:
+                return ele
+    raise KeyError()
+
+
 @a_linter
 class StringCoercion(Linter):
     # String declaration with non-String rhs expression
     def decl(self, obj: WDL.Decl) -> Any:
         if isinstance(obj.type, WDL.Type.String) and obj.expr:
             if not isinstance(obj.expr.type, (WDL.Type.String, WDL.Type.File)):
-                self.add(obj, "String {} = <{}>".format(obj.name, str(obj.expr.type)))
+                self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
         super().decl(obj)
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
@@ -135,7 +148,9 @@ class StringCoercion(Linter):
                         if isinstance(F_i, WDL.Type.String) and not isinstance(
                             arg_i.type, (WDL.Type.String, WDL.Type.File)
                         ):
-                            msg = "{} coerced to String argument".format(arg_i.type)
+                            msg = "{} argument of {}() = :{}:".format(
+                                str(F_i), F.name, str(arg_i.type)
+                            )
                             self.add(pt, msg, arg_i)
         elif isinstance(obj, WDL.Expr.Array):
             # Array literal with mixed item types, one of which is String,
@@ -150,29 +165,21 @@ class StringCoercion(Linter):
                     all_string = False
                 item_types.append(str(elt.type))
             if any_string and not all_string:
-                msg = "literal {} has item types: [{}]".format(str(obj.type), ", ".join(item_types))
+                msg = "{} literal = [{}]".format(
+                    str(obj.type), ", ".join(":{}:".format(ty) for ty in item_types)
+                )
                 self.add(pt, msg, obj)
         super().expr(obj)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
-            decl: Optional[WDL.Tree.Decl] = None
-            if isinstance(obj.callee, WDL.Tree.Task):
-                for d in obj.callee.inputs + obj.callee.postinputs:
-                    if d.name == name:
-                        decl = d
-            else:
-                assert isinstance(obj.callee, WDL.Tree.Workflow)
-                for ele in obj.callee.elements:
-                    if isinstance(ele, WDL.Tree.Decl) and ele.name == name:
-                        decl = ele
-            assert decl
+            decl = _find_input_decl(obj, name)
             # note: in a workflow call, we want to flag File=>String coercions,
             # which are OK within tasks
             if isinstance(decl.type, WDL.Type.String) and not isinstance(
                 inp_expr.type, WDL.Type.String
             ):
-                msg = "{} input coerced to String {}".format(str(inp_expr.type), str(decl.name))
+                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr)
 
 
@@ -192,7 +199,7 @@ def _is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
 class ArrayCoercion(Linter):
     def decl(self, obj: WDL.Decl) -> Any:
         if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
-            msg = "{ty} coerced to Array[{ty}]".format(ty=str(obj.expr.type))
+            msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
             self.add(obj, msg)
         super().decl(obj)
 
@@ -205,25 +212,15 @@ class ArrayCoercion(Linter):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
                     if _is_array_coercion(F_i, arg_i.type):
-                        msg = "{ty} coerced to Array[{ty}]".format(ty=str(arg_i.type))
+                        msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
                         self.add(pt, msg, arg_i)
         super().expr(obj)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
-            decl: Optional[WDL.Tree.Decl] = None
-            if isinstance(obj.callee, WDL.Tree.Task):
-                for d in obj.callee.inputs + obj.callee.postinputs:
-                    if d.name == name:
-                        decl = d
-            else:
-                assert isinstance(obj.callee, WDL.Tree.Workflow)
-                for ele in obj.callee.elements:
-                    if isinstance(ele, WDL.Tree.Decl) and ele.name == name:
-                        decl = ele
-            assert decl
+            decl = _find_input_decl(obj, name)
             if _is_array_coercion(decl.type, inp_expr.type):
-                msg = "{ty} coerced to Array[{ty}]".format(ty=str(inp_expr.type))
+                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr)
 
 
@@ -245,12 +242,18 @@ class OptionalCoercion(Linter):
                 if isinstance(F, WDL.StdLib._StaticFunction):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         if obj.arguments[i].type.optional and not F.argument_types[i].optional:
-                            self.add(
-                                getattr(obj, "parent"),
-                                "optional value passed for mandatory function argument",
-                                obj.arguments[i],
+                            msg = "{} argument of {}() = :{}:".format(
+                                str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                             )
+                            self.add(getattr(obj, "parent"), msg, obj.arguments[i])
         super().expr(obj)
+
+    def call(self, obj: WDL.Tree.Call) -> Any:
+        for name, inp_expr in obj.inputs.items():
+            decl = _find_input_decl(obj, name)
+            if not decl.type.optional and inp_expr.type.optional:
+                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                self.add(obj, msg, inp_expr)
 
 
 @a_linter
@@ -263,8 +266,8 @@ class IncompleteCall(Linter):
             if name in required_inputs:
                 required_inputs.remove(name)
         if required_inputs:
-            msg = "required input(s) {} omitted in call to {}; these become workflow inputs and prevent composition".format(
-                ", ".join(required_inputs), obj.callee.name
+            msg = "required input(s) omitted in call to {} ({})".format(
+                obj.callee.name, ", ".join(required_inputs)
             )
             self.add(obj, msg)
         super().call(obj)
@@ -357,7 +360,7 @@ class UnusedDeclaration(Linter):
                     and sum(1 for sfx in index_suffixes if obj.name.endswith(sfx))
                 )
             ):
-                self.add(obj, "nothing refers to " + obj.name)
+                self.add(obj, "nothing references {} {}".format(str(obj.type), obj.name))
 
 
 @a_linter
@@ -373,7 +376,7 @@ class UnusedCall(Linter):
         if self._workflow_with_outputs and not getattr(obj, "referrers", []):
             self.add(
                 obj,
-                "the outputs of call "
+                "nothing references the outputs of call "
                 + obj.name
-                + " aren't output from the workflow nor otherwise used",
+                + " nor are are they output from the workflow",
             )
