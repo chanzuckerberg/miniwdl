@@ -673,14 +673,6 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[D.Task]:
 def parse_document(
     txt: str, version: Optional[str] = None, uri: str = "", imported: bool = False
 ) -> D.Document:
-    if not txt.strip():
-        return D.Document(
-            SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0),
-            [],
-            [],
-            None,
-            imported,
-        )
     if version is None:
         # for now assume the version is 1.0 if the first line is "version <number>"
         # otherwise draft-2
@@ -691,6 +683,14 @@ def parse_document(
                 if line.startswith("version ") and line[8].isdigit():
                     version = "1.0"
                 break
+    if not txt.strip():
+        return D.Document(
+            SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0),
+            [],
+            [],
+            None,
+            imported,
+        )
     try:
         return _DocTransformer(uri, imported).transform(parse(txt, "document", version))
     except lark.exceptions.UnexpectedCharacters as exn:

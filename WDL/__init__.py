@@ -28,7 +28,7 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Do
 
     :param version: Override the WDL language version, such as "1.0" or
     "draft-2". (By default, detects from the "version" string at the beginning
-    of the document)
+    of the document, per the WDL spec.)
     :param uri: filename/URI for error reporting (not otherwise used)
     """
     return _parser.parse_document(txt, version, uri)
