@@ -53,7 +53,7 @@ class HCAskylab_task(unittest.TestCase):
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
-    expected_lint={'UnusedDeclaration': 15, 'CallImportNameCollision': 1, 'StringCoercion': 3}
+    expected_lint={'UnusedDeclaration': 15, 'NameCollision': 1, 'StringCoercion': 3}
 )
 class HCAskylab_workflow(unittest.TestCase):
     pass
@@ -64,7 +64,7 @@ class HCAskylab_workflow(unittest.TestCase):
     # when it itself is in ./tasks_pipelines
     path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
     blacklist=['fc_germline_single_sample_workflow'],
-    expected_lint={'StringCoercion': 11, 'UnusedDeclaration': 4, 'CallImportNameCollision': 2, 'ArrayCoercion': 4, 'UnusedCall': 1}
+    expected_lint={'StringCoercion': 11, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4, 'UnusedCall': 1}
 )
 class GATK_five_dollar(unittest.TestCase):
     pass
@@ -165,4 +165,11 @@ class ENCODE_WGBS(unittest.TestCase):
     expected_lint={'UnusedDeclaration': 20, 'UnusedCall': 15}
 )
 class dxWDL(unittest.TestCase):
+    pass
+
+@test_corpus(
+    ["test_corpi/contrived/**"],
+    expected_lint= {'UnusedImport': 1, 'NameCollision': 4, 'OptionalCoercion': 2, 'StringCoercion': 1},
+)
+class Contrived(unittest.TestCase):
     pass

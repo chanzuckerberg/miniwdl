@@ -197,6 +197,7 @@ def _is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
 
 @a_linter
 class ArrayCoercion(Linter):
+    # implicit promotion of T to Array[T]
     def decl(self, obj: WDL.Decl) -> Any:
         if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
             msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
@@ -226,7 +227,7 @@ class ArrayCoercion(Linter):
 
 @a_linter
 class OptionalCoercion(Linter):
-    # Expressions that could blow up at runtime with empty optional values
+    # Expression of optional type where a non-optional value is expected
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if isinstance(obj, WDL.Expr.Apply):
             if obj.function_name == "_add":
@@ -258,6 +259,7 @@ class OptionalCoercion(Linter):
 
 @a_linter
 class NonemptyArrayCoercion(Linter):
+    # Possibly empty array where a nonempty array is expected
     def decl(self, obj: WDL.Decl) -> Any:
         if (
             isinstance(obj.type, WDL.Type.Array)
@@ -302,9 +304,13 @@ class IncompleteCall(Linter):
 
 
 @a_linter
-class CallImportNameCollision(Linter):
-    # A call name collides with the namespace of an imported document; allowed
-    # but potentially confusing.
+class NameCollision(Linter):
+    # Name collisions between
+    # - call and import
+    # - call and decl
+    # - decl and import
+    # These are allowed, but potentially confusing.
+    # TODO: cover scatter variables
     def call(self, obj: WDL.Call) -> Any:
         doc = obj
         while not isinstance(doc, WDL.Document):
@@ -313,7 +319,23 @@ class CallImportNameCollision(Linter):
             if namespace == obj.name:
                 msg = "call name {} collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
+        type_env = getattr(obj, "parent")._type_env
+        try:
+            WDL.Env.resolve(type_env, [], obj.name)
+            msg = "call name {} collides with declared value".format(obj.name)
+            self.add(obj, msg)
+        except KeyError:
+            pass
         super().call(obj)
+
+    def decl(self, obj: WDL.Decl) -> Any:
+        doc = obj
+        while not isinstance(doc, WDL.Document):
+            doc = getattr(doc, "parent")
+        for _, namespace, _ in doc.imports:
+            if namespace == obj.name:
+                msg = "declaration of {} collides with imported document namespace".format(obj.name)
+                self.add(obj, msg)
 
 
 @a_linter
@@ -335,6 +357,7 @@ class UnusedImport(Linter):
 
 @a_linter
 class ForwardReference(Linter):
+    # Ident referencing a value or call output lexically precedes Decl/Call
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if (
             isinstance(obj, WDL.Expr.Ident)
@@ -356,6 +379,7 @@ class ForwardReference(Linter):
 
 @a_linter
 class UnusedDeclaration(Linter):
+    # Nothing references a (non-input) Decl
     def decl(self, obj: WDL.Tree.Decl) -> Any:
         pt = getattr(obj, "parent")
         is_output = (
@@ -393,6 +417,7 @@ class UnusedDeclaration(Linter):
 
 @a_linter
 class UnusedCall(Linter):
+    # the outputs of a Call are neither used nor propagated
     _workflow_with_outputs: bool = False
 
     def workflow(self, obj: WDL.Tree.Workflow) -> Any:
