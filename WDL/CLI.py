@@ -60,16 +60,16 @@ def outline(obj, level, file=sys.stdout):
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
-            for (node, klass, msg) in sorted(obj.lint, key=lambda t: t[0]):
+            for (node, klass, msg) in sorted(obj.lint, key=lambda t: t[0].pos):
                 print(
-                    "{}  (Ln {}, Col {}) {}: {}".format(
+                    "{}    (Ln {}, Col {}) {}: {}".format(
                         s, node.pos.line, node.pos.column, klass, msg
                     ),
                     file=file,
                 )
         first_descent.append(False)
         if dobj:
-            outline(dobj, level + 1, file=file)
+            outline(dobj, level + (1 if not isinstance(dobj, WDL.Decl) else 0), file=file)
 
     # document
     if isinstance(obj, WDL.Document):
