@@ -313,9 +313,14 @@ class ForwardReference(Linter):
                 or (obj.ctx.pos.line == obj.pos.line and obj.ctx.pos.column > obj.pos.column)
             )
         ):
-            msg = "identifier lexically precedes the referenced declaration"
-            if isinstance(obj.ctx, WDL.Call):
-                msg = "reference to call output lexically precedes the call"
+            if isinstance(obj.ctx, WDL.Decl):
+                msg = "reference to {} precedes its declaration".format(obj.name)
+            elif isinstance(obj.ctx, WDL.Call):
+                msg = "reference to output of {} precedes the call".format(
+                    ".".join(obj.namespace)
+                )
+            else:
+                assert False
             self.add(getattr(obj, "parent"), msg, obj)
         super().expr(obj)
 
