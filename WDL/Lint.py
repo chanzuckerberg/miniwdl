@@ -1,7 +1,7 @@
 """
 Linting: annotate WDL AST with hygiene warning
 """
-from typing import Any, Optional, List
+from typing import Any, Optional
 import WDL
 
 
@@ -329,7 +329,26 @@ class UnusedDeclaration(Linter):
         )
         uncalled = isinstance(pt, WDL.Tree.Task) and getattr(pt, "called") is False
         if not is_output and not uncalled and not getattr(obj, "referrers", []):
-            self.add(obj, "nothing refers to " + obj.name)
+            # heuristic exception: File whose name suggests it's an hts index
+            # file; as these commonly need to be localized, but not explicitly
+            # used in task command
+            if not (
+                (
+                    isinstance(obj.type, WDL.Type.File)
+                    and sum(
+                        1
+                        for sfx in ["index", "idx", "tbi", "bai", "crai", "csi", "fai", "dict"]
+                        if obj.name.endswith(sfx)
+                    )
+                )
+                or (
+                    isinstance(obj.type, WDL.Type.Array)
+                    and isinstance(obj.type.item_type, WDL.Type.File)
+                    and sum(1 for sfx in ["index", "indexes", "indices"] if obj.name.endswith(sfx))
+                )
+            ):
+                self.add(obj, "nothing refers to " + obj.name)
+
 
 """
 @a_linter

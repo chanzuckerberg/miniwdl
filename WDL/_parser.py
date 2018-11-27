@@ -214,6 +214,7 @@ COMMAND2_FRAGMENT: COMMAND2_CHAR* "~{"
 command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
 """
 
+
 def _effective_version(version: Optional[str]) -> str:
     if version:
         version = version.strip()
@@ -226,12 +227,13 @@ def _effective_version(version: Optional[str]) -> str:
     # down here.
     return "1.0"
 
+
 def _grammar_for_version(version: str) -> str:
     if version == "draft-2":
         return common_grammar + commands_pre_1_0
-    if version == "1.0":
-        return common_grammar + commands_1_0
-    assert False
+    assert version == "1.0"
+    return common_grammar + commands_1_0
+
 
 # memoize Lark parsers constructed for version & start symbol
 _lark_cache = {}
@@ -683,7 +685,9 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[D.Task]:
     return _DocTransformer("", False).transform(parse(txt, "tasks", version))
 
 
-def parse_document(txt: str, version: Optional[str] = None, uri: str = "", imported: bool = False) -> D.Document:
+def parse_document(
+    txt: str, version: Optional[str] = None, uri: str = "", imported: bool = False
+) -> D.Document:
     if not txt.strip():
         return D.Document(
             SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0),

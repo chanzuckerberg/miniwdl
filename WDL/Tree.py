@@ -165,7 +165,6 @@ class Task(SourceNode):
             decl.typecheck(type_env)
         # TODO: detect circularities in output declarations
 
-
     @property
     def required_inputs(self) -> List[Decl]:
         return [
@@ -536,16 +535,18 @@ class Document(SourceNode):
                 )
             self.workflow.typecheck(self)
 
-def _detect_version(fn):
+
+def _detect_version(fn) -> str:
     # if the first line of the file is "version <number>", assume for now the
     # version is 1.0; otherwise draft-2
     with open(fn, "r") as infile:
         for line in infile:
-            if line.strip() and line[0] != '#':
+            if line.strip() and line[0] != "#":
                 if line.startswith("version ") and line[8].isdigit():
                     return "1.0"
                 return "draft-2"
     return "draft-2"
+
 
 def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Document:
     for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
@@ -669,7 +670,7 @@ def _arrayize_types(type_env: Env.Types) -> Env.Types:
     ans = []
     for node in type_env:
         if isinstance(node, Env.Binding):
-            ans.append(Env.Binding(node.name, T.Array(node.rhs)))
+            ans.append(Env.Binding(node.name, T.Array(node.rhs), node.ctx))
         elif isinstance(node, Env.Namespace):
             ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
         else:
@@ -684,7 +685,7 @@ def _optionalize_types(type_env: Env.Types) -> Env.Types:
     for node in type_env:
         if isinstance(node, Env.Binding):
             ty = node.rhs.copy(optional=True)
-            ans.append(Env.Binding(node.name, ty))
+            ans.append(Env.Binding(node.name, ty, node.ctx))
         elif isinstance(node, Env.Namespace):
             ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
         else:

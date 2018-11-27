@@ -53,7 +53,7 @@ class HCAskylab_task(unittest.TestCase):
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
-    expected_lint={'CallImportNameCollision': 1, 'StringCoercion': 3}
+    expected_lint={'UnusedDeclaration': 15, 'CallImportNameCollision': 1, 'StringCoercion': 3}
 )
 class HCAskylab_workflow(unittest.TestCase):
     pass
@@ -64,7 +64,7 @@ class HCAskylab_workflow(unittest.TestCase):
     # when it itself is in ./tasks_pipelines
     path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
     blacklist=['fc_germline_single_sample_workflow'],
-    expected_lint={'CallImportNameCollision': 2, 'ArrayCoercion': 4, 'StringCoercion': 5}
+    expected_lint={'StringCoercion': 11, 'UnusedDeclaration': 4, 'CallImportNameCollision': 2, 'ArrayCoercion': 4}
 )
 class GATK_five_dollar(unittest.TestCase):
     pass
@@ -75,14 +75,14 @@ class GATK_five_dollar(unittest.TestCase):
     # https://github.com/gatk-workflows/gatk4-germline-snps-indels/blob/b9bbbdcfca7ece0d011ac1225ce6818b33720f48/joint-discovery-gatk4-local.wdl#L345
     # also needed for the CNN variant filter repo.
     blacklist=['joint-discovery-gatk4-local', 'joint-discovery-gatk4'],
-    expected_lint={'StringCoercion': 2}
+    expected_lint={'UnusedDeclaration': 1, 'StringCoercion': 2},
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
-    expected_lint= {'ForwardReference': 3, 'StringCoercion': 20},
+    expected_lint={'UnusedDeclaration': 30, 'ForwardReference': 6, 'StringCoercion': 20},
 )
 class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
@@ -90,7 +90,7 @@ class gatk4_somatic_snvs_indels(unittest.TestCase):
 @test_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
     blacklist=['JointGenotypingWf'],
-    expected_lint={'ArrayCoercion': 4, 'StringCoercion': 6}
+    expected_lint={'StringCoercion': 48, 'UnusedDeclaration': 10, 'ArrayCoercion': 4}
 )
 class broad_prod_wgs(unittest.TestCase):
     pass
@@ -99,7 +99,7 @@ class broad_prod_wgs(unittest.TestCase):
     ["test_corpi/broadinstitute/gtex-pipeline/**"],
     # need URI import
     blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq"],
-    expected_lint={'IncompleteCall': 30}
+    expected_lint={'IncompleteCall': 30, 'UnusedDeclaration': 3}
 )
 class GTEx(unittest.TestCase):
     pass
@@ -109,7 +109,7 @@ class GTEx(unittest.TestCase):
     # need URI import
     blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
                 'topmed_freeze3_calling', 'topmed_freeze3_calling_checker', 'u_of_michigan_aligner_checker'],
-    expected_lint={'StringCoercion': 2}
+    expected_lint={'StringCoercion': 26, 'UnusedDeclaration': 22}
 )
 class TOPMed(unittest.TestCase):
     pass
@@ -117,7 +117,7 @@ class TOPMed(unittest.TestCase):
 @test_corpus(
     ["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows"],
     path=[["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"]],
-    expected_lint={'IncompleteCall': 44, 'UnusedImport': 1}
+    expected_lint={'UnusedDeclaration': 8, 'IncompleteCall': 44, 'UnusedImport': 1}
 )
 class ViralNGS(unittest.TestCase):
     pass
@@ -145,7 +145,7 @@ class ENCODE_RNAseq(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/ENCODE-DCC/wgbs-pipeline/**"],
-    expected_lint={'StringCoercion': 9, 'UnusedDeclaration': 4}
+    expected_lint={'StringCoercion': 9, 'UnusedDeclaration': 1}
 )
 class ENCODE_WGBS(unittest.TestCase):
     pass
@@ -161,7 +161,8 @@ class ENCODE_WGBS(unittest.TestCase):
         "movie", "foo_toplevel", "foo_if_flag", "foo",
         # double quantifier
         "conditionals_base"
-    ]
+    ],
+    expected_lint={'UnusedDeclaration': 14}
 )
 class dxWDL(unittest.TestCase):
     pass

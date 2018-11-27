@@ -58,6 +58,9 @@ class Base:
     def workflow(self, obj: WDL.Tree.Workflow) -> Any:
         for elt in obj.elements:
             self(elt)
+        if obj.outputs:
+            for decl in obj.outputs or []:
+                self(decl)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for _, expr in obj.inputs.items():
@@ -88,8 +91,6 @@ class Base:
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if isinstance(obj, WDL.Expr.Placeholder):
-#            if hasattr(obj.expr, 'name'):
-#                print(">>> " + obj.expr.name)
             self(obj.expr)
         elif isinstance(obj, WDL.Expr.String):
             for p in obj.parts:
@@ -149,6 +150,8 @@ class SetParents(Base):
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
+        for decl in obj.outputs or []:
+            decl.parent = obj
 
     def call(self, obj: WDL.Tree.Call) -> None:
         self._parent_stack.append(obj)
