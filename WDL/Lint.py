@@ -142,20 +142,15 @@ class StringCoercion(Linter):
             # causing coercion of the others
             any_string = False
             all_string = True
-            any_optional = False
             item_types = []
             for elt in obj.items:
                 if isinstance(elt.type, WDL.Type.String):
                     any_string = True
                 elif not isinstance(elt.type, WDL.Type.File):
                     all_string = False
-                if elt.type.optional:
-                    any_optional = True
                 item_types.append(str(elt.type))
             if any_string and not all_string:
-                msg = "literal Array[String{}] has item types: [{}]".format(
-                    "?" if any_optional else "", ", ".join(item_types)
-                )
+                msg = "literal {} has item types: [{}]".format(str(obj.type), ", ".join(item_types))
                 self.add(pt, msg, obj)
         super().expr(obj)
 
@@ -332,24 +327,31 @@ class UnusedDeclaration(Linter):
         is_output = (
             isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs
         )
-        uncalled = isinstance(pt, WDL.Tree.Task) and getattr(pt, "called") is False
-        if not is_output and not uncalled and not getattr(obj, "referrers", []):
+        if not is_output and not getattr(obj, "referrers", []):
             # heuristic exception: File whose name suggests it's an hts index
             # file; as these commonly need to be localized, but not explicitly
             # used in task command
+            index_suffixes = [
+                "index",
+                "indexes",
+                "indices",
+                "idx",
+                "tbi",
+                "bai",
+                "crai",
+                "csi",
+                "fai",
+                "dict",
+            ]
             if not (
                 (
                     isinstance(obj.type, WDL.Type.File)
-                    and sum(
-                        1
-                        for sfx in ["index", "idx", "tbi", "bai", "crai", "csi", "fai", "dict"]
-                        if obj.name.endswith(sfx)
-                    )
+                    and sum(1 for sfx in index_suffixes if obj.name.endswith(sfx))
                 )
                 or (
                     isinstance(obj.type, WDL.Type.Array)
                     and isinstance(obj.type.item_type, WDL.Type.File)
-                    and sum(1 for sfx in ["index", "indexes", "indices"] if obj.name.endswith(sfx))
+                    and sum(1 for sfx in index_suffixes if obj.name.endswith(sfx))
                 )
             ):
                 self.add(obj, "nothing refers to " + obj.name)

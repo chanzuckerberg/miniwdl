@@ -45,7 +45,7 @@ def check_lint(cls):
 
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/library/tasks/**"],
-    expected_lint={'StringCoercion': 3}
+    expected_lint={'StringCoercion': 3, 'UnusedDeclaration': 1}
 )
 class HCAskylab_task(unittest.TestCase):
     pass
@@ -82,7 +82,7 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
-    expected_lint={'UnusedDeclaration': 30, 'ForwardReference': 6, 'StringCoercion': 20},
+    expected_lint={'UnusedDeclaration': 29, 'ForwardReference': 6, 'StringCoercion': 20},
 )
 class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
@@ -109,7 +109,7 @@ class GTEx(unittest.TestCase):
     # need URI import
     blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
                 'topmed_freeze3_calling', 'topmed_freeze3_calling_checker', 'u_of_michigan_aligner_checker'],
-    expected_lint={'StringCoercion': 26, 'UnusedDeclaration': 22}
+    expected_lint={'StringCoercion': 26, 'UnusedDeclaration': 74}
 )
 class TOPMed(unittest.TestCase):
     pass
@@ -117,7 +117,7 @@ class TOPMed(unittest.TestCase):
 @test_corpus(
     ["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows"],
     path=[["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"]],
-    expected_lint={'UnusedDeclaration': 8, 'IncompleteCall': 44, 'UnusedImport': 1}
+    expected_lint={'UnusedDeclaration': 23, 'IncompleteCall': 44, 'UnusedImport': 1}
 )
 class ViralNGS(unittest.TestCase):
     pass
@@ -162,7 +162,7 @@ class ENCODE_WGBS(unittest.TestCase):
         # double quantifier
         "conditionals_base"
     ],
-    expected_lint={'UnusedDeclaration': 14, 'UnusedCall': 15}
+    expected_lint={'UnusedDeclaration': 20, 'UnusedCall': 15}
 )
 class dxWDL(unittest.TestCase):
     pass
