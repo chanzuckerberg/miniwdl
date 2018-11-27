@@ -349,7 +349,12 @@ class Scatter(SourceNode):
         inner_type_env = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(inner_type_env)
-        return _arrayize_types(inner_type_env) + type_env
+        nonempty = False
+        if isinstance(self.expr._type, T.Array):
+            # Subtlety: if the scatter array is statically nonempty, then so
+            # too are the arrayized values
+            nonempty = self.expr.type.nonempty
+        return _arrayize_types(inner_type_env, nonempty) + type_env
 
 
 class Conditional(SourceNode):
@@ -651,15 +656,15 @@ def _build_workflow_type_env(
     self._type_env = type_env
 
 
-def _arrayize_types(type_env: Env.Types) -> Env.Types:
+def _arrayize_types(type_env: Env.Types, nonempty: bool = False) -> Env.Types:
     # Given a type environment, recursively promote each binding of type T to
     # Array[T] -- used in Scatter.add_to_type_env
     ans = []
     for node in type_env:
         if isinstance(node, Env.Binding):
-            ans.append(Env.Binding(node.name, T.Array(node.rhs), node.ctx))
+            ans.append(Env.Binding(node.name, T.Array(node.rhs, nonempty=nonempty), node.ctx))
         elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings)))
+            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings, nonempty)))
         else:
             assert False
     return ans

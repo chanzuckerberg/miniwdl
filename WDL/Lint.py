@@ -257,6 +257,34 @@ class OptionalCoercion(Linter):
 
 
 @a_linter
+class NonemptyArrayCoercion(Linter):
+    def decl(self, obj: WDL.Decl) -> Any:
+        if (
+            isinstance(obj.type, WDL.Type.Array)
+            and obj.type.nonempty
+            and obj.expr
+            and isinstance(obj.expr.type, WDL.Type.Array)
+            and not obj.expr.type.nonempty
+        ):
+            # heuristic exception for: Array[File]+ outp = glob(...)
+            if not (isinstance(obj.expr, WDL.Expr.Apply) and obj.expr.function_name == "glob"):
+                self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+        super().decl(obj)
+
+    def call(self, obj: WDL.Tree.Call) -> Any:
+        for name, inp_expr in obj.inputs.items():
+            decl = _find_input_decl(obj, name)
+            if (
+                isinstance(decl.type, WDL.Type.Array)
+                and decl.type.nonempty
+                and isinstance(inp_expr.type, WDL.Type.Array)
+                and not inp_expr.type.nonempty
+            ):
+                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                self.add(obj, msg, inp_expr)
+
+
+@a_linter
 class IncompleteCall(Linter):
     # Call without all required inputs (allowed for top-level workflow)
     def call(self, obj: WDL.Call) -> Any:
