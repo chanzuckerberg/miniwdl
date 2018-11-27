@@ -64,10 +64,12 @@ class Base:
             self(expr)
 
     def scatter(self, obj: WDL.Tree.Scatter) -> Any:
+        self(obj.expr)
         for elt in obj.elements:
             self(elt)
 
     def conditional(self, obj: WDL.Tree.Conditional) -> Any:
+        self(obj.expr)
         for elt in obj.elements:
             self(elt)
 
@@ -124,10 +126,11 @@ class SetParents(Base):
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
 
-    On each Expr, the containing Decl or (for command placeholders) Task
+    On each Expr, the containing Decl, Call, Scatter, Conditional, or Task.
     """
 
     def document(self, obj: WDL.Tree.Document) -> None:
+        self._parent_stack = []
         super().document(obj)
         obj.parent = None
         for _, _, subdoc in obj.imports:
@@ -143,33 +146,43 @@ class SetParents(Base):
         for elt in obj.elements:
             elt.parent = obj
 
+    def call(self, obj: WDL.Tree.Call) -> None:
+        self._parent_stack.append(obj)
+        super().call(obj)
+        self._parent_stack.pop()
+
     def scatter(self, obj: WDL.Tree.Scatter) -> None:
+        self._parent_stack.append(obj)
         super().scatter(obj)
+        self._parent_stack.pop()
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
 
     def conditional(self, obj: WDL.Tree.Conditional) -> None:
+        self._parent_stack.append(obj)
         super().conditional(obj)
+        self._parent_stack.pop()
         obj.parent = None
         for elt in obj.elements:
             elt.parent = obj
 
     def task(self, obj: WDL.Tree.Task) -> None:
-        setattr(self, "_parent_task", obj)
+        self._parent_stack.append(obj)
         super().task(obj)
+        self._parent_stack.pop()
         obj.parent = None
         for elt in obj.inputs + obj.postinputs + obj.outputs:
             elt.parent = obj
 
     def decl(self, obj: WDL.Tree.Decl) -> None:
-        setattr(self, "_parent_decl", obj)
+        self._parent_stack.append(obj)
         super().decl(obj)
-        delattr(self, "_parent_decl")
+        self._parent_stack.pop()
 
     def expr(self, obj: WDL.Expr.Base) -> None:
         super().expr(obj)
-        obj.parent = getattr(self, "_parent_decl", getattr(self, "_parent_task"))
+        obj.parent = self._parent_stack[-1]
 
 
 class MarkCalled(Base):
