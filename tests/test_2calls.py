@@ -334,4 +334,19 @@ class TestCalls(unittest.TestCase):
         doc = WDL.parse_document(txt)
         doc.typecheck()
 
+        txt = tsk + r"""
+        workflow contrived {
+            Array[Int]+? s = sum.z
+            if (2 == 2) {
+                scatter (z in [1,2,3]) {
+                    call sum { input: x = s2.z }
+                }
+            }
+            call sum as s2
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+        assert(doc.workflow.elements[0].type.nonempty and doc.workflow.elements[0].type.optional)
+
         # TODO: test cycle detection

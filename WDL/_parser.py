@@ -107,7 +107,7 @@ _ARRAY.2: "Array"
 _MAP.2: "Map"
 _PAIR.2: "Pair"
 QUANT: "?"
-ARRAY_QUANT: "?" | "+"
+ARRAY_QUANT: "+?" | "+" | "?"
 
 unbound_decl: type CNAME -> decl
 bound_decl: type CNAME "=" expr -> decl
@@ -399,10 +399,10 @@ class _TypeTransformer(lark.Transformer):
         assert isinstance(items[0], T.Base)
         optional = False
         nonempty = False
-        if len(items) > 1:
-            if items[1].value == "?":
+        for c in "".join(items[1:]):
+            if c == "?":
                 optional = True
-            if items[1].value == "+":
+            if c == "+":
                 nonempty = True
         return T.Array(items[0], optional, nonempty)
 
