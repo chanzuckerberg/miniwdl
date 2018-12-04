@@ -27,10 +27,13 @@ coerced to some other desired type, according to the following rules:
 
 1. ``Int`` coerces to ``Float``
 2. ``Boolean``, ``Int``, ``Float``, and ``File`` coerce to ``String``
-3. ``Array[T]`` coerces to ``String`` provided ``T`` does as well.
-4. ``T`` coerces to ``T?`` but the reverse is not true in general.
-5. ``T`` coerces to ``Array[T]`` (an array of length 1).
+3. ``Array[T]`` coerces to ``String`` provided ``T`` does as well
+4. ``T`` coerces to ``T?`` but the reverse is not true in general*
+5. ``Array[T]+`` coerces to ``Array[T]`` but the reverse is not true in general*
+6. ``T`` coerces to ``Array[T]+`` (an array of length 1).
 
+(*) The reverse coercions are statically permitted in expressions set up with
+``Expr.infer_type(check_quant=False)`` although they may fail at runtime.
 """
 from abc import ABC
 from typing import Optional, TypeVar, Tuple

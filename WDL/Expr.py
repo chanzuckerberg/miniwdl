@@ -43,6 +43,8 @@ class Base(SourceNode, ABC):
 
     @abstractmethod
     def _infer_type(self, type_env: Env.Types) -> T.Base:
+        # Abstract protected method called by infer_type(): return the inferred
+        # type with no side-effects, obeying self._check_quant.
         pass
 
     def infer_type(self, type_env: Env.Types, check_quant: bool = True) -> TVBase:
@@ -51,6 +53,7 @@ class Base(SourceNode, ABC):
         Infer the expression's type within the given type environment. Must be
         invoked exactly once prior to use of other methods.
 
+        :param check_quant: when ``False``, relaxes static validation of the optional (?) and nonempty (+) type quantifiers when `typecheck()` is called on this expression, so for example type ``T?`` can satisfy an expected type ``T``. Applies recursively to the type inference and checking of any sub-expressions.
         :raise WDL.Error.StaticTypeMismatch: when the expression fails to type-check
         :return: `self`
         """

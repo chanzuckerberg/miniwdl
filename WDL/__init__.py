@@ -12,11 +12,11 @@ SourceNode = Error.SourceNode
 
 def load(uri: str, path: List[str] = [], check_quant: bool = True) -> Document:
     """
-    Parse a WDL document given filename/URI, recursively descend into imported
-    documents, then typecheck the tasks and workflow.
+    Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
 
-    :param path: local filesystem directories to search for imports, in
-    addition to the current working directory
+    :param path: local filesystem directories to search for imports, in addition to the current working directory
+
+    :param check_quant: set to ``False`` to relax static typechecking of the optional (?) and nonempty (+) type quantifiers. This is discouraged, but may be useful for older WDL workflows which assume less-rigorous static validation of these annotations.
     """
     return Tree.load(uri, path, check_quant)
 
@@ -26,9 +26,8 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Do
     Parse WDL document text into an abstract syntax tree. Doesn't descend into
     imported documents nor typecheck the AST.
 
-    :param version: Override the WDL language version, such as "1.0" or
-    "draft-2". (By default, detects from the "version" string at the beginning
-    of the document, per the WDL spec.)
+    :param version: Override the WDL language version, such as "1.0" or "draft-2". (By default, detects from the "version" string at the beginning of the document, per the WDL spec.)
+
     :param uri: filename/URI for error reporting (not otherwise used)
     """
     return _parser.parse_document(txt, version, uri)
