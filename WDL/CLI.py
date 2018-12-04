@@ -31,7 +31,7 @@ def main(args=None):
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
-        help="relax static typechecking of optional (?) and nonempty (+) type quantifiers",
+        help="relax static typechecking of optional (?) and nonempty (+) type quantifiers (discouraged; for backwards compatibility with older WDL)",
     )
 
     args = parser.parse_args(args if args is not None else sys.argv[1:])
