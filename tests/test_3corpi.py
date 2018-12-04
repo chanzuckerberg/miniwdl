@@ -84,7 +84,7 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
-    expected_lint={'UnusedDeclaration': 29, 'ForwardReference': 6, 'NonemptyArrayCoercion': 4, 'StringCoercion': 20},
+    expected_lint={'OptionalCoercion': 50, 'UnusedDeclaration': 29, 'ForwardReference': 6, 'NonemptyArrayCoercion': 4, 'StringCoercion': 20},
     check_quant=False,
 )
 class gatk4_somatic_snvs_indels(unittest.TestCase):
@@ -175,6 +175,15 @@ class dxWDL(unittest.TestCase):
 @test_corpus(
     ["test_corpi/contrived/**"],
     expected_lint={'UnusedImport': 2, 'ArrayCoercion': 2, 'NameCollision': 13, 'OptionalCoercion': 2, 'StringCoercion': 1, 'NonemptyArrayCoercion': 1, 'IncompleteCall': 1},
+    blacklist=["check_quant"],
 )
 class Contrived(unittest.TestCase):
+    pass
+
+@test_corpus(
+    ["test_corpi/contrived/**"],
+    expected_lint={'UnusedImport': 2, 'ArrayCoercion': 2, 'NameCollision': 13, 'OptionalCoercion': 3, 'UnusedDeclaration': 1, 'StringCoercion': 1, 'NonemptyArrayCoercion': 1, 'IncompleteCall': 1},
+    check_quant=False,
+)
+class Contrived2(unittest.TestCase):
     pass

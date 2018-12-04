@@ -230,14 +230,24 @@ class OptionalCoercion(Linter):
     # Expression of optional type where a non-optional value is expected
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if isinstance(obj, WDL.Expr.Apply):
-            if obj.function_name == "_add":
-                for arg in obj.arguments:
-                    if arg.type.optional and not isinstance(getattr(obj, "parent"), WDL.Task):
-                        # exception when parent is Task (i.e. we're in the
-                        # task command) because the coercion is probably
-                        # intentional, per "Prepending a String to an
-                        # Optional Parameter"
-                        self.add(getattr(obj, "parent"), "optional value passed to +", arg)
+            if obj.function_name in ["_add", "_sub", "_mul", "_div", "_land", "_lor"]:
+                assert len(obj.arguments) == 2
+                arg0ty = obj.arguments[0].type
+                arg1ty = obj.arguments[1].type
+                if (arg0ty.optional or arg1ty.optional) and (
+                    obj.function_name != "_add" or not isinstance(getattr(obj, "parent"), WDL.Task)
+                ):
+                    # exception for + in task command because the coercion is
+                    # probably intentional, per "Prepending a String to an
+                    # Optional Parameter"
+                    # TODO: carve out an exception for the pattern
+                    #          if defined(x) then EXPR_WITH_x else DEFAULT
+                    self.add(
+                        getattr(obj, "parent"),
+                        "infix operator has :{}: and :{}: operands".format(
+                            str(arg0ty), str(arg1ty)
+                        ),
+                    )
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):
@@ -248,6 +258,11 @@ class OptionalCoercion(Linter):
                             )
                             self.add(getattr(obj, "parent"), msg, obj.arguments[i])
         super().expr(obj)
+
+    def decl(self, obj: WDL.Decl) -> Any:
+        if not obj.type.optional and obj.expr and obj.expr.type.optional:
+            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+        super().decl(obj)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
