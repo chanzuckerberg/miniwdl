@@ -77,7 +77,7 @@ class Base(SourceNode, ABC):
                 expected2 = expected.copy(nonempty=False, optional=True)
             else:
                 expected2 = expected.copy(optional=True)
-        if not self.type.coerces(expected):
+        if not self.type.coerces(expected2):
             raise Error.StaticTypeMismatch(self, expected2, self.type)
         return self
 
@@ -384,22 +384,7 @@ class IfThenElse(Base):
         # 2. If one is Int and the other is Float, unify to Float
         # 3. If one is a nonempty array and the other is a possibly empty
         #    array, unify to possibly empty array
-        # 4. Given the specific construct,
-        #      if defined(x) then EXPR_WITH_x else SOME_DEFAULT
-        #    where x: T?, assume x: T when we infer the type of EXPR_WITH_x
-        #    cf. https://github.com/openwdl/wdl/issues/271
-        consequent_type_env = type_env
-        if (
-            isinstance(self.condition, Apply)
-            and self.condition.function_name == "defined"
-            and len(self.condition.arguments) == 1
-            and isinstance(self.condition.arguments[0], Ident)
-        ):
-            arg: Ident = self.condition.arguments[0]
-            consequent_type_env = _retype(
-                consequent_type_env, arg.namespace, arg.name, arg.type.copy(optional=False)
-            )
-        self_type = self.consequent.infer_type(consequent_type_env, self._check_quant).type
+        self_type = self.consequent.infer_type(type_env, self._check_quant).type
         assert isinstance(self_type, T.Base)
         self.alternative.infer_type(type_env, self._check_quant)
         if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
@@ -438,30 +423,6 @@ class IfThenElse(Base):
             return ans
         except ReferenceError:
             raise Error.NullValue(self) from None
-
-
-def _retype(type_env: Env.Types, namespace: List[str], name: str, new_type: T.Base) -> Env.Types:
-    # Helper function: return type_env with a new type for one particular
-    # binding (and everything else the same)
-    ans = []
-    for node in type_env:
-        if isinstance(node, Env.Binding):
-            if not namespace and name == node.name:
-                ans.append(Env.Binding(node.name, new_type, node.ctx))
-            else:
-                ans.append(node)
-        elif isinstance(node, Env.Namespace):
-            if namespace and namespace[0] == node.namespace:
-                ans.append(
-                    Env.Namespace(
-                        namespace[0], _retype(node.bindings, namespace[1:], name, new_type)
-                    )
-                )
-            else:
-                ans.append(node)
-        else:
-            assert False
-    return ans
 
 
 # function applications

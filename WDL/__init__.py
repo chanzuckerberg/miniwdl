@@ -10,7 +10,7 @@ SourcePosition = Error.SourcePosition
 SourceNode = Error.SourceNode
 
 
-def load(uri: str, path: List[str] = []) -> Document:
+def load(uri: str, path: List[str] = [], check_quant: bool = True) -> Document:
     """
     Parse a WDL document given filename/URI, recursively descend into imported
     documents, then typecheck the tasks and workflow.
@@ -18,7 +18,7 @@ def load(uri: str, path: List[str] = []) -> Document:
     :param path: local filesystem directories to search for imports, in
     addition to the current working directory
     """
-    return Tree.load(uri, path)
+    return Tree.load(uri, path, check_quant)
 
 
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:
