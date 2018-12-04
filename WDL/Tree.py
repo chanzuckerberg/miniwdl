@@ -529,7 +529,9 @@ class Document(SourceNode):
             self.workflow.typecheck(self, check_quant=check_quant)
 
 
-def load(uri: str, path: List[str] = [], check_quant: bool = True, imported: Optional[bool] = False) -> Document:
+def load(
+    uri: str, path: List[str] = [], check_quant: bool = True, imported: Optional[bool] = False
+) -> Document:
     for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
         if os.path.exists(fn):
             with open(fn, "r") as infile:
@@ -542,7 +544,9 @@ def load(uri: str, path: List[str] = [], check_quant: bool = True, imported: Opt
                 for i in range(len(doc.imports)):
                     try:
                         subpath = [os.path.dirname(fn)] + path
-                        subdoc = load(doc.imports[i][0], subpath, check_quant=check_quant, imported=True)
+                        subdoc = load(
+                            doc.imports[i][0], subpath, check_quant=check_quant, imported=True
+                        )
                     except Exception as exn:
                         raise Err.ImportError(uri, doc.imports[i][0]) from exn
                     doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
