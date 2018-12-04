@@ -23,6 +23,7 @@ class Base(SourceNode, ABC):
     """Superclass of all expression AST nodes"""
 
     _type: Optional[T.Base] = None
+    _check_quant: bool = True
 
     def __init__(self, pos: SourcePosition) -> None:
         super().__init__(pos)
@@ -42,20 +43,24 @@ class Base(SourceNode, ABC):
 
     @abstractmethod
     def _infer_type(self, type_env: Env.Types) -> T.Base:
+        # Abstract protected method called by infer_type(): return the inferred
+        # type with no side-effects, obeying self._check_quant.
         pass
 
-    def infer_type(self, type_env: Env.Types) -> TVBase:
+    def infer_type(self, type_env: Env.Types, check_quant: bool = True) -> TVBase:
         """infer_type(self, type_env : Env.Types) -> WDL.Expr.Base
 
         Infer the expression's type within the given type environment. Must be
         invoked exactly once prior to use of other methods.
 
+        :param check_quant: when ``False``, relaxes static validation of the optional (?) and nonempty (+) type quantifiers when `typecheck()` is called on this expression, so for example type ``T?`` can satisfy an expected type ``T``. Applies recursively to the type inference and checking of any sub-expressions.
         :raise WDL.Error.StaticTypeMismatch: when the expression fails to type-check
         :return: `self`
         """
         # Failure of this assertion indicates multiple invocations of
         # infer_type
         assert self._type is None
+        self._check_quant = check_quant
         self._type = self._infer_type(type_env)
         assert isinstance(self.type, T.Base), str(self.pos)
         return self
@@ -69,8 +74,14 @@ class Base(SourceNode, ABC):
         :raise WDL.Error.StaticTypeMismatch:
         :return: `self`
         """
-        if not self.type.coerces(expected):
-            raise Error.StaticTypeMismatch(self, expected, self.type)
+        expected2 = expected
+        if not self._check_quant:
+            if isinstance(expected, T.Array):
+                expected2 = expected.copy(nonempty=False, optional=True)
+            else:
+                expected2 = expected.copy(optional=True)
+        if not self.type.coerces(expected2):
+            raise Error.StaticTypeMismatch(self, expected2, self.type)
         return self
 
     @abstractmethod
@@ -170,7 +181,7 @@ class Placeholder(Base):
         self.expr = expr
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        self.expr.infer_type(type_env)
+        self.expr.infer_type(type_env, self._check_quant)
         if isinstance(self.expr.type, T.Array):
             if "sep" not in self.options:
                 raise Error.StaticTypeMismatch(
@@ -240,7 +251,7 @@ class String(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         for part in self.parts:
             if isinstance(part, Placeholder):
-                part.infer_type(type_env)
+                part.infer_type(type_env, self._check_quant)
         return T.String()
 
     def typecheck(self, expected: Optional[T.Base]) -> Base:
@@ -282,7 +293,7 @@ class Array(Base):
         if not self.items:
             return T.Array(None)
         for item in self.items:
-            item.infer_type(type_env)
+            item.infer_type(type_env, self._check_quant)
         # Start by assuming the type of the first item is the item type
         item_type: T.Base = self.items[0].type
         # Allow a mixture of Int and Float to construct Array[Float]
@@ -367,7 +378,7 @@ class IfThenElse(Base):
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         # check for Boolean condition
-        if self.condition.infer_type(type_env).type != T.Boolean():
+        if self.condition.infer_type(type_env, self._check_quant).type != T.Boolean():
             raise Error.StaticTypeMismatch(
                 self, T.Boolean(), self.condition.type, "in if condition"
             )
@@ -376,24 +387,9 @@ class IfThenElse(Base):
         # 2. If one is Int and the other is Float, unify to Float
         # 3. If one is a nonempty array and the other is a possibly empty
         #    array, unify to possibly empty array
-        # 4. Given the specific construct,
-        #      if defined(x) then EXPR_WITH_x else SOME_DEFAULT
-        #    where x: T?, assume x: T when we infer the type of EXPR_WITH_x
-        #    cf. https://github.com/openwdl/wdl/issues/271
-        consequent_type_env = type_env
-        if (
-            isinstance(self.condition, Apply)
-            and self.condition.function_name == "defined"
-            and len(self.condition.arguments) == 1
-            and isinstance(self.condition.arguments[0], Ident)
-        ):
-            arg: Ident = self.condition.arguments[0]
-            consequent_type_env = _retype(
-                consequent_type_env, arg.namespace, arg.name, arg.type.copy(optional=False)
-            )
-        self_type = self.consequent.infer_type(consequent_type_env).type
+        self_type = self.consequent.infer_type(type_env, self._check_quant).type
         assert isinstance(self_type, T.Base)
-        self.alternative.infer_type(type_env)
+        self.alternative.infer_type(type_env, self._check_quant)
         if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
             self_type = T.Float(optional=self_type.optional)
         if self.alternative.type.optional:
@@ -430,30 +426,6 @@ class IfThenElse(Base):
             return ans
         except ReferenceError:
             raise Error.NullValue(self) from None
-
-
-def _retype(type_env: Env.Types, namespace: List[str], name: str, new_type: T.Base) -> Env.Types:
-    # Helper function: return type_env with a new type for one particular
-    # binding (and everything else the same)
-    ans = []
-    for node in type_env:
-        if isinstance(node, Env.Binding):
-            if not namespace and name == node.name:
-                ans.append(Env.Binding(node.name, new_type, node.ctx))
-            else:
-                ans.append(node)
-        elif isinstance(node, Env.Namespace):
-            if namespace and namespace[0] == node.namespace:
-                ans.append(
-                    Env.Namespace(
-                        namespace[0], _retype(node.bindings, namespace[1:], name, new_type)
-                    )
-                )
-            else:
-                ans.append(node)
-        else:
-            assert False
-    return ans
 
 
 # function applications
@@ -509,7 +481,7 @@ class Apply(Base):
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         for arg in self.arguments:
-            arg.infer_type(type_env)
+            arg.infer_type(type_env, self._check_quant)
         return self.function.infer_type(self)
 
     def eval(self, env: Env.Values) -> V.Base:
@@ -613,8 +585,8 @@ class Pair(Base):
         self.right = right
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        self.left.infer_type(type_env)
-        self.right.infer_type(type_env)
+        self.left.infer_type(type_env, self._check_quant)
+        self.right.infer_type(type_env, self._check_quant)
         return T.Pair(self.left.type, self.right.type)
 
     def eval(self, env: Env.Values) -> V.Base:
@@ -644,12 +616,12 @@ class Map(Base):
         kty = None
         vty = None
         for k, v in self.items:
-            k.infer_type(type_env)
+            k.infer_type(type_env, self._check_quant)
             if kty is None:
                 kty = k.type
             else:
                 k.typecheck(kty)
-            v.infer_type(type_env)
+            v.infer_type(type_env, self._check_quant)
             if vty is None or vty == T.Array(None) or vty == T.Map(None):
                 vty = v.type
             else:

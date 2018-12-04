@@ -27,6 +27,12 @@ def main(args=None):
         action="append",
         help="local directory to search for imports",
     )
+    check_parser.add_argument(
+        "--no-quant-check",
+        dest="check_quant",
+        action="store_false",
+        help="relax static typechecking of optional (?) and nonempty (+) type quantifiers (discouraged; for backwards compatibility with older WDL)",
+    )
 
     args = parser.parse_args(args if args is not None else sys.argv[1:])
 
@@ -40,7 +46,7 @@ def check(args):
     # Load the document (read, parse, and typecheck)
     if args.path is None:
         args.path = []
-    doc = WDL.load(args.uri, args.path)
+    doc = WDL.load(args.uri, args.path, check_quant=args.check_quant)
 
     WDL.Lint.lint(doc)
 

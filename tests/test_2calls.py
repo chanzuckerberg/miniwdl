@@ -85,6 +85,8 @@ class TestCalls(unittest.TestCase):
         doc = WDL.parse_document(txt)
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
 
         txt = tsk + r"""
         workflow contrived {
@@ -93,7 +95,10 @@ class TestCalls(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(txt)
-        doc.typecheck()
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
 
     def test_nonempty(self):
         txt = r"""
@@ -113,7 +118,10 @@ class TestCalls(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(txt)
-        doc.typecheck()
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
 
         txt = r"""
         task p {
@@ -234,9 +242,20 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
 
     def test_if_defined(self):
-        # test special case for typechecking the construct
+        # test how we typecheck a construct like
         #   if defined(x) then EXPR_WITH_x else SOME_DEFAULT
-        # where we can treat x as non-optional when typechecking EXPR_WITH_x
+        txt = r"""
+        workflow contrived {
+            Int? x
+            Int y = x
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
+
         txt = r"""
         workflow contrived {
             Int? x
@@ -244,17 +263,25 @@ class TestCalls(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(txt)
-        doc.typecheck()
+        with self.assertRaises(WDL.Error.IncompatibleOperand):
+            doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
 
-        txt = r"""
+        txt = tsk + r"""
         workflow contrived {
-            Int? x
-            Int y = if true then x+1 else 42
+            Boolean b
+            if (b) {
+                call sum
+            }
+            Int y = sum.z
         }
         """
         doc = WDL.parse_document(txt)
-        with self.assertRaises(WDL.Error.IncompatibleOperand):
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
             doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
 
         txt = tsk + r"""
         workflow contrived {
@@ -267,21 +294,10 @@ class TestCalls(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(txt)
-        doc.typecheck()
-
-        txt = tsk + r"""
-        workflow contrived {
-            Boolean b
-            if (b) {
-                call sum
-            }
-            call sum as s2
-            Int y = if true then sum.z else s2.z
-        }
-        """
-        doc = WDL.parse_document(txt)
-        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+        with self.assertRaises(WDL.Error.IncompatibleOperand):
             doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
 
     def test_forward_reference(self):
         txt = tsk + r"""

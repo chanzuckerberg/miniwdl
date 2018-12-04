@@ -1,7 +1,7 @@
 import unittest, inspect, subprocess, tempfile, os, glob
 from .context import WDL
 
-def test_corpus(dir, path=[], blacklist=[], expected_lint={}):
+def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
     def decorator(test_klass):
 
         test_klass._lint_count = {}
@@ -25,12 +25,14 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}):
                     for dn in gpath:
                         cmd.append('--path')
                         cmd.append(dn)
+                    if check_quant is False:
+                        cmd.append("--no-quant-check")
                     cmd.append(fn)
                     print()
                     WDL.CLI.main(cmd)
 
                     # also load & lint the document to verify the lint count
-                    doc = WDL.load(fn, path=gpath)
+                    doc = WDL.load(fn, path=gpath, check_quant=check_quant)
                     WDL.Lint.lint(doc)
                     for _, linter, _ in WDL.Lint.collect(doc):
                         test_klass._lint_count[linter] = 1 + test_klass._lint_count.get(linter, 0)
@@ -82,7 +84,8 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
-    expected_lint={'UnusedDeclaration': 29, 'ForwardReference': 6, 'NonemptyArrayCoercion': 4, 'StringCoercion': 20},
+    expected_lint={'OptionalCoercion': 50, 'UnusedDeclaration': 29, 'ForwardReference': 6, 'NonemptyArrayCoercion': 4, 'StringCoercion': 20},
+    check_quant=False,
 )
 class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
@@ -109,7 +112,8 @@ class GTEx(unittest.TestCase):
     # need URI import
     blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
                 'topmed_freeze3_calling', 'topmed_freeze3_calling_checker', 'u_of_michigan_aligner_checker'],
-    expected_lint={'StringCoercion': 26, 'UnusedDeclaration': 74}
+    expected_lint={'StringCoercion': 26, 'UnusedDeclaration': 74, 'OptionalCoercion': 1},
+    check_quant=False,
 )
 class TOPMed(unittest.TestCase):
     pass
@@ -162,7 +166,8 @@ class ENCODE_WGBS(unittest.TestCase):
         # double quantifier
         "conditionals_base"
     ],
-    expected_lint={'UnusedDeclaration': 20, 'UnusedCall': 15, 'NameCollision': 2}
+    expected_lint={'UnusedDeclaration': 20, 'UnusedCall': 15, 'NameCollision': 2, 'OptionalCoercion': 1},
+    check_quant=False,
 )
 class dxWDL(unittest.TestCase):
     pass
@@ -170,6 +175,15 @@ class dxWDL(unittest.TestCase):
 @test_corpus(
     ["test_corpi/contrived/**"],
     expected_lint={'UnusedImport': 2, 'ArrayCoercion': 2, 'NameCollision': 13, 'OptionalCoercion': 2, 'StringCoercion': 1, 'NonemptyArrayCoercion': 1, 'IncompleteCall': 1},
+    blacklist=["check_quant"],
 )
 class Contrived(unittest.TestCase):
+    pass
+
+@test_corpus(
+    ["test_corpi/contrived/**"],
+    expected_lint={'UnusedImport': 2, 'ArrayCoercion': 2, 'NameCollision': 13, 'OptionalCoercion': 3, 'UnusedDeclaration': 1, 'StringCoercion': 1, 'NonemptyArrayCoercion': 1, 'IncompleteCall': 1},
+    check_quant=False,
+)
+class Contrived2(unittest.TestCase):
     pass

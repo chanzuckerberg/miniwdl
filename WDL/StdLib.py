@@ -106,15 +106,15 @@ class _And(E._Function):
         for arg in expr.arguments:
             if not isinstance(arg.type, T.Boolean):
                 raise Error.IncompatibleOperand(arg, "non-Boolean operand to &&")
-            if arg.type.optional:
+            if expr._check_quant and arg.type.optional:
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to &&")
         return T.Boolean()
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
-        lhs = expr.arguments[0].eval(env).value
+        lhs = expr.arguments[0].eval(env).expect(T.Boolean()).value
         if not lhs:
             return V.Boolean(False)
-        return expr.arguments[1].eval(env)
+        return expr.arguments[1].eval(env).expect(T.Boolean())
 
 
 E._stdlib["_land"] = _And()
@@ -126,15 +126,15 @@ class _Or(E._Function):
         for arg in expr.arguments:
             if not isinstance(arg.type, T.Boolean):
                 raise Error.IncompatibleOperand(arg, "non-Boolean operand to ||")
-            if arg.type.optional:
+            if expr._check_quant and arg.type.optional:
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to ||")
         return T.Boolean()
 
     def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
-        lhs = expr.arguments[0].eval(env).value
+        lhs = expr.arguments[0].eval(env).expect(T.Boolean()).value
         if lhs:
             return V.Boolean(True)
-        return expr.arguments[1].eval(env)
+        return expr.arguments[1].eval(env).expect(T.Boolean())
 
 
 E._stdlib["_lor"] = _Or()
@@ -298,8 +298,10 @@ class _AddOperator(_ArithmeticOperator):
         ans_type = self.infer_type(expr)
         if not isinstance(ans_type, T.String):
             return super().__call__(expr, env)
+        # TODO: return missing if either operand is missing
         ans = self.op(
-            str(expr.arguments[0].eval(env).value), str(expr.arguments[1].eval(env).value)
+            str(expr.arguments[0].eval(env).coerce(T.String()).value),
+            str(expr.arguments[1].eval(env).coerce(T.String()).value),
         )
         assert isinstance(ans, str)
         return V.String(ans)
@@ -322,10 +324,29 @@ class _ComparisonOperator(E._Function):
 
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
-        if not (
-            expr.arguments[0].type == expr.arguments[1].type
-            or (expr.arguments[0].type == T.Int() and expr.arguments[1].type == T.Float())
-            or (expr.arguments[0].type == T.Float() and expr.arguments[1].type == T.Int())
+        if (
+            (
+                expr._check_quant
+                and expr.arguments[0].type.optional != expr.arguments[1].type.optional
+            )
+            or (
+                self.name not in ["==", "!="]
+                and (expr.arguments[0].type.optional or expr.arguments[1].type.optional)
+            )
+            or (
+                not (
+                    expr.arguments[0].type.copy(optional=False)
+                    == expr.arguments[1].type.copy(optional=False)
+                    or (
+                        isinstance(expr.arguments[0].type, T.Int)
+                        and isinstance(expr.arguments[1].type, T.Float)
+                    )
+                    or (
+                        isinstance(expr.arguments[0].type, T.Float)
+                        and isinstance(expr.arguments[1].type, T.Int)
+                    )
+                )
+            )
         ):
             raise Error.IncompatibleOperand(
                 expr,
@@ -432,17 +453,19 @@ class _Zip(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 2:
             raise Error.WrongArity(expr, 2)
-        if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
-        if expr.arguments[0].type.item_type is None:
+        arg0ty: T.Base = expr.arguments[0].type
+        if not isinstance(arg0ty, T.Array) or (expr._check_quant and arg0ty.optional):
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), arg0ty)
+        if arg0ty.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
-        if not isinstance(expr.arguments[1].type, T.Array):
-            raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(None), expr.arguments[0].type)
-        if expr.arguments[1].type.item_type is None:
+        arg1ty: T.Base = expr.arguments[1].type
+        if not isinstance(arg1ty, T.Array) or (expr._check_quant and arg1ty.optional):
+            raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(None), arg1ty)
+        if arg1ty.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[1])
-        return T.Array(T.Pair(expr.arguments[0].type.item_type, expr.arguments[1].type.item_type))
+        return T.Array(T.Pair(arg0ty.item_type, arg1ty.item_type))
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         raise NotImplementedError()

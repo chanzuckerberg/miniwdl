@@ -55,16 +55,10 @@ class Decl(SourceNode):
             raise Err.MultipleDefinitions(self, "Multiple declarations of " + self.name)
         except KeyError:
             pass
-        # Subtlety: if the declared type is optional, but the expression is
-        # some literal value, make a non-optional entry in the type env since
-        # the value won't actually be null at runtime
-        ty = self.type
-        if isinstance(self.expr, (E.Int, E.Float, E.String, E.Array, E.Pair, E.Map)):
-            ty = ty.copy(optional=False)
-        ans: Env.Types = Env.bind(self.name, ty, type_env, ctx=self)
+        ans: Env.Types = Env.bind(self.name, self.type, type_env, ctx=self)
         return ans
 
-    def typecheck(self, type_env: Env.Types) -> None:
+    def typecheck(self, type_env: Env.Types, check_quant: bool) -> None:
         # Infer the expression's type and ensure it checks against the declared
         # type. One time use!
         #
@@ -77,7 +71,7 @@ class Decl(SourceNode):
                 if check_type.nonempty and isinstance(self.expr, E.Array) and not self.expr.items:
                     raise Err.EmptyArray(self.expr)
                 check_type = check_type.copy(nonempty=False)
-            self.expr.infer_type(type_env).typecheck(check_type)
+            self.expr.infer_type(type_env, check_quant).typecheck(check_type)
 
     # TODO: when the declaration is evaluated,
     #  - the optional/nonempty type quantifiers should be checked
@@ -140,7 +134,7 @@ class Task(SourceNode):
         self.meta = meta
         # TODO: enforce validity constraints on parameter_meta and runtime
 
-    def typecheck(self) -> None:
+    def typecheck(self, check_quant: bool = True) -> None:
         # First collect a type environment for all the input & postinput
         # declarations, so that we're prepared for possible forward-references
         # in their right-hand side expressions.
@@ -150,19 +144,19 @@ class Task(SourceNode):
         # Pass through input & postinput declarations again, typecheck their
         # right-hand side expressions against the type environment.
         for decl in self.inputs + self.postinputs:
-            decl.typecheck(type_env)
+            decl.typecheck(type_env, check_quant)
         # TODO: detect circular dependencies among input & postinput decls
         # Typecheck the command (string)
-        self.command.infer_type(type_env).typecheck(T.String())
+        self.command.infer_type(type_env, check_quant).typecheck(T.String())
         # Typecheck runtime expressions
         for _, runtime_expr in self.runtime.items():
-            runtime_expr.infer_type(type_env).typecheck(T.String())
+            runtime_expr.infer_type(type_env, check_quant).typecheck(T.String())
         # Add output declarations to type environment
         for decl in self.outputs:
             type_env = decl.add_to_type_env(type_env)
         # Typecheck the output expressions
         for decl in self.outputs:
-            decl.typecheck(type_env)
+            decl.typecheck(type_env, check_quant)
         # TODO: detect circularities in output declarations
 
     @property
@@ -260,7 +254,7 @@ class Call(SourceNode):
             outputs_env = Env.bind(outp.name, outp.type, outputs_env, ctx=self)
         return Env.namespace(self.name, outputs_env, type_env)
 
-    def typecheck_input(self, type_env: Env.Types, doc: TVDocument) -> None:
+    def typecheck_input(self, type_env: Env.Types, doc: TVDocument, check_quant: bool) -> None:
         # Check the input expressions against the callee's inputs. One-time use
         assert self.callee
 
@@ -285,13 +279,7 @@ class Call(SourceNode):
                         decl = ele
             if decl is None:
                 raise Err.NoSuchInput(expr, name)
-            check_type = decl.type
-            if isinstance(check_type, T.Array):
-                # Accept Array[T] value for Array[T]+ input in static
-                # typechecking; e.g.
-                # https://github.com/gatk-workflows/gatk4-somatic-snvs-indels/blob/28132cbec2fc9178e50cd3a36aa8f94023619428/mutect2.wdl#L255
-                check_type = check_type.copy(nonempty=False)
-            expr.infer_type(type_env).typecheck(check_type)
+            expr.infer_type(type_env, check_quant).typecheck(decl.type)
             if name in required_inputs:
                 required_inputs.remove(name)
 
@@ -454,22 +442,22 @@ class Workflow(SourceNode):
             if isinstance(decl, Decl) and decl.expr is None and decl.type.optional is False
         ]
 
-    def typecheck(self, doc: TVDocument) -> None:
+    def typecheck(self, doc: TVDocument, check_quant: bool) -> None:
         assert doc.workflow is self
         assert self._type_env is None
         # 1. resolve all calls
         _resolve_calls(doc)
         # 2. build type environments in the workflow and each scatter &
         #    conditional section therein
-        _build_workflow_type_env(doc)
+        _build_workflow_type_env(doc, check_quant)
         # 3. typecheck the right-hand side expressions of each declaration
         #    and the inputs to each call (descending into scatter & conditional
         #    sections)
-        _typecheck_workflow_elements(doc)
+        _typecheck_workflow_elements(doc, check_quant)
         # 4. typecheck the output expressions
         if self.outputs:
             for output in self.outputs:
-                output.typecheck(self._type_env)
+                output.typecheck(self._type_env, check_quant)
 
 
 class Document(SourceNode):
@@ -515,7 +503,7 @@ class Document(SourceNode):
         self.workflow = workflow
         self.imported = imported
 
-    def typecheck(self) -> None:
+    def typecheck(self, check_quant: bool = True) -> None:
         """Typecheck each task in the document, then the workflow, if any.
 
         Documents returned by :func:`~WDL.load` have already been typechecked."""
@@ -530,7 +518,7 @@ class Document(SourceNode):
             if task.name in names:
                 raise Err.MultipleDefinitions(task, "Multiple tasks named " + task.name)
             names.add(task.name)
-            task.typecheck()
+            task.typecheck(check_quant=check_quant)
         # typecheck the workflow
         if self.workflow:
             if self.workflow.name in names:
@@ -538,10 +526,12 @@ class Document(SourceNode):
                     self.workflow,
                     "Workflow name collides with a task also named " + self.workflow.name,
                 )
-            self.workflow.typecheck(self)
+            self.workflow.typecheck(self, check_quant=check_quant)
 
 
-def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Document:
+def load(
+    uri: str, path: List[str] = [], check_quant: bool = True, imported: Optional[bool] = False
+) -> Document:
     for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
         if os.path.exists(fn):
             with open(fn, "r") as infile:
@@ -554,11 +544,13 @@ def load(uri: str, path: List[str] = [], imported: Optional[bool] = False) -> Do
                 for i in range(len(doc.imports)):
                     try:
                         subpath = [os.path.dirname(fn)] + path
-                        subdoc = load(doc.imports[i][0], subpath, True)
+                        subdoc = load(
+                            doc.imports[i][0], subpath, check_quant=check_quant, imported=True
+                        )
                     except Exception as exn:
                         raise Err.ImportError(uri, doc.imports[i][0]) from exn
                     doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
-                doc.typecheck()
+                doc.typecheck(check_quant=check_quant)
                 return doc
     raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
 
@@ -584,6 +576,7 @@ def _resolve_calls(
 
 def _build_workflow_type_env(
     doc: TVDocument,
+    check_quant: bool,
     self: Optional[Union[Workflow, Scatter, Conditional]] = None,
     outer_type_env: Env.Types = [],
 ) -> None:
@@ -619,7 +612,7 @@ def _build_workflow_type_env(
     type_env = outer_type_env
     if isinstance(self, Scatter):
         # typecheck scatter array
-        self.expr.infer_type(type_env)
+        self.expr.infer_type(type_env, check_quant)
         if not isinstance(self.expr.type, T.Array):
             raise Err.NotAnArray(self.expr)
         if self.expr.type.item_type is None:
@@ -635,7 +628,7 @@ def _build_workflow_type_env(
         type_env = Env.bind(self.variable, self.expr.type.item_type, type_env, ctx=self)
     elif isinstance(self, Conditional):
         # typecheck the condition
-        self.expr.infer_type(type_env)
+        self.expr.infer_type(type_env, check_quant)
         if not self.expr.type.coerces(T.Boolean()):
             raise Err.StaticTypeMismatch(self.expr, T.Boolean(), self.expr.type)
 
@@ -648,7 +641,7 @@ def _build_workflow_type_env(
             for sibling in self.elements:
                 if sibling is not child:
                     child_outer_type_env = sibling.add_to_type_env(child_outer_type_env)
-            _build_workflow_type_env(doc, child, child_outer_type_env)
+            _build_workflow_type_env(doc, check_quant, child, child_outer_type_env)
 
     # finally, populate self._type_env with all our children
     for child in self.elements:
@@ -686,7 +679,7 @@ def _optionalize_types(type_env: Env.Types) -> Env.Types:
 
 
 def _typecheck_workflow_elements(
-    doc: Document, self: Optional[Union[Workflow, Scatter, Conditional]] = None
+    doc: Document, check_quant: bool, self: Optional[Union[Workflow, Scatter, Conditional]] = None
 ) -> None:
     # following _resolve_calls() and _build_workflow_type_env(), typecheck all
     # the declaration expressions and call inputs
@@ -694,10 +687,10 @@ def _typecheck_workflow_elements(
     assert self and self._type_env
     for child in self.elements:
         if isinstance(child, Decl):
-            child.typecheck(self._type_env)
+            child.typecheck(self._type_env, check_quant)
         elif isinstance(child, Call):
-            child.typecheck_input(self._type_env, doc)
+            child.typecheck_input(self._type_env, doc, check_quant)
         elif isinstance(child, (Scatter, Conditional)):
-            _typecheck_workflow_elements(doc, child)  # pyre-ignore
+            _typecheck_workflow_elements(doc, check_quant, child)  # pyre-ignore
         else:
             assert False
