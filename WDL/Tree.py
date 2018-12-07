@@ -11,7 +11,7 @@ The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e.
 
 import os
 import errno
-from typing import Any, List, Optional, Dict, TypeVar, Tuple, Union
+from typing import Any, List, Optional, Dict, TypeVar, Tuple, Union, Iterable
 import WDL.Type as T
 import WDL.Expr as E
 import WDL.Env as Env
@@ -46,6 +46,11 @@ class Decl(SourceNode):
         if self.expr is None:
             return "{} {}".format(str(self.type), self.name)
         return "{} {} = {}".format(str(self.type), self.name, str(self.expr))
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        if self.expr:
+            yield self.expr
 
     def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
         # Add an appropriate binding in the type env, after checking for name
@@ -134,6 +139,18 @@ class Task(SourceNode):
         self.meta = meta
         # TODO: enforce validity constraints on parameter_meta and runtime
 
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        for d in self.inputs:
+            yield d
+        for d in self.postinputs:
+            yield d
+        yield self.command
+        for d in self.outputs:
+            yield d
+        for _, ex in self.runtime.items():
+            yield ex
+
     def typecheck(self, check_quant: bool = True) -> None:
         # First collect a type environment for all the input & postinput
         # declarations, so that we're prepared for possible forward-references
@@ -211,6 +228,12 @@ class Call(SourceNode):
         self.name = alias if alias is not None else self.callee_id.name
         self.inputs = inputs
         self.callee = None
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        yield self.callee_id
+        for _, ex in self.inputs.items():
+            yield ex
 
     def resolve(self, doc: TVDocument) -> None:
         # Set self.callee to the Task/Workflow being called. Use exactly once
@@ -330,6 +353,12 @@ class Scatter(SourceNode):
         self.expr = expr
         self.elements = elements
 
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        yield self.expr
+        for elt in self.elements:
+            yield elt
+
     def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
@@ -378,6 +407,12 @@ class Conditional(SourceNode):
         super().__init__(pos)
         self.expr = expr
         self.elements = elements
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        yield self.expr
+        for elt in self.elements:
+            yield elt
 
     def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
@@ -433,6 +468,14 @@ class Workflow(SourceNode):
         self.outputs = outputs
         self.parameter_meta = parameter_meta
         self.meta = meta
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        for elt in self.elements:
+            yield elt
+        if self.outputs:
+            for d in self.outputs:
+                yield d
 
     @property
     def required_inputs(self) -> List[Decl]:
@@ -502,6 +545,16 @@ class Document(SourceNode):
         self.tasks = tasks
         self.workflow = workflow
         self.imported = imported
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        for _, _, doc in self.imports:
+            if doc:
+                yield doc
+        for task in self.tasks:
+            yield task
+        if self.workflow:
+            yield self.workflow
 
     def typecheck(self, check_quant: bool = True) -> None:
         """Typecheck each task in the document, then the workflow, if any.
