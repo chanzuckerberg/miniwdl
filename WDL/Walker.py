@@ -46,75 +46,33 @@ class Base:
             return self.expr(obj)
         assert False
 
+    def _descend(self, obj: WDL.Error.SourceNode) -> Any:
+        for ch in obj.children:
+            self(ch)
+
     def document(self, obj: WDL.Tree.Document) -> Any:
-        for _, _, subdoc in obj.imports:
-            assert isinstance(subdoc, WDL.Tree.Document)
-            self(subdoc)
-        for task in obj.tasks:
-            self(task)
-        if obj.workflow:
-            self(obj.workflow)
+        self._descend(obj)
 
     def workflow(self, obj: WDL.Tree.Workflow) -> Any:
-        for elt in obj.elements:
-            self(elt)
-        if obj.outputs:
-            for decl in obj.outputs or []:
-                self(decl)
+        self._descend(obj)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
-        for _, expr in obj.inputs.items():
-            self(expr)
+        self._descend(obj)
 
     def scatter(self, obj: WDL.Tree.Scatter) -> Any:
-        self(obj.expr)
-        for elt in obj.elements:
-            self(elt)
+        self._descend(obj)
 
     def conditional(self, obj: WDL.Tree.Conditional) -> Any:
-        self(obj.expr)
-        for elt in obj.elements:
-            self(elt)
+        self._descend(obj)
 
     def decl(self, obj: WDL.Tree.Decl) -> Any:
-        if obj.expr:
-            self(obj.expr)
+        self._descend(obj)
 
     def task(self, obj: WDL.Tree.Task) -> Any:
-        for elt in obj.inputs + obj.postinputs:
-            self(elt)
-        self(obj.command)
-        for _, runtime_expr in obj.runtime.items():
-            self(runtime_expr)
-        for elt in obj.outputs:
-            self(elt)
+        self._descend(obj)
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
-        if isinstance(obj, WDL.Expr.Placeholder):
-            self(obj.expr)
-        elif isinstance(obj, WDL.Expr.String):
-            for p in obj.parts:
-                if isinstance(p, WDL.Expr.Base):
-                    self(p)
-        elif isinstance(obj, WDL.Expr.Array):
-            for elt in obj.items:
-                self(elt)
-        elif isinstance(obj, WDL.Expr.IfThenElse):
-            self(obj.condition)
-            self(obj.consequent)
-            self(obj.alternative)
-        elif isinstance(obj, WDL.Expr.Apply):
-            for elt in obj.arguments:
-                self(elt)
-        elif isinstance(obj, WDL.Expr.Pair):
-            self(obj.left)
-            self(obj.right)
-        elif isinstance(obj, WDL.Expr.Map):
-            for k, v in obj.items.items():
-                self(k)
-                self(v)
-        else:
-            pass
+        self._descend(obj)
 
 
 class SetParents(Base):

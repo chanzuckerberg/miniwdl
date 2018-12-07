@@ -9,7 +9,7 @@ nodes attached "beneath" it. An expression can be evaluated to a Value given
 a suitable Env.
 """
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, TypeVar, Tuple, Union, Any
+from typing import List, Optional, Dict, TypeVar, Tuple, Union, Any, Iterable
 import WDL.Type as T
 import WDL.Value as V
 import WDL.Env as Env
@@ -180,6 +180,10 @@ class Placeholder(Base):
         self.options = options
         self.expr = expr
 
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        yield self.expr
+
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         self.expr.infer_type(type_env, self._check_quant)
         if isinstance(self.expr.type, T.Array):
@@ -248,6 +252,12 @@ class String(Base):
         super().__init__(pos)
         self.parts = parts
 
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        for p in self.parts:
+            if isinstance(p, Base):
+                yield p
+
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         for part in self.parts:
             if isinstance(part, Placeholder):
@@ -288,6 +298,11 @@ class Array(Base):
     def __init__(self, pos: SourcePosition, items: List[Base]) -> None:
         super(Array, self).__init__(pos)
         self.items = items
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        for it in self.items:
+            yield it
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         if not self.items:
@@ -375,6 +390,12 @@ class IfThenElse(Base):
         self.condition = condition
         self.consequent = consequent
         self.alternative = alternative
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        yield self.condition
+        yield self.consequent
+        yield self.alternative
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         # check for Boolean condition
@@ -479,6 +500,11 @@ class Apply(Base):
             raise Error.NoSuchFunction(self, function) from None
         self.arguments = arguments
 
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        for arg in self.arguments:
+            yield arg
+
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         for arg in self.arguments:
             arg.infer_type(type_env, self._check_quant)
@@ -519,6 +545,10 @@ class Ident(Base):
         assert parts
         self.name = parts[-1]
         self.namespace = parts[:-1]
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        return []
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         if self.namespace and (self.name in ["left", "right"]):
@@ -584,6 +614,11 @@ class Pair(Base):
         self.left = left
         self.right = right
 
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        yield self.left
+        yield self.right
+
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         self.left.infer_type(type_env, self._check_quant)
         self.right.infer_type(type_env, self._check_quant)
@@ -611,6 +646,12 @@ class Map(Base):
     def __init__(self, pos: SourcePosition, items: List[Tuple[Base, Base]]) -> None:
         super().__init__(pos)
         self.items = items
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        for k, v in self.items:
+            yield k
+            yield v
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         kty = None

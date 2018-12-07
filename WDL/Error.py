@@ -1,5 +1,5 @@
 # pyre-strict
-from typing import List, Optional, NamedTuple, Union, Iterable
+from typing import List, Optional, NamedTuple, Union, Iterable, TypeVar
 from functools import total_ordering
 import WDL.Type as T
 
@@ -22,6 +22,8 @@ SourcePosition = NamedTuple(
     [("filename", str), ("line", int), ("column", int), ("end_line", int), ("end_column", int)],
 )
 """Source file, line, and column, attached to each AST node"""
+
+TVSourceNode = TypeVar("TVSourceNode", bound="SourceNode")
 
 
 @total_ordering
@@ -53,6 +55,15 @@ class SourceNode:
 
     def __eq__(self, rhs) -> bool:
         return self.pos == rhs.pos
+
+    @property
+    def children(self: TVSourceNode) -> Iterable[TVSourceNode]:
+        """
+        :type: Iterable[SourceNode]
+
+        Yield all child nodes
+        """
+        return []
 
 
 class Base(Exception):
