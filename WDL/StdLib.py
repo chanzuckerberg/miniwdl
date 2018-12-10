@@ -198,6 +198,7 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     # note: size() can take an empty value and probably returns 0 in that case.
     #       e.g. https://github.com/DataBiosphere/topmed-workflows/blob/31ba8a714b36ada929044f2ba3d130936e6c740e/CRAM-no-header-md5sum/md5sum/CRAM_md5sum.wdl#L39
     ("size", [T.File(optional=True), T.String(optional=True)], T.Float(), _notimpl),
+    ("floor", [T.Float()], T.Int(), _notimpl),
     ("ceil", [T.Float()], T.Int(), _notimpl),
     ("round", [T.Float()], T.Int(), _notimpl),
     ("glob", [T.String()], T.Array(T.File()), _notimpl),

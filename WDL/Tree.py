@@ -432,7 +432,8 @@ class Workflow(SourceNode):
     outputs: Optional[List[Decl]]
     """:type: Optional[List[Decl]]
 
-    Workflow outputs, if the ``output{}`` stanza is present"""
+    Workflow outputs, if the ``output{}`` section is present"""
+    _output_idents: Optional[List[E.Ident]]
     parameter_meta: Dict[str, Any]
     """
     :type: Dict[str,Any]
@@ -461,11 +462,13 @@ class Workflow(SourceNode):
         outputs: Optional[List[Decl]],
         parameter_meta: Dict[str, Any],
         meta: Dict[str, Any],
+        output_idents: Optional[List[E.Ident]] = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
         self.elements = elements
         self.outputs = outputs
+        self._output_idents = output_idents
         self.parameter_meta = parameter_meta
         self.meta = meta
 
@@ -497,10 +500,61 @@ class Workflow(SourceNode):
         #    and the inputs to each call (descending into scatter & conditional
         #    sections)
         _typecheck_workflow_elements(doc, check_quant)
-        # 4. typecheck the output expressions
+        # 4. convert deprecated output_idents, if any, to output declarations
+        self._rewrite_output_idents()
+        # 5. typecheck the output expressions
         if self.outputs:
+            output_names = set()
             for output in self.outputs:
+                assert output.expr
+                if output.name in output_names:
+                    raise Err.MultipleDefinitions(
+                        output, "multiple workflow outputs named " + output.name
+                    )
                 output.typecheck(self._type_env, check_quant)
+                output_names.add(output.name)
+
+    def _rewrite_output_idents(self) -> None:
+        if self._output_idents:
+            assert self.outputs is not None
+
+            # for each listed identifier, formulate a synthetic declaration
+            output_ident_decls = []
+            for output_idents in self._output_idents:
+                output_idents = [output_idents]
+
+                if output_idents[0].name == "*":
+                    # wildcard: expand to each call output
+                    wildcard = output_idents[0]
+                    output_idents = []
+                    try:
+                        for binding in Env.resolve_namespace(self._type_env, wildcard.namespace):
+                            binding_name = binding.name
+                            assert isinstance(binding_name, str)
+                            output_idents.append(
+                                E.Ident(wildcard.pos, wildcard.namespace + [binding_name])
+                            )
+                    except KeyError:
+                        raise Err.UnknownIdentifier(wildcard)
+
+                for output_ident in output_idents:
+                    try:
+                        ty = Env.resolve(self._type_env, output_ident.namespace, output_ident.name)
+                    except KeyError:
+                        raise Err.UnknownIdentifier(output_ident)
+                    assert isinstance(ty, T.Base)
+                    # the output name is supposed to be 'fully qualified'
+                    # including the call namespace. we're going to stick it
+                    # into the decl name with a ., which is a weird corner
+                    # case!
+                    synthetic_output_name = ".".join(output_ident.namespace + [output_ident.name])
+                    output_ident_decls.append(
+                        Decl(output_ident.pos, ty, synthetic_output_name, output_ident)
+                    )
+
+            # put the synthetic declarations into self.outputs
+            self.outputs = output_ident_decls + self.outputs  # pyre-fixme
+            self._output_idents = None
 
 
 class Document(SourceNode):
@@ -737,7 +791,7 @@ def _typecheck_workflow_elements(
     # following _resolve_calls() and _build_workflow_type_env(), typecheck all
     # the declaration expressions and call inputs
     self = self or doc.workflow
-    assert self and self._type_env
+    assert self and (self._type_env is not None)
     for child in self.elements:
         if isinstance(child, Decl):
             child.typecheck(self._type_env, check_quant)

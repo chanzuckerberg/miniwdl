@@ -119,11 +119,13 @@ class StringCoercion(Linter):
                     if isinstance(arg.type, WDL.Type.String):
                         any_string = True
                     elif not isinstance(arg.type, WDL.Type.File):
-                        all_string = False
-                if any_string and not all_string and not isinstance(pt, WDL.Task):
+                        all_string = arg.type
+                if any_string and all_string is not True and not isinstance(pt, WDL.Task):
                     # exception when parent is Task (i.e. we're in the task
                     # command) because the coercion is probably intentional
-                    self.add(pt, "string concatenation (+) has non-String argument", obj)
+                    self.add(
+                        pt, "string concatenation (+) has {} argument".format(str(all_string)), obj
+                    )
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):

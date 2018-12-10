@@ -20,7 +20,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
             if name not in blacklist:
                 name = "test_" + prefix + "_" + name.replace('.', '_')
                 def t(self, fn=fn):
-                    # run the 'miniwd check' command-line tool
+                    # run the 'miniwdl check' command-line tool
                     cmd = ['check']
                     for dn in gpath:
                         cmd.append('--path')
@@ -65,7 +65,7 @@ class HCAskylab_workflow(unittest.TestCase):
     # path is needed expressly here as a wdl imports from "./tasks_pipelines/import.wdl"
     # when it itself is in ./tasks_pipelines
     path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
-    blacklist=['fc_germline_single_sample_workflow'],
+    blacklist=['fc_germline_single_sample_workflow'], # uses URI import
     expected_lint={'StringCoercion': 11, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4, 'UnusedCall': 1}
 )
 class GATK_five_dollar(unittest.TestCase):
@@ -73,11 +73,7 @@ class GATK_five_dollar(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
-    # TODO: support pre-1.0 style of workflow outputs (identifiers and wildcards)
-    # https://github.com/gatk-workflows/gatk4-germline-snps-indels/blob/b9bbbdcfca7ece0d011ac1225ce6818b33720f48/joint-discovery-gatk4-local.wdl#L345
-    # also needed for the CNN variant filter repo.
-    blacklist=['joint-discovery-gatk4-local', 'joint-discovery-gatk4'],
-    expected_lint={'UnusedDeclaration': 1, 'StringCoercion': 2},
+    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 15}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass
@@ -89,6 +85,15 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 )
 class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
+
+@test_corpus(
+    ["test_corpi/gatk-workflows/gatk4-cnn-variant-filter/**"],
+    expected_lint={'UnusedDeclaration': 21, 'OptionalCoercion': 23, 'StringCoercion': 3, 'UnusedCall': 1},
+    check_quant=False,
+)
+class gatk4_cnn_variant_filter(unittest.TestCase):
+    pass
+
 
 @test_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
@@ -161,12 +166,12 @@ class ENCODE_WGBS(unittest.TestCase):
         "cast","complex","decl_mid_wf","dict","library_math","math","math2","optionals","toplevel_calls","trivial","trivial2",
         # use dnanexus extensions
         "call_native", "call_native_app",
-        # pre-1.0 style outputs
-        "movie", "foo_toplevel", "foo_if_flag", "foo",
+        # circular imports
+        "foo_toplevel", "foo_if_flag",
         # double quantifier
         "conditionals_base"
     ],
-    expected_lint={'UnusedDeclaration': 20, 'UnusedCall': 15, 'NameCollision': 2, 'OptionalCoercion': 1},
+    expected_lint={'UnusedDeclaration': 22, 'UnusedCall': 15, 'NameCollision': 2, 'OptionalCoercion': 1},
     check_quant=False,
 )
 class dxWDL(unittest.TestCase):
