@@ -161,7 +161,7 @@ call: "call" ident call_body? -> call
 scatter: "scatter" "(" CNAME "in" expr ")" "{" [inner_workflow_element*] "}"
 conditional: "if" "(" expr ")" "{" [inner_workflow_element*] "}"
 
-?workflow_element: any_decl | call | scatter | conditional | meta_section | output_decls
+?workflow_element: any_decl | call | scatter | conditional | meta_section | workflow_outputs
 workflow: "workflow" CNAME "{" workflow_element* "}"
 
 // WDL document: version, imports, tasks and (at most one) workflow
@@ -185,9 +185,10 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 %ignore COMMENT
 """
 
-# pre-1.0 commands, where both { } and <<< >>> styles have placeholders
-# delimited by ${ }
-commands_pre_1_0 = r"""
+# pre-1.0 specific productions:
+# - both { } and <<< >>> command styles have placeholders delimited by ${ }
+# - workflow outputs can be bare identifiers rather than complete decls
+productions_pre_1_0 = r"""
 COMMAND1_CHAR: /[^$}]/ | /\$[^{]/
 COMMAND1_END: COMMAND1_CHAR* "$"? "}"
 COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
@@ -197,11 +198,17 @@ COMMAND2_CHAR: /[^$>]/ | /\$[^{]/ | />[^>]/ | />>[^>]/
 COMMAND2_END : COMMAND2_CHAR* ">"~0..2 ">>>"
 COMMAND2_FRAGMENT: COMMAND2_CHAR* "${"
 command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
+
+?workflow_outputs: "output" "{" workflow_output_decls "}"
+workflow_output_decls: [workflow_output_decl*]
+?workflow_output_decl: bound_decl
+                     | ident
 """
 
-# 1.0+ commands, where ~{ } placeholders are supported in both styles, and ${ }
-# is not recognized within <<< >>>
-commands_1_0 = r"""
+# 1.0+ productions:
+# - ${ } placeholders are not recognized within <<< >>> task commands
+# - workflow outputs are complete decls
+productions_1_0 = r"""
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
 COMMAND1_END: COMMAND1_CHAR* "$"? "~"? "}"
 COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
@@ -212,13 +219,15 @@ COMMAND2_CHAR: /[^~>]/ | /~[^{]/ | />[^>]/ | />>[^>]/
 COMMAND2_END : COMMAND2_CHAR* ">"~0..2 ">>>"
 COMMAND2_FRAGMENT: COMMAND2_CHAR* "~{"
 command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
+
+?workflow_outputs: output_decls
 """
 
 
 def _grammar_for_version(version: Optional[str]) -> str:
     if version == "draft-2":
-        return common_grammar + commands_pre_1_0
-    return common_grammar + commands_1_0
+        return common_grammar + productions_pre_1_0
+    return common_grammar + productions_1_0
 
 
 # memoize Lark parsers constructed for version & start symbol
@@ -574,9 +583,16 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def conditional(self, items, meta):
         return D.Conditional(sp(self.filename, meta), items[0], items[1:])
 
+    def workflow_output_decls(self, items, meta):
+        decls = [elt for elt in items if isinstance(elt, D.Decl)]
+        idents = [elt for elt in items if isinstance(elt, E.Ident)]
+        assert len(decls) + len(idents) == len(items)
+        return {"outputs": decls, "output_idents": idents}
+
     def workflow(self, items, meta):
         elements = []
         outputs = None
+        output_idents = None
         parameter_meta = None
         meta_section = None
         for item in items[1:]:
@@ -587,6 +603,9 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                             sp(self.filename, meta), "redundant sections in workflow"
                         )
                     outputs = item["outputs"]
+                    if "output_idents" in item:
+                        assert output_idents is None
+                        output_idents = item["output_idents"]
                 elif "meta" in item:
                     if meta_section is not None:
                         raise Err.MultipleDefinitions(
@@ -612,6 +631,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             outputs,
             parameter_meta or dict(),
             meta_section or dict(),
+            output_idents,
         )
 
     def import_doc(self, items, meta):

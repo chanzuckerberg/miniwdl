@@ -771,3 +771,136 @@ class TestDoc(unittest.TestCase):
         self.assertEqual(len(doc.tasks[0].command.parts), 5)
 
         # TODO: test circular reference
+
+    def test_draft2_workflow_outputs(self):
+        doc = r"""
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+            meta {
+                foo: "bar"
+            }
+        }
+        workflow contrived {
+            Array[Int] xs = [1, 2, 3]
+            Array[Int] ys = [4, 5, 6]
+            scatter (x in xs) {
+                Int x2_ = x*x
+                scatter (y in ys) {
+                    if (x + y < 5) {
+                        Int xy_ = x * y
+                        call sum { input:
+                            x = x,
+                            y = y
+                        }
+                    }
+                }
+            }
+            output {
+                sum.z
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertEqual(str(doc.workflow.outputs[0].type), "Array[Array[Int?]]")
+
+        doc = WDL.parse_document("""
+            workflow bogus {
+                output {
+                    z
+                }
+            }
+        """)
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.typecheck()
+
+        doc = WDL.parse_document("""
+            workflow bogus {
+                output {
+                    add.z
+                }
+            }
+        """)
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.typecheck()
+
+        doc = WDL.parse_document("""
+            task sum {
+                Int x
+                Int y
+                command <<<
+                    echo $(( ~{x} + ~{y} ))
+                >>>
+                output {
+                    Int z = read_int(stdout())
+                }
+                meta {
+                    foo: "bar"
+                }
+            }
+            workflow bogus {
+                call sum as adder
+                output {
+                    Int z = 4
+                    adder.z
+                }
+            }
+        """)
+        doc.typecheck()
+
+        doc = WDL.parse_document("""
+            task sum {
+                Int x
+                Int y
+                command <<<
+                    echo $(( ~{x} + ~{y} ))
+                >>>
+                output {
+                    Int z = read_int(stdout())
+                }
+                meta {
+                    foo: "bar"
+                }
+            }
+            workflow bogus {
+                call sum
+                call sum as adder
+                output {
+                    sum.z
+                    adder.z
+                }
+            }
+        """)
+        doc.typecheck()
+
+        doc = WDL.parse_document("""
+            task sum {
+                Int x
+                Int y
+                command <<<
+                    echo $(( ~{x} + ~{y} ))
+                >>>
+                output {
+                    Int z = read_int(stdout())
+                }
+                meta {
+                    foo: "bar"
+                }
+            }
+            workflow bogus {
+                call sum as adder
+                output {
+                    adder.z
+                    adder.z
+                }
+            }
+        """)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()

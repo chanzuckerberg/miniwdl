@@ -433,6 +433,13 @@ class Workflow(SourceNode):
     """:type: Optional[List[Decl]]
 
     Workflow outputs, if the ``output{}`` stanza is present"""
+    output_idents: Optional[List[E.Ident]]
+    """:type: Optional[List[WDL.Expr.Ident]]
+
+    Workflow outputs specified in an old style predating WDL 1.0 (specifying
+    just identifiers instead of complete ``Decl``s. During typechecking,
+    ``outputs`` is populated with synthetic ``Decl``s including these
+    identifiers; thus, it's usually not necessary to use this property."""
     parameter_meta: Dict[str, Any]
     """
     :type: Dict[str,Any]
@@ -461,11 +468,13 @@ class Workflow(SourceNode):
         outputs: Optional[List[Decl]],
         parameter_meta: Dict[str, Any],
         meta: Dict[str, Any],
+        output_idents: Optional[List[E.Ident]] = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
         self.elements = elements
         self.outputs = outputs
+        self.output_idents = output_idents
         self.parameter_meta = parameter_meta
         self.meta = meta
 
@@ -497,10 +506,36 @@ class Workflow(SourceNode):
         #    and the inputs to each call (descending into scatter & conditional
         #    sections)
         _typecheck_workflow_elements(doc, check_quant)
-        # 4. typecheck the output expressions
+        # 4. convert draft-2 output_idents, if any, to output declarations
+        if self.output_idents:
+            assert isinstance(self.outputs, list)
+            output_ident_decls = []
+            for output_ident in self.output_idents:
+                try:
+                    ty = Env.resolve(self._type_env, output_ident.namespace, output_ident.name)
+                except KeyError:
+                    raise Err.UnknownIdentifier(output_ident)
+                # the output name is supposed to be 'fully qualified' including
+                # the call namespace. we're going to stick it into the decl name
+                # with a ., which is a weird corner case!
+                synthetic_output_name = ".".join(output_ident.namespace + [output_ident.name])
+                output_ident_decls.append(
+                    Decl(output_ident.pos, ty, synthetic_output_name, output_ident)
+                )
+            self.outputs = output_ident_decls + self.outputs
+            self.output_idents = None
+        # 5. typecheck the output expressions
         if self.outputs:
+            output_names = set()
             for output in self.outputs:
+                assert output.expr
+                if output.name in output_names:
+                    raise Err.MultipleDefinitions(
+                        output, "multiple workflow outputs named " + output.name
+                    )
                 output.typecheck(self._type_env, check_quant)
+                output_names.add(output.name)
+        # TODO: should we permit: ... Int x = ... output { Int x = x }
 
 
 class Document(SourceNode):
@@ -737,7 +772,7 @@ def _typecheck_workflow_elements(
     # following _resolve_calls() and _build_workflow_type_env(), typecheck all
     # the declaration expressions and call inputs
     self = self or doc.workflow
-    assert self and self._type_env
+    assert self and (self._type_env is not None)
     for child in self.elements:
         if isinstance(child, Decl):
             child.typecheck(self._type_env, check_quant)
