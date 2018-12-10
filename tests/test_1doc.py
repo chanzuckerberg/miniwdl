@@ -996,3 +996,37 @@ class TestDoc(unittest.TestCase):
             }
         """)
         doc.typecheck()
+
+    def test_workflow_inputs(self):
+        doc = r"""
+        version 1.0
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+            meta {
+                foo: "bar"
+            }
+        }
+        workflow contrived {
+            input {
+                Int x
+                Int y
+            }
+            call sum { input:
+                x = x,
+                y = y
+            }
+            output {
+                Int z = sum.z
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertEqual(set(decl.name for decl in doc.workflow.inputs), set(["x", "y"]))

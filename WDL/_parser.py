@@ -161,8 +161,8 @@ call: "call" ident call_body? -> call
 scatter: "scatter" "(" CNAME "in" expr ")" "{" [inner_workflow_element*] "}"
 conditional: "if" "(" expr ")" "{" [inner_workflow_element*] "}"
 
-?workflow_element: any_decl | call | scatter | conditional | meta_section | workflow_outputs
-workflow: "workflow" CNAME "{" workflow_element* "}"
+?workflow_element: any_decl | call | scatter | conditional | meta_section
+workflow: "workflow" CNAME "{" input_decls? workflow_element* workflow_outputs? meta_section?"}"
 
 // WDL document: version, imports, tasks and (at most one) workflow
 version: "version" /[^ \t\r\n]+/
@@ -595,13 +595,17 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def workflow(self, items, meta):
         elements = []
+        inputs = None
         outputs = None
         output_idents = None
         parameter_meta = None
         meta_section = None
         for item in items[1:]:
             if isinstance(item, dict):
-                if "outputs" in item:
+                if "inputs" in item:
+                    assert inputs is None
+                    inputs = item["inputs"]
+                elif "outputs" in item:
                     if outputs is not None:
                         raise Err.MultipleDefinitions(
                             sp(self.filename, meta), "redundant sections in workflow"
@@ -631,6 +635,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return D.Workflow(
             sp(self.filename, meta),
             items[0].value,
+            inputs,
             elements,
             outputs,
             parameter_meta or dict(),

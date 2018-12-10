@@ -427,12 +427,19 @@ class Conditional(SourceNode):
 class Workflow(SourceNode):
     name: str
     ":type: str"
-    elements: List[Union[Decl, Call, Scatter, Conditional]]
-    ":type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional]]"
-    outputs: Optional[List[Decl]]
-    """:type: Optional[List[Decl]]
+    inputs: Optional[List[Decl]]
+    """:type: List[WDL.Tree.Decl]
 
-    Workflow outputs, if the ``output{}`` section is present"""
+    Workflow input declarations, if the ``input{}`` section is present"""
+    elements: List[Union[Decl, Call, Scatter, Conditional]]
+    """:type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional]]
+
+    Workflow body in between ``input{}`` and ``output{}`` sections, if any
+    """
+    outputs: Optional[List[Decl]]
+    """:type: Optional[List[WDL.Tree.Decl]]
+
+    Workflow output declarations, if the ``output{}`` section is present"""
     _output_idents: Optional[List[E.Ident]]
     parameter_meta: Dict[str, Any]
     """
@@ -458,6 +465,7 @@ class Workflow(SourceNode):
         self,
         pos: SourcePosition,
         name: str,
+        inputs: Optional[List[Decl]],
         elements: List[Union[Decl, Call, Scatter]],
         outputs: Optional[List[Decl]],
         parameter_meta: Dict[str, Any],
@@ -466,6 +474,7 @@ class Workflow(SourceNode):
     ) -> None:
         super().__init__(pos)
         self.name = name
+        self.inputs = inputs
         self.elements = elements
         self.outputs = outputs
         self._output_idents = output_idents
@@ -474,6 +483,9 @@ class Workflow(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        if self.inputs:
+            for d in self.inputs:
+                yield d
         for elt in self.elements:
             yield elt
         if self.outputs:
@@ -484,7 +496,7 @@ class Workflow(SourceNode):
     def required_inputs(self) -> List[Decl]:
         return [
             decl
-            for decl in self.elements
+            for decl in ((self.inputs or []) + self.elements)
             if isinstance(decl, Decl) and decl.expr is None and decl.type.optional is False
         ]
 
@@ -499,6 +511,8 @@ class Workflow(SourceNode):
         # 3. typecheck the right-hand side expressions of each declaration
         #    and the inputs to each call (descending into scatter & conditional
         #    sections)
+        for decl in self.inputs or []:
+            decl.typecheck(self._type_env, check_quant)
         _typecheck_workflow_elements(doc, check_quant)
         # 4. convert deprecated output_idents, if any, to output declarations
         self._rewrite_output_idents()
@@ -717,7 +731,12 @@ def _build_workflow_type_env(
     # the 'outer' type environment has everything available in the workflow
     # -except- the body of self.
     type_env = outer_type_env
-    if isinstance(self, Scatter):
+
+    if isinstance(self, Workflow):
+        # start with workflow inputs
+        for decl in self.inputs or []:
+            type_env = decl.add_to_type_env(type_env)
+    elif isinstance(self, Scatter):
         # typecheck scatter array
         self.expr.infer_type(type_env, check_quant)
         if not isinstance(self.expr.type, T.Array):
@@ -738,6 +757,8 @@ def _build_workflow_type_env(
         self.expr.infer_type(type_env, check_quant)
         if not self.expr.type.coerces(T.Boolean()):
             raise Err.StaticTypeMismatch(self.expr, T.Boolean(), self.expr.type)
+    else:
+        assert False
 
     # descend into child scatter & conditional elements, if any.
     for child in self.elements:

@@ -170,10 +170,8 @@ class SetParents(Base):
     def workflow(self, obj: WDL.Tree.Workflow) -> None:
         super().workflow(obj)
         obj.parent = None
-        for elt in obj.elements:
+        for elt in (obj.inputs or []) + [obj.elements] + (obj.outputs or []):
             elt.parent = obj
-        for decl in obj.outputs or []:
-            decl.parent = obj
 
     def call(self, obj: WDL.Tree.Call) -> None:
         self._parent_stack.append(obj)
