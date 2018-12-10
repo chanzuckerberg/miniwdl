@@ -1,4 +1,5 @@
-from typing import Any, List
+# pylint: disable=assignment-from-no-return
+from typing import Any, List, Optional
 import WDL
 
 
@@ -22,33 +23,48 @@ class Base:
     walker = PrintUnconditionalCallNames()
     walker(wdl_document)
     ``
+
+    If initialized with ``auto_descend=True``, then super invocations do
+    do nothing (they can be omitted) and child nodes are recursed just after
+     each method invocation (preorder traversal).
     """
 
-    def __init__(self) -> None:
-        pass
+    auto_descend: bool
 
-    def __call__(self, obj: WDL.Error.SourceNode) -> Any:
+    def __init__(self, auto_descend: bool = False) -> None:
+        self.auto_descend = auto_descend
+
+    def __call__(self, obj: WDL.Error.SourceNode, descend: Optional[bool] = None) -> Any:
+        ans = None
         if isinstance(obj, WDL.Tree.Document):
-            return self.document(obj)
-        if isinstance(obj, WDL.Tree.Workflow):
-            return self.workflow(obj)
-        if isinstance(obj, WDL.Tree.Call):
-            return self.call(obj)
-        if isinstance(obj, WDL.Tree.Scatter):
-            return self.scatter(obj)
-        if isinstance(obj, WDL.Tree.Conditional):
-            return self.conditional(obj)
-        if isinstance(obj, WDL.Tree.Decl):
-            return self.decl(obj)
-        if isinstance(obj, WDL.Tree.Task):
-            return self.task(obj)
-        if isinstance(obj, WDL.Expr.Base):
-            return self.expr(obj)
-        assert False
+            ans = self.document(obj)
+        elif isinstance(obj, WDL.Tree.Workflow):
+            ans = self.workflow(obj)
+        elif isinstance(obj, WDL.Tree.Call):
+            ans = self.call(obj)
+        elif isinstance(obj, WDL.Tree.Scatter):
+            ans = self.scatter(obj)
+        elif isinstance(obj, WDL.Tree.Conditional):
+            ans = self.conditional(obj)
+        elif isinstance(obj, WDL.Tree.Decl):
+            ans = self.decl(obj)
+        elif isinstance(obj, WDL.Tree.Task):
+            ans = self.task(obj)
+        elif isinstance(obj, WDL.Expr.Base):
+            ans = self.expr(obj)
+        else:
+            assert False
+        if descend is None:
+            descend = self.auto_descend
+        if descend:
+            for ch in obj.children:
+                self(ch)
+        return ans
 
     def _descend(self, obj: WDL.Error.SourceNode) -> Any:
-        for ch in obj.children:
-            self(ch)
+        if not self.auto_descend:
+            for ch in obj.children:
+                self(ch)
 
     def document(self, obj: WDL.Tree.Document) -> Any:
         self._descend(obj)
@@ -73,6 +89,54 @@ class Base:
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
         self._descend(obj)
+
+
+class Multi(Base):
+    """
+    Multiplexes several walkers to run "concurrently" in one traversal of the
+    AST, which will be more efficient than running them separately. This only
+    works with ``auto_descend=True`` walkers.
+    """
+
+    _walkers: List[Base]
+
+    def __init__(self, walkers: List[Base]) -> None:
+        for w in walkers:
+            assert w.auto_descend
+        self._walkers = walkers
+        super().__init__(auto_descend=True)
+
+    def document(self, obj: WDL.Tree.Document) -> Any:
+        for w in self._walkers:
+            w.document(obj)
+
+    def workflow(self, obj: WDL.Tree.Workflow) -> Any:
+        for w in self._walkers:
+            w.workflow(obj)
+
+    def call(self, obj: WDL.Tree.Call) -> Any:
+        for w in self._walkers:
+            w.call(obj)
+
+    def scatter(self, obj: WDL.Tree.Scatter) -> Any:
+        for w in self._walkers:
+            w.scatter(obj)
+
+    def conditional(self, obj: WDL.Tree.Conditional) -> Any:
+        for w in self._walkers:
+            w.conditional(obj)
+
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
+        for w in self._walkers:
+            w.decl(obj)
+
+    def task(self, obj: WDL.Tree.Task) -> Any:
+        for w in self._walkers:
+            w.task(obj)
+
+    def expr(self, obj: WDL.Expr.Base) -> Any:
+        for w in self._walkers:
+            w.expr(obj)
 
 
 class SetParents(Base):
@@ -191,7 +255,9 @@ class SetReferrers(Base):
     task commands, outputs, scatter arrays, if conditions.
     """
 
+    def __init__(self):
+        super().__init__(auto_descend=True)
+
     def expr(self, obj: WDL.Expr.Base) -> None:
         if isinstance(obj, WDL.Expr.Ident) and isinstance(obj.ctx, (WDL.Tree.Decl, WDL.Tree.Call)):
             setattr(obj.ctx, "referrers", getattr(obj.ctx, "referrers", []) + [obj])
-        return super().expr(obj)
