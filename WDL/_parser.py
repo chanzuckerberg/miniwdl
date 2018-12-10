@@ -201,8 +201,8 @@ command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END ->
 
 ?workflow_outputs: "output" "{" workflow_output_decls "}"
 workflow_output_decls: [workflow_output_decl*]
-?workflow_output_decl: bound_decl
-                     | ident
+?workflow_output_decl: bound_decl | ident | workflow_wildcard_output
+workflow_wildcard_output: ident "." "*" | ident ".*"
 """
 
 # 1.0+ productions:
@@ -582,6 +582,10 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def conditional(self, items, meta):
         return D.Conditional(sp(self.filename, meta), items[0], items[1:])
+
+    def workflow_wildcard_output(self, items, meta):
+        assert isinstance(items[0], E.Ident)
+        return E.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
 
     def workflow_output_decls(self, items, meta):
         decls = [elt for elt in items if isinstance(elt, D.Decl)]

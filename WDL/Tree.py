@@ -506,24 +506,8 @@ class Workflow(SourceNode):
         #    and the inputs to each call (descending into scatter & conditional
         #    sections)
         _typecheck_workflow_elements(doc, check_quant)
-        # 4. convert draft-2 output_idents, if any, to output declarations
-        if self.output_idents:
-            assert isinstance(self.outputs, list)
-            output_ident_decls = []
-            for output_ident in self.output_idents:
-                try:
-                    ty = Env.resolve(self._type_env, output_ident.namespace, output_ident.name)
-                except KeyError:
-                    raise Err.UnknownIdentifier(output_ident)
-                # the output name is supposed to be 'fully qualified' including
-                # the call namespace. we're going to stick it into the decl name
-                # with a ., which is a weird corner case!
-                synthetic_output_name = ".".join(output_ident.namespace + [output_ident.name])
-                output_ident_decls.append(
-                    Decl(output_ident.pos, ty, synthetic_output_name, output_ident)
-                )
-            self.outputs = output_ident_decls + self.outputs
-            self.output_idents = None
+        # 4. convert deprecated output_idents, if any, to output declarations
+        self._rewrite_output_idents()
         # 5. typecheck the output expressions
         if self.outputs:
             output_names = set()
@@ -535,7 +519,48 @@ class Workflow(SourceNode):
                     )
                 output.typecheck(self._type_env, check_quant)
                 output_names.add(output.name)
-        # TODO: should we permit: ... Int x = ... output { Int x = x }
+
+    def _rewrite_output_idents(self) -> None:
+        if self.output_idents:
+            assert self.outputs is not None
+
+            # for each listed identifier, formulate a synthetic declaration
+            output_ident_decls = []
+            for output_idents in self.output_idents:
+                output_idents = [output_idents]
+
+                if output_idents[0].name == "*":
+                    # wildcard: expand to each call output
+                    wildcard = output_idents[0]
+                    output_idents = []
+                    try:
+                        for binding in Env.resolve_namespace(self._type_env, wildcard.namespace):
+                            binding_name = binding.name
+                            assert isinstance(binding_name, str)
+                            output_idents.append(
+                                E.Ident(wildcard.pos, wildcard.namespace + [binding_name])
+                            )
+                    except KeyError:
+                        raise Err.UnknownIdentifier(wildcard)
+
+                for output_ident in output_idents:
+                    try:
+                        ty = Env.resolve(self._type_env, output_ident.namespace, output_ident.name)
+                    except KeyError:
+                        raise Err.UnknownIdentifier(output_ident)
+                    assert isinstance(ty, T.Base)
+                    # the output name is supposed to be 'fully qualified'
+                    # including the call namespace. we're going to stick it
+                    # into the decl name with a ., which is a weird corner
+                    # case!
+                    synthetic_output_name = ".".join(output_ident.namespace + [output_ident.name])
+                    output_ident_decls.append(
+                        Decl(output_ident.pos, ty, synthetic_output_name, output_ident)
+                    )
+
+            # put the synthetic declarations into self.outputs
+            self.outputs = output_ident_decls + self.outputs  # pyre-fixme
+            self.output_idents = None
 
 
 class Document(SourceNode):

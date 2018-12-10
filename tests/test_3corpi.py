@@ -20,7 +20,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
             if name not in blacklist:
                 name = "test_" + prefix + "_" + name.replace('.', '_')
                 def t(self, fn=fn):
-                    # run the 'miniwd check' command-line tool
+                    # run the 'miniwdl check' command-line tool
                     cmd = ['check']
                     for dn in gpath:
                         cmd.append('--path')
@@ -85,6 +85,15 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 )
 class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
+
+@test_corpus(
+    ["test_corpi/gatk-workflows/gatk4-cnn-variant-filter/**"],
+    expected_lint={'UnusedDeclaration': 21, 'OptionalCoercion': 23, 'StringCoercion': 3, 'UnusedCall': 1},
+    check_quant=False,
+)
+class gatk4_cnn_variant_filter(unittest.TestCase):
+    pass
+
 
 @test_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],

@@ -904,3 +904,84 @@ class TestDoc(unittest.TestCase):
         """)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
+
+        with self.assertRaises(WDL.Error.ParserError):
+            doc = WDL.parse_document("""
+                version 1.0
+                task sum {
+                    Int x
+                    Int y
+                    command <<<
+                        echo $(( ~{x} + ~{y} ))
+                    >>>
+                    output {
+                        Int z = read_int(stdout())
+                    }
+                    meta {
+                        foo: "bar"
+                    }
+                }
+                workflow bogus {
+                    call sum as adder
+                    output {
+                        adder.z
+                    }
+                }
+            """)
+
+        doc = WDL.parse_document("""
+            task sum {
+                Int x
+                Int y
+                command <<<
+                    echo $(( ~{x} + ~{y} ))
+                >>>
+                output {
+                    Int z = read_int(stdout())
+                    Int w = 4
+                }
+                meta {
+                    foo: "bar"
+                }
+            }
+            workflow bogus {
+                call sum
+                call sum as adder
+                output {
+                    sum.*
+                    adder.*
+                }
+            }
+        """)
+        doc.typecheck()
+        self.assertEqual(len(set(decl.name for decl in doc.workflow.outputs)), 4)
+
+        doc = WDL.parse_document("""
+            task sum {
+                Int x
+                Int y
+                command <<<
+                    echo $(( ~{x} + ~{y} ))
+                >>>
+                output {
+                    Int z = read_int(stdout())
+                    Int w = 4
+                }
+                meta {
+                    foo: "bar"
+                }
+            }
+            workflow bogus {
+                call sum
+                call sum as adder
+                Int k = 4
+                Int j = 5
+                output {
+                    sum.*
+                    adder.*
+                    k
+                    Int j = j
+                }
+            }
+        """)
+        doc.typecheck()
