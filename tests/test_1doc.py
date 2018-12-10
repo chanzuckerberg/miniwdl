@@ -832,6 +832,16 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = WDL.parse_document("""
+            workflow bogus {
+                output {
+                    nonex.*
+                }
+            }
+        """)
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.typecheck()
+
+        doc = WDL.parse_document("""
             task sum {
                 Int x
                 Int y
