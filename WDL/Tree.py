@@ -432,14 +432,8 @@ class Workflow(SourceNode):
     outputs: Optional[List[Decl]]
     """:type: Optional[List[Decl]]
 
-    Workflow outputs, if the ``output{}`` stanza is present"""
-    output_idents: Optional[List[E.Ident]]
-    """:type: Optional[List[WDL.Expr.Ident]]
-
-    Workflow outputs specified in an old style predating WDL 1.0 (specifying
-    just identifiers instead of complete ``Decl``s. During typechecking,
-    ``outputs`` is populated with synthetic ``Decl``s including these
-    identifiers; thus, it's usually not necessary to use this property."""
+    Workflow outputs, if the ``output{}`` section is present"""
+    _output_idents: Optional[List[E.Ident]]
     parameter_meta: Dict[str, Any]
     """
     :type: Dict[str,Any]
@@ -474,7 +468,7 @@ class Workflow(SourceNode):
         self.name = name
         self.elements = elements
         self.outputs = outputs
-        self.output_idents = output_idents
+        self._output_idents = output_idents
         self.parameter_meta = parameter_meta
         self.meta = meta
 
@@ -521,12 +515,12 @@ class Workflow(SourceNode):
                 output_names.add(output.name)
 
     def _rewrite_output_idents(self) -> None:
-        if self.output_idents:
+        if self._output_idents:
             assert self.outputs is not None
 
             # for each listed identifier, formulate a synthetic declaration
             output_ident_decls = []
-            for output_idents in self.output_idents:
+            for output_idents in self._output_idents:
                 output_idents = [output_idents]
 
                 if output_idents[0].name == "*":
@@ -560,7 +554,7 @@ class Workflow(SourceNode):
 
             # put the synthetic declarations into self.outputs
             self.outputs = output_ident_decls + self.outputs  # pyre-fixme
-            self.output_idents = None
+            self._output_idents = None
 
 
 class Document(SourceNode):
