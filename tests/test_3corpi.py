@@ -135,7 +135,7 @@ class ENCODE_ChIPseq(unittest.TestCase):
 
 @test_corpus(
      ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"],
-     expected_lint={'StringCoercion': 182, 'ArrayCoercion': 41, 'OptionalCoercion': 26, 'UnusedCall': 1}
+     expected_lint={'StringCoercion': 182, 'ArrayCoercion': 41, 'OptionalCoercion': 26, 'UnusedCall': 13}
 )
 class ENCODE_ATACseq(unittest.TestCase):
     pass
