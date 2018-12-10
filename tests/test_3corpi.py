@@ -128,21 +128,21 @@ class ViralNGS(unittest.TestCase):
 
 @test_corpus(
      ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
-     expected_lint={'StringCoercion': 192, 'NameCollision': 16, 'ArrayCoercion': 64, 'OptionalCoercion': 64},
+     expected_lint={'StringCoercion': 224, 'NameCollision': 16, 'ArrayCoercion': 64, 'OptionalCoercion': 64},
 )
 class ENCODE_ChIPseq(unittest.TestCase):
     pass
 
 @test_corpus(
      ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"],
-     expected_lint={'StringCoercion': 156, 'ArrayCoercion': 41, 'OptionalCoercion': 26, 'UnusedCall': 1}
+     expected_lint={'StringCoercion': 182, 'ArrayCoercion': 41, 'OptionalCoercion': 26, 'UnusedCall': 1}
 )
 class ENCODE_ATACseq(unittest.TestCase):
     pass
 
 @test_corpus(
     ["test_corpi/ENCODE-DCC/rna-seq-pipeline/**"],
-    expected_lint={'StringCoercion': 2, 'UnusedDeclaration': 3, 'IncompleteCall': 3}
+    expected_lint={'StringCoercion': 6, 'UnusedDeclaration': 3, 'IncompleteCall': 3}
 )
 class ENCODE_RNAseq(unittest.TestCase):
     pass

@@ -11,7 +11,13 @@ class Linter(WDL.Walker.Base):
         ``lint : List[Tuple[SourceNode,str,str]]``
     providing lint warnings with a node (possibly more-specific than the
     node it's attached to), short codename, and message.
+
+    Linters initialize the base Walker with ``auto_descend=True`` by default,
+    but this can be overridden if control of recursive descent is needed.
     """
+
+    def __init__(self, auto_descend: bool = True):
+        super().__init__(auto_descend=auto_descend)
 
     def add(self, obj: WDL.SourceNode, message: str, subnode: Optional[WDL.SourceNode] = None):
         """
@@ -47,48 +53,28 @@ def lint(doc):
     WDL.Walker.MarkCalled()(doc)
     WDL.Walker.SetReferrers()(doc)
 
-    for linter in _all_linters:
-        linter()(doc)
+    # instantiate linters
+    linter_instances = [cons() for cons in _all_linters]
+
+    # run auto-descend linters "concurrently"
+    WDL.Walker.Multi([linter for linter in linter_instances if linter.auto_descend])(doc)
+    # run each non-auto-descend linter
+    for linter in linter_instances:
+        if not linter.auto_descend:
+            linter(doc)
 
     return doc
 
 
 class _Collector(WDL.Walker.Base):
     def __init__(self):
-        super().__init__()
+        super().__init__(auto_descend=True)
         self.lint = []
 
-    def _collect(self, obj):
+    def __call__(self, obj):
         if hasattr(obj, "lint"):
             self.lint.extend(getattr(obj, "lint"))
-
-    def document(self, obj) -> Any:
-        self._collect(obj)
-        super().document(obj)
-
-    def workflow(self, obj) -> Any:
-        self._collect(obj)
-        super().workflow(obj)
-
-    def call(self, obj) -> Any:
-        self._collect(obj)
-        super().call(obj)
-
-    def scatter(self, obj) -> Any:
-        self._collect(obj)
-        super().scatter(obj)
-
-    def conditional(self, obj) -> Any:
-        self._collect(obj)
-        super().conditional(obj)
-
-    def decl(self, obj) -> Any:
-        self._collect(obj)
-        super().decl(obj)
-
-    def task(self, obj) -> Any:
-        self._collect(obj)
-        super().task(obj)
+        super().__call__(obj)
 
 
 def collect(doc):
@@ -121,7 +107,6 @@ class StringCoercion(Linter):
         if isinstance(obj.type, WDL.Type.String) and obj.expr:
             if not isinstance(obj.expr.type, (WDL.Type.String, WDL.Type.File)):
                 self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
-        super().decl(obj)
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
         pt = getattr(obj, "parent")
@@ -169,7 +154,6 @@ class StringCoercion(Linter):
                     str(obj.type), ", ".join(":{}:".format(ty) for ty in item_types)
                 )
                 self.add(pt, msg, obj)
-        super().expr(obj)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -202,7 +186,6 @@ class ArrayCoercion(Linter):
         if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
             msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
             self.add(obj, msg)
-        super().decl(obj)
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
         pt = getattr(obj, "parent")
@@ -215,7 +198,6 @@ class ArrayCoercion(Linter):
                     if _is_array_coercion(F_i, arg_i.type):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
                         self.add(pt, msg, arg_i)
-        super().expr(obj)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -257,12 +239,10 @@ class OptionalCoercion(Linter):
                                 str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                             )
                             self.add(getattr(obj, "parent"), msg, obj.arguments[i])
-        super().expr(obj)
 
     def decl(self, obj: WDL.Decl) -> Any:
         if not obj.type.optional and obj.expr and obj.expr.type.optional:
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
-        super().decl(obj)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -286,7 +266,6 @@ class NonemptyArrayCoercion(Linter):
             # heuristic exception for: Array[File]+ outp = glob(...)
             if not (isinstance(obj.expr, WDL.Expr.Apply) and obj.expr.function_name == "glob"):
                 self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
-        super().decl(obj)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -315,7 +294,6 @@ class IncompleteCall(Linter):
                 obj.callee.name, ", ".join(required_inputs)
             )
             self.add(obj, msg)
-        super().call(obj)
 
 
 @a_linter
@@ -349,7 +327,6 @@ class NameCollision(Linter):
             self.add(obj, msg)
         except KeyError:
             pass
-        super().call(obj)
 
     def decl(self, obj: WDL.Decl) -> Any:
         doc = obj
@@ -379,7 +356,6 @@ class NameCollision(Linter):
                     obj.name
                 )
                 self.add(obj, msg)
-        super().workflow(obj)
 
     def task(self, obj: WDL.Task) -> Any:
         doc = obj
@@ -389,7 +365,6 @@ class NameCollision(Linter):
             if namespace == obj.name:
                 msg = "task name '{}' collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
-        super().task(obj)
 
 
 @a_linter
@@ -406,7 +381,6 @@ class UnusedImport(Linter):
                 any_called = True
             if not any_called:
                 self.add(obj, "nothing used from the import " + namespace)
-        super().document(obj)
 
 
 @a_linter
@@ -428,7 +402,6 @@ class ForwardReference(Linter):
             else:
                 assert False
             self.add(getattr(obj, "parent"), msg, obj)
-        super().expr(obj)
 
 
 @a_linter
@@ -473,6 +446,9 @@ class UnusedDeclaration(Linter):
 class UnusedCall(Linter):
     # the outputs of a Call are neither used nor propagated
     _workflow_with_outputs: bool = False
+
+    def __init__(self):
+        super().__init__(auto_descend=False)
 
     def workflow(self, obj: WDL.Tree.Workflow) -> Any:
         self._workflow_with_outputs = getattr(obj, "called", False) and obj.outputs is not None
