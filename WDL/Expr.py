@@ -60,6 +60,10 @@ class Base(SourceNode, ABC):
         # Failure of this assertion indicates multiple invocations of
         # infer_type
         assert self._type is None
+        # recursive descent into child expressions
+        for child in self.children:
+            child.infer_type(type_env, check_quant)
+        # invoke derived-class logic
         self._check_quant = check_quant
         self._type = self._infer_type(type_env)
         assert isinstance(self.type, T.Base), str(self.pos)
@@ -185,7 +189,6 @@ class Placeholder(Base):
         yield self.expr
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        self.expr.infer_type(type_env, self._check_quant)
         if isinstance(self.expr.type, T.Array):
             if "sep" not in self.options:
                 raise Error.StaticTypeMismatch(
@@ -259,9 +262,6 @@ class String(Base):
                 yield p
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        for part in self.parts:
-            if isinstance(part, Placeholder):
-                part.infer_type(type_env, self._check_quant)
         return T.String()
 
     def typecheck(self, expected: Optional[T.Base]) -> Base:
@@ -307,8 +307,6 @@ class Array(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         if not self.items:
             return T.Array(None)
-        for item in self.items:
-            item.infer_type(type_env, self._check_quant)
         # Start by assuming the type of the first item is the item type
         item_type: T.Base = self.items[0].type
         # Allow a mixture of Int and Float to construct Array[Float]
@@ -399,7 +397,7 @@ class IfThenElse(Base):
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         # check for Boolean condition
-        if self.condition.infer_type(type_env, self._check_quant).type != T.Boolean():
+        if self.condition.type != T.Boolean():
             raise Error.StaticTypeMismatch(
                 self, T.Boolean(), self.condition.type, "in if condition"
             )
@@ -408,9 +406,8 @@ class IfThenElse(Base):
         # 2. If one is Int and the other is Float, unify to Float
         # 3. If one is a nonempty array and the other is a possibly empty
         #    array, unify to possibly empty array
-        self_type = self.consequent.infer_type(type_env, self._check_quant).type
+        self_type = self.consequent.type
         assert isinstance(self_type, T.Base)
-        self.alternative.infer_type(type_env, self._check_quant)
         if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
             self_type = T.Float(optional=self_type.optional)
         if self.alternative.type.optional:
@@ -506,8 +503,6 @@ class Apply(Base):
             yield arg
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        for arg in self.arguments:
-            arg.infer_type(type_env, self._check_quant)
         return self.function.infer_type(self)
 
     def eval(self, env: Env.Values) -> V.Base:
@@ -620,8 +615,6 @@ class Pair(Base):
         yield self.right
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        self.left.infer_type(type_env, self._check_quant)
-        self.right.infer_type(type_env, self._check_quant)
         return T.Pair(self.left.type, self.right.type)
 
     def eval(self, env: Env.Values) -> V.Base:
@@ -657,12 +650,10 @@ class Map(Base):
         kty = None
         vty = None
         for k, v in self.items:
-            k.infer_type(type_env, self._check_quant)
             if kty is None:
                 kty = k.type
             else:
                 k.typecheck(kty)
-            v.infer_type(type_env, self._check_quant)
             if vty is None or vty == T.Array(None) or vty == T.Map(None):
                 vty = v.type
             else:
