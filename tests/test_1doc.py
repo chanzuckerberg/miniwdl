@@ -954,7 +954,8 @@ class TestDoc(unittest.TestCase):
             }
         """)
         doc.typecheck()
-        self.assertEqual(len(set(decl.name for decl in doc.workflow.outputs)), 4)
+        self.assertEqual(set(decl.name for decl in doc.workflow.outputs),
+                         set(["adder.w", "adder.z", "sum.w", "sum.z"]))
 
         doc = WDL.parse_document("""
             task sum {
