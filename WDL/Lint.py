@@ -445,22 +445,17 @@ class UnusedDeclaration(Linter):
 @a_linter
 class UnusedCall(Linter):
     # the outputs of a Call are neither used nor propagated
-    _workflow_with_outputs: bool = False
-
-    def __init__(self):
-        super().__init__(auto_descend=False)
-
-    def workflow(self, obj: WDL.Tree.Workflow) -> Any:
-        self._workflow_with_outputs = getattr(obj, "called", False) and obj.outputs is not None
-        super().workflow(obj)
-        self._workflow_with_outputs = False
 
     def call(self, obj: WDL.Tree.Call) -> Any:
-        if self._workflow_with_outputs and not getattr(obj, "referrers", []):
-            self.add(
-                obj,
-                "nothing references the outputs of call "
-                + obj.name
-                + " nor are are they output from the workflow",
-            )
-        super().call(obj)
+        if not getattr(obj, "referrers", []):
+            workflow = obj
+            while not isinstance(workflow, WDL.Tree.Workflow):
+                workflow = getattr(workflow, "parent")
+            if workflow.outputs is not None:
+                self.add(
+                    obj,
+                    "nothing references the outputs of the call "
+                    + obj.name
+                    + " nor are are they output from the workflow "
+                    + workflow.name,
+                )
