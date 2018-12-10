@@ -496,7 +496,7 @@ class Workflow(SourceNode):
     def required_inputs(self) -> List[Decl]:
         return [
             decl
-            for decl in ((self.inputs or []) + self.elements)
+            for decl in ((self.inputs or []) + self.elements)  # pyre-ignore
             if isinstance(decl, Decl) and decl.expr is None and decl.type.optional is False
         ]
 

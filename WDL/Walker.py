@@ -170,7 +170,7 @@ class SetParents(Base):
     def workflow(self, obj: WDL.Tree.Workflow) -> None:
         super().workflow(obj)
         obj.parent = None
-        for elt in (obj.inputs or []) + [obj.elements] + (obj.outputs or []):
+        for elt in (obj.inputs or []) + obj.elements + (obj.outputs or []):  # pyre-ignore
             elt.parent = obj
 
     def call(self, obj: WDL.Tree.Call) -> None:
