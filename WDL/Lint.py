@@ -484,24 +484,3 @@ class UnnecessaryQuantifier(Linter):
                         obj.type, obj.name
                     ),
                 )
-
-
-@a_linter
-class StrayInputDeclaration(Linter):
-    # an unbound declaration outside of the task/workflow input{} section, when
-    # such a section exists
-    # TODO: this should probably be a static error
-
-    def decl(self, obj: WDL.Decl) -> Any:
-        if not obj.expr:
-            tw = obj
-            while not isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow)):
-                tw = getattr(tw, "parent")
-            assert isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow))
-            if tw.inputs is not None and obj not in tw.inputs:
-                self.add(
-                    obj,
-                    "unbound declaration {} {} should go in the task/workflow input{} section".format(
-                        obj.type, obj.name, "{}"
-                    ),
-                )

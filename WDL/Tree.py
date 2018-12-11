@@ -153,6 +153,17 @@ class Task(SourceNode):
             yield ex
 
     def typecheck(self, check_quant: bool = True) -> None:
+        # warm-up check: if input{} section exists then all postinput decls
+        # must be bound
+        if self.inputs is not None:
+            for decl in self.postinputs:
+                if not decl.expr:
+                    raise Err.StrayInputDeclaration(
+                        self,
+                        "unbound declaration {} {} outside task input{} section".format(
+                            str(decl.type), decl.name, "{}"
+                        ),
+                    )
         # First collect a type environment for all the input & postinput
         # declarations, so that we're prepared for possible forward-references
         # in their right-hand side expressions.
@@ -777,6 +788,13 @@ def _build_workflow_type_env(
                 if sibling is not child:
                     child_outer_type_env = sibling.add_to_type_env(child_outer_type_env)
             _build_workflow_type_env(doc, check_quant, child, child_outer_type_env)
+        elif doc.workflow.inputs is not None and isinstance(child, Decl) and not child.expr:
+            raise Err.StrayInputDeclaration(
+                self,
+                "unbound declaration {} {} outside workflow input{} section".format(
+                    str(child.type), child.name, "{}"
+                ),
+            )
 
     # finally, populate self._type_env with all our children
     for child in self.elements:

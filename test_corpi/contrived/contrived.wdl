@@ -10,7 +10,6 @@ workflow contrived {
         Int? contrived = 42
     }
     Int? fallaciously_optional = 123
-    String unbound
     call popular { input:
         popular = popular,
         i = contrived,
@@ -27,7 +26,6 @@ task popular {
         Array[String]+ y = select_all([popular + i])
     }
     String? x = popular + opt   # rhs expr is non-optional although opt is...
-    String unbound
 
     command {
         echo "~{popular}"
