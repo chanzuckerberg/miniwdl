@@ -88,13 +88,14 @@ def collect(doc):
 
 
 def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
+    # TODO: avoid duplication with Call.typecheck_input
     if isinstance(obj.callee, WDL.Tree.Task):
-        for d in obj.callee.inputs + obj.callee.postinputs:
+        for d in obj.callee.inputs if obj.callee.inputs is not None else obj.callee.postinputs:
             if d.name == name:
                 return d
     else:
         assert isinstance(obj.callee, WDL.Tree.Workflow)
-        for ele in obj.callee.elements:
+        for ele in obj.callee.inputs if obj.callee.inputs is not None else obj.callee.elements:
             if isinstance(ele, WDL.Tree.Decl) and ele.name == name:
                 return ele
     raise KeyError()
@@ -245,6 +246,19 @@ class OptionalCoercion(Linter):
     def decl(self, obj: WDL.Decl) -> Any:
         if not obj.type.optional and obj.expr and obj.expr.type.optional:
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+        if obj.type.optional and obj.expr and not obj.expr.type.optional:
+            # if the containing task/workflow has an input{} section and this
+            # decl isn't in it, then the optional quantifier is unnecessary
+            tw = obj
+            while not (isinstance(tw, WDL.Tree.Task) or isinstance(tw, WDL.Tree.Workflow)):
+                tw = getattr(tw, "parent")
+            if tw.inputs is not None and obj not in tw.inputs:
+                self.add(
+                    obj,
+                    "unnecessary optional quantifier (?) for non-input {} {}".format(
+                        obj.type, obj.name
+                    ),
+                )
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():

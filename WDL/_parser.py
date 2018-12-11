@@ -539,7 +539,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return D.Task(
             sp(self.filename, meta),
             d["name"],
-            d.get("inputs", []),
+            d.get("inputs", None),
             d.get("decls", []),
             d["command"],
             d.get("outputs", []),

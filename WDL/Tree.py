@@ -88,11 +88,10 @@ class Task(SourceNode):
 
     name: str
     """:type: str"""
-    inputs: List[Decl]
+    inputs: Optional[List[Decl]]
     """:type: List[WDL.Tree.Decl]
 
-    Inputs declared within the ``input{}`` task section
-    """
+    Task input declarations, if the ``input{}`` section is present"""
     postinputs: List[Decl]
     """:type: List[WDL.Tree.Decl]
 
@@ -120,7 +119,7 @@ class Task(SourceNode):
         self,
         pos: SourcePosition,
         name: str,
-        inputs: List[Decl],
+        inputs: Optional[List[Decl]],
         postinputs: List[Decl],
         command: E.String,
         outputs: List[Decl],
@@ -141,7 +140,7 @@ class Task(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        for d in self.inputs:
+        for d in self.inputs or []:
             yield d
         for d in self.postinputs:
             yield d
@@ -156,11 +155,11 @@ class Task(SourceNode):
         # declarations, so that we're prepared for possible forward-references
         # in their right-hand side expressions.
         type_env = []
-        for decl in self.inputs + self.postinputs:
+        for decl in (self.inputs or []) + self.postinputs:
             type_env = decl.add_to_type_env(type_env)
         # Pass through input & postinput declarations again, typecheck their
         # right-hand side expressions against the type environment.
-        for decl in self.inputs + self.postinputs:
+        for decl in (self.inputs or []) + self.postinputs:
             decl.typecheck(type_env, check_quant)
         # TODO: detect circular dependencies among input & postinput decls
         # Typecheck the command (string)
@@ -180,7 +179,7 @@ class Task(SourceNode):
     def required_inputs(self) -> List[Decl]:
         return [
             decl
-            for decl in (self.inputs + self.postinputs)
+            for decl in ((self.inputs or []) + self.postinputs)
             if decl.expr is None and decl.type.optional is False
         ]
 
@@ -292,12 +291,16 @@ class Call(SourceNode):
         for name, expr in self.inputs.items():
             decl = None
             if isinstance(self.callee, Task):
-                for d in self.callee.inputs + self.callee.postinputs:
+                for d in (
+                    self.callee.inputs if self.callee.inputs is not None else self.callee.postinputs
+                ):
                     if d.name == name:
                         decl = d
             else:
                 assert isinstance(self.callee, Workflow)
-                for ele in self.callee.elements:
+                for ele in (
+                    self.callee.inputs if self.callee.inputs is not None else self.callee.elements
+                ):
                     if isinstance(ele, Decl) and ele.name == name:
                         decl = ele
             if decl is None:
@@ -484,7 +487,7 @@ class Workflow(SourceNode):
     @property
     def children(self) -> Iterable[SourceNode]:
         if self.inputs:
-            for d in self.inputs:
+            for d in self.inputs or []:
                 yield d
         for elt in self.elements:
             yield elt

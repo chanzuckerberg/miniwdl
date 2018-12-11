@@ -5,8 +5,11 @@ import "empty.wdl" as popular
 import "empty.wdl" as contrived
 
 workflow contrived {
-    String popular = "fox"
-    Int contrived = 42
+    input {
+        String popular = "fox"
+        Int? contrived = 42
+    }
+    Int? fallaciously_optional = 123
     call popular { input:
         popular = popular,
         i = contrived,
@@ -16,11 +19,13 @@ workflow contrived {
 }
 
 task popular {
-    String popular
-    String? opt
-    Float? i
-    String x = popular + opt
-    Array[String]+ y = select_all([popular + i])
+    input {
+        String popular
+        String? opt
+        Float? i
+        Array[String]+ y = select_all([popular + i])
+    }
+    String? x = popular + opt   # rhs expr is non-optional although opt is...
 
     command {
         echo "~{popular}"

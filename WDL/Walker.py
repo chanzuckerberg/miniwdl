@@ -199,7 +199,7 @@ class SetParents(Base):
         super().task(obj)
         self._parent_stack.pop()
         obj.parent = None
-        for elt in obj.inputs + obj.postinputs + obj.outputs:
+        for elt in (obj.inputs or []) + obj.postinputs + obj.outputs:
             elt.parent = obj
 
     def decl(self, obj: WDL.Tree.Decl) -> None:
