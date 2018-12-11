@@ -137,6 +137,8 @@ class Task(SourceNode):
         self.runtime = runtime
         self.meta = meta
         # TODO: enforce validity constraints on parameter_meta and runtime
+        # TODO: if the input section exists, then all postinputs decls must be
+        #       bound
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -483,6 +485,8 @@ class Workflow(SourceNode):
         self._output_idents = output_idents
         self.parameter_meta = parameter_meta
         self.meta = meta
+        # TODO: if the input section exists, then all postinputs decls must be
+        #       bound
 
     @property
     def children(self) -> Iterable[SourceNode]:

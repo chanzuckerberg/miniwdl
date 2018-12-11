@@ -246,19 +246,6 @@ class OptionalCoercion(Linter):
     def decl(self, obj: WDL.Decl) -> Any:
         if not obj.type.optional and obj.expr and obj.expr.type.optional:
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
-        if obj.type.optional and obj.expr and not obj.expr.type.optional:
-            # if the containing task/workflow has an input{} section and this
-            # decl isn't in it, then the optional quantifier is unnecessary
-            tw = obj
-            while not (isinstance(tw, WDL.Tree.Task) or isinstance(tw, WDL.Tree.Workflow)):
-                tw = getattr(tw, "parent")
-            if tw.inputs is not None and obj not in tw.inputs:
-                self.add(
-                    obj,
-                    "unnecessary optional quantifier (?) for non-input {} {}".format(
-                        obj.type, obj.name
-                    ),
-                )
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -474,4 +461,47 @@ class UnusedCall(Linter):
                     + obj.name
                     + " nor are are they output from the workflow "
                     + workflow.name,
+                )
+
+
+@a_linter
+class UnnecessaryQuantifier(Linter):
+    # A declaration like T? x = :T: where the right-hand side can't be null.
+    # The optional quantifier is unnecessary except within a task/workflow
+    # input section (where it denotes that the default value can be overridden
+    # by expressly passing null)
+
+    def decl(self, obj: WDL.Decl) -> Any:
+        if obj.type.optional and obj.expr and not obj.expr.type.optional:
+            tw = obj
+            while not isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow)):
+                tw = getattr(tw, "parent")
+            assert isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow))
+            if tw.inputs is not None and obj not in tw.inputs:
+                self.add(
+                    obj,
+                    "unnecessary optional quantifier (?) for non-input {} {}".format(
+                        obj.type, obj.name
+                    ),
+                )
+
+
+@a_linter
+class StrayInputDeclaration(Linter):
+    # an unbound declaration outside of the task/workflow input{} section, when
+    # such a section exists
+    # TODO: this should probably be a static error
+
+    def decl(self, obj: WDL.Decl) -> Any:
+        if not obj.expr:
+            tw = obj
+            while not isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow)):
+                tw = getattr(tw, "parent")
+            assert isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow))
+            if tw.inputs is not None and obj not in tw.inputs:
+                self.add(
+                    obj,
+                    "unbound declaration {} {} should go in the task/workflow input{} section".format(
+                        obj.type, obj.name, "{}"
+                    ),
                 )
