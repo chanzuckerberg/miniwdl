@@ -88,16 +88,10 @@ def collect(doc):
 
 
 def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
-    # TODO: avoid duplication with Call.typecheck_input
-    if isinstance(obj.callee, WDL.Tree.Task):
-        for d in obj.callee.inputs if obj.callee.inputs is not None else obj.callee.postinputs:
-            if d.name == name:
-                return d
-    else:
-        assert isinstance(obj.callee, WDL.Tree.Workflow)
-        for ele in obj.callee.inputs if obj.callee.inputs is not None else obj.callee.elements:
-            if isinstance(ele, WDL.Tree.Decl) and ele.name == name:
-                return ele
+    assert isinstance(obj.callee, (WDL.Tree.Task, WDL.Tree.Workflow))
+    for decl in obj.callee.effective_inputs:
+        if decl.name == name:
+            return decl
     raise KeyError()
 
 
