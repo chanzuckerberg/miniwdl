@@ -1061,3 +1061,35 @@ class TestDoc(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.StrayInputDeclaration):
             doc.typecheck()
+
+        doc = r"""
+        version 1.0
+        task sum {
+            input {
+                Int x
+                Int y
+            }
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        workflow wf {
+            input {
+                Int x = y
+                Int y
+                Int z = sum.z
+            }
+            call sum { input:
+                x = x,
+                y = y
+            }
+            output {
+                Int z = z
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
