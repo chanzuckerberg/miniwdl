@@ -162,6 +162,15 @@ class Task(SourceNode):
                 yield decl
 
     @property
+    def effective_outputs(self) -> Iterable[Decl]:
+        """:type: Iterable[WDL.Tree.Decl]
+
+        Yields each output declaration. (Present for isomorphism with
+        ``Workflow``)"""
+        for decl in self.outputs:
+            yield decl
+
+    @property
     def children(self) -> Iterable[SourceNode]:
         for d in self.inputs or []:
             yield d
@@ -298,7 +307,7 @@ class Call(SourceNode):
         except KeyError:
             pass
         outputs_env = []
-        for outp in self.callee.outputs:
+        for outp in self.callee.effective_outputs:
             outputs_env = Env.bind(outp.name, outp.type, outputs_env, ctx=self)
         return Env.namespace(self.name, outputs_env, type_env)
 
@@ -526,6 +535,28 @@ class Workflow(SourceNode):
         for decl in self.effective_inputs:
             if decl.expr is None and decl.type.optional is False:
                 yield decl
+
+    @property
+    def effective_outputs(self) -> Iterable[Decl]:
+        """:type: Iterable[WDL.Tree.Decl]
+
+        If the ``output{}`` workflow section is present, yields each
+        declaration therein. Otherwise, synthesize an unbound declaration for
+        each call output."""
+        if self.outputs is not None:
+            for decl in self.outputs:
+                yield decl
+        else:
+            assert self._type_env is not None
+            for ns in list(self._type_env):
+                if isinstance(ns, Env.Namespace):
+                    for b in ns.bindings:
+                        assert isinstance(b, Env.Binding)
+                        decl = b.ctx
+                        assert isinstance(decl, Decl)
+                        yield Decl(  # pyre-fixme
+                            decl.pos, decl.type, ns.namespace + "." + decl.name
+                        )
 
     @property
     def children(self) -> Iterable[SourceNode]:

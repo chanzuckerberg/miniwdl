@@ -8,6 +8,7 @@ workflow contrived {
     input {
         String popular = "fox"
         Int? contrived = 42
+        Float required
     }
     Int? fallaciously_optional = 123
     call popular { input:
@@ -15,7 +16,9 @@ workflow contrived {
         i = contrived,
         y = contrived
     }
-    call popular as contrived
+    call popular as contrived { input:
+        popular = 123
+    }
 }
 
 task popular {
