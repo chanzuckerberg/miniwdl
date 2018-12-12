@@ -88,15 +88,10 @@ def collect(doc):
 
 
 def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
-    if isinstance(obj.callee, WDL.Tree.Task):
-        for d in obj.callee.inputs + obj.callee.postinputs:
-            if d.name == name:
-                return d
-    else:
-        assert isinstance(obj.callee, WDL.Tree.Workflow)
-        for ele in obj.callee.elements:
-            if isinstance(ele, WDL.Tree.Decl) and ele.name == name:
-                return ele
+    assert isinstance(obj.callee, (WDL.Tree.Task, WDL.Tree.Workflow))
+    for decl in obj.callee.effective_inputs:
+        if decl.name == name:
+            return decl
     raise KeyError()
 
 
@@ -460,4 +455,26 @@ class UnusedCall(Linter):
                     + obj.name
                     + " nor are are they output from the workflow "
                     + workflow.name,
+                )
+
+
+@a_linter
+class UnnecessaryQuantifier(Linter):
+    # A declaration like T? x = :T: where the right-hand side can't be null.
+    # The optional quantifier is unnecessary except within a task/workflow
+    # input section (where it denotes that the default value can be overridden
+    # by expressly passing null)
+
+    def decl(self, obj: WDL.Decl) -> Any:
+        if obj.type.optional and obj.expr and not obj.expr.type.optional:
+            tw = obj
+            while not isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow)):
+                tw = getattr(tw, "parent")
+            assert isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow))
+            if tw.inputs is not None and obj not in tw.inputs:
+                self.add(
+                    obj,
+                    "unnecessary optional quantifier (?) for non-input {} {}".format(
+                        obj.type, obj.name
+                    ),
                 )

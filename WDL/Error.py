@@ -158,3 +158,8 @@ class NullValue(Base):
 class MultipleDefinitions(Base):
     def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
         super().__init__(node, message)
+
+
+class StrayInputDeclaration(Base):
+    def __init__(self, node: SourceNode, message: str) -> None:
+        super().__init__(node, message)

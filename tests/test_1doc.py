@@ -757,7 +757,7 @@ class TestDoc(unittest.TestCase):
             input {
                 Int x = y
             }
-            Int y
+            Int y = 42
             command <<<
                 echo $(( ~{x} + ~{y} ))
             >>>
@@ -995,4 +995,101 @@ class TestDoc(unittest.TestCase):
                 }
             }
         """)
+        doc.typecheck()
+
+    def test_workflow_inputs(self):
+        doc = r"""
+        version 1.0
+        task sum {
+            Int x
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+            meta {
+                foo: "bar"
+            }
+        }
+        workflow contrived {
+            input {
+                Int x
+                Int y
+            }
+            call sum { input:
+                x = x,
+                y = y
+            }
+            output {
+                Int z = sum.z
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertEqual(set(decl.name for decl in doc.workflow.inputs), set(["x", "y"]))
+
+        doc = r"""
+        version 1.0
+        task sum {
+            input {
+                Int x = y
+            }
+            Int y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StrayInputDeclaration):
+            doc.typecheck()
+
+        doc = r"""
+        workflow wf {
+            input {
+                Int x = y
+            }
+            Int y
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StrayInputDeclaration):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+        task sum {
+            input {
+                Int x
+                Int y
+            }
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        workflow wf {
+            input {
+                Int x = y
+                Int y
+                Int z = sum.z
+            }
+            call sum { input:
+                x = x,
+                y = y
+            }
+            output {
+                Int z = z
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
         doc.typecheck()

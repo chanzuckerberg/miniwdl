@@ -102,7 +102,7 @@ def outline(obj, level, file=sys.stdout):
         print(
             "{}task {}{}".format(s, obj.name, " (not called)" if not obj.called else ""), file=file
         )
-        for decl in obj.inputs + obj.postinputs + obj.outputs:
+        for decl in (obj.inputs or []) + obj.postinputs + obj.outputs:
             descend(decl)
     # call
     elif isinstance(obj, WDL.Call):
