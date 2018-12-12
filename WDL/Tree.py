@@ -552,11 +552,7 @@ class Workflow(SourceNode):
                 if isinstance(ns, Env.Namespace):
                     for b in ns.bindings:
                         assert isinstance(b, Env.Binding)
-                        decl = b.ctx
-                        assert isinstance(decl, Decl)
-                        yield Decl(  # pyre-fixme
-                            decl.pos, decl.type, ns.namespace + "." + decl.name
-                        )
+                        yield Decl(b.ctx.pos, b.rhs, ns.namespace + "." + b.name)
 
     @property
     def children(self) -> Iterable[SourceNode]:

@@ -34,4 +34,8 @@ task popular {
         echo "~{popular}"
         echo "${x} ${write_tsv(y)}"
     }
+
+    output {
+        String stdout = stdout()
+    }
 }
