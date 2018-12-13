@@ -18,7 +18,7 @@ def main(args=None):
     check_parser = subparsers.add_parser(
         "check", help="Load and typecheck a WDL document; show an outline with lint warnings"
     )
-    check_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
+    check_parser.add_argument("uri", metavar="URI", type=str, nargs='+', help="WDL document filename/URI")
     check_parser.add_argument(
         "-p",
         "--path",
@@ -46,13 +46,14 @@ def check(args):
     # Load the document (read, parse, and typecheck)
     if args.path is None:
         args.path = []
-    doc = WDL.load(args.uri, args.path, check_quant=args.check_quant)
+    for uri in args.uri:
+        doc = WDL.load(uri, args.path, check_quant=args.check_quant)
 
-    WDL.Lint.lint(doc)
+        WDL.Lint.lint(doc)
 
-    # Print an outline
-    print(os.path.basename(args.uri))
-    outline(doc, 0)
+        # Print an outline
+        print(os.path.basename(uri))
+        outline(doc, 0)
 
 
 # recursively pretty-print a brief outline of the workflow
