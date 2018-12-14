@@ -921,7 +921,7 @@ def _typecheck_workflow_elements(
                 errors.try1(lambda: child.typecheck_input(self._type_env, doc, check_quant))
             elif isinstance(child, (Scatter, Conditional)):
                 errors.try1(
-                    lambda: _typecheck_workflow_elements(doc, check_quant, child)
-                )  # pyre-ignore
+                    lambda: _typecheck_workflow_elements(doc, check_quant, child)  # pyre-ignore
+                )
             else:
                 assert False
