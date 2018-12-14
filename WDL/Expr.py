@@ -78,14 +78,8 @@ class Base(SourceNode, ABC):
         :raise WDL.Error.StaticTypeMismatch:
         :return: `self`
         """
-        expected2 = expected
-        if not self._check_quant:
-            if isinstance(expected, T.Array):
-                expected2 = expected.copy(nonempty=False, optional=True)
-            else:
-                expected2 = expected.copy(optional=True)
-        if not self.type.coerces(expected2):
-            raise Error.StaticTypeMismatch(self, expected2, self.type)
+        if not self.type.coerces(expected, self._check_quant):
+            raise Error.StaticTypeMismatch(self, expected, self.type)
         return self
 
     @abstractmethod

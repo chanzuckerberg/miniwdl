@@ -14,7 +14,7 @@ workflow contrived {
     call popular { input:
         popular = popular,
         i = contrived,
-        y = contrived
+        y = select_first([contrived,23])
     }
     call popular as contrived { input:
         popular = 123
