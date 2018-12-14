@@ -95,9 +95,10 @@ class String(Base):
 class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
 
-    value: List[Base] = []
+    value: List[Base]
 
     def __init__(self, type: T.Array, value: List[Base]) -> None:
+        self.value = []
         super().__init__(type, value)
 
     def __str__(self) -> str:
@@ -105,9 +106,10 @@ class Array(Base):
 
 
 class Map(Base):
-    value: List[Tuple[Base, Base]] = []
+    value: List[Tuple[Base, Base]]
 
     def __init__(self, type: T.Map, value: List[Tuple[Base, Base]]) -> None:
+        self.value = []
         super().__init__(type, value)
 
     def __str__(self) -> str:

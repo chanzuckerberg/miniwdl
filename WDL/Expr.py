@@ -61,13 +61,9 @@ class Base(SourceNode, ABC):
         # infer_type
         assert self._type is None
         # recursive descent into child expressions
-        errors = []
-        for child in self.children:
-            try:
-                child.infer_type(type_env, check_quant)
-            except (Error.Base, Error.Multi) as exn:
-                errors.append(exn)
-        Error.maybe_raise_multi(errors)
+        with Error.multi_context() as errors:
+            for child in self.children:
+                errors.try1(lambda: child.infer_type(type_env, check_quant))
         # invoke derived-class logic
         self._check_quant = check_quant
         self._type = self._infer_type(type_env)

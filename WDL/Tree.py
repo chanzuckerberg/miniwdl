@@ -200,41 +200,32 @@ class Task(SourceNode):
         type_env = []
         for decl in (self.inputs or []) + self.postinputs:
             type_env = decl.add_to_type_env(type_env)
-        # Pass through input & postinput declarations again, typecheck their
-        # right-hand side expressions against the type environment.
-        errors = []
-        for decl in (self.inputs or []) + self.postinputs:
-            try:
-                decl.typecheck(type_env, check_quant)
-            except (Err.Base, Err.Multi) as exn:
-                errors.append(exn)
-        # TODO: detect circular dependencies among input & postinput decls
-        # Typecheck the command (string)
-        try:
-            self.command.infer_type(type_env, check_quant).typecheck(T.String())
-        except (Err.Base, Err.Multi) as exn:
-            errors.append(exn)
-        # Typecheck runtime expressions
-        for _, runtime_expr in self.runtime.items():
-            try:
-                runtime_expr.infer_type(type_env, check_quant).typecheck(T.String())
-            except (Err.Base, Err.Multi) as exn:
-                errors.append(exn)
-        # Add output declarations to type environment
-        try:
+
+        with Err.multi_context() as errors:
+            # Pass through input & postinput declarations again, typecheck their
+            # right-hand side expressions against the type environment.
+            for decl in (self.inputs or []) + self.postinputs:
+                errors.try1(lambda: decl.typecheck(type_env, check_quant))
+            # TODO: detect circular dependencies among input & postinput decls
+            # Typecheck the command (string)
+            errors.try1(
+                lambda: self.command.infer_type(type_env, check_quant).typecheck(T.String())
+            )
+            # Typecheck runtime expressions
+            for _, runtime_expr in self.runtime.items():
+                errors.try1(
+                    lambda: runtime_expr.infer_type(type_env, check_quant).typecheck(T.String())
+                )
+            # Add output declarations to type environment
             for decl in self.outputs:
-                type_env = decl.add_to_type_env(type_env)
-        except (Err.Base, Err.Multi) as exn:
-            errors.append(exn)
-        Err.maybe_raise_multi(errors)
-        # Typecheck the output expressions
-        for decl in self.outputs:
-            try:
-                decl.typecheck(type_env, check_quant)
-            except (Err.Base, Err.Multi) as exn:
-                errors.append(exn)
-        Err.maybe_raise_multi(errors)
-        # TODO: detect circularities in output declarations
+                type_env2 = errors.try1(lambda: decl.add_to_type_env(type_env))
+                if type_env2:
+                    type_env = type_env2
+            errors.maybe_raise()
+            # Typecheck the output expressions
+            for decl in self.outputs:
+                errors.try1(lambda: decl.typecheck(type_env, check_quant))
+            # TODO: detect circularities in output declarations
 
 
 # forward-declarations
@@ -341,26 +332,22 @@ class Call(SourceNode):
         )
 
         # typecheck call inputs against task/workflow input declarations
-        errors = []
-        for name, expr in self.inputs.items():
-            decl = None
-            for d in self.callee.effective_inputs:
-                if d.name == name:
-                    decl = d
-            if decl is None:
-                errors.append(Err.NoSuchInput(expr, name))
-            else:
-                try:
-                    expr.infer_type(type_env, check_quant).typecheck(decl.type)
-                except (Err.Base, Err.Multi) as exn:
-                    errors.append(exn)
-                if name in required_inputs:
-                    required_inputs.remove(name)
+        with Err.multi_context() as errors:
+            for name, expr in self.inputs.items():
+                decl = None
+                for d in self.callee.effective_inputs:
+                    if d.name == name:
+                        decl = d
+                if decl is None:
+                    errors.append(Err.NoSuchInput(expr, name))
+                else:
+                    errors.try1(lambda: expr.infer_type(type_env, check_quant).typecheck(decl.type))
+                    if name in required_inputs:
+                        required_inputs.remove(name)
 
-        # Check whether any required inputs were missed
-        if required_inputs:
-            errors.append(Err.MissingInput(self, self.name, required_inputs))
-        Err.maybe_raise_multi(*errors)
+            # Check whether any required inputs were missed
+            if required_inputs:
+                errors.append(Err.MissingInput(self, self.name, required_inputs))
 
 
 class Scatter(SourceNode):
@@ -597,38 +584,28 @@ class Workflow(SourceNode):
         # 2. build type environments in the workflow and each scatter &
         #    conditional section therein
         _build_workflow_type_env(doc, check_quant)
-        # 3. typecheck the right-hand side expressions of each declaration
-        #    and the inputs to each call (descending into scatter & conditional
-        #    sections)
-        errors = []
-        for decl in self.inputs or []:
-            try:
-                decl.typecheck(self._type_env, check_quant)
-            except (Err.Base, Err.Multi) as exn:
-                errors.append(exn)
-        try:
-            _typecheck_workflow_elements(doc, check_quant)
-        except (Err.Base, Err.Multi) as exn:
-            errors.append(exn)
-        # 4. convert deprecated output_idents, if any, to output declarations
-        self._rewrite_output_idents()
-        # 5. typecheck the output expressions
-        if self.outputs:
-            output_names = set()
-            for output in self.outputs:
-                assert output.expr
-                if output.name in output_names:
-                    errors.append(
-                        Err.MultipleDefinitions(
-                            output, "multiple workflow outputs named " + output.name
+        with Err.multi_context() as errors:
+            # 3. typecheck the right-hand side expressions of each declaration
+            #    and the inputs to each call (descending into scatter & conditional
+            #    sections)
+            for decl in self.inputs or []:
+                errors.try1(lambda: decl.typecheck(self._type_env, check_quant))
+            errors.try1(lambda: _typecheck_workflow_elements(doc, check_quant))
+            # 4. convert deprecated output_idents, if any, to output declarations
+            self._rewrite_output_idents()
+            # 5. typecheck the output expressions
+            if self.outputs:
+                output_names = set()
+                for output in self.outputs:
+                    assert output.expr
+                    if output.name in output_names:
+                        errors.append(
+                            Err.MultipleDefinitions(
+                                output, "multiple workflow outputs named " + output.name
+                            )
                         )
-                    )
-                try:
-                    output.typecheck(self._type_env, check_quant)
-                except (Err.Base, Err.Multi) as exn:
-                    errors.append(exn)
-                output_names.add(output.name)
-        Err.maybe_raise_multi(*errors)
+                    errors.try1(lambda: output.typecheck(self._type_env, check_quant))
+                    output_names.add(output.name)
 
     def _rewrite_output_idents(self) -> None:
         if self._output_idents:
@@ -737,18 +714,14 @@ class Document(SourceNode):
             names.add(namespace)
         names = set()
         # typecheck each task
-        errors = []
-        for task in self.tasks:
-            try:
+        with Err.multi_context() as errors:
+            for task in self.tasks:
                 if task.name in names:
                     errors.append(
                         Err.MultipleDefinitions(task, "Multiple tasks named " + task.name)
                     )
                 names.add(task.name)
-                task.typecheck(check_quant=check_quant)
-            except (Err.Base, Err.Multi) as exn:
-                errors.append(exn)
-        Err.maybe_raise_multi(*errors)
+                errors.try1(lambda: task.typecheck(check_quant=check_quant))
         # typecheck the workflow
         if self.workflow:
             if self.workflow.name in names:
@@ -805,18 +778,14 @@ def _resolve_calls(
 ) -> None:
     # Resolve all calls in the workflow (descending into scatter & conditional
     # sections)
-    errors = []
-    element = element or doc.workflow
-    if element:
-        for child in element.elements:
-            try:
+    with Err.multi_context() as errors:
+        element = element or doc.workflow
+        if element:
+            for child in element.elements:
                 if isinstance(child, Call):
-                    child.resolve(doc)
+                    errors.try1(lambda: child.resolve(doc))
                 elif isinstance(child, (Scatter, Conditional)):
-                    _resolve_calls(doc, child)  # pyre-ignore
-            except (Err.Base, Err.Multi) as exn:
-                errors.append(exn)
-    Err.maybe_raise_multi(errors)
+                    errors.try1(lambda: _resolve_calls(doc, child))  # pyre-ignore
 
 
 def _build_workflow_type_env(
@@ -944,17 +913,15 @@ def _typecheck_workflow_elements(
     # the declaration expressions and call inputs
     self = self or doc.workflow
     assert self and (self._type_env is not None)
-    errors = []
-    for child in self.elements:
-        try:
+    with Err.multi_context() as errors:
+        for child in self.elements:
             if isinstance(child, Decl):
-                child.typecheck(self._type_env, check_quant)
+                errors.try1(lambda: child.typecheck(self._type_env, check_quant))
             elif isinstance(child, Call):
-                child.typecheck_input(self._type_env, doc, check_quant)
+                errors.try1(lambda: child.typecheck_input(self._type_env, doc, check_quant))
             elif isinstance(child, (Scatter, Conditional)):
-                _typecheck_workflow_elements(doc, check_quant, child)  # pyre-ignore
+                errors.try1(
+                    lambda: _typecheck_workflow_elements(doc, check_quant, child)
+                )  # pyre-ignore
             else:
                 assert False
-        except (Err.Base, Err.Multi) as exn:
-            errors.append(exn)
-    Err.maybe_raise_multi(errors)
