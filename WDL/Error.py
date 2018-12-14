@@ -1,6 +1,7 @@
 # pyre-strict
-from typing import List, Optional, NamedTuple, Union, Iterable, TypeVar
+from typing import List, Optional, NamedTuple, Union, Iterable, TypeVar, Generator, Callable, Any
 from functools import total_ordering
+from contextlib import contextmanager
 import WDL.Type as T
 
 
@@ -180,3 +181,76 @@ class MultipleDefinitions(Base):
 class StrayInputDeclaration(Base):
     def __init__(self, node: SourceNode, message: str) -> None:
         super().__init__(node, message)
+
+
+class Multi(Exception):
+    """Propagates several validation/typechecking errors"""
+
+    exceptions: List[Base]
+    """:type: List[Base]"""
+
+    def __init__(self, *exceptions: list) -> None:
+        self.exceptions = []
+        for exn in exceptions:
+            if isinstance(exn, Base):
+                self.exceptions.append(exn)
+            elif isinstance(exn, Multi):
+                self.exceptions.extend(exn.exceptions)
+            else:
+                assert False
+        assert self.exceptions
+        self.exceptions = sorted(self.exceptions, key=lambda exn: getattr(exn, "pos"))
+
+
+class _MultiContext:
+    ""
+    _exceptions: List[Union[Base, Multi]]
+
+    def __init__(self) -> None:
+        self._exceptions = []
+
+    def try1(self, fn: Callable[[], Any]) -> Optional[Any]:  # pyre-ignore
+        try:
+            return fn()
+        except (Base, Multi) as exn:
+            self._exceptions.append(exn)
+            return None
+
+    def append(self, exn: Union[Base, Multi]) -> None:
+        self._exceptions.append(exn)
+
+    def maybe_raise(self) -> None:
+        if len(self._exceptions) == 1:
+            raise self._exceptions[0]
+        elif self._exceptions:
+            raise Multi(*self._exceptions)  # pyre-ignore
+
+
+@contextmanager
+def multi_context() -> Generator[_MultiContext, None, None]:
+    ""
+    # Context manager to assist with catching and propagating multiple
+    # validation/typechecking errors
+    #
+    # with WDL.Error.multi_context() as errors:
+    #
+    #    result = errors.try1(lambda: perform_validation())
+    #    # Returns the result of invoking the lambda. If the lambda invocation
+    #    # raises WDL.Error.Base or WDL.Error.Multi, records the error and
+    #    # returns None. (Other exceptions would halt execution and propagate
+    #    # normally.)
+    #
+    #    errors.append(WDL.Error.NullValue())
+    #    # errors.append() manually records one error.
+    #
+    # When the context closes, any exceptions recorded with errors.try1() or
+    # errors.append() are raised at that point. Note that any exception raised
+    # outside of errors.try1() will exit the context immediately and discard
+    # any previously-recorded errors.
+    #
+    # Lastly, you can call errors.maybe_raise() to immediately propagate any
+    # exceptions recorded so far, or if none, proceed with the remainder of
+    # the context body.
+    ctx = _MultiContext()
+    yield ctx  # pyre-ignore
+    ctx.maybe_raise()

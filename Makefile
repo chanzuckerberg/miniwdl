@@ -8,6 +8,7 @@ test: check
 # fail fast
 qtest:
 	python3 -m unittest -v -f
+	prove -v tests/cli.t
 
 check:
 	pylint -j `nproc` --errors-only WDL
