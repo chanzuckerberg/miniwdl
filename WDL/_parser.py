@@ -691,7 +691,7 @@ def parse_expr(txt: str, version: Optional[str] = None) -> E.Base:
     try:
         return _ExprTransformer(txt).transform(parse(txt, "expr", version))
     except lark.exceptions.UnexpectedInput as exn:
-        raise Err.ParseError("(buffer)", str(exn)) from None
+        raise Err.SyntaxError("(buffer)", str(exn)) from None
 
 
 def parse_tasks(txt: str, version: Optional[str] = None) -> List[D.Task]:
@@ -723,4 +723,4 @@ def parse_document(
     try:
         return _DocTransformer(uri, imported).transform(parse(txt, "document", version))
     except lark.exceptions.UnexpectedInput as exn:
-        raise Err.ParseError(uri if uri != "" else "(buffer)", str(exn)) from None
+        raise Err.SyntaxError(uri if uri != "" else "(buffer)", str(exn)) from None

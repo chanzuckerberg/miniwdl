@@ -915,7 +915,7 @@ class TestDoc(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
-        with self.assertRaises(WDL.Error.ParseError):
+        with self.assertRaises(WDL.Error.SyntaxError):
             doc = WDL.parse_document("""
                 version 1.0
                 task sum {
@@ -1120,7 +1120,7 @@ class TestDoc(unittest.TestCase):
         try:
             doc.typecheck()
             assert False
-        except WDL.Error.Multi as multi:
+        except WDL.Error.MultipleValidationErrors as multi:
             self.assertEqual(len(multi.exceptions), 2)
 
         doc = r"""
@@ -1152,7 +1152,7 @@ class TestDoc(unittest.TestCase):
         try:
             doc.typecheck()
             assert False
-        except WDL.Error.Multi as multi:
+        except WDL.Error.MultipleValidationErrors as multi:
             self.assertEqual(len(multi.exceptions), 4)
 
         doc = r"""
@@ -1166,7 +1166,7 @@ class TestDoc(unittest.TestCase):
         try:
             doc.typecheck()
             assert False
-        except WDL.Error.Multi as multi:
+        except WDL.Error.MultipleValidationErrors as multi:
             self.assertEqual(len(multi.exceptions), 2)
 
         doc = r"""
@@ -1180,5 +1180,5 @@ class TestDoc(unittest.TestCase):
         try:
             doc.typecheck()
             assert False
-        except WDL.Error.Multi as multi:
+        except WDL.Error.MultipleValidationErrors as multi:
             self.assertEqual(len(multi.exceptions), 2)

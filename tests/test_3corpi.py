@@ -32,7 +32,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     # exercising additional code paths
                     try:
                         doc = WDL.load(fn, path=gpath, check_quant=not check_quant)
-                    except (WDL.Error.ImportError, WDL.Error.Base, WDL.Error.Multi):
+                    except (WDL.Error.ImportError, WDL.Error.ValidationError, WDL.Error.MultipleValidationErrors):
                         pass
                 setattr(test_klass, name, t)
 

@@ -756,10 +756,10 @@ def load(
                     doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
                 try:
                     doc.typecheck(check_quant=check_quant)
-                except Err.Base as exn:
+                except Err.ValidationError as exn:
                     exn.source_text = source_text
                     raise exn
-                except Err.Multi as multi:
+                except Err.MultipleValidationErrors as multi:
                     for exn in multi.exceptions:
                         if not exn.source_text:
                             exn.source_text = source_text

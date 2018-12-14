@@ -17,6 +17,11 @@ def load(uri: str, path: List[str] = [], check_quant: bool = True) -> Document:
     :param path: local filesystem directories to search for imports, in addition to the current working directory
 
     :param check_quant: set to ``False`` to relax static typechecking of the optional (?) and nonempty (+) type quantifiers. This is discouraged, but may be useful for older WDL workflows which assume less-rigorous static validation of these annotations.
+
+    :raises WDL.Error.SyntaxError: when the document is syntactically invalid under the WDL grammar
+    :raises WDL.Error.ValidationError: when the document is syntactically OK, but fails typechecking or other static validity checks
+    :raises WDL.Error.MultipleValidationErrors: when multiple validation errors are detected in one pass, listed in the ``exceptions`` attribute
+    :raises WDL.Error.ImportError: when an imported sub-document can't be loaded; the ``__cause__`` attribute has the specific error
     """
     return Tree.load(uri, path, check_quant)
 

@@ -5,7 +5,7 @@ from contextlib import contextmanager
 import WDL.Type as T
 
 
-class ParseError(Exception):
+class SyntaxError(Exception):
     """Failure to lex/parse a WDL document"""
 
     def __init__(self, filename: str, msg: str) -> None:
@@ -73,7 +73,7 @@ class SourceNode:
         return []
 
 
-class Base(Exception):
+class ValidationError(Exception):
     """Base class for a WDL validation error (when the document loads and parses, but fails typechecking or other static validity tests)"""
 
     pos: SourcePosition
@@ -99,12 +99,12 @@ class Base(Exception):
         super().__init__(message)
 
 
-class NoSuchFunction(Base):
+class NoSuchFunction(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(node, "No such function: " + name)
 
 
-class WrongArity(Base):
+class WrongArity(ValidationError):
     def __init__(self, node: SourceNode, expected: int) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Apply)
@@ -112,17 +112,17 @@ class WrongArity(Base):
         super().__init__(node, msg)
 
 
-class NotAnArray(Base):
+class NotAnArray(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         super().__init__(node, "Not an array")
 
 
-class NotAPair(Base):
+class NotAPair(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         super().__init__(node, "Not a pair (taking left or right)")
 
 
-class StaticTypeMismatch(Base):
+class StaticTypeMismatch(ValidationError):
     def __init__(
         self, node: SourceNode, expected: T.Base, actual: T.Base, message: Optional[str] = None
     ) -> None:
@@ -132,22 +132,22 @@ class StaticTypeMismatch(Base):
         super().__init__(node, msg)
 
 
-class IncompatibleOperand(Base):
+class IncompatibleOperand(ValidationError):
     def __init__(self, node: SourceNode, message: str) -> None:
         super().__init__(node, message)
 
 
-class OutOfBounds(Base):
+class OutOfBounds(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         super().__init__(node, "Array index out of bounds")
 
 
-class EmptyArray(Base):
+class EmptyArray(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         super().__init__(node, "Empty array for Array+ input/declaration")
 
 
-class UnknownIdentifier(Base):
+class UnknownIdentifier(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Ident)
@@ -156,45 +156,45 @@ class UnknownIdentifier(Base):
         super().__init__(node, "Unknown identifier " + ".".join(namespace + [name]))
 
 
-class NoSuchInput(Base):
+class NoSuchInput(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(node, "No such input " + name)
 
 
-class MissingInput(Base):
+class MissingInput(ValidationError):
     def __init__(self, node: SourceNode, name: str, inputs: Iterable[str]) -> None:
         super().__init__(
             node, "Call {} missing required input(s) {}".format(name, ", ".join(inputs))
         )
 
 
-class NullValue(Base):
+class NullValue(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         super().__init__(node, "Null value")
 
 
-class MultipleDefinitions(Base):
+class MultipleDefinitions(ValidationError):
     def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
         super().__init__(node, message)
 
 
-class StrayInputDeclaration(Base):
+class StrayInputDeclaration(ValidationError):
     def __init__(self, node: SourceNode, message: str) -> None:
         super().__init__(node, message)
 
 
-class Multi(Exception):
+class MultipleValidationErrors(Exception):
     """Propagates several validation/typechecking errors"""
 
-    exceptions: List[Base]
-    """:type: List[Base]"""
+    exceptions: List[ValidationError]
+    """:type: List[ValidationError]"""
 
     def __init__(self, *exceptions: list) -> None:
         self.exceptions = []
         for exn in exceptions:
-            if isinstance(exn, Base):
+            if isinstance(exn, ValidationError):
                 self.exceptions.append(exn)
-            elif isinstance(exn, Multi):
+            elif isinstance(exn, MultipleValidationErrors):
                 self.exceptions.extend(exn.exceptions)
             else:
                 assert False
@@ -204,7 +204,7 @@ class Multi(Exception):
 
 class _MultiContext:
     ""
-    _exceptions: List[Union[Base, Multi]]
+    _exceptions: List[Union[ValidationError, MultipleValidationErrors]]
 
     def __init__(self) -> None:
         self._exceptions = []
@@ -212,18 +212,18 @@ class _MultiContext:
     def try1(self, fn: Callable[[], Any]) -> Optional[Any]:  # pyre-ignore
         try:
             return fn()
-        except (Base, Multi) as exn:
+        except (ValidationError, MultipleValidationErrors) as exn:
             self._exceptions.append(exn)
             return None
 
-    def append(self, exn: Union[Base, Multi]) -> None:
+    def append(self, exn: Union[ValidationError, MultipleValidationErrors]) -> None:
         self._exceptions.append(exn)
 
     def maybe_raise(self) -> None:
         if len(self._exceptions) == 1:
             raise self._exceptions[0]
         elif self._exceptions:
-            raise Multi(*self._exceptions)  # pyre-ignore
+            raise MultipleValidationErrors(*self._exceptions)  # pyre-ignore
 
 
 @contextmanager
@@ -236,8 +236,9 @@ def multi_context() -> Generator[_MultiContext, None, None]:
     #
     #    result = errors.try1(lambda: perform_validation())
     #    # Returns the result of invoking the lambda. If the lambda invocation
-    #    # raises WDL.Error.Base or WDL.Error.Multi, records the error and
-    #    # returns None. (Other exceptions would halt execution and propagate
+    #    # raises WDL.Error.ValidationError or
+    #    # WDL.Error.MultipleValidationErrors, records the error and returns
+    #    # None. (Other exceptions would halt execution and propagate
     #    # normally.)
     #
     #    errors.append(WDL.Error.NullValue())

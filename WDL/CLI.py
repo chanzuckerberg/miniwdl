@@ -58,7 +58,12 @@ def check(args):
             # Print an outline
             print(os.path.basename(uri))
             outline(doc, 0)
-    except (WDL.Error.ParseError, WDL.Error.ImportError, WDL.Error.Base, WDL.Error.Multi) as exn:
+    except (
+        WDL.Error.SyntaxError,
+        WDL.Error.ImportError,
+        WDL.Error.ValidationError,
+        WDL.Error.MultipleValidationErrors,
+    ) as exn:
         print_error(exn)
         if args.debug:
             raise exn
@@ -147,14 +152,14 @@ def outline(obj, level, file=sys.stdout):
 
 
 def print_error(exn):
-    if isinstance(exn, WDL.Error.Multi):
+    if isinstance(exn, WDL.Error.MultipleValidationErrors):
         for exn1 in exn.exceptions:
             print_error(exn1)
     else:
         print(str(exn), file=sys.stderr)
         if isinstance(exn, WDL.Error.ImportError) and hasattr(exn, "__cause__"):
             print_error(exn.__cause__)
-        if isinstance(exn, WDL.Error.Base) and exn.source_text:
+        if isinstance(exn, WDL.Error.ValidationError) and exn.source_text:
             # show source excerpt
             lines = exn.source_text.split("\n")
             error_line = lines[exn.pos.line - 1].replace("\t", " ")
