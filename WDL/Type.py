@@ -55,14 +55,21 @@ class Base(ABC):
 
     _optional: bool  # immutable!!!
 
-    def coerces(self, rhs: TVBase) -> bool:
+    def coerces(self, rhs: TVBase, check_quant: bool = True) -> bool:
         """
         True if this is the same type as, or can be coerced to, ``rhs``.
+
+        :param check_quant: when ``False``, relaxes validation of the optional (?) and nonempty (+) type quantifiers
         """
-        if isinstance(rhs, Array) and self.coerces(rhs.item_type):
+        if isinstance(rhs, Array) and self.coerces(rhs.item_type, check_quant):
             # coerce T to Array[T]
             return True
-        return (type(self).__name__ == type(rhs).__name__) and (not self.optional or rhs.optional)
+        return (type(self).__name__ == type(rhs).__name__) and self._check_optional(
+            rhs, check_quant
+        )
+
+    def _check_optional(self, rhs: TVBase, check_quant: bool) -> bool:
+        return not (check_quant and (self.optional and not rhs.optional))
 
     @property
     def optional(self) -> bool:
@@ -95,55 +102,55 @@ class Boolean(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base) -> bool:
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, String):
             return True
-        return super().coerces(rhs)
+        return super().coerces(rhs, check_quant)
 
 
 class Float(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base) -> bool:
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, String):
             return True
-        return super().coerces(rhs)
+        return super().coerces(rhs, check_quant)
 
 
 class Int(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base) -> bool:
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, (Float, String)):
             return True
-        return super().coerces(rhs)
+        return super().coerces(rhs, check_quant)
 
 
 class File(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base) -> bool:
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, String):
             return True
-        return super().coerces(rhs)
+        return super().coerces(rhs, check_quant)
 
 
 class String(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base) -> bool:
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, File):
-            return True
-        return super().coerces(rhs)
+            return self._check_optional(rhs, check_quant)
+        return super().coerces(rhs, check_quant)
 
 
 class Array(Base):
@@ -189,12 +196,20 @@ class Array(Base):
         """
         return self._nonempty
 
-    def coerces(self, rhs: Base) -> bool:
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Array):
-            if self.item_type is None or rhs.item_type is None:
-                return True
-            return self.item_type.coerces(rhs.item_type) and (not rhs.nonempty or self.nonempty)
+            if self.item_type is None:
+                return self._check_optional(rhs, check_quant) and (
+                    not check_quant or not rhs.nonempty
+                )
+            if rhs.item_type is None:
+                return self._check_optional(rhs, check_quant)
+            return (
+                self.item_type.coerces(rhs.item_type, check_quant)
+                and (not check_quant or not rhs.nonempty or self.nonempty)
+                and self._check_optional(rhs, check_quant)
+            )
         if isinstance(rhs, String):
             return self.item_type is None or self.item_type.coerces(String())
         return False
@@ -237,16 +252,18 @@ class Map(Base):
             + ("?" if self.optional else "")
         )
 
-    def coerces(self, rhs: Base) -> bool:
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Map):
             if self.item_type is None or rhs.item_type is None:
                 return True
             # pyre-fixme
-            return self.item_type[0].coerces(rhs.item_type[0]) and self.item_type[1].coerces(
-                rhs.item_type[1]
+            return (
+                self.item_type[0].coerces(rhs.item_type[0], check_quant)
+                and self.item_type[1].coerces(rhs.item_type[1], check_quant)
+                and self._check_optional(rhs, check_quant)
             )
-        return super().coerces(rhs)
+        return False
 
 
 class Pair(Base):
@@ -275,3 +292,13 @@ class Pair(Base):
             + "]"
             + ("?" if self.optional else "")
         )
+
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+        ""
+        if isinstance(rhs, Pair):
+            return (
+                self.left_type.coerces(rhs.left_type, check_quant)
+                and self.right_type.coerces(rhs.right_type, check_quant)
+                and self._check_optional(rhs, check_quant)
+            )
+        return False

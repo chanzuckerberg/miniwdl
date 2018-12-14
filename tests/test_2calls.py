@@ -100,6 +100,33 @@ class TestCalls(unittest.TestCase):
         doc = WDL.parse_document(txt)
         doc.typecheck(check_quant=False)
 
+        txt = tsk + r"""
+        workflow contrived {
+            Int? x = 0
+            String? s = "foo"
+            Pair[Int,String] p = (x,s)
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
+
+        txt = tsk + r"""
+        workflow contrived {
+            Int? x = 0
+            Array[Int] y = [x]
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
+
+        # TODO: test quant checking in Map & other composite types
+
     def test_nonempty(self):
         txt = r"""
         task p {

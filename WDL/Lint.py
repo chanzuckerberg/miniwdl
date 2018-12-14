@@ -205,8 +205,9 @@ class ArrayCoercion(Linter):
 
 
 @a_linter
-class OptionalCoercion(Linter):
+class QuantityCoercion(Linter):
     # Expression of optional type where a non-optional value is expected
+    # or an array of possibly-empty type where a nonempty array is expected
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if isinstance(obj, WDL.Expr.Apply):
             if obj.function_name in ["_add", "_sub", "_mul", "_div", "_land", "_lor"]:
@@ -231,35 +232,14 @@ class OptionalCoercion(Linter):
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
-                        if obj.arguments[i].type.optional and not F.argument_types[i].optional:
+                        if not obj.arguments[i].type.coerces(F.argument_types[i], True):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                             )
                             self.add(getattr(obj, "parent"), msg, obj.arguments[i])
 
     def decl(self, obj: WDL.Decl) -> Any:
-        if not obj.type.optional and obj.expr and obj.expr.type.optional:
-            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
-
-    def call(self, obj: WDL.Tree.Call) -> Any:
-        for name, inp_expr in obj.inputs.items():
-            decl = _find_input_decl(obj, name)
-            if not decl.type.optional and inp_expr.type.optional:
-                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
-                self.add(obj, msg, inp_expr)
-
-
-@a_linter
-class NonemptyArrayCoercion(Linter):
-    # Possibly empty array where a nonempty array is expected
-    def decl(self, obj: WDL.Decl) -> Any:
-        if (
-            isinstance(obj.type, WDL.Type.Array)
-            and obj.type.nonempty
-            and obj.expr
-            and isinstance(obj.expr.type, WDL.Type.Array)
-            and not obj.expr.type.nonempty
-        ):
+        if obj.expr and not obj.expr.type.coerces(obj.type, True):
             # heuristic exception for: Array[File]+ outp = glob(...)
             if not (isinstance(obj.expr, WDL.Expr.Apply) and obj.expr.function_name == "glob"):
                 self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
@@ -267,12 +247,7 @@ class NonemptyArrayCoercion(Linter):
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if (
-                isinstance(decl.type, WDL.Type.Array)
-                and decl.type.nonempty
-                and isinstance(inp_expr.type, WDL.Type.Array)
-                and not inp_expr.type.nonempty
-            ):
+            if not inp_expr.type.coerces(decl.type, True):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr)
 
