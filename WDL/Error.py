@@ -180,3 +180,32 @@ class MultipleDefinitions(Base):
 class StrayInputDeclaration(Base):
     def __init__(self, node: SourceNode, message: str) -> None:
         super().__init__(node, message)
+
+
+class Multi(Exception):
+    """Holds several validation/typechecking errors"""
+
+    exceptions: List[Base]
+    """:type: List[Base]"""
+
+    def __init__(self, *exceptions: list) -> None:
+        self.exceptions = []
+        for exn in exceptions:
+            if isinstance(exn, Base):
+                self.exceptions.append(exn)
+            elif isinstance(exn, Multi):
+                self.exceptions.extend(exn.exceptions)
+            else:
+                assert False
+        assert self.exceptions
+        self.exceptions = sorted(self.exceptions, key=lambda exn: getattr(exn, "pos"))
+
+
+def maybe_raise_multi(*errors: list) -> None:
+    if len(errors) == 1:
+        if isinstance(errors[0], list):
+            maybe_raise_multi(*errors[0])  # pyre-ignore
+        else:
+            raise errors[0]
+    elif errors:
+        raise Multi(*errors)

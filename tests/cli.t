@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 30
+plan tests 36
 
 DN=$(mktemp -d --tmpdir miniwdl_tests_XXXXXX)
 cd $DN
@@ -67,15 +67,15 @@ is "$?" "1" "import_error.wdl exit code"
 is "$(cat import_error.out | wc -c)" "0" "import_error.wdl stdout"
 is "$(grep Traceback import_error.err | wc -l)" "0" "import_error.wdl stderr, no traceback"
 
-cat << EOF > imports_parse_error.wdl
+cat << EOF > import_parse_error.wdl
 import "parse_error.wdl"
 EOF
-$miniwdl check imports_parse_error.wdl > imports_parse_error.out 2> imports_parse_error.err
-is "$?" "1" "imports_parse_error.wdl exit code"
-is "$(cat imports_parse_error.out | wc -c)" "0" "imports_parse_error.wdl stdout"
-is "$(grep Traceback imports_parse_error.err | wc -l)" "0" "imports_parse_error.wdl stderr, no traceback"
-is "$(grep 'Failed to import parse_error.wdl' imports_parse_error.err | wc -l)" "1" "imports_parse_error.wdl stderr, outer error"
-is "$(grep 'line 3, column 12' imports_parse_error.err | wc -l)" "1" "imports_parse_error.wdl stderr, inner position"
+$miniwdl check import_parse_error.wdl > import_parse_error.out 2> import_parse_error.err
+is "$?" "1" "import_parse_error.wdl exit code"
+is "$(cat import_parse_error.out | wc -c)" "0" "import_parse_error.wdl stdout"
+is "$(grep Traceback import_parse_error.err | wc -l)" "0" "import_parse_error.wdl stderr, no traceback"
+is "$(grep 'Failed to import parse_error.wdl' import_parse_error.err | wc -l)" "1" "import_parse_error.wdl stderr, outer error"
+is "$(grep 'line 3, column 12' import_parse_error.err | wc -l)" "1" "import_parse_error.wdl stderr, inner position"
 
 cat << EOF > trivial_type_error.wdl
 workflow x {
@@ -89,5 +89,25 @@ is "$(grep Traceback trivial_type_error.err | wc -l)" "0" "trivial_type_error.wd
 is "$(grep '(trivial_type_error.wdl Ln 2, Col 13) Expected Int instead of String' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 1"
 is "$(grep '        Int x = \"42\"' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 2"
 is "$(grep '                ^^^^' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 3"
+
+cat << EOF > multi_error.wdl
+task t {
+    Int? x
+    Int y = x
+    Array[Int] z = [x]
+    command {}
+}
+EOF
+cat << EOF > import_multi_error.wdl
+import "multi_error.wdl"
+EOF
+$miniwdl check import_multi_error.wdl 2> import_multi_error.err
+is "$?" "1" "import_multi_error.wdl exit code"
+is "$(grep '                ^' import_multi_error.err | wc -l)" "2" "import_multi_error.wdl stderr marker 1"
+is "$(grep '                       ^^^' import_multi_error.err | wc -l)" "1" "import_multi_error.wdl stderr marker 2"
+$miniwdl check --no-quant-check import_multi_error.wdl > import_multi_error.no_quant_check.out
+is "$?" "0" "import_multi_error.wdl --no-quant-check"
+is "$(grep QuantityCoercion import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check QuantityCoercion"
+is "$(grep UnusedDeclaration import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check UnusedDeclaration"
 
 rm -rf $DN

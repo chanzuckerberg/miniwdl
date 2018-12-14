@@ -1093,3 +1093,92 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
+
+    def test_multi_errors(self):
+        doc = r"""
+        version 1.0
+        task bogus1 {
+            Int x = "42"
+            command {
+            }
+        }
+        task bogus2 {
+            input {
+                Int x
+                Int y
+            }
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+                Int w = 17 + "42"
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        try:
+            doc.typecheck()
+            assert False
+        except WDL.Error.Multi as multi:
+            self.assertEqual(len(multi.exceptions), 2)
+
+        doc = r"""
+        version 1.0
+        workflow bogus {
+            Int x = "42"
+            call sum { input:
+                not_there = 21
+            }
+            output {
+                File wrong = sum.z
+                Int bogus = sum.not_there
+            }
+        }
+        task sum {
+            input {
+                Int x
+                Int y
+            }
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        try:
+            doc.typecheck()
+            assert False
+        except WDL.Error.Multi as multi:
+            self.assertEqual(len(multi.exceptions), 4)
+
+        doc = r"""
+        version 1.0
+        workflow bogus {
+            call not_there_1
+            call not_there_2
+        }
+        """
+        doc = WDL.parse_document(doc)
+        try:
+            doc.typecheck()
+            assert False
+        except WDL.Error.Multi as multi:
+            self.assertEqual(len(multi.exceptions), 2)
+
+        doc = r"""
+        version 1.0
+        workflow bogus {
+            File f
+            Array[String] a = [f+1,f+2]
+        }
+        """
+        doc = WDL.parse_document(doc)
+        try:
+            doc.typecheck()
+            assert False
+        except WDL.Error.Multi as multi:
+            self.assertEqual(len(multi.exceptions), 2)

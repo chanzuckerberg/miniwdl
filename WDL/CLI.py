@@ -58,26 +58,8 @@ def check(args):
             # Print an outline
             print(os.path.basename(uri))
             outline(doc, 0)
-    except (WDL.Error.ParseError, WDL.Error.ImportError, WDL.Error.Base) as exn:
-        print(str(exn), file=sys.stderr)
-        if isinstance(exn, WDL.Error.ImportError) and hasattr(exn, "__cause__"):
-            print(str(exn.__cause__), file=sys.stderr)
-        if isinstance(exn, WDL.Error.Base) and exn.source_text:
-            # show source excerpt
-            lines = exn.source_text.split("\n")
-            print("    " + lines[exn.pos.line - 1], file=sys.stderr)
-            end_line = exn.pos.end_line
-            end_column = exn.pos.end_column
-            if end_line == exn.pos.line + 1 and end_column == 1:
-                # strip newline off the SourcePosition
-                end_line = exn.pos.line
-                end_column = len(lines[exn.pos.line - 1]) + 1
-            print(
-                "    "
-                + " " * (exn.pos.column - 1)
-                + "^" * (max(end_column - exn.pos.column, 1) if end_line == exn.pos.line else 1),
-                file=sys.stderr,
-            )
+    except (WDL.Error.ParseError, WDL.Error.ImportError, WDL.Error.Base, WDL.Error.Multi) as exn:
+        print_error(exn)
         if args.debug:
             raise exn
         else:
@@ -162,3 +144,29 @@ def outline(obj, level, file=sys.stdout):
         pass
 
     descend()
+
+
+def print_error(exn):
+    if isinstance(exn, WDL.Error.Multi):
+        for exn1 in exn.exceptions:
+            print_error(exn1)
+    else:
+        print(str(exn), file=sys.stderr)
+        if isinstance(exn, WDL.Error.ImportError) and hasattr(exn, "__cause__"):
+            print_error(exn.__cause__)
+        if isinstance(exn, WDL.Error.Base) and exn.source_text:
+            # show source excerpt
+            lines = exn.source_text.split("\n")
+            error_line = lines[exn.pos.line - 1].replace("\t", " ")
+            print("    " + error_line, file=sys.stderr)
+            end_line = exn.pos.end_line
+            end_column = exn.pos.end_column
+            if end_line > exn.pos.line:
+                end_line = exn.pos.line
+                end_column = len(error_line) + 1
+            print(
+                "    "
+                + " " * (exn.pos.column - 1)
+                + "^" * (max(end_column - exn.pos.column, 1) if end_line == exn.pos.line else 1),
+                file=sys.stderr,
+            )
