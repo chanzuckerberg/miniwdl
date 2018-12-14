@@ -722,7 +722,8 @@ def load(
         if os.path.exists(fn):
             with open(fn, "r") as infile:
                 # read and parse the document
-                doc = WDL._parser.parse_document(infile.read(), uri=uri, imported=imported)
+                source_text = infile.read()
+                doc = WDL._parser.parse_document(source_text, uri=uri, imported=imported)
                 assert isinstance(doc, Document)
                 # recursively descend into document's imports, and store the imported
                 # documents into doc.imports
@@ -734,9 +735,13 @@ def load(
                             doc.imports[i][0], subpath, check_quant=check_quant, imported=True
                         )
                     except Exception as exn:
-                        raise Err.ImportError(uri, doc.imports[i][0], str(exn)) from exn
+                        raise Err.ImportError(uri, doc.imports[i][0]) from exn
                     doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
-                doc.typecheck(check_quant=check_quant)
+                try:
+                    doc.typecheck(check_quant=check_quant)
+                except WDL.Error.Base as exn:
+                    exn.source_text = source_text
+                    raise exn
                 return doc
     raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
 

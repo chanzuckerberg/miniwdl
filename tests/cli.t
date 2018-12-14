@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 18
+plan tests 30
 
 DN=$(mktemp -d --tmpdir miniwdl_tests_XXXXXX)
 cd $DN
@@ -45,6 +45,9 @@ is "$(cat lex_error.out | wc -c)" "0" "lex_error.wdl stdout"
 is "$(grep Traceback lex_error.err | wc -l)" "0" "lex_error.wdl stderr, no traceback"
 is "$(grep 'line 2 col 10' lex_error.err | wc -l)" "1" "lex_error.wdl stderr, position"
 
+$miniwdl check --debug lex_error.wdl > lex_error_debug.out 2> lex_error_debug.err
+is "$(grep Traceback lex_error_debug.err | wc -l)" "1" "lex_error.wdl stderr, traceback"
+
 cat << EOF > parse_error.wdl
 # comment 1
 # comment 2
@@ -63,5 +66,28 @@ $miniwdl check import_error.wdl > import_error.out 2> import_error.err
 is "$?" "1" "import_error.wdl exit code"
 is "$(cat import_error.out | wc -c)" "0" "import_error.wdl stdout"
 is "$(grep Traceback import_error.err | wc -l)" "0" "import_error.wdl stderr, no traceback"
+
+cat << EOF > imports_parse_error.wdl
+import "parse_error.wdl"
+EOF
+$miniwdl check imports_parse_error.wdl > imports_parse_error.out 2> imports_parse_error.err
+is "$?" "1" "imports_parse_error.wdl exit code"
+is "$(cat imports_parse_error.out | wc -c)" "0" "imports_parse_error.wdl stdout"
+is "$(grep Traceback imports_parse_error.err | wc -l)" "0" "imports_parse_error.wdl stderr, no traceback"
+is "$(grep 'Failed to import parse_error.wdl' imports_parse_error.err | wc -l)" "1" "imports_parse_error.wdl stderr, outer error"
+is "$(grep 'line 3, column 12' imports_parse_error.err | wc -l)" "1" "imports_parse_error.wdl stderr, inner position"
+
+cat << EOF > trivial_type_error.wdl
+workflow x {
+    Int x = "42"
+}
+EOF
+$miniwdl check trivial_type_error.wdl > trivial_type_error.out 2> trivial_type_error.err
+is "$?" "1" "trivial_type_error.wdl exit code"
+is "$(cat trivial_type_error.out | wc -c)" "0" "trivial_type_error.wdl stdout"
+is "$(grep Traceback trivial_type_error.err | wc -l)" "0" "trivial_type_error.wdl stderr, no traceback"
+is "$(grep '(trivial_type_error.wdl Ln 2, Col 13) Expected Int instead of String' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 1"
+is "$(grep '        Int x = \"42\"' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 2"
+is "$(grep '                ^^^^' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 3"
 
 rm -rf $DN

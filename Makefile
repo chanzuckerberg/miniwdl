@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 test: check
-	coverage run --include "WDL/*" -m unittest -v
+	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
 	coverage report
 	prove -v tests/cli.t
 

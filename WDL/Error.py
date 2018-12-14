@@ -5,13 +5,19 @@ import WDL.Type as T
 
 
 class ParseError(Exception):
+    """Failure to lex/parse a WDL document"""
+
     def __init__(self, filename: str, msg: str) -> None:
         super().__init__("({}) {}".format(filename, msg))
 
 
 class ImportError(Exception):
+    """Failure to open/retrieve an imported WDL document
+
+    The ``__cause__`` attribute may hold the inner error object."""
+
     def __init__(self, document: str, import_uri: str, message: Optional[str] = None) -> None:
-        msg =  "({}) Failed to import {}".format(document, import_uri)
+        msg = "({}) Failed to import {}".format(document, import_uri)
         if message:
             msg = msg + ", " + message
         super().__init__(msg)
@@ -67,7 +73,18 @@ class SourceNode:
 
 
 class Base(Exception):
-    node: Optional[SourceNode]
+    """Base class for a WDL validation error (when the document loads and parses, but fails typechecking or other static validity tests)"""
+
+    pos: SourcePosition
+    """:type: SourcePosition"""
+
+    node: Optional[SourceNode] = None
+    """:type: Optional[SourceNode]"""
+
+    source_text: Optional[str] = None
+    """:type: Optional[str]
+
+    The complete source text of the WDL document (if available)"""
 
     def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
         if isinstance(node, SourceNode):
