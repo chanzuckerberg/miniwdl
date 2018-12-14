@@ -4,16 +4,16 @@ from functools import total_ordering
 import WDL.Type as T
 
 
-class ParserError(Exception):
-    def __init__(self, filename: str) -> None:
-        super().__init__(filename)
+class ParseError(Exception):
+    def __init__(self, filename: str, msg: str) -> None:
+        super().__init__("({}) {}".format(filename, msg))
 
 
 class ImportError(Exception):
     def __init__(self, document: str, import_uri: str, message: Optional[str] = None) -> None:
-        msg = "Failed to import {} to {}".format(import_uri, document)
+        msg =  "({}) Failed to import {}".format(document, import_uri)
         if message:
-            msg = msg + ": " + message
+            msg = msg + ", " + message
         super().__init__(msg)
 
 

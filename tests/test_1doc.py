@@ -915,7 +915,7 @@ class TestDoc(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
-        with self.assertRaises(WDL.Error.ParserError):
+        with self.assertRaises(WDL.Error.ParseError):
             doc = WDL.parse_document("""
                 version 1.0
                 task sum {
