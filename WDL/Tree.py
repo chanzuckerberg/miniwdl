@@ -734,7 +734,7 @@ def load(
                             doc.imports[i][0], subpath, check_quant=check_quant, imported=True
                         )
                     except Exception as exn:
-                        raise Err.ImportError(uri, doc.imports[i][0]) from exn
+                        raise Err.ImportError(uri, doc.imports[i][0], str(exn)) from exn
                     doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
                 doc.typecheck(check_quant=check_quant)
                 return doc
