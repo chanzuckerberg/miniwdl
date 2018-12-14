@@ -20,22 +20,20 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
             if name not in blacklist:
                 name = "test_" + prefix + "_" + name.replace('.', '_')
                 def t(self, fn=fn):
-                    # run the 'miniwdl check' command-line tool
-                    cmd = ['check']
-                    for dn in gpath:
-                        cmd.append('--path')
-                        cmd.append(dn)
-                    if check_quant is False:
-                        cmd.append("--no-quant-check")
-                    cmd.append(fn)
-                    print()
-                    WDL.CLI.main(cmd)
-
-                    # also load & lint the document to verify the lint count
+                    # load & lint the document to verify the lint count
                     doc = WDL.load(fn, path=gpath, check_quant=check_quant)
                     WDL.Lint.lint(doc)
                     for _, linter, _ in WDL.Lint.collect(doc):
                         test_klass._lint_count[linter] = 1 + test_klass._lint_count.get(linter, 0)
+                    print("\n" + os.path.basename(fn))
+                    WDL.CLI.outline(doc, 0)
+
+                    # also attempt load with the opposite value of check_quant,
+                    # exercising additional code paths
+                    try:
+                        doc = WDL.load(fn, path=gpath, check_quant=not check_quant)
+                    except (WDL.Error.ImportError, WDL.Error.Base, WDL.Error.Multi):
+                        pass
                 setattr(test_klass, name, t)
 
         return test_klass
