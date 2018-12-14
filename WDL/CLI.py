@@ -35,6 +35,7 @@ def main(args=None):
         action="store_false",
         help="relax static typechecking of optional (?) and nonempty (+) type quantifiers (discouraged; for backwards compatibility with older WDL)",
     )
+    check_parser.add_argument("--debug", action="store_true", help="show full exception traceback")
 
     args = parser.parse_args(args if args is not None else sys.argv[1:])
 
@@ -57,12 +58,30 @@ def check(args):
             # Print an outline
             print(os.path.basename(uri))
             outline(doc, 0)
-    except WDL.Error.ParseError as exn:
+    except (WDL.Error.ParseError, WDL.Error.ImportError, WDL.Error.Base) as exn:
         print(str(exn), file=sys.stderr)
-        sys.exit(1)
-    except WDL.Error.ImportError as exn:
-        print(str(exn), file=sys.stderr)
-        sys.exit(1)
+        if isinstance(exn, WDL.Error.ImportError) and hasattr(exn, "__cause__"):
+            print(str(exn.__cause__), file=sys.stderr)
+        if isinstance(exn, WDL.Error.Base) and exn.source_text:
+            # show source excerpt
+            lines = exn.source_text.split("\n")
+            print("    " + lines[exn.pos.line - 1], file=sys.stderr)
+            end_line = exn.pos.end_line
+            end_column = exn.pos.end_column
+            if end_line == exn.pos.line + 1 and end_column == 1:
+                # strip newline off the SourcePosition
+                end_line = exn.pos.line
+                end_column = len(lines[exn.pos.line - 1]) + 1
+            print(
+                "    "
+                + " " * (exn.pos.column - 1)
+                + "^" * (max(end_column - exn.pos.column, 1) if end_line == exn.pos.line else 1),
+                file=sys.stderr,
+            )
+        if args.debug:
+            raise exn
+        else:
+            sys.exit(1)
 
 
 # recursively pretty-print a brief outline of the workflow
