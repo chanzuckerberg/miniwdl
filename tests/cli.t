@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 36
+plan tests 37
 
 DN=$(mktemp -d --tmpdir miniwdl_tests_XXXXXX)
 cd $DN
@@ -109,5 +109,8 @@ $miniwdl check --no-quant-check import_multi_error.wdl > import_multi_error.no_q
 is "$?" "0" "import_multi_error.wdl --no-quant-check"
 is "$(grep QuantityCoercion import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check QuantityCoercion"
 is "$(grep UnusedDeclaration import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check UnusedDeclaration"
+
+$miniwdl check $SOURCE_DIR/test_corpi/DataBiosphere/topmed-workflows/CRAM-no-header-md5sum/CRAM_md5sum_checker_wrapper.wdl > import_uri.out 2> import_uri.err
+is "$?" "0" "URI import"
 
 rm -rf $DN

@@ -1,4 +1,5 @@
 # pyre-strict
+import os
 from typing import List, Optional, NamedTuple, Union, Iterable, TypeVar, Generator, Callable, Any
 from functools import total_ordering
 from contextlib import contextmanager
@@ -94,7 +95,7 @@ class ValidationError(Exception):
         else:
             self.pos = node
         message = "({} Ln {}, Col {}) {}".format(
-            self.pos.filename, self.pos.line, self.pos.column, message
+            os.path.basename(self.pos.filename), self.pos.line, self.pos.column, message
         )
         super().__init__(message)
 
@@ -161,10 +162,13 @@ class NoSuchInput(ValidationError):
         super().__init__(node, "No such input " + name)
 
 
-class MissingInput(ValidationError):
-    def __init__(self, node: SourceNode, name: str, inputs: Iterable[str]) -> None:
+class UncallableWorkflow(ValidationError):
+    def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(
-            node, "Call {} missing required input(s) {}".format(name, ", ".join(inputs))
+            node,
+            "Cannot call workflow {} because its calls don't supply all required inputs".format(
+                name
+            ),
         )
 
 

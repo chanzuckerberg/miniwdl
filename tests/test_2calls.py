@@ -25,10 +25,7 @@ class TestCalls(unittest.TestCase):
         """
         doc = WDL.parse_document(txt)
         doc.typecheck()
-
-        doc = WDL._parser.parse_document(txt, imported=True)
-        with self.assertRaises(WDL.Error.MissingInput):
-            doc.typecheck()
+        self.assertFalse(doc.workflow.complete_calls)
 
         txt = tsk + r"""
         workflow contrived {
@@ -40,11 +37,7 @@ class TestCalls(unittest.TestCase):
         """
         doc = WDL.parse_document(txt)
         doc.typecheck()
-
-        doc = WDL._parser.parse_document(txt, imported=True)
-        with self.assertRaises(WDL.Error.MissingInput):
-            doc.typecheck()
-
+        self.assertFalse(doc.workflow.complete_calls)
 
         txt = tsk + r"""
         workflow contrived {
@@ -58,9 +51,7 @@ class TestCalls(unittest.TestCase):
         """
         doc = WDL.parse_document(txt)
         doc.typecheck()
-
-        doc = WDL._parser.parse_document(txt, imported=True)
-        doc.typecheck()
+        self.assertTrue(doc.workflow.complete_calls)
 
     def test_duplicate_input(self):
         txt = tsk + r"""

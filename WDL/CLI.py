@@ -3,6 +3,9 @@ miniwdl command-line interface
 """
 import sys
 import os
+import subprocess
+import tempfile
+import glob
 from argparse import ArgumentParser
 import WDL
 import WDL.Lint
@@ -51,7 +54,7 @@ def check(args):
         args.path = []
     try:
         for uri in args.uri:
-            doc = WDL.load(uri, args.path, check_quant=args.check_quant)
+            doc = WDL.load(uri, args.path, check_quant=args.check_quant, import_uri=import_uri)
 
             WDL.Lint.lint(doc)
 
@@ -169,9 +172,15 @@ def print_error(exn):
             if end_line > exn.pos.line:
                 end_line = exn.pos.line
                 end_column = len(error_line) + 1
+            while end_column > exn.pos.column + 1 and error_line[end_column - 2] == " ":
+                end_column = end_column - 1
             print(
-                "    "
-                + " " * (exn.pos.column - 1)
-                + "^" * (max(end_column - exn.pos.column, 1) if end_line == exn.pos.line else 1),
+                "    " + " " * (exn.pos.column - 1) + "^" * (end_column - exn.pos.column),
                 file=sys.stderr,
             )
+
+
+def import_uri(uri):
+    dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
+    subprocess.check_call(["wget", "-nv", uri], cwd=dn)
+    return glob.glob(dn + "/*")[0]
