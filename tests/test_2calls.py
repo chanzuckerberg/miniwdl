@@ -1,4 +1,4 @@
-import unittest, inspect
+import unittest, inspect, os
 from typing import Optional
 from .context import WDL
 
@@ -384,3 +384,9 @@ class TestCalls(unittest.TestCase):
         assert(doc.workflow.elements[0].type.nonempty and doc.workflow.elements[0].type.optional)
 
         # TODO: test cycle detection
+
+    def test_uncallable_workflow(self):
+        # should not be able to call a workflow containing an incomplete call
+        WDL.load(os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_import.wdl"))
+        with self.assertRaises(WDL.Error.UncallableWorkflow):
+            WDL.load(os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_call.wdl"))
