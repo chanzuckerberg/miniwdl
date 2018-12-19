@@ -439,10 +439,9 @@ class _TypeTransformer(lark.Transformer):
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
     # pylint: disable=no-self-use,unused-argument
 
-    def __init__(self, file: str, imported: bool) -> None:
+    def __init__(self, file: str) -> None:
         # pylint: disable=super-init-not-called
         self.filename = file
-        self.imported = imported
 
     def decl(self, items, meta):
         return D.Decl(
@@ -677,7 +676,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 imports.append(item["import"])
             else:
                 assert False
-        return D.Document(sp(self.filename, meta), imports, tasks, workflow, self.imported)
+        return D.Document(sp(self.filename, meta), imports, tasks, workflow)
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
@@ -696,12 +695,10 @@ def parse_expr(txt: str, version: Optional[str] = None) -> E.Base:
 
 def parse_tasks(txt: str, version: Optional[str] = None) -> List[D.Task]:
     # pyre-fixme
-    return _DocTransformer("", False).transform(parse(txt, "tasks", version))
+    return _DocTransformer("").transform(parse(txt, "tasks", version))
 
 
-def parse_document(
-    txt: str, version: Optional[str] = None, uri: str = "", imported: bool = False
-) -> D.Document:
+def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> D.Document:
     if version is None:
         # for now assume the version is 1.0 if the first line is "version <number>"
         # otherwise draft-2
@@ -714,13 +711,9 @@ def parse_document(
                 break
     if not txt.strip():
         return D.Document(
-            SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0),
-            [],
-            [],
-            None,
-            imported,
+            SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0), [], [], None
         )
     try:
-        return _DocTransformer(uri, imported).transform(parse(txt, "document", version))
+        return _DocTransformer(uri).transform(parse(txt, "document", version))
     except lark.exceptions.UnexpectedInput as exn:
         raise Err.SyntaxError(uri if uri != "" else "(buffer)", str(exn)) from None

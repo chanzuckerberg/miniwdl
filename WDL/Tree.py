@@ -11,7 +11,7 @@ The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e.
 
 import os
 import errno
-from typing import Any, List, Optional, Dict, TypeVar, Tuple, Union, Iterable
+from typing import Any, List, Optional, Dict, TypeVar, Tuple, Union, Iterable, Callable
 import WDL.Type as T
 import WDL.Expr as E
 import WDL.Env as Env
@@ -292,6 +292,10 @@ class Call(SourceNode):
         if callee_doc:
             assert isinstance(callee_doc, Document)
             if callee_doc.workflow and callee_doc.workflow.name == self.callee_id.name:
+                if not callee_doc.workflow.complete_calls:
+                    raise Err.UncallableWorkflow(
+                        self, ".".join(self.callee_id.namespace + [self.callee_id.name])
+                    )
                 self.callee = callee_doc.workflow
             else:
                 for task in callee_doc.tasks:
@@ -320,16 +324,13 @@ class Call(SourceNode):
             outputs_env = Env.bind(outp.name, outp.type, outputs_env, ctx=self)
         return Env.namespace(self.name, outputs_env, type_env)
 
-    def typecheck_input(self, type_env: Env.Types, doc: TVDocument, check_quant: bool) -> None:
-        # Check the input expressions against the callee's inputs. One-time use
+    def typecheck_input(self, type_env: Env.Types, doc: TVDocument, check_quant: bool) -> bool:
+        # Check the input expressions against the callee's inputs. One-time use.
+        # Returns True if the call supplies all required inputs, False otherwise.
         assert self.callee
 
-        # Make a set of the input names which are required for this call to
-        # typecheck. In the top-level workflow, nothing is actually required
-        # as missing call inputs become workflow inputs required at runtime.
-        required_inputs = (
-            set(decl.name for decl in self.callee.required_inputs) if doc.imported else set()
-        )
+        # Make a set of the input names which are required for this call
+        required_inputs = set(decl.name for decl in self.callee.required_inputs)
 
         # typecheck call inputs against task/workflow input declarations
         with Err.multi_context() as errors:
@@ -346,8 +347,8 @@ class Call(SourceNode):
                         required_inputs.remove(name)
 
             # Check whether any required inputs were missed
-            if required_inputs:
-                errors.append(Err.MissingInput(self, self.name, required_inputs))
+
+        return not required_inputs
 
 
 class Scatter(SourceNode):
@@ -500,6 +501,12 @@ class Workflow(SourceNode):
     - declarations & outputs inside conditional sections (as optionals)
     """
 
+    complete_calls: bool
+    """
+    After typechecking, False if the workflow has a Call which does not supply
+    all required inputs (and thus cannot be called from another workflow).
+    """
+
     def __init__(
         self,
         pos: SourcePosition,
@@ -519,6 +526,7 @@ class Workflow(SourceNode):
         self._output_idents = output_idents
         self.parameter_meta = parameter_meta
         self.meta = meta
+        self.complete_calls = True
 
     @property
     def effective_inputs(self) -> Iterable[Decl]:
@@ -536,6 +544,7 @@ class Workflow(SourceNode):
             for elt in self.elements:
                 if isinstance(elt, Decl):
                     yield elt
+        # TODO: handle incomplete calls
 
     @property
     def required_inputs(self) -> Iterable[Decl]:
@@ -590,7 +599,8 @@ class Workflow(SourceNode):
             #    sections)
             for decl in self.inputs or []:
                 errors.try1(lambda: decl.typecheck(self._type_env, check_quant))
-            errors.try1(lambda: _typecheck_workflow_elements(doc, check_quant))
+            if errors.try1(lambda: _typecheck_workflow_elements(doc, check_quant)) == False:
+                self.complete_calls = False
             # 4. convert deprecated output_idents, if any, to output declarations
             self._rewrite_output_idents()
             # 5. typecheck the output expressions
@@ -668,19 +678,12 @@ class Document(SourceNode):
     workflow: Optional[Workflow]
     """:type: Optional[WDL.Tree.Workflow]"""
 
-    imported: bool
-    """
-    :type: bool
-
-    True iff this document has been loaded as an import from another document"""
-
     def __init__(
         self,
         pos: SourcePosition,
         imports: List[Tuple[str, str]],
         tasks: List[Task],
         workflow: Optional[Workflow],
-        imported: bool,
     ) -> None:
         super().__init__(pos)
         self.imports = []
@@ -691,7 +694,6 @@ class Document(SourceNode):
             self.imports.append((uri, namespace, None))
         self.tasks = tasks
         self.workflow = workflow
-        self.imported = imported
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -733,23 +735,35 @@ class Document(SourceNode):
 
 
 def load(
-    uri: str, path: List[str] = [], check_quant: bool = True, imported: Optional[bool] = False
+    uri: str,
+    path: List[str] = [],
+    check_quant: bool = True,
+    import_uri: Optional[Callable[[str], str]] = None,
 ) -> Document:
+    if uri.startswith("file://"):
+        uri = uri[7:]
+    elif uri.find("://") > 0 and import_uri:
+        uri = import_uri(uri)
     for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
         if os.path.exists(fn):
             with open(fn, "r") as infile:
                 # read and parse the document
                 source_text = infile.read()
-                doc = WDL._parser.parse_document(source_text, uri=uri, imported=imported)
+                doc = WDL._parser.parse_document(source_text, uri=uri)
                 assert isinstance(doc, Document)
                 # recursively descend into document's imports, and store the imported
                 # documents into doc.imports
                 # TODO: limit recursion; prevent mutual recursion
+                #       are we supposed to do something smart for relative imports
+                #       within a document loaded by URI?
                 for i in range(len(doc.imports)):
                     try:
                         subpath = [os.path.dirname(fn)] + path
                         subdoc = load(
-                            doc.imports[i][0], subpath, check_quant=check_quant, imported=True
+                            doc.imports[i][0],
+                            subpath,
+                            check_quant=check_quant,
+                            import_uri=import_uri,
                         )
                     except Exception as exn:
                         raise Err.ImportError(uri, doc.imports[i][0]) from exn
@@ -908,20 +922,30 @@ def _optionalize_types(type_env: Env.Types) -> Env.Types:
 
 def _typecheck_workflow_elements(
     doc: Document, check_quant: bool, self: Optional[Union[Workflow, Scatter, Conditional]] = None
-) -> None:
+) -> bool:
     # following _resolve_calls() and _build_workflow_type_env(), typecheck all
     # the declaration expressions and call inputs
     self = self or doc.workflow
     assert self and (self._type_env is not None)
+    complete_calls = True
     with Err.multi_context() as errors:
         for child in self.elements:
             if isinstance(child, Decl):
                 errors.try1(lambda: child.typecheck(self._type_env, check_quant))
             elif isinstance(child, Call):
-                errors.try1(lambda: child.typecheck_input(self._type_env, doc, check_quant))
+                if (
+                    errors.try1(lambda: child.typecheck_input(self._type_env, doc, check_quant))
+                    == False
+                ):
+                    complete_calls = False
             elif isinstance(child, (Scatter, Conditional)):
-                errors.try1(
-                    lambda: _typecheck_workflow_elements(doc, check_quant, child)  # pyre-ignore
-                )
+                if (
+                    errors.try1(
+                        lambda: _typecheck_workflow_elements(doc, check_quant, child)  # pyre-ignore
+                    )
+                    == False
+                ):
+                    complete_calls = False
             else:
                 assert False
+    return complete_calls

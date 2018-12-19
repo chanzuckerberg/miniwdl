@@ -179,16 +179,17 @@ class dxWDL(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 2, 'NameCollision': 13, 'ArrayCoercion': 2, 'StringCoercion': 2, 'QuantityCoercion': 3, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2},
-    blacklist=["check_quant"],
+    expected_lint={'UnusedImport': 2, 'NameCollision': 13, 'ArrayCoercion': 2, 'StringCoercion': 2, 'QuantityCoercion': 3, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2},
+    blacklist=["check_quant", "incomplete_call"],
 )
 class Contrived(unittest.TestCase):
     pass
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 4, 'NameCollision': 27, 'ArrayCoercion': 4, 'StringCoercion': 4, 'QuantityCoercion': 8, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 7, 'IncompleteCall': 1},
+    expected_lint={'UnusedImport': 4, 'NameCollision': 27, 'ArrayCoercion': 4, 'StringCoercion': 4, 'QuantityCoercion': 8, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 7, 'IncompleteCall': 3},
     check_quant=False,
+    blacklist=["incomplete_call"],
 )
 class Contrived2(unittest.TestCase):
     pass
