@@ -387,6 +387,6 @@ class TestCalls(unittest.TestCase):
 
     def test_uncallable_workflow(self):
         # should not be able to call a workflow containing an incomplete call
-        WDL.load(os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_import.wdl"))
+        WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_import.wdl"))
         with self.assertRaises(WDL.Error.UncallableWorkflow):
             WDL.load(os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_call.wdl"))
