@@ -170,20 +170,16 @@ class Array(Base):
     Array type, parameterized by the type of the constituent items.
     """
 
-    item_type: Optional[Base]  # TODO: make immutable property
+    item_type: Base  # TODO: make immutable property
     """
-    :type: Optional[WDL.Type.Base]
+    :type: WDL.Type.Base
 
-    ``item_type`` may be None to represent an array whose item type isn't
-    known statically, such as a literal empty array ``[]``, or the result
-    of the ``read_array()`` standard library function. This is statically
-    coercible to any array type (but may fail at runtime).
+    ``item_type`` may be ``Any`` when not known statically, such as in a literal empty array ``[]``.
     """
     _nonempty: bool
 
-    def __init__(
-        self, item_type: Optional[Base], optional: bool = False, nonempty: bool = False
-    ) -> None:
+    def __init__(self, item_type: Base, optional: bool = False, nonempty: bool = False) -> None:
+        assert item_type
         self.item_type = item_type
         assert isinstance(nonempty, bool)
         self._optional = optional
@@ -192,7 +188,7 @@ class Array(Base):
     def __str__(self) -> str:
         ans = (
             "Array["
-            + (str(self.item_type) if self.item_type is not None else "")
+            + str(self.item_type)
             + "]"
             + ("+" if self.nonempty else "")
             + ("?" if self.optional else "")
@@ -211,12 +207,6 @@ class Array(Base):
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Array):
-            if self.item_type is None:
-                return self._check_optional(rhs, check_quant) and (
-                    not check_quant or not rhs.nonempty
-                )
-            if rhs.item_type is None:
-                return self._check_optional(rhs, check_quant)
             return (
                 self.item_type.coerces(rhs.item_type, check_quant)
                 and (not check_quant or not rhs.nonempty or self.nonempty)
@@ -240,18 +230,17 @@ class Map(Base):
     Map type, parameterized by the (key,value) item type.
     """
 
-    item_type: Optional[Tuple[Base, Base]]
+    item_type: Tuple[Base, Base]
     """
-    :type: Optional[Tuple[WDL.Type.Base,WDL.Type.Base]]
+    :type: Tuple[WDL.Type.Base,WDL.Type.Base]
 
-    ``item_type`` may be None to represent a map whose type isn't known
-    statically, such as a literal empty map ``{}``, or the result of the
-    ``read_map()`` standard library function. This is statically coercible
-    to any map type (but may fail at runtime).
+    The key and value types may be ``Any`` when not known statically, such as in a literal empty map ``{}``.
     """
 
-    def __init__(self, item_type: Optional[Tuple[Base, Base]], optional: bool = False) -> None:
+    def __init__(self, item_type: Tuple[Base, Base], optional: bool = False) -> None:
         self._optional = optional
+        if item_type is None:
+            item_type = (Any(), Any())
         self.item_type = item_type
 
     def __str__(self) -> str:
@@ -269,8 +258,6 @@ class Map(Base):
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Map):
-            if self.item_type is None or rhs.item_type is None:
-                return True
             # pyre-fixme
             return (
                 self.item_type[0].coerces(rhs.item_type[0], check_quant)

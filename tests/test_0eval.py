@@ -166,7 +166,7 @@ class TestEval(unittest.TestCase):
             ("[1+2, 3*4][1]", "12"),
             ("[1,2,3,]", "[1, 2, 3]"),
             ("[1,'a']", '["1", "a"]'),
-            ("[]","[]", WDL.Type.Array(None)),
+            ("[]","[]", WDL.Type.Array(WDL.Type.Any())),
             ("[] == []","true"),
             ("[1, false]", "(Ln 1, Col 1) Expected Int instead of Boolean; inconsistent types within array", WDL.Error.StaticTypeMismatch),
             ("1 + 2[3]", "(Ln 1, Col 5) Not an array", WDL.Error.NotAnArray),
