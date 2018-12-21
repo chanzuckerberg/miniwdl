@@ -19,6 +19,11 @@ workflow contrived {
     call popular as contrived { input:
         popular = 123
     }
+
+    output {
+        Int read_int = read_json(popular.json)
+        Array[Boolean] read_array = read_json(contrived.json)
+    }
 }
 
 task popular {

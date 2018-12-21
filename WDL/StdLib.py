@@ -210,9 +210,11 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("read_map", [T.String()], T.Map(None), _notimpl),
     ("read_lines", [T.String()], T.Array(None), _notimpl),
     ("read_tsv", [T.String()], T.Array(T.Array(T.String())), _notimpl),
+    ("read_json", [T.String()], T.Any(), _notimpl),
     ("write_lines", [T.Array(T.String())], T.File(), _notimpl),
     ("write_tsv", [T.Array(T.Array(T.String()))], T.File(), _notimpl),
     ("write_map", [T.Map(None)], T.File(), _notimpl),
+    ("write_json", [T.Any()], T.File(), _notimpl),
     ("range", [T.Int()], T.Array(T.Int()), _notimpl),
     ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
 ]
@@ -536,19 +538,3 @@ class _Prefix(E._Function):
 
 
 E._stdlib["prefix"] = _Prefix()
-
-
-class _WriteJson(E._Function):
-    # t -> file
-    def infer_type(self, expr: E.Apply) -> T.Base:
-        if len(expr.arguments) != 1:
-            raise Error.WrongArity(expr, 1)
-        if expr.arguments[0].type.optional:
-            raise Error.IncompatibleOperand(expr.arguments[0], "optional operand to write_json()")
-        return T.File()
-
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        raise NotImplementedError()
-
-
-E._stdlib["write_json"] = _WriteJson()

@@ -64,7 +64,7 @@ class Base(ABC):
         if isinstance(rhs, Array) and self.coerces(rhs.item_type, check_quant):
             # coerce T to Array[T]
             return True
-        return (type(self).__name__ == type(rhs).__name__) and self._check_optional(
+        return (type(rhs).__name__ in [type(self).__name__, "Any"]) and self._check_optional(
             rhs, check_quant
         )
 
@@ -96,6 +96,18 @@ class Base(ABC):
 
     def __eq__(self, rhs) -> bool:
         return isinstance(rhs, Base) and str(self) == str(rhs)
+
+
+class Any(Base):
+    """
+    A symbolic type which coerces to any other type; used to represent e.g. the item type of an empty array literal, or the result of read_json().
+    """
+
+    def __init__(self, optional: bool = False) -> None:
+        self._optional = optional
+
+    def coerces(self, rhs: TVBase, check_quant: bool = True) -> bool:
+        return self._check_optional(rhs, check_quant)
 
 
 class Boolean(Base):
@@ -212,6 +224,8 @@ class Array(Base):
             )
         if isinstance(rhs, String):
             return self.item_type is None or self.item_type.coerces(String())
+        if isinstance(rhs, Any):
+            return self._check_optional(rhs, check_quant)
         return False
 
     def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
@@ -263,6 +277,8 @@ class Map(Base):
                 and self.item_type[1].coerces(rhs.item_type[1], check_quant)
                 and self._check_optional(rhs, check_quant)
             )
+        if isinstance(rhs, Any):
+            return self._check_optional(rhs, check_quant)
         return False
 
 
@@ -301,4 +317,6 @@ class Pair(Base):
                 and self.right_type.coerces(rhs.right_type, check_quant)
                 and self._check_optional(rhs, check_quant)
             )
+        if isinstance(rhs, Any):
+            return self._check_optional(rhs, check_quant)
         return False

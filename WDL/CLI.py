@@ -114,7 +114,7 @@ def outline(obj, level, file=sys.stdout):
             "{}workflow {}{}".format(s, obj.name, " (not called)" if not obj.called else ""),
             file=file,
         )
-        for elt in obj.elements:
+        for elt in (obj.inputs or []) + obj.elements + (obj.outputs or []):
             descend(elt)
     # task
     elif isinstance(obj, WDL.Task):
