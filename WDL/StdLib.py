@@ -520,3 +520,19 @@ class _Transpose(E._Function):
 
 
 E._stdlib["transpose"] = _Transpose()
+
+
+class _Prefix(E._Function):
+    # string -> t array -> string array
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+        expr.arguments[0].typecheck(T.String())
+        expr.arguments[1].typecheck(T.Array(T.String()))
+        return T.Array(T.String())
+
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
+
+
+E._stdlib["prefix"] = _Prefix()

@@ -29,6 +29,7 @@ task popular {
         Array[String]+ y = select_all([popular + i])
     }
     String? x = popular + opt   # rhs expr is non-optional although opt is...
+    Array[String] args = prefix("-f", y)
 
     command {
         echo "~{popular}"

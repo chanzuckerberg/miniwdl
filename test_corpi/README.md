@@ -4,3 +4,6 @@ download them on every test run. The versions should be updated from time
 to time (but always pinned to some specific revision, so that the tests are
 reproducible). The code coverage report should be inspected carefully when
 making such updates.
+
+The contrived/ folder has contrived WDL files covering a few miscellaneous
+loose ends / corner cases.
