@@ -100,7 +100,7 @@ class StringCoercion(Linter):
     # String declaration with non-String rhs expression
     def decl(self, obj: WDL.Decl) -> Any:
         if isinstance(obj.type, WDL.Type.String) and obj.expr:
-            if not isinstance(obj.expr.type, (WDL.Type.String, WDL.Type.File)):
+            if not isinstance(obj.expr.type, (WDL.Type.String, WDL.Type.File, WDL.Type.Any)):
                 self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
@@ -128,7 +128,7 @@ class StringCoercion(Linter):
                         F_i = F.argument_types[i]
                         arg_i = obj.arguments[i]
                         if isinstance(F_i, WDL.Type.String) and not isinstance(
-                            arg_i.type, (WDL.Type.String, WDL.Type.File)
+                            arg_i.type, (WDL.Type.String, WDL.Type.File, WDL.Type.Any)
                         ):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F_i), F.name, str(arg_i.type)
@@ -158,7 +158,7 @@ class StringCoercion(Linter):
             # note: in a workflow call, we want to flag File=>String coercions,
             # which are OK within tasks
             if isinstance(decl.type, WDL.Type.String) and not isinstance(
-                inp_expr.type, WDL.Type.String
+                inp_expr.type, (WDL.Type.String, WDL.Type.Any)
             ):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr)
@@ -171,8 +171,10 @@ def _array_levels(ty: WDL.Type.Base, l=0):
 
 
 def _is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
-    return isinstance(value_type, WDL.Type.Array) and _array_levels(value_type) > _array_levels(
-        expr_type
+    return (
+        isinstance(value_type, WDL.Type.Array)
+        and _array_levels(value_type) > _array_levels(expr_type)
+        and not isinstance(expr_type, WDL.Type.Any)
     )
 
 
