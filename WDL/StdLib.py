@@ -536,3 +536,19 @@ class _Prefix(E._Function):
 
 
 E._stdlib["prefix"] = _Prefix()
+
+
+class _WriteJson(E._Function):
+    # t -> file
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        if expr.arguments[0].type.optional:
+            raise Error.IncompatibleOperand(expr.arguments[0], "optional operand to write_json()")
+        return T.File()
+
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
+
+
+E._stdlib["write_json"] = _WriteJson()

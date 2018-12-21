@@ -67,7 +67,7 @@ class Base(SourceNode, ABC):
         # invoke derived-class logic
         self._check_quant = check_quant
         self._type = self._infer_type(type_env)
-        assert isinstance(self.type, T.Base), str(self.pos)
+        assert self._type and isinstance(self.type, T.Base)
         return self
 
     def typecheck(self, expected: T.Base) -> TVBase:

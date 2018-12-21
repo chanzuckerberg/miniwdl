@@ -38,5 +38,6 @@ task popular {
 
     output {
         String stdout = stdout()
+        File json = write_json(args)
     }
 }
