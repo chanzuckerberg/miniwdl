@@ -187,14 +187,17 @@ class Placeholder(Base):
         if isinstance(self.expr.type, T.Array):
             if "sep" not in self.options:
                 raise Error.StaticTypeMismatch(
-                    self, T.Array(None), self.expr.type, "array command placeholder must have 'sep'"
+                    self,
+                    T.Array(T.Any()),
+                    self.expr.type,
+                    "array command placeholder must have 'sep'",
                 )
             # if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String, T.File] if isinstance(self.expr.type.item_type, t)) == 0:
-            #    raise Error.StaticTypeMismatch(self, T.Array(None), self.expr.type, "cannot use array of complex types for command placeholder")
+            #    raise Error.StaticTypeMismatch(self, T.Array(T.Any()), self.expr.type, "cannot use array of complex types for command placeholder")
         elif "sep" in self.options:
             raise Error.StaticTypeMismatch(
                 self,
-                T.Array(None),
+                T.Array(T.Any()),
                 self.expr.type,
                 "command placeholder has 'sep' option for non-Array expression",
             )
@@ -301,7 +304,7 @@ class Array(Base):
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         if not self.items:
-            return T.Array(None)
+            return T.Array(T.Any())
         # Start by assuming the type of the first item is the item type
         item_type: T.Base = self.items[0].type
         # Allow a mixture of Int and Float to construct Array[Float]
@@ -649,7 +652,7 @@ class Map(Base):
                 kty = k.type
             else:
                 k.typecheck(kty)
-            if vty is None or vty == T.Array(None) or vty == T.Map(None):
+            if vty is None or vty == T.Array(T.Any()) or vty == T.Map(None):
                 vty = v.type
             else:
                 v.typecheck(vty)

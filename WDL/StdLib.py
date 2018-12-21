@@ -206,9 +206,9 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("read_boolean", [T.String()], T.Boolean(), _notimpl),
     ("read_string", [T.String()], T.String(), _notimpl),
     ("read_float", [T.String()], T.Float(), _notimpl),
-    ("read_array", [T.String()], T.Array(None), _notimpl),
+    ("read_array", [T.String()], T.Array(T.Any()), _notimpl),
     ("read_map", [T.String()], T.Map(None), _notimpl),
-    ("read_lines", [T.String()], T.Array(None), _notimpl),
+    ("read_lines", [T.String()], T.Array(T.Any()), _notimpl),
     ("read_tsv", [T.String()], T.Array(T.Array(T.String())), _notimpl),
     ("read_json", [T.String()], T.Any(), _notimpl),
     ("write_lines", [T.Array(T.String())], T.File(), _notimpl),
@@ -397,7 +397,7 @@ class _Length(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(expr, T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(expr, T.Array(T.Any()), expr.arguments[0].type)
         return T.Int()
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
@@ -416,7 +416,9 @@ class _SelectFirst(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
+            )
         if expr.arguments[0].type.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
@@ -436,7 +438,9 @@ class _SelectAll(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
+            )
         if expr.arguments[0].type.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
@@ -458,13 +462,13 @@ class _Zip(E._Function):
             raise Error.WrongArity(expr, 2)
         arg0ty: T.Base = expr.arguments[0].type
         if not isinstance(arg0ty, T.Array) or (expr._check_quant and arg0ty.optional):
-            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(None), arg0ty)
+            raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(T.Any()), arg0ty)
         if arg0ty.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
         arg1ty: T.Base = expr.arguments[1].type
         if not isinstance(arg1ty, T.Array) or (expr._check_quant and arg1ty.optional):
-            raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(None), arg1ty)
+            raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(T.Any()), arg1ty)
         if arg1ty.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[1])
@@ -483,14 +487,14 @@ class _Flatten(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        expr.arguments[0].typecheck(T.Array(None))
+        expr.arguments[0].typecheck(T.Array(T.Any()))
         # TODO: won't handle implicit coercion from T to Array[T]
         assert isinstance(expr.arguments[0].type, T.Array)
         if expr.arguments[0].type.item_type is None:
-            return T.Array(None)
+            return T.Array(T.Any())
         if not isinstance(expr.arguments[0].type.item_type, T.Array):
             raise Error.StaticTypeMismatch(
-                expr.arguments[0], T.Array(T.Array(None)), expr.arguments[0].type
+                expr.arguments[0], T.Array(T.Array(T.Any())), expr.arguments[0].type
             )
         return T.Array(expr.arguments[0].type.item_type.item_type)
 
@@ -506,14 +510,14 @@ class _Transpose(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        expr.arguments[0].typecheck(T.Array(None))
+        expr.arguments[0].typecheck(T.Array(T.Any()))
         # TODO: won't handle implicit coercion from T to Array[T]
         assert isinstance(expr.arguments[0].type, T.Array)
         if expr.arguments[0].type.item_type is None:
-            return T.Array(None)
+            return T.Array(T.Any())
         if not isinstance(expr.arguments[0].type.item_type, T.Array):
             raise Error.StaticTypeMismatch(
-                expr.arguments[0], T.Array(T.Array(None)), expr.arguments[0].type
+                expr.arguments[0], T.Array(T.Array(T.Any())), expr.arguments[0].type
             )
         return expr.arguments[0].type
 

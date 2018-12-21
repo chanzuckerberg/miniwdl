@@ -316,6 +316,7 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
         doc = WDL.parse_document(txt)
         doc.typecheck(check_quant=False)
+        self.assertEqual(len(list(doc.workflow.effective_outputs)), 2)
 
     def test_forward_reference(self):
         txt = tsk + r"""
