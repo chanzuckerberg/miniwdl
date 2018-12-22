@@ -386,8 +386,15 @@ class TestCalls(unittest.TestCase):
 
         # TODO: test cycle detection
 
-    def test_uncallable_workflow(self):
+    def test_incomplete_call(self):
         # should not be able to call a workflow containing an incomplete call
-        WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_import.wdl"))
         with self.assertRaises(WDL.Error.UncallableWorkflow):
             WDL.load(os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_call.wdl"))
+
+        doc = WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete.wdl"))
+        self.assertEqual(sorted([decl.name for decl in doc.workflow.effective_inputs]), sorted(["add.x", "add.y", "add.msg", "add.who"]))
+        self.assertEqual(sorted([decl.name for decl in doc.workflow.required_inputs]), ["add.x", "add.y"])
+
+        doc = WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_import.wdl"))
+        self.assertEqual(sorted([decl.name for decl in doc.workflow.effective_inputs]), ["sum.msg", "sum.who"])
+        self.assertEqual(len(list(doc.workflow.required_inputs)), 0)
