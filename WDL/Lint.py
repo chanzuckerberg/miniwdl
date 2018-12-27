@@ -89,7 +89,7 @@ def collect(doc):
 
 def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
     assert isinstance(obj.callee, (WDL.Tree.Task, WDL.Tree.Workflow))
-    return WDL.Env.resolve(obj.callee.effective_inputs, [], name)
+    return WDL.Env.resolve(obj.callee.available_inputs, [], name)
 
 
 @a_linter
