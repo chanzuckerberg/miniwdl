@@ -144,7 +144,7 @@ class Task(SourceNode):
 
     @property
     def available_inputs(self) -> Env.Decls:
-        """:type: Env.Decls
+        """:type: WDL.Env.Decls
 
         Yields the task's input declarations. This is all declarations in the
         task's ``input{}`` section, if it's present. Otherwise, it's all
@@ -157,7 +157,7 @@ class Task(SourceNode):
 
     @property
     def required_inputs(self) -> Env.Decls:
-        """:type: Env.Decls
+        """:type: WDL.Env.Decls
 
         Yields the input declarations which are required to call the task
         (available inputs that are neither unbound nor optional)"""
@@ -169,7 +169,7 @@ class Task(SourceNode):
 
     @property
     def effective_outputs(self) -> Env.Decls:
-        """:type: Env.Decls
+        """:type: WDL.Env.Decls
 
         Yields each output declaration. (Present for isomorphism with
         ``Workflow.effective_outputs``)"""
@@ -361,7 +361,7 @@ class Call(SourceNode):
 
     @property
     def available_inputs(self) -> Env.Decls:
-        """:type: Env.Decls
+        """:type: WDL.Env.Decls
 
         Yields the task/workflow inputs which are *not* supplied in the call
         ``inputs:``, and thus may be supplied at workflow launch.
@@ -379,7 +379,7 @@ class Call(SourceNode):
 
     @property
     def required_inputs(self) -> Env.Decls:
-        """:type: Env.Decls
+        """:type: WDL.Env.Decls
 
         For incomplete calls, yields the task/workflow inputs which are *not*
         supplied in the call ``inputs:``, and thus must be supplied at workflow
@@ -608,7 +608,7 @@ class Workflow(SourceNode):
 
     @property
     def required_inputs(self) -> Env.Decls:
-        """:type: Env.Decls
+        """:type: WDL.Env.Decls
 
         Yields the input declarations which are required to start the workflow.
         (available inputs that are unbound and non-optional)"""
@@ -633,7 +633,7 @@ class Workflow(SourceNode):
 
     @property
     def effective_outputs(self) -> Env.Decls:
-        """:type: Env.Decls
+        """:type: WDL.Env.Decls
 
         If the ``output{}`` workflow section is present, yields each
         declaration therein. Otherwise, yield a declaration for each call
