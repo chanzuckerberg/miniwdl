@@ -152,7 +152,7 @@ class Task(SourceNode):
         pre-1.0 and 1.0+ WDL versions.)"""
         ans = []
         for decl in self.inputs if self.inputs is not None else self.postinputs:
-            ans.append(Env.Binding(decl.name, decl))
+            ans = Env.bind(decl.name, decl, ans)
         return ans
 
     @property
@@ -163,6 +163,7 @@ class Task(SourceNode):
         (available inputs that are neither unbound nor optional)"""
         ans = []
         for b in self.available_inputs:
+            assert isinstance(b, Env.Binding)
             if b.rhs.expr is None and b.rhs.type.optional is False:
                 ans.append(b)
         return ans
@@ -175,7 +176,7 @@ class Task(SourceNode):
         ``Workflow.effective_outputs``)"""
         ans = []
         for decl in self.outputs:
-            ans.append(Env.Binding(decl.name, decl))
+            ans = Env.bind(decl.name, decl, ans)
         return ans
 
     @property
@@ -364,7 +365,8 @@ class Call(SourceNode):
         """:type: WDL.Env.Decls
 
         Yields the task/workflow inputs which are *not* supplied in the call
-        ``inputs:``, and thus may be supplied at workflow launch.
+        ``inputs:``, and thus may be supplied at workflow launch; in a
+        namespace according to the call name.
         """
         assert self.callee
 
@@ -375,7 +377,7 @@ class Call(SourceNode):
                 b, Env.Namespace
             ):
                 ans.append(b)
-        return ans
+        return Env.namespace(self.name, ans, []) if ans else []
 
     @property
     def required_inputs(self) -> Env.Decls:
@@ -383,7 +385,7 @@ class Call(SourceNode):
 
         For incomplete calls, yields the task/workflow inputs which are *not*
         supplied in the call ``inputs:``, and thus must be supplied at workflow
-        launch.
+        launch; in a namespace according to the call name.
         """
         assert self.callee
 
@@ -394,7 +396,16 @@ class Call(SourceNode):
                 b, Env.Namespace
             ):
                 ans.append(b)
-        return ans
+        return Env.namespace(self.name, ans, []) if ans else []
+
+    @property
+    def effective_outputs(self) -> Env.Decls:
+        """:type" WDL.Env.Decls
+
+        Yields the effective outputs of the callee Task or Workflow; in a
+        namespace according to the call name."""
+        ceo = self.callee.effective_outputs
+        return Env.namespace(self.name, ceo, []) if ceo else []
 
 
 class Scatter(SourceNode):
@@ -592,15 +603,14 @@ class Workflow(SourceNode):
 
         if self.inputs is not None:
             for decl in self.inputs:
-                ans.append(Env.Binding(decl.name, decl))
+                ans = Env.bind(decl.name, decl, ans)
 
         for elt in _decls_and_calls(self):
             if isinstance(elt, Decl):
                 if self.inputs is None:
-                    ans.append(Env.Binding(elt.name, elt))
+                    ans = Env.bind(elt.name, elt, ans)
             elif isinstance(elt, Call):
-                if elt.available_inputs:
-                    ans.append(Env.Namespace(elt.name, elt.available_inputs))
+                ans = elt.available_inputs + ans
             else:
                 assert False
 
@@ -617,15 +627,14 @@ class Workflow(SourceNode):
         if self.inputs is not None:
             for decl in self.inputs:
                 if decl.expr is None and decl.type.optional is False:
-                    ans.append(Env.Binding(decl.name, decl))
+                    ans = Env.bind(decl.name, decl, ans)
 
         for elt in _decls_and_calls(self):
             if isinstance(elt, Decl):
                 if self.inputs is None and elt.expr is None and elt.type.optional is False:
-                    ans.append(Env.Binding(elt.name, elt))
+                    ans = Env.bind(elt.name, elt, ans)
             elif isinstance(elt, Call):
-                if elt.required_inputs:
-                    ans.append(Env.Namespace(elt.name, elt.required_inputs))
+                ans = elt.required_inputs + ans
             else:
                 assert False
 
@@ -643,12 +652,11 @@ class Workflow(SourceNode):
 
         if self.outputs is not None:
             for decl in self.outputs:
-                ans.append(Env.Binding(decl.name, decl))
+                ans = Env.bind(decl.name, decl, ans)
         else:
             for call in _decls_and_calls(self):
                 if isinstance(call, Call):
-                    if call.callee.effective_outputs:
-                        ans.append(Env.Namespace(call.name, call.callee.effective_outputs))
+                    ans = call.effective_outputs + ans
 
         return ans
 

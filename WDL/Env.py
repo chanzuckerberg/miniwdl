@@ -23,6 +23,20 @@ to share code for both type and value environments.
 
 R = TypeVar("R")
 Tree = TypeVar("Tree", bound="List[Node[R]]")
+""":type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
+``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
+names onto some associated values (nicknamed ``rhs`` for right-hand side of
+bindings). It consists of a Python list of ``WDL.Env.Binding`` and/or
+``WDL.Env.Namespace`` objects, where the latter has a nested ``WDL.Env.Tree``.
+
+For example, type bindings for 'x : Float' and 'adder.sum : Int' would be
+represented as:
+
+``[Binding("x",Float), Namespace("adder",[Binding("sum",Int)])]``
+
+Once constructed, environments should be considered immutable. There should be
+no name or namespace collisions.
+"""
 
 
 class Binding(Generic[R]):
@@ -31,7 +45,7 @@ class Binding(Generic[R]):
     name: str
     ":type: str"
     rhs: R
-    """:type: Union[WDL.Type.Base,WDL.Value.Base]"""
+    """:type: Union[WDL.Type.Base,WDL.Value.Base,WDL.Decl.Base]"""
 
     ctx: Any
     "Arbitrary, secondary context also associated with name"
@@ -61,13 +75,19 @@ class Namespace(Generic[R]):
 Node = TypeVar("Node", Binding[R], Namespace[R])
 
 Types = TypeVar("Types", bound="Tree[Type.Base]")
-"""Environment of types, an immutable list of bindings to types and/or namespaces"""
+""":type: WDL.Env.Tree[WDL.Type.Base]
+
+Type nickname for environment tree of names to types (``WDL.Type.Base`` instances)"""
 
 Values = TypeVar("Values", bound="Tree[Value.Base]")
-"""Environment of values, an immutable list of bindings to values and/or namespaces"""
+""":type: WDL.Env.Tree[WDL.Value.Base]
+
+Type nickname for environment tree of names to WDL values (``WDL.Value.Base`` instances)"""
 
 Decls = TypeVar("Decls", bound="Tree[WDL.Tree.Decl]")
-"""Environment of declarations, an immutable list of bindings to Decls and/or namespaces"""
+""":type: WDL.Env.Tree[WDL.Tree.Decl]
+
+Type nickname for environment tree of names to ``WDL.Tree.Decl`` instances"""
 
 
 def bind(name: str, rhs: R, tree: "Tree[R]", ctx: Any = None) -> "Tree[R]":
