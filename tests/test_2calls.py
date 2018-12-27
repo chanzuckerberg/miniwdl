@@ -386,7 +386,7 @@ class TestCalls(unittest.TestCase):
 
         # TODO: test cycle detection
 
-    def test_incomplete_call(self):
+    def test_io_propagation(self):
         # should not be able to call a workflow containing an incomplete call
         with self.assertRaises(WDL.Error.UncallableWorkflow):
             WDL.load(os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_call.wdl"))
@@ -402,6 +402,13 @@ class TestCalls(unittest.TestCase):
         self.assertEqual(len(doc.workflow.required_inputs[0].bindings), 2)
         WDL.Env.resolve(doc.workflow.required_inputs, ["add"], "x")
         WDL.Env.resolve(doc.workflow.required_inputs, ["add"], "y")
+        self.assertEqual(len(doc.workflow.effective_outputs), 1)
+        self.assertEqual(len(doc.workflow.effective_outputs[0].bindings), 1)
+        WDL.Env.resolve(doc.workflow.effective_outputs, ["add"], "z")
+        with self.assertRaises(KeyError):  # negative control
+            WDL.Env.resolve(doc.workflow.effective_outputs, ["bogus"], "z")
+        with self.assertRaises(KeyError):
+            WDL.Env.resolve(doc.workflow.effective_outputs, [], "z")
 
         doc = WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_import.wdl"))
         self.assertEqual(len(doc.workflow.effective_inputs), 1)
@@ -409,3 +416,19 @@ class TestCalls(unittest.TestCase):
         WDL.Env.resolve(doc.workflow.effective_inputs, ["sum"], "msg")
         WDL.Env.resolve(doc.workflow.effective_inputs, ["sum"], "who")
         self.assertEqual(doc.workflow.required_inputs, [])
+
+        doc = WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/contrived.wdl"))
+        self.assertEqual(len(doc.workflow.effective_inputs), 5)
+        WDL.Env.resolve(doc.workflow.effective_inputs, [], "popular")
+        WDL.Env.resolve(doc.workflow.effective_inputs, [], "contrived")
+        WDL.Env.resolve(doc.workflow.effective_inputs, [], "required")
+        ns = WDL.Env.resolve_namespace(doc.workflow.effective_inputs, ["popular"])
+        self.assertEqual(len(ns), 1)
+        WDL.Env.resolve(ns, [], "opt")
+        ns = WDL.Env.resolve_namespace(doc.workflow.effective_inputs, ["contrived"])
+        self.assertEqual(len(ns), 3)
+        WDL.Env.resolve(ns, [], "opt")
+        WDL.Env.resolve(ns, [], "i")
+        WDL.Env.resolve(ns, [], "y")
+        self.assertEqual(len(doc.workflow.required_inputs), 1)
+        WDL.Env.resolve(doc.workflow.required_inputs, [], "required")
