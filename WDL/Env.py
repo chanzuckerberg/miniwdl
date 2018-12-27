@@ -66,6 +66,9 @@ Types = TypeVar("Types", bound="Tree[Type.Base]")
 Values = TypeVar("Values", bound="Tree[Value.Base]")
 """Environment of values, an immutable list of bindings to values and/or namespaces"""
 
+Decls = TypeVar("Decls", bound="Tree[WDL.Tree.Decl]")
+"""Environment of declarations, an immutable list of bindings to Decls and/or namespaces"""
+
 
 def bind(name: str, rhs: R, tree: "Tree[R]", ctx: Any = None) -> "Tree[R]":
     """Prepend a new binding to an environment"""
