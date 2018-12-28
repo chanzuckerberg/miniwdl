@@ -11,7 +11,7 @@ The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e.
 
 import os
 import errno
-from typing import Any, List, Optional, Dict, TypeVar, Tuple, Union, Iterable, Callable
+from typing import Any, List, Optional, Dict, TypeVar, Tuple, Union, Iterable, Callable, Generator
 import WDL.Type as T
 import WDL.Expr as E
 import WDL.Env as Env
@@ -30,9 +30,9 @@ class Decl(SourceNode):
 
     :type: str"""
     expr: Optional[E.Base]
-    """Bound expression, if any
+    """:type: Optional[WDL.Expr.Base]
 
-    :type: Optional[WDL.Expr.Base]"""
+    Bound expression, if any"""
 
     def __init__(
         self, pos: SourcePosition, type: T.Base, name: str, expr: Optional[E.Base] = None
@@ -46,6 +46,8 @@ class Decl(SourceNode):
         if self.expr is None:
             return "{} {}".format(str(self.type), self.name)
         return "{} {} = {}".format(str(self.type), self.name, str(self.expr))
+
+    __repr__ = __str__
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -141,34 +143,41 @@ class Task(SourceNode):
         #       bound
 
     @property
-    def effective_inputs(self) -> Iterable[Decl]:
-        """:type: Iterable[WDL.Tree.Decl]
+    def available_inputs(self) -> Env.Decls:
+        """:type: WDL.Env.Decls
 
         Yields the task's input declarations. This is all declarations in the
         task's ``input{}`` section, if it's present. Otherwise, it's all
         declarations in the task, excluding outputs. (This dichotomy bridges
         pre-1.0 and 1.0+ WDL versions.)"""
+        ans = []
         for decl in self.inputs if self.inputs is not None else self.postinputs:
-            yield decl
+            ans = Env.bind(decl.name, decl, ans)
+        return ans
 
     @property
-    def required_inputs(self) -> Iterable[Decl]:
-        """:type: Iterable[WDL.Tree.Decl]
+    def required_inputs(self) -> Env.Decls:
+        """:type: WDL.Env.Decls
 
         Yields the input declarations which are required to call the task
-        (effective inputs that are neither unbound nor optional)"""
-        for decl in self.effective_inputs:
-            if decl.expr is None and decl.type.optional is False:
-                yield decl
+        (available inputs that are neither unbound nor optional)"""
+        ans = []
+        for b in self.available_inputs:
+            assert isinstance(b, Env.Binding)
+            if b.rhs.expr is None and b.rhs.type.optional is False:
+                ans.append(b)
+        return ans
 
     @property
-    def effective_outputs(self) -> Iterable[Decl]:
-        """:type: Iterable[WDL.Tree.Decl]
+    def effective_outputs(self) -> Env.Decls:
+        """:type: WDL.Env.Decls
 
         Yields each output declaration. (Present for isomorphism with
-        ``Workflow``)"""
+        ``Workflow.effective_outputs``)"""
+        ans = []
         for decl in self.outputs:
-            yield decl
+            ans = Env.bind(decl.name, decl, ans)
+        return ans
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -214,11 +223,13 @@ class Task(SourceNode):
             # Typecheck runtime expressions
             for _, runtime_expr in self.runtime.items():
                 errors.try1(
-                    lambda: runtime_expr.infer_type(type_env, check_quant).typecheck(T.String())
+                    lambda runtime_expr=runtime_expr: runtime_expr.infer_type(
+                        type_env, check_quant
+                    ).typecheck(T.String())
                 )
             # Add output declarations to type environment
             for decl in self.outputs:
-                type_env2 = errors.try1(lambda: decl.add_to_type_env(type_env))
+                type_env2 = errors.try1(lambda decl=decl: decl.add_to_type_env(type_env))
                 if type_env2:
                     type_env = type_env2
             errors.maybe_raise()
@@ -321,10 +332,10 @@ class Call(SourceNode):
             pass
         outputs_env = []
         for outp in self.callee.effective_outputs:
-            outputs_env = Env.bind(outp.name, outp.type, outputs_env, ctx=self)
+            outputs_env = Env.bind(outp.name, outp.rhs.type, outputs_env, ctx=self)
         return Env.namespace(self.name, outputs_env, type_env)
 
-    def typecheck_input(self, type_env: Env.Types, doc: TVDocument, check_quant: bool) -> bool:
+    def typecheck_input(self, type_env: Env.Types, check_quant: bool) -> bool:
         # Check the input expressions against the callee's inputs. One-time use.
         # Returns True if the call supplies all required inputs, False otherwise.
         assert self.callee
@@ -335,20 +346,66 @@ class Call(SourceNode):
         # typecheck call inputs against task/workflow input declarations
         with Err.multi_context() as errors:
             for name, expr in self.inputs.items():
-                decl = None
-                for d in self.callee.effective_inputs:
-                    if d.name == name:
-                        decl = d
-                if decl is None:
+                try:
+                    decl = Env.resolve(self.callee.available_inputs, [], name)
+                    errors.try1(
+                        lambda expr=expr, decl=decl: expr.infer_type(
+                            type_env, check_quant
+                        ).typecheck(decl.type)
+                    )
+                except KeyError:
                     errors.append(Err.NoSuchInput(expr, name))
-                else:
-                    errors.try1(lambda: expr.infer_type(type_env, check_quant).typecheck(decl.type))
-                    if name in required_inputs:
-                        required_inputs.remove(name)
-
-            # Check whether any required inputs were missed
-
+                if name in required_inputs:
+                    required_inputs.remove(name)
+        assert (not required_inputs) == (not list(self.required_inputs))
         return not required_inputs
+
+    @property
+    def available_inputs(self) -> Env.Decls:
+        """:type: WDL.Env.Decls
+
+        Yields the task/workflow inputs which are *not* supplied in the call
+        ``inputs:``, and thus may be supplied at workflow launch; in a
+        namespace according to the call name.
+        """
+        assert self.callee
+
+        supplied_inputs = set(self.inputs.keys())
+        ans = []
+        for b in self.callee.available_inputs:
+            if (isinstance(b, Env.Binding) and b.name not in supplied_inputs) or isinstance(
+                b, Env.Namespace
+            ):
+                ans.append(b)
+        return Env.namespace(self.name, ans, []) if ans else []
+
+    @property
+    def required_inputs(self) -> Env.Decls:
+        """:type: WDL.Env.Decls
+
+        For incomplete calls, yields the task/workflow inputs which are *not*
+        supplied in the call ``inputs:``, and thus must be supplied at workflow
+        launch; in a namespace according to the call name.
+        """
+        assert self.callee
+
+        supplied_inputs = set(self.inputs.keys())
+        ans = []
+        for b in self.callee.required_inputs:
+            if (isinstance(b, Env.Binding) and b.name not in supplied_inputs) or isinstance(
+                b, Env.Namespace
+            ):
+                ans.append(b)
+        return Env.namespace(self.name, ans, []) if ans else []
+
+    @property
+    def effective_outputs(self) -> Env.Decls:
+        """:type" WDL.Env.Decls
+
+        Yields the effective outputs of the callee Task or Workflow; in a
+        namespace according to the call name."""
+        ceo = self.callee.effective_outputs
+        return Env.namespace(self.name, ceo, []) if ceo else []
 
 
 class Scatter(SourceNode):
@@ -503,7 +560,7 @@ class Workflow(SourceNode):
 
     complete_calls: bool
     """
-    After typechecking, False if the workflow has a Call which does not supply
+    After typechecking, False if the workflow has a call which does not supply
     all required inputs (and thus cannot be called from another workflow).
     """
 
@@ -529,61 +586,88 @@ class Workflow(SourceNode):
         self.complete_calls = True
 
     @property
-    def effective_inputs(self) -> Iterable[Decl]:
-        """:type: Iterable[WDL.Tree.Decl]
+    def available_inputs(self) -> Env.Decls:
+        """:type: WDL.Env.Decls
 
-        Yields the workflow's input declarations. This is all declarations in
-        the ``input{}`` workflow section, if it's present. Otherwise, it's all
-        declarations in the workflow body, excluding outputs. (This dichotomy
-        bridges pre-1.0 and 1.0+ WDL versions.)"""
+        Yields the workflow's input declarations. This includes:
+
+        1. If the ``input{}`` workflow section is present, all declarations
+        within that section. Otherwise, all declarations in the workflow body,
+        excluding outputs. (This dichotomy bridges pre-1.0 and 1.0+ WDL
+        versions.)
+
+        2. Effective inputs of all calls in the workflow, namespaced by the
+        call name.
+        """
+        ans = []
+
         if self.inputs is not None:
             for decl in self.inputs:
-                yield decl
-        else:
-            # TODO: do we need to descend into scatters/conditionals here?
-            for elt in self.elements:
-                if isinstance(elt, Decl):
-                    yield elt
-        # TODO: handle incomplete calls
+                ans = Env.bind(decl.name, decl, ans)
+
+        for elt in _decls_and_calls(self):
+            if isinstance(elt, Decl):
+                if self.inputs is None:
+                    ans = Env.bind(elt.name, elt, ans)
+            elif isinstance(elt, Call):
+                ans = elt.available_inputs + ans
+            else:
+                assert False
+
+        return ans
 
     @property
-    def required_inputs(self) -> Iterable[Decl]:
-        """:type: Iterable[WDL.Tree.Decl]
+    def required_inputs(self) -> Env.Decls:
+        """:type: WDL.Env.Decls
 
-        Yields the input declarations which are required to start the workflow
-        (effective inputs that are unbound and non-optional)"""
-        for decl in self.effective_inputs:
-            if decl.expr is None and decl.type.optional is False:
-                yield decl
+        Yields the input declarations which are required to start the workflow.
+        (available inputs that are unbound and non-optional)"""
+        ans = []
+
+        if self.inputs is not None:
+            for decl in self.inputs:
+                if decl.expr is None and decl.type.optional is False:
+                    ans = Env.bind(decl.name, decl, ans)
+
+        for elt in _decls_and_calls(self):
+            if isinstance(elt, Decl):
+                if self.inputs is None and elt.expr is None and elt.type.optional is False:
+                    ans = Env.bind(elt.name, elt, ans)
+            elif isinstance(elt, Call):
+                ans = elt.required_inputs + ans
+            else:
+                assert False
+
+        return ans
 
     @property
-    def effective_outputs(self) -> Iterable[Decl]:
-        """:type: Iterable[WDL.Tree.Decl]
+    def effective_outputs(self) -> Env.Decls:
+        """:type: WDL.Env.Decls
 
         If the ``output{}`` workflow section is present, yields each
-        declaration therein. Otherwise, synthesize an unbound declaration for
-        each call output."""
+        declaration therein. Otherwise, yield a declaration for each call
+        output, namespaced by the call name.
+        """
+        ans = []
+
         if self.outputs is not None:
             for decl in self.outputs:
-                yield decl
+                ans = Env.bind(decl.name, decl, ans)
         else:
-            assert self._type_env is not None
-            for ns in list(self._type_env):
-                if isinstance(ns, Env.Namespace):
-                    for b in ns.bindings:
-                        assert isinstance(b, Env.Binding)
-                        yield Decl(b.ctx.pos, b.rhs, ns.namespace + "." + b.name)
+            for call in _decls_and_calls(self):
+                if isinstance(call, Call):
+                    ans = call.effective_outputs + ans
+
+        return ans
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        if self.inputs:
-            for d in self.inputs or []:
-                yield d
+        for d in self.inputs or []:
+            yield d
         for elt in self.elements:
             yield elt
-        if self.outputs:
-            for d in self.outputs:
-                yield d
+        for d in self.outputs or []:
+            yield d
 
     def typecheck(self, doc: TVDocument, check_quant: bool) -> None:
         assert doc.workflow is self
@@ -598,7 +682,7 @@ class Workflow(SourceNode):
             #    and the inputs to each call (descending into scatter & conditional
             #    sections)
             for decl in self.inputs or []:
-                errors.try1(lambda: decl.typecheck(self._type_env, check_quant))
+                errors.try1(lambda decl=decl: decl.typecheck(self._type_env, check_quant))
             if errors.try1(lambda: _typecheck_workflow_elements(doc, check_quant)) == False:
                 self.complete_calls = False
             # 4. convert deprecated output_idents, if any, to output declarations
@@ -614,7 +698,7 @@ class Workflow(SourceNode):
                                 output, "multiple workflow outputs named " + output.name
                             )
                         )
-                    errors.try1(lambda: output.typecheck(self._type_env, check_quant))
+                    errors.try1(lambda output=output: output.typecheck(self._type_env, check_quant))
                     output_names.add(output.name)
 
     def _rewrite_output_idents(self) -> None:
@@ -723,7 +807,7 @@ class Document(SourceNode):
                         Err.MultipleDefinitions(task, "Multiple tasks named " + task.name)
                     )
                 names.add(task.name)
-                errors.try1(lambda: task.typecheck(check_quant=check_quant))
+                errors.try1(lambda task=task: task.typecheck(check_quant=check_quant))
         # typecheck the workflow
         if self.workflow:
             if self.workflow.name in names:
@@ -787,19 +871,27 @@ def load(
 #
 
 
-def _resolve_calls(
-    doc: Document, element: Optional[Union[Workflow, Scatter, Conditional]] = None
-) -> None:
+def _decls_and_calls(
+    element: Union[Workflow, Scatter, Conditional]
+) -> Generator[Union[Decl, Call], None, None]:
+    # Yield each Decl and Call in the workflow, including those nested within
+    # scatter/conditional sections
+    for ch in element.children:
+        if isinstance(ch, (Decl, Call)):
+            yield ch
+        elif isinstance(ch, (Scatter, Conditional)):
+            for gch in _decls_and_calls(ch):
+                yield gch
+
+
+def _resolve_calls(doc: Document) -> None:
     # Resolve all calls in the workflow (descending into scatter & conditional
     # sections)
-    with Err.multi_context() as errors:
-        element = element or doc.workflow
-        if element:
-            for child in element.elements:
-                if isinstance(child, Call):
-                    errors.try1(lambda: child.resolve(doc))
-                elif isinstance(child, (Scatter, Conditional)):
-                    errors.try1(lambda: _resolve_calls(doc, child))  # pyre-ignore
+    if doc.workflow:
+        with Err.multi_context() as errors:
+            for c in _decls_and_calls(doc.workflow):
+                if isinstance(c, Call):
+                    errors.try1(lambda c=c: c.resolve(doc))
 
 
 def _build_workflow_type_env(
@@ -931,17 +1023,21 @@ def _typecheck_workflow_elements(
     with Err.multi_context() as errors:
         for child in self.elements:
             if isinstance(child, Decl):
-                errors.try1(lambda: child.typecheck(self._type_env, check_quant))
+                errors.try1(lambda child=child: child.typecheck(self._type_env, check_quant))
             elif isinstance(child, Call):
                 if (
-                    errors.try1(lambda: child.typecheck_input(self._type_env, doc, check_quant))
+                    errors.try1(
+                        lambda child=child: child.typecheck_input(self._type_env, check_quant)
+                    )
                     == False
                 ):
                     complete_calls = False
             elif isinstance(child, (Scatter, Conditional)):
                 if (
                     errors.try1(
-                        lambda: _typecheck_workflow_elements(doc, check_quant, child)  # pyre-ignore
+                        lambda child=child: _typecheck_workflow_elements(
+                            doc, check_quant, child
+                        )  # pyre-ignore
                     )
                     == False
                 ):
