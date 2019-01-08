@@ -7,6 +7,8 @@ typically constructed and returned by :func:`~WDL.load` or
 
 The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e.
 ``WDL.Tree.Document`` can be abbreviated ``WDL.Document``.
+
+.. inheritance-diagram:: WDL.Tree
 """
 
 import os
@@ -21,12 +23,12 @@ import WDL._parser
 
 
 class Decl(SourceNode):
-    """A variable declaration within a task or workflow"""
+    """A value declaration within a task or workflow"""
 
     type: T.Base
     ":type: WDL.Type.Base"
     name: str
-    """Declared variable name
+    """Declared value name
 
     :type: str"""
     expr: Optional[E.Base]
@@ -149,7 +151,10 @@ class Task(SourceNode):
         Yields the task's input declarations. This is all declarations in the
         task's ``input{}`` section, if it's present. Otherwise, it's all
         declarations in the task, excluding outputs. (This dichotomy bridges
-        pre-1.0 and 1.0+ WDL versions.)"""
+        pre-1.0 and 1.0+ WDL versions.)
+
+        Each input is at the top level of the Env, with no namespace.
+        """
         ans = []
         for decl in self.inputs if self.inputs is not None else self.postinputs:
             ans = Env.bind(decl.name, decl, ans)
@@ -160,7 +165,10 @@ class Task(SourceNode):
         """:type: WDL.Env.Decls
 
         Yields the input declarations which are required to call the task
-        (available inputs that are neither unbound nor optional)"""
+        (available inputs that are unbound and non-optional).
+
+        Each input is at the top level of the Env, with no namespace.
+        """
         ans = []
         for b in self.available_inputs:
             assert isinstance(b, Env.Binding)
@@ -172,8 +180,9 @@ class Task(SourceNode):
     def effective_outputs(self) -> Env.Decls:
         """:type: WDL.Env.Decls
 
-        Yields each output declaration. (Present for isomorphism with
-        ``Workflow.effective_outputs``)"""
+        Yields each output declaration, at the top level of the Env, with no
+        namespace. (Present for isomorphism with ``Workflow.effective_outputs``)
+        """
         ans = []
         for decl in self.outputs:
             ans = Env.bind(decl.name, decl, ans)
@@ -303,7 +312,9 @@ class Call(SourceNode):
         if callee_doc:
             assert isinstance(callee_doc, Document)
             if callee_doc.workflow and callee_doc.workflow.name == self.callee_id.name:
-                if not callee_doc.workflow.complete_calls:
+                if not callee_doc.workflow.complete_calls or (
+                    callee_doc.workflow.outputs is None and callee_doc.workflow.effective_outputs
+                ):
                     raise Err.UncallableWorkflow(
                         self, ".".join(self.callee_id.namespace + [self.callee_id.name])
                     )
@@ -332,6 +343,7 @@ class Call(SourceNode):
             pass
         outputs_env = []
         for outp in self.callee.effective_outputs:
+            assert isinstance(outp, Env.Binding)
             outputs_env = Env.bind(outp.name, outp.rhs.type, outputs_env, ctx=self)
         return Env.namespace(self.name, outputs_env, type_env)
 
@@ -365,8 +377,8 @@ class Call(SourceNode):
         """:type: WDL.Env.Decls
 
         Yields the task/workflow inputs which are *not* supplied in the call
-        ``inputs:``, and thus may be supplied at workflow launch; in a
-        namespace according to the call name.
+        ``inputs:``, and thus may be supplied at workflow launch; in namespaces
+        according to the call names.
         """
         assert self.callee
 
@@ -383,9 +395,9 @@ class Call(SourceNode):
     def required_inputs(self) -> Env.Decls:
         """:type: WDL.Env.Decls
 
-        For incomplete calls, yields the task/workflow inputs which are *not*
-        supplied in the call ``inputs:``, and thus must be supplied at workflow
-        launch; in a namespace according to the call name.
+        Yields the required task/workflow inputs which are *not* supplied in
+        the call ``inputs:`` (incomplete calls), and thus must be supplied at
+        workflow launch; in namespaces according to the call name.
         """
         assert self.callee
 
@@ -400,9 +412,9 @@ class Call(SourceNode):
 
     @property
     def effective_outputs(self) -> Env.Decls:
-        """:type" WDL.Env.Decls
+        """:type: WDL.Env.Decls
 
-        Yields the effective outputs of the callee Task or Workflow; in a
+        Yields the effective outputs of the callee Task or Workflow, in a
         namespace according to the call name."""
         ceo = self.callee.effective_outputs
         return Env.namespace(self.name, ceo, []) if ceo else []
@@ -594,10 +606,10 @@ class Workflow(SourceNode):
         1. If the ``input{}`` workflow section is present, all declarations
         within that section. Otherwise, all declarations in the workflow body,
         excluding outputs. (This dichotomy bridges pre-1.0 and 1.0+ WDL
-        versions.)
+        versions.) These appear at the top level of the Env, with no namepsace.
 
-        2. Effective inputs of all calls in the workflow, namespaced by the
-        call name.
+        2. Available inputs of all calls in the workflow, namespaced by the
+        call names.
         """
         ans = []
 
@@ -620,8 +632,8 @@ class Workflow(SourceNode):
     def required_inputs(self) -> Env.Decls:
         """:type: WDL.Env.Decls
 
-        Yields the input declarations which are required to start the workflow.
-        (available inputs that are unbound and non-optional)"""
+        Yields the subset of available inputs which are required to start the
+        workflow."""
         ans = []
 
         if self.inputs is not None:
@@ -645,8 +657,8 @@ class Workflow(SourceNode):
         """:type: WDL.Env.Decls
 
         If the ``output{}`` workflow section is present, yields each
-        declaration therein. Otherwise, yield a declaration for each call
-        output, namespaced by the call name.
+        declaration therein, at the top level of the Env. Otherwise, yield a
+        declaration for each call output, namespaced by the call name.
         """
         ans = []
 

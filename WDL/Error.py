@@ -166,7 +166,7 @@ class UncallableWorkflow(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(
             node,
-            "Cannot call workflow {} because its calls don't supply all required inputs".format(
+            "Cannot call workflow {} because its calls don't supply all required inputs, or it lacks an output section".format(
                 name
             ),
         )

@@ -1,12 +1,16 @@
 # pyre-strict
 """
-WDL expressions: literal values, arithmetic, comparison, conditionals, string
-interpolation, arrays & maps, standard library functions
+WDL expressions composing literal values, arithmetic, comparison, conditionals,
+string interpolation, arrays & maps, and function applications. These appear on
+the right-hand side of value declarations and in task command substitutions,
+task runtime sections, and workflow scatter and conditional sections.
 
 The abstract syntax tree (AST) for any expression is represented by an instance
 of a Python class deriving from ``WDL.Expr.Base``. Any such node may have other
-nodes attached "beneath" it. An expression can be evaluated to a Value given
-a suitable Env.
+nodes attached "beneath" it. An expression can be evaluated to a ``Value``
+given a suitable ``Env.Values``.
+
+.. inheritance-diagram:: WDL.Expr
 """
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, TypeVar, Tuple, Union, Any, Iterable

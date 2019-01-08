@@ -11,10 +11,9 @@ miniwdl
 .. automodule:: WDL
    :members:
 
-Type
+Tree
 ----
-
-.. automodule:: WDL.Type
+.. automodule:: WDL.Tree
    :members:
    :show-inheritance:
 
@@ -25,22 +24,22 @@ Expr
    :members:
    :show-inheritance:
 
+Env
+---
+.. automodule:: WDL.Env
+   :members:
+   :show-inheritance:
+
+Type
+----
+
+.. automodule:: WDL.Type
+   :members:
+   :show-inheritance:
 
 Value
 -----
 .. automodule:: WDL.Value
-   :members:
-   :show-inheritance:
-
-Tree
-----
-.. automodule:: WDL.Tree
-   :members:
-   :show-inheritance:
-
-Env
----
-.. automodule:: WDL.Env
    :members:
    :show-inheritance:
 

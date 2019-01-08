@@ -8,4 +8,7 @@ workflow bs {
     Array[String]+ a2 = [x]
     call contrived.contrived
     call empty.empty
+    output {
+        Int i = contrived.read_int
+    }
 }

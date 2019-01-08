@@ -4,6 +4,9 @@ WDL values instantiated at runtime
 
 Each value is represented by an instance of a Python class inheriting from
 ``WDL.Value.Base``.
+
+.. inheritance-diagram:: WDL.Value
+   :top-classes: WDL.Value.Base
 """
 from abc import ABC
 from typing import Any, List, Optional, TypeVar, Tuple

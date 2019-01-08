@@ -34,6 +34,9 @@ coerced to some other desired type, according to the following rules:
 
 (*) The reverse coercions are statically permitted in expressions set up with
 ``Expr.infer_type(check_quant=False)`` although they may fail at runtime.
+
+.. inheritance-diagram:: WDL.Type
+   :top-classes: WDL.Type.Base
 """
 from abc import ABC
 from typing import Optional, TypeVar, Tuple
