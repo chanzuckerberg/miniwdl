@@ -68,15 +68,13 @@ common_grammar = r"""
 
 // string (single-quoted)
 STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{']/
-STRING1_END: STRING1_CHAR* "$"? "'"
-STRING1_FRAGMENT: STRING1_CHAR* "${"
-string1: /'/ [(STRING1_FRAGMENT expr "}")*] STRING1_END -> string
+STRING1_FRAGMENT: STRING1_CHAR+
+string1: /'/ [(STRING1_FRAGMENT? "${" expr "}")*] STRING1_FRAGMENT? /\$/? /'/ -> string
 
 // string (double-quoted)
 STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{"]/
-STRING2_END: STRING2_CHAR* "$"? /"/
-STRING2_FRAGMENT: STRING2_CHAR* "${"
-string2: /"/ [(STRING2_FRAGMENT expr "}")*] STRING2_END -> string
+STRING2_FRAGMENT: STRING2_CHAR+
+string2: /"/ [(STRING2_FRAGMENT? "${" expr "}")*] STRING2_FRAGMENT? /\$/? /"/ -> string
 
 ?string: string1 | string2
 
@@ -190,14 +188,12 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 # - workflow outputs can be bare identifiers rather than complete decls
 productions_pre_1_0 = r"""
 COMMAND1_CHAR: /[^$}]/ | /\$[^{]/
-COMMAND1_END: COMMAND1_CHAR* "$"? "}"
-COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
-command1: "command" "{" [(COMMAND1_FRAGMENT placeholder "}")*] COMMAND1_END -> command
+COMMAND1_FRAGMENT: COMMAND1_CHAR+
+command1: "command" "{" [(COMMAND1_FRAGMENT? "${" placeholder "}")*] COMMAND1_FRAGMENT? /\$/? "}" -> command
 
 COMMAND2_CHAR: /[^$>]/ | /\$[^{]/ | />[^>]/ | />>[^>]/
-COMMAND2_END : COMMAND2_CHAR* ">"~0..2 ">>>"
-COMMAND2_FRAGMENT: COMMAND2_CHAR* "${"
-command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
+COMMAND2_FRAGMENT: COMMAND2_CHAR+
+command2: "command" "<<<" [(COMMAND2_FRAGMENT? "${" placeholder "}")*] COMMAND2_FRAGMENT? /\$/? ">>>" -> command
 
 ?workflow_outputs: "output" "{" workflow_output_decls "}"
 workflow_output_decls: [workflow_output_decl*]
@@ -206,19 +202,18 @@ workflow_wildcard_output: ident "." "*" | ident ".*"
 """
 
 # 1.0+ productions:
-# - ${ } placeholders are not recognized within <<< >>> task commands
+# - within { } task commands, placeholders may be delimited by ${ } or ~{ }
+# - within <<< >>> commands, placeholders are delimited by ~{ } only
 # - workflow outputs are complete decls
 productions_1_0 = r"""
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
-COMMAND1_END: COMMAND1_CHAR* "$"? "~"? "}"
-COMMAND1_FRAGMENT: COMMAND1_CHAR* "${"
-                 | COMMAND1_CHAR* "~{"
-command1: "command" "{" [(COMMAND1_FRAGMENT placeholder "}")*] COMMAND1_END -> command
+COMMAND1_FRAGMENT: COMMAND1_CHAR+
+_COMMAND1_DELIM: "${" | "~{"
+command1: "command" "{" [(COMMAND1_FRAGMENT? _COMMAND1_DELIM placeholder "}")*] COMMAND1_FRAGMENT? /\$/? /~/? "}" -> command
 
 COMMAND2_CHAR: /[^~>]/ | /~[^{]/ | />[^>]/ | />>[^>]/
-COMMAND2_END : COMMAND2_CHAR* ">"~0..2 ">>>"
-COMMAND2_FRAGMENT: COMMAND2_CHAR* "~{"
-command2: "command" "<<<" [(COMMAND2_FRAGMENT placeholder "}")*] COMMAND2_END -> command
+COMMAND2_FRAGMENT: COMMAND2_CHAR+
+command2: "command" "<<<" [(COMMAND2_FRAGMENT? "~{" placeholder "}")*] COMMAND2_FRAGMENT? /~/? ">>>" -> command
 
 ?workflow_outputs: output_decls
 """
@@ -288,21 +283,11 @@ class _ExprTransformer(lark.Transformer):
         for item in items:
             if isinstance(item, E.Base):
                 parts.append(E.Placeholder(item.pos, {}, item))
-            elif item.type.endswith("_FRAGMENT"):
-                # for an interpolation fragment, item.value will end with "${"
-                # so we strip that off. it'd be nice to make the grammar filter
-                # that out since it does later filter out the "}"...
-                parts.append(item.value[:-2])
             else:
                 parts.append(item.value)
-        # fix up a parsing quirk -- the opening quote got its own item but the
-        # closing quote didn't
         assert len(parts) >= 2
         assert parts[0] in ['"', "'"]
-        assert parts[-1][-1] in ['"', "'"]  # pyre-fixme
-        if len(parts[-1]) > 1:
-            parts.append(parts[-1][-1])  # pyre-fixme
-            parts[-2] = parts[-2][:-1]  # pyre-fixme
+        assert parts[-1] in ['"', "'"]
         return E.String(sp(self.filename, meta), parts)
 
     def array(self, items, meta) -> E.Base:
@@ -478,8 +463,6 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         for item in items:
             if isinstance(item, E.Placeholder):
                 parts.append(item)
-            elif item.type.endswith("_FRAGMENT"):
-                parts.append(item.value[:-2])
             else:
                 parts.append(item.value)
         return {"command": E.String(sp(self.filename, meta), parts)}
