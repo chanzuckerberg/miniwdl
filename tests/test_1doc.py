@@ -70,6 +70,11 @@ class TestTasks(unittest.TestCase):
 
             self.assertEqual(task.command.parts[1].eval(WDL.Env.bind('in', WDL.Value.String("hello"), [])).value, 'hello')
 
+            self.assertFalse(task.command.parts[0].strip().startswith("{"))
+            self.assertFalse(task.command.parts[0].strip().startswith("<<<"))
+            self.assertFalse(task.command.parts[-1].strip().endswith("}"))
+            self.assertFalse(task.command.parts[-1].strip().endswith(">>>"))
+
     def test_errors(self):
         with self.assertRaises(WDL.Error.UnknownIdentifier, msg="Unknown identifier bogus"):
             WDL.parse_tasks("""
@@ -374,6 +379,8 @@ task compare_md5sum {
         task = WDL.parse_tasks(txt, version="draft-2")[0]
         task.typecheck()
         self.assertEqual(len(task.command.parts), 7)
+        self.assertFalse(task.command.parts[0].strip().startswith("<<<"))
+        self.assertFalse(task.command.parts[-1].strip().endswith(">>>"))
 
 
 class TestDoc(unittest.TestCase):
@@ -457,9 +464,9 @@ class TestDoc(unittest.TestCase):
 
         task count_bam {
             File bam
-            command <<<
+            command {
                 samtools view -c ${bam}
-            >>>
+            }
             runtime {
                 docker: "quay.io/ucsc_cgl/samtools"
             }
@@ -476,6 +483,10 @@ class TestDoc(unittest.TestCase):
         self.assertEqual(len(doc.tasks), 2)
         self.assertEqual(doc.tasks[0].name, "slice_bam")
         self.assertEqual(len(doc.tasks[0].command.parts), 7)
+        self.assertFalse(doc.tasks[0].command.parts[0].strip().startswith("<<<"))
+        self.assertFalse(doc.tasks[0].command.parts[-1].strip().endswith(">>>"))
+        self.assertFalse(doc.tasks[1].command.parts[0].strip().startswith("{"))
+        self.assertFalse(doc.tasks[1].command.parts[-1].strip().endswith("}"))
         doc.typecheck()
 
     def test_nested_scatter(self):
