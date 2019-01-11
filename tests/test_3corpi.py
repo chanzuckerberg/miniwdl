@@ -40,6 +40,9 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
     return decorator
 
 def check_lint(cls):
+    if "CommandShellCheck" in cls._lint_count:
+        # because we don't control installed shellcheck version
+        del cls._lint_count["CommandShellCheck"]
     if cls._lint_count != cls._expected_lint:
         raise Exception("Lint results changed for {}; expected: {} got: {}".format(cls.__name__, str(cls._expected_lint), str(cls._lint_count)))
 

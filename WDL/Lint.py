@@ -1,6 +1,7 @@
 """
 Linting: annotate WDL AST with hygiene warning
 """
+import subprocess, tempfile, json, os, shutil
 from typing import Any, Optional
 import WDL
 
@@ -19,18 +20,20 @@ class Linter(WDL.Walker.Base):
     def __init__(self, auto_descend: bool = True):
         super().__init__(auto_descend=auto_descend)
 
-    def add(self, obj: WDL.SourceNode, message: str, subnode: Optional[WDL.SourceNode] = None):
+    def add(self, obj: WDL.SourceNode, message: str, pos: Optional[WDL.SourceNode] = None):
         """
         Used by subclasses to attach lint to a node.
 
         Note, lint attaches to Tree nodes (Decl, Task, Workflow, Scatter,
-        Conditional, Doucemnt). Warnings about individual expressinos should
+        Conditional, Document). Warnings about individual expressions should
         attach to their parent Tree node.
         """
         assert not isinstance(obj, WDL.Expr.Base)
+        if pos is None:
+            pos = obj.pos
         if not hasattr(obj, "lint"):
             obj.lint = []
-        obj.lint.append((subnode or obj, self.__class__.__name__, message))
+        obj.lint.append((pos, self.__class__.__name__, message))
 
 
 _all_linters = []
@@ -116,7 +119,9 @@ class StringCoercion(Linter):
                     # exception when parent is Task (i.e. we're in the task
                     # command) because the coercion is probably intentional
                     self.add(
-                        pt, "string concatenation (+) has {} argument".format(str(all_string)), obj
+                        pt,
+                        "string concatenation (+) has {} argument".format(str(all_string)),
+                        obj.pos,
                     )
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
@@ -130,7 +135,7 @@ class StringCoercion(Linter):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F_i), F.name, str(arg_i.type)
                             )
-                            self.add(pt, msg, arg_i)
+                            self.add(pt, msg, arg_i.pos)
         elif isinstance(obj, WDL.Expr.Array):
             # Array literal with mixed item types, one of which is String,
             # causing coercion of the others
@@ -147,7 +152,7 @@ class StringCoercion(Linter):
                 msg = "{} literal = [{}]".format(
                     str(obj.type), ", ".join(":{}:".format(ty) for ty in item_types)
                 )
-                self.add(pt, msg, obj)
+                self.add(pt, msg, obj.pos)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -158,7 +163,7 @@ class StringCoercion(Linter):
                 inp_expr.type, (WDL.Type.String, WDL.Type.Any)
             ):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
-                self.add(obj, msg, inp_expr)
+                self.add(obj, msg, inp_expr.pos)
 
 
 def _array_levels(ty: WDL.Type.Base, l=0):
@@ -193,14 +198,14 @@ class ArrayCoercion(Linter):
                     arg_i = obj.arguments[i]
                     if _is_array_coercion(F_i, arg_i.type):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
-                        self.add(pt, msg, arg_i)
+                        self.add(pt, msg, arg_i.pos)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _is_array_coercion(decl.type, inp_expr.type):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
-                self.add(obj, msg, inp_expr)
+                self.add(obj, msg, inp_expr.pos)
 
 
 @a_linter
@@ -235,7 +240,7 @@ class QuantityCoercion(Linter):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                             )
-                            self.add(getattr(obj, "parent"), msg, obj.arguments[i])
+                            self.add(getattr(obj, "parent"), msg, obj.arguments[i].pos)
 
     def decl(self, obj: WDL.Decl) -> Any:
         if obj.expr and not obj.expr.type.coerces(obj.type, True):
@@ -248,7 +253,7 @@ class QuantityCoercion(Linter):
             decl = _find_input_decl(obj, name)
             if not inp_expr.type.coerces(decl.type, True):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
-                self.add(obj, msg, inp_expr)
+                self.add(obj, msg, inp_expr.pos)
 
 
 @a_linter
@@ -372,7 +377,7 @@ class ForwardReference(Linter):
                 msg = "reference to output of {} precedes the call".format(".".join(obj.namespace))
             else:
                 assert False
-            self.add(getattr(obj, "parent"), msg, obj)
+            self.add(getattr(obj, "parent"), msg, obj.pos)
 
 
 @a_linter
@@ -452,3 +457,145 @@ class UnnecessaryQuantifier(Linter):
                         obj.type, obj.name
                     ),
                 )
+
+
+_shellcheck_available = None
+
+
+@a_linter
+class CommandShellCheck(Linter):
+    # If ShellCheck is installed, run it on the task command and propagate any
+    # additional lint it finds.
+
+    # we suppress
+    #   SC1083 This {/} is literal
+    #   SC2043 This loop will only ever run once for a constant value
+    #   SC2050 This expression is constant
+    #   SC2157 Argument to -n is always true due to literal strings
+    #   SC2193 The arguments to this comparison can never be equal
+    # which can be triggered by dummy values we substitute to write the script
+    # also SC1009 and SC1072 are non-informative commentary
+    _suppressions = [1009, 1072, 1083, 2043, 2050, 2157, 2193]
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self._tmpdir = tempfile.mkdtemp(prefix="miniwdl_shellcheck_")
+        global _shellcheck_available
+        if _shellcheck_available is None:
+            try:
+                subprocess.check_output(["which", "shellcheck"])
+                _shellcheck_available = True
+            except subprocess.CalledProcessError:
+                _shellcheck_available = False
+
+    def __del__(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+
+    def task(self, obj: WDL.Task) -> Any:
+        global _shellcheck_available
+        if not _shellcheck_available:
+            return
+
+        # for each expression placeholder in the command, make up a dummy value
+        # of the appropriate type that shouldn't trigger shellcheck
+        command = []
+        for part in obj.command.parts:
+            if isinstance(part, WDL.Expr.Placeholder):
+                command.append(_shellcheck_dummy_value(part.expr.type))
+            else:
+                assert isinstance(part, str)
+                command.append(part)
+        col_offset, command = _strip_leading_whitespace("".join(command))
+
+        # write out a temp file with this fake script
+        tfn = os.path.join(self._tmpdir, obj.name)
+        with open(tfn, "w") as outfile:
+            outfile.write(command)
+
+        # run shellcheck on it & collect JSON results
+        shellcheck_items = None
+        try:
+            shellcheck_items = subprocess.check_output(
+                [
+                    "shellcheck",
+                    "-s",
+                    "bash",
+                    "-f",
+                    "json",
+                    "-e",
+                    ",".join(str(c) for c in self.__class__._suppressions),
+                    tfn,
+                ]
+            )
+        except subprocess.CalledProcessError as cpe:
+            if cpe.returncode in (0, 1):
+                shellcheck_items = cpe.stdout
+            else:
+                self.add(
+                    obj,
+                    "shellcheck failed on the task command; update shellcheck version or use --no-shellcheck to suppress this warning",
+                    obj.command.pos,
+                )
+
+        if shellcheck_items:
+            try:
+                shellcheck_items = json.loads(shellcheck_items)
+                assert isinstance(shellcheck_items, list)
+
+                # annotate on tree, adding appropriate offsets to line/column positions
+                for item in shellcheck_items:
+                    line = obj.command.pos.line + item["line"] - 1
+                    column = col_offset + item["column"] - 1
+                    self.add(
+                        obj,
+                        "SC{} {}".format(item["code"], item["message"]),
+                        WDL.Error.SourcePosition(
+                            filename=obj.command.pos.filename,
+                            line=line,
+                            column=column,
+                            end_line=line,
+                            end_column=column,
+                        ),
+                    )
+            except:
+                self.add(
+                    obj,
+                    "error parsing shellcheck output JSON; update shellcheck version or use --no-shellcheck to suppress this warning",
+                    obj.command.pos,
+                )
+
+
+def _shellcheck_dummy_value(ty):
+    if isinstance(ty, WDL.Type.Array):
+        return _shellcheck_dummy_value(ty.item_type)
+    if isinstance(ty, (WDL.Type.Int, WDL.Type.Float)):
+        return str(42)
+    if isinstance(ty, WDL.Type.Boolean):
+        return "false"
+    # assert ty.coerces(WDL.Type.String), str(ty)
+    # https://github.com/HumanCellAtlas/skylab/blob/a99b8ddffdb3c0ebdea1a8905d28f01a4d365af5/pipelines/10x/count/count.wdl#L325
+    # https://github.com/openwdl/wdl/blob/master/versions/draft-2/SPEC.md#map-serialization
+    return "dummy"
+
+
+def _strip_leading_whitespace(txt):
+    lines = txt.split("\n")
+
+    to_strip = None
+    for line in lines:
+        lsl = len(line.lstrip())
+        if lsl:
+            c = len(line) - lsl
+            assert c >= 0
+            if to_strip is None or to_strip > c:
+                to_strip = c
+            # TODO: do something about mixed tabs & spaces
+
+    if not to_strip:
+        return (0, txt)
+
+    for i, line_i in enumerate(lines):
+        if line_i.lstrip():
+            lines[i] = line_i[to_strip:]
+
+    return (to_strip, "\n".join(lines))

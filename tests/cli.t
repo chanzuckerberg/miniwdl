@@ -17,7 +17,7 @@ DN=$(mktemp -d --tmpdir miniwdl_tests_XXXXXX)
 cd $DN
 
 # warm-up
-$miniwdl check \
+$miniwdl check --no-shellcheck \
     --path "$SOURCE_DIR/test_corpi/HumanCellAtlas/skylab/library/tasks" \
     "$SOURCE_DIR/test_corpi/HumanCellAtlas/skylab/pipelines/optimus/Optimus.wdl" > optimus.out
 is "$?" "0" "check Optimus.wdl"
@@ -25,7 +25,7 @@ is "$(grep UnusedDeclaration optimus.out | wc -l)" "1" "Optimus.wdl UnusedDeclar
 is "$(grep NameCollision optimus.out | wc -l)" "1" "Optimus.wdl NameCollision"
 is "$(cat optimus.out | wc -l)" "51" "Optimus.wdl output"
 
-$miniwdl check \
+$miniwdl check --no-shellcheck \
     --path "$SOURCE_DIR/test_corpi/HumanCellAtlas/skylab/library/tasks" \
     "$SOURCE_DIR/test_corpi/HumanCellAtlas/skylab/pipelines/optimus/Optimus.wdl" \
     "$SOURCE_DIR/test_corpi/HumanCellAtlas/skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl" \
@@ -39,13 +39,13 @@ cat << EOF > lex_error.wdl
 workflow 麻雀虽小五脏俱全 {
 }
 EOF
-$miniwdl check lex_error.wdl > lex_error.out 2> lex_error.err
+$miniwdl check --no-shellcheck lex_error.wdl > lex_error.out 2> lex_error.err
 is "$?" "1" "lex_error.wdl exit code"
 is "$(cat lex_error.out | wc -c)" "0" "lex_error.wdl stdout"
 is "$(grep Traceback lex_error.err | wc -l)" "0" "lex_error.wdl stderr, no traceback"
 is "$(grep 'line 2 col 10' lex_error.err | wc -l)" "1" "lex_error.wdl stderr, position"
 
-$miniwdl check --debug lex_error.wdl > lex_error_debug.out 2> lex_error_debug.err
+$miniwdl check --no-shellcheck --debug lex_error.wdl > lex_error_debug.out 2> lex_error_debug.err
 is "$(grep Traceback lex_error_debug.err | wc -l)" "1" "lex_error.wdl stderr, traceback"
 
 cat << EOF > parse_error.wdl
@@ -53,7 +53,7 @@ cat << EOF > parse_error.wdl
 # comment 2
 workflow x {
 EOF
-$miniwdl check parse_error.wdl > parse_error.out 2> parse_error.err
+$miniwdl check --no-shellcheck parse_error.wdl > parse_error.out 2> parse_error.err
 is "$?" "1" "parse_error.wdl exit code"
 is "$(cat parse_error.out | wc -c)" "0" "parse_error.wdl stdout"
 is "$(grep Traceback parse_error.err | wc -l)" "0" "parse_error.wdl stderr, no traceback"
@@ -62,7 +62,7 @@ is "$(grep 'line 3, column 12' parse_error.err | wc -l)" "1" "parse_error.wdl st
 cat << EOF > import_error.wdl
 import "bogus.wdl"
 EOF
-$miniwdl check import_error.wdl > import_error.out 2> import_error.err
+$miniwdl check --no-shellcheck import_error.wdl > import_error.out 2> import_error.err
 is "$?" "1" "import_error.wdl exit code"
 is "$(cat import_error.out | wc -c)" "0" "import_error.wdl stdout"
 is "$(grep Traceback import_error.err | wc -l)" "0" "import_error.wdl stderr, no traceback"
@@ -70,7 +70,7 @@ is "$(grep Traceback import_error.err | wc -l)" "0" "import_error.wdl stderr, no
 cat << EOF > import_parse_error.wdl
 import "parse_error.wdl"
 EOF
-$miniwdl check import_parse_error.wdl > import_parse_error.out 2> import_parse_error.err
+$miniwdl check --no-shellcheck import_parse_error.wdl > import_parse_error.out 2> import_parse_error.err
 is "$?" "1" "import_parse_error.wdl exit code"
 is "$(cat import_parse_error.out | wc -c)" "0" "import_parse_error.wdl stdout"
 is "$(grep Traceback import_parse_error.err | wc -l)" "0" "import_parse_error.wdl stderr, no traceback"
@@ -82,7 +82,7 @@ workflow x {
     Int x = "42"
 }
 EOF
-$miniwdl check trivial_type_error.wdl > trivial_type_error.out 2> trivial_type_error.err
+$miniwdl check --no-shellcheck trivial_type_error.wdl > trivial_type_error.out 2> trivial_type_error.err
 is "$?" "1" "trivial_type_error.wdl exit code"
 is "$(cat trivial_type_error.out | wc -c)" "0" "trivial_type_error.wdl stdout"
 is "$(grep Traceback trivial_type_error.err | wc -l)" "0" "trivial_type_error.wdl stderr, no traceback"
@@ -101,16 +101,16 @@ EOF
 cat << EOF > import_multi_error.wdl
 import "multi_error.wdl"
 EOF
-$miniwdl check import_multi_error.wdl 2> import_multi_error.err
+$miniwdl check --no-shellcheck import_multi_error.wdl 2> import_multi_error.err
 is "$?" "1" "import_multi_error.wdl exit code"
 is "$(grep '                ^' import_multi_error.err | wc -l)" "2" "import_multi_error.wdl stderr marker 1"
 is "$(grep '                       ^^^' import_multi_error.err | wc -l)" "1" "import_multi_error.wdl stderr marker 2"
-$miniwdl check --no-quant-check import_multi_error.wdl > import_multi_error.no_quant_check.out
+$miniwdl check --no-shellcheck --no-quant-check import_multi_error.wdl > import_multi_error.no_quant_check.out
 is "$?" "0" "import_multi_error.wdl --no-quant-check"
 is "$(grep QuantityCoercion import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check QuantityCoercion"
 is "$(grep UnusedDeclaration import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check UnusedDeclaration"
 
-$miniwdl check $SOURCE_DIR/test_corpi/DataBiosphere/topmed-workflows/CRAM-no-header-md5sum/CRAM_md5sum_checker_wrapper.wdl > import_uri.out 2> import_uri.err
+$miniwdl check --no-shellcheck $SOURCE_DIR/test_corpi/DataBiosphere/topmed-workflows/CRAM-no-header-md5sum/CRAM_md5sum_checker_wrapper.wdl > import_uri.out 2> import_uri.err
 is "$?" "0" "URI import"
 
 rm -rf $DN

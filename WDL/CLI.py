@@ -38,6 +38,12 @@ def main(args=None):
         action="store_false",
         help="relax static typechecking of optional (?) and nonempty (+) type quantifiers (discouraged; for backwards compatibility with older WDL)",
     )
+    check_parser.add_argument(
+        "--no-shellcheck",
+        dest="shellcheck",
+        action="store_false",
+        help="don't use shellcheck on task commands even if available, and suppress warning if it isn't",
+    )
     check_parser.add_argument("--debug", action="store_true", help="show full exception traceback")
 
     args = parser.parse_args(args if args is not None else sys.argv[1:])
@@ -52,6 +58,8 @@ def check(args):
     # Load the document (read, parse, and typecheck)
     if args.path is None:
         args.path = []
+    if not args.shellcheck:
+        WDL.Lint._shellcheck_available = False
     try:
         for uri in args.uri:
             doc = WDL.load(uri, args.path, check_quant=args.check_quant, import_uri=import_uri)
@@ -72,6 +80,11 @@ def check(args):
             raise exn
         else:
             sys.exit(1)
+    if args.shellcheck and WDL.Lint._shellcheck_available == False:
+        print(
+            "* Recommendation: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this warning)",
+            file=sys.stderr,
+        )
 
 
 # recursively pretty-print a brief outline of the workflow
@@ -85,11 +98,9 @@ def outline(obj, level, file=sys.stdout):
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
-            for (node, klass, msg) in sorted(obj.lint, key=lambda t: t[0].pos):
+            for (pos, klass, msg) in sorted(obj.lint, key=lambda t: t[0]):
                 print(
-                    "{}    (Ln {}, Col {}) {}, {}".format(
-                        s, node.pos.line, node.pos.column, klass, msg
-                    ),
+                    "{}    (Ln {}, Col {}) {}, {}".format(s, pos.line, pos.column, klass, msg),
                     file=file,
                 )
         first_descent.append(False)
