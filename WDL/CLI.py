@@ -68,7 +68,7 @@ def check(args):
 
             # Print an outline
             print(os.path.basename(uri))
-            outline(doc, 0)
+            outline(doc, 0, show_called=(doc.workflow is not None))
     except (
         WDL.Error.SyntaxError,
         WDL.Error.ImportError,
@@ -90,7 +90,7 @@ def check(args):
 # recursively pretty-print a brief outline of the workflow
 
 
-def outline(obj, level, file=sys.stdout):
+def outline(obj, level, file=sys.stdout, show_called=True):
     s = "".join(" " for i in range(level * 4))
 
     first_descent = []
@@ -105,7 +105,12 @@ def outline(obj, level, file=sys.stdout):
                 )
         first_descent.append(False)
         if dobj:
-            outline(dobj, level + (1 if not isinstance(dobj, WDL.Decl) else 0), file=file)
+            outline(
+                dobj,
+                level + (1 if not isinstance(dobj, WDL.Decl) else 0),
+                file=file,
+                show_called=show_called,
+            )
 
     # document
     if isinstance(obj, WDL.Document):
@@ -122,7 +127,9 @@ def outline(obj, level, file=sys.stdout):
     # workflow
     elif isinstance(obj, WDL.Workflow):
         print(
-            "{}workflow {}{}".format(s, obj.name, " (not called)" if not obj.called else ""),
+            "{}workflow {}{}".format(
+                s, obj.name, " (not called)" if show_called and not obj.called else ""
+            ),
             file=file,
         )
         for elt in (obj.inputs or []) + obj.elements + (obj.outputs or []):
@@ -130,7 +137,10 @@ def outline(obj, level, file=sys.stdout):
     # task
     elif isinstance(obj, WDL.Task):
         print(
-            "{}task {}{}".format(s, obj.name, " (not called)" if not obj.called else ""), file=file
+            "{}task {}{}".format(
+                s, obj.name, " (not called)" if show_called and not obj.called else ""
+            ),
+            file=file,
         )
         for decl in (obj.inputs or []) + obj.postinputs + obj.outputs:
             descend(decl)
