@@ -18,6 +18,17 @@ def main(args=None):
     subparsers.required = True
     subparsers.dest = "command"
 
+    fill_check_parser(subparsers)
+
+    args = parser.parse_args(args if args is not None else sys.argv[1:])
+
+    if args.command == "check":
+        check(**vars(args))
+    else:
+        assert False
+
+
+def fill_check_parser(subparsers):
     check_parser = subparsers.add_parser(
         "check", help="Load and typecheck a WDL document; show an outline with lint warnings"
     )
@@ -46,23 +57,16 @@ def main(args=None):
     )
     check_parser.add_argument("--debug", action="store_true", help="show full exception traceback")
 
-    args = parser.parse_args(args if args is not None else sys.argv[1:])
 
-    if args.command == "check":
-        check(args)
-    else:
-        assert False
-
-
-def check(args):
+def check(uri=[], path=[], check_quant=True, shellcheck=True, debug=False, **kwargs):
     # Load the document (read, parse, and typecheck)
-    if args.path is None:
-        args.path = []
-    if not args.shellcheck:
+    if path is None:
+        path = []
+    if not shellcheck:
         WDL.Lint._shellcheck_available = False
     try:
-        for uri in args.uri:
-            doc = WDL.load(uri, args.path, check_quant=args.check_quant, import_uri=import_uri)
+        for uri in uri:
+            doc = WDL.load(uri, path, check_quant=check_quant, import_uri=import_uri)
 
             WDL.Lint.lint(doc)
 
@@ -76,21 +80,19 @@ def check(args):
         WDL.Error.MultipleValidationErrors,
     ) as exn:
         print_error(exn)
-        if args.debug:
+        if debug:
             raise exn
         else:
             sys.exit(1)
-    if args.shellcheck and WDL.Lint._shellcheck_available == False:
+    if shellcheck and WDL.Lint._shellcheck_available == False:
         print(
             "* Recommendation: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this warning)",
             file=sys.stderr,
         )
 
 
-# recursively pretty-print a brief outline of the workflow
-
-
 def outline(obj, level, file=sys.stdout, show_called=True):
+    # recursively pretty-print a brief outline of the workflow
     s = "".join(" " for i in range(level * 4))
 
     first_descent = []
