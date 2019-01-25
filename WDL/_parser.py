@@ -1,3 +1,4 @@
+# pylint: skip-file
 import inspect
 from typing import List, Optional
 import lark
@@ -69,12 +70,12 @@ common_grammar = r"""
 // string (single-quoted)
 STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{']/
 STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ [(STRING1_FRAGMENT? "${" expr "}")*] STRING1_FRAGMENT? /\$/? /'/ -> string
+string1: /'/ (STRING1_FRAGMENT? "${" expr "}")* STRING1_FRAGMENT? /\$/? /'/ -> string
 
 // string (double-quoted)
 STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{"]/
 STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ [(STRING2_FRAGMENT? "${" expr "}")*] STRING2_FRAGMENT? /\$/? /"/ -> string
+string2: /"/ (STRING2_FRAGMENT? "${" expr "}")* STRING2_FRAGMENT? /\$/? /"/ -> string
 
 ?string: string1 | string2
 
@@ -135,12 +136,12 @@ runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
 runtime_kv: CNAME ":" expr
 
 // WDL tasks
-input_decls: "input" "{" [any_decl*] "}"
+input_decls: "input" "{" any_decl* "}"
 ?task_sections1: input_decls
                | meta_section
                | runtime_section
                | any_decl+ -> noninput_decls
-output_decls: "output" "{" [bound_decl*] "}"
+output_decls: "output" "{" bound_decl* "}"
 ?task_sections2: output_decls
                | meta_section
                | runtime_section
@@ -156,8 +157,8 @@ call: "call" ident call_body? -> call
     | "call" ident "as" CNAME call_body? -> call_as
 
 ?inner_workflow_element: bound_decl | call | scatter | conditional
-scatter: "scatter" "(" CNAME "in" expr ")" "{" [inner_workflow_element*] "}"
-conditional: "if" "(" expr ")" "{" [inner_workflow_element*] "}"
+scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
+conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 
 ?workflow_element: any_decl | call | scatter | conditional | meta_section
 workflow: "workflow" CNAME "{" input_decls? workflow_element* workflow_outputs? meta_section?"}"
@@ -189,14 +190,14 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 productions_pre_1_0 = r"""
 COMMAND1_CHAR: /[^$}]/ | /\$[^{]/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" [(COMMAND1_FRAGMENT? "${" placeholder "}")*] COMMAND1_FRAGMENT? /\$/? "}" -> command
+command1: "command" "{" (COMMAND1_FRAGMENT? "${" placeholder "}")* COMMAND1_FRAGMENT? /\$/? "}" -> command
 
 COMMAND2_CHAR: /[^$>]/ | /\$[^{]/ | />[^>]/ | />>[^>]/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" [(COMMAND2_FRAGMENT? "${" placeholder "}")*] COMMAND2_FRAGMENT? /\$/? ">>>" -> command
+command2: "command" "<<<" (COMMAND2_FRAGMENT? "${" placeholder "}")* COMMAND2_FRAGMENT? /\$/? ">>>" -> command
 
 ?workflow_outputs: "output" "{" workflow_output_decls "}"
-workflow_output_decls: [workflow_output_decl*]
+workflow_output_decls: workflow_output_decl*
 ?workflow_output_decl: bound_decl | ident | workflow_wildcard_output
 workflow_wildcard_output: ident "." "*" | ident ".*"
 """
@@ -209,11 +210,11 @@ productions_1_0 = r"""
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
 _COMMAND1_DELIM: "${" | "~{"
-command1: "command" "{" [(COMMAND1_FRAGMENT? _COMMAND1_DELIM placeholder "}")*] COMMAND1_FRAGMENT? /\$/? /~/? "}" -> command
+command1: "command" "{" (COMMAND1_FRAGMENT? _COMMAND1_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/? /~/? "}" -> command
 
 COMMAND2_CHAR: /[^~>]/ | /~[^{]/ | />[^>]/ | />>[^>]/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" [(COMMAND2_FRAGMENT? "~{" placeholder "}")*] COMMAND2_FRAGMENT? /~/? ">>>" -> command
+command2: "command" "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? /~/? ">>>" -> command
 
 ?workflow_outputs: output_decls
 """
@@ -674,11 +675,16 @@ def parse_expr(txt: str, version: Optional[str] = None) -> E.Base:
         return _ExprTransformer(txt).transform(parse(txt, "expr", version))
     except lark.exceptions.UnexpectedInput as exn:
         raise Err.SyntaxError("(buffer)", str(exn)) from None
+    except lark.exceptions.VisitError as exn:
+        raise exn.__context__
 
 
 def parse_tasks(txt: str, version: Optional[str] = None) -> List[D.Task]:
     # pyre-fixme
-    return _DocTransformer("").transform(parse(txt, "tasks", version))
+    try:
+        return _DocTransformer("").transform(parse(txt, "tasks", version))
+    except lark.exceptions.VisitError as exn:
+        raise exn.__context__
 
 
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> D.Document:
@@ -700,3 +706,5 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> D.
         return _DocTransformer(uri).transform(parse(txt, "document", version))
     except lark.exceptions.UnexpectedInput as exn:
         raise Err.SyntaxError(uri if uri != "" else "(buffer)", str(exn)) from None
+    except lark.exceptions.VisitError as exn:
+        raise exn.__context__
