@@ -175,7 +175,11 @@ def outline(obj, level, file=sys.stdout, show_called=True):
     descend()
 
 
+quant_warning = False
+
+
 def print_error(exn):
+    global quant_warning
     if isinstance(exn, WDL.Error.MultipleValidationErrors):
         for exn1 in exn.exceptions:
             print_error(exn1)
@@ -199,6 +203,23 @@ def print_error(exn):
                 "    " + " " * (exn.pos.column - 1) + "^" * (end_column - exn.pos.column),
                 file=sys.stderr,
             )
+            if not quant_warning and isinstance(exn, WDL.Error.StaticTypeMismatch):
+                expected = str(exn.expected)
+                actual = str(exn.actual)
+                if (
+                    expected.startswith(actual)
+                    and exn.expected.nonempty
+                    and not exn.actual.nonempty
+                ) or (
+                    actual.startswith(expected)
+                    and exn.actual.optional
+                    and not exn.expected.optional
+                ):
+                    print(
+                        "Hint: for compatibility with older existing WDL code, try setting --no-quant-check to relax quantifier validation rules.",
+                        file=sys.stderr,
+                    )
+                    quant_warning = True
 
 
 def import_uri(uri):

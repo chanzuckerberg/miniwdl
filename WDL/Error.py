@@ -127,6 +127,8 @@ class StaticTypeMismatch(ValidationError):
     def __init__(
         self, node: SourceNode, expected: T.Base, actual: T.Base, message: Optional[str] = None
     ) -> None:
+        self.expected = expected
+        self.actual = actual
         msg = "Expected {} instead of {}".format(str(expected), str(actual))
         if message is not None:
             msg = msg + " " + message
