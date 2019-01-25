@@ -1,7 +1,7 @@
 # miniwdl
 **[Workflow Description Language](http://openwdl.org/) static analysis toolkit for Python 3.6+**
 
-![Project Status](https://img.shields.io/badge/status-prealpha-red.svg)
+![Project Status](https://img.shields.io/badge/status-alpha-red.svg)
 [![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/master/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
@@ -10,7 +10,7 @@
 
 *miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes a command-line tool which validates WDL documents and generates lint/style warnings.
 
-This project in prealpha development; interfaces are liable to change substantially.
+This project in alpha development; interfaces are liable to change somewhat.
 
 ## Installation
 
@@ -32,7 +32,7 @@ $ miniwdl check --path skylab/library/tasks/ \
 
 SmartSeq2SingleSample.wdl
     workflow SmartSeq2SingleCell
-        (Ln 14, Col 3) UnusedDeclaration, nothing references File gtf_file
+        (Ln 14, Col 8) UnusedDeclaration, nothing references File gtf_file
         call HISAT2.HISAT2PairedEnd
         call Picard.CollectMultipleMetrics
         call Picard.CollectRnaMetrics
@@ -43,17 +43,30 @@ SmartSeq2SingleSample.wdl
         call ZarrUtils.SmartSeq2ZarrConversion
     GroupQCs : GroupMetricsOutputs.wdl
         task GroupQCOutputs
-            (Ln 10, Col 3) StringCoercion, String mem = :Int:
-            (Ln 11, Col 3) StringCoercion, String cpu = :Int:
-            (Ln 12, Col 3) StringCoercion, String disk_space = :Int:
+            (Ln 10, Col 10) StringCoercion, String mem = :Int:
+            (Ln 11, Col 10) StringCoercion, String cpu = :Int:
+            (Ln 12, Col 10) StringCoercion, String disk_space = :Int:
     HISAT2 : HISAT2.wdl
         task HISAT2PairedEnd
         task HISAT2RSEM
         task HISAT2InspectIndex (not called)
         task HISAT2SingleEnd (not called)
-
-    ...
+    Picard : Picard.wdl
+        task CollectDuplicationMetrics
+        task CollectMultipleMetrics
+        task CollectRnaMetrics
+    RSEM : RSEM.wdl
+        task RSEMExpression
+    ZarrUtils : ZarrUtils.wdl
+        task SmartSeq2ZarrConversion
+            (Ln 36, Col 6) CommandShellCheck, SC2006 Use $(..) instead of legacy `..`.
+            (Ln 39, Col 9) CommandShellCheck, SC2006 Use $(..) instead of legacy `..`.
+            (Ln 39, Col 15) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
+            (Ln 40, Col 10) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
+            (Ln 40, Col 21) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
 ```
+
+In addition to its suite of WDL-specific warnings, `miniwdl check` uses [ShellCheck](https://www.shellcheck.net/), if available, to detect possible issues in each task command script. You may need to install ShellCheck separately, as it's not included with miniwdl.
 
 If you haven't installed the PyPI package to get the `miniwdl` entry point, equivalently `python3 -m /path/to/miniwdl/WDL check ...`.
 
