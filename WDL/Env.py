@@ -20,7 +20,6 @@ to share code for both type and value environments.
 """
 
 R = TypeVar("R")
-S = TypeVar("S")
 Tree = TypeVar("Tree", bound="List[Node[R]]")
 """:type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
 ``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
@@ -179,6 +178,9 @@ def unbind(tree: "Tree[R]", namespace: List[str], name: str) -> "Tree[R]":
     if not found:
         raise KeyError()
     return ans
+
+
+S = TypeVar("S")
 
 
 def subtract(lhs: "Tree[R]", rhs: "Tree[S]") -> "Tree[R]":

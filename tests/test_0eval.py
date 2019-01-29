@@ -330,6 +330,7 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
         self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
         self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "grape"], "green"), "f")
 
         e = WDL.Env.subtract(e, WDL.Env.bind([], ["fruit", "apple"], "macintosh", "d"))
         with self.assertRaises(KeyError):
@@ -338,3 +339,4 @@ class TestEnv(unittest.TestCase):
             WDL.Env.resolve_namespace(e, ["fruit", "apple"])
         self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
         self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "grape"], "green"), "f")
