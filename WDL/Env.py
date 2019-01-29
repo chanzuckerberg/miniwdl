@@ -2,7 +2,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, TypeVar, Generic, Any, Optional
+from typing import List, TypeVar, Generic, Any
 import WDL.Type as T
 import WDL.Value as V
 
