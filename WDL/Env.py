@@ -2,7 +2,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, TypeVar, Generic, Any
+from typing import List, TypeVar, Generic, Any, Optional
 import WDL.Type as T
 import WDL.Value as V
 
@@ -22,6 +22,7 @@ to share code for both type and value environments.
 """
 
 R = TypeVar("R")
+S = TypeVar("S")
 Tree = TypeVar("Tree", bound="List[Node[R]]")
 """:type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
 ``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
@@ -90,22 +91,12 @@ Decls = TypeVar("Decls", bound="Tree[WDL.Tree.Decl]")
 Type nickname for environment tree of names to ``WDL.Tree.Decl`` instances"""
 
 
-def bind(name: str, rhs: R, tree: "Tree[R]", ctx: Any = None) -> "Tree[R]":
-    """Prepend a new binding to an environment"""
-    return [Binding(name, rhs, ctx)] + tree
-
-
-def namespace(namespace: str, bindings: "Tree[R]", tree: "Tree[R]") -> "Tree[R]":
-    """Prepend a namespace to an environment"""
-    return [Namespace(namespace, bindings)] + tree
-
-
-def resolve_namespace(tree: "Tree[R]", namespace: List[str]) -> R:
+def resolve_namespace(tree: "Tree[R]", namespace: List[str]) -> "Tree[R]":
     if not namespace:
         return tree
     for node in tree:
         if isinstance(node, Namespace):
-            if namespace and namespace[0] == node.namespace:
+            if namespace[0] == node.namespace:
                 return resolve_namespace(node.bindings, namespace[1:])
     raise KeyError()
 
@@ -134,5 +125,86 @@ def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any:  # pyr
     return ans
 
 
-# print(arrayize([Binding('x',T.Int())])[0].rhs)
-# assert resolve([Binding('x',T.Int())], [], 'x') == T.Int()
+def bind(
+    tree: "Tree[R]", namespace: List[str], name: str, rhs: R, ctx: Any = None) -> "Tree[R]":
+    """
+    Return a copy of ``tree`` with a new binding prepended. (Does not check for
+    name collision!)
+
+    :param namespace: the binding is added to any existing bindings under a
+    matching ``Namespace`` node, with any new nodes added as needed.
+    """
+    assert name
+    if not namespace:
+        return [Binding(name, rhs, ctx)] + tree
+    assert namespace[0]
+    ans = []
+    new_namespace = True
+    for node in tree:
+        if isinstance(node, Namespace) and node.namespace == namespace[0]:
+            ans.append(Namespace(node.namespace, bind(node.bindings, namespace[1:], name, rhs, ctx=ctx)))
+            new_namespace = False
+        else:
+            ans.append(node)
+    if new_namespace:
+        ans = [Namespace(namespace[0], bind([], namespace[1:], name, rhs, ctx=ctx))] + ans
+    return ans
+
+
+def unbind(tree: "Tree[R]", namespace: List[str], name: str) -> "Tree[R]":
+    """
+    Return a copy of ``tree`` without the specified binding.
+
+    :param namespace: any ``Namespace`` nodes which become empty as a result of
+    the binding's removal, are also removed.
+    :raise KeyError: if no such binding exists
+    """
+    assert name
+    found = False
+    ans = []
+    for node in tree:
+        if not namespace:
+            if isinstance(node, Binding) and node.name == name:
+                found = True
+            else:
+                ans.append(node)
+        else:
+            assert namespace[0]
+            if isinstance(node, Namespace) and node.namespace == namespace[0]:
+                sub = unbind(node.bindings, namespace[1:], name)
+                if sub:
+                    ans.append(Namespace(node.namespace, sub))
+                found = True
+            else:
+                ans.append(node)
+    if not found:
+        raise KeyError()
+    return ans
+
+
+def subtract(lhs: "Tree[R]", rhs: "Tree[S]") -> "Tree[R]":
+    """
+    Return a copy of ``lhs`` without any binding matching one in ``rhs`` (by
+    name+namespace). Bindings in ``rhs`` but not ``lhs`` are ignored.
+    """
+    ans = []
+    for node in lhs:
+        if isinstance(node, Binding):
+            try:
+                resolve(rhs, [], node.name)
+            except KeyError:
+                ans.append(node)
+        elif isinstance(node, Namespace):
+            try:
+                sub = subtract(node.bindings, resolve_namespace(rhs, [node.namespace]))
+                if sub:
+                    ans.append(Namespace(node.namespace, sub))
+            except KeyError:
+                ans.append(node)
+        else:
+            assert False
+    return ans
+
+
+def namespace(namespace: str, bindings: "Tree[R]", tree: "Tree[R]") -> "Tree[R]":
+    return [Namespace(namespace, bindings)] + tree

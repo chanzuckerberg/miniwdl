@@ -47,7 +47,7 @@ class TestEval(unittest.TestCase):
             if env is not None:
                 for node in env:
                     if isinstance(node, WDL.Env.Binding):
-                        type_env = WDL.Env.bind(node.name, node.rhs.type, type_env)
+                        type_env = WDL.Env.bind(type_env, [], node.name, node.rhs.type)
             if exn:
                 with self.assertRaises(exn, msg=expected):
                     x = WDL.parse_expr(expr).infer_type(type_env).eval(env)
@@ -262,3 +262,77 @@ class TestEval(unittest.TestCase):
 
 def cons_env(*bindings):
     return [WDL.Env.Binding(x,y) for (x,y) in bindings]
+
+class TestEnv(unittest.TestCase):
+    """
+    Test the trickier recursive Env operations
+    """
+
+    def test_bind(self):
+        e = WDL.Env.bind([], [], "foo", "bar")
+        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
+        e = WDL.Env.bind(e, ["fruit"], "orange", "a")
+        self.assertEqual(len(e), 2)
+        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
+        e = WDL.Env.bind(e, ["fruit"], "pear", "b")
+        self.assertEqual(len(e), 2)
+        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "pear"), "b")
+        e = WDL.Env.bind(e, ["fruit", "apple"], "honeycrisp", "c")
+        e = WDL.Env.bind(e, ["fruit", "apple"], "macintosh", "d")
+        self.assertEqual(len(e), 2)
+        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "pear"), "b")    
+        self.assertEqual(len(WDL.Env.resolve_namespace(e, ["fruit", "apple"])), 2)
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp"), "c")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
+
+    def test_unbind(self):
+        e = WDL.Env.bind([], [], "foo", "bar")
+        e = WDL.Env.bind(e, ["fruit"], "orange", "a")
+        e = WDL.Env.bind(e, ["fruit"], "pear", "b")
+        e = WDL.Env.bind(e, ["fruit", "apple"], "honeycrisp", "c")
+        e = WDL.Env.bind(e, ["fruit", "apple"], "macintosh", "d")
+
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp"), "c")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
+        with self.assertRaises(KeyError):
+            WDL.Env.unbind(e, [], "macintosh")
+        e = WDL.Env.unbind(e, ["fruit", "apple"], "macintosh")
+        with self.assertRaises(KeyError):
+            WDL.Env.resolve(e, ["fruit", "apple"], "macintosh")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp"), "c")
+
+        self.assertEqual(len(WDL.Env.resolve_namespace(e, ["fruit"])), 3)
+        e = WDL.Env.unbind(e, ["fruit", "apple"], "honeycrisp")
+        self.assertEqual(len(WDL.Env.resolve_namespace(e, ["fruit"])), 2)
+
+    def test_subtract(self):
+        e = WDL.Env.bind([], [], "foo", "bar")
+        e = WDL.Env.bind(e, ["fruit"], "orange", "a")
+        e = WDL.Env.bind(e, ["fruit"], "pear", "b")
+        e = WDL.Env.bind(e, ["fruit", "apple"], "honeycrisp", "c")
+        e = WDL.Env.bind(e, ["fruit", "apple"], "macintosh", "d")
+
+        rhs = WDL.Env.bind([], ["fruit"], "pear", "b")
+        rhs = WDL.Env.bind(rhs, ["fruit", "apple"], "honeycrisp", "c")
+
+        e = WDL.Env.subtract(e, rhs)
+        with self.assertRaises(KeyError):
+            WDL.Env.resolve(e, ["fruit"], "pear")
+        with self.assertRaises(KeyError):
+            WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp")
+        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
+
+        e = WDL.Env.subtract(e, WDL.Env.bind([], ["fruit", "apple"], "macintosh", "d"))
+        with self.assertRaises(KeyError):
+            WDL.Env.resolve(e, ["fruit", "apple"], "macintosh")
+        with self.assertRaises(KeyError):
+            WDL.Env.resolve_namespace(e, ["fruit", "apple"])
+        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
+        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
