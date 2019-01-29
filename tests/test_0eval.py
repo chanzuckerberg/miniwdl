@@ -316,6 +316,8 @@ class TestEnv(unittest.TestCase):
         e = WDL.Env.bind(e, ["fruit"], "pear", "b")
         e = WDL.Env.bind(e, ["fruit", "apple"], "honeycrisp", "c")
         e = WDL.Env.bind(e, ["fruit", "apple"], "macintosh", "d")
+        e = WDL.Env.bind(e, ["fruit", "grape"], "red", "e")
+        e = WDL.Env.bind(e, ["fruit", "grape"], "green", "f")
 
         rhs = WDL.Env.bind([], ["fruit"], "pear", "b")
         rhs = WDL.Env.bind(rhs, ["fruit", "apple"], "honeycrisp", "c")
