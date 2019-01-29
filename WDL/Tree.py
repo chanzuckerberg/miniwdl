@@ -64,7 +64,7 @@ class Decl(SourceNode):
             raise Err.MultipleDefinitions(self, "Multiple declarations of " + self.name)
         except KeyError:
             pass
-        ans: Env.Types = Env.bind(self.name, self.type, type_env, ctx=self)
+        ans: Env.Types = Env.bind(type_env, [], self.name, self.type, ctx=self)
         return ans
 
     def typecheck(self, type_env: Env.Types, check_quant: bool) -> None:
@@ -157,7 +157,7 @@ class Task(SourceNode):
         """
         ans = []
         for decl in self.inputs if self.inputs is not None else self.postinputs:
-            ans = Env.bind(decl.name, decl, ans)
+            ans = Env.bind(ans, [], decl.name, decl)
         return ans
 
     @property
@@ -185,7 +185,7 @@ class Task(SourceNode):
         """
         ans = []
         for decl in self.outputs:
-            ans = Env.bind(decl.name, decl, ans)
+            ans = Env.bind(ans, [], decl.name, decl)
         return ans
 
     @property
@@ -341,11 +341,10 @@ class Call(SourceNode):
             )
         except KeyError:
             pass
-        outputs_env = []
         for outp in self.callee.effective_outputs:
             assert isinstance(outp, Env.Binding)
-            outputs_env = Env.bind(outp.name, outp.rhs.type, outputs_env, ctx=self)
-        return Env.namespace(self.name, outputs_env, type_env)
+            type_env = Env.bind(type_env, [self.name], outp.name, outp.rhs.type, ctx=self)
+        return type_env
 
     def typecheck_input(self, type_env: Env.Types, check_quant: bool) -> bool:
         # Check the input expressions against the callee's inputs. One-time use.
@@ -389,7 +388,7 @@ class Call(SourceNode):
                 b, Env.Namespace
             ):
                 ans.append(b)
-        return Env.namespace(self.name, ans, []) if ans else []
+        return [Env.Namespace(self.name, ans)] if ans else []
 
     @property
     def required_inputs(self) -> Env.Decls:
@@ -408,7 +407,7 @@ class Call(SourceNode):
                 b, Env.Namespace
             ):
                 ans.append(b)
-        return Env.namespace(self.name, ans, []) if ans else []
+        return [Env.Namespace(self.name, ans)] if ans else []
 
     @property
     def effective_outputs(self) -> Env.Decls:
@@ -417,7 +416,7 @@ class Call(SourceNode):
         Yields the effective outputs of the callee Task or Workflow, in a
         namespace according to the call name."""
         ceo = self.callee.effective_outputs
-        return Env.namespace(self.name, ceo, []) if ceo else []
+        return [Env.Namespace(self.name, ceo)] if ceo else []
 
 
 class Scatter(SourceNode):
@@ -615,12 +614,12 @@ class Workflow(SourceNode):
 
         if self.inputs is not None:
             for decl in self.inputs:
-                ans = Env.bind(decl.name, decl, ans)
+                ans = Env.bind(ans, [], decl.name, decl)
 
         for elt in _decls_and_calls(self):
             if isinstance(elt, Decl):
                 if self.inputs is None:
-                    ans = Env.bind(elt.name, elt, ans)
+                    ans = Env.bind(ans, [], elt.name, elt)
             elif isinstance(elt, Call):
                 ans = elt.available_inputs + ans
             else:
@@ -639,12 +638,12 @@ class Workflow(SourceNode):
         if self.inputs is not None:
             for decl in self.inputs:
                 if decl.expr is None and decl.type.optional is False:
-                    ans = Env.bind(decl.name, decl, ans)
+                    ans = Env.bind(ans, [], decl.name, decl)
 
         for elt in _decls_and_calls(self):
             if isinstance(elt, Decl):
                 if self.inputs is None and elt.expr is None and elt.type.optional is False:
-                    ans = Env.bind(elt.name, elt, ans)
+                    ans = Env.bind(ans, [], elt.name, elt)
             elif isinstance(elt, Call):
                 ans = elt.required_inputs + ans
             else:
@@ -664,7 +663,7 @@ class Workflow(SourceNode):
 
         if self.outputs is not None:
             for decl in self.outputs:
-                ans = Env.bind(decl.name, decl, ans)
+                ans = Env.bind(ans, [], decl.name, decl)
         else:
             for call in _decls_and_calls(self):
                 if isinstance(call, Call):
@@ -962,7 +961,7 @@ def _build_workflow_type_env(
             )
         except KeyError:
             pass
-        type_env = Env.bind(self.variable, self.expr.type.item_type, type_env, ctx=self)
+        type_env = Env.bind(type_env, [], self.variable, self.expr.type.item_type, ctx=self)
     elif isinstance(self, Conditional):
         # typecheck the condition
         self.expr.infer_type(type_env, check_quant)
