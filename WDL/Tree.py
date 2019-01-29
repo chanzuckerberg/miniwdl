@@ -341,11 +341,10 @@ class Call(SourceNode):
             )
         except KeyError:
             pass
-        outputs_env = []
         for outp in self.callee.effective_outputs:
             assert isinstance(outp, Env.Binding)
-            outputs_env = Env.bind(outputs_env, [], outp.name, outp.rhs.type, ctx=self)
-        return Env.namespace(self.name, outputs_env, type_env)
+            type_env = Env.bind(type_env, [self.name], outp.name, outp.rhs.type, ctx=self)
+        return type_env
 
     def typecheck_input(self, type_env: Env.Types, check_quant: bool) -> bool:
         # Check the input expressions against the callee's inputs. One-time use.
@@ -389,7 +388,7 @@ class Call(SourceNode):
                 b, Env.Namespace
             ):
                 ans.append(b)
-        return Env.namespace(self.name, ans, []) if ans else []
+        return [Env.Namespace(self.name, ans)] if ans else []
 
     @property
     def required_inputs(self) -> Env.Decls:
@@ -408,7 +407,7 @@ class Call(SourceNode):
                 b, Env.Namespace
             ):
                 ans.append(b)
-        return Env.namespace(self.name, ans, []) if ans else []
+        return [Env.Namespace(self.name, ans)] if ans else []
 
     @property
     def effective_outputs(self) -> Env.Decls:
@@ -417,7 +416,7 @@ class Call(SourceNode):
         Yields the effective outputs of the callee Task or Workflow, in a
         namespace according to the call name."""
         ceo = self.callee.effective_outputs
-        return Env.namespace(self.name, ceo, []) if ceo else []
+        return [Env.Namespace(self.name, ceo)] if ceo else []
 
 
 class Scatter(SourceNode):

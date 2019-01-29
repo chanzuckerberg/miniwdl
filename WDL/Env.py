@@ -3,8 +3,6 @@
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
 from typing import List, TypeVar, Generic, Any
-import WDL.Type as T
-import WDL.Value as V
 
 """
 FIXME: we haven't found exactly the right way to write the type annotations for
@@ -125,8 +123,7 @@ def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any:  # pyr
     return ans
 
 
-def bind(
-    tree: "Tree[R]", namespace: List[str], name: str, rhs: R, ctx: Any = None) -> "Tree[R]":
+def bind(tree: "Tree[R]", namespace: List[str], name: str, rhs: R, ctx: Any = None) -> "Tree[R]":
     """
     Return a copy of ``tree`` with a new binding prepended. (Does not check for
     name collision!)
@@ -142,7 +139,9 @@ def bind(
     new_namespace = True
     for node in tree:
         if isinstance(node, Namespace) and node.namespace == namespace[0]:
-            ans.append(Namespace(node.namespace, bind(node.bindings, namespace[1:], name, rhs, ctx=ctx)))
+            ans.append(
+                Namespace(node.namespace, bind(node.bindings, namespace[1:], name, rhs, ctx=ctx))
+            )
             new_namespace = False
         else:
             ans.append(node)
@@ -204,7 +203,3 @@ def subtract(lhs: "Tree[R]", rhs: "Tree[S]") -> "Tree[R]":
         else:
             assert False
     return ans
-
-
-def namespace(namespace: str, bindings: "Tree[R]", tree: "Tree[R]") -> "Tree[R]":
-    return [Namespace(namespace, bindings)] + tree
