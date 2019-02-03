@@ -285,7 +285,7 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(len(e), 2)
         self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
         self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "pear"), "b")    
+        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "pear"), "b")
         self.assertEqual(len(WDL.Env.resolve_namespace(e, ["fruit", "apple"])), 2)
         self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp"), "c")
         self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")

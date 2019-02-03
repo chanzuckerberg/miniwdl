@@ -20,6 +20,7 @@ to share code for both type and value environments.
 """
 
 R = TypeVar("R")
+S = TypeVar("S")
 Tree = TypeVar("Tree", bound="List[Node[R]]")
 """:type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
 ``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
@@ -53,6 +54,9 @@ class Binding(Generic[R]):
         self.rhs = rhs
         self.ctx = ctx
 
+    def __repr__(self):
+        return "{}: {}".format(self.name, str(self.rhs))
+
 
 class Namespace(Generic[R]):
     """Encapsulates binding(s) under a namespace"""
@@ -68,6 +72,9 @@ class Namespace(Generic[R]):
     def __init__(self, namespace: str, bindings: "Tree[R]") -> None:
         self.namespace = namespace
         self.bindings = bindings
+
+    def __repr__(self):
+        return "{}. {}".format(self.namespace, str(self.bindings))
 
 
 Node = TypeVar("Node", Binding[R], Namespace[R])
