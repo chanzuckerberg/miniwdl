@@ -299,8 +299,8 @@ class TestEnv(unittest.TestCase):
 
         self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp"), "c")
         self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
-        with self.assertRaises(KeyError):
-            WDL.Env.unbind(e, [], "macintosh")
+        WDL.Env.unbind(e, [], "macintosh") # no KeyError
+        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
         e = WDL.Env.unbind(e, ["fruit", "apple"], "macintosh")
         with self.assertRaises(KeyError):
             WDL.Env.resolve(e, ["fruit", "apple"], "macintosh")

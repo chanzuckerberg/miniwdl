@@ -2,7 +2,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, TypeVar, Generic, Any
+from typing import List, TypeVar, Generic, Any, Callable, Optional
 
 """
 FIXME: we haven't found exactly the right way to write the type annotations for
@@ -149,35 +149,40 @@ def bind(tree: "Tree[R]", namespace: List[str], name: str, rhs: R, ctx: Any = No
     return ans
 
 
+def filter(
+    tree: "Tree[R]",
+    keep: Callable[[List[str], Binding], bool],
+    namespace: Optional[List[str]] = None,
+):
+    """
+    Return a copy of ``tree`` with only those bindings satisfying the
+    predicate ``keep(namespace, binding)``. Any ``Namespace`` nodes which
+    become empty are also removed.
+    """
+    namespace = namespace or []
+    ans = []
+    for node in tree:
+        if isinstance(node, Binding) and keep(namespace, node):
+            ans.append(node)
+        elif isinstance(node, Namespace):
+            children = filter(node.bindings, keep, namespace + [node.namespace])
+            if children:
+                ans.append(Namespace(node.namespace, children))
+    return ans
+
+
 def unbind(tree: "Tree[R]", namespace: List[str], name: str) -> "Tree[R]":
     """
-    Return a copy of ``tree`` without the specified binding.
+    Return a copy of ``tree`` without the specified binding. No error is raised
+    if there is no such binding.
 
     :param namespace: any ``Namespace`` nodes which become empty as a result of
     the binding's removal, are also removed.
-    :raise KeyError: if no such binding exists
     """
     assert name
-    found = False
-    ans = []
-    for node in tree:
-        if not namespace:
-            if isinstance(node, Binding) and node.name == name:
-                found = True
-            else:
-                ans.append(node)
-        else:
-            assert namespace[0]
-            if isinstance(node, Namespace) and node.namespace == namespace[0]:
-                sub = unbind(node.bindings, namespace[1:], name)
-                if sub:
-                    ans.append(Namespace(node.namespace, sub))
-                found = True
-            else:
-                ans.append(node)
-    if not found:
-        raise KeyError()
-    return ans
+    return filter(
+        tree, lambda a_namespace, binding: a_namespace != namespace or binding.name != name
+    )
 
 
 S = TypeVar("S")
@@ -188,20 +193,12 @@ def subtract(lhs: "Tree[R]", rhs: "Tree[S]") -> "Tree[R]":
     Return a copy of ``lhs`` without any binding matching one in ``rhs`` (by
     name+namespace). Bindings in ``rhs`` but not ``lhs`` are ignored.
     """
-    ans = []
-    for node in lhs:
-        if isinstance(node, Binding):
-            try:
-                resolve(rhs, [], node.name)
-            except KeyError:
-                ans.append(node)
-        elif isinstance(node, Namespace):
-            try:
-                sub = subtract(node.bindings, resolve_namespace(rhs, [node.namespace]))
-                if sub:
-                    ans.append(Namespace(node.namespace, sub))
-            except KeyError:
-                ans.append(node)
-        else:
-            assert False
-    return ans
+
+    def flt(namespace: List[str], binding: Binding):
+        try:
+            resolve(rhs, namespace, binding.name)
+            return False
+        except KeyError:
+            return True
+
+    return filter(lhs, flt)
