@@ -52,7 +52,7 @@ is "$(jq '.a_s | length' task_inputs.json)" "2" "task json a_s length"
 is "$(jq .a_s[0] task_inputs.json)" '"bar"' "task json a_s bar"
 is "$(jq .a_s[1] task_inputs.json)" '"baz"' "task json a_s baz"
 
-$miniwdl cromwell --dir taskrun/ echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown > stdout 2> stderr
+$miniwdl cromwell --dir taskrun/ echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown | tee stdout
 is "$?" "0" "task run"
 is "$(ls -1 taskrun/outputs/ | wc -l)" "2" "task output count"
 is "$(ls taskrun/outputs/quick)" "taskrun/outputs/quick" "task output quick"
@@ -81,7 +81,7 @@ is "$?" "0" "workflow json status"
 is "$(jq '.["echo.t.a_s"] | length' workflow_inputs.json)" "1" "workflow json t.a_s length"
 is "$(jq '.["echo.as"] | length' workflow_inputs.json)" "0" "--empty"
 
-$miniwdl cromwell --dir workflowrun echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s > stdout 2> stderr
+$miniwdl cromwell --dir workflowrun echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s | tee stdout
 is "$?" "0" "workflow run"
 is "$(ls -1 workflowrun/outputs/ | wc -l)" "2" "workflow output count"
 is "$(ls workflowrun/outputs/quick)" "workflowrun/outputs/quick" "workflow output quick"
