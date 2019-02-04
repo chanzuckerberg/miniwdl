@@ -72,7 +72,7 @@ If you haven't installed the PyPI package to get the `miniwdl` entry point, equi
 
 ## `miniwdl cromwell`
 
-This tool wraps [Cromwell](https://github.com/broadinstitute/cromwell) with a nicer command-line interface for running and testing a workflow. Example:
+This tool provides a nicer command-line interface for running a workflow locally using [Cromwell](https://github.com/broadinstitute/cromwell). Example:
 
 ```
 $ cat << 'EOF' > hello.wdl
@@ -114,7 +114,7 @@ $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 }
 ```
 
-By first analyzing the workflow, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell (for strings, numbers, files, and arrays thereof). It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to launch it. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
+By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
 
 ## `WDL` package
 
