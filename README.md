@@ -84,7 +84,6 @@ task hello {
     }
     command <<<
         awk '{print "Hello", $0}' "~{write_lines(who)}"
-
     >>>
     output {
         Array[String]+ messages = read_lines(stdout())
