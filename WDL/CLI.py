@@ -307,22 +307,18 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None,
                 now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + target.name,
             )
             os.makedirs(rundir, exist_ok=False)
+    print("+ mkdir -p " + rundir, file=sys.stderr)
     os.makedirs(os.path.join(rundir, "cromwell"))
 
     # write the JSON inputs file
     input_json_filename = None
-    if input_dict.items():
-        print("Cromwell input: " + json.dumps(input_dict, indent=2), file=sys.stderr)
-        input_json_filename = os.path.join(rundir, "inputs.json")
-        with open(input_json_filename, "w") as input_json:
-            print(json.dumps(input_dict, indent=2), file=input_json)
+    print("Cromwell input: " + json.dumps(input_dict, indent=2), file=sys.stderr)
+    input_json_filename = os.path.join(rundir, "inputs.json")
+    with open(input_json_filename, "w") as input_json:
+        print(json.dumps(input_dict, indent=2), file=input_json)
 
     # write Cromwell options
-    cromwell_options = {
-        "final_workflow_outputs_dir": os.path.join(rundir, "outputs"),
-        "final_workflow_log_dir": os.path.join(rundir, "logs"),
-        "final_call_logs_dir": os.path.join(rundir, "logs", "calls"),
-    }
+    cromwell_options = {"final_workflow_log_dir": os.path.join(rundir, "logs")}
     cromwell_options_filename = os.path.join(rundir, "cromwell", "options.json")
     with open(cromwell_options_filename, "w") as options_json:
         print(json.dumps(cromwell_options, indent=2), file=options_json)
@@ -339,22 +335,58 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None,
         (os.path.abspath(uri) if "://" not in uri else uri),
         "-o",
         cromwell_options_filename,
+        "-i",
+        input_json_filename,
     ]
-    if input_json_filename:
-        cromwell_cmd.append("-i")
-        cromwell_cmd.append(input_json_filename)
     for p in path:
         cromwell_cmd.append("--imports")
         cromwell_cmd.append(p)
-    print(" ".join([shellquote(s) for s in cromwell_cmd]), file=sys.stderr)
-    status = subprocess.call(cromwell_cmd, cwd=os.path.join(rundir, "cromwell"))
+    print(" ".join(["+"] + [shellquote(s) for s in cromwell_cmd]), file=sys.stderr)
+    proc = subprocess.Popen(
+        cromwell_cmd, cwd=os.path.join(rundir, "cromwell"), stdout=subprocess.PIPE
+    )
 
-    # reorganize the Cromwell outputs
-    # TODO: extract Cromwell output JSON by searching standard output for the
-    # line "{" (as its standard output is not generally "clean")
+    # stream in Cromwell stdout, which mixes a bunch of stuff. tee it to stderr
+    # while recording it so we can go back to look for the output JSON later.
+    cromwell_output_lines = []
+    while proc.poll() is None:
+        line = proc.stdout.readline()
+        if line:
+            line = str(line, "utf-8").rstrip()
+            print(line, file=sys.stderr)
+            cromwell_output_lines.append(line)
+    assert isinstance(proc.returncode, int)
+
+    # deal with Cromwell outputs
+
+    # remove world-write permissions from created temp files
     subprocess.call(["chmod", "-Rf", "o-w", rundir])
 
-    sys.exit(status)
+    if proc.returncode == 0:
+        # sniff for the outputs JSON as the last subsequence of stdout lines
+        # delimited by { and }
+        last_lbrace = None
+        last_rbrace = None
+        try:
+            last_lbrace = max(loc for loc, val in enumerate(cromwell_output_lines) if val == "{")
+            last_rbrace = max(loc for loc, val in enumerate(cromwell_output_lines) if val == "}")
+        except ValueError:
+            pass
+        try:
+            if last_lbrace is None or last_rbrace is None or last_lbrace >= last_rbrace:
+                raise KeyError
+            outputs_json = json.loads(
+                "\n".join(cromwell_output_lines[last_lbrace : (last_rbrace + 1)])
+            )
+        except:
+            die("failed to find outputs JSON in Cromwell standard output")
+        assert "dir" not in outputs_json
+        outputs_json["dir"] = rundir
+        print(json.dumps(outputs_json, indent=2))
+        with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
+            print(json.dumps(outputs_json, indent=2), file=outfile)
+
+    sys.exit(proc.returncode)
 
 
 def ensure_cromwell_jar():
@@ -491,6 +523,7 @@ def cromwell_input(doc, inputs, empty):
 
 
 def cromwell_input_help(target):
+    # TODO: get help message from parameter_meta
     ans = []
     required_inputs = target.required_inputs
     ans.append("\nrequired inputs:")
@@ -535,21 +568,20 @@ def cromwell_input_value(s_value, ty):
     """
     if isinstance(ty, WDL.Type.String):
         return WDL.Value.String(s_value)
-    elif isinstance(ty, WDL.Type.File):
+    if isinstance(ty, WDL.Type.File):
         if not os.path.exists(s_value):
             die("File not found: " + s_value)
         return WDL.Value.String(os.path.abspath(s_value))
-    elif isinstance(ty, WDL.Type.Int):
+    if isinstance(ty, WDL.Type.Int):
         return WDL.Value.Int(int(s_value))
-    elif isinstance(ty, WDL.Type.Float):
+    if isinstance(ty, WDL.Type.Float):
         return WDL.Value.Float(float(s_value))
-    elif isinstance(ty, WDL.Type.Array) and isinstance(
+    if isinstance(ty, WDL.Type.Array) and isinstance(
         ty.item_type, (WDL.Type.String, WDL.Type.File, WDL.Type.Int, WDL.Type.Float)
     ):
         # just produce a length-1 array, to be combined ex post facto
         return WDL.Value.Array(ty, [cromwell_input_value(s_value, ty.item_type)])
-    else:
-        return die("No command-line support yet for inputs of type {}".format(str(ty)))
+    return die("No command-line support yet for inputs of type {}".format(str(ty)))
 
 
 def cromwell_input_dict(value_env, namespace=None):
