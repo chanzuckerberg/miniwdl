@@ -318,7 +318,7 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None,
         print(json.dumps(input_dict, indent=2), file=input_json)
 
     # write Cromwell options
-    cromwell_options = {"final_workflow_log_dir": os.path.join(rundir, "logs")}
+    cromwell_options = {"final_workflow_log_dir": os.path.join(rundir, "cromwell")}
     cromwell_options_filename = os.path.join(rundir, "cromwell", "options.json")
     with open(cromwell_options_filename, "w") as options_json:
         print(json.dumps(cromwell_options, indent=2), file=options_json)
