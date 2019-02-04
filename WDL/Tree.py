@@ -186,7 +186,7 @@ class Task(SourceNode):
         """
         ans = []
         for decl in self.outputs:
-            ans = Env.bind(ans, [], decl.name, decl.type)
+            ans = Env.bind(ans, [], decl.name, decl.type, ctx=decl)
         return ans
 
     @property
@@ -686,7 +686,7 @@ class Workflow(SourceNode):
 
         if self.outputs is not None:
             for decl in self.outputs:
-                ans = Env.bind(ans, [], decl.name, decl.type)
+                ans = Env.bind(ans, [], decl.name, decl.type, ctx=decl)
         else:
             for elt in self.elements:
                 if not isinstance(elt, Decl):
