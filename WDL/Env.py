@@ -178,7 +178,7 @@ def filter(
     tree: "Tree[R]",
     keep: "Callable[[List[str], Binding[R]], bool]",
     namespace: Optional[List[str]] = None,
-):
+) -> "Tree[R]":
     """
     Copy ``tree`` with only those bindings satisfying the predicate
     ``keep(namespace, binding)``. Any ``Namespace`` nodes which become empty
