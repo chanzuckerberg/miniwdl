@@ -524,6 +524,7 @@ def cromwell_input(doc, inputs, empty):
 
 def cromwell_input_help(target):
     # TODO: get help message from parameter_meta
+    # TODO: show default values of optionals
     ans = []
     required_inputs = target.required_inputs
     ans.append("\nrequired inputs:")

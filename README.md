@@ -80,12 +80,15 @@ version 1.0
 task hello {
     input {
         Array[String]+ who
+        Int x = 0
     }
     command <<<
         awk '{print "Hello", $0}' "~{write_lines(who)}"
+
     >>>
     output {
         Array[String]+ messages = read_lines(stdout())
+        Int meaning_of_life = x+1
     }
 }
 EOF
@@ -93,22 +96,26 @@ $ miniwdl cromwell hello.wdl
 missing required inputs for hello: who
 required inputs:
   Array[String]+ who
+optional inputs:
+  Int x
 outputs:
   Array[String]+ messages
-$ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle"
+  Int meaning_of_life
+$ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 {
   "outputs": {
     "hello.messages": [
       "Hello Alyssa",
       "Hello Ben Bitdiddle"
-    ]
+    ],
+    "hello.meaning_of_life": 42
   },
   "id": "b75f3449-344f-45ec-86b2-c004a3adc289",
   "dir": "/home/user/20190203_215657_hello"
 }
 ```
 
-By first analyzing the workflow, this tool translates the command-line arguments into the appropriately-typed JSON inputs for Cromwell (for strings, numbers, files, and arrays thereof). It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (can be overridden; see `-h`).
+By first analyzing the workflow, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell (for strings, numbers, files, and arrays thereof). It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to launch it. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
 
 ## `WDL` package
 
