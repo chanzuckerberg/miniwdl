@@ -595,9 +595,15 @@ def cromwell_input_dict(value_env, namespace=None):
     ans = {}
     for item in reversed(value_env):
         if isinstance(item, WDL.Env.Binding):
-            json_rhs = item.rhs.value if hasattr(item.rhs, "value") else str(item.rhs.type)
-            if isinstance(json_rhs, list):
-                json_rhs = [elt.value for elt in json_rhs]
+            if isinstance(item.rhs, WDL.Value.Base):
+                json_rhs = item.rhs.value
+                if isinstance(json_rhs, list):
+                    json_rhs = [elt.value for elt in json_rhs]
+            elif isinstance(item.rhs, WDL.Decl):
+                json_rhs = str(item.rhs.type)
+            else:
+                assert isinstance(item.rhs, WDL.Type.Base)
+                json_rhs = str(item.rhs)
             ans[".".join(namespace + [item.name])] = json_rhs
         elif isinstance(item, WDL.Env.Namespace):
             for k, v in cromwell_input_dict(
