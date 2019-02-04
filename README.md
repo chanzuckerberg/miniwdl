@@ -8,7 +8,7 @@
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
-*miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes a command-line tool which validates WDL documents and generates lint/style warnings.
+*miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes command-line tools supporting the WDL development cycle, including a "linter" to statically analyze WDL documents for errors and oversights, and a [Cromwell](https://github.com/broadinstitute/cromwell) wrapper to make it more convenient to test a workflow locally.
 
 This project in alpha development; interfaces are liable to change somewhat.
 
@@ -69,6 +69,46 @@ SmartSeq2SingleSample.wdl
 In addition to its suite of WDL-specific warnings, `miniwdl check` uses [ShellCheck](https://www.shellcheck.net/), if available, to detect possible issues in each task command script. You may need to install ShellCheck separately, as it's not included with miniwdl.
 
 If you haven't installed the PyPI package to get the `miniwdl` entry point, equivalently `python3 -m /path/to/miniwdl/WDL check ...`.
+
+## `miniwdl cromwell`
+
+This tool wraps [Cromwell](https://github.com/broadinstitute/cromwell) with a nicer command-line interface for running and testing a workflow. Example:
+
+```
+$ cat << 'EOF' > hello.wdl
+version 1.0
+task hello {
+    input {
+        Array[String]+ who
+    }
+    command <<<
+        awk '{print "Hello", $0}' "~{write_lines(who)}"
+    >>>
+    output {
+        Array[String]+ messages = read_lines(stdout())
+    }
+}
+EOF
+$ miniwdl cromwell hello.wdl
+missing required inputs for hello: who
+required inputs:
+  Array[String]+ who
+outputs:
+  Array[String]+ messages
+$ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle"
+{
+  "outputs": {
+    "hello.messages": [
+      "Hello Alyssa",
+      "Hello Ben Bitdiddle"
+    ]
+  },
+  "id": "b75f3449-344f-45ec-86b2-c004a3adc289",
+  "dir": "/home/user/20190203_215657_hello"
+}
+```
+
+By first analyzing the workflow, this tool translates the command-line arguments into the appropriately-typed JSON inputs for Cromwell (for strings, numbers, files, and arrays thereof). It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (can be overridden; see `-h`).
 
 ## `WDL` package
 

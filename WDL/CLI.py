@@ -248,7 +248,7 @@ def fill_cromwell_subparser(subparsers):
         metavar="input_key=value",
         type=str,
         nargs="*",
-        help="workflow inputs. Provide array inputs by repeating, key=value1 key=value2 ...",
+        help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
     )
     cromwell_parser.add_argument(
         "-d",
@@ -536,9 +536,10 @@ def cromwell_input_help(target):
         optional_inputs = WDL.Env.filter(
             optional_inputs, lambda _, b: b.rhs.expr is None or is_constant_expr(b.rhs.expr)
         )
-    ans.append("\noptional inputs:")
-    for name, ty in cromwell_input_dict(optional_inputs).items():
-        ans.append("  {} {}".format(ty, name))
+    if optional_inputs:
+        ans.append("\noptional inputs:")
+        for name, ty in cromwell_input_dict(optional_inputs).items():
+            ans.append("  {} {}".format(ty, name))
     ans.append("\noutputs:")
     for name, ty in cromwell_input_dict(target.effective_outputs).items():
         ans.append("  {} {}".format(ty, name))
