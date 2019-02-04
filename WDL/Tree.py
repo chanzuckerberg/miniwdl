@@ -177,15 +177,16 @@ class Task(SourceNode):
         return ans
 
     @property
-    def effective_outputs(self) -> Env.Decls:
-        """:type: WDL.Env.Decls
+    def effective_outputs(self) -> Env.Types:
+        """:type: WDL.Env.Types
 
-        Yields each output declaration, at the top level of the Env, with no
-        namespace. (Present for isomorphism with ``Workflow.effective_outputs``)
+        Yields each task output with its type, at the top level of the Env with
+        no namespace. (Present for isomorphism with
+        ``Workflow.effective_outputs``)
         """
         ans = []
         for decl in self.outputs:
-            ans = Env.bind(ans, [], decl.name, decl)
+            ans = Env.bind(ans, [], decl.name, decl.type, ctx=decl)
         return ans
 
     @property
@@ -341,10 +342,7 @@ class Call(SourceNode):
             )
         except KeyError:
             pass
-        for outp in self.callee.effective_outputs:
-            assert isinstance(outp, Env.Binding)
-            type_env = Env.bind(type_env, [self.name], outp.name, outp.rhs.type, ctx=self)
-        return type_env
+        return self.effective_outputs + type_env
 
     def typecheck_input(self, type_env: Env.Types, check_quant: bool) -> bool:
         # Check the input expressions against the callee's inputs. One-time use.
@@ -410,13 +408,17 @@ class Call(SourceNode):
         return [Env.Namespace(self.name, ans)] if ans else []
 
     @property
-    def effective_outputs(self) -> Env.Decls:
+    def effective_outputs(self) -> Env.Types:
         """:type: WDL.Env.Decls
 
         Yields the effective outputs of the callee Task or Workflow, in a
-        namespace according to the call name."""
-        ceo = self.callee.effective_outputs
-        return [Env.Namespace(self.name, ceo)] if ceo else []
+        namespace according to the call name.
+        """
+        ans = []
+        for outp in self.callee.effective_outputs:
+            assert isinstance(outp, Env.Binding)
+            ans = Env.bind(ans, [self.name], outp.name, outp.rhs, ctx=self)
+        return ans
 
 
 class Scatter(SourceNode):
@@ -474,12 +476,22 @@ class Scatter(SourceNode):
         inner_type_env = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(inner_type_env)
-        nonempty = False
-        if isinstance(self.expr._type, T.Array):
-            # Subtlety: if the scatter array is statically nonempty, then so
-            # too are the arrayized values
-            nonempty = self.expr.type.nonempty
-        return _arrayize_types(inner_type_env, nonempty) + type_env
+        # Subtlety: if the scatter array is statically nonempty, then so too
+        # are the arrayized values
+        nonempty = isinstance(self.expr._type, T.Array) and self.expr.type.nonempty
+        return Env.map(inner_type_env, lambda ns, b: T.Array(b.rhs, nonempty=nonempty)) + type_env
+
+    @property
+    def effective_outputs(self) -> Env.Types:
+        # Yield the outputs of calls in this section and subsections, typed
+        # and namespaced appropriately, as they'll be propagated if the
+        # workflow lacks an explicit output{} section
+        nonempty = isinstance(self.expr._type, T.Array) and self.expr.type.nonempty
+        ans = []
+        for elt in self.elements:
+            if not isinstance(elt, Decl):
+                ans = elt.effective_outputs + ans
+        return Env.map(ans, lambda ns, b: T.Array(b.rhs, nonempty=nonempty))
 
 
 class Conditional(SourceNode):
@@ -529,7 +541,18 @@ class Conditional(SourceNode):
         inner_type_env = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(inner_type_env)
-        return _optionalize_types(inner_type_env) + type_env
+        return Env.map(inner_type_env, lambda ns, b: b.rhs.copy(optional=True)) + type_env
+
+    @property
+    def effective_outputs(self) -> Env.Types:
+        # Yield the outputs of calls in this section and subsections, typed
+        # and namespaced appropriately, as they'll be propagated if the
+        # workflow lacks an explicit output{} section
+        ans = []
+        for elt in self.elements:
+            if not isinstance(elt, Decl):
+                ans = elt.effective_outputs + ans
+        return Env.map(ans, lambda ns, b: b.rhs.copy(optional=True))
 
 
 class Workflow(SourceNode):
@@ -652,22 +675,22 @@ class Workflow(SourceNode):
         return ans
 
     @property
-    def effective_outputs(self) -> Env.Decls:
+    def effective_outputs(self) -> Env.Types:
         """:type: WDL.Env.Decls
 
-        If the ``output{}`` workflow section is present, yields each
-        declaration therein, at the top level of the Env. Otherwise, yield a
-        declaration for each call output, namespaced by the call name.
+        If the ``output{}`` workflow section is present, yields the names and
+        types therein, at the top level of the Env. Otherwise, yield all the
+        call outputs, namespaced and typed appropriately.
         """
         ans = []
 
         if self.outputs is not None:
             for decl in self.outputs:
-                ans = Env.bind(ans, [], decl.name, decl)
+                ans = Env.bind(ans, [], decl.name, decl.type, ctx=decl)
         else:
-            for call in _decls_and_calls(self):
-                if isinstance(call, Call):
-                    ans = call.effective_outputs + ans
+            for elt in self.elements:
+                if not isinstance(elt, Decl):
+                    ans = elt.effective_outputs + ans
 
         return ans
 
@@ -992,35 +1015,6 @@ def _build_workflow_type_env(
     for child in self.elements:
         type_env = child.add_to_type_env(type_env)
     self._type_env = type_env
-
-
-def _arrayize_types(type_env: Env.Types, nonempty: bool = False) -> Env.Types:
-    # Given a type environment, recursively promote each binding of type T to
-    # Array[T] -- used in Scatter.add_to_type_env
-    ans = []
-    for node in type_env:
-        if isinstance(node, Env.Binding):
-            ans.append(Env.Binding(node.name, T.Array(node.rhs, nonempty=nonempty), node.ctx))
-        elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace, _arrayize_types(node.bindings, nonempty)))
-        else:
-            assert False
-    return ans
-
-
-def _optionalize_types(type_env: Env.Types) -> Env.Types:
-    # Given a type environment, recursively make each binding optional -- used
-    # in Conditional.add_to_type_env
-    ans = []
-    for node in type_env:
-        if isinstance(node, Env.Binding):
-            ty = node.rhs.copy(optional=True)
-            ans.append(Env.Binding(node.name, ty, node.ctx))
-        elif isinstance(node, Env.Namespace):
-            ans.append(Env.Namespace(node.namespace, _optionalize_types(node.bindings)))
-        else:
-            assert False
-    return ans
 
 
 def _typecheck_workflow_elements(

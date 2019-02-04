@@ -567,6 +567,8 @@ class Ident(Base):
             ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
         except KeyError:
             raise Error.UnknownIdentifier(self) from None
+        # the ctx for each binding in the type environment should be the
+        # originating Decl (for inputs/values) or Call (for call outputs)
         self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
         return ans
 

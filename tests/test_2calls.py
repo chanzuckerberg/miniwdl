@@ -432,3 +432,9 @@ class TestCalls(unittest.TestCase):
         WDL.Env.resolve(ns, [], "y")
         self.assertEqual(len(doc.workflow.required_inputs), 1)
         WDL.Env.resolve(doc.workflow.required_inputs, [], "required")
+
+        doc = WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/tricky_outputs.wdl"))
+        self.assertEqual(len(doc.workflow.effective_outputs), 3)
+        self.assertEqual(str(WDL.Env.resolve(doc.workflow.effective_outputs, ["hello"], "message")), "Array[String]")
+        self.assertEqual(str(WDL.Env.resolve(doc.workflow.effective_outputs, ["hello2"], "message")), "Array[String]?")
+        self.assertEqual(str(WDL.Env.resolve(doc.workflow.effective_outputs, ["hello3"], "message")), "String")

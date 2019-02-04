@@ -149,15 +149,40 @@ def bind(tree: "Tree[R]", namespace: List[str], name: str, rhs: R, ctx: Any = No
     return ans
 
 
+S = TypeVar("S")
+
+
+def map(
+    tree: "Tree[R]",
+    fn: "Callable[[List[str], Binding[R]], S]",
+    namespace: Optional[List[str]] = None,
+) -> "Tree[S]":
+    """
+    Copy ``tree`` with the ``rhs`` of each binding replaced by
+    ``fn(namespace, binding)``
+    """
+    namespace = namespace or []
+    ans = []
+    for node in tree:
+        if isinstance(node, Binding):
+            ans.append(Binding(node.name, fn(namespace, node), ctx=node.ctx))
+        else:
+            assert isinstance(node, Namespace)
+            ans.append(
+                Namespace(node.namespace, map(node.bindings, fn, namespace + [node.namespace]))
+            )
+    return ans
+
+
 def filter(
     tree: "Tree[R]",
-    keep: Callable[[List[str], Binding], bool],
+    keep: "Callable[[List[str], Binding[R]], bool]",
     namespace: Optional[List[str]] = None,
-):
+) -> "Tree[R]":
     """
-    Return a copy of ``tree`` with only those bindings satisfying the
-    predicate ``keep(namespace, binding)``. Any ``Namespace`` nodes which
-    become empty are also removed.
+    Copy ``tree`` with only those bindings satisfying the predicate
+    ``keep(namespace, binding)``. Any ``Namespace`` nodes which become empty
+    are also removed.
     """
     namespace = namespace or []
     ans = []
@@ -183,9 +208,6 @@ def unbind(tree: "Tree[R]", namespace: List[str], name: str) -> "Tree[R]":
     return filter(
         tree, lambda a_namespace, binding: a_namespace != namespace or binding.name != name
     )
-
-
-S = TypeVar("S")
 
 
 def subtract(lhs: "Tree[R]", rhs: "Tree[S]") -> "Tree[R]":
