@@ -10,7 +10,7 @@
 
 *miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes command-line tools supporting the WDL development cycle, including a "linter" to statically analyze WDL documents for errors and oversights, and a [Cromwell](https://github.com/broadinstitute/cromwell) wrapper to make it more convenient to test a workflow locally.
 
-This project in alpha development; interfaces are liable to change somewhat. See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs.
+This project in alpha development; interfaces are liable to change somewhat. See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap.
 
 <!-- TOC generator tool: https://magnetikonline.github.io/markdown-toc-generate/ -->
 - [Installation](#installation)
