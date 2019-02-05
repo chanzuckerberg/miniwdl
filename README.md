@@ -17,10 +17,9 @@ This project in alpha development; interfaces are liable to change somewhat. See
 - [Command-line tools](#command-line-tools)
   - [miniwdl check](#miniwdl-check)
   - [miniwdl cromwell](#miniwdl-cromwell)
-- [`WDL` Python package](#wdl-python-package)
+- [WDL Python library](#wdl-python-library)
   - [API documentation](#api-documentation)
 - [Contributing](#contributing)
-
 
 ## Installation
 
@@ -128,7 +127,7 @@ $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 
 By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
 
-## `WDL` Python package
+## WDL Python library
 
 The `WDL` package provides programmatic access to the WDL parser and AST. The following example prints all declarations in a workflow, descending into `scatter` and `if` stanzas as needed.
 
