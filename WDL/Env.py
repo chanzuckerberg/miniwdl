@@ -20,6 +20,7 @@ to share code for both type and value environments.
 """
 
 R = TypeVar("R")
+S = TypeVar("S")
 Tree = TypeVar("Tree", bound="List[Node[R]]")
 """:type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
 ``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
@@ -53,6 +54,9 @@ class Binding(Generic[R]):
         self.rhs = rhs
         self.ctx = ctx
 
+    def __repr__(self):
+        return "{}: {}".format(self.name, str(self.rhs))
+
 
 class Namespace(Generic[R]):
     """Encapsulates binding(s) under a namespace"""
@@ -68,6 +72,9 @@ class Namespace(Generic[R]):
     def __init__(self, namespace: str, bindings: "Tree[R]") -> None:
         self.namespace = namespace
         self.bindings = bindings
+
+    def __repr__(self):
+        return "{}. {}".format(self.namespace, str(self.bindings))
 
 
 Node = TypeVar("Node", Binding[R], Namespace[R])
@@ -127,8 +134,7 @@ def bind(tree: "Tree[R]", namespace: List[str], name: str, rhs: R, ctx: Any = No
     Return a copy of ``tree`` with a new binding prepended. (Does not check for
     name collision!)
 
-    :param namespace: the binding is added to any existing bindings under a
-    matching ``Namespace`` node, with any new nodes added as needed.
+    :param namespace: the binding is added to any existing bindings under a matching ``Namespace`` node, with any new nodes added as needed.
     """
     assert name
     if not namespace:
@@ -201,8 +207,7 @@ def unbind(tree: "Tree[R]", namespace: List[str], name: str) -> "Tree[R]":
     Return a copy of ``tree`` without the specified binding. No error is raised
     if there is no such binding.
 
-    :param namespace: any ``Namespace`` nodes which become empty as a result of
-    the binding's removal, are also removed.
+    :param namespace: any ``Namespace`` nodes which become empty as a result of the binding's removal, are also removed.
     """
     assert name
     return filter(

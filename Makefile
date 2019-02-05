@@ -3,12 +3,12 @@ SHELL := /bin/bash
 test: check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
 	coverage report
-	prove -v tests/cli.t
+	prove -v tests/check.t tests/cromwell.t
 
 # fail fast
 qtest:
 	python3 -m unittest -v -f
-	prove -v tests/cli.t
+	prove -v tests/check.t
 
 check:
 	pylint -j `nproc` --errors-only WDL

@@ -8,9 +8,18 @@
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
-*miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes a command-line tool which validates WDL documents and generates lint/style warnings.
+*miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes command-line tools supporting the WDL development cycle, including a "linter" to statically analyze WDL documents for errors and oversights, and a [Cromwell](https://github.com/broadinstitute/cromwell) wrapper to make it more convenient to test a workflow locally.
 
-This project in alpha development; interfaces are liable to change somewhat.
+This project in alpha development; interfaces are liable to change somewhat. See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap.
+
+<!-- TOC generator tool: https://magnetikonline.github.io/markdown-toc-generate/ -->
+- [Installation](#installation)
+- [Command-line tools](#command-line-tools)
+  - [miniwdl check](#miniwdl-check)
+  - [miniwdl cromwell](#miniwdl-cromwell)
+- [WDL Python library](#wdl-python-library)
+  - [API documentation](#api-documentation)
+- [Contributing](#contributing)
 
 ## Installation
 
@@ -21,9 +30,11 @@ This will also install the [Lark parsing library](https://github.com/lark-parser
 For development, `git clone --recursive` this repository and ``docker build -t miniwdl .`` to run miniwdl's test suite in a locally-built docker container. The [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) illustrates how to configure another environment.
 
 
-## `miniwdl check`
+## Command-line tools
 
-Once installed, ``miniwdl check /path/to/workflow.wdl`` loads the WDL document and shows a brief outline with any lint warnings. Add ``--path /path/to/tasks/`` with a directory to search for imported documents (one or more times). Example with [HumanCellAtlas/skylab](https://github.com/HumanCellAtlas/skylab):
+### `miniwdl check`
+
+``miniwdl check /path/to/workflow.wdl`` loads the WDL document and shows a brief outline with any lint warnings. Add ``--path /path/to/tasks/`` with a directory to search for imported documents (one or more times). Example with [HumanCellAtlas/skylab](https://github.com/HumanCellAtlas/skylab):
 
 ```
 $ git clone https://github.com/HumanCellAtlas/skylab.git
@@ -70,7 +81,53 @@ In addition to its suite of WDL-specific warnings, `miniwdl check` uses [ShellCh
 
 If you haven't installed the PyPI package to get the `miniwdl` entry point, equivalently `python3 -m /path/to/miniwdl/WDL check ...`.
 
-## `WDL` package
+### `miniwdl cromwell`
+
+This tool provides a nicer command-line interface for running a workflow locally using [Cromwell](https://github.com/broadinstitute/cromwell). Example:
+
+```
+$ cat << 'EOF' > hello.wdl
+version 1.0
+task hello {
+    input {
+        Array[String]+ who
+        Int x = 0
+    }
+    command <<<
+        awk '{print "Hello", $0}' "~{write_lines(who)}"
+    >>>
+    output {
+        Array[String]+ messages = read_lines(stdout())
+        Int meaning_of_life = x+1
+    }
+}
+EOF
+$ miniwdl cromwell hello.wdl
+missing required inputs for hello: who
+required inputs:
+  Array[String]+ who
+optional inputs:
+  Int x
+outputs:
+  Array[String]+ messages
+  Int meaning_of_life
+$ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
+{
+  "outputs": {
+    "hello.messages": [
+      "Hello Alyssa",
+      "Hello Ben Bitdiddle"
+    ],
+    "hello.meaning_of_life": 42
+  },
+  "id": "b75f3449-344f-45ec-86b2-c004a3adc289",
+  "dir": "/home/user/20190203_215657_hello"
+}
+```
+
+By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
+
+## WDL Python library
 
 The `WDL` package provides programmatic access to the WDL parser and AST. The following example prints all declarations in a workflow, descending into `scatter` and `if` stanzas as needed.
 
@@ -105,7 +162,7 @@ Array[File] non_optional_i1_fastq
 File barcoded_bam
 ```
 
-## Documentation
+### API documentation
 
 Online Python developer documentation for the `WDL` package: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
