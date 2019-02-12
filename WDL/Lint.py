@@ -190,6 +190,7 @@ class FileCoercion(Linter):
 
     # File declaration with String rhs expression
     def decl(self, obj: WDL.Decl) -> Any:
+        super().decl(obj)
         if (
             isinstance(obj.type, WDL.Type.File)
             and obj.expr
@@ -198,6 +199,7 @@ class FileCoercion(Linter):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
+        super().expr(obj)
         pt = getattr(obj, "parent")
         if isinstance(obj, WDL.Expr.Apply):
             # File function operands with String expression
@@ -212,6 +214,7 @@ class FileCoercion(Linter):
                         self.add(pt, msg, arg_i.pos)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
+        super().expr(obj)
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if isinstance(decl.type, WDL.Type.File) and not isinstance(

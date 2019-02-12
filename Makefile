@@ -2,7 +2,7 @@ SHELL := /bin/bash
 
 test: check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
-	coverage report
+	coverage report -m
 	prove -v tests/check.t tests/cromwell.t
 
 # fail fast

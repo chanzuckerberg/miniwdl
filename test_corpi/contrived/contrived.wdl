@@ -35,9 +35,10 @@ task popular {
     }
     String? x = popular + opt   # rhs expr is non-optional although opt is...
     Array[String] args = prefix("-f", y)
+    String contents = read_string(popular)
 
     command {
-        echo "~{popular}"
+        echo "~{popular} ~{contents}"
         echo "${x} ${write_tsv(y)}"
     }
 
