@@ -212,7 +212,7 @@ class FileCoercion(Linter):
                         self.add(pt, msg, arg_i.pos)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
-        for name, inp_expr in obj.inputs.items():,exec-used
+        for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if isinstance(decl.type, WDL.Type.File) and not isinstance(
                 inp_expr.type, WDL.Type.File
