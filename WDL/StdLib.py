@@ -195,9 +195,6 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)),  # pyre-fixme
     ("stdout", [], T.File(), _notimpl),
     ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
-    # note: size() can take an empty value and probably returns 0 in that case.
-    #       e.g. https://github.com/DataBiosphere/topmed-workflows/blob/31ba8a714b36ada929044f2ba3d130936e6c740e/CRAM-no-header-md5sum/md5sum/CRAM_md5sum.wdl#L39
-    ("size", [T.File(optional=True), T.String(optional=True)], T.Float(), _notimpl),
     ("floor", [T.Float()], T.Int(), _notimpl),
     ("ceil", [T.Float()], T.Int(), _notimpl),
     ("round", [T.Float()], T.Int(), _notimpl),
@@ -374,10 +371,10 @@ E._stdlib["_lte"] = _ComparisonOperator("<=", lambda l, r: l <= r)  # pyre-fixme
 E._stdlib["_gt"] = _ComparisonOperator(">", lambda l, r: l > r)  # pyre-fixme
 E._stdlib["_gte"] = _ComparisonOperator(">=", lambda l, r: l >= r)  # pyre-fixme
 
-# defined(): accepts any type...
-
 
 class _Defined(E._Function):
+    # defined(): accepts any type...
+
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
@@ -397,7 +394,9 @@ class _Length(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(expr, T.Array(T.Any()), expr.arguments[0].type)
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
+            )
         return T.Int()
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
@@ -409,6 +408,40 @@ class _Length(E._Function):
 
 
 E._stdlib["length"] = _Length()
+
+
+class _Size(E._Function):
+    # size(): first argument can be File? or Array[File?]
+
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        if not expr.arguments:
+            raise Error.WrongArity(expr, 1)
+        if not expr.arguments[0].type.coerces(T.File(optional=True)):
+            if isinstance(expr.arguments[0].type, T.Array):
+                if expr.arguments[0].type.optional or not expr.arguments[0].type.item_type.coerces(
+                    T.File(optional=True)
+                ):
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[0], T.Array(T.File(optional=True)), expr.arguments[0].type
+                    )
+            else:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[0], T.File(optional=True), expr.arguments[0].type
+                )
+        if len(expr.arguments) == 2:
+            if expr.arguments[1].type != T.String():
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1], T.String(), expr.arguments[1].type
+                )
+        elif len(expr.arguments) > 2:
+            raise Error.WrongArity(expr, 2)
+        return T.Float()
+
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
+
+
+E._stdlib["size"] = _Size()
 
 
 class _SelectFirst(E._Function):
