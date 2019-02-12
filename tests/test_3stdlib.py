@@ -30,7 +30,10 @@ class TestStdLib(unittest.TestCase):
         for case in [
             ("Float sz = size()", WDL.Error.WrongArity),
             ("Float sz = size(file1,file2,'MB')", WDL.Error.WrongArity),
+            ("Float sz = size(42)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size([42])", WDL.Error.StaticTypeMismatch),
             ("Float sz = size(file1,file2)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(file1,[file2])", WDL.Error.StaticTypeMismatch),
         ]:
             doc = WDL.parse_document(tmpl.format(case[0]))
             with self.assertRaises(case[1]):
