@@ -3,7 +3,7 @@
 Linting: annotate WDL AST with hygiene warning
 """
 import subprocess, tempfile, json, os, shutil
-from typing import Any, Optional
+from typing import Any, Optional, Union
 import WDL
 
 
@@ -127,13 +127,30 @@ def _compound_coercion(
     return False
 
 
+def _parent_executable(obj: WDL.SourceNode) -> Optional[Union[WDL.Tree.Task, WDL.Tree.Workflow]]:
+    if isinstance(obj, (WDL.Tree.Task, WDL.Tree.Workflow)):
+        return obj
+    if hasattr(obj, "parent_executable"):
+        return getattr(obj, "parent_executable")
+    if hasattr(obj, "parent"):
+        ans = _parent_executable(getattr(obj, "parent"))
+        setattr(obj, "parent_executable", ans)
+        return ans
+    return None
+
+
 @a_linter
 class StringCoercion(Linter):
     # String declaration with non-String rhs expression
-    # TODO: flag other File=>String coercions at workflow level?
+    # File-to-String coercions are normal in tasks, but flagged at the workflow level.
 
     def decl(self, obj: WDL.Decl) -> Any:
-        if obj.expr and _compound_coercion(obj.type, obj.expr.type, WDL.Type.String, WDL.Type.File):
+        if obj.expr and _compound_coercion(
+            obj.type,
+            obj.expr.type,
+            WDL.Type.String,
+            (WDL.Type.File if isinstance(_parent_executable(obj), WDL.Tree.Task) else None),
+        ):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
@@ -158,11 +175,21 @@ class StringCoercion(Linter):
                     )
             else:
                 F = WDL.Expr._stdlib[obj.function_name]
-                if isinstance(F, WDL.StdLib._StaticFunction):
+                if isinstance(F, WDL.StdLib._StaticFunction) and obj.function_name != "basename":
+                    # ok for basename to take either String or File
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
                         arg_i = obj.arguments[i]
-                        if _compound_coercion(F_i, arg_i.type, WDL.Type.String, WDL.Type.File):
+                        if _compound_coercion(
+                            F_i,
+                            arg_i.type,
+                            WDL.Type.String,
+                            (
+                                WDL.Type.File
+                                if isinstance(_parent_executable(obj), WDL.Tree.Task)
+                                else None
+                            ),
+                        ):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F_i), F.name, str(arg_i.type)
                             )
@@ -188,8 +215,6 @@ class StringCoercion(Linter):
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            # note: in a workflow call, we want to flag File=>String coercions,
-            # which are OK within tasks
             if _compound_coercion(decl.type, inp_expr.type, WDL.Type.String):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
