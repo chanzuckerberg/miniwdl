@@ -35,9 +35,10 @@ task popular {
     }
     String? x = popular + opt   # rhs expr is non-optional although opt is...
     Array[String] args = prefix("-f", y)
+    Pair[String,Float] contents = (read_string(popular), size([popular]))
 
     command {
-        echo "~{popular}"
+        echo "~{popular} ~{contents.left}"
         echo "${x} ${write_tsv(y)}"
     }
 

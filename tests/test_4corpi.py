@@ -26,7 +26,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     for _, linter, _ in WDL.Lint.collect(doc):
                         test_klass._lint_count[linter] = 1 + test_klass._lint_count.get(linter, 0)
                     print("\n" + os.path.basename(fn))
-                    WDL.CLI.outline(doc, 0)
+                    WDL.CLI.outline(doc, 0, show_called=(doc.workflow is not None))
 
                     # also attempt load with the opposite value of check_quant,
                     # exercising additional code paths
@@ -56,7 +56,7 @@ class HCAskylab_task(unittest.TestCase):
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
-    expected_lint={'UnusedDeclaration': 15, 'NameCollision': 1, 'StringCoercion': 3}
+    expected_lint={'UnusedDeclaration': 15, 'NameCollision': 1, 'StringCoercion': 3, 'FileCoercion': 1}
 )
 class HCAskylab_workflow(unittest.TestCase):
     pass
@@ -67,14 +67,14 @@ class HCAskylab_workflow(unittest.TestCase):
     # when it itself is in ./tasks_pipelines
     path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
     blacklist=['fc_germline_single_sample_workflow'], # uses URI import
-    expected_lint={'StringCoercion': 11, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4, 'UnusedCall': 1}
+    expected_lint={'StringCoercion': 11, 'FileCoercion': 16, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4, 'UnusedCall': 1}
 )
 class GATK_five_dollar(unittest.TestCase):
     pass
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
-    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 15}
+    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 15, 'FileCoercion': 1}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass
@@ -89,7 +89,7 @@ class gatk4_somatic_snvs_indels(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-cnn-variant-filter/**"],
-    expected_lint={'UnusedDeclaration': 21, 'QuantityCoercion': 23, 'StringCoercion': 3, 'UnusedCall': 1},
+    expected_lint={'UnusedDeclaration': 21, 'QuantityCoercion': 23, 'StringCoercion': 3, 'FileCoercion': 2, 'UnusedCall': 1},
     check_quant=False,
 )
 class gatk4_cnn_variant_filter(unittest.TestCase):
@@ -134,7 +134,7 @@ class ViralNGS(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
-    expected_lint={'StringCoercion': 224, 'NameCollision': 16, 'ArrayCoercion': 64, 'QuantityCoercion': 64},
+    expected_lint={'StringCoercion': 224,  'FileCoercion': 91, 'NameCollision': 16, 'ArrayCoercion': 64, 'QuantityCoercion': 64},
     check_quant=False,
 )
 class ENCODE_ChIPseq(unittest.TestCase):
@@ -142,7 +142,7 @@ class ENCODE_ChIPseq(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"],
-    expected_lint={'StringCoercion': 182, 'ArrayCoercion': 41, 'QuantityCoercion': 26, 'UnusedCall': 13},
+    expected_lint={'StringCoercion': 182, 'FileCoercion': 182, 'ArrayCoercion': 41, 'QuantityCoercion': 26, 'UnusedCall': 13},
     check_quant=False,
 )
 class ENCODE_ATACseq(unittest.TestCase):
@@ -174,7 +174,7 @@ class ENCODE_WGBS(unittest.TestCase):
         # double quantifier
         "conditionals_base"
     ],
-    expected_lint={'UnusedDeclaration': 22, 'UnusedCall': 15, 'NameCollision': 2, 'QuantityCoercion': 1},
+    expected_lint={'UnusedDeclaration': 22, 'UnusedCall': 15, 'NameCollision': 2, 'QuantityCoercion': 1, 'FileCoercion': 2},
     check_quant=False,
 )
 class dxWDL(unittest.TestCase):
@@ -182,7 +182,7 @@ class dxWDL(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 2, 'NameCollision': 13, 'ArrayCoercion': 2, 'StringCoercion': 2, 'QuantityCoercion': 3, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2},
+    expected_lint={'UnusedImport': 2, 'NameCollision': 13, 'ArrayCoercion': 2, 'StringCoercion': 2, 'FileCoercion': 2, 'QuantityCoercion': 3, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2},
     blacklist=["check_quant", "incomplete_call"],
 )
 class Contrived(unittest.TestCase):
@@ -190,7 +190,7 @@ class Contrived(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 4, 'NameCollision': 28, 'ArrayCoercion': 4, 'StringCoercion': 4, 'QuantityCoercion': 8, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 7, 'IncompleteCall': 3, "UnusedCall": 1},
+    expected_lint={'UnusedImport': 4, 'NameCollision': 28, 'ArrayCoercion': 4, 'StringCoercion': 4, 'FileCoercion': 4, 'QuantityCoercion': 9, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 8, 'IncompleteCall': 3, "UnusedCall": 1},
     check_quant=False,
     blacklist=["incomplete_call"],
 )

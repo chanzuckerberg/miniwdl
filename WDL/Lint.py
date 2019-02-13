@@ -1,3 +1,4 @@
+# pylint: disable=protected-access
 """
 Linting: annotate WDL AST with hygiene warning
 """
@@ -97,6 +98,8 @@ def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
 
 @a_linter
 class StringCoercion(Linter):
+    # TODO: Array[T] to Array[String] coercions...other compound types!?
+
     # String declaration with non-String rhs expression
     def decl(self, obj: WDL.Decl) -> Any:
         if isinstance(obj.type, WDL.Type.String) and obj.expr:
@@ -166,6 +169,72 @@ class StringCoercion(Linter):
                 self.add(obj, msg, inp_expr.pos)
 
 
+@a_linter
+class FileCoercion(Linter):
+    # String-to-File coercions are typical in task outputs, but potentially
+    # problematic elsewhere.
+    # TODO: Array[String] to Array[File] coercions...other compound types!?
+
+    def __init__(self):
+        super().__init__(auto_descend=False)
+
+    def task(self, obj: WDL.Tree.Task) -> Any:
+        # descend into everything but outputs
+        for d in obj.inputs or []:
+            self(d)
+        for d in obj.postinputs:
+            self(d)
+        self(obj.command)
+        for _, ex in obj.runtime.items():
+            self(ex)
+
+    # File declaration with String rhs expression
+    def decl(self, obj: WDL.Decl) -> Any:
+        super().decl(obj)
+        if (
+            isinstance(obj.type, WDL.Type.File)
+            and obj.expr
+            and not isinstance(obj.expr.type, WDL.Type.File)
+        ):
+            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+
+    def expr(self, obj: WDL.Expr.Base) -> Any:
+        super().expr(obj)
+        pt = getattr(obj, "parent")
+        if isinstance(obj, WDL.Expr.Apply):
+            # File function operands with String expression
+            F = WDL.Expr._stdlib[obj.function_name]
+            if isinstance(F, WDL.StdLib._StaticFunction):
+                for i in range(min(len(F.argument_types), len(obj.arguments))):
+                    F_i = F.argument_types[i]
+                    arg_i = obj.arguments[i]
+                    if isinstance(F_i, WDL.Type.File) and not isinstance(arg_i.type, WDL.Type.File):
+                        msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
+                        self.add(pt, msg, arg_i.pos)
+            elif obj.function_name == "size":
+                if not isinstance(obj.arguments[0].type, WDL.Type.File) and not (
+                    isinstance(obj.arguments[0].type, WDL.Type.Array)
+                    and isinstance(obj.arguments[0].type.item_type, WDL.Type.File)
+                ):
+                    self.add(
+                        pt,
+                        "File?/Array[File?] argument of size() = :{}:".format(
+                            str(obj.arguments[0].type)
+                        ),
+                        obj.arguments[0].pos,
+                    )
+
+    def call(self, obj: WDL.Tree.Call) -> Any:
+        super().expr(obj)
+        for name, inp_expr in obj.inputs.items():
+            decl = _find_input_decl(obj, name)
+            if isinstance(decl.type, WDL.Type.File) and not isinstance(
+                inp_expr.type, WDL.Type.File
+            ):
+                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                self.add(obj, msg, inp_expr.pos)
+
+
 def _array_levels(ty: WDL.Type.Base, l=0):
     if isinstance(ty, WDL.Type.Array):
         return _array_levels(ty.item_type, l + 1)
@@ -183,6 +252,7 @@ def _is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
 @a_linter
 class ArrayCoercion(Linter):
     # implicit promotion of T to Array[T]
+    # TODO don't complain of Array[Array[T]] = [] (for any level of nesting)
     def decl(self, obj: WDL.Decl) -> Any:
         if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
             msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
