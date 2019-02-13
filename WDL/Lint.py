@@ -96,15 +96,45 @@ def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
     return WDL.Env.resolve(obj.callee.available_inputs, [], name)
 
 
+def _compound_coercion(
+    to_type: WDL.Type.Base,
+    from_type: WDL.Type.Base,
+    base_to_type: WDL.Type.Base,
+    extra_from_type: Optional[WDL.Type.Base] = None,
+):
+    # helper for StringCoercion and FileCoercion to detect coercions implied
+    # within compound types like arrays
+    if isinstance(to_type, WDL.Type.Array) and isinstance(from_type, WDL.Type.Array):
+        return _compound_coercion(
+            to_type.item_type, from_type.item_type, base_to_type, extra_from_type
+        )
+    elif isinstance(to_type, WDL.Type.Map) and isinstance(from_type, WDL.Type.Map):
+        return _compound_coercion(
+            to_type.item_type[0], from_type.item_type[0], base_to_type, extra_from_type
+        ) or _compound_coercion(
+            to_type.item_type[1], from_type.item_type[1], base_to_type, extra_from_type
+        )
+    elif isinstance(to_type, WDL.Type.Pair) and isinstance(from_type, WDL.Type.Pair):
+        return _compound_coercion(
+            to_type.left_type, from_type.left_type, base_to_type, extra_from_type
+        ) or _compound_coercion(
+            to_type.right_type, from_type.right_type, base_to_type, extra_from_type
+        )
+    elif isinstance(to_type, base_to_type):
+        if extra_from_type:
+            return not isinstance(from_type, (base_to_type, extra_from_type, WDL.Type.Any))
+        return not isinstance(from_type, (base_to_type, WDL.Type.Any))
+    return False
+
+
 @a_linter
 class StringCoercion(Linter):
-    # TODO: Array[T] to Array[String] coercions...other compound types!?
-
     # String declaration with non-String rhs expression
+    # TODO: flag other File=>String coercions at workflow level?
+
     def decl(self, obj: WDL.Decl) -> Any:
-        if isinstance(obj.type, WDL.Type.String) and obj.expr:
-            if not isinstance(obj.expr.type, (WDL.Type.String, WDL.Type.File, WDL.Type.Any)):
-                self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+        if obj.expr and _compound_coercion(obj.type, obj.expr.type, WDL.Type.String, WDL.Type.File):
+            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
         pt = getattr(obj, "parent")
@@ -132,9 +162,7 @@ class StringCoercion(Linter):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
                         arg_i = obj.arguments[i]
-                        if isinstance(F_i, WDL.Type.String) and not isinstance(
-                            arg_i.type, (WDL.Type.String, WDL.Type.File, WDL.Type.Any)
-                        ):
+                        if _compound_coercion(F_i, arg_i.type, WDL.Type.String, WDL.Type.File):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F_i), F.name, str(arg_i.type)
                             )
@@ -162,9 +190,7 @@ class StringCoercion(Linter):
             decl = _find_input_decl(obj, name)
             # note: in a workflow call, we want to flag File=>String coercions,
             # which are OK within tasks
-            if isinstance(decl.type, WDL.Type.String) and not isinstance(
-                inp_expr.type, (WDL.Type.String, WDL.Type.Any)
-            ):
+            if _compound_coercion(decl.type, inp_expr.type, WDL.Type.String):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
 
@@ -173,7 +199,6 @@ class StringCoercion(Linter):
 class FileCoercion(Linter):
     # String-to-File coercions are typical in task outputs, but potentially
     # problematic elsewhere.
-    # TODO: Array[String] to Array[File] coercions...other compound types!?
 
     def __init__(self):
         super().__init__(auto_descend=False)
@@ -191,11 +216,7 @@ class FileCoercion(Linter):
     # File declaration with String rhs expression
     def decl(self, obj: WDL.Decl) -> Any:
         super().decl(obj)
-        if (
-            isinstance(obj.type, WDL.Type.File)
-            and obj.expr
-            and not isinstance(obj.expr.type, WDL.Type.File)
-        ):
+        if obj.expr and _compound_coercion(obj.type, obj.expr.type, WDL.Type.File):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
@@ -208,7 +229,7 @@ class FileCoercion(Linter):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
-                    if isinstance(F_i, WDL.Type.File) and not isinstance(arg_i.type, WDL.Type.File):
+                    if _compound_coercion(F_i, arg_i.type, WDL.Type.File):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
                         self.add(pt, msg, arg_i.pos)
             elif obj.function_name == "size":
@@ -228,9 +249,7 @@ class FileCoercion(Linter):
         super().expr(obj)
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if isinstance(decl.type, WDL.Type.File) and not isinstance(
-                inp_expr.type, WDL.Type.File
-            ):
+            if _compound_coercion(decl.type, inp_expr.type, WDL.Type.File):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
 
