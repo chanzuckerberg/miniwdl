@@ -74,7 +74,7 @@ class GATK_five_dollar(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
-    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 15, 'FileCoercion': 1}
+    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 20, 'FileCoercion': 1}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass
@@ -89,7 +89,7 @@ class gatk4_somatic_snvs_indels(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-cnn-variant-filter/**"],
-    expected_lint={'UnusedDeclaration': 21, 'QuantityCoercion': 23, 'StringCoercion': 3, 'FileCoercion': 2, 'UnusedCall': 1},
+    expected_lint={'UnusedDeclaration': 21, 'QuantityCoercion': 23, 'StringCoercion': 4, 'FileCoercion': 2, 'UnusedCall': 1},
     check_quant=False,
 )
 class gatk4_cnn_variant_filter(unittest.TestCase):
@@ -99,7 +99,7 @@ class gatk4_cnn_variant_filter(unittest.TestCase):
 @test_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
     blacklist=['JointGenotypingWf'],
-    expected_lint={'StringCoercion': 48, 'UnusedDeclaration': 10, 'ArrayCoercion': 4, 'UnusedCall': 2}
+    expected_lint={'StringCoercion': 50, 'UnusedDeclaration': 10, 'ArrayCoercion': 4, 'UnusedCall': 2}
 )
 class broad_prod_wgs(unittest.TestCase):
     pass
@@ -118,7 +118,7 @@ class GTEx(unittest.TestCase):
     # need URI import
     blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
                 'topmed_freeze3_calling', 'topmed_freeze3_calling_checker', 'u_of_michigan_aligner_checker'],
-    expected_lint={'StringCoercion': 26, 'UnusedDeclaration': 74, 'QuantityCoercion': 1},
+    expected_lint={'StringCoercion': 27, 'UnusedDeclaration': 74, 'QuantityCoercion': 1},
     check_quant=False,
 )
 class TOPMed(unittest.TestCase):
@@ -142,7 +142,7 @@ class ENCODE_ChIPseq(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"],
-    expected_lint={'StringCoercion': 182, 'FileCoercion': 204, 'QuantityCoercion': 26, 'UnusedCall': 13},
+    expected_lint={'StringCoercion': 195, 'FileCoercion': 204, 'QuantityCoercion': 26, 'UnusedCall': 13},
     check_quant=False,
 )
 class ENCODE_ATACseq(unittest.TestCase):
@@ -174,7 +174,7 @@ class ENCODE_WGBS(unittest.TestCase):
         # double quantifier
         "conditionals_base"
     ],
-    expected_lint={'UnusedDeclaration': 22, 'UnusedCall': 15, 'NameCollision': 2, 'QuantityCoercion': 1, 'FileCoercion': 2},
+    expected_lint={'UnusedDeclaration': 22, 'UnusedCall': 15, 'NameCollision': 2, 'QuantityCoercion': 1, 'StringCoercion': 2, 'FileCoercion': 2},
     check_quant=False,
 )
 class dxWDL(unittest.TestCase):
