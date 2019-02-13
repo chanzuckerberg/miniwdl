@@ -45,5 +45,6 @@ task popular {
     output {
         String stdout = stdout()
         File json = write_json(args)
+        Array[String] nums = 1
     }
 }

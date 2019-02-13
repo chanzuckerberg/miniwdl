@@ -246,13 +246,13 @@ def _is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
         isinstance(value_type, WDL.Type.Array)
         and _array_levels(value_type) > _array_levels(expr_type)
         and not isinstance(expr_type, WDL.Type.Any)
+        and expr_type != WDL.Type.Array(WDL.Type.Any())
     )
 
 
 @a_linter
 class ArrayCoercion(Linter):
     # implicit promotion of T to Array[T]
-    # TODO don't complain of Array[Array[T]] = [] (for any level of nesting)
     def decl(self, obj: WDL.Decl) -> Any:
         if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
             msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
