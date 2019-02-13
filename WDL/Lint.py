@@ -203,7 +203,6 @@ class FileCoercion(Linter):
         pt = getattr(obj, "parent")
         if isinstance(obj, WDL.Expr.Apply):
             # File function operands with String expression
-            # TODO: special case for size()
             F = WDL.Expr._stdlib[obj.function_name]
             if isinstance(F, WDL.StdLib._StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
@@ -212,6 +211,18 @@ class FileCoercion(Linter):
                     if isinstance(F_i, WDL.Type.File) and not isinstance(arg_i.type, WDL.Type.File):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
                         self.add(pt, msg, arg_i.pos)
+            elif obj.function_name == "size":
+                if not isinstance(obj.arguments[0].type, WDL.Type.File) and not (
+                    isinstance(obj.arguments[0].type, WDL.Type.Array)
+                    and isinstance(obj.arguments[0].type.item_type, WDL.Type.File)
+                ):
+                    self.add(
+                        pt,
+                        "File?/Array[File?] argument of size() = :{}:".format(
+                            str(obj.arguments[0].type)
+                        ),
+                        obj.arguments[0].pos,
+                    )
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         super().expr(obj)

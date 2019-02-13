@@ -67,14 +67,14 @@ class HCAskylab_workflow(unittest.TestCase):
     # when it itself is in ./tasks_pipelines
     path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
     blacklist=['fc_germline_single_sample_workflow'], # uses URI import
-    expected_lint={'StringCoercion': 11, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4, 'UnusedCall': 1}
+    expected_lint={'StringCoercion': 11, 'FileCoercion': 16, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4, 'UnusedCall': 1}
 )
 class GATK_five_dollar(unittest.TestCase):
     pass
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
-    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 15}
+    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 15, 'FileCoercion': 1}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass
@@ -89,7 +89,7 @@ class gatk4_somatic_snvs_indels(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-cnn-variant-filter/**"],
-    expected_lint={'UnusedDeclaration': 21, 'QuantityCoercion': 23, 'StringCoercion': 3, 'FileCoercion': 1, 'UnusedCall': 1},
+    expected_lint={'UnusedDeclaration': 21, 'QuantityCoercion': 23, 'StringCoercion': 3, 'FileCoercion': 2, 'UnusedCall': 1},
     check_quant=False,
 )
 class gatk4_cnn_variant_filter(unittest.TestCase):
@@ -182,7 +182,7 @@ class dxWDL(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 2, 'NameCollision': 13, 'ArrayCoercion': 2, 'StringCoercion': 2, 'FileCoercion': 1, 'QuantityCoercion': 3, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2},
+    expected_lint={'UnusedImport': 2, 'NameCollision': 13, 'ArrayCoercion': 2, 'StringCoercion': 2, 'FileCoercion': 2, 'QuantityCoercion': 3, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2},
     blacklist=["check_quant", "incomplete_call"],
 )
 class Contrived(unittest.TestCase):
@@ -190,7 +190,7 @@ class Contrived(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 4, 'NameCollision': 28, 'ArrayCoercion': 4, 'StringCoercion': 4, 'FileCoercion': 2, 'QuantityCoercion': 9, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 8, 'IncompleteCall': 3, "UnusedCall": 1},
+    expected_lint={'UnusedImport': 4, 'NameCollision': 28, 'ArrayCoercion': 4, 'StringCoercion': 4, 'FileCoercion': 4, 'QuantityCoercion': 9, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 8, 'IncompleteCall': 3, "UnusedCall": 1},
     check_quant=False,
     blacklist=["incomplete_call"],
 )
