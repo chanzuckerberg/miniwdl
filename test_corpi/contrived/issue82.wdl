@@ -4,7 +4,7 @@ workflow checkStringVariableUse {
   input {
     String inputString
   }
-  String exampleUseCommand = "Hello ~{inputString}"
+  String exampleUseCommand = "Hello ~~{inputString}"
 
   call justRun {
     input:
@@ -18,6 +18,6 @@ task justRun {
   }
 
   command <<<
-    echo ~{exampleUseCommand}
+    echo ~$~{exampleUseCommand}
   >>>
 }

@@ -55,8 +55,11 @@ class TestEval(unittest.TestCase):
                 with self.assertRaises(exn, msg=expected):
                     x = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env)
             else:
-                v = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env).expect(expected_type)
-                self.assertEqual(str(v), expected)
+                try:
+                    v = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env).expect(expected_type)
+                    self.assertEqual(str(v), expected)
+                except:
+                    assert False, str(expr)
 
     def test_logic(self):
         self._test_tuples(
@@ -232,6 +235,16 @@ class TestEval(unittest.TestCase):
             ("'${pi} ~{pi}$'", '"3.14159 ~{pi}$"', env, "draft-2"),
             ('"${pi} ~{pi}$"', '"3.14159 3.14159$"', env, "1.0"),
             ("'${pi} ~{pi}~'", '"3.14159 3.14159~"', env, "1.0"),
+            ("'$${pi}$'", '"$3.14159$"', env, "draft-2"),
+            ('"$${pi}$$"', '"$3.14159$$"', env, "draft-2"),
+            ("'$${pi}$'", '"$3.14159$"', env, "1.0"),
+            ("'$${pi}$$'", '"$3.14159$$"', env, "1.0"),
+            ("'$$${pi}~'", '"$$3.14159~"', env, "1.0"),
+            ("'~~{pi}~'", '"~3.14159~"', env, "1.0"),
+            ('"~~{pi}~"', '"~3.14159~"', env, "1.0"),
+            ("'~~${pi}~'", '"~~3.14159~"', env, "1.0"),
+            ("'$~{pi}~~'", '"$3.14159~~"', env, "1.0"),
+            ("'$~${pi}~~'", '"$~3.14159~~"', env, "1.0"),
         )
 
     def test_pair(self):

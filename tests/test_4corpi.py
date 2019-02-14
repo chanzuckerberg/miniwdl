@@ -56,7 +56,7 @@ class HCAskylab_task(unittest.TestCase):
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
-    expected_lint={'UnusedDeclaration': 15, 'NameCollision': 1, 'StringCoercion': 4, 'FileCoercion': 1}
+    expected_lint={'UnusedDeclaration': 10, 'NameCollision': 1, 'StringCoercion': 4, 'FileCoercion': 1}
 )
 class HCAskylab_workflow(unittest.TestCase):
     pass
