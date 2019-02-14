@@ -168,7 +168,8 @@ class TestEval(unittest.TestCase):
             ("[1,'a']", '["1", "a"]'),
             ("[]","[]", WDL.Type.Array(WDL.Type.Any())),
             ("[] == []","true"),
-            ("[1, false]", "(Ln 1, Col 1) Expected Int instead of Boolean; inconsistent types within array", WDL.Error.StaticTypeMismatch),
+            ("[1, false]", '["1", "false"]', WDL.Type.Array(WDL.Type.String(), nonempty=True)),
+            ("[1, {}]", "(Ln 1, Col 1) Expected Int instead of Boolean; inconsistent types within array", WDL.Error.StaticTypeMismatch),
             ("1 + 2[3]", "(Ln 1, Col 5) Not an array", WDL.Error.NotAnArray),
             ("[1, 2, 3][true]", "(Ln 1, Col 11) Expected Int instead of Boolean; Array index", WDL.Error.StaticTypeMismatch),
             ("[1, 2, 3][4]", "(Ln 1, Col 11) Array index out of bounds", WDL.Error.OutOfBounds)

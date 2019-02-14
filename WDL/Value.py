@@ -64,6 +64,12 @@ class Boolean(Base):
     def __str__(self) -> str:
         return str(self.value).lower()
 
+    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+        ""
+        if isinstance(desired_type, T.String):
+            return String(str(self))
+        return super().coerce(desired_type)
+
 
 class Float(Base):
     """``value`` has Python type ``float``"""

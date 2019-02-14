@@ -320,6 +320,7 @@ class Array(Base):
         # If any item has optional quantifier, assume item type is optional
         # If all items have nonempty quantifier, assume item type is nonempty
         all_nonempty = len(self.items) > 0
+        all_stringifiable = True
         for item in self.items:
             if isinstance(item.type, T.String):
                 item_type = T.String(optional=item_type.optional)
@@ -327,6 +328,8 @@ class Array(Base):
                 item_type = item_type.copy(optional=True)
             if isinstance(item.type, T.Array) and not item.type.nonempty:
                 all_nonempty = False
+            if not item.type.coerces(T.String(optional=True)):
+                all_stringifiable = False
         if isinstance(item_type, T.Array):
             item_type = item_type.copy(nonempty=all_nonempty)
         # Check all items are coercible to item_type
@@ -334,6 +337,11 @@ class Array(Base):
             try:
                 item.typecheck(item_type)
             except Error.StaticTypeMismatch:
+                if all_stringifiable:
+                    # Last resort: coerce all to strings if possible
+                    return T.Array(
+                        T.String(optional=item_type.optional), optional=False, nonempty=True
+                    )
                 self._type = T.Array(item_type, optional=False, nonempty=True)
                 raise Error.StaticTypeMismatch(
                     self, item_type, item.type, "(inconsistent types within array)"
