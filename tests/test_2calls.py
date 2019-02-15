@@ -178,6 +178,18 @@ class TestCalls(unittest.TestCase):
         with self.assertRaises(WDL.Error.EmptyArray):
             doc.typecheck()
 
+    def test_array_coercion(self):
+        txt = tsk + r"""
+        workflow contrived {
+            Array[Int] x = 1
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+        doc = WDL.parse_document(txt)
+        doc.typecheck(check_quant=False)
+
     def test_collision(self):
         tasks = tsk + r"""
         task p {

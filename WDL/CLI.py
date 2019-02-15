@@ -13,6 +13,8 @@ from argparse import ArgumentParser
 import WDL
 import WDL.Lint
 
+quant_warning = False
+
 
 def main(args=None):
     parser = ArgumentParser()
@@ -37,7 +39,13 @@ def main(args=None):
         WDL.Error.ValidationError,
         WDL.Error.MultipleValidationErrors,
     ) as exn:
+        global quant_warning
         print_error(exn)
+        if args.check_quant and quant_warning:
+            print(
+                "* Hint: for compatibility with older existing WDL code, try setting --no-quant-check to relax quantifier validation rules.",
+                file=sys.stderr,
+            )
         if args.debug:
             raise exn
         else:
@@ -49,7 +57,7 @@ def fill_common(subparser):
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
-        help="relax static typechecking of optional (?) and nonempty (+) type quantifiers (discouraged; for backwards compatibility with older WDL)",
+        help="relax static typechecking of optional (?) and nonempty (+) type quantifiers, and permit coercion of T to Array[T] (discouraged; for backwards compatibility with older WDL)",
     )
     subparser.add_argument(
         "-p",
@@ -94,7 +102,7 @@ def check(uri=[], path=[], check_quant=True, shellcheck=True, **kwargs):
 
     if shellcheck and WDL.Lint._shellcheck_available == False:
         print(
-            "* Recommendation: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this warning)",
+            "* Hint: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this warning)",
             file=sys.stderr,
         )
 
@@ -185,9 +193,6 @@ def outline(obj, level, file=sys.stdout, show_called=True):
     descend()
 
 
-quant_warning = False
-
-
 def print_error(exn):
     global quant_warning
     if isinstance(exn, WDL.Error.MultipleValidationErrors):
@@ -213,23 +218,10 @@ def print_error(exn):
                 "    " + " " * (exn.pos.column - 1) + "^" * (end_column - exn.pos.column),
                 file=sys.stderr,
             )
-            if not quant_warning and isinstance(exn, WDL.Error.StaticTypeMismatch):
-                expected = str(exn.expected)
-                actual = str(exn.actual)
-                if (
-                    expected.startswith(actual)
-                    and exn.expected.nonempty
-                    and not exn.actual.nonempty
-                ) or (
-                    actual.startswith(expected)
-                    and exn.actual.optional
-                    and not exn.expected.optional
-                ):
-                    print(
-                        "Hint: for compatibility with older existing WDL code, try setting --no-quant-check to relax quantifier validation rules.",
-                        file=sys.stderr,
-                    )
-                    quant_warning = True
+            if isinstance(exn, WDL.Error.StaticTypeMismatch) and exn.actual.coerces(
+                exn.expected, check_quant=False
+            ):
+                quant_warning = True
 
 
 def import_uri(uri):
