@@ -34,11 +34,14 @@ class TestEval(unittest.TestCase):
             env = None
             expected_type = None
             exn = None
+            version = None
             for x in tuple[2:]:
                 if isinstance(x, list):
                     env = x
                 elif isinstance(x, WDL.Type.Base):
                     expected_type = x
+                elif isinstance(x, str):
+                    version = x
                 elif inspect.isclass(x):
                     exn = x
                 else:
@@ -50,10 +53,13 @@ class TestEval(unittest.TestCase):
                         type_env = WDL.Env.bind(type_env, [], node.name, node.rhs.type)
             if exn:
                 with self.assertRaises(exn, msg=expected):
-                    x = WDL.parse_expr(expr).infer_type(type_env).eval(env)
+                    x = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env)
             else:
-                v = WDL.parse_expr(expr).infer_type(type_env).eval(env).expect(expected_type)
-                self.assertEqual(str(v), expected)
+                try:
+                    v = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env).expect(expected_type)
+                    self.assertEqual(str(v), expected)
+                except:
+                    assert False, str(expr)
 
     def test_logic(self):
         self._test_tuples(
@@ -223,6 +229,22 @@ class TestEval(unittest.TestCase):
             ('"$shell"','"$shell"'),
             ("'c$'",'"c$"'),
             ("'The U.$. is re$pected again!'",'"The U.$. is re$pected again!"')
+        )
+        self._test_tuples(
+            ('"${pi} ~{pi}$"', '"3.14159 ~{pi}$"', env, "draft-2"),
+            ("'${pi} ~{pi}$'", '"3.14159 ~{pi}$"', env, "draft-2"),
+            ('"${pi} ~{pi}$"', '"3.14159 3.14159$"', env, "1.0"),
+            ("'${pi} ~{pi}~'", '"3.14159 3.14159~"', env, "1.0"),
+            ("'$${pi}$'", '"$3.14159$"', env, "draft-2"),
+            ('"$${pi}$$"', '"$3.14159$$"', env, "draft-2"),
+            ("'$${pi}$'", '"$3.14159$"', env, "1.0"),
+            ("'$${pi}$$'", '"$3.14159$$"', env, "1.0"),
+            ("'$$${pi}~'", '"$$3.14159~"', env, "1.0"),
+            ("'~~{pi}~'", '"~3.14159~"', env, "1.0"),
+            ('"~~{pi}~"', '"~3.14159~"', env, "1.0"),
+            ("'~~${pi}~'", '"~~3.14159~"', env, "1.0"),
+            ("'$~{pi}~~'", '"$3.14159~~"', env, "1.0"),
+            ("'$~${pi}~~'", '"$~3.14159~~"', env, "1.0"),
         )
 
     def test_pair(self):

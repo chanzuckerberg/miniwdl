@@ -67,16 +67,6 @@ common_grammar = r"""
         | FLOAT -> float
         | SIGNED_FLOAT -> float
 
-// string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{']/
-STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? "${" expr "}")* STRING1_FRAGMENT? /\$/? /'/ -> string
-
-// string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{"]/
-STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? "${" expr "}")* STRING2_FRAGMENT? /\$/? /"/ -> string
-
 ?string: string1 | string2
 
 STRING_INNER1: ("\\\'"|/[^']/)
@@ -185,16 +175,26 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 """
 
 # pre-1.0 specific productions:
-# - both { } and <<< >>> command styles have placeholders delimited by ${ }
+# - interpolated strings and { } and <<< >>> command styles all have placeholders delimited by ${ }
 # - workflow outputs can be bare identifiers rather than complete decls
 productions_pre_1_0 = r"""
-COMMAND1_CHAR: /[^$}]/ | /\$[^{]/
-COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? "${" placeholder "}")* COMMAND1_FRAGMENT? /\$/? "}" -> command
+// string (single-quoted)
+STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$']/
+STRING1_FRAGMENT: STRING1_CHAR+
+string1: /'/ (STRING1_FRAGMENT? /\$/* "${" expr "}")* STRING1_FRAGMENT? /\$/* /'/ -> string
 
-COMMAND2_CHAR: /[^$>]/ | /\$[^{]/ | />[^>]/ | />>[^>]/
+// string (double-quoted)
+STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{$"]/
+STRING2_FRAGMENT: STRING2_CHAR+
+string2: /"/ (STRING2_FRAGMENT? /\$/* "${" expr "}")* STRING2_FRAGMENT? /\$/* /"/ -> string
+
+COMMAND1_CHAR: /[^$}]/ | /\$[^{$]/
+COMMAND1_FRAGMENT: COMMAND1_CHAR+
+command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* "${" placeholder "}")* COMMAND1_FRAGMENT? /\$/* "}" -> command
+
+COMMAND2_CHAR: /[^$>]/ | /\$[^{$]/ | />[^>]/ | />>[^>]/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? "${" placeholder "}")* COMMAND2_FRAGMENT? /\$/? ">>>" -> command
+command2: "command" "<<<" (COMMAND2_FRAGMENT? /\$/* "${" placeholder "}")* COMMAND2_FRAGMENT? /\$/* ">>>" -> command
 
 ?workflow_outputs: "output" "{" workflow_output_decls "}"
 workflow_output_decls: workflow_output_decl*
@@ -203,18 +203,29 @@ workflow_wildcard_output: ident "." "*" | ident ".*"
 """
 
 # 1.0+ productions:
-# - within { } task commands, placeholders may be delimited by ${ } or ~{ }
+# - within interpolated strings and { } task commands, placeholders may be delimited by ${ } or ~{ }
 # - within <<< >>> commands, placeholders are delimited by ~{ } only
 # - workflow outputs are complete decls
 productions_1_0 = r"""
-COMMAND1_CHAR: /[^~$}]/ | /\$[^{]/ | /~[^{]/
-COMMAND1_FRAGMENT: COMMAND1_CHAR+
-_COMMAND1_DELIM: "${" | "~{"
-command1: "command" "{" (COMMAND1_FRAGMENT? _COMMAND1_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/? /~/? "}" -> command
+_EITHER_DELIM.2: "~{" | "${"
 
-COMMAND2_CHAR: /[^~>]/ | /~[^{]/ | />[^>]/ | />>[^>]/
+// string (single-quoted)
+STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~']/ | /\~[^{$~']/
+STRING1_FRAGMENT: STRING1_CHAR+
+string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
+
+// string (double-quoted)
+STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"]/ | /~[^{$~"]/
+STRING2_FRAGMENT: STRING2_CHAR+
+string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
+
+COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
+COMMAND1_FRAGMENT: COMMAND1_CHAR+
+command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
+
+COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? /~/? ">>>" -> command
+command2: "command" "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
 
 ?workflow_outputs: output_decls
 """
