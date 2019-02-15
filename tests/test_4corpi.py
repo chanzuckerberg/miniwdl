@@ -192,7 +192,7 @@ class Contrived(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 4, 'NameCollision': 28, 'StringCoercion': 11, 'FileCoercion': 4, 'QuantityCoercion': 9, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 8, 'IncompleteCall': 3, "UnusedCall": 1},
+    expected_lint={'UnusedImport': 4, 'NameCollision': 28, 'StringCoercion': 11, 'FileCoercion': 4, 'QuantityCoercion': 9, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, "UnusedCall": 1, 'ArrayCoercion': 2},
     check_quant=False,
     blacklist=["incomplete_call"],
 )
