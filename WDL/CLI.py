@@ -81,7 +81,7 @@ def fill_check_subparser(subparsers):
         "--no-shellcheck",
         dest="shellcheck",
         action="store_false",
-        help="don't use shellcheck on task commands even if available, and suppress warning if it isn't",
+        help="don't use shellcheck on task commands even if available, and suppress message if it isn't",
     )
     return check_parser
 
@@ -102,7 +102,7 @@ def check(uri=[], path=[], check_quant=True, shellcheck=True, **kwargs):
 
     if shellcheck and WDL.Lint._shellcheck_available == False:
         print(
-            "* Hint: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this warning)",
+            "* Hint: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this message)",
             file=sys.stderr,
         )
 

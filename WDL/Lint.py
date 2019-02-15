@@ -285,7 +285,7 @@ def _array_levels(ty: WDL.Type.Base, l=0):
     return l
 
 
-def is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
+def _is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
     return (
         isinstance(value_type, WDL.Type.Array)
         and _array_levels(value_type) > _array_levels(expr_type)
@@ -298,7 +298,7 @@ def is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
 class ArrayCoercion(Linter):
     # implicit promotion of T to Array[T]
     def decl(self, obj: WDL.Decl) -> Any:
-        if obj.expr and is_array_coercion(obj.type, obj.expr.type):
+        if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
             msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
             self.add(obj, msg)
 
@@ -310,14 +310,14 @@ class ArrayCoercion(Linter):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
-                    if is_array_coercion(F_i, arg_i.type):
+                    if _is_array_coercion(F_i, arg_i.type):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
                         self.add(pt, msg, arg_i.pos)
 
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if is_array_coercion(decl.type, inp_expr.type):
+            if _is_array_coercion(decl.type, inp_expr.type):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
 
@@ -352,7 +352,7 @@ class QuantityCoercion(Linter):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
                         arg_i = obj.arguments[i]
-                        if not arg_i.type.coerces(F_i, True) and not is_array_coercion(
+                        if not arg_i.type.coerces(F_i, True) and not _is_array_coercion(
                             F_i, arg_i.type
                         ):
                             msg = "{} argument of {}() = :{}:".format(
@@ -364,7 +364,7 @@ class QuantityCoercion(Linter):
         if (
             obj.expr
             and not obj.expr.type.coerces(obj.type, True)
-            and not is_array_coercion(obj.type, obj.expr.type)
+            and not _is_array_coercion(obj.type, obj.expr.type)
         ):
             # heuristic exception for: Array[File]+ outp = glob(...)
             if not (isinstance(obj.expr, WDL.Expr.Apply) and obj.expr.function_name == "glob"):
@@ -373,7 +373,7 @@ class QuantityCoercion(Linter):
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if not inp_expr.type.coerces(decl.type, True) and not is_array_coercion(
+            if not inp_expr.type.coerces(decl.type, True) and not _is_array_coercion(
                 decl.type, inp_expr.type
             ):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
