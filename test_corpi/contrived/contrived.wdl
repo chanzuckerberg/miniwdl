@@ -14,7 +14,7 @@ workflow contrived {
     call popular { input:
         popular = popular,
         i = contrived,
-        y = select_first([contrived,23])
+        y = [select_first([contrived,23])]
     }
     call popular as contrived { input:
         popular = 123
@@ -39,12 +39,12 @@ task popular {
 
     command {
         echo "~{popular} ~{contents.left}"
-        echo "${x} ${write_tsv(y)}"
+        echo "${x} ${write_tsv([y])}"
     }
 
     output {
         String stdout = stdout()
         File json = write_json(args)
-        Array[String] nums = 1
+        Array[String] nums = [1]
     }
 }

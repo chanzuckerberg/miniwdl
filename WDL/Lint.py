@@ -350,14 +350,22 @@ class QuantityCoercion(Linter):
                 F = WDL.Expr._stdlib[obj.function_name]
                 if isinstance(F, WDL.StdLib._StaticFunction):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
-                        if not obj.arguments[i].type.coerces(F.argument_types[i], True):
+                        F_i = F.argument_types[i]
+                        arg_i = obj.arguments[i]
+                        if not arg_i.type.coerces(F_i, True) and not _is_array_coercion(
+                            F_i, arg_i.type
+                        ):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                             )
                             self.add(getattr(obj, "parent"), msg, obj.arguments[i].pos)
 
     def decl(self, obj: WDL.Decl) -> Any:
-        if obj.expr and not obj.expr.type.coerces(obj.type, True):
+        if (
+            obj.expr
+            and not obj.expr.type.coerces(obj.type, True)
+            and not _is_array_coercion(obj.type, obj.expr.type)
+        ):
             # heuristic exception for: Array[File]+ outp = glob(...)
             if not (isinstance(obj.expr, WDL.Expr.Apply) and obj.expr.function_name == "glob"):
                 self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
@@ -365,7 +373,9 @@ class QuantityCoercion(Linter):
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if not inp_expr.type.coerces(decl.type, True):
+            if not inp_expr.type.coerces(decl.type, True) and not _is_array_coercion(
+                decl.type, inp_expr.type
+            ):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
 
