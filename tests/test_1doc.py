@@ -1193,3 +1193,98 @@ class TestDoc(unittest.TestCase):
             assert False
         except WDL.Error.MultipleValidationErrors as multi:
             self.assertEqual(len(multi.exceptions), 2)
+
+class TestCycleDetection(unittest.TestCase):
+    def test_task(self):
+        doc = r"""
+        version 1.0
+        task cyclic {
+            input {
+                Int i
+            }
+            Int x = i + y
+            Int y = i - x
+
+            command{}
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CyclicDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+        task cyclic {
+            input {
+                Int i
+            }
+            Int x = i + y
+            Int y = i - z
+            Int z = i * x
+
+            command{}
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CyclicDependencies):
+            doc.typecheck()
+
+    def test_workflow(self):
+        add = r"""
+        task add {
+            input {
+                Int left
+                Int right
+            }
+
+            command{}
+
+            output {
+                Int z = left + right
+            }
+        }
+        """
+        doc = r"""
+        version 1.0
+        workflow cyclic {
+            input {
+                Int n = add.z
+            }
+            call add { input: left = 0, right = n }
+        }
+        """ + add
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CyclicDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+        workflow cyclic {
+            input {
+                Int n = add.z
+            }
+            call add { input: left = 1, right = add2.z }
+            call add as add2 { input: left = n, right = 0 }
+        }
+        """ + add
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CyclicDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+        workflow cyclic {
+            input {
+                Boolean b
+            }
+            scatter (i in [1, 2, 3]) {
+                call add { input: left = i, right = select_first([add2.z,0]) }
+            }
+            if (b) {
+                call add as add2 { input: left = add.z[0], right = 0 }
+            }
+        }
+        """ + add
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CyclicDependencies):
+            doc.typecheck()
