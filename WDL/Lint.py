@@ -723,3 +723,27 @@ def _strip_leading_whitespace(txt):
             lines[i] = line_i[to_strip:]
 
     return (to_strip, "\n".join(lines))
+
+
+@a_linter
+class MixedIndentation(Linter):
+    # Line of task command mixes tab and space indentation
+    def task(self, obj: WDL.Task) -> Any:
+        command_lines = "".join(
+            (s if isinstance(s, str) else "$") for s in obj.command.parts
+        ).split("\n")
+        for ofs, line in enumerate(command_lines):
+            indentation = line[: (len(line) - len(line.lstrip()))]
+            if " " in indentation and "\t" in indentation:
+                self.add(
+                    obj,
+                    "command indented with both spaces & tabs",
+                    WDL.Error.SourcePosition(
+                        filename=obj.command.pos.filename,
+                        line=obj.command.pos.line + ofs,
+                        column=1,
+                        end_line=obj.command.pos.line + ofs,
+                        end_column=len(line),
+                    ),
+                )
+                break

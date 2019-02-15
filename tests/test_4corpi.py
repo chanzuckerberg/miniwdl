@@ -56,7 +56,7 @@ class HCAskylab_task(unittest.TestCase):
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
-    expected_lint={'UnusedDeclaration': 10, 'NameCollision': 1, 'StringCoercion': 4, 'FileCoercion': 1}
+    expected_lint={'UnusedDeclaration': 10, 'NameCollision': 1, 'StringCoercion': 4, 'FileCoercion': 1, 'MixedIndentation': 1}
 )
 class HCAskylab_workflow(unittest.TestCase):
     pass
@@ -82,7 +82,7 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
-    expected_lint={'QuantityCoercion': 54, 'UnusedDeclaration': 29, 'ForwardReference': 6, 'StringCoercion': 20},
+    expected_lint={'QuantityCoercion': 54, 'UnusedDeclaration': 29, 'ForwardReference': 6, 'StringCoercion': 20, 'MixedIndentation': 6},
     check_quant=False,
 )
 class gatk4_somatic_snvs_indels(unittest.TestCase):
@@ -136,7 +136,7 @@ class ViralNGS(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
-    expected_lint={'StringCoercion': 224,  'FileCoercion': 154, 'NameCollision': 16, 'QuantityCoercion': 64},
+    expected_lint={'StringCoercion': 224,  'FileCoercion': 154, 'NameCollision': 16, 'QuantityCoercion': 64, 'MixedIndentation': 32},
     check_quant=False,
 )
 class ENCODE_ChIPseq(unittest.TestCase):
@@ -144,7 +144,7 @@ class ENCODE_ChIPseq(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"],
-    expected_lint={'StringCoercion': 195, 'FileCoercion': 204, 'QuantityCoercion': 26, 'UnusedCall': 13},
+    expected_lint={'StringCoercion': 195, 'FileCoercion': 204, 'QuantityCoercion': 26, 'UnusedCall': 13, 'MixedIndentation': 13},
     check_quant=False,
 )
 class ENCODE_ATACseq(unittest.TestCase):
@@ -159,7 +159,7 @@ class ENCODE_RNAseq(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/ENCODE-DCC/wgbs-pipeline/**"],
-    expected_lint={'StringCoercion': 9, 'UnusedDeclaration': 1}
+    expected_lint={'StringCoercion': 9, 'UnusedDeclaration': 1, 'MixedIndentation': 1}
 )
 class ENCODE_WGBS(unittest.TestCase):
     pass
