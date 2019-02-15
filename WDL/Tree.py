@@ -13,7 +13,19 @@ The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e.
 
 import os
 import errno
-from typing import Any, List, Optional, Dict, TypeVar, Tuple, Union, Iterable, Callable, Generator
+from typing import (
+    Any,
+    List,
+    Optional,
+    Dict,
+    TypeVar,
+    Tuple,
+    Union,
+    Iterable,
+    Callable,
+    Generator,
+    Set,
+)
 import WDL.Type as T
 import WDL.Expr as E
 import WDL.Env as Env
@@ -246,7 +258,9 @@ class Task(SourceNode):
             # Typecheck the output expressions
             for decl in self.outputs:
                 errors.try1(lambda: decl.typecheck(type_env, check_quant))
-            # TODO: detect circularities in output declarations
+
+        # check for cyclic dependencies among decls
+        _detect_cycles(_dependency_matrix(ch for ch in self.children if isinstance(ch, Decl)))
 
 
 # forward-declarations
@@ -734,6 +748,8 @@ class Workflow(SourceNode):
                         )
                     errors.try1(lambda output=output: output.typecheck(self._type_env, check_quant))
                     output_names.add(output.name)
+        # 6. check for cyclic dependencies
+        _detect_cycles(_dependency_matrix(_decls_and_calls(self)))
 
     def _rewrite_output_idents(self) -> None:
         if self._output_idents:
@@ -1050,3 +1066,133 @@ def _typecheck_workflow_elements(
             else:
                 assert False
     return complete_calls
+
+
+class _AdjM:
+    # A sparse adjacency matrix for topological sorting
+    # which we should not have implemented ourselves
+    _forward: Dict[int, Set[int]]
+    _reverse: Dict[int, Set[int]]
+    _unconstrained: Set[int]
+
+    def __init__(self):
+        self._forward = dict()
+        self._reverse = dict()
+        self._unconstrained = set()
+
+    def sinks(self, source: int) -> Iterable[int]:
+        for sink in self._forward.get(source, []):
+            yield sink
+
+    def sources(self, sink: int) -> Iterable[int]:
+        for source in self._reverse.get(sink, []):
+            yield source
+
+    @property
+    def nodes(self) -> Iterable[int]:
+        for node in self._forward.keys():
+            yield node
+
+    @property
+    def unconstrained(self) -> Iterable[int]:
+        for n in self._unconstrained:
+            assert not self._reverse[n]
+            yield n
+
+    def add_node(self, node: int):
+        if node not in self._forward:
+            assert node not in self._reverse
+            self._forward[node] = set()
+            self._reverse[node] = set()
+            self._unconstrained.add(node)
+        else:
+            assert node in self._reverse
+
+    def add_edge(self, source: int, sink: int):
+        assert source != sink
+        self.add_node(source)
+        self.add_node(sink)
+        if sink not in self._forward[source]:
+            self._forward[source].add(sink)
+            self._reverse[sink].add(source)
+            if sink in self._unconstrained:
+                self._unconstrained.remove(sink)
+        else:
+            assert source in self._reverse[sink]
+            assert sink not in self._unconstrained
+
+    def remove_edge(self, source: int, sink: int):
+        assert source != sink
+        if source in self._forward and sink in self._forward[source]:
+            assert sink in self._reverse and source in self._reverse[sink]
+            self._forward[source].remove(sink)
+            self._reverse[sink].remove(source)
+            if not self._reverse[sink]:
+                self._unconstrained.add(sink)
+        else:
+            assert not (sink in self._reverse and source in self._reverse[sink])
+
+    def remove_node(self, node: int):
+        for source in list(self.sources(node)):
+            self.remove_edge(source, node)
+        for sink in list(self.sinks(node)):
+            self.remove_edge(node, sink)
+        del self._forward[node]
+        del self._reverse[node]
+        self._unconstrained.remove(node)
+
+
+def _dependencies(obj: Union[Decl, Call, E.Base]) -> Iterable[Union[Decl, Call]]:
+    # Yield each Decl/Call referenced by any Expr.Ident within the given
+    # Decl/Call/Expr
+    if isinstance(obj, Decl):
+        if obj.expr:
+            for dep in _dependencies(obj.expr):
+                yield dep
+    elif isinstance(obj, Call):
+        for v in obj.inputs.values():
+            for dep in _dependencies(v):
+                yield dep
+    elif isinstance(obj, E.Ident):
+        if isinstance(obj.ctx, (Decl, Call)):
+            yield obj.ctx
+        else:
+            assert isinstance(obj.ctx, Scatter)
+    else:
+        assert isinstance(obj, E.Base)
+        for subexpr in obj.children:
+            for dep in _dependencies(subexpr):
+                yield dep
+
+
+def _dependency_matrix(
+    objs: Iterable[Union[Decl, Call]], obj_id: Optional[Callable[[Err.SourceNode], int]] = None
+) -> Tuple[Dict[int, Union[Decl, Call]], _AdjM]:
+    # Given collection of Decl & Call, produce mapping of object ids
+    # to the objects and the adjacency matrix for their dependencies
+    # obj_id: get unique int id for object, defaults to id()
+    obj_id = obj_id or id
+    obj_ids = dict()
+    adj = _AdjM()
+    for obj in objs:
+        oid = obj_id(obj)
+        assert oid not in obj_ids or id(obj) == id(obj_ids[oid])
+        obj_ids[oid] = obj
+        for dep in _dependencies(obj):
+            did = obj_id(dep)
+            assert did not in obj_ids or id(dep) == id(obj_ids[did])
+            obj_ids[did] = dep
+            adj.add_edge(did, oid)
+    return (obj_ids, adj)
+
+
+def _detect_cycles(p: Tuple[Dict[int, Err.SourceNode], _AdjM]):
+    # attempt topsort, destroys adj
+    nodes, adj = p
+    node = next(adj.unconstrained, None)
+    while node:
+        adj.remove_node(node)
+        node = next(adj.unconstrained, None)
+    node = next(adj.nodes, None)
+    if node:
+        raise Err.CircularDependencies(nodes[node])

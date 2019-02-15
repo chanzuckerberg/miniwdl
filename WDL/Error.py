@@ -189,6 +189,13 @@ class StrayInputDeclaration(ValidationError):
         super().__init__(node, message)
 
 
+class CircularDependencies(ValidationError):
+    def __init__(self, node: SourceNode) -> None:
+        super().__init__(
+            node, "circular dependencies detected involving {}".format(getattr(node, "name"))
+        )
+
+
 class MultipleValidationErrors(Exception):
     """Propagates several validation/typechecking errors"""
 
