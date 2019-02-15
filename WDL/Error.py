@@ -189,10 +189,10 @@ class StrayInputDeclaration(ValidationError):
         super().__init__(node, message)
 
 
-class CyclicDependencies(ValidationError):
+class CircularDependencies(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         super().__init__(
-            node, "cyclic dependencies detected involving {}".format(getattr(node, "name"))
+            node, "circular dependencies detected involving {}".format(getattr(node, "name"))
         )
 
 

@@ -1209,7 +1209,7 @@ class TestCycleDetection(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.CyclicDependencies):
+        with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
 
         doc = r"""
@@ -1226,7 +1226,7 @@ class TestCycleDetection(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.CyclicDependencies):
+        with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
 
     def test_workflow(self):
@@ -1254,7 +1254,7 @@ class TestCycleDetection(unittest.TestCase):
         }
         """ + add
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.CyclicDependencies):
+        with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
 
         doc = r"""
@@ -1268,7 +1268,7 @@ class TestCycleDetection(unittest.TestCase):
         }
         """ + add
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.CyclicDependencies):
+        with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
 
         doc = r"""
@@ -1286,5 +1286,5 @@ class TestCycleDetection(unittest.TestCase):
         }
         """ + add
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.CyclicDependencies):
+        with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()

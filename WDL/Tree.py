@@ -1195,4 +1195,4 @@ def _detect_cycles(p: Tuple[Dict[int, Err.SourceNode], _AdjM]):
         node = next(adj.unconstrained, None)
     node = next(adj.nodes, None)
     if node:
-        raise Err.CyclicDependencies(nodes[node])
+        raise Err.CircularDependencies(nodes[node])
