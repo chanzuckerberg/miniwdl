@@ -1109,7 +1109,6 @@ class _AdjM:
             assert node in self._reverse
 
     def add_edge(self, source: int, sink: int):
-        assert source != sink
         self.add_node(source)
         self.add_node(sink)
         if sink not in self._forward[source]:
@@ -1122,9 +1121,7 @@ class _AdjM:
             assert sink not in self._unconstrained
 
     def remove_edge(self, source: int, sink: int):
-        assert source != sink
         if source in self._forward and sink in self._forward[source]:
-            assert sink in self._reverse and source in self._reverse[sink]
             self._forward[source].remove(sink)
             self._reverse[sink].remove(source)
             if not self._reverse[sink]:

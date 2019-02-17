@@ -1229,6 +1229,20 @@ class TestCycleDetection(unittest.TestCase):
         with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
 
+        doc = r"""
+        version 1.0
+        task cyclic {
+            input {
+                Int i = i
+            }
+
+            command{}
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            doc.typecheck()
+
     def test_workflow(self):
         add = r"""
         task add {
@@ -1283,6 +1297,16 @@ class TestCycleDetection(unittest.TestCase):
             if (b) {
                 call add as add2 { input: left = add.z[0], right = 0 }
             }
+        }
+        """ + add
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+        workflow cyclic {
+            call add { input: left = 0, right = add.z }
         }
         """ + add
         doc = WDL.parse_document(doc)
