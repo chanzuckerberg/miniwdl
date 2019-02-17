@@ -67,7 +67,7 @@ class HCAskylab_workflow(unittest.TestCase):
     # when it itself is in ./tasks_pipelines
     path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
     blacklist=['fc_germline_single_sample_workflow'], # uses URI import
-    expected_lint={'StringCoercion': 11, 'FileCoercion': 16, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4, 'UnusedCall': 1},
+    expected_lint={'StringCoercion': 11, 'FileCoercion': 16, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4},
     check_quant=False
 )
 class GATK_five_dollar(unittest.TestCase):
@@ -100,7 +100,7 @@ class gatk4_cnn_variant_filter(unittest.TestCase):
 @test_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
     blacklist=['JointGenotypingWf'],
-    expected_lint={'StringCoercion': 50, 'UnusedDeclaration': 10, 'ArrayCoercion': 4, 'UnusedCall': 2},
+    expected_lint={'StringCoercion': 50, 'UnusedDeclaration': 10, 'ArrayCoercion': 4},
     check_quant=False
 )
 class broad_prod_wgs(unittest.TestCase):
@@ -176,7 +176,7 @@ class ENCODE_WGBS(unittest.TestCase):
         # double quantifier
         "conditionals_base"
     ],
-    expected_lint={'UnusedDeclaration': 22, 'UnusedCall': 15, 'NameCollision': 2, 'QuantityCoercion': 1, 'StringCoercion': 2, 'FileCoercion': 2},
+    expected_lint={'UnusedDeclaration': 22, 'UnusedCall': 13, 'NameCollision': 2, 'QuantityCoercion': 1, 'StringCoercion': 2, 'FileCoercion': 2},
     check_quant=False,
 )
 class dxWDL(unittest.TestCase):
@@ -192,7 +192,7 @@ class Contrived(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 4, 'NameCollision': 28, 'StringCoercion': 11, 'FileCoercion': 4, 'QuantityCoercion': 9, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, "UnusedCall": 1, 'ArrayCoercion': 2},
+    expected_lint={'UnusedImport': 4, 'NameCollision': 28, 'StringCoercion': 11, 'FileCoercion': 4, 'QuantityCoercion': 9, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, 'ArrayCoercion': 2},
     check_quant=False,
     blacklist=["incomplete_call"],
 )

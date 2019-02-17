@@ -547,7 +547,7 @@ class UnusedCall(Linter):
     # the outputs of a Call are neither used nor propagated
 
     def call(self, obj: WDL.Tree.Call) -> Any:
-        if not getattr(obj, "referrers", []):
+        if obj.effective_outputs and not getattr(obj, "referrers", []):
             workflow = obj
             while not isinstance(workflow, WDL.Tree.Workflow):
                 workflow = getattr(workflow, "parent")
