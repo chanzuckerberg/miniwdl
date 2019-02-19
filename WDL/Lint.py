@@ -625,7 +625,7 @@ class CommandShellCheck(Linter):
         command = []
         for part in obj.command.parts:
             if isinstance(part, WDL.Expr.Placeholder):
-                command.append(_shellcheck_dummy_value(part.expr.type))
+                command.append(_shellcheck_dummy_value(part.expr.type, part.pos))
             else:
                 assert isinstance(part, str)
                 command.append(part)
@@ -689,17 +689,20 @@ class CommandShellCheck(Linter):
                 )
 
 
-def _shellcheck_dummy_value(ty):
+def _shellcheck_dummy_value(ty, pos):
     if isinstance(ty, WDL.Type.Array):
-        return _shellcheck_dummy_value(ty.item_type)
-    if isinstance(ty, (WDL.Type.Int, WDL.Type.Float)):
-        return str(42)
+        return _shellcheck_dummy_value(ty.item_type, pos)
     if isinstance(ty, WDL.Type.Boolean):
         return "false"
+    # estimate the length of the interpolation in the original source, so that
+    # shellcheck will see the same column numbers. + 3 accounts for "~{" and "}"
+    desired_length = max(1, pos.end_column - pos.column) + 3
+    if isinstance(ty, (WDL.Type.Int, WDL.Type.Float)):
+        return "4" * desired_length
     # assert ty.coerces(WDL.Type.String), str(ty)
     # https://github.com/HumanCellAtlas/skylab/blob/a99b8ddffdb3c0ebdea1a8905d28f01a4d365af5/pipelines/10x/count/count.wdl#L325
     # https://github.com/openwdl/wdl/blob/master/versions/draft-2/SPEC.md#map-serialization
-    return "dummy"
+    return "x" * desired_length
 
 
 def _strip_leading_whitespace(txt):
