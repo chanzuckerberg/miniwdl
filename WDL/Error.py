@@ -100,6 +100,11 @@ class ValidationError(Exception):
         super().__init__(message)
 
 
+class InvalidType(ValidationError):
+    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
+        super().__init__(node, message)
+
+
 class NoSuchFunction(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(node, "No such function: " + name)

@@ -78,25 +78,11 @@ ident: CNAME ("." CNAME)*
 ?map_key: literal | string
 map_kv: map_key ":" expr
 
-// WDL types and declarations
-type: _INT QUANT? -> int_type
-    | _FLOAT QUANT? -> float_type
-    | _BOOLEAN QUANT? -> boolean_type
-    | _STRING QUANT? -> string_type
-    | _FILE QUANT? -> file_type
-    | _ARRAY "[" type "]" ARRAY_QUANT? -> array_type
-    | _MAP "[" type "," type "]" QUANT? -> map_type
-    | _PAIR "[" type "," type "]" QUANT? -> pair_type
-_INT.2: "Int"           // .2 ensures higher priority than CNAME
-_FLOAT.2: "Float"
-_BOOLEAN.2: "Boolean"
-_STRING.2: "String"
-_FILE.2: "File"
-_ARRAY.2: "Array"
-_MAP.2: "Map"
-_PAIR.2: "Pair"
-QUANT: "?"
-ARRAY_QUANT: "+?" | "+" | "?"
+// WDL declarations
+_quant: optional | nonempty | optional_nonempty
+optional: "?"
+nonempty: "+"
+optional_nonempty: "+?"
 
 unbound_decl: type CNAME -> decl
 bound_decl: type CNAME "=" expr -> decl
@@ -178,6 +164,11 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 # - interpolated strings and { } and <<< >>> command styles all have placeholders delimited by ${ }
 # - workflow outputs can be bare identifiers rather than complete decls
 productions_pre_1_0 = r"""
+// WDL types
+type: BUILTIN_TYPE _quant?
+      | BUILTIN_TYPE "[" type ["," type] "]" _quant?
+BUILTIN_TYPE.2: "Int" | "Float" | "Boolean" | "String" | "File" | "Array" | "Map" | "Pair"
+
 // string (single-quoted)
 STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$']/
 STRING1_FRAGMENT: STRING1_CHAR+
@@ -207,6 +198,10 @@ workflow_wildcard_output: ident "." "*" | ident ".*"
 # - within <<< >>> commands, placeholders are delimited by ~{ } only
 # - workflow outputs are complete decls
 productions_1_0 = r"""
+// WDL types
+type: CNAME _quant?
+      | CNAME "[" type ["," type] "]" _quant?
+
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
@@ -370,67 +365,60 @@ class _TypeTransformer(lark.Transformer):
     def __init__(self, file: str) -> None:
         self.filename = file
 
-    def int_type(self, items, meta):
-        optional = False
-        if items and items[0].value == "?":
-            optional = True
-        return T.Int(optional)
+    def optional(self, items, meta):
+        return set(["optional"])
 
-    def float_type(self, items, meta):
-        optional = False
-        if items and items[0].value == "?":
-            optional = True
-        return T.Float(optional)
+    def nonempty(self, items, meta):
+        return set(["nonempty"])
 
-    def boolean_type(self, items, meta):
-        optional = False
-        if items and items[0].value == "?":
-            optional = True
-        return T.Boolean(optional)
+    def optional_nonempty(self, items, meta):
+        return set(["optional", "nonempty"])
 
-    def string_type(self, items, meta):
-        optional = False
-        if items and items[0].value == "?":
-            optional = True
-        return T.String(optional)
+    def type(self, items, meta):
+        quantifiers = set()
+        if len(items) > 1 and isinstance(items[-1], set):
+            quantifiers = items.pop()
+        param = items[1] if len(items) > 1 else None
+        param2 = items[2] if len(items) > 2 else None
 
-    def file_type(self, items, meta):
-        optional = False
-        if items and items[0].value == "?":
-            optional = True
-        return T.File(optional)
+        if items[0].value == "Array":
+            if not param or param2:
+                raise Err.InvalidType(sp(self.filename, meta), "Array must have one type parameter")
+            if quantifiers - set(["optional", "nonempty"]):
+                raise Err.ValidationError(
+                    sp(self.filename, meta), "invalid type quantifier(s) for Array"
+                )
+            return T.Array(param, "optional" in quantifiers, "nonempty" in quantifiers)
+        if "nonempty" in quantifiers:
+            raise Err.InvalidType(
+                sp(self.filename, meta), "invalid type quantifier(s) for " + items[0].value
+            )
 
-    def array_type(self, items, meta):
-        assert len(items) >= 1
-        assert isinstance(items[0], T.Base)
-        optional = False
-        nonempty = False
-        for c in "".join(items[1:]):
-            if c == "?":
-                optional = True
-            if c == "+":
-                nonempty = True
-        return T.Array(items[0], optional, nonempty)
+        atomic_types = {
+            "Int": T.Int,
+            "Float": T.Float,
+            "Boolean": T.Boolean,
+            "String": T.String,
+            "File": T.File,
+        }
+        if items[0].value in atomic_types:
+            if param or param2:
+                raise Err.InvalidType(
+                    sp(self.filename, meta), items[0] + " type doesn't accept parameters"
+                )
+            return atomic_types[items[0].value]("optional" in quantifiers)
 
-    def map_type(self, items, meta):
-        assert len(items) >= 2
-        assert isinstance(items[0], T.Base)
-        assert isinstance(items[1], T.Base)
-        optional = False
-        if len(items) > 2:
-            if items[2].value == "?":
-                optional = True
-        return T.Map((items[0], items[1]), optional)
+        if items[0].value == "Map":
+            if not (param and param2):
+                raise Err.InvalidType(sp(self.filename, meta), "Map must have two type parameters")
+            return T.Map((param, param2), "optional" in quantifiers)
 
-    def pair_type(self, items, meta):
-        assert len(items) >= 2
-        assert isinstance(items[0], T.Base)
-        assert isinstance(items[1], T.Base)
-        optional = False
-        if len(items) > 2:
-            if items[2].value == "?":
-                optional = True
-        return T.Pair(items[0], items[1], optional)
+        if items[0].value == "Pair":
+            if not (param and param2):
+                raise Err.InvalidType(sp(self.filename, meta), "Pair must have two type parameters")
+            return T.Pair(param, param2, "optional" in quantifiers)
+
+        return Err.InvalidType(sp(self.filename, meta), "Unknown type " + items[0].value)
 
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):

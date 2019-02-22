@@ -383,6 +383,44 @@ task compare_md5sum {
         self.assertFalse(task.command.parts[-1].strip().endswith(">>>"))
 
 
+class TestTypes(unittest.TestCase):
+    def test_parser(self):
+        def check(t,v):
+            doc_txt = r"""
+            workflow contrived {{
+                {t} x
+                {t} y
+                output {{
+                    {t} o_y = y
+                }}
+            }}
+            """.format(t=t)
+            doc = WDL.parse_document(doc_txt, v)
+            self.assertEqual(str(doc.workflow.elements[0].type), t)
+            self.assertEqual(doc.workflow.elements[0].type.optional, t.endswith("?"))
+            self.assertEqual(str(doc.workflow.effective_outputs[0].rhs), t)
+        for t in ["Int", "Int?",
+                  "Array[Int]", "Array[Int]?", "Array[Int]+?", "Array[Int?]+?",
+                  "Map[String,Int]", "Map[String,Array[Float?]+]?",
+                  "Pair[Int,Float?]"]:
+            check(t, "draft-2")
+            check(t, "1.0")
+
+    def test_invalid(self):
+        def check(t,v):
+            doc_txt = r"""
+            workflow contrived {{
+                {t} x
+            }}
+            """.format(t=t)
+            WDL.parse_document(doc_txt, v)
+        for t in ["Int+", "Array?+", "Array[Int,Float]", "Map[String]", "Map[Int,Int,Int]",
+                  "Pair[Int]", "Pair[Float,Float,Float]", "Array[Pair[Int]?]+",
+                  "Bogus", "bogus?"]:
+            with self.assertRaises((WDL.Error.InvalidType, WDL.Error.SyntaxError)):
+                check(t,"draft-2")
+                check(t,"1.0")
+
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
         doc = r"""
