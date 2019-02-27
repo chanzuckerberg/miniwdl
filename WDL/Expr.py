@@ -568,9 +568,10 @@ class Ident(Base):
                 ans: T.Base = Env.resolve(type_env, pair_namespace, pair_name)
             except KeyError:
                 pass
-            if isinstance(ans, T.Pair):
-                self.ctx = Env.resolve_ctx(type_env, pair_namespace, pair_name)
-                return ans.left_type if self.name == "left" else ans.right_type
+            else:
+                if isinstance(ans, T.Pair):
+                    self.ctx = Env.resolve_ctx(type_env, pair_namespace, pair_name)
+                    return ans.left_type if self.name == "left" else ans.right_type
         try:
             ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
         except KeyError:
