@@ -23,6 +23,8 @@ workflow contrived {
     output {
         Int read_int = read_json(popular.json)
         Array[Boolean] read_array = read_json(contrived.json)
+        String left_contents = contrived.left_contents
+        String right_contents = contrived.right_contents
     }
 }
 
@@ -46,5 +48,7 @@ task popular {
         String stdout = stdout()
         File json = write_json(args)
         Array[String] nums = [1]
+        String left_contents = contents.left
+        String right_contents = contents.right
     }
 }

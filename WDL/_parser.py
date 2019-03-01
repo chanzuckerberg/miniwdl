@@ -50,8 +50,8 @@ common_grammar = r"""
           | expr_core "[" expr "]" -> get
 
           | "(" expr "," expr ")" -> pair
-          | expr_core "." "left" -> get_left
-          | expr_core "." "right" -> get_right
+          | expr_core _LEFT -> get_left
+          | expr_core _RIGHT -> get_right
 
           | "{" [map_kv ("," map_kv)*] "}" -> map
 
@@ -59,6 +59,9 @@ common_grammar = r"""
 
           | ident
           | CNAME "(" [expr ("," expr)*] ")" -> apply
+
+_LEFT.2: "." /left(?![0-9A-Za-z_])/
+_RIGHT.2: "." /right(?![0-9A-Za-z_])/
 
 ?literal: "true"-> boolean_true
         | "false" -> boolean_false

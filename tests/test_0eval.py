@@ -249,7 +249,12 @@ class TestEval(unittest.TestCase):
 
     def test_pair(self):
         env = cons_env(("p", WDL.Value.Pair(WDL.Type.Pair(WDL.Type.Float(), WDL.Type.Float()),
-                                            (WDL.Value.Float(3.14159), WDL.Value.Float(2.71828)))))
+                                            (WDL.Value.Float(3.14159), WDL.Value.Float(2.71828)))),
+                        ("q", WDL.Value.Pair(WDL.Type.Pair(WDL.Type.Pair(WDL.Type.Int(), WDL.Type.Int()),
+                                                           WDL.Type.Float(optional=True)),
+                                             (WDL.Value.Pair(WDL.Type.Pair(WDL.Type.Int(), WDL.Type.Int()),
+                                                             (WDL.Value.Int(4), WDL.Value.Int(2))),
+                                              WDL.Value.Null()))))
         self._test_tuples(
             ("(1,2)", "(1,2)", WDL.Type.Pair(WDL.Type.Int(), WDL.Type.Int())),
             ("(1,2).left", "1"),
@@ -258,7 +263,9 @@ class TestEval(unittest.TestCase):
             ("[1,2].left", "", WDL.Error.NotAPair),
             ("false.right", "", WDL.Error.NotAPair),
             ("p.left", "3.14159", env),
-            ("p.right", "2.71828", env)
+            ("p.right", "2.71828", env),
+            ("q.left.left", "4", env),
+            ("q.left.right", "2", env)
         )
 
     def test_map(self):
