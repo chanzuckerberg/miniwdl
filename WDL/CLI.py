@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import glob
 import json
+import math
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser
@@ -372,11 +373,7 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None,
             )
         except:
             die("failed to find outputs JSON in Cromwell standard output")
-        assert "dir" not in outputs_json
-        outputs_json["dir"] = rundir
-        print(json.dumps(outputs_json, indent=2))
-        with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
-            print(json.dumps(outputs_json, indent=2), file=outfile)
+        organize_cromwell_outputs(target, outputs_json, rundir)
 
     sys.exit(proc.returncode)
 
@@ -605,6 +602,60 @@ def cromwell_input_dict(value_env, namespace=None):
         else:
             assert False
     return ans
+
+
+def organize_cromwell_outputs(target, outputs_json, rundir):
+    """
+    After Cromwell runs successfully, the output files are typically sprayed
+    across a bushy directory tree used for execution. To help the user find
+    what they're looking for, we create another directory tree with nicer
+    organization, containing symlinks to the output files (so as not to disturb
+    them).
+
+    One of the subtleties is to organize compound outputs like Array[File],
+    Array[Array[File]], etc.
+    """
+    assert "dir" not in outputs_json
+    outputs_json["dir"] = rundir
+    print(json.dumps(outputs_json, indent=2))
+    with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
+        print(json.dumps(outputs_json, indent=2), file=outfile)
+
+    os.makedirs(os.path.join(rundir, "outputs"), exist_ok=False)
+
+    def link_output_files(dn, files):
+        # dn: output directory which already exists
+        # files: either a filename str, or a [nested] list thereof
+        if isinstance(files, str) and os.path.exists(files):
+            os.symlink(files, os.path.join(dn, os.path.basename(files)))
+        if isinstance(files, list) and files:
+            d = int(math.ceil(math.log10(len(files))))  # how many digits needed
+            for i, elt in enumerate(files):
+                subdn = os.path.join(dn, str(i).rjust(d, "0"))
+                os.makedirs(subdn, exist_ok=False)
+                link_output_files(subdn, elt)
+
+    def output_links(namespace, binding):
+        fqon = ".".join([target.name] + namespace + [binding.name])
+        if _is_files(binding.rhs) and fqon in outputs_json["outputs"]:
+            odn = os.path.join(rundir, "outputs", fqon)
+            os.makedirs(os.path.join(rundir, odn), exist_ok=False)
+            link_output_files(odn, outputs_json["outputs"][fqon])
+        return True
+
+    WDL.Env.filter(target.effective_outputs, output_links)
+    # TODO: handle File's inside other compound types,
+    # Pair[File,File], Map[String,File], Structs, etc.
+
+
+def _is_files(ty):
+    """
+    is ty a File or an Array[File] or an Array[Array[File]] or an Array[Array[Array[File]]]...
+    """
+    return isinstance(ty, WDL.Type.File) or (
+        isinstance(ty, WDL.Type.Array)
+        and (isinstance(ty.item_type, WDL.Type.File) or _is_files(ty.item_type))
+    )
 
 
 def die(msg, status=2):
