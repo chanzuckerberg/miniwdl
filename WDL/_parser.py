@@ -421,7 +421,7 @@ class _TypeTransformer(lark.Transformer):
                 raise Err.InvalidType(sp(self.filename, meta), "Pair must have two type parameters")
             return T.Pair(param, param2, "optional" in quantifiers)
 
-        return Err.InvalidType(sp(self.filename, meta), "Unknown type " + items[0].value)
+        raise Err.InvalidType(sp(self.filename, meta), "Unknown type " + items[0].value)
 
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
