@@ -68,7 +68,7 @@ class Decl(SourceNode):
         if self.expr:
             yield self.expr
 
-    def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
         # Add an appropriate binding in the type env, after checking for name
         # collision.
         try:
@@ -76,6 +76,12 @@ class Decl(SourceNode):
             raise Err.MultipleDefinitions(self, "Multiple declarations of " + self.name)
         except KeyError:
             pass
+        if isinstance(self.type, T.Struct):
+            assert self.type.members is None
+            try:
+                self.type.members = Env.resolve(struct_types, [], self.type.name)
+            except KeyError:
+                raise Err.InvalidType(self, "Unknown type " + self.type.name)
         ans: Env.Types = Env.bind(type_env, [], self.name, self.type, ctx=self)
         return ans
 
@@ -213,7 +219,8 @@ class Task(SourceNode):
         for _, ex in self.runtime.items():
             yield ex
 
-    def typecheck(self, check_quant: bool = True) -> None:
+    def typecheck(self, struct_types: Env.StructTypes = None, check_quant: bool = True) -> None:
+        struct_types = struct_types or []
         # warm-up check: if input{} section exists then all postinput decls
         # must be bound
         if self.inputs is not None:
@@ -230,7 +237,7 @@ class Task(SourceNode):
         # in their right-hand side expressions.
         type_env = []
         for decl in (self.inputs or []) + self.postinputs:
-            type_env = decl.add_to_type_env(type_env)
+            type_env = decl.add_to_type_env(struct_types, type_env)
 
         with Err.multi_context() as errors:
             # Pass through input & postinput declarations again, typecheck their
@@ -251,7 +258,9 @@ class Task(SourceNode):
                 )
             # Add output declarations to type environment
             for decl in self.outputs:
-                type_env2 = errors.try1(lambda decl=decl: decl.add_to_type_env(type_env))
+                type_env2 = errors.try1(
+                    lambda decl=decl: decl.add_to_type_env(struct_types, type_env)
+                )
                 if type_env2:
                     type_env = type_env2
             errors.maybe_raise()
@@ -342,7 +351,7 @@ class Call(SourceNode):
             raise Err.UnknownIdentifier(self.callee_id)
         assert isinstance(self.callee, (Task, Workflow))
 
-    def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
@@ -483,13 +492,13 @@ class Scatter(SourceNode):
         for elt in self.elements:
             yield elt
 
-    def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as Array[T] outside)
         inner_type_env = []
         for elt in self.elements:
-            inner_type_env = elt.add_to_type_env(inner_type_env)
+            inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
         # Subtlety: if the scatter array is statically nonempty, then so too
         # are the arrayized values
         nonempty = isinstance(self.expr._type, T.Array) and self.expr.type.nonempty
@@ -548,13 +557,13 @@ class Conditional(SourceNode):
         for elt in self.elements:
             yield elt
 
-    def add_to_type_env(self, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as T? outside)
         inner_type_env = []
         for elt in self.elements:
-            inner_type_env = elt.add_to_type_env(inner_type_env)
+            inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
         return Env.map(inner_type_env, lambda ns, b: b.rhs.copy(optional=True)) + type_env
 
     @property
@@ -807,6 +816,8 @@ class Document(SourceNode):
     :type: List[Tuple[str,str,Optional[WDL.Tree.Document]]]
 
     Imports in the document (filename/URI, namespace, and later the sub-document)"""
+    struct_types: Env.StructTypes
+    """:type: Dict[str, Dict[str, WDL.Type.Base]]"""
     tasks: List[Task]
     """:type: List[WDL.Tree.Task]"""
     workflow: Optional[Workflow]
@@ -816,6 +827,7 @@ class Document(SourceNode):
         self,
         pos: SourcePosition,
         imports: List[Tuple[str, str]],
+        struct_types: Dict[str, Dict[str, T.Base]],
         tasks: List[Task],
         workflow: Optional[Workflow],
     ) -> None:
@@ -826,6 +838,9 @@ class Document(SourceNode):
             # populates it, after construction of this object but before
             # typechecking the contents.
             self.imports.append((uri, namespace, None))
+        self.struct_types = []
+        for name, members in struct_types.items():
+            self.struct_types = Env.bind(self.struct_types, [], name, members)
         self.tasks = tasks
         self.workflow = workflow
 
@@ -849,6 +864,8 @@ class Document(SourceNode):
                 raise Err.MultipleDefinitions(self, "Multiple imports with namespace " + namespace)
             names.add(namespace)
         names = set()
+        # TODO: deal with imported/aliased struct_types
+        # check for circular dependencies amongst struct_types
         # typecheck each task
         with Err.multi_context() as errors:
             for task in self.tasks:
@@ -857,7 +874,9 @@ class Document(SourceNode):
                         Err.MultipleDefinitions(task, "Multiple tasks named " + task.name)
                     )
                 names.add(task.name)
-                errors.try1(lambda task=task: task.typecheck(check_quant=check_quant))
+                errors.try1(
+                    lambda task=task: task.typecheck(self.struct_types, check_quant=check_quant)
+                )
         # typecheck the workflow
         if self.workflow:
             if self.workflow.name in names:
@@ -984,7 +1003,7 @@ def _build_workflow_type_env(
     if isinstance(self, Workflow):
         # start with workflow inputs
         for decl in self.inputs or []:
-            type_env = decl.add_to_type_env(type_env)
+            type_env = decl.add_to_type_env(doc.struct_types, type_env)
     elif isinstance(self, Scatter):
         # typecheck scatter array
         self.expr.infer_type(type_env, check_quant)
@@ -1017,7 +1036,9 @@ def _build_workflow_type_env(
             child_outer_type_env = type_env
             for sibling in self.elements:
                 if sibling is not child:
-                    child_outer_type_env = sibling.add_to_type_env(child_outer_type_env)
+                    child_outer_type_env = sibling.add_to_type_env(
+                        doc.struct_types, child_outer_type_env
+                    )
             _build_workflow_type_env(doc, check_quant, child, child_outer_type_env)
         elif doc.workflow.inputs is not None and isinstance(child, Decl) and not child.expr:
             raise Err.StrayInputDeclaration(
@@ -1029,7 +1050,7 @@ def _build_workflow_type_env(
 
     # finally, populate self._type_env with all our children
     for child in self.elements:
-        type_env = child.add_to_type_env(type_env)
+        type_env = child.add_to_type_env(doc.struct_types, type_env)
     self._type_env = type_env
 
 

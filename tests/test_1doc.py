@@ -1350,3 +1350,48 @@ class TestCycleDetection(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
+
+class TestStruct(unittest.TestCase):
+    def test_parser(self):
+        doc = r"""
+        version 1.0
+
+        struct Person {
+            String name
+            Int age
+        }
+
+        struct Name {
+            Array[File]+ myFiles
+            Boolean? myBoolean
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertEqual(str(WDL.Env.resolve(doc.struct_types, [], "Person")["age"]), "Int")
+        self.assertEqual(str(WDL.Env.resolve(doc.struct_types, [], "Name")["myFiles"]), "Array[File]+")
+
+        doc = r"""
+        version 1.0
+
+        struct Person {
+            String a
+            Int a
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.parse_document(doc)
+
+        doc = r"""
+        version 1.0
+
+        struct Person {
+            String a
+        }
+
+        struct Person {
+            Int b
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.parse_document(doc)

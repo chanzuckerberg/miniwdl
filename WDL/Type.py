@@ -40,7 +40,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
    :top-classes: WDL.Type.Base
 """
 from abc import ABC
-from typing import Optional, TypeVar, Tuple
+from typing import Optional, TypeVar, Tuple, Dict
 import copy
 
 TVBase = TypeVar("TVBase", bound="Base")
@@ -308,6 +308,28 @@ class Pair(Base):
                 and self.right_type.coerces(rhs.right_type, check_quant)
                 and self._check_optional(rhs, check_quant)
             )
+        if isinstance(rhs, Any):
+            return self._check_optional(rhs, check_quant)
+        return False
+
+
+class Struct(Base):
+    name: str
+    members: Optional[Dict[str, Base]]
+
+    def __init__(self, name: str, optional: bool = False) -> None:
+        self._optional = optional
+        self.name = name
+        self.members = None
+
+    def __str__(self) -> str:
+        return self.name + ("?" if self.optional else "")
+
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+        ""
+        if isinstance(rhs, Struct):
+            assert isinstance(self.members, dict) and isinstance(rhs.members, dict)
+            return id(self.members) == id(rhs.members) and self._check_optional(rhs, check_quant)
         if isinstance(rhs, Any):
             return self._check_optional(rhs, check_quant)
         return False

@@ -145,7 +145,6 @@ workflow: "workflow" CNAME "{" input_decls? workflow_element* workflow_outputs? 
 // WDL document: version, imports, tasks and (at most one) workflow
 version: "version" /[^ \t\r\n]+/
 import_doc: "import" string_literal ["as" CNAME]
-?document_element: import_doc | task | workflow
 document: version? document_element*
         | version? document_element*
 
@@ -164,6 +163,7 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 """
 
 # pre-1.0 specific productions:
+# - predefined types only
 # - interpolated strings and { } and <<< >>> command styles all have placeholders delimited by ${ }
 # - workflow outputs can be bare identifiers rather than complete decls
 productions_pre_1_0 = r"""
@@ -194,12 +194,16 @@ command2: "command" "<<<" (COMMAND2_FRAGMENT? /\$/* "${" placeholder "}")* COMMA
 workflow_output_decls: workflow_output_decl*
 ?workflow_output_decl: bound_decl | ident | workflow_wildcard_output
 workflow_wildcard_output: ident "." "*" | ident ".*"
+
+?document_element: import_doc | task | workflow
 """
 
 # 1.0+ productions:
+# - types can be any CNAME (structs)
 # - within interpolated strings and { } task commands, placeholders may be delimited by ${ } or ~{ }
 # - within <<< >>> commands, placeholders are delimited by ~{ } only
 # - workflow outputs are complete decls
+# - struct definitions
 productions_1_0 = r"""
 // WDL types
 type: CNAME _quant?
@@ -226,6 +230,11 @@ COMMAND2_FRAGMENT: COMMAND2_CHAR+
 command2: "command" "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
 
 ?workflow_outputs: output_decls
+
+// struct definitions
+struct: "struct" CNAME "{" unbound_decl* "}"
+
+?document_element: import_doc | task | workflow | struct
 """
 
 
@@ -421,7 +430,10 @@ class _TypeTransformer(lark.Transformer):
                 raise Err.InvalidType(sp(self.filename, meta), "Pair must have two type parameters")
             return T.Pair(param, param2, "optional" in quantifiers)
 
-        return Err.InvalidType(sp(self.filename, meta), "Unknown type " + items[0].value)
+        if param or param2:
+            raise Err.InvalidType(sp(self.filename, meta), "Unexpected type parameter(s)")
+
+        return T.Struct(items[0].value, "optional" in quantifiers)
 
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
@@ -628,6 +640,19 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             output_idents,
         )
 
+    def struct(self, items, meta):
+        assert len(items) >= 1
+        name = items[0]
+        members = {}
+        for d in items[1:]:
+            assert not d.expr
+            if d.name in members:
+                raise Err.MultipleDefinitions(
+                    sp(self.filename, meta), "duplicate members in struct"
+                )
+            members[d.name] = d.type
+        return {"struct": (name, members)}
+
     def import_doc(self, items, meta):
         uri = items[0]
         if len(items) > 1:
@@ -645,6 +670,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def document(self, items, meta):
         imports = []
+        structs = {}
         tasks = []
         workflow = None
         for item in items:
@@ -660,9 +686,15 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 pass
             elif isinstance(item, dict) and "import" in item:
                 imports.append(item["import"])
+            elif isinstance(item, dict) and "struct" in item:
+                if item["struct"][0] in structs:
+                    raise Err.MultipleDefinitions(
+                        sp(self.filename, meta), "multiple structs named " + item["struct"][0]
+                    )
+                structs[item["struct"][0]] = item["struct"][1]
             else:
                 assert False
-        return D.Document(sp(self.filename, meta), imports, tasks, workflow)
+        return D.Document(sp(self.filename, meta), imports, structs, tasks, workflow)
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
@@ -702,7 +734,11 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> D.
                 break
     if not txt.strip():
         return D.Document(
-            SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0), [], [], None
+            SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0),
+            [],
+            {},
+            [],
+            None,
         )
     try:
         return _DocTransformer(uri).transform(parse(txt, "document", version))

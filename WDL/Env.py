@@ -94,6 +94,8 @@ Decls = TypeVar("Decls", bound="Tree[WDL.Tree.Decl]")
 
 Type nickname for environment tree of names to ``WDL.Tree.Decl`` instances"""
 
+StructTypes = TypeVar("StructTypes", bound="Tree[Dict[str,WDL.Type.Base]]")
+
 
 def resolve_namespace(tree: "Tree[R]", namespace: List[str]) -> "Tree[R]":
     if not namespace:
