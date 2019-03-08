@@ -313,23 +313,48 @@ class Pair(Base):
         return False
 
 
-class Struct(Base):
-    name: str
-    members: Optional[Dict[str, Base]]
+class StructInstance(Base):
+    """
+    Type of a declared instance of a struct
+    """
 
-    def __init__(self, name: str, optional: bool = False) -> None:
+    type_name: str
+    """
+    :type: str
+
+    The name with which the instance is declared; note that the same struct
+    type can go by different names depending on the context.
+    """
+    members: Optional[Dict[str, Base]]
+    """
+    :type: Dict[str,WDL.Type.Base]
+
+    Names and types of the struct members (available after typechecking)
+    """
+
+    def __init__(self, type_name: str, optional: bool = False) -> None:
         self._optional = optional
-        self.name = name
+        self.type_name = type_name
         self.members = None
 
     def __str__(self) -> str:
-        return self.name + ("?" if self.optional else "")
+        return self.type_name + ("?" if self.optional else "")
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
-        if isinstance(rhs, Struct):
-            assert isinstance(self.members, dict) and isinstance(rhs.members, dict)
-            return id(self.members) == id(rhs.members) and self._check_optional(rhs, check_quant)
+        if isinstance(rhs, StructInstance):
+            return self.type_id == rhs.type_id and self._check_optional(rhs, check_quant)
         if isinstance(rhs, Any):
             return self._check_optional(rhs, check_quant)
         return False
+
+    @property
+    def type_id(self) -> int:
+        """
+        :type: int
+
+        An identifier for the struct type, which can go by different names
+        depending on the context.
+        """
+        assert isinstance(self.members, dict)
+        return id(self.members)

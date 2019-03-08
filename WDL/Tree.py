@@ -34,6 +34,28 @@ from WDL.Error import SourcePosition, SourceNode
 import WDL._parser
 
 
+class StructType(SourceNode):
+    """WDL struct type definition"""
+
+    name: str
+    members: Dict[str, T.Base]
+
+    def __init__(self, pos: SourcePosition, name: str, members: Dict[str, T.Base]):
+        super().__init__(pos)
+        self.name = name
+        self.members = members
+
+    @property
+    def type_id(self) -> int:
+        # Because the same struct type can have different names depending on
+        # the context, we define a unique integer ID for each one, computed as
+        # the python id() of the members dict object.
+        return id(self.members)
+
+
+EnvStructTypes = TypeVar("EnvStructTypes", bound="WDL.Env.Tree[StructType]")
+
+
 class Decl(SourceNode):
     """A value declaration within a task or workflow"""
 
@@ -68,7 +90,7 @@ class Decl(SourceNode):
         if self.expr:
             yield self.expr
 
-    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
         # Add an appropriate binding in the type env, after checking for name
         # collision.
         try:
@@ -76,12 +98,8 @@ class Decl(SourceNode):
             raise Err.MultipleDefinitions(self, "Multiple declarations of " + self.name)
         except KeyError:
             pass
-        if isinstance(self.type, T.Struct):
-            assert self.type.members is None
-            try:
-                self.type.members = Env.resolve(struct_types, [], self.type.name)
-            except KeyError:
-                raise Err.InvalidType(self, "Unknown type " + self.type.name)
+        if isinstance(self.type, T.StructInstance):
+            _resolve_struct_type(self.pos, self.type, struct_types)
         ans: Env.Types = Env.bind(type_env, [], self.name, self.type, ctx=self)
         return ans
 
@@ -219,7 +237,7 @@ class Task(SourceNode):
         for _, ex in self.runtime.items():
             yield ex
 
-    def typecheck(self, struct_types: Env.StructTypes = None, check_quant: bool = True) -> None:
+    def typecheck(self, struct_types: EnvStructTypes = None, check_quant: bool = True) -> None:
         struct_types = struct_types or []
         # warm-up check: if input{} section exists then all postinput decls
         # must be bound
@@ -351,7 +369,7 @@ class Call(SourceNode):
             raise Err.UnknownIdentifier(self.callee_id)
         assert isinstance(self.callee, (Task, Workflow))
 
-    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
@@ -492,7 +510,7 @@ class Scatter(SourceNode):
         for elt in self.elements:
             yield elt
 
-    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as Array[T] outside)
@@ -557,7 +575,7 @@ class Conditional(SourceNode):
         for elt in self.elements:
             yield elt
 
-    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as T? outside)
@@ -816,7 +834,7 @@ class Document(SourceNode):
     :type: List[Tuple[str,str,Optional[WDL.Tree.Document]]]
 
     Imports in the document (filename/URI, namespace, and later the sub-document)"""
-    struct_types: Env.StructTypes
+    struct_types: EnvStructTypes
     """:type: Dict[str, Dict[str, WDL.Type.Base]]"""
     tasks: List[Task]
     """:type: List[WDL.Tree.Task]"""
@@ -827,7 +845,7 @@ class Document(SourceNode):
         self,
         pos: SourcePosition,
         imports: List[Tuple[str, str]],
-        struct_types: Dict[str, Dict[str, T.Base]],
+        struct_types: Dict[str, StructType],
         tasks: List[Task],
         workflow: Optional[Workflow],
     ) -> None:
@@ -839,8 +857,8 @@ class Document(SourceNode):
             # typechecking the contents.
             self.imports.append((uri, namespace, None))
         self.struct_types = []
-        for name, members in struct_types.items():
-            self.struct_types = Env.bind(self.struct_types, [], name, members)
+        for name, struct_type in struct_types.items():
+            self.struct_types = Env.bind(self.struct_types, [], name, struct_type)
         self.tasks = tasks
         self.workflow = workflow
 
@@ -865,7 +883,7 @@ class Document(SourceNode):
             names.add(namespace)
         names = set()
         # TODO: deal with imported/aliased struct_types
-        # check for circular dependencies amongst struct_types
+        _initialize_struct_types(self.struct_types)
         # typecheck each task
         with Err.multi_context() as errors:
             for task in self.tasks:
@@ -1214,3 +1232,39 @@ def _detect_cycles(p: Tuple[Dict[int, Err.SourceNode], _AdjM]):
     node = next(adj.nodes, None)
     if node:
         raise Err.CircularDependencies(nodes[node])
+
+
+def _resolve_struct_type(
+    pos: Err.SourcePosition, ty: T.StructInstance, struct_types: EnvStructTypes
+):
+    # On construction, WDL.Type.StructInstance is not yet resolved to the
+    # struct type definition. Here, given the EnvStructTypes computed
+    # on document construction, we populate 'members' with the dict of member
+    # types and names.
+    try:
+        struct_type = Env.resolve(struct_types, [], ty.type_name)
+    except KeyError:
+        raise Err.InvalidType(pos, "Unknown type " + ty.type_name)
+    assert ty.members is None or ty.type_id == struct_type.type_id
+    ty.members = struct_type.members
+    return ty.type_id
+
+
+def _initialize_struct_types(struct_types: EnvStructTypes):
+    # bootstrap struct typechecking: resolve all StructInstance members of the
+    # struct types, and check for circularities
+    node_by_id = dict()
+    adj = _AdjM()
+
+    def p(ns: List[str], b: "Env.Binding[StructTypes]"):
+        node_by_id[b.rhs.type_id] = b.rhs
+        for member_ty in b.rhs.members.values():
+            if isinstance(member_ty, T.StructInstance):
+                adj.add_edge(
+                    _resolve_struct_type(b.rhs.pos, member_ty, struct_types), b.rhs.type_id
+                )
+
+    Env.map(struct_types, p)
+
+    # check for cycles
+    _detect_cycles((node_by_id, adj))

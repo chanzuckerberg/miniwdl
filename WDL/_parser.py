@@ -433,7 +433,7 @@ class _TypeTransformer(lark.Transformer):
         if param or param2:
             raise Err.InvalidType(sp(self.filename, meta), "Unexpected type parameter(s)")
 
-        return T.Struct(items[0].value, "optional" in quantifiers)
+        return T.StructInstance(items[0].value, "optional" in quantifiers)
 
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
@@ -651,7 +651,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                     sp(self.filename, meta), "duplicate members in struct"
                 )
             members[d.name] = d.type
-        return {"struct": (name, members)}
+        return D.StructType(sp(self.filename, meta), name, members)
 
     def import_doc(self, items, meta):
         uri = items[0]
@@ -682,16 +682,16 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                         sp(self.filename, meta), "Document has multiple workflows"
                     )
                 workflow = item
+            elif isinstance(item, D.StructType):
+                if item.name in structs:
+                    raise Err.MultipleDefinitions(
+                        sp(self.filename, meta), "multiple structs named " + item.name
+                    )
+                structs[item.name] = item
             elif isinstance(item, lark.Tree) and item.data == "version":
                 pass
             elif isinstance(item, dict) and "import" in item:
                 imports.append(item["import"])
-            elif isinstance(item, dict) and "struct" in item:
-                if item["struct"][0] in structs:
-                    raise Err.MultipleDefinitions(
-                        sp(self.filename, meta), "multiple structs named " + item["struct"][0]
-                    )
-                structs[item["struct"][0]] = item["struct"][1]
             else:
                 assert False
         return D.Document(sp(self.filename, meta), imports, structs, tasks, workflow)
