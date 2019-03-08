@@ -567,16 +567,6 @@ class Ident(Base):
 
     def eval(self, env: Env.Values) -> V.Base:
         ""
-        if self.namespace and (self.name in ["left", "right"]):
-            pair_name = self.namespace[-1]
-            pair_namespace = self.namespace[:-1]
-            try:
-                ans: V.Base = Env.resolve(env, pair_namespace, pair_name)
-                if isinstance(ans, V.Pair):
-                    assert ans.value is not None
-                    return ans.value[0] if self.name == "left" else ans.value[1]
-            except KeyError:
-                pass
         try:
             ans: V.Base = Env.resolve(env, self.namespace, self.name)
             return ans
