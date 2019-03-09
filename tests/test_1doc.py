@@ -1512,3 +1512,41 @@ class TestStruct(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        struct Self {
+            Int k
+            Self me
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Car c
+            Int year = c.year
+            Int age = c.driver.age
+            Int month = c.driver.birthday.left
+        }
+
+        struct Person {
+            String name
+            Int age
+            Pair[Int,Int] birthday
+        }
+
+        struct Car {
+            String make
+            String model
+            Int year
+            Person driver
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()

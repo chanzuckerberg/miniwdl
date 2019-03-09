@@ -100,8 +100,8 @@ class Decl(SourceNode):
             pass
         if isinstance(self.type, T.StructInstance):
             _resolve_struct_type(self.pos, self.type, struct_types)
-        ans: Env.Types = Env.bind(type_env, [], self.name, self.type, ctx=self)
-        return ans
+            return _add_struct_instance_to_type_env([self.name], self.type, type_env, ctx=self)
+        return Env.bind(type_env, [], self.name, self.type, ctx=self)
 
     def typecheck(self, type_env: Env.Types, check_quant: bool) -> None:
         # Infer the expression's type and ensure it checks against the declared
@@ -1268,3 +1268,19 @@ def _initialize_struct_types(struct_types: EnvStructTypes):
 
     # check for cycles
     _detect_cycles((node_by_id, adj))
+
+
+def _add_struct_instance_to_type_env(
+    namespace: List[str], ty: T.StructInstance, type_env: Env.Types, ctx: Any
+):
+    # populate the type env with a binding for the struct instance and a
+    # namespace containing its members (recursing if any members are themselves
+    # struct instances)
+    assert isinstance(ty.members, dict)
+    ans = Env.bind(type_env, namespace[:-1], namespace[-1], ty, ctx)
+    for member_name, member_type in ty.members.items():
+        if isinstance(member_type, T.StructInstance):
+            ans = _add_struct_instance_to_type_env(namespace + [member_name], member_type, ans, ctx)
+        else:
+            ans = Env.bind(ans, namespace, member_name, member_type, ctx=ctx)
+    return ans
