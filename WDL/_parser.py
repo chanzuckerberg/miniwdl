@@ -47,7 +47,7 @@ common_grammar = r"""
           | "!" expr -> negate
 
           | "[" [expr ("," expr)*] ","? "]" -> array
-          | expr_core "[" expr "]" -> get
+          | expr_core "[" expr "]" -> at
 
           | "(" expr "," expr ")" -> pair
           | expr_core _LEFT -> get_left
@@ -319,8 +319,8 @@ class _ExprTransformer(lark.Transformer):
     def negate(self, items, meta) -> E.Base:
         return E.Apply(sp(self.filename, meta), "_negate", items)
 
-    def get(self, items, meta) -> E.Base:
-        return E.Apply(sp(self.filename, meta), "_get", items)
+    def at(self, items, meta) -> E.Base:
+        return E.Apply(sp(self.filename, meta), "_at", items)
 
     def pair(self, items, meta) -> E.Base:
         assert len(items) == 2

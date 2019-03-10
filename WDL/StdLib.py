@@ -11,7 +11,7 @@ import WDL.Error as Error
 #                      or map access map[key], returning the value type
 
 
-class _Get(E._Function):
+class _At(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         lhs = expr.arguments[0]
@@ -67,7 +67,7 @@ class _Get(E._Function):
         assert False  # pyre-fixme
 
 
-E._stdlib["_get"] = _Get()
+E._stdlib["_at"] = _At()
 
 # Pair get (EXPR.left/EXPR.right)
 # The special case where EXPR is an identifier goes a different path, through
