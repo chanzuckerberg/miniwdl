@@ -50,18 +50,15 @@ common_grammar = r"""
           | expr_core "[" expr "]" -> at
 
           | "(" expr "," expr ")" -> pair
-          | expr_core _LEFT -> get_left
-          | expr_core _RIGHT -> get_right
 
           | "{" [map_kv ("," map_kv)*] "}" -> map
 
           | "if" expr "then" expr "else" expr -> ifthenelse
 
-          | ident
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
-_LEFT.2: "." /left(?![0-9A-Za-z_])/
-_RIGHT.2: "." /right(?![0-9A-Za-z_])/
+          | CNAME -> left_name
+          | expr_core "." CNAME -> get_name
 
 ?literal: "true"-> boolean_true
         | "false" -> boolean_false
@@ -75,8 +72,6 @@ _RIGHT.2: "." /right(?![0-9A-Za-z_])/
 STRING_INNER1: ("\\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
-
-ident: CNAME ("." CNAME)*
 
 ?map_key: literal | string
 map_kv: map_key ":" expr
@@ -129,11 +124,12 @@ task: "task" CNAME "{" task_sections1* command task_sections2* "}"
 tasks: task*
 
 // WDL workflows
+namespaced_ident: CNAME ("." CNAME)* 
 call_input: CNAME "=" expr
 call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
-call: "call" ident call_body? -> call
-    | "call" ident "as" CNAME call_body? -> call_as
+call: "call" namespaced_ident call_body? -> call
+    | "call" namespaced_ident "as" CNAME call_body? -> call_as
 
 ?inner_workflow_element: bound_decl | call | scatter | conditional
 scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
@@ -192,8 +188,8 @@ command2: "command" "<<<" (COMMAND2_FRAGMENT? /\$/* "${" placeholder "}")* COMMA
 
 ?workflow_outputs: "output" "{" workflow_output_decls "}"
 workflow_output_decls: workflow_output_decl*
-?workflow_output_decl: bound_decl | ident | workflow_wildcard_output
-workflow_wildcard_output: ident "." "*" | ident ".*"
+?workflow_output_decl: bound_decl | namespaced_ident | workflow_wildcard_output
+workflow_wildcard_output: namespaced_ident "." "*" | namespaced_ident ".*"
 
 ?document_element: import_doc | task | workflow
 """
@@ -326,12 +322,6 @@ class _ExprTransformer(lark.Transformer):
         assert len(items) == 2
         return E.Pair(sp(self.filename, meta), items[0], items[1])
 
-    def get_left(self, items, meta) -> E.Base:
-        return E.Apply(sp(self.filename, meta), "_get_left", items)
-
-    def get_right(self, items, meta) -> E.Base:
-        return E.Apply(sp(self.filename, meta), "_get_right", items)
-
     def map_kv(self, items, meta) -> E.Base:
         assert len(items) == 2
         return (items[0], items[1])
@@ -343,9 +333,13 @@ class _ExprTransformer(lark.Transformer):
         assert len(items) == 3
         return E.IfThenElse(sp(self.filename, meta), *items)
 
-    def ident(self, items, meta) -> E.Base:
-        return E.Ident(sp(self.filename, meta), [item.value for item in items])
+    def left_name(self, items, meta) -> E.Base:
+        assert len(items) == 1 and isinstance(items[0], str)
+        return E.Get(sp(self.filename, meta), E._LeftName(sp(self.filename, meta), items[0]), None)
 
+    def get_name(self, items, meta) -> E.Base:
+        assert len(items) == 2 and isinstance(items[0], E.Base) and isinstance(items[1], str)
+        return E.Get(sp(self.filename, meta), items[0], items[1])
 
 # _ExprTransformer infix operators
 for op in [
@@ -548,6 +542,10 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def tasks(self, items, meta):
         return items
 
+    def namespaced_ident(self, items, meta) -> E.Base:
+        assert items
+        return [item.value for item in items]
+
     def call_input(self, items, meta):
         return (items[0].value, items[1])
 
@@ -581,12 +579,12 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return D.Conditional(sp(self.filename, meta), items[0], items[1:])
 
     def workflow_wildcard_output(self, items, meta):
-        assert isinstance(items[0], E.Ident)
-        return E.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
+        return items[0] + ["*"]
+        #return E.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
 
     def workflow_output_decls(self, items, meta):
         decls = [elt for elt in items if isinstance(elt, D.Decl)]
-        idents = [elt for elt in items if isinstance(elt, E.Ident)]
+        idents = [elt for elt in items if isinstance(elt, list)]
         assert len(decls) + len(idents) == len(items)
         return {"outputs": decls, "output_idents": idents}
 

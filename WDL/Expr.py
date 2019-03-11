@@ -524,7 +524,7 @@ class Apply(Base):
 
 
 class Ident(Base):
-    """An identifier expected to resolve in the environment given during evaluation"""
+    """An identifier referencing a named value or call output"""
 
     namespace: List[str]
     """
@@ -572,6 +572,10 @@ class Ident(Base):
             return ans
         except KeyError:
             raise Error.UnknownIdentifier(self) from None
+
+    @property
+    def _ident(self) -> List[str]:
+        return self.namespace + [self.name]
 
 
 # Pair literal
@@ -658,3 +662,102 @@ class Map(Base):
             eitems.append((k.eval(env), v.eval(env)))
         # TODO: complain of duplicate keys
         return V.Map(self.type, eitems)
+
+
+class _LeftName(Base):
+    name : str
+
+    def __init__(self, pos: SourcePosition, name: str) -> None:
+        super().__init__(pos)
+        assert name
+        self.name = name
+
+    def _infer_type(self, type_env: Env.Types) -> T.Base:
+        raise Error.UnknownIdentifier(self)
+
+    def eval(self, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
+
+    @property
+    def _ident(self) -> List[str]:
+        return [self.name]
+
+class Get(Base):
+    innard : Base
+    member: Optional[str]
+
+    def __init__(self, pos: SourcePosition, innard: Base, member: Optional[str]) -> None:
+        super().__init__(pos)
+        assert innard
+        self.innard = innard
+        self.member = member
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        if self._type:
+            # suppress children until resolution/typechecking is complete
+            yield self.innard
+
+    def _infer_type(self, type_env: Env.Types) -> T.Base:
+        if isinstance(self.innard, _LeftName):
+            # innard is a lone "name" -- try to resolve it as an identifier,
+            # and if that works, transform innard to Ident("name")
+            try:
+                Env.resolve(type_env, [], self.innard.name)
+                self.innard = Ident(self.innard.pos, [self.innard.name])
+            except KeyError:
+                if not self.member:
+                    raise Error.UnknownIdentifier(self) from None
+        # attempt to typecheck innard, disambiguating whether it's an
+        # intermediate value, a resolvable identifier, or neither
+        try:
+            self.innard.infer_type(type_env, self._check_quant)
+        except Error.UnknownIdentifier:
+            # Fail...there's one case we MAY be able to rescue, where innard is
+            # a namespace, and our member completes the path to a named value.
+            if not (isinstance(self.innard, (_LeftName, Get)) and self.innard._ident and self.member):
+                raise
+            # attempt to resolve "innard.member" and if that works, transform
+            # innard to Ident("innard.member")
+            try:
+                Env.resolve(type_env, self.innard._ident, self.member)
+            except KeyError:
+                raise Error.UnknownIdentifier(self) from None
+            self.innard = Ident(self.pos, self._ident)
+            self.innard.infer_type(type_env, self._check_quant)
+            self.member = None
+        # now we've typechecked innard
+        assert self.innard.type
+        if not self.member:
+            # no member to access; just propagate innard type
+            assert isinstance(self.innard, Ident)
+            return self.innard.type
+        # now we expect innard to be a pair or struct, whose member we're
+        # accessing
+        if self._check_quant and self.innard.type.optional:
+            raise Error.StaticTypeMismatch(self.innard, self.innard.type.copy(optional=False), self.innard.type)
+        if self.member in ["left", "right"]:
+            if not isinstance(self.innard.type, T.Pair):
+                raise Error.NotAPair(self.innard)
+            return self.innard.type.left_type if self.member == "left" else self.innard.type.right_type
+        if isinstance(self.innard.type, T.StructInstance):
+            try:
+                return self.innard.type.members[self.member]
+            except KeyError:
+                pass
+        raise Error.UnknownIdentifier(self) # FIXME UnknownMember
+
+    def eval(self, env: Env.Values) -> V.Base:
+        innard_value = self.innard.eval(env)
+        if not self.member:
+            return innard_value
+        if isinstance(innard_value, V.Pair):
+            assert self.member in ["left", "right"]
+            return innard_value.value[0 if self.member == "left" else 1]
+        raise NotImplementedError()
+
+    @property
+    def _ident(self) -> List[str]:
+        if isinstance(self.innard, (_LeftName, Get)) and self.innard._ident:
+            return self.innard._ident + ([self.member] if self.member else [])
+        return []

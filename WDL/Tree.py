@@ -300,11 +300,11 @@ TVWorkflow = TypeVar("TVWorkflow", bound="Workflow")
 class Call(SourceNode):
     """A call (within a workflow) to a task or sub-workflow"""
 
-    callee_id: E.Ident
+    callee_id: List[str]
     """
-    :type: WDL.Expr.Ident
+    :type: List[str]
 
-    Identifier of the desired task/workflow"""
+    Namespaced identifier of the desired task/workflow"""
     name: str
     """:type: string
 
@@ -324,19 +324,19 @@ class Call(SourceNode):
     def __init__(
         self,
         pos: SourcePosition,
-        callee_id: E.Ident,
+        callee_id: List[str],
         alias: Optional[str],
         inputs: Dict[str, E.Base],
     ) -> None:
         super().__init__(pos)
+        assert callee_id
         self.callee_id = callee_id
-        self.name = alias if alias is not None else self.callee_id.name
+        self.name = alias if alias is not None else self.callee_id[-1]
         self.inputs = inputs
         self.callee = None
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        yield self.callee_id
         for _, ex in self.inputs.items():
             yield ex
 
@@ -345,28 +345,28 @@ class Call(SourceNode):
         # prior to add_to_type_env() or typecheck_input()
         if self.callee:
             return
-        if not self.callee_id.namespace:
+        if len(self.callee_id) == 1:
             callee_doc = doc
-        elif len(self.callee_id.namespace) == 1:
+        elif len(self.callee_id) == 2:
             for _, ns, subdoc in doc.imports:
-                if ns == self.callee_id.namespace[0]:
+                if ns == self.callee_id[0]:
                     callee_doc = subdoc
         if callee_doc:
             assert isinstance(callee_doc, Document)
-            if callee_doc.workflow and callee_doc.workflow.name == self.callee_id.name:
+            if callee_doc.workflow and callee_doc.workflow.name == self.callee_id[-1]:
                 if not callee_doc.workflow.complete_calls or (
                     callee_doc.workflow.outputs is None and callee_doc.workflow.effective_outputs
                 ):
                     raise Err.UncallableWorkflow(
-                        self, ".".join(self.callee_id.namespace + [self.callee_id.name])
+                        self, ".".join(self.callee_id)
                     )
                 self.callee = callee_doc.workflow
             else:
                 for task in callee_doc.tasks:
-                    if task.name == self.callee_id.name:
+                    if task.name == self.callee_id[-1]:
                         self.callee = task
         if self.callee is None:
-            raise Err.UnknownIdentifier(self.callee_id)
+            raise Err.ValidationError(self, "no such task/workflow to call: " + ".".join(self.callee_id)) # FIXME better error
         assert isinstance(self.callee, (Task, Workflow))
 
     def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
@@ -612,7 +612,7 @@ class Workflow(SourceNode):
     """:type: Optional[List[WDL.Tree.Decl]]
 
     Workflow output declarations, if the ``output{}`` section is present"""
-    _output_idents: Optional[List[E.Ident]]
+    _output_idents: List[List[str]]
     parameter_meta: Dict[str, Any]
     """
     :type: Dict[str,Any]
@@ -648,14 +648,14 @@ class Workflow(SourceNode):
         outputs: Optional[List[Decl]],
         parameter_meta: Dict[str, Any],
         meta: Dict[str, Any],
-        output_idents: Optional[List[E.Ident]] = None,
+        output_idents: Optional[List[List[str]]] = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
         self.inputs = inputs
         self.elements = elements
         self.outputs = outputs
-        self._output_idents = output_idents
+        self._output_idents = output_idents or []
         self.parameter_meta = parameter_meta
         self.meta = meta
         self.complete_calls = True
@@ -761,7 +761,8 @@ class Workflow(SourceNode):
             if errors.try1(lambda: _typecheck_workflow_elements(doc, check_quant)) == False:
                 self.complete_calls = False
             # 4. convert deprecated output_idents, if any, to output declarations
-            self._rewrite_output_idents()
+            if self._output_idents:
+                self._rewrite_output_idents()
             # 5. typecheck the output expressions
             if self.outputs:
                 output_names = set()
@@ -779,46 +780,44 @@ class Workflow(SourceNode):
         _detect_cycles(_dependency_matrix(_decls_and_calls(self)))
 
     def _rewrite_output_idents(self) -> None:
-        if self._output_idents:
-            assert self.outputs is not None
+        # for pre-1.0 workflow output sections with a list of namespaced
+        # identifiers (instead of bound decls)
 
-            # for each listed identifier, formulate a synthetic declaration
-            output_ident_decls = []
-            for output_idents in self._output_idents:
-                output_idents = [output_idents]
+        # for each listed identifier, formulate a synthetic declaration
+        output_ident_decls = []
+        for output_idents in self._output_idents:
+            output_idents = [output_idents]
 
-                if output_idents[0].name == "*":
-                    # wildcard: expand to each call output
-                    wildcard = output_idents[0]
-                    output_idents = []
-                    try:
-                        for binding in Env.resolve_namespace(self._type_env, wildcard.namespace):
-                            binding_name = binding.name
-                            assert isinstance(binding_name, str)
-                            output_idents.append(
-                                E.Ident(wildcard.pos, wildcard.namespace + [binding_name])
-                            )
-                    except KeyError:
-                        raise Err.UnknownIdentifier(wildcard)
+            if output_idents[0][-1] == "*":
+                # wildcard: expand to each call output
+                wildcard_namespace = output_idents[0][:-1]
+                output_idents = []
+                try:
+                    for binding in Env.resolve_namespace(self._type_env, wildcard_namespace):
+                        binding_name = binding.name
+                        assert isinstance(binding_name, str)
+                        output_idents.append(wildcard_namespace + [binding_name])
+                except KeyError:
+                    raise Err.ValidationError(self.pos, "No such namespace: " + ".".join(wildcard_namespace + ["*"])) from None
 
-                for output_ident in output_idents:
-                    try:
-                        ty = Env.resolve(self._type_env, output_ident.namespace, output_ident.name)
-                    except KeyError:
-                        raise Err.UnknownIdentifier(output_ident)
-                    assert isinstance(ty, T.Base)
-                    # the output name is supposed to be 'fully qualified'
-                    # including the call namespace. we're going to stick it
-                    # into the decl name with a ., which is a weird corner
-                    # case!
-                    synthetic_output_name = ".".join(output_ident.namespace + [output_ident.name])
-                    output_ident_decls.append(
-                        Decl(output_ident.pos, ty, synthetic_output_name, output_ident)
-                    )
+            for output_ident in output_idents:
+                try:
+                    ty = Env.resolve(self._type_env, output_ident[:-1], output_ident[-1])
+                except KeyError:
+                    raise Err.UnknownIdentifier(E.Ident(self.pos, output_ident)) from None
+                assert isinstance(ty, T.Base)
+                # the output name is supposed to be 'fully qualified'
+                # including the call namespace. we're going to stick it
+                # into the decl name with a ., which is a weird corner
+                # case!
+                synthetic_output_name = ".".join(output_ident)
+                output_ident_decls.append(
+                    Decl(self.pos, ty, synthetic_output_name, E.Ident(self.pos, output_ident))
+                )
 
-            # put the synthetic declarations into self.outputs
-            self.outputs = output_ident_decls + self.outputs  # pyre-fixme
-            self._output_idents = None
+        # put the synthetic declarations into self.outputs
+        self.outputs = output_ident_decls + self.outputs  # pyre-fixme
+        self._output_idents = []
 
 
 class Document(SourceNode):

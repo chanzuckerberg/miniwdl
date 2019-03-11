@@ -59,7 +59,7 @@ class TestTasks(unittest.TestCase):
             self.assertEqual(str(task.inputs[0]), "String in")
 
             self.assertEqual(len(task.command.parts), 3)
-            self.assertEqual(task.command.parts[1].expr.name, "in")
+            self.assertEqual(task.command.parts[1].expr._ident, ["in"])
 
             self.assertEqual(len(task.outputs), 1)
             self.assertEqual(str(task.outputs[0].type), "String")
@@ -686,7 +686,7 @@ class TestDoc(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.UnknownIdentifier):
+        with self.assertRaises(WDL.Error.ValidationError):
             doc.typecheck()
 
         doc = r"""
@@ -887,7 +887,7 @@ class TestDoc(unittest.TestCase):
                 }
             }
         """)
-        with self.assertRaises(WDL.Error.UnknownIdentifier):
+        with self.assertRaises(WDL.Error.ValidationError):
             doc.typecheck()
 
         doc = WDL.parse_document("""
