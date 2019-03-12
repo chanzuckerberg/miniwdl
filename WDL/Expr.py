@@ -738,14 +738,14 @@ class Get(Base):
         # now we expect innard to be a pair or struct, whose member we're
         # accessing
         if not isinstance(self.innard.type, (T.Pair, T.StructInstance)):
-            raise Error.NotAPair(self)  # FIXME: NoMembers
+            raise Error.NoSuchMember(self, self.member)
         if self._check_quant and self.innard.type.optional:
             raise Error.StaticTypeMismatch(
                 self.innard, self.innard.type.copy(optional=False), self.innard.type
             )
         if self.member in ["left", "right"]:
             if not isinstance(self.innard.type, T.Pair):
-                raise Error.NotAPair(self.innard)
+                raise Error.NoSuchMember(self, self.member)
             return (
                 self.innard.type.left_type if self.member == "left" else self.innard.type.right_type
             )
@@ -754,7 +754,7 @@ class Get(Base):
                 return self.innard.type.members[self.member]
             except KeyError:
                 pass
-        raise Error.UnknownIdentifier(self)  # FIXME UnknownMember
+        raise Error.NoSuchMember(self, self.member)
 
     def eval(self, env: Env.Values) -> V.Base:
         innard_value = self.innard.eval(env)

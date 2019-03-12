@@ -686,7 +686,7 @@ class TestDoc(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.ValidationError):
+        with self.assertRaises(WDL.Error.NoSuchTask):
             doc.typecheck()
 
         doc = r"""
@@ -887,7 +887,7 @@ class TestDoc(unittest.TestCase):
                 }
             }
         """)
-        with self.assertRaises(WDL.Error.ValidationError):
+        with self.assertRaises(WDL.Error.NoSuchTask):
             doc.typecheck()
 
         doc = WDL.parse_document("""

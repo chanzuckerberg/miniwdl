@@ -267,7 +267,6 @@ class Task(SourceNode):
             # right-hand side expressions against the type environment.
             for decl in (self.inputs or []) + self.postinputs:
                 errors.try1(lambda: decl.typecheck(type_env, check_quant))
-            # TODO: detect circular dependencies among input & postinput decls
             # Typecheck the command (string)
             errors.try1(
                 lambda: self.command.infer_type(type_env, check_quant).typecheck(T.String())
@@ -369,9 +368,7 @@ class Call(SourceNode):
                     if task.name == self.callee_id[-1]:
                         self.callee = task
         if self.callee is None:
-            raise Err.ValidationError(
-                self, "no such task/workflow to call: " + ".".join(self.callee_id)
-            )  # FIXME better error
+            raise Err.NoSuchTask(self, ".".join(self.callee_id))
         assert isinstance(self.callee, (Task, Workflow))
 
     def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
@@ -814,9 +811,8 @@ class Workflow(SourceNode):
                         assert isinstance(binding_name, str)
                         output_idents.append(wildcard_namespace + [binding_name])
                 except KeyError:
-                    raise Err.ValidationError(
-                        self._output_idents_pos,
-                        "No such namespace: " + ".".join(wildcard_namespace + ["*"]),
+                    raise Err.NoSuchTask(
+                        self._output_idents_pos, ".".join(wildcard_namespace)
                     ) from None
 
             for output_ident in output_idents:

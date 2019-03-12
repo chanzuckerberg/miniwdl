@@ -105,6 +105,11 @@ class InvalidType(ValidationError):
         super().__init__(node, message)
 
 
+class NoSuchTask(ValidationError):
+    def __init__(self, node: SourceNode, name: str) -> None:
+        super().__init__(node, "No such task/workflow: " + name)
+
+
 class NoSuchFunction(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(node, "No such function: " + name)
@@ -123,9 +128,9 @@ class NotAnArray(ValidationError):
         super().__init__(node, "Not an array")
 
 
-class NotAPair(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "Not a pair (taking left or right)")
+class NoSuchMember(ValidationError):
+    def __init__(self, node: SourceNode, member: str) -> None:
+        super().__init__(node, "Value has no member '{}'".format(member))
 
 
 class StaticTypeMismatch(ValidationError):
