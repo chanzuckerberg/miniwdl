@@ -165,16 +165,16 @@ def outline(obj, level, file=sys.stdout, show_called=True):
             descend(decl)
     # call
     elif isinstance(obj, WDL.Call):
-        if obj.name != obj.callee_id.name:
+        if obj.name != obj.callee_id[-1]:
             print(
                 "{}call {} as {}".format(
-                    s, ".".join(obj.callee_id.namespace + [obj.callee_id.name]), obj.name
+                    s, ".".join(obj.callee_id), obj.name
                 ),
                 file=file,
             )
         else:
             print(
-                "{}call {}".format(s, ".".join(obj.callee_id.namespace + [obj.callee_id.name])),
+                "{}call {}".format(s, ".".join(obj.callee_id)),
                 file=file,
             )
     # scatter

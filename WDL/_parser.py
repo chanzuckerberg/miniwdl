@@ -586,13 +586,14 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         decls = [elt for elt in items if isinstance(elt, D.Decl)]
         idents = [elt for elt in items if isinstance(elt, list)]
         assert len(decls) + len(idents) == len(items)
-        return {"outputs": decls, "output_idents": idents}
+        return {"outputs": decls, "output_idents": idents, "pos": sp(self.filename, meta)}
 
     def workflow(self, items, meta):
         elements = []
         inputs = None
         outputs = None
         output_idents = None
+        output_idents_pos = None
         parameter_meta = None
         meta_section = None
         for item in items[1:]:
@@ -609,6 +610,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                     if "output_idents" in item:
                         assert output_idents is None
                         output_idents = item["output_idents"]
+                        output_idents_pos = item["pos"]
                 elif "meta" in item:
                     if meta_section is not None:
                         raise Err.MultipleDefinitions(
@@ -636,6 +638,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             parameter_meta or dict(),
             meta_section or dict(),
             output_idents,
+            output_idents_pos
         )
 
     def struct(self, items, meta):

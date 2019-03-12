@@ -734,6 +734,8 @@ class Get(Base):
             return self.innard.type
         # now we expect innard to be a pair or struct, whose member we're
         # accessing
+        if not isinstance(self.innard.type, (T.Pair, T.StructInstance)):
+            raise Error.NotAPair(self) # FIXME: NoMembers
         if self._check_quant and self.innard.type.optional:
             raise Error.StaticTypeMismatch(self.innard, self.innard.type.copy(optional=False), self.innard.type)
         if self.member in ["left", "right"]:

@@ -98,6 +98,11 @@ class Decl(SourceNode):
             raise Err.MultipleDefinitions(self, "Multiple declarations of " + self.name)
         except KeyError:
             pass
+        try:
+            Env.resolve_namespace(type_env, [self.name])
+            raise Err.MultipleDefinitions(self, "Value/call name collision on " + self.name)
+        except KeyError:
+            pass
         if isinstance(self.type, T.StructInstance):
             _resolve_struct_type(self.pos, self.type, struct_types)
             return _add_struct_instance_to_type_env([self.name], self.type, type_env, ctx=self)
@@ -383,6 +388,11 @@ class Call(SourceNode):
             )
         except KeyError:
             pass
+        try:
+            Env.resolve(type_env, [], self.name)
+            raise Err.MultipleDefinitions(self, "Value/call name collision on " + self.name)
+        except KeyError:
+            pass
         return self.effective_outputs + type_env
 
     def typecheck_input(self, type_env: Env.Types, check_quant: bool) -> bool:
@@ -613,6 +623,7 @@ class Workflow(SourceNode):
 
     Workflow output declarations, if the ``output{}`` section is present"""
     _output_idents: List[List[str]]
+    _output_idents_pos: Optional[Err.SourcePosition]
     parameter_meta: Dict[str, Any]
     """
     :type: Dict[str,Any]
@@ -649,6 +660,7 @@ class Workflow(SourceNode):
         parameter_meta: Dict[str, Any],
         meta: Dict[str, Any],
         output_idents: Optional[List[List[str]]] = None,
+        output_idents_pos: Optional[SourcePosition] = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
@@ -656,6 +668,7 @@ class Workflow(SourceNode):
         self.elements = elements
         self.outputs = outputs
         self._output_idents = output_idents or []
+        self._output_idents_pos = output_idents_pos
         self.parameter_meta = parameter_meta
         self.meta = meta
         self.complete_calls = True
@@ -798,13 +811,13 @@ class Workflow(SourceNode):
                         assert isinstance(binding_name, str)
                         output_idents.append(wildcard_namespace + [binding_name])
                 except KeyError:
-                    raise Err.ValidationError(self.pos, "No such namespace: " + ".".join(wildcard_namespace + ["*"])) from None
+                    raise Err.ValidationError(self._output_idents_pos, "No such namespace: " + ".".join(wildcard_namespace + ["*"])) from None
 
             for output_ident in output_idents:
                 try:
                     ty = Env.resolve(self._type_env, output_ident[:-1], output_ident[-1])
                 except KeyError:
-                    raise Err.UnknownIdentifier(E.Ident(self.pos, output_ident)) from None
+                    raise Err.UnknownIdentifier(E.Ident(self._output_idents_pos, output_ident)) from None
                 assert isinstance(ty, T.Base)
                 # the output name is supposed to be 'fully qualified'
                 # including the call namespace. we're going to stick it
@@ -812,7 +825,7 @@ class Workflow(SourceNode):
                 # case!
                 synthetic_output_name = ".".join(output_ident)
                 output_ident_decls.append(
-                    Decl(self.pos, ty, synthetic_output_name, E.Ident(self.pos, output_ident))
+                    Decl(self.pos, ty, synthetic_output_name, E.Ident(self._output_idents_pos, output_ident))
                 )
 
         # put the synthetic declarations into self.outputs
