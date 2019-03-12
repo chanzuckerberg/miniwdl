@@ -341,6 +341,7 @@ class _ExprTransformer(lark.Transformer):
         assert len(items) == 2 and isinstance(items[0], E.Base) and isinstance(items[1], str)
         return E.Get(sp(self.filename, meta), items[0], items[1])
 
+
 # _ExprTransformer infix operators
 for op in [
     "land",
@@ -580,7 +581,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def workflow_wildcard_output(self, items, meta):
         return items[0] + ["*"]
-        #return E.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
+        # return E.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
 
     def workflow_output_decls(self, items, meta):
         decls = [elt for elt in items if isinstance(elt, D.Decl)]
@@ -638,7 +639,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             parameter_meta or dict(),
             meta_section or dict(),
             output_idents,
-            output_idents_pos
+            output_idents_pos,
         )
 
     def struct(self, items, meta):

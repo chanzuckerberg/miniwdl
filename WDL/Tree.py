@@ -362,16 +362,16 @@ class Call(SourceNode):
                 if not callee_doc.workflow.complete_calls or (
                     callee_doc.workflow.outputs is None and callee_doc.workflow.effective_outputs
                 ):
-                    raise Err.UncallableWorkflow(
-                        self, ".".join(self.callee_id)
-                    )
+                    raise Err.UncallableWorkflow(self, ".".join(self.callee_id))
                 self.callee = callee_doc.workflow
             else:
                 for task in callee_doc.tasks:
                     if task.name == self.callee_id[-1]:
                         self.callee = task
         if self.callee is None:
-            raise Err.ValidationError(self, "no such task/workflow to call: " + ".".join(self.callee_id)) # FIXME better error
+            raise Err.ValidationError(
+                self, "no such task/workflow to call: " + ".".join(self.callee_id)
+            )  # FIXME better error
         assert isinstance(self.callee, (Task, Workflow))
 
     def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
@@ -622,6 +622,9 @@ class Workflow(SourceNode):
     """:type: Optional[List[WDL.Tree.Decl]]
 
     Workflow output declarations, if the ``output{}`` section is present"""
+    # following two fields temporarily hold old-style (pre 1.0) outputs with
+    # bare identifiers or namespace wildcards. We postprocess them into
+    # full declarations as expected in WDL 1.0+.
     _output_idents: List[List[str]]
     _output_idents_pos: Optional[Err.SourcePosition]
     parameter_meta: Dict[str, Any]
@@ -811,13 +814,18 @@ class Workflow(SourceNode):
                         assert isinstance(binding_name, str)
                         output_idents.append(wildcard_namespace + [binding_name])
                 except KeyError:
-                    raise Err.ValidationError(self._output_idents_pos, "No such namespace: " + ".".join(wildcard_namespace + ["*"])) from None
+                    raise Err.ValidationError(
+                        self._output_idents_pos,
+                        "No such namespace: " + ".".join(wildcard_namespace + ["*"]),
+                    ) from None
 
             for output_ident in output_idents:
                 try:
                     ty = Env.resolve(self._type_env, output_ident[:-1], output_ident[-1])
                 except KeyError:
-                    raise Err.UnknownIdentifier(E.Ident(self._output_idents_pos, output_ident)) from None
+                    raise Err.UnknownIdentifier(
+                        E.Ident(self._output_idents_pos, output_ident)
+                    ) from None
                 assert isinstance(ty, T.Base)
                 # the output name is supposed to be 'fully qualified'
                 # including the call namespace. we're going to stick it
@@ -825,7 +833,12 @@ class Workflow(SourceNode):
                 # case!
                 synthetic_output_name = ".".join(output_ident)
                 output_ident_decls.append(
-                    Decl(self.pos, ty, synthetic_output_name, E.Ident(self._output_idents_pos, output_ident))
+                    Decl(
+                        self.pos,
+                        ty,
+                        synthetic_output_name,
+                        E.Ident(self._output_idents_pos, output_ident),
+                    )
                 )
 
         # put the synthetic declarations into self.outputs

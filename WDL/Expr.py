@@ -665,7 +665,7 @@ class Map(Base):
 
 
 class _LeftName(Base):
-    name : str
+    name: str
 
     def __init__(self, pos: SourcePosition, name: str) -> None:
         super().__init__(pos)
@@ -682,8 +682,9 @@ class _LeftName(Base):
     def _ident(self) -> List[str]:
         return [self.name]
 
+
 class Get(Base):
-    innard : Base
+    innard: Base
     member: Optional[str]
 
     def __init__(self, pos: SourcePosition, innard: Base, member: Optional[str]) -> None:
@@ -715,7 +716,9 @@ class Get(Base):
         except Error.UnknownIdentifier:
             # Fail...there's one case we MAY be able to rescue, where innard is
             # a namespace, and our member completes the path to a named value.
-            if not (isinstance(self.innard, (_LeftName, Get)) and self.innard._ident and self.member):
+            if not (
+                isinstance(self.innard, (_LeftName, Get)) and self.innard._ident and self.member
+            ):
                 raise
             # attempt to resolve "innard.member" and if that works, transform
             # innard to Ident("innard.member")
@@ -735,19 +738,23 @@ class Get(Base):
         # now we expect innard to be a pair or struct, whose member we're
         # accessing
         if not isinstance(self.innard.type, (T.Pair, T.StructInstance)):
-            raise Error.NotAPair(self) # FIXME: NoMembers
+            raise Error.NotAPair(self)  # FIXME: NoMembers
         if self._check_quant and self.innard.type.optional:
-            raise Error.StaticTypeMismatch(self.innard, self.innard.type.copy(optional=False), self.innard.type)
+            raise Error.StaticTypeMismatch(
+                self.innard, self.innard.type.copy(optional=False), self.innard.type
+            )
         if self.member in ["left", "right"]:
             if not isinstance(self.innard.type, T.Pair):
                 raise Error.NotAPair(self.innard)
-            return self.innard.type.left_type if self.member == "left" else self.innard.type.right_type
+            return (
+                self.innard.type.left_type if self.member == "left" else self.innard.type.right_type
+            )
         if isinstance(self.innard.type, T.StructInstance):
             try:
                 return self.innard.type.members[self.member]
             except KeyError:
                 pass
-        raise Error.UnknownIdentifier(self) # FIXME UnknownMember
+        raise Error.UnknownIdentifier(self)  # FIXME UnknownMember
 
     def eval(self, env: Env.Values) -> V.Base:
         innard_value = self.innard.eval(env)
