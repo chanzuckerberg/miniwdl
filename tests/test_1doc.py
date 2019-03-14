@@ -1704,3 +1704,18 @@ class TestStruct(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.UnknownIdentifier):
             doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person[Int,Float] bogus
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        with self.assertRaises(WDL.Error.InvalidType):
+            WDL.parse_document(doc)

@@ -665,7 +665,12 @@ class Map(Base):
 
 
 class _LeftName(Base):
-    # TODO document me
+    # This AST node is a placeholder involved in the ambiguity of
+    # "leftname.midname.rightname" as elaborated in the docstring below. The
+    # parser, lacking the context to disambiguate this syntax, creates this
+    # node simply to represent the leftmost (sometimes only) name. Later,
+    # Get._infer_type transforms this into an `Ident` expression during
+    # typechecking; the library user should never see it.
     name: str
 
     def __init__(self, pos: SourcePosition, name: str) -> None:
@@ -685,9 +690,38 @@ class _LeftName(Base):
 
 
 class Get(Base):
-    # TODO document me
+    """
+    AST node representing access to a value by identifier, or accessing a
+    member of a pair or struct as `.member`.
+
+    The entaglement of these two cases is inherent in the WDL language.
+    Consider the syntax `leftname.midname.rightname`. One interpretation
+    is that `leftname` is an identifier for a struct value, and
+    `.midname.rightname` represent chained struct member accesses. But another
+    possibility is that `leftname` is a call, `midname` is a struct output of
+    that call, and `rightname` is a member of that struct. These cases can't be
+    distinguished from the syntax alone, but must be resolved during
+    typechecking with reference to the calls and identifiers available in the
+    environment.
+    """
+
     innard: Base
+    """
+    :type: WDL.Expr.Base
+
+    The expression whose value is accessed, frequently (but not always) an
+    `Ident` or a nested `Get`.
+    """
     member: Optional[str]
+    """
+    :type: Optional[str]
+
+    If the expression is accessing a pair/struct member, then `innard.type` is
+    `WDL.Type.Pair` or `WDL.Type.StructInstance` and this field gives the
+    desired member name (`left` or `right` for pairs).
+
+    Otherwise the expression accesses `innard` directly, and `member` is `None`.
+    """
 
     def __init__(self, pos: SourcePosition, innard: Base, member: Optional[str]) -> None:
         super().__init__(pos)
