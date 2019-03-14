@@ -40,7 +40,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
    :top-classes: WDL.Type.Base
 """
 from abc import ABC
-from typing import Optional, TypeVar, Tuple, Dict
+from typing import Optional, TypeVar, Tuple, Dict, Iterable
 import copy
 
 TVBase = TypeVar("TVBase", bound="Base")
@@ -82,6 +82,16 @@ class Base(ABC):
 
         True when the type has the optional quantifier, ``T?``"""
         return self._optional
+
+    @property
+    def parameters(self) -> Iterable[TVBase]:
+        """
+        :type: Iterable[WDL.Type.Base]
+
+        The type's parameters, if any (e.g. item type of Array; left & right
+        types of Pair; etc.)
+        """
+        return []
 
     def copy(self, optional: Optional[bool] = None) -> TVBase:
         """
@@ -208,6 +218,10 @@ class Array(Base):
         """
         return self._nonempty
 
+    @property
+    def parameters(self) -> Iterable[Base]:
+        yield self.item_type
+
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Array):
@@ -259,6 +273,11 @@ class Map(Base):
             + ("?" if self.optional else "")
         )
 
+    @property
+    def parameters(self) -> Iterable[Base]:
+        yield self.item_type[0]
+        yield self.item_type[1]
+
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Map):
@@ -299,6 +318,11 @@ class Pair(Base):
             + "]"
             + ("?" if self.optional else "")
         )
+
+    @property
+    def parameters(self) -> Iterable[Base]:
+        yield self.left_type
+        yield self.right_type
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
@@ -358,3 +382,7 @@ class StructInstance(Base):
         """
         assert isinstance(self.members, dict)
         return id(self.members)
+
+    @property
+    def parameters(self) -> Iterable[Base]:
+        return self.members.values()

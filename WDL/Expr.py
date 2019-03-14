@@ -665,6 +665,7 @@ class Map(Base):
 
 
 class _LeftName(Base):
+    # TODO document me
     name: str
 
     def __init__(self, pos: SourcePosition, name: str) -> None:
@@ -673,7 +674,7 @@ class _LeftName(Base):
         self.name = name
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        raise Error.UnknownIdentifier(self)
+        raise NotImplementedError()
 
     def eval(self, env: Env.Values) -> V.Base:
         raise NotImplementedError()
@@ -684,6 +685,7 @@ class _LeftName(Base):
 
 
 class Get(Base):
+    # TODO document me
     innard: Base
     member: Optional[str]
 

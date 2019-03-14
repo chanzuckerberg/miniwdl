@@ -103,8 +103,8 @@ class Decl(SourceNode):
             raise Err.MultipleDefinitions(self, "Value/call name collision on " + self.name)
         except KeyError:
             pass
+        _resolve_struct_types(self.pos, self.type, struct_types)
         if isinstance(self.type, T.StructInstance):
-            _resolve_struct_type(self.pos, self.type, struct_types)
             return _add_struct_instance_to_type_env([self.name], self.type, type_env, ctx=self)
         return Env.bind(type_env, [], self.name, self.type, ctx=self)
 
@@ -902,9 +902,9 @@ class Document(SourceNode):
             if namespace in names:
                 raise Err.MultipleDefinitions(self, "Multiple imports with namespace " + namespace)
             names.add(namespace)
-        names = set()
         # TODO: deal with imported/aliased struct_types
         _initialize_struct_types(self.struct_types)
+        names = set()
         # typecheck each task
         with Err.multi_context() as errors:
             for task in self.tasks:
@@ -1257,7 +1257,7 @@ def _detect_cycles(p: Tuple[Dict[int, Err.SourceNode], _AdjM]):
 
 def _resolve_struct_type(
     pos: Err.SourcePosition, ty: T.StructInstance, struct_types: EnvStructTypes
-):
+) -> int:
     # On construction, WDL.Type.StructInstance is not yet resolved to the
     # struct type definition. Here, given the EnvStructTypes computed
     # on document construction, we populate 'members' with the dict of member
@@ -1269,6 +1269,14 @@ def _resolve_struct_type(
     assert ty.members is None or ty.type_id == struct_type.type_id
     ty.members = struct_type.members
     return ty.type_id
+
+
+def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: EnvStructTypes):
+    # resolve all StructInstance within a potentially compound type
+    if isinstance(ty, T.StructInstance):
+        _resolve_struct_type(pos, ty, struct_types)
+    for p in ty.parameters:
+        _resolve_struct_types(pos, p, struct_types)
 
 
 def _initialize_struct_types(struct_types: EnvStructTypes):

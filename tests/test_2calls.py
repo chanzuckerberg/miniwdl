@@ -396,7 +396,25 @@ class TestCalls(unittest.TestCase):
         doc.typecheck()
         assert(doc.workflow.elements[0].type.nonempty and doc.workflow.elements[0].type.optional)
 
-        # TODO: test cycle detection
+        txt = tsk + r"""
+        workflow contrived {
+            call sum
+            Int sum = 1
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        txt = tsk + r"""
+        workflow contrived {
+            Int s = 1
+            call sum as s
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
 
     def test_io_propagation(self):
         # should not be able to call a workflow containing an incomplete call
