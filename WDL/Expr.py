@@ -93,10 +93,11 @@ class Base(SourceNode, ABC):
         pass
 
 
-# Boolean literal
-
-
 class Boolean(Base):
+    """
+    Boolean literal
+    """
+
     value: bool
     """
     :type: bool
@@ -116,10 +117,11 @@ class Boolean(Base):
         return V.Boolean(self.value)
 
 
-# Integer literal
-
-
 class Int(Base):
+    """
+    Integer literal
+    """
+
     value: int
     """
     :type: int
@@ -143,6 +145,10 @@ class Int(Base):
 
 
 class Float(Base):
+    """
+    Numeric literal
+    """
+
     value: float
     """
     :type: float
@@ -163,7 +169,7 @@ class Float(Base):
 
 
 class Placeholder(Base):
-    """Expression interpolated within a string or command"""
+    """Holds an expression interpolated within a string or command"""
 
     options: Dict[str, str]
     """
@@ -175,7 +181,7 @@ class Placeholder(Base):
     """
     :type: WDL.Expr.Base
 
-    Expression for evaluation
+    Expression to be evaluated and substituted
     """
 
     def __init__(self, pos: SourcePosition, options: Dict[str, str], expr: Base) -> None:
@@ -241,7 +247,7 @@ class Placeholder(Base):
 
 
 class String(Base):
-    """Text, possibly interleaved with expression placeholders for interpolation"""
+    """String literal, possibly interleaved with expression placeholders for interpolation"""
 
     parts: List[Union[str, Placeholder]]
     """
@@ -286,10 +292,11 @@ class String(Base):
         return V.String("".join(ans)[1:-1])  # pyre-ignore
 
 
-# Array
-
-
 class Array(Base):
+    """
+    Array literal
+    """
+
     items: List[Base]
     """
     :type: List[WDL.Expr.Base]
@@ -366,10 +373,99 @@ class Array(Base):
         )
 
 
-# If
+class Pair(Base):
+    """
+    Pair literal
+    """
+
+    left: Base
+    """
+    :type: WDL.Expr.Base
+
+    Left-hand expression in the pair literal
+    """
+    right: Base
+    """
+    :type: WDL.Expr.Base
+
+    Right-hand expression in the pair literal
+    """
+
+    def __init__(self, pos: SourcePosition, left: Base, right: Base) -> None:
+        super().__init__(pos)
+        self.left = left
+        self.right = right
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        yield self.left
+        yield self.right
+
+    def _infer_type(self, type_env: Env.Types) -> T.Base:
+        return T.Pair(self.left.type, self.right.type)
+
+    def eval(self, env: Env.Values) -> V.Base:
+        ""
+        assert isinstance(self.type, T.Pair)
+        lv = self.left.eval(env)
+        rv = self.right.eval(env)
+        return V.Pair(self.type, (lv, rv))
+
+
+class Map(Base):
+    """
+    Map literal
+    """
+
+    items: List[Tuple[Base, Base]]
+    """
+    :type: List[Tuple[WDL.Expr.Base,WDL.Expr.Base]]
+
+    Expressions for the map literal keys and values
+    """
+
+    def __init__(self, pos: SourcePosition, items: List[Tuple[Base, Base]]) -> None:
+        super().__init__(pos)
+        self.items = items
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        for k, v in self.items:
+            yield k
+            yield v
+
+    def _infer_type(self, type_env: Env.Types) -> T.Base:
+        kty = None
+        vty = None
+        for k, v in self.items:
+            if kty is None:
+                kty = k.type
+            else:
+                k.typecheck(kty)
+            if vty is None or vty == T.Array(T.Any()) or vty == T.Map(None):
+                vty = v.type
+            else:
+                v.typecheck(vty)
+        if kty is None:
+            return T.Map(None)
+        assert vty is not None
+        return T.Map((kty, vty))
+
+    def eval(self, env: Env.Values) -> V.Base:
+        ""
+        assert isinstance(self.type, T.Map)
+        eitems = []
+        for k, v in self.items:
+            eitems.append((k.eval(env), v.eval(env)))
+        # TODO: complain of duplicate keys
+        return V.Map(self.type, eitems)
 
 
 class IfThenElse(Base):
+    """
+    Ternary conditional expression
+    """
+
     condition: Base
     """
     :type: WDL.Expr.Base
@@ -456,6 +552,218 @@ class IfThenElse(Base):
             raise Error.NullValue(self) from None
 
 
+class Ident(Base):
+    """An identifier referencing a named value or call output.
+
+    ``Ident`` nodes are wrapped in ``Get`` nodes, as discussed below.
+    """
+
+    namespace: List[str]
+    """
+    :type: List[str]
+
+    Namespace (empty for an unqualified name)
+    """
+    name: str
+    ":type: str"
+
+    ctx: Any = None
+    """
+    After typechecking, stores context about the binding from the type
+    environment.
+
+    The ``Tree`` typechecker typically stores here a reference to a ``Decl``
+    (for value references in tasks and workflows), a ``Call`` (for references
+    to a call output), or a ``Scatter`` (for references to a scatter variable).
+    """
+
+    def __init__(self, pos: SourcePosition, parts: List[str]) -> None:
+        super().__init__(pos)
+        assert parts
+        self.name = parts[-1]
+        self.namespace = parts[:-1]
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        return []
+
+    def _infer_type(self, type_env: Env.Types) -> T.Base:
+        try:
+            ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
+        except KeyError:
+            raise Error.UnknownIdentifier(self) from None
+        # the ctx for each binding in the type environment should be the
+        # originating Decl (for inputs/values) or Call (for call outputs)
+        self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
+        return ans
+
+    def eval(self, env: Env.Values) -> V.Base:
+        ""
+        try:
+            ans: V.Base = Env.resolve(env, self.namespace, self.name)
+            return ans
+        except KeyError:
+            raise Error.UnknownIdentifier(self) from None
+
+    @property
+    def _ident(self) -> List[str]:
+        return self.namespace + [self.name]
+
+
+class _LeftName(Base):
+    # This AST node is a placeholder involved in disambiguating dot-separated
+    # identifiers (e.g. "leftname.midname.rightname") as elaborated in the Get
+    # docstring below. The parser, lacking the context to resolve this syntax,
+    # creates this node simply to represent the leftmost (sometimes only) name,
+    # as the innard of a Get node, potentially (not necessarily) with a
+    # member name. Later during typechecking, Get._infer_type folds _LeftName
+    # into an `Ident` expression; the library user should never have to work
+    # with _LeftName.
+    name: str
+
+    def __init__(self, pos: SourcePosition, name: str) -> None:
+        super().__init__(pos)
+        assert name
+        self.name = name
+
+    def _infer_type(self, type_env: Env.Types) -> T.Base:
+        raise NotImplementedError()
+
+    def eval(self, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
+
+    @property
+    def _ident(self) -> List[str]:
+        return [self.name]
+
+
+class Get(Base):
+    """
+    AST node representing access to a value by identifier (including namespaced
+    ones), or accessing a member of a pair or struct as ``.member``.
+
+    The entaglement of these two cases is inherent in WDL. Consider the syntax
+    ``leftname.midname.rightname`. One interpretation is that ``leftname`` is
+    an identifier for a struct value, and ``.midname.rightname`` represents a
+    chain of struct member accesses. But another possibility is that
+    ``leftname`` is a call, ``midname`` is a struct output of that call, and
+    ``rightname`` is a member of that struct. These cases can't be
+    distinguished by the syntax parser alone, but must be resolved during
+    typechecking with reference to the calls and identifiers available in the
+    environment.
+
+    The typechecker does conveniently resolve such cases, and to minimize the
+    extent to which it has to restructure the AST in doing so, all identifiers
+    (with or without a namespace) are represented as a ``Get`` node wrapping an
+    ``Ident`` node. The ``Get`` node may specify a member name to access, but
+    may not if the identifier is to be accessed directly. On the other hand,
+    the expression inside a ``Get`` node need not be a simple identifier, e.g.
+    ``arr[1].memb.left`` is be represented as:
+    ``Get(Get(Apply("_at", Get(Ident("arr")), 1),"memb"),"left")``
+    """
+
+    expr: Base
+    """
+    :type: WDL.Expr.Base
+
+    The expression whose value is accessed
+    """
+    member: Optional[str]
+    """
+    :type: Optional[str]
+
+    If the expression is accessing a pair/struct member, then ``expr.type`` is
+    ``WDL.Type.Pair`` or ``WDL.Type.StructInstance`` and this field gives the
+    desired member name (``left`` or ``right`` for pairs).
+
+    Otherwise the expression accesses `expr` directly, and `member` is `None`.
+    """
+
+    def __init__(self, pos: SourcePosition, expr: Base, member: Optional[str]) -> None:
+        super().__init__(pos)
+        assert expr
+        self.expr = expr
+        self.member = member
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        if self._type:
+            # suppress children until resolution/typechecking is complete
+            yield self.expr
+
+    def _infer_type(self, type_env: Env.Types) -> T.Base:
+        if isinstance(self.expr, _LeftName):
+            # expr is a lone "name" -- try to resolve it as an identifier,
+            # and if that works, transform it to Ident("name")
+            try:
+                Env.resolve(type_env, [], self.expr.name)
+                self.expr = Ident(self.expr.pos, [self.expr.name])
+            except KeyError:
+                if not self.member:
+                    raise Error.UnknownIdentifier(self) from None
+        # attempt to typecheck expr, disambiguating whether it's an
+        # intermediate value, a resolvable identifier, or neither
+        try:
+            self.expr.infer_type(type_env, self._check_quant)
+        except Error.UnknownIdentifier:
+            # Fail...there's one case we may be able to rescue, where expr is a
+            # _LeftName inside zero or more Gets representing an incomplete
+            # namespaced identifier, and our member completes the path to an
+            # available named value.
+            if not (isinstance(self.expr, (_LeftName, Get)) and self.expr._ident and self.member):
+                raise
+            # attempt to resolve "expr.member" and if that works, transform
+            # expr to Ident("expr.member")
+            try:
+                Env.resolve(type_env, self.expr._ident, self.member)
+            except KeyError:
+                raise Error.UnknownIdentifier(self) from None
+            self.expr = Ident(self.pos, self._ident)
+            self.expr.infer_type(type_env, self._check_quant)
+            self.member = None
+        # now we've typechecked expr
+        assert self.expr.type
+        if not self.member:
+            # no member to access; just propagate expr type
+            assert isinstance(self.expr, Ident)
+            return self.expr.type
+        # now we expect expr to be a pair or struct, whose member we're
+        # accessing
+        if not isinstance(self.expr.type, (T.Pair, T.StructInstance)):
+            raise Error.NoSuchMember(self, self.member)
+        if self._check_quant and self.expr.type.optional:
+            raise Error.StaticTypeMismatch(
+                self.expr, self.expr.type.copy(optional=False), self.expr.type
+            )
+        if self.member in ["left", "right"]:
+            if not isinstance(self.expr.type, T.Pair):
+                raise Error.NoSuchMember(self, self.member)
+            return self.expr.type.left_type if self.member == "left" else self.expr.type.right_type
+        if isinstance(self.expr.type, T.StructInstance):
+            try:
+                return self.expr.type.members[self.member]
+            except KeyError:
+                pass
+        raise Error.NoSuchMember(self, self.member)
+
+    def eval(self, env: Env.Values) -> V.Base:
+        innard_value = self.expr.eval(env)
+        if not self.member:
+            return innard_value
+        if isinstance(innard_value, V.Pair):
+            assert self.member in ["left", "right"]
+            return innard_value.value[0 if self.member == "left" else 1]
+        raise NotImplementedError()
+
+    @property
+    def _ident(self) -> List[str]:
+        # helper for the resolution logic above -- get the partial identifier
+        # recursing into nested Gets, if there's a _LeftName at the bottom.
+        if isinstance(self.expr, (_LeftName, Get)) and self.expr._ident:
+            return self.expr._ident + ([self.member] if self.member else [])
+        return []
+
+
 # function applications
 
 # Abstract interface to an internal function implementation
@@ -518,291 +826,3 @@ class Apply(Base):
     def eval(self, env: Env.Values) -> V.Base:
         ""
         return self.function(self, env)
-
-
-# Namespaced identifiers
-
-
-class Ident(Base):
-    """An identifier referencing a named value or call output"""
-
-    namespace: List[str]
-    """
-    :type: List[str]
-
-    Namespace (empty for an unqualified name)
-    """
-    name: str
-    ":type: str"
-
-    ctx: Any = None
-    """
-    After typechecking, stores context about the binding from the type
-    environment.
-
-    The ``Tree`` typechecker typically stores here a reference to a ``Decl``
-    (for value references in tasks and workflows), a ``Call`` (for references
-    to a call output), or a ``Scatter`` (for references to a scatter variable).
-    """
-
-    def __init__(self, pos: SourcePosition, parts: List[str]) -> None:
-        super().__init__(pos)
-        assert parts
-        self.name = parts[-1]
-        self.namespace = parts[:-1]
-
-    @property
-    def children(self) -> Iterable[SourceNode]:
-        return []
-
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        try:
-            ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
-        except KeyError:
-            raise Error.UnknownIdentifier(self) from None
-        # the ctx for each binding in the type environment should be the
-        # originating Decl (for inputs/values) or Call (for call outputs)
-        self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
-        return ans
-
-    def eval(self, env: Env.Values) -> V.Base:
-        ""
-        try:
-            ans: V.Base = Env.resolve(env, self.namespace, self.name)
-            return ans
-        except KeyError:
-            raise Error.UnknownIdentifier(self) from None
-
-    @property
-    def _ident(self) -> List[str]:
-        return self.namespace + [self.name]
-
-
-# Pair literal
-
-
-class Pair(Base):
-    left: Base
-    """
-    :type: WDL.Expr.Base
-
-    Left-hand expression in the pair literal
-    """
-    right: Base
-    """
-    :type: WDL.Expr.Base
-
-    Right-hand expression in the pair literal
-    """
-
-    def __init__(self, pos: SourcePosition, left: Base, right: Base) -> None:
-        super().__init__(pos)
-        self.left = left
-        self.right = right
-
-    @property
-    def children(self) -> Iterable[SourceNode]:
-        yield self.left
-        yield self.right
-
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        return T.Pair(self.left.type, self.right.type)
-
-    def eval(self, env: Env.Values) -> V.Base:
-        ""
-        assert isinstance(self.type, T.Pair)
-        lv = self.left.eval(env)
-        rv = self.right.eval(env)
-        return V.Pair(self.type, (lv, rv))
-
-
-# Map literal
-
-
-class Map(Base):
-    items: List[Tuple[Base, Base]]
-    """
-    :type: List[Tuple[WDL.Expr.Base,WDL.Expr.Base]]
-
-    Expressions for the map literal keys and values
-    """
-
-    def __init__(self, pos: SourcePosition, items: List[Tuple[Base, Base]]) -> None:
-        super().__init__(pos)
-        self.items = items
-
-    @property
-    def children(self) -> Iterable[SourceNode]:
-        for k, v in self.items:
-            yield k
-            yield v
-
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        kty = None
-        vty = None
-        for k, v in self.items:
-            if kty is None:
-                kty = k.type
-            else:
-                k.typecheck(kty)
-            if vty is None or vty == T.Array(T.Any()) or vty == T.Map(None):
-                vty = v.type
-            else:
-                v.typecheck(vty)
-        if kty is None:
-            return T.Map(None)
-        assert vty is not None
-        return T.Map((kty, vty))
-
-    def eval(self, env: Env.Values) -> V.Base:
-        ""
-        assert isinstance(self.type, T.Map)
-        eitems = []
-        for k, v in self.items:
-            eitems.append((k.eval(env), v.eval(env)))
-        # TODO: complain of duplicate keys
-        return V.Map(self.type, eitems)
-
-
-class _LeftName(Base):
-    # This AST node is a placeholder involved in the ambiguity of
-    # "leftname.midname.rightname" as elaborated in the docstring below. The
-    # parser, lacking the context to disambiguate this syntax, creates this
-    # node simply to represent the leftmost (sometimes only) name. Later,
-    # Get._infer_type transforms this into an `Ident` expression during
-    # typechecking; the library user should never see it.
-    name: str
-
-    def __init__(self, pos: SourcePosition, name: str) -> None:
-        super().__init__(pos)
-        assert name
-        self.name = name
-
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        raise NotImplementedError()
-
-    def eval(self, env: Env.Values) -> V.Base:
-        raise NotImplementedError()
-
-    @property
-    def _ident(self) -> List[str]:
-        return [self.name]
-
-
-class Get(Base):
-    """
-    AST node representing access to a value by identifier, or accessing a
-    member of a pair or struct as `.member`.
-
-    The entaglement of these two cases is inherent in the WDL language.
-    Consider the syntax `leftname.midname.rightname`. One interpretation
-    is that `leftname` is an identifier for a struct value, and
-    `.midname.rightname` represent chained struct member accesses. But another
-    possibility is that `leftname` is a call, `midname` is a struct output of
-    that call, and `rightname` is a member of that struct. These cases can't be
-    distinguished from the syntax alone, but must be resolved during
-    typechecking with reference to the calls and identifiers available in the
-    environment.
-    """
-
-    innard: Base
-    """
-    :type: WDL.Expr.Base
-
-    The expression whose value is accessed, frequently (but not always) an
-    `Ident` or a nested `Get`.
-    """
-    member: Optional[str]
-    """
-    :type: Optional[str]
-
-    If the expression is accessing a pair/struct member, then `innard.type` is
-    `WDL.Type.Pair` or `WDL.Type.StructInstance` and this field gives the
-    desired member name (`left` or `right` for pairs).
-
-    Otherwise the expression accesses `innard` directly, and `member` is `None`.
-    """
-
-    def __init__(self, pos: SourcePosition, innard: Base, member: Optional[str]) -> None:
-        super().__init__(pos)
-        assert innard
-        self.innard = innard
-        self.member = member
-
-    @property
-    def children(self) -> Iterable[SourceNode]:
-        if self._type:
-            # suppress children until resolution/typechecking is complete
-            yield self.innard
-
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        if isinstance(self.innard, _LeftName):
-            # innard is a lone "name" -- try to resolve it as an identifier,
-            # and if that works, transform innard to Ident("name")
-            try:
-                Env.resolve(type_env, [], self.innard.name)
-                self.innard = Ident(self.innard.pos, [self.innard.name])
-            except KeyError:
-                if not self.member:
-                    raise Error.UnknownIdentifier(self) from None
-        # attempt to typecheck innard, disambiguating whether it's an
-        # intermediate value, a resolvable identifier, or neither
-        try:
-            self.innard.infer_type(type_env, self._check_quant)
-        except Error.UnknownIdentifier:
-            # Fail...there's one case we MAY be able to rescue, where innard is
-            # a namespace, and our member completes the path to a named value.
-            if not (
-                isinstance(self.innard, (_LeftName, Get)) and self.innard._ident and self.member
-            ):
-                raise
-            # attempt to resolve "innard.member" and if that works, transform
-            # innard to Ident("innard.member")
-            try:
-                Env.resolve(type_env, self.innard._ident, self.member)
-            except KeyError:
-                raise Error.UnknownIdentifier(self) from None
-            self.innard = Ident(self.pos, self._ident)
-            self.innard.infer_type(type_env, self._check_quant)
-            self.member = None
-        # now we've typechecked innard
-        assert self.innard.type
-        if not self.member:
-            # no member to access; just propagate innard type
-            assert isinstance(self.innard, Ident)
-            return self.innard.type
-        # now we expect innard to be a pair or struct, whose member we're
-        # accessing
-        if not isinstance(self.innard.type, (T.Pair, T.StructInstance)):
-            raise Error.NoSuchMember(self, self.member)
-        if self._check_quant and self.innard.type.optional:
-            raise Error.StaticTypeMismatch(
-                self.innard, self.innard.type.copy(optional=False), self.innard.type
-            )
-        if self.member in ["left", "right"]:
-            if not isinstance(self.innard.type, T.Pair):
-                raise Error.NoSuchMember(self, self.member)
-            return (
-                self.innard.type.left_type if self.member == "left" else self.innard.type.right_type
-            )
-        if isinstance(self.innard.type, T.StructInstance):
-            try:
-                return self.innard.type.members[self.member]
-            except KeyError:
-                pass
-        raise Error.NoSuchMember(self, self.member)
-
-    def eval(self, env: Env.Values) -> V.Base:
-        innard_value = self.innard.eval(env)
-        if not self.member:
-            return innard_value
-        if isinstance(innard_value, V.Pair):
-            assert self.member in ["left", "right"]
-            return innard_value.value[0 if self.member == "left" else 1]
-        raise NotImplementedError()
-
-    @property
-    def _ident(self) -> List[str]:
-        if isinstance(self.innard, (_LeftName, Get)) and self.innard._ident:
-            return self.innard._ident + ([self.member] if self.member else [])
-        return []

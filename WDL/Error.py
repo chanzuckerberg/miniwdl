@@ -130,7 +130,7 @@ class NotAnArray(ValidationError):
 
 class NoSuchMember(ValidationError):
     def __init__(self, node: SourceNode, member: str) -> None:
-        super().__init__(node, "Value has no member '{}'".format(member))
+        super().__init__(node, "No such member '{}'".format(member))
 
 
 class StaticTypeMismatch(ValidationError):
