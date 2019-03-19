@@ -1,4 +1,5 @@
 SHELL := /bin/bash
+PYTHON_ENV?=$(HOME)/.local
 
 test: check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
@@ -13,8 +14,8 @@ qtest:
 check:
 	pylint -j `nproc` --errors-only WDL
 	pyre \
-		--search-path $(HOME)/.local/lib/python3.6/site-packages/lark \
-		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
+		--search-path ${PYTHON_ENV}/lib/python3.6/site-packages/lark \
+		--typeshed ${PYTHON_ENV}/lib/pyre_check/typeshed \
 		--show-parse-errors check
 
 # uses black to rewrite source files!
