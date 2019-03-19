@@ -553,7 +553,8 @@ class IfThenElse(Base):
 
 
 class Ident(Base):
-    """An identifier referencing a named value or call output.
+    """
+    An identifier referencing a named value or call output.
 
     ``Ident`` nodes are wrapped in ``Get`` nodes, as discussed below.
     """
@@ -588,10 +589,9 @@ class Ident(Base):
         return []
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        try:
-            ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
-        except KeyError:
-            raise Error.UnknownIdentifier(self) from None
+        # The following Env.resolve will never fail, as Get._infer_type does
+        # the heavy lifting for us.
+        ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
         # the ctx for each binding in the type environment should be the
         # originating Decl (for inputs/values) or Call (for call outputs)
         self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
@@ -599,11 +599,8 @@ class Ident(Base):
 
     def eval(self, env: Env.Values) -> V.Base:
         ""
-        try:
-            ans: V.Base = Env.resolve(env, self.namespace, self.name)
-            return ans
-        except KeyError:
-            raise Error.UnknownIdentifier(self) from None
+        ans: V.Base = Env.resolve(env, self.namespace, self.name)
+        return ans
 
     @property
     def _ident(self) -> List[str]:
