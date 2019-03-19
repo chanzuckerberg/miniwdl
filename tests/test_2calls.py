@@ -396,7 +396,25 @@ class TestCalls(unittest.TestCase):
         doc.typecheck()
         assert(doc.workflow.elements[0].type.nonempty and doc.workflow.elements[0].type.optional)
 
-        # TODO: test cycle detection
+        txt = tsk + r"""
+        workflow contrived {
+            call sum
+            Int sum = 1
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        txt = tsk + r"""
+        workflow contrived {
+            Int s = 1
+            call sum as s
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
 
     def test_io_propagation(self):
         # should not be able to call a workflow containing an incomplete call
@@ -432,12 +450,12 @@ class TestCalls(unittest.TestCase):
         doc = WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/contrived.wdl"))
         self.assertEqual(len(doc.workflow.available_inputs), 5)
         WDL.Env.resolve(doc.workflow.available_inputs, [], "popular")
-        WDL.Env.resolve(doc.workflow.available_inputs, [], "contrived")
+        WDL.Env.resolve(doc.workflow.available_inputs, [], "fortytwo")
         WDL.Env.resolve(doc.workflow.available_inputs, [], "required")
-        ns = WDL.Env.resolve_namespace(doc.workflow.available_inputs, ["popular"])
+        ns = WDL.Env.resolve_namespace(doc.workflow.available_inputs, ["contrived"])
         self.assertEqual(len(ns), 1)
         WDL.Env.resolve(ns, [], "opt")
-        ns = WDL.Env.resolve_namespace(doc.workflow.available_inputs, ["contrived"])
+        ns = WDL.Env.resolve_namespace(doc.workflow.available_inputs, ["c2"])
         self.assertEqual(len(ns), 3)
         WDL.Env.resolve(ns, [], "opt")
         WDL.Env.resolve(ns, [], "i")

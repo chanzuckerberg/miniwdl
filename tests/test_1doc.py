@@ -59,7 +59,7 @@ class TestTasks(unittest.TestCase):
             self.assertEqual(str(task.inputs[0]), "String in")
 
             self.assertEqual(len(task.command.parts), 3)
-            self.assertEqual(task.command.parts[1].expr.name, "in")
+            self.assertEqual(task.command.parts[1].expr._ident, ["in"])
 
             self.assertEqual(len(task.outputs), 1)
             self.assertEqual(str(task.outputs[0].type), "String")
@@ -76,6 +76,16 @@ class TestTasks(unittest.TestCase):
             self.assertFalse(task.command.parts[-1].strip().endswith(">>>"))
 
     def test_errors(self):
+        with self.assertRaises(WDL.Error.InvalidType):
+            WDL.parse_tasks("""
+            task wc {
+                input {
+                    Int[Int] wrong
+                }
+                command {
+                }
+            }
+            """)[0].typecheck()
         with self.assertRaises(WDL.Error.UnknownIdentifier, msg="Unknown identifier bogus"):
             WDL.parse_tasks("""
             task wc {
@@ -686,7 +696,7 @@ class TestDoc(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.UnknownIdentifier):
+        with self.assertRaises(WDL.Error.NoSuchTask):
             doc.typecheck()
 
         doc = r"""
@@ -887,7 +897,7 @@ class TestDoc(unittest.TestCase):
                 }
             }
         """)
-        with self.assertRaises(WDL.Error.UnknownIdentifier):
+        with self.assertRaises(WDL.Error.NoSuchTask):
             doc.typecheck()
 
         doc = WDL.parse_document("""
@@ -1350,3 +1360,362 @@ class TestCycleDetection(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
+
+class TestStruct(unittest.TestCase):
+    def test_parser(self):
+        doc = r"""
+        version 1.0
+
+        struct Person {
+            String name
+            Int age
+        }
+
+        struct Name {
+            Array[File]+ myFiles
+            Boolean? myBoolean
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertEqual(str(WDL.Env.resolve(doc.struct_types, [], "Person").members["age"]), "Int")
+        self.assertEqual(str(WDL.Env.resolve(doc.struct_types, [], "Name").members["myFiles"]), "Array[File]+")
+
+        doc = r"""
+        version 1.0
+
+        struct Person {
+            String a
+            Int a
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.parse_document(doc)
+
+        doc = r"""
+        version 1.0
+
+        struct Person {
+            String a
+        }
+
+        struct Person {
+            Int b
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.parse_document(doc)
+
+    def test_decl(self):
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.InvalidType):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+            Person p2 = p
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+            Person p2 = 0
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+            Int k = p
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+            Car c
+            Person p2 = c
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+
+        struct Car {
+            String make
+            String model
+            Int year
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+            Car c
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+
+        struct Car {
+            String make
+            String model
+            Int year
+            Person driver
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+            Car c
+        }
+
+        struct Person {
+            String name
+            Int age
+            Car vehicle
+        }
+
+        struct Car {
+            String make
+            String model
+            Int year
+            Person driver
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        struct Self {
+            Int k
+            Self me
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Car c
+            Int year = c.year
+            Int age = c.driver.age
+            Int month = c.driver.birthday.left
+        }
+
+        struct Person {
+            String name
+            Int age
+            Pair[Int,Int] birthday
+        }
+
+        struct Car {
+            String make
+            String model
+            Int year
+            Person driver
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person? p
+            Int age = p.age
+        }
+
+        struct Person {
+            String name
+            Int age
+            Pair[Int,Int] birthday
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person? p
+            Int? age = p.age
+        }
+
+        struct Person {
+            String name
+            Int age
+            Pair[Int,Int] birthday
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person? p
+            Int month = p.birthday.left
+        }
+
+        struct Person {
+            String name
+            Int age
+            Pair[Int,Int] birthday
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+            Int month = p.bogus
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.NoSuchMember):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+            Int month = p.left
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.NoSuchMember):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Array[Person]+ ps
+
+            output {
+                Int p0age = ps[0].age
+            }
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Array[Person]+ ps
+
+            output {
+                Int q0age = q[0].age
+            }
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person[Int,Float] bogus
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        with self.assertRaises(WDL.Error.InvalidType):
+            WDL.parse_document(doc)

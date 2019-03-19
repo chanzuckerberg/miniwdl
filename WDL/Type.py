@@ -40,7 +40,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
    :top-classes: WDL.Type.Base
 """
 from abc import ABC
-from typing import Optional, TypeVar, Tuple
+from typing import Optional, TypeVar, Tuple, Dict, Iterable
 import copy
 
 TVBase = TypeVar("TVBase", bound="Base")
@@ -82,6 +82,16 @@ class Base(ABC):
 
         True when the type has the optional quantifier, ``T?``"""
         return self._optional
+
+    @property
+    def parameters(self) -> Iterable[TVBase]:
+        """
+        :type: Iterable[WDL.Type.Base]
+
+        The type's parameters, if any (e.g. item type of Array; left & right
+        types of Pair; etc.)
+        """
+        return []
 
     def copy(self, optional: Optional[bool] = None) -> TVBase:
         """
@@ -208,6 +218,10 @@ class Array(Base):
         """
         return self._nonempty
 
+    @property
+    def parameters(self) -> Iterable[Base]:
+        yield self.item_type
+
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Array):
@@ -259,6 +273,11 @@ class Map(Base):
             + ("?" if self.optional else "")
         )
 
+    @property
+    def parameters(self) -> Iterable[Base]:
+        yield self.item_type[0]
+        yield self.item_type[1]
+
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Map):
@@ -300,6 +319,11 @@ class Pair(Base):
             + ("?" if self.optional else "")
         )
 
+    @property
+    def parameters(self) -> Iterable[Base]:
+        yield self.left_type
+        yield self.right_type
+
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Pair):
@@ -311,3 +335,54 @@ class Pair(Base):
         if isinstance(rhs, Any):
             return self._check_optional(rhs, check_quant)
         return False
+
+
+class StructInstance(Base):
+    """
+    Type of a declared instance of a struct
+    """
+
+    type_name: str
+    """
+    :type: str
+
+    The name with which the instance is declared; note that the same struct
+    type can go by different names depending on the context.
+    """
+    members: Optional[Dict[str, Base]]
+    """
+    :type: Dict[str,WDL.Type.Base]
+
+    Names and types of the struct members (available after typechecking)
+    """
+
+    def __init__(self, type_name: str, optional: bool = False) -> None:
+        self._optional = optional
+        self.type_name = type_name
+        self.members = None
+
+    def __str__(self) -> str:
+        return self.type_name + ("?" if self.optional else "")
+
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+        ""
+        if isinstance(rhs, StructInstance):
+            return self.type_id == rhs.type_id and self._check_optional(rhs, check_quant)
+        if isinstance(rhs, Any):
+            return self._check_optional(rhs, check_quant)
+        return False
+
+    @property
+    def type_id(self) -> int:
+        """
+        :type: int
+
+        An identifier for the struct type, which can go by different names
+        depending on the context.
+        """
+        assert isinstance(self.members, dict)
+        return id(self.members)
+
+    @property
+    def parameters(self) -> Iterable[Base]:
+        return self.members.values()

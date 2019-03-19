@@ -105,6 +105,11 @@ class InvalidType(ValidationError):
         super().__init__(node, message)
 
 
+class NoSuchTask(ValidationError):
+    def __init__(self, node: SourceNode, name: str) -> None:
+        super().__init__(node, "No such task/workflow: " + name)
+
+
 class NoSuchFunction(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(node, "No such function: " + name)
@@ -123,9 +128,9 @@ class NotAnArray(ValidationError):
         super().__init__(node, "Not an array")
 
 
-class NotAPair(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "Not a pair (taking left or right)")
+class NoSuchMember(ValidationError):
+    def __init__(self, node: SourceNode, member: str) -> None:
+        super().__init__(node, "No such member '{}'".format(member))
 
 
 class StaticTypeMismatch(ValidationError):
@@ -159,9 +164,7 @@ class UnknownIdentifier(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Ident)
-        namespace: List[str] = getattr(node, "namespace")
-        name: str = getattr(node, "name")
-        super().__init__(node, "Unknown identifier " + ".".join(namespace + [name]))
+        super().__init__(node, "Unknown identifier " + ".".join(getattr(node, "_ident")))
 
 
 class NoSuchInput(ValidationError):

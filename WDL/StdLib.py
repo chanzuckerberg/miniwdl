@@ -11,7 +11,7 @@ import WDL.Error as Error
 #                      or map access map[key], returning the value type
 
 
-class _Get(E._Function):
+class _At(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         lhs = expr.arguments[0]
@@ -67,35 +67,8 @@ class _Get(E._Function):
         assert False  # pyre-fixme
 
 
-E._stdlib["_get"] = _Get()
+E._stdlib["_at"] = _At()
 
-# Pair get (EXPR.left/EXPR.right)
-# The special case where EXPR is an identifier goes a different path, through
-# Expr.Ident.
-
-
-class _PairGet(E._Function):
-    left: bool
-
-    def __init__(self, left: bool) -> None:
-        self.left = left
-
-    def infer_type(self, expr: E.Apply) -> T.Base:
-        assert len(expr.arguments) == 1
-        if not isinstance(expr.arguments[0].type, T.Pair):
-            raise Error.NotAPair(expr.arguments[0])
-        return expr.arguments[0].type.left_type if self.left else expr.arguments[0].type.right_type
-
-    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
-        assert len(expr.arguments) == 1
-        pair = expr.arguments[0].eval(env)
-        assert isinstance(pair.type, T.Pair)
-        assert isinstance(pair.value, tuple)
-        return pair.value[0] if self.left else pair.value[1]
-
-
-E._stdlib["_get_left"] = _PairGet(True)
-E._stdlib["_get_right"] = _PairGet(False)
 
 # logical && with short-circuit evaluation
 

@@ -7,22 +7,22 @@ import "empty.wdl" as contrived
 workflow contrived {
     input {
         String popular = "fox"
-        Int? contrived = 42
+        Int? fortytwo = 42
         Float required
     }
     Int? fallaciously_optional = 123
-    call popular { input:
-        popular = popular,
-        i = contrived,
-        y = [select_first([contrived,23])]
-    }
     call popular as contrived { input:
+        popular = popular,
+        i = fortytwo,
+        y = [select_first([fortytwo,23])]
+    }
+    call popular as c2 { input:
         popular = 123
     }
-    Pair[Pair[String,String],Pair[Int,Int]] p2 = ((contrived.left_contents, contrived.right_contents), (4,2))
+    Pair[Pair[String,String],Pair[Int,Int]] p2 = ((c2.left_contents, c2.right_contents), (4,2))
 
     output {
-        Int read_int = read_json(popular.json) + p2.right.left + p2.right.right
+        Int read_int = read_json(contrived.json) + p2.right.left + p2.right.right
         Array[Boolean] read_array = read_json(contrived.json)
         String left_contents = p2.left.left
         String right_contents = p2.left.right

@@ -400,7 +400,6 @@ class IncompleteCall(Linter):
 class NameCollision(Linter):
     # Name collisions between
     # - call and import
-    # - call and decl
     # - call and its containing workflow
     # - decl and import
     # - decl and workflow
@@ -420,13 +419,6 @@ class NameCollision(Linter):
         if doc.workflow and doc.workflow.name == obj.name:
             msg = "call name '{}' collides with workflow name".format(obj.name)
             self.add(obj, msg)
-        type_env = getattr(obj, "parent")._type_env
-        try:
-            WDL.Env.resolve(type_env, [], obj.name)
-            msg = "call name '{}' collides with declared value".format(obj.name)
-            self.add(obj, msg)
-        except KeyError:
-            pass
 
     def decl(self, obj: WDL.Decl) -> Any:
         doc = obj
