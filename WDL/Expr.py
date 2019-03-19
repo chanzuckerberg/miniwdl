@@ -640,7 +640,7 @@ class Get(Base):
     ones), or accessing a member of a pair or struct as ``.member``.
 
     The entaglement of these two cases is inherent in WDL. Consider the syntax
-    ``leftname.midname.rightname`. One interpretation is that ``leftname`` is
+    ``leftname.midname.rightname``. One interpretation is that ``leftname`` is
     an identifier for a struct value, and ``.midname.rightname`` represents a
     chain of struct member accesses. But another possibility is that
     ``leftname`` is a call, ``midname`` is a struct output of that call, and
@@ -673,7 +673,8 @@ class Get(Base):
     ``WDL.Type.Pair`` or ``WDL.Type.StructInstance`` and this field gives the
     desired member name (``left`` or ``right`` for pairs).
 
-    Otherwise the expression accesses `expr` directly, and `member` is `None`.
+    Otherwise the expression accesses ``expr`` directly, and ``member`` is
+    ``None``.
     """
 
     def __init__(self, pos: SourcePosition, expr: Base, member: Optional[str]) -> None:

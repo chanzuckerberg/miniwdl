@@ -19,7 +19,7 @@ check:
 
 # uses black to rewrite source files!
 pretty:
-	black --line-length 100 --py36 WDL/
+	black --line-length 100 --target-version py36 WDL/
 	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name,bad-continuation --exit-zero WDL
 
 # for use in CI: complain if source code isn't at a fixed point for black

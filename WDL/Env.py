@@ -23,6 +23,7 @@ R = TypeVar("R")
 S = TypeVar("S")
 Tree = TypeVar("Tree", bound="List[Node[R]]")
 """:type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
+
 ``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
 names onto some associated values (nicknamed ``rhs`` for right-hand side of
 bindings). It consists of a Python list of ``WDL.Env.Binding`` and/or
