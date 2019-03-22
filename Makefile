@@ -13,7 +13,7 @@ qtest:
 check:
 	pylint -j `nproc` --errors-only WDL
 	pyre \
-		--search-path $(HOME)/.local/lib/python3.6/site-packages/lark \
+		--search-path stubs \
 		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
 		--show-parse-errors check
 

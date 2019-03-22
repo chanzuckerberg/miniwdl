@@ -21,7 +21,7 @@ class Linter(WDL.Walker.Base):
     def __init__(self, auto_descend: bool = True):
         super().__init__(auto_descend=auto_descend)
 
-    def add(self, obj: WDL.SourceNode, message: str, pos: Optional[WDL.SourceNode] = None):
+    def add(self, obj: WDL.SourceNode, message: str, pos: Optional[WDL.SourcePosition] = None):
         """
         Used by subclasses to attach lint to a node.
 
@@ -97,10 +97,10 @@ def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
 
 
 def _compound_coercion(
-    to_type: WDL.Type.Base,
-    from_type: WDL.Type.Base,
-    base_to_type: WDL.Type.Base,
-    extra_from_type: Optional[WDL.Type.Base] = None,
+    to_type,
+    from_type,
+    base_to_type,
+    extra_from_type = None,
 ):
     # helper for StringCoercion and FileCoercion to detect coercions implied
     # within compound types like arrays
@@ -271,7 +271,7 @@ class FileCoercion(Linter):
                     )
 
     def call(self, obj: WDL.Tree.Call) -> Any:
-        super().expr(obj)
+        super().call(obj)
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _compound_coercion(decl.type, inp_expr.type, WDL.Type.File):
@@ -385,6 +385,7 @@ class IncompleteCall(Linter):
     # Call without all required inputs (allowed for top-level workflow)
     def call(self, obj: WDL.Call) -> Any:
         assert obj.callee is not None
+        # pyre-fixme
         required_inputs = set(decl.name for decl in obj.callee.required_inputs)
         for name, _ in obj.inputs.items():
             if name in required_inputs:
@@ -412,6 +413,7 @@ class NameCollision(Linter):
         doc = obj
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, "parent")
+        assert isinstance(doc, WDL.Document)
         for _, namespace, _ in doc.imports:
             if namespace == obj.name:
                 msg = "call name '{}' collides with imported document namespace".format(obj.name)
@@ -424,6 +426,7 @@ class NameCollision(Linter):
         doc = obj
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, "parent")
+        assert isinstance(doc, WDL.Document)
         for _, namespace, _ in doc.imports:
             if namespace == obj.name:
                 msg = "declaration of '{}' collides with imported document namespace".format(
@@ -442,6 +445,7 @@ class NameCollision(Linter):
         doc = obj
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, "parent")
+        assert isinstance(doc, WDL.Document)
         for _, namespace, _ in doc.imports:
             if namespace == obj.name:
                 msg = "workflow name '{}' collides with imported document namespace".format(
@@ -453,6 +457,7 @@ class NameCollision(Linter):
         doc = obj
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, "parent")
+        assert isinstance(doc, WDL.Document)
         for _, namespace, _ in doc.imports:
             if namespace == obj.name:
                 msg = "task name '{}' collides with imported document namespace".format(obj.name)
@@ -502,7 +507,7 @@ class UnusedDeclaration(Linter):
     def decl(self, obj: WDL.Tree.Decl) -> Any:
         pt = getattr(obj, "parent")
         is_output = (
-            isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs
+            isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs # pyre-ignore
         )
         if not is_output and not getattr(obj, "referrers", []):
             # heuristic exception: File whose name suggests it's an hts index
@@ -543,6 +548,7 @@ class UnusedCall(Linter):
             workflow = obj
             while not isinstance(workflow, WDL.Tree.Workflow):
                 workflow = getattr(workflow, "parent")
+            assert isinstance(workflow, WDL.Tree.Workflow)
             if workflow.outputs is not None:
                 self.add(
                     obj,
@@ -566,7 +572,7 @@ class UnnecessaryQuantifier(Linter):
             while not isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow)):
                 tw = getattr(tw, "parent")
             assert isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow))
-            if tw.inputs is not None and obj not in tw.inputs:
+            if tw.inputs is not None and obj not in tw.inputs: # pyre-ignore
                 self.add(
                     obj,
                     "unnecessary optional quantifier (?) for non-input {} {}".format(

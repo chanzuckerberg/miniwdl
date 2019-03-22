@@ -44,7 +44,7 @@ class SourceNode:
     def __init__(self, pos: SourcePosition) -> None:
         self.pos = pos
 
-    def __lt__(self, rhs) -> bool:
+    def __lt__(self, rhs: TVSourceNode) -> bool:
         if isinstance(rhs, SourceNode):
             return (
                 self.pos.filename,
@@ -61,7 +61,7 @@ class SourceNode:
             )
         return False
 
-    def __eq__(self, rhs) -> bool:
+    def __eq__(self, rhs: TVSourceNode) -> bool:
         return self.pos == rhs.pos
 
     @property
@@ -106,7 +106,7 @@ class InvalidType(ValidationError):
 
 
 class NoSuchTask(ValidationError):
-    def __init__(self, node: SourceNode, name: str) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
         super().__init__(node, "No such task/workflow: " + name)
 
 
@@ -208,7 +208,7 @@ class MultipleValidationErrors(Exception):
     exceptions: List[ValidationError]
     """:type: List[ValidationError]"""
 
-    def __init__(self, *exceptions: list) -> None:
+    def __init__(self, *exceptions: List[Union[ValidationError,"MultipleValidationErrors"]]) -> None:
         self.exceptions = []
         for exn in exceptions:
             if isinstance(exn, ValidationError):
@@ -272,5 +272,5 @@ def multi_context() -> Generator[_MultiContext, None, None]:
     # exceptions recorded so far, or if none, proceed with the remainder of
     # the context body.
     ctx = _MultiContext()
-    yield ctx  # pyre-ignore
+    yield ctx
     ctx.maybe_raise()

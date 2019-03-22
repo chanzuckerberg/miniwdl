@@ -1,8 +1,7 @@
-# pyre-strict
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, TypeVar, Generic, Any, Callable, Optional
+from typing import List, TypeVar, Generic, Any, Callable, Optional, Union
 
 """
 FIXME: we haven't found exactly the right way to write the type annotations for
@@ -21,23 +20,6 @@ to share code for both type and value environments.
 
 R = TypeVar("R")
 S = TypeVar("S")
-Tree = TypeVar("Tree", bound="List[Node[R]]")
-""":type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
-
-``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
-names onto some associated values (nicknamed ``rhs`` for right-hand side of
-bindings). It consists of a Python list of ``WDL.Env.Binding`` and/or
-``WDL.Env.Namespace`` objects, where the latter has a nested ``WDL.Env.Tree``.
-
-For example, type bindings for 'x : Float' and 'adder.sum : Int' would be
-represented as:
-
-``[Binding("x",Float), Namespace("adder",[Binding("sum",Int)])]``
-
-Once constructed, environments should be considered immutable. There should be
-no name or namespace collisions.
-"""
-
 
 class Binding(Generic[R]):
     """A single binding"""
@@ -47,15 +29,15 @@ class Binding(Generic[R]):
     rhs: R
     """:type: Union[WDL.Type.Base,WDL.Value.Base,WDL.Decl.Base]"""
 
-    ctx: Any
+    ctx: Optional[Any]
     "Arbitrary, secondary context also associated with name"
 
-    def __init__(self, name: str, rhs: R, ctx: Any = None) -> None:
+    def __init__(self, name: str, rhs: R, ctx: Optional[Any] = None) -> None:
         self.name = name
         self.rhs = rhs
         self.ctx = ctx
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "{}: {}".format(self.name, str(self.rhs))
 
 
@@ -78,19 +60,39 @@ class Namespace(Generic[R]):
         return "{}. {}".format(self.namespace, str(self.bindings))
 
 
-Node = TypeVar("Node", Binding[R], Namespace[R])
+Node = Union[Binding[R],Namespace[R]]
 
-Types = TypeVar("Types", bound="Tree[Type.Base]")
+Tree = List[Node[R]]
+""":type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
+
+``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
+names onto some associated values (nicknamed ``rhs`` for right-hand side of
+bindings). It consists of a Python list of ``WDL.Env.Binding`` and/or
+``WDL.Env.Namespace`` objects, where the latter has a nested ``WDL.Env.Tree``.
+
+For example, type bindings for 'x : Float' and 'adder.sum : Int' would be
+represented as:
+
+``[Binding("x",Float), Namespace("adder",[Binding("sum",Int)])]``
+
+Once constructed, environments should be considered immutable. There should be
+no name or namespace collisions.
+"""
+
+from WDL.Type import Base as TypeBase
+Types = List[Node[TypeBase]]
 """:type: WDL.Env.Tree[WDL.Type.Base]
 
 Type nickname for environment tree of names to types (``WDL.Type.Base`` instances)"""
 
-Values = TypeVar("Values", bound="Tree[Value.Base]")
+from WDL.Value import Base as ValueBase
+Values = List[Node[ValueBase]]
 """:type: WDL.Env.Tree[WDL.Value.Base]
 
 Type nickname for environment tree of names to WDL values (``WDL.Value.Base`` instances)"""
 
-Decls = TypeVar("Decls", bound="Tree[WDL.Tree.Decl]")
+from WDL.Tree import Decl
+Decls = List[Node[Decl]]
 """:type: WDL.Env.Tree[WDL.Tree.Decl]
 
 Type nickname for environment tree of names to ``WDL.Tree.Decl`` instances"""
@@ -118,19 +120,19 @@ def resolve_binding(tree: "Tree[R]", namespace: List[str], name: str) -> Binding
     raise KeyError()
 
 
-def resolve(tree: "Tree[R]", namespace: List[str], name: str) -> R:
+def resolve(tree: "List[Node[R]]", namespace: List[str], name: str) -> R:
     """Resolve a name within an environment"""
     ans: R = resolve_binding(tree, namespace, name).rhs
     return ans
 
 
-def resolve_ctx(tree: "Tree[R]", namespace: List[str], name: str) -> Any:  # pyre-ignore
+def resolve_ctx(tree: "List[Node[R]]", namespace: List[str], name: str) -> Any:
     """Resolve a name to its secondary context value"""
     ans: Any = resolve_binding(tree, namespace, name).ctx
     return ans
 
 
-def bind(tree: "Tree[R]", namespace: List[str], name: str, rhs: R, ctx: Any = None) -> "Tree[R]":
+def bind(tree: "List[Node[R]]", namespace: List[str], name: str, rhs: R, ctx: Any = None) -> "List[Node[R]]":
     """
     Return a copy of ``tree`` with a new binding prepended. (Does not check for
     name collision!)
@@ -153,17 +155,17 @@ def bind(tree: "Tree[R]", namespace: List[str], name: str, rhs: R, ctx: Any = No
             ans.append(node)
     if new_namespace:
         ans = [Namespace(namespace[0], bind([], namespace[1:], name, rhs, ctx=ctx))] + ans
-    return ans
+    return ans # pyre-ignore
 
 
 S = TypeVar("S")
 
 
 def map(
-    tree: "Tree[R]",
+    tree: "List[Node[R]]",
     fn: "Callable[[List[str], Binding[R]], S]",
     namespace: Optional[List[str]] = None,
-) -> "Tree[S]":
+) -> "List[Node[S]]":
     """
     Copy ``tree`` with the ``rhs`` of each binding replaced by
     ``fn(namespace, binding)``

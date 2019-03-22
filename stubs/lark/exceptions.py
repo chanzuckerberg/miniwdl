@@ -1,0 +1,2 @@
+class VisitError(Exception):
+    pass

@@ -716,7 +716,6 @@ def parse_expr(txt: str, version: Optional[str] = None) -> E.Base:
 
 
 def parse_tasks(txt: str, version: Optional[str] = None) -> List[D.Task]:
-    # pyre-fixme
     try:
         return _DocTransformer("").transform(parse(txt, "tasks", version))
     except lark.exceptions.VisitError as exn:

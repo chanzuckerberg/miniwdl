@@ -1,4 +1,3 @@
-# pyre-strict
 """
 WDL expressions composing literal values, arithmetic, comparison, conditionals,
 string interpolation, arrays & maps, and function applications. These appear on
@@ -19,8 +18,6 @@ import WDL.Value as V
 import WDL.Env as Env
 from WDL.Error import SourcePosition, SourceNode
 import WDL.Error as Error
-
-TVBase = TypeVar("TVBase", bound="Base")
 
 
 class Base(SourceNode, ABC):
@@ -51,7 +48,7 @@ class Base(SourceNode, ABC):
         # type with no side-effects, obeying self._check_quant.
         pass
 
-    def infer_type(self, type_env: Env.Types, check_quant: bool = True) -> TVBase:
+    def infer_type(self, type_env: Env.Types, check_quant: bool = True) -> "Base":
         """infer_type(self, type_env : Env.Types) -> WDL.Expr.Base
 
         Infer the expression's type within the given type environment. Must be
@@ -67,6 +64,7 @@ class Base(SourceNode, ABC):
         # recursive descent into child expressions
         with Error.multi_context() as errors:
             for child in self.children:
+                assert isinstance(child, Base)
                 errors.try1(lambda: child.infer_type(type_env, check_quant))
         # invoke derived-class logic
         self._check_quant = check_quant
@@ -74,7 +72,7 @@ class Base(SourceNode, ABC):
         assert self._type and isinstance(self.type, T.Base)
         return self
 
-    def typecheck(self, expected: T.Base) -> TVBase:
+    def typecheck(self, expected: T.Base) -> "Base":
         """typecheck(self, expected : T.Base) -> WDL.Expr.Base
 
         Check that this expression's type is, or can be coerced to,
@@ -289,7 +287,7 @@ class String(Base):
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
-        return V.String("".join(ans)[1:-1])  # pyre-ignore
+        return V.String("".join(ans)[1:-1])
 
 
 class Array(Base):
@@ -442,12 +440,12 @@ class Map(Base):
                 kty = k.type
             else:
                 k.typecheck(kty)
-            if vty is None or vty == T.Array(T.Any()) or vty == T.Map(None):
+            if vty is None or vty == T.Array(T.Any()) or vty == T.Map((T.Any(), T.Any())):
                 vty = v.type
             else:
                 v.typecheck(vty)
         if kty is None:
-            return T.Map(None)
+            return T.Map((T.Any(), T.Any()))
         assert vty is not None
         return T.Map((kty, vty))
 
@@ -524,8 +522,8 @@ class IfThenElse(Base):
             and isinstance(self.alternative.type, T.Array)
         ):
             self_type = self_type.copy(
-                nonempty=(  # pyre-ignore
-                    self.consequent.type.nonempty and self.alternative.type.nonempty  # pyre-ignore
+                nonempty=(
+                    self.consequent.type.nonempty and self.alternative.type.nonempty
                 )
             )
         try:
@@ -534,7 +532,7 @@ class IfThenElse(Base):
         except Error.StaticTypeMismatch:
             raise Error.StaticTypeMismatch(
                 self,
-                self.consequent.type,  # pyre-ignore
+                self.consequent.type,
                 self.alternative.type,
                 " (if consequent & alternative must have the same type)",
             ) from None
@@ -568,7 +566,7 @@ class Ident(Base):
     name: str
     ":type: str"
 
-    ctx: Any = None
+    ctx: Optional[Any] = None
     """
     After typechecking, stores context about the binding from the type
     environment.
@@ -594,6 +592,7 @@ class Ident(Base):
         ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
         # the ctx for each binding in the type environment should be the
         # originating Decl (for inputs/values) or Call (for call outputs)
+        # pyre-ignore
         self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
         return ans
 
@@ -720,26 +719,28 @@ class Get(Base):
             self.expr.infer_type(type_env, self._check_quant)
             self.member = None
         # now we've typechecked expr
-        assert self.expr.type
+        ety = self.expr.type
+        assert ety
         if not self.member:
             # no member to access; just propagate expr type
             assert isinstance(self.expr, Ident)
-            return self.expr.type
+            return ety
         # now we expect expr to be a pair or struct, whose member we're
         # accessing
-        if not isinstance(self.expr.type, (T.Pair, T.StructInstance)):
+        if not isinstance(ety, (T.Pair, T.StructInstance)):
             raise Error.NoSuchMember(self, self.member)
-        if self._check_quant and self.expr.type.optional:
+        if self._check_quant and ety.optional:
             raise Error.StaticTypeMismatch(
-                self.expr, self.expr.type.copy(optional=False), self.expr.type
+                self.expr, ety.copy(optional=False), ety
             )
         if self.member in ["left", "right"]:
-            if not isinstance(self.expr.type, T.Pair):
-                raise Error.NoSuchMember(self, self.member)
-            return self.expr.type.left_type if self.member == "left" else self.expr.type.right_type
-        if isinstance(self.expr.type, T.StructInstance):
+            if isinstance(ety, T.Pair):
+                return ety.left_type if self.member == "left" else ety.right_type
+            raise Error.NoSuchMember(self, self.member)
+        if isinstance(ety, T.StructInstance):
             try:
-                return self.expr.type.members[self.member]
+                assert ety.members is not None
+                return ety.members[self.member]
             except KeyError:
                 pass
         raise Error.NoSuchMember(self, self.member)

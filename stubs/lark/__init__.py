@@ -1,0 +1,9 @@
+class Transformer:
+    def transform(self,tree): ...
+
+class Lark:
+    def __init__(self,grammar,start=None,parser=None,propagate_positions=Nane): ...
+    def parse(self,str): ...
+
+class Tree:
+    pass
