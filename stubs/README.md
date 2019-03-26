@@ -1,0 +1,1 @@
+This directory contains [Python typing stubs](https://github.com/python/mypy/wiki/Creating-Stubs-For-Python-Modules) for imported packages, supplied to the pyre typechecker used on the miniwdl codebase.
