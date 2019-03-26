@@ -1,7 +1,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, TypeVar, Generic, Any, Callable, Optional, Union
+from typing import List, Any, Callable, Optional, Union
 
 """
 FIXME: we haven't found exactly the right way to write the type annotations for
@@ -77,9 +77,17 @@ no name or namespace collisions.
 """
 
 Types = Tree
-Decls = Tree
+""":type: WDL.Env.Tree[WDL.Type.Base]
+Type nickname for environment tree of names to WDL types (``WDL.Type.Base`` instances)"""
+
 Values = Tree
+""":type: WDL.Env.Tree[WDL.Value.Base]"""
+
 StructTypes = Tree
+""":type: WDL.Env.Tree[WDL.Tree.StructType]"""
+
+Decls = Tree
+""":type: WDL.Env.Tree[WDL.Tree.Decl]"""
 
 
 def resolve_namespace(tree: Tree, namespace: List[str]) -> Tree:

@@ -26,9 +26,6 @@ class Base(SourceNode, ABC):
     _type: Optional[T.Base] = None
     _check_quant: bool = True
 
-    def __init__(self, pos: SourcePosition) -> None:
-        super().__init__(pos)
-
     @property
     def type(self) -> T.Base:
         """

@@ -8,7 +8,7 @@ Each value is represented by an instance of a Python class inheriting from
    :top-classes: WDL.Value.Base
 """
 from abc import ABC
-from typing import Any, List, Optional, TypeVar, Tuple
+from typing import Any, List, Optional, Tuple
 import json
 import WDL.Type as T
 

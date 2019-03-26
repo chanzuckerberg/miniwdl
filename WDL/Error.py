@@ -101,8 +101,7 @@ class ValidationError(Exception):
 
 
 class InvalidType(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
-        super().__init__(node, message)
+    pass
 
 
 class NoSuchTask(ValidationError):
@@ -188,13 +187,11 @@ class NullValue(ValidationError):
 
 
 class MultipleDefinitions(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
-        super().__init__(node, message)
+    pass
 
 
 class StrayInputDeclaration(ValidationError):
-    def __init__(self, node: SourceNode, message: str) -> None:
-        super().__init__(node, message)
+    pass
 
 
 class CircularDependencies(ValidationError):
@@ -211,6 +208,7 @@ class MultipleValidationErrors(Exception):
     def __init__(
         self, *exceptions: List[Union[ValidationError, "MultipleValidationErrors"]]
     ) -> None:
+        super().__init__()
         self.exceptions = []
         for exn in exceptions:
             if isinstance(exn, ValidationError):
@@ -243,7 +241,7 @@ class _MultiContext:
     def maybe_raise(self) -> None:
         if len(self._exceptions) == 1:
             raise self._exceptions[0]
-        elif self._exceptions:
+        if self._exceptions:
             raise MultipleValidationErrors(*self._exceptions)  # pyre-ignore
 
 

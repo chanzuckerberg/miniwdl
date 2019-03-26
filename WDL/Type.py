@@ -39,7 +39,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
    :top-classes: WDL.Type.Base
 """
 from abc import ABC
-from typing import Optional, TypeVar, Tuple, Dict, Iterable
+from typing import Optional, Tuple, Dict, Iterable
 import copy
 
 
