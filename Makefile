@@ -1,4 +1,5 @@
 SHELL := /bin/bash
+PYTHON_PKG_BASE?=$(HOME)/.local
 
 test: check check_check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
@@ -14,7 +15,7 @@ check:
 	pylint -j `nproc` --errors-only WDL
 	pyre \
 		--search-path stubs \
-		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
+		--typeshed ${PYTHON_PKG_BASE}/lib/pyre_check/typeshed \
 		--show-parse-errors check
 
 check_check:
