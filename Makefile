@@ -58,4 +58,4 @@ doc:
 
 docs: doc
 
-.PHONY: check check_check sopretty pretty test docker doc docs pypi_test pypi bdist
+.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist
