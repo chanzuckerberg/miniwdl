@@ -1,4 +1,3 @@
-# pyre-strict
 """
 WDL data types
 
@@ -40,10 +39,8 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
    :top-classes: WDL.Type.Base
 """
 from abc import ABC
-from typing import Optional, TypeVar, Tuple, Dict, Iterable
+from typing import Optional, Tuple, Dict, Iterable
 import copy
-
-TVBase = TypeVar("TVBase", bound="Base")
 
 
 class Base(ABC):
@@ -57,9 +54,9 @@ class Base(ABC):
     All instances are immutable.
     """
 
-    _optional: bool  # immutable!!!
+    _optional: bool = False  # immutable!!!
 
-    def coerces(self, rhs: TVBase, check_quant: bool = True) -> bool:
+    def coerces(self, rhs: "Base", check_quant: bool = True) -> bool:
         """
         True if this is the same type as, or can be coerced to, ``rhs``.
 
@@ -72,7 +69,7 @@ class Base(ABC):
             rhs, check_quant
         )
 
-    def _check_optional(self, rhs: TVBase, check_quant: bool) -> bool:
+    def _check_optional(self, rhs: "Base", check_quant: bool) -> bool:
         return not (check_quant and (self.optional and not rhs.optional))
 
     @property
@@ -84,7 +81,7 @@ class Base(ABC):
         return self._optional
 
     @property
-    def parameters(self) -> Iterable[TVBase]:
+    def parameters(self) -> Iterable["Base"]:
         """
         :type: Iterable[WDL.Type.Base]
 
@@ -93,7 +90,7 @@ class Base(ABC):
         """
         return []
 
-    def copy(self, optional: Optional[bool] = None) -> TVBase:
+    def copy(self, optional: Optional[bool] = None) -> "Base":
         """
         copy(self, optional : Optional[bool] = None) -> WDL.Type.Base
 
@@ -108,7 +105,7 @@ class Base(ABC):
     def __str__(self) -> str:
         return type(self).__name__ + ("?" if self.optional else "")
 
-    def __eq__(self, rhs) -> bool:
+    def __eq__(self, rhs: "Base") -> bool:
         return isinstance(rhs, Base) and str(self) == str(rhs)
 
 
@@ -120,7 +117,7 @@ class Any(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: TVBase, check_quant: bool = True) -> bool:
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         return self._check_optional(rhs, check_quant)
 
 
@@ -237,7 +234,7 @@ class Array(Base):
         return False
 
     def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
-        ans: Array = super().copy(optional)
+        ans = super().copy(optional)
         if nonempty is not None:
             ans._nonempty = nonempty
         return ans
@@ -265,7 +262,7 @@ class Map(Base):
         return (
             "Map["
             + (
-                str(self.item_type[0]) + "," + str(self.item_type[1])  # pyre-fixme
+                str(self.item_type[0]) + "," + str(self.item_type[1])
                 if self.item_type is not None
                 else ""
             )
@@ -281,7 +278,6 @@ class Map(Base):
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Map):
-            # pyre-fixme
             return (
                 self.item_type[0].coerces(rhs.item_type[0], check_quant)
                 and self.item_type[1].coerces(rhs.item_type[1], check_quant)
@@ -385,4 +381,5 @@ class StructInstance(Base):
 
     @property
     def parameters(self) -> Iterable[Base]:
+        assert self.members is not None
         return self.members.values()

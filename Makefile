@@ -1,7 +1,7 @@
 SHELL := /bin/bash
-PYTHON_ENV?=$(HOME)/.local
+PYTHON_PKG_BASE?=$(HOME)/.local
 
-test: check
+test: check check_check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
 	coverage report -m
 	prove -v tests/check.t tests/cromwell.t
@@ -14,9 +14,15 @@ qtest:
 check:
 	pylint -j `nproc` --errors-only WDL
 	pyre \
-		--search-path ${PYTHON_ENV}/lib/python3.6/site-packages/lark \
-		--typeshed ${PYTHON_ENV}/lib/pyre_check/typeshed \
+		--search-path stubs \
+		--typeshed ${PYTHON_PKG_BASE}/lib/pyre_check/typeshed \
 		--show-parse-errors check
+
+check_check:
+	# regression test against pyre doing nothing (issue #100)
+	echo "check_check: str = 42" > WDL/DELETEME_check_check.py
+	$(MAKE) check > /dev/null 2>&1 && exit 1 || exit 0
+	rm WDL/DELETEME_check_check.py
 
 # uses black to rewrite source files!
 pretty:
@@ -53,4 +59,4 @@ doc:
 
 docs: doc
 
-.PHONY: check sopretty pretty test docker doc docs pypi_test pypi bdist
+.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist

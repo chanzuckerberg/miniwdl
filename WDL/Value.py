@@ -1,4 +1,3 @@
-# pyre-strict
 """
 WDL values instantiated at runtime
 
@@ -9,11 +8,9 @@ Each value is represented by an instance of a Python class inheriting from
    :top-classes: WDL.Value.Base
 """
 from abc import ABC
-from typing import Any, List, Optional, TypeVar, Tuple
+from typing import Any, List, Optional, Tuple
 import json
 import WDL.Type as T
-
-BaseT = TypeVar("BaseT", bound="Base")
 
 
 class Base(ABC):
@@ -22,7 +19,7 @@ class Base(ABC):
     type: T.Base
     ":type: WDL.Type.Base"
 
-    value: Any  # pyre-ignore
+    value: Any
     """The "raw" Python value"""
 
     def __init__(self, type: T.Base, value: Any) -> None:
@@ -36,7 +33,7 @@ class Base(ABC):
     def __str__(self) -> str:
         return str(self.value)
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> BaseT:
+    def coerce(self, desired_type: Optional[T.Base] = None) -> "Base":
         """
         Coerce the value to the desired type and return it
 
@@ -50,7 +47,7 @@ class Base(ABC):
         # TODO: coerce T to Array[T] (x to [x])
         return self
 
-    def expect(self, desired_type: Optional[T.Base] = None) -> BaseT:
+    def expect(self, desired_type: Optional[T.Base] = None) -> "Base":
         """Alias for coerce"""
         return self.coerce(desired_type)
 
@@ -87,7 +84,7 @@ class Int(Base):
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
         if desired_type is not None and isinstance(desired_type, T.Float):
-            return Float(float(self.value))  # pyre-ignore
+            return Float(float(self.value))
         return super().coerce(desired_type)
 
 
@@ -126,14 +123,14 @@ class Map(Base):
 
 
 class Pair(Base):
-    value: Optional[Tuple[Base, Base]] = None
+    value: Tuple[Base, Base]
 
     def __init__(self, type: T.Pair, value: Tuple[Base, Base]) -> None:
         super().__init__(type, value)
+        self.value = value
 
     def __str__(self) -> str:
         assert isinstance(self.value, tuple)
-        # pyre-fixme
         return "(" + str(self.value[0]) + "," + str(self.value[1]) + ")"
 
 
@@ -141,8 +138,8 @@ class Null(Base):
     """Represents the missing value which optional inputs may take.
     ``type`` and ``value`` are both None."""
 
-    type: Optional[Any]  # pyre-ignore
-    value: Optional[Any]  # pyre-ignore
+    type: Optional[Any]
+    value: Optional[Any]
 
     def __init__(self) -> None:
         # pylint: disable=super-init-not-called

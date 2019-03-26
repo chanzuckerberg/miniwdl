@@ -1,4 +1,3 @@
-# pyre-strict
 # pylint: disable=protected-access,exec-used
 from typing import List, Tuple, Callable, Any
 import WDL.Type as T
@@ -37,7 +36,7 @@ class _At(E._Function):
             return lhs.type.item_type[1]
         raise Error.NotAnArray(lhs)
 
-    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         assert len(expr.arguments) == 2
         lhs = expr.arguments[0]
         rhs = expr.arguments[1]
@@ -63,8 +62,8 @@ class _At(E._Function):
                     ans = v.expect(mp.type.item_type[1])
             if ans is None:
                 raise Error.OutOfBounds(rhs)  # TODO: KeyNotFound
-            return ans  # pyre-fixme
-        assert False  # pyre-fixme
+            return ans
+        assert False
 
 
 E._stdlib["_at"] = _At()
@@ -83,7 +82,7 @@ class _And(E._Function):
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to &&")
         return T.Boolean()
 
-    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         lhs = expr.arguments[0].eval(env).expect(T.Boolean()).value
         if not lhs:
             return V.Boolean(False)
@@ -103,7 +102,7 @@ class _Or(E._Function):
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to ||")
         return T.Boolean()
 
-    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         lhs = expr.arguments[0].eval(env).expect(T.Boolean()).value
         if lhs:
             return V.Boolean(True)
@@ -150,7 +149,7 @@ class _StaticFunction(E._Function):
                 ) from None
         return self.return_type
 
-    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         assert len(expr.arguments) == len(self.argument_types)
         argument_values = [
             arg.eval(env).coerce(ty) for arg, ty in zip(expr.arguments, self.argument_types)
@@ -164,8 +163,8 @@ def _notimpl(one: Any = None, two: Any = None) -> None:
 
 
 _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
-    ("_negate", [T.Boolean()], T.Boolean(), lambda x: V.Boolean(not x.value)),  # pyre-fixme
-    ("_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)),  # pyre-fixme
+    ("_negate", [T.Boolean()], T.Boolean(), lambda x: V.Boolean(not x.value)),
+    ("_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)),
     ("stdout", [], T.File(), _notimpl),
     ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
     ("floor", [T.Float()], T.Int(), _notimpl),
@@ -177,13 +176,13 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("read_string", [T.File()], T.String(), _notimpl),
     ("read_float", [T.File()], T.Float(), _notimpl),
     ("read_array", [T.File()], T.Array(T.Any()), _notimpl),
-    ("read_map", [T.File()], T.Map(None), _notimpl),
+    ("read_map", [T.File()], T.Map((T.Any(), T.Any())), _notimpl),
     ("read_lines", [T.File()], T.Array(T.Any()), _notimpl),
     ("read_tsv", [T.File()], T.Array(T.Array(T.String())), _notimpl),
     ("read_json", [T.File()], T.Any(), _notimpl),
     ("write_lines", [T.Array(T.String())], T.File(), _notimpl),
     ("write_tsv", [T.Array(T.Array(T.String()))], T.File(), _notimpl),
-    ("write_map", [T.Map(None)], T.File(), _notimpl),
+    ("write_map", [T.Map((T.Any(), T.Any()))], T.File(), _notimpl),
     ("write_json", [T.Any()], T.File(), _notimpl),
     ("range", [T.Int()], T.Array(T.Int()), _notimpl),
     ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
@@ -221,7 +220,7 @@ class _ArithmeticOperator(E._Function):
             ) from None
         return rt
 
-    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         ans_type = self.infer_type(expr)
         try:
             ans = self.op(
@@ -238,15 +237,15 @@ class _ArithmeticOperator(E._Function):
         return V.Float(ans)
 
 
-E._stdlib["_sub"] = _ArithmeticOperator("-", lambda l, r: l - r)  # pyre-ignore
-E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l, r: l * r)  # pyre-ignore
-E._stdlib["_div"] = _ArithmeticOperator("/", lambda l, r: l // r)  # pyre-ignore
+E._stdlib["_sub"] = _ArithmeticOperator("-", lambda l, r: l - r)
+E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l, r: l * r)
+E._stdlib["_div"] = _ArithmeticOperator("/", lambda l, r: l // r)
 
 
 class _AddOperator(_ArithmeticOperator):
     # + operator can also serve as concatenation for String.
     def __init__(self) -> None:
-        super().__init__("+", lambda l, r: l + r)  # pyre-ignore
+        super().__init__("+", lambda l, r: l + r)
 
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
@@ -267,7 +266,7 @@ class _AddOperator(_ArithmeticOperator):
             )
         return T.String()
 
-    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         ans_type = self.infer_type(expr)
         if not isinstance(ans_type, T.String):
             return super().__call__(expr, env)
@@ -329,20 +328,19 @@ class _ComparisonOperator(E._Function):
             )
         return T.Boolean()
 
-    def __call__(self, expr: E.Apply, env: E.Env) -> V.Base:
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         assert len(expr.arguments) == 2
         return V.Boolean(
-            # pyre-fixme
             self.op(expr.arguments[0].eval(env).value, expr.arguments[1].eval(env).value)
         )
 
 
 E._stdlib["_eqeq"] = _ComparisonOperator("==", lambda l, r: l == r)
 E._stdlib["_neq"] = _ComparisonOperator("!=", lambda l, r: l != r)
-E._stdlib["_lt"] = _ComparisonOperator("<", lambda l, r: l < r)  # pyre-fixme
-E._stdlib["_lte"] = _ComparisonOperator("<=", lambda l, r: l <= r)  # pyre-fixme
-E._stdlib["_gt"] = _ComparisonOperator(">", lambda l, r: l > r)  # pyre-fixme
-E._stdlib["_gte"] = _ComparisonOperator(">=", lambda l, r: l >= r)  # pyre-fixme
+E._stdlib["_lt"] = _ComparisonOperator("<", lambda l, r: l < r)
+E._stdlib["_lte"] = _ComparisonOperator("<=", lambda l, r: l <= r)
+E._stdlib["_gt"] = _ComparisonOperator(">", lambda l, r: l > r)
+E._stdlib["_gte"] = _ComparisonOperator(">=", lambda l, r: l >= r)
 
 
 class _Defined(E._Function):

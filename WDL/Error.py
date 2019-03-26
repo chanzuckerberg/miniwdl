@@ -44,7 +44,7 @@ class SourceNode:
     def __init__(self, pos: SourcePosition) -> None:
         self.pos = pos
 
-    def __lt__(self, rhs) -> bool:
+    def __lt__(self, rhs: TVSourceNode) -> bool:
         if isinstance(rhs, SourceNode):
             return (
                 self.pos.filename,
@@ -61,7 +61,7 @@ class SourceNode:
             )
         return False
 
-    def __eq__(self, rhs) -> bool:
+    def __eq__(self, rhs: TVSourceNode) -> bool:
         return self.pos == rhs.pos
 
     @property
@@ -101,12 +101,11 @@ class ValidationError(Exception):
 
 
 class InvalidType(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
-        super().__init__(node, message)
+    pass
 
 
 class NoSuchTask(ValidationError):
-    def __init__(self, node: SourceNode, name: str) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
         super().__init__(node, "No such task/workflow: " + name)
 
 
@@ -188,13 +187,11 @@ class NullValue(ValidationError):
 
 
 class MultipleDefinitions(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
-        super().__init__(node, message)
+    pass
 
 
 class StrayInputDeclaration(ValidationError):
-    def __init__(self, node: SourceNode, message: str) -> None:
-        super().__init__(node, message)
+    pass
 
 
 class CircularDependencies(ValidationError):
@@ -208,7 +205,10 @@ class MultipleValidationErrors(Exception):
     exceptions: List[ValidationError]
     """:type: List[ValidationError]"""
 
-    def __init__(self, *exceptions: list) -> None:
+    def __init__(
+        self, *exceptions: List[Union[ValidationError, "MultipleValidationErrors"]]
+    ) -> None:
+        super().__init__()
         self.exceptions = []
         for exn in exceptions:
             if isinstance(exn, ValidationError):
@@ -241,7 +241,7 @@ class _MultiContext:
     def maybe_raise(self) -> None:
         if len(self._exceptions) == 1:
             raise self._exceptions[0]
-        elif self._exceptions:
+        if self._exceptions:
             raise MultipleValidationErrors(*self._exceptions)  # pyre-ignore
 
 
@@ -272,5 +272,5 @@ def multi_context() -> Generator[_MultiContext, None, None]:
     # exceptions recorded so far, or if none, proceed with the remainder of
     # the context body.
     ctx = _MultiContext()
-    yield ctx  # pyre-ignore
+    yield ctx
     ctx.maybe_raise()
