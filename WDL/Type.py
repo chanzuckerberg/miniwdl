@@ -54,7 +54,7 @@ class Base(ABC):
     All instances are immutable.
     """
 
-    _optional: bool = False # immutable!!!
+    _optional: bool = False  # immutable!!!
 
     def coerces(self, rhs: "Base", check_quant: bool = True) -> bool:
         """

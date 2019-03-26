@@ -208,7 +208,9 @@ class MultipleValidationErrors(Exception):
     exceptions: List[ValidationError]
     """:type: List[ValidationError]"""
 
-    def __init__(self, *exceptions: List[Union[ValidationError,"MultipleValidationErrors"]]) -> None:
+    def __init__(
+        self, *exceptions: List[Union[ValidationError, "MultipleValidationErrors"]]
+    ) -> None:
         self.exceptions = []
         for exn in exceptions:
             if isinstance(exn, ValidationError):

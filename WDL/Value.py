@@ -12,6 +12,7 @@ from typing import Any, List, Optional, TypeVar, Tuple
 import json
 import WDL.Type as T
 
+
 class Base(ABC):
     """The abstract base class for WDL values"""
 

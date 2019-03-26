@@ -52,9 +52,6 @@ class StructType(SourceNode):
         return id(self.members)
 
 
-EnvStructTypes = List[WDL.Env.Node[StructType]]
-
-
 class Decl(SourceNode):
     """A value declaration within a task or workflow"""
 
@@ -89,7 +86,7 @@ class Decl(SourceNode):
         if self.expr:
             yield self.expr
 
-    def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
         # Add an appropriate binding in the type env, after checking for name
         # collision.
         try:
@@ -209,10 +206,10 @@ class Task(SourceNode):
 
         Each input is at the top level of the Env, with no namespace.
         """
-        ans = []
+        ans: Env.Decls = []
         for b in self.available_inputs:
             assert isinstance(b, Env.Binding)
-            d: Decl = b.rhs # pyre-fixme
+            d: Decl = b.rhs
             if d.expr is None and d.type.optional is False:
                 ans.append(b)
         return ans
@@ -242,7 +239,9 @@ class Task(SourceNode):
         for _, ex in self.runtime.items():
             yield ex
 
-    def typecheck(self, struct_types: Optional[EnvStructTypes] = None, check_quant: bool = True) -> None:
+    def typecheck(
+        self, struct_types: Optional[Env.StructTypes] = None, check_quant: bool = True
+    ) -> None:
         struct_types = struct_types or []
         # warm-up check: if input{} section exists then all postinput decls
         # must be bound
@@ -291,7 +290,10 @@ class Task(SourceNode):
                 errors.try1(lambda: decl.typecheck(type_env, check_quant))
 
         # check for cyclic dependencies among decls
-        _detect_cycles(_dependency_matrix(ch for ch in self.children if isinstance(ch, Decl))) # pyre-ignore
+        _detect_cycles(
+            # pyre-ignore
+            _dependency_matrix(ch for ch in self.children if isinstance(ch, Decl))
+        )
 
 
 # forward-declarations
@@ -371,7 +373,7 @@ class Call(SourceNode):
             raise Err.NoSuchTask(self, ".".join(self.callee_id))
         assert isinstance(self.callee, (Task, Workflow))
 
-    def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
@@ -431,7 +433,6 @@ class Call(SourceNode):
         supplied_inputs = set(self.inputs.keys())
         ans: Env.Decls = []
         for b in self.callee.available_inputs:
-            # pyre-fixme
             if (isinstance(b, Env.Binding) and b.name not in supplied_inputs) or isinstance(
                 b, Env.Namespace
             ):
@@ -453,7 +454,6 @@ class Call(SourceNode):
         supplied_inputs = set(self.inputs.keys())
         ans: Env.Decls = []
         for b in self.callee.required_inputs:
-            # pyre-fixme
             if (isinstance(b, Env.Binding) and b.name not in supplied_inputs) or isinstance(
                 b, Env.Namespace
             ):
@@ -469,11 +469,10 @@ class Call(SourceNode):
         Yields the effective outputs of the callee Task or Workflow, in a
         namespace according to the call name.
         """
-        ans = []
+        ans: Env.Types = []
         assert self.callee
         for outp in self.callee.effective_outputs:
             if isinstance(outp, Env.Binding):
-                # pyre-fixme
                 ans = Env.bind(ans, [self.name], outp.name, outp.rhs, ctx=self)
         return ans
 
@@ -518,7 +517,7 @@ class Scatter(SourceNode):
         super().__init__(pos)
         self.variable = variable
         self.expr = expr
-        self.elements = elements
+        self.elements = elements  # pyre-ignore
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -526,7 +525,7 @@ class Scatter(SourceNode):
         for elt in self.elements:
             yield elt
 
-    def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as Array[T] outside)
@@ -585,7 +584,7 @@ class Conditional(SourceNode):
     ) -> None:
         super().__init__(pos)
         self.expr = expr
-        self.elements = elements
+        self.elements = elements  # pyre-ignore
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -593,7 +592,7 @@ class Conditional(SourceNode):
         for elt in self.elements:
             yield elt
 
-    def add_to_type_env(self, struct_types: EnvStructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as T? outside)
@@ -801,11 +800,12 @@ class Workflow(SourceNode):
                     errors.try1(lambda output=output: output.typecheck(self._type_env, check_quant))
                     output_names.add(output.name)
         # 6. check for cyclic dependencies
-        _detect_cycles(_dependency_matrix(_decls_and_calls(self))) # pyre-fixme
+        _detect_cycles(_dependency_matrix(_decls_and_calls(self)))  # pyre-fixme
 
     def _rewrite_output_idents(self) -> None:
         # for pre-1.0 workflow output sections with a list of namespaced
         # identifiers (instead of bound decls)
+        assert self._type_env is not None
 
         # for each listed identifier, formulate a synthetic declaration
         output_ident_decls = []
@@ -819,6 +819,7 @@ class Workflow(SourceNode):
                 output_idents = []
                 try:
                     for binding in Env.resolve_namespace(self._type_env, wildcard_namespace):
+                        assert isinstance(binding, Env.Binding)
                         binding_name = binding.name
                         assert isinstance(binding_name, str)
                         output_idents.append(wildcard_namespace + [binding_name])
@@ -867,7 +868,7 @@ class Document(SourceNode):
     :type: List[Tuple[str,str,Optional[WDL.Tree.Document]]]
 
     Imports in the document (filename/URI, namespace, and later the sub-document)"""
-    struct_types: EnvStructTypes
+    struct_types: Env.StructTypes
     """:type: Dict[str, Dict[str, WDL.Type.Base]]"""
     tasks: List[Task]
     """:type: List[WDL.Tree.Task]"""
@@ -1130,9 +1131,7 @@ def _typecheck_workflow_elements(
                 if (
                     errors.try1(
                         # pyre-ignore
-                        lambda child=child: _typecheck_workflow_elements(
-                            doc, check_quant, child
-                        )
+                        lambda child=child: _typecheck_workflow_elements(doc, check_quant, child)
                     )
                     == False
                 ):
@@ -1271,10 +1270,10 @@ def _detect_cycles(p: Tuple[Dict[int, Err.SourceNode], _AdjM]):
 
 
 def _resolve_struct_type(
-    pos: Err.SourcePosition, ty: T.StructInstance, struct_types: EnvStructTypes
+    pos: Err.SourcePosition, ty: T.StructInstance, struct_types: Env.StructTypes
 ) -> int:
     # On construction, WDL.Type.StructInstance is not yet resolved to the
-    # struct type definition. Here, given the EnvStructTypes computed
+    # struct type definition. Here, given the Env.StructTypes computed
     # on document construction, we populate 'members' with the dict of member
     # types and names.
     try:
@@ -1286,7 +1285,7 @@ def _resolve_struct_type(
     return ty.type_id
 
 
-def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: EnvStructTypes):
+def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: Env.StructTypes):
     # resolve all StructInstance within a potentially compound type
     if isinstance(ty, T.StructInstance):
         _resolve_struct_type(pos, ty, struct_types)
@@ -1294,7 +1293,7 @@ def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: Env
         _resolve_struct_types(pos, p, struct_types)
 
 
-def _initialize_struct_types(struct_types: EnvStructTypes):
+def _initialize_struct_types(struct_types: Env.StructTypes):
     # bootstrap struct typechecking: resolve all StructInstance members of the
     # struct types, and check for circularities
     node_by_id = dict()

@@ -96,12 +96,7 @@ def _find_input_decl(obj: WDL.Tree.Call, name: str) -> WDL.Tree.Decl:
     return WDL.Env.resolve(obj.callee.available_inputs, [], name)
 
 
-def _compound_coercion(
-    to_type,
-    from_type,
-    base_to_type,
-    extra_from_type = None,
-):
+def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
     # helper for StringCoercion and FileCoercion to detect coercions implied
     # within compound types like arrays
     if isinstance(to_type, WDL.Type.Array) and isinstance(from_type, WDL.Type.Array):
@@ -507,7 +502,7 @@ class UnusedDeclaration(Linter):
     def decl(self, obj: WDL.Tree.Decl) -> Any:
         pt = getattr(obj, "parent")
         is_output = (
-            isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs # pyre-ignore
+            isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs
         )
         if not is_output and not getattr(obj, "referrers", []):
             # heuristic exception: File whose name suggests it's an hts index
@@ -572,7 +567,7 @@ class UnnecessaryQuantifier(Linter):
             while not isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow)):
                 tw = getattr(tw, "parent")
             assert isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow))
-            if tw.inputs is not None and obj not in tw.inputs: # pyre-ignore
+            if tw.inputs is not None and obj not in tw.inputs:
                 self.add(
                     obj,
                     "unnecessary optional quantifier (?) for non-input {} {}".format(

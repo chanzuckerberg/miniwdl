@@ -1,2 +1,5 @@
 class VisitError(Exception):
-    pass
+    ...
+
+class UnexpectedInput(Exception):
+    ...

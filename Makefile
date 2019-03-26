@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-test: check
+test: check_check check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
 	coverage report -m
 	prove -v tests/check.t tests/cromwell.t
@@ -16,6 +16,12 @@ check:
 		--search-path stubs \
 		--typeshed $(HOME)/.local/lib/pyre_check/typeshed \
 		--show-parse-errors check
+
+check_check:
+	# regression test against pyre doing nothing (issue #100)
+	echo "check_check: str = 42" > WDL/DELETEME_check_check.py
+	$(MAKE) check > /dev/null 2>&1 && exit 1 || exit 0
+	rm WDL/DELETEME_check_check.py
 
 # uses black to rewrite source files!
 pretty:

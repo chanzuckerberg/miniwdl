@@ -18,21 +18,19 @@ It is a recursive tree to handle namespaces, and polymorphic because we're tryin
 to share code for both type and value environments.
 """
 
-R = TypeVar("R")
-S = TypeVar("S")
 
-class Binding(Generic[R]):
+class Binding:
     """A single binding"""
 
     name: str
     ":type: str"
-    rhs: R
+    rhs: Any
     """:type: Union[WDL.Type.Base,WDL.Value.Base,WDL.Decl.Base]"""
 
     ctx: Optional[Any]
     "Arbitrary, secondary context also associated with name"
 
-    def __init__(self, name: str, rhs: R, ctx: Optional[Any] = None) -> None:
+    def __init__(self, name: str, rhs: Any, ctx: Optional[Any] = None) -> None:
         self.name = name
         self.rhs = rhs
         self.ctx = ctx
@@ -41,18 +39,18 @@ class Binding(Generic[R]):
         return "{}: {}".format(self.name, str(self.rhs))
 
 
-class Namespace(Generic[R]):
+class Namespace:
     """Encapsulates binding(s) under a namespace"""
 
     namespace: str
     """:type: str"""
-    bindings: "Tree[R]"
+    bindings: List[Union[Binding, "Namespace"]]
     """
     :type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
 
     a list of bindings and/or sub-namespaces"""
 
-    def __init__(self, namespace: str, bindings: "Tree[R]") -> None:
+    def __init__(self, namespace: str, bindings: List[Union[Binding, "Namespace"]]) -> None:
         self.namespace = namespace
         self.bindings = bindings
 
@@ -60,9 +58,8 @@ class Namespace(Generic[R]):
         return "{}. {}".format(self.namespace, str(self.bindings))
 
 
-Node = Union[Binding[R],Namespace[R]]
-
-Tree = List[Node[R]]
+Node = Union[Binding, Namespace]
+Tree = List[Node]
 """:type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
 
 ``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
@@ -79,26 +76,13 @@ Once constructed, environments should be considered immutable. There should be
 no name or namespace collisions.
 """
 
-from WDL.Type import Base as TypeBase
-Types = List[Node[TypeBase]]
-""":type: WDL.Env.Tree[WDL.Type.Base]
-
-Type nickname for environment tree of names to types (``WDL.Type.Base`` instances)"""
-
-from WDL.Value import Base as ValueBase
-Values = List[Node[ValueBase]]
-""":type: WDL.Env.Tree[WDL.Value.Base]
-
-Type nickname for environment tree of names to WDL values (``WDL.Value.Base`` instances)"""
-
-from WDL.Tree import Decl
-Decls = List[Node[Decl]]
-""":type: WDL.Env.Tree[WDL.Tree.Decl]
-
-Type nickname for environment tree of names to ``WDL.Tree.Decl`` instances"""
+Types = Tree
+Decls = Tree
+Values = Tree
+StructTypes = Tree
 
 
-def resolve_namespace(tree: "Tree[R]", namespace: List[str]) -> "Tree[R]":
+def resolve_namespace(tree: Tree, namespace: List[str]) -> Tree:
     if not namespace:
         return tree
     for node in tree:
@@ -108,31 +92,28 @@ def resolve_namespace(tree: "Tree[R]", namespace: List[str]) -> "Tree[R]":
     raise KeyError()
 
 
-def resolve_binding(tree: "Tree[R]", namespace: List[str], name: str) -> Binding[R]:
+def resolve_binding(tree: Tree, namespace: List[str], name: str) -> Binding:
     """
     Resolve a name within an environment to the corresponding Binding object
     """
     ns = resolve_namespace(tree, namespace)
     for node in ns:
         if isinstance(node, Binding) and node.name == name:
-            ans: Binding[R] = node
-            return ans
+            return node
     raise KeyError()
 
 
-def resolve(tree: "List[Node[R]]", namespace: List[str], name: str) -> R:
+def resolve(tree: Tree, namespace: List[str], name: str) -> Any:
     """Resolve a name within an environment"""
-    ans: R = resolve_binding(tree, namespace, name).rhs
-    return ans
+    return resolve_binding(tree, namespace, name).rhs
 
 
-def resolve_ctx(tree: "List[Node[R]]", namespace: List[str], name: str) -> Any:
+def resolve_ctx(tree: Tree, namespace: List[str], name: str) -> Any:
     """Resolve a name to its secondary context value"""
-    ans: Any = resolve_binding(tree, namespace, name).ctx
-    return ans
+    return resolve_binding(tree, namespace, name).ctx
 
 
-def bind(tree: "List[Node[R]]", namespace: List[str], name: str, rhs: R, ctx: Any = None) -> "List[Node[R]]":
+def bind(tree: Tree, namespace: List[str], name: str, rhs: Any, ctx: Any = None) -> Tree:
     """
     Return a copy of ``tree`` with a new binding prepended. (Does not check for
     name collision!)
@@ -141,9 +122,9 @@ def bind(tree: "List[Node[R]]", namespace: List[str], name: str, rhs: R, ctx: An
     """
     assert name
     if not namespace:
-        return [Binding(name, rhs, ctx)] + tree
+        return [Binding(name, rhs, ctx)] + tree  # pyre-ignore
     assert namespace[0]
-    ans = []
+    ans: Tree = []
     new_namespace = True
     for node in tree:
         if isinstance(node, Namespace) and node.namespace == namespace[0]:
@@ -154,18 +135,14 @@ def bind(tree: "List[Node[R]]", namespace: List[str], name: str, rhs: R, ctx: An
         else:
             ans.append(node)
     if new_namespace:
+        # pyre-ignore
         ans = [Namespace(namespace[0], bind([], namespace[1:], name, rhs, ctx=ctx))] + ans
-    return ans # pyre-ignore
-
-
-S = TypeVar("S")
+    return ans
 
 
 def map(
-    tree: "List[Node[R]]",
-    fn: "Callable[[List[str], Binding[R]], S]",
-    namespace: Optional[List[str]] = None,
-) -> "List[Node[S]]":
+    tree: Tree, fn: Callable[[List[str], Binding], Any], namespace: Optional[List[str]] = None
+) -> Tree:
     """
     Copy ``tree`` with the ``rhs`` of each binding replaced by
     ``fn(namespace, binding)``
@@ -184,17 +161,15 @@ def map(
 
 
 def filter(
-    tree: "Tree[R]",
-    keep: "Callable[[List[str], Binding[R]], bool]",
-    namespace: Optional[List[str]] = None,
-) -> "Tree[R]":
+    tree: Tree, keep: Callable[[List[str], Binding], bool], namespace: Optional[List[str]] = None
+) -> Tree:
     """
     Copy ``tree`` with only those bindings satisfying the predicate
     ``keep(namespace, binding)``. Any ``Namespace`` nodes which become empty
     are also removed.
     """
     namespace = namespace or []
-    ans = []
+    ans: Tree = []
     for node in tree:
         if isinstance(node, Binding) and keep(namespace, node):
             ans.append(node)
@@ -205,7 +180,7 @@ def filter(
     return ans
 
 
-def unbind(tree: "Tree[R]", namespace: List[str], name: str) -> "Tree[R]":
+def unbind(tree: Tree, namespace: List[str], name: str) -> Tree:
     """
     Return a copy of ``tree`` without the specified binding. No error is raised
     if there is no such binding.
@@ -218,7 +193,7 @@ def unbind(tree: "Tree[R]", namespace: List[str], name: str) -> "Tree[R]":
     )
 
 
-def subtract(lhs: "Tree[R]", rhs: "Tree[S]") -> "Tree[R]":
+def subtract(lhs: Tree, rhs: Tree) -> Tree:
     """
     Return a copy of ``lhs`` without any binding matching one in ``rhs`` (by
     name+namespace). Bindings in ``rhs`` but not ``lhs`` are ignored.

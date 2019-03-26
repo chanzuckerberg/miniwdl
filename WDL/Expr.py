@@ -522,9 +522,7 @@ class IfThenElse(Base):
             and isinstance(self.alternative.type, T.Array)
         ):
             self_type = self_type.copy(
-                nonempty=(
-                    self.consequent.type.nonempty and self.alternative.type.nonempty
-                )
+                nonempty=(self.consequent.type.nonempty and self.alternative.type.nonempty)
             )
         try:
             self.consequent.typecheck(self_type)
@@ -592,7 +590,6 @@ class Ident(Base):
         ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
         # the ctx for each binding in the type environment should be the
         # originating Decl (for inputs/values) or Call (for call outputs)
-        # pyre-ignore
         self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
         return ans
 
@@ -730,9 +727,7 @@ class Get(Base):
         if not isinstance(ety, (T.Pair, T.StructInstance)):
             raise Error.NoSuchMember(self, self.member)
         if self._check_quant and ety.optional:
-            raise Error.StaticTypeMismatch(
-                self.expr, ety.copy(optional=False), ety
-            )
+            raise Error.StaticTypeMismatch(self.expr, ety.copy(optional=False), ety)
         if self.member in ["left", "right"]:
             if isinstance(ety, T.Pair):
                 return ety.left_type if self.member == "left" else ety.right_type
