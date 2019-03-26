@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-test: check_check check
+test: check check_check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
 	coverage report -m
 	prove -v tests/check.t tests/cromwell.t
@@ -58,4 +58,4 @@ doc:
 
 docs: doc
 
-.PHONY: check sopretty pretty test docker doc docs pypi_test pypi bdist
+.PHONY: check check_check sopretty pretty test docker doc docs pypi_test pypi bdist
