@@ -555,6 +555,12 @@ def cromwell_input_value(s_value, ty):
         if not os.path.exists(s_value):
             die("File not found: " + s_value)
         return WDL.Value.String(os.path.abspath(s_value))
+    if isinstance(ty, WDL.Type.Boolean):
+        if s_value == "true":
+            return WDL.Value.Boolean(True)
+        if s_value == "false":
+            return WDL.Value.Boolean(False)
+        die("Boolean input should be true or false instead of {}".format(s_value))
     if isinstance(ty, WDL.Type.Int):
         return WDL.Value.Int(int(s_value))
     if isinstance(ty, WDL.Type.Float):
