@@ -60,7 +60,7 @@ class Base(ABC):
         """
         True if this is the same type as, or can be coerced to, ``rhs``.
 
-        :param check_quant: when ``False``, relaxes validation of the optional (?) and nonempty (+) type quantifiers
+        :param check_quant: when ``False``, disables static enforcement of the optional (?) type quantifier
         """
         if not check_quant and isinstance(rhs, Array) and self.coerces(rhs.item_type, check_quant):
             # coerce T to Array[T]
@@ -222,10 +222,8 @@ class Array(Base):
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
         if isinstance(rhs, Array):
-            return (
-                self.item_type.coerces(rhs.item_type, check_quant)
-                and (not check_quant or not rhs.nonempty or self.nonempty)
-                and self._check_optional(rhs, check_quant)
+            return self.item_type.coerces(rhs.item_type, check_quant) and self._check_optional(
+                rhs, check_quant
             )
         if isinstance(rhs, String):
             return self.item_type is None or self.item_type.coerces(String())

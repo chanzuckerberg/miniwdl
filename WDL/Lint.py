@@ -317,6 +317,15 @@ class ArrayCoercion(Linter):
                 self.add(obj, msg, inp_expr.pos)
 
 
+def _is_nonempty_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
+    return (
+        isinstance(value_type, WDL.Type.Array)
+        and value_type.nonempty
+        and isinstance(expr_type, WDL.Type.Array)
+        and not expr_type.nonempty
+    )
+
+
 @a_linter
 class QuantityCoercion(Linter):
     # Expression of optional type where a non-optional value is expected
@@ -347,9 +356,10 @@ class QuantityCoercion(Linter):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
                         arg_i = obj.arguments[i]
-                        if not arg_i.type.coerces(F_i, True) and not _is_array_coercion(
-                            F_i, arg_i.type
-                        ):
+                        if (
+                            not arg_i.type.coerces(F_i, True)
+                            or _is_nonempty_coercion(F_i, arg_i.type)
+                        ) and not _is_array_coercion(F_i, arg_i.type):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                             )
@@ -358,7 +368,15 @@ class QuantityCoercion(Linter):
     def decl(self, obj: WDL.Decl) -> Any:
         if (
             obj.expr
-            and not obj.expr.type.coerces(obj.type, True)
+            and (
+                not obj.expr.type.coerces(obj.type, True)
+                or (
+                    isinstance(obj.type, WDL.Type.Array)
+                    and obj.type.nonempty
+                    and isinstance(obj.expr.type, WDL.Type.Array)
+                    and not obj.expr.type.nonempty
+                )
+            )
             and not _is_array_coercion(obj.type, obj.expr.type)
         ):
             # heuristic exception for: Array[File]+ outp = glob(...)
@@ -368,9 +386,10 @@ class QuantityCoercion(Linter):
     def call(self, obj: WDL.Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if not inp_expr.type.coerces(decl.type, True) and not _is_array_coercion(
-                decl.type, inp_expr.type
-            ):
+            if (
+                not inp_expr.type.coerces(decl.type, True)
+                or _is_nonempty_coercion(decl.type, inp_expr.type)
+            ) and not _is_array_coercion(decl.type, inp_expr.type):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
 

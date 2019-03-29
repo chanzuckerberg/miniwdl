@@ -419,7 +419,9 @@ class _SelectFirst(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        if not isinstance(expr.arguments[0].type, T.Array) or expr.arguments[0].type.optional:
+        if (
+            not isinstance(expr.arguments[0].type, T.Array) or expr.arguments[0].type.optional
+        ):  # TODO no_quant_check...
             raise Error.StaticTypeMismatch(
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
