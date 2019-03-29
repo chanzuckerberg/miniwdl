@@ -4,7 +4,7 @@ import errno
 import inspect
 from typing import List, Optional, Callable
 from WDL import _parser, Error, Type, Value, Env, Expr, Tree, Walker, StdLib
-from WDL.Tree import Decl, Task, Call, Scatter, Conditional, Workflow, Document
+from WDL.Tree import Decl, StructType, Task, Call, Scatter, Conditional, Workflow, Document
 
 SourcePosition = Error.SourcePosition
 SourceNode = Error.SourceNode

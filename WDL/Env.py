@@ -25,7 +25,9 @@ class Binding:
     name: str
     ":type: str"
     rhs: Any
-    """:type: Union[WDL.Type.Base,WDL.Value.Base,WDL.Decl.Base]"""
+    """:type: Union[WDL.Type.Base,WDL.Value.Base,WDL.StructType,WDL.Decl.Base]
+    
+    "Right-hand side" of the binding"""
 
     ctx: Optional[Any]
     "Arbitrary, secondary context also associated with name"
@@ -59,22 +61,28 @@ class Namespace:
 
 
 Node = Union[Binding, Namespace]
-Tree = List[Node]
-""":type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
+""":type: Union[WDL.Env.Binding,WDL.Env.Namespace]
 
-``WDL.Env.Tree`` is the polymorphic data structure for an environment mapping
-names onto some associated values (nicknamed ``rhs`` for right-hand side of
-bindings). It consists of a Python list of ``WDL.Env.Binding`` and/or
-``WDL.Env.Namespace`` objects, where the latter has a nested ``WDL.Env.Tree``.
+``WDL.Env.Tree = List[WDL.Env.Node]`` is the polymorphic data structure for an
+environment mapping names onto some associated values (nicknamed ``rhs`` for
+right-hand side of bindings). It consists of a Python list of
+``WDL.Env.Binding`` and/or ``WDL.Env.Namespace`` objects, where the latter has
+a nested ``WDL.Env.Tree``.
 
-For example, type bindings for 'x : Float' and 'adder.sum : Int' would be
+For example, type bindings for ``x : Float`` and ``adder.sum : Int`` would be
 represented as:
 
 ``[Binding("x",Float), Namespace("adder",[Binding("sum",Int)])]``
 
 Once constructed, environments should be considered immutable. There should be
 no name or namespace collisions.
+
+``WDL.Env.{Types,Values,StructTypes,Decls}`` are type aliases for ``Tree``
+with the respective `Binding.rhs` type.
 """
+
+Tree = List[Node]
+""":type: List[Node]"""
 
 Types = Tree
 """:type: WDL.Env.Tree[WDL.Type.Base]
@@ -102,7 +110,8 @@ def resolve_namespace(tree: Tree, namespace: List[str]) -> Tree:
 
 def resolve_binding(tree: Tree, namespace: List[str], name: str) -> Binding:
     """
-    Resolve a name within an environment to the corresponding Binding object
+    Resolve a name within an environment to the corresponding ``Binding``
+    object
     """
     ns = resolve_namespace(tree, namespace)
     for node in ns:
@@ -112,7 +121,7 @@ def resolve_binding(tree: Tree, namespace: List[str], name: str) -> Binding:
 
 
 def resolve(tree: Tree, namespace: List[str], name: str) -> Any:
-    """Resolve a name within an environment"""
+    """Resolve a name within an environment to its ``Binding.rhs``"""
     return resolve_binding(tree, namespace, name).rhs
 
 
