@@ -380,7 +380,10 @@ class QuantityCoercion(Linter):
             and not _is_array_coercion(obj.type, obj.expr.type)
         ):
             # heuristic exception for: Array[File]+ outp = glob(...)
-            if not (isinstance(obj.expr, WDL.Expr.Apply) and obj.expr.function_name == "glob"):
+            if not (
+                isinstance(obj.expr, WDL.Expr.Apply)
+                and obj.expr.function_name in ["glob", "read_lines", "read_tsv", "read_array"]
+            ):
                 self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def call(self, obj: WDL.Tree.Call) -> Any:

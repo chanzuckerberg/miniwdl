@@ -184,7 +184,6 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("write_tsv", [T.Array(T.Array(T.String()))], T.File(), _notimpl),
     ("write_map", [T.Map((T.Any(), T.Any()))], T.File(), _notimpl),
     ("write_json", [T.Any()], T.File(), _notimpl),
-    ("range", [T.Int()], T.Array(T.Int()), _notimpl),
     ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
 ]
 for name, argument_types, return_type, F in _static_functions:
@@ -478,7 +477,10 @@ class _Zip(E._Function):
         if arg1ty.item_type is None:
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[1])
-        return T.Array(T.Pair(arg0ty.item_type, arg1ty.item_type))
+        return T.Array(
+            T.Pair(arg0ty.item_type, arg1ty.item_type),
+            nonempty=(arg0ty.nonempty or arg1ty.nonempty),
+        )
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         raise NotImplementedError()
@@ -548,3 +550,29 @@ class _Prefix(E._Function):
 
 
 E._stdlib["prefix"] = _Prefix()
+
+
+class _Range(E._Function):
+    # int -> int array
+    # with special case: if the argument is a positive integer literal or
+    # length(a_nonempty_array), then we can say the returned array is nonempty.
+
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        expr.arguments[0].typecheck(T.Int())
+        nonempty = False
+        arg0 = expr.arguments[0]
+        if isinstance(arg0, E.Int) and arg0.value > 0:
+            nonempty = True
+        if isinstance(arg0, E.Apply) and arg0.function_name == "length":
+            arg00ty = arg0.arguments[0].type
+            if isinstance(arg00ty, T.Array) and arg00ty.nonempty:
+                nonempty = True
+        return T.Array(T.Int(), nonempty=nonempty)
+
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
+
+
+E._stdlib["range"] = _Range()

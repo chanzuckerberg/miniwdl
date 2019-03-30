@@ -58,7 +58,7 @@ def fill_common(subparser):
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
-        help="relax static typechecking of optional (?) and nonempty (+) type quantifiers, and permit coercion of T to Array[T] (discouraged; for backwards compatibility with older WDL)",
+        help="relax static typechecking of optional types, and permit coercion of T to Array[T] (discouraged; for backwards compatibility with older WDL)",
     )
     subparser.add_argument(
         "-p",
