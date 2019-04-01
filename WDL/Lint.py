@@ -796,11 +796,12 @@ class SelectArray(Linter):
     def expr(self, obj: WDL.Expr.Base) -> Any:
         pt = getattr(obj, "parent")
         if isinstance(obj, WDL.Expr.Apply) and obj.function_name in ["select_first", "select_all"]:
-            if isinstance(obj.arguments[0], WDL.Expr.Array) and not obj.arguments[0].items:
+            arg0 = obj.arguments[0]
+            if isinstance(arg0, WDL.Expr.Array) and not arg0.items:
                 self.add(pt, "empty array passed to " + obj.function_name, obj.arguments[0].pos)
             elif (
-                isinstance(obj.arguments[0].type, WDL.Type.Array)
-                and not obj.arguments[0].type.item_type.optional
+                isinstance(arg0.type, WDL.Type.Array)
+                and not arg0.type.item_type.optional
             ):
                 self.add(
                     pt,
