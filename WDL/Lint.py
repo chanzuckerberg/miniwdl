@@ -799,10 +799,7 @@ class SelectArray(Linter):
             arg0 = obj.arguments[0]
             if isinstance(arg0, WDL.Expr.Array) and not arg0.items:
                 self.add(pt, "empty array passed to " + obj.function_name, obj.arguments[0].pos)
-            elif (
-                isinstance(arg0.type, WDL.Type.Array)
-                and not arg0.type.item_type.optional
-            ):
+            elif isinstance(arg0.type, WDL.Type.Array) and not arg0.type.item_type.optional:
                 self.add(
                     pt,
                     "array of non-optional items passed to " + obj.function_name,
