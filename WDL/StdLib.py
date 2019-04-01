@@ -16,7 +16,7 @@ class _At(E._Function):
         lhs = expr.arguments[0]
         rhs = expr.arguments[1]
         if isinstance(lhs.type, T.Array):
-            if lhs.type.item_type is None:
+            if isinstance(lhs, E.Array) and not lhs.items:
                 # the user wrote: [][idx]
                 raise Error.OutOfBounds(expr)
             try:
@@ -184,7 +184,6 @@ _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("write_tsv", [T.Array(T.Array(T.String()))], T.File(), _notimpl),
     ("write_map", [T.Map((T.Any(), T.Any()))], T.File(), _notimpl),
     ("write_json", [T.Any()], T.File(), _notimpl),
-    ("range", [T.Int()], T.Array(T.Int()), _notimpl),
     ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
 ]
 for name, argument_types, return_type, F in _static_functions:
@@ -419,11 +418,13 @@ class _SelectFirst(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        if not isinstance(expr.arguments[0].type, T.Array) or expr.arguments[0].type.optional:
+        if not isinstance(expr.arguments[0].type, T.Array) or (
+            expr.arguments[0]._check_quant and expr.arguments[0].type.optional
+        ):
             raise Error.StaticTypeMismatch(
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
-        if expr.arguments[0].type.item_type is None:
+        if isinstance(expr.arguments[0].type.item_type, T.Any):
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
         ty = expr.arguments[0].type.item_type
@@ -441,11 +442,13 @@ class _SelectAll(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        if not isinstance(expr.arguments[0].type, T.Array) or expr.arguments[0].type.optional:
+        if not isinstance(expr.arguments[0].type, T.Array) or (
+            expr.arguments[0]._check_quant and expr.arguments[0].type.optional
+        ):
             raise Error.StaticTypeMismatch(
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
-        if expr.arguments[0].type.item_type is None:
+        if isinstance(expr.arguments[0].type.item_type, T.Any):
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
         ty = expr.arguments[0].type.item_type
@@ -467,16 +470,19 @@ class _Zip(E._Function):
         arg0ty: T.Base = expr.arguments[0].type
         if not isinstance(arg0ty, T.Array) or (expr._check_quant and arg0ty.optional):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(T.Any()), arg0ty)
-        if arg0ty.item_type is None:
+        if isinstance(arg0ty.item_type, T.Any):
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
         arg1ty: T.Base = expr.arguments[1].type
         if not isinstance(arg1ty, T.Array) or (expr._check_quant and arg1ty.optional):
             raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(T.Any()), arg1ty)
-        if arg1ty.item_type is None:
+        if isinstance(arg1ty.item_type, T.Any):
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[1])
-        return T.Array(T.Pair(arg0ty.item_type, arg1ty.item_type))
+        return T.Array(
+            T.Pair(arg0ty.item_type, arg1ty.item_type),
+            nonempty=(arg0ty.nonempty or arg1ty.nonempty),
+        )
 
     def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
         raise NotImplementedError()
@@ -546,3 +552,29 @@ class _Prefix(E._Function):
 
 
 E._stdlib["prefix"] = _Prefix()
+
+
+class _Range(E._Function):
+    # int -> int array
+    # with special case: if the argument is a positive integer literal or
+    # length(a_nonempty_array), then we can say the returned array is nonempty.
+
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        expr.arguments[0].typecheck(T.Int())
+        nonempty = False
+        arg0 = expr.arguments[0]
+        if isinstance(arg0, E.Int) and arg0.value > 0:
+            nonempty = True
+        if isinstance(arg0, E.Apply) and arg0.function_name == "length":
+            arg00ty = arg0.arguments[0].type
+            if isinstance(arg00ty, T.Array) and arg00ty.nonempty:
+                nonempty = True
+        return T.Array(T.Int(), nonempty=nonempty)
+
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
+
+
+E._stdlib["range"] = _Range()

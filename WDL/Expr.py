@@ -51,7 +51,7 @@ class Base(SourceNode, ABC):
         Infer the expression's type within the given type environment. Must be
         invoked exactly once prior to use of other methods.
 
-        :param check_quant: when ``False``, relaxes static validation of the optional (?) and nonempty (+) type quantifiers when `typecheck()` is called on this expression, so for example type ``T?`` can satisfy an expected type ``T``. Applies recursively to the type inference and checking of any sub-expressions.
+        :param check_quant: when ``False``, disables static validation of the optional (?) type quantifier when `typecheck()` is called on this expression, so for example type ``T?`` can satisfy an expected type ``T``. Applies recursively to the type inference and checking of any sub-expressions.
         :raise WDL.Error.StaticTypeMismatch: when the expression fails to type-check
         :return: `self`
         """
@@ -354,9 +354,6 @@ class Array(Base):
         ""
         if not self.items and isinstance(expected, T.Array):
             # the literal empty array satisfies any array type
-            # (unless it has the nonempty quantifier)
-            if expected.nonempty:
-                raise Error.EmptyArray(self)
             return self
         return super().typecheck(expected)  # pyre-ignore
 

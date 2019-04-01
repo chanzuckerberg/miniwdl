@@ -136,8 +136,7 @@ class TestCalls(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(txt)
-        with self.assertRaises(WDL.Error.StaticTypeMismatch):
-            doc.typecheck()
+        doc.typecheck()
         doc = WDL.parse_document(txt)
         doc.typecheck(check_quant=False)
 
@@ -175,8 +174,7 @@ class TestCalls(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(txt)
-        with self.assertRaises(WDL.Error.EmptyArray):
-            doc.typecheck()
+        doc.typecheck()
 
     def test_array_coercion(self):
         txt = tsk + r"""

@@ -107,17 +107,8 @@ class Decl(SourceNode):
     def typecheck(self, type_env: Env.Types, check_quant: bool) -> None:
         # Infer the expression's type and ensure it checks against the declared
         # type. One time use!
-        #
-        # Subtlety: accept Array[T]+ = <expr> is accepted even if we can't
-        # statically prove <expr> is nonempty. Its nonemptiness should be
-        # checked at runtime. We do reject an empty array literal for <expr>.
         if self.expr:
-            check_type = self.type
-            if isinstance(check_type, T.Array):
-                if check_type.nonempty and isinstance(self.expr, E.Array) and not self.expr.items:
-                    raise Err.EmptyArray(self.expr)
-                check_type = check_type.copy(nonempty=False)
-            self.expr.infer_type(type_env, check_quant).typecheck(check_type)
+            self.expr.infer_type(type_env, check_quant).typecheck(self.type)
 
     # TODO: when the declaration is evaluated,
     #  - the optional/nonempty type quantifiers should be checked
@@ -533,7 +524,7 @@ class Scatter(SourceNode):
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
         # Subtlety: if the scatter array is statically nonempty, then so too
-        # are the arrayized values
+        # are the arrayized values.
         nonempty = isinstance(self.expr._type, T.Array) and self.expr._type.nonempty
         inner_type_env = Env.map(inner_type_env, lambda ns, b: T.Array(b.rhs, nonempty=nonempty))
         return inner_type_env + type_env
