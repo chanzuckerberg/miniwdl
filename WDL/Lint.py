@@ -198,7 +198,7 @@ class StringCoercion(Linter):
             for elt in obj.items:
                 if isinstance(elt.type, WDL.Type.String):
                     any_string = True
-                elif not isinstance(elt.type, WDL.Type.File):
+                elif not isinstance(elt.type, (WDL.Type.File, WDL.Type.Any)):
                     all_string = False
                 item_types.append(str(elt.type))
             if any_string and not all_string:
@@ -788,3 +788,22 @@ class MixedIndentation(Linter):
                     ),
                 )
                 break
+
+
+@a_linter
+class SelectArray(Linter):
+    # application of select_first or select_all on an empty or non-optional array
+    def expr(self, obj: WDL.Expr.Base) -> Any:
+        pt = getattr(obj, "parent")
+        if isinstance(obj, WDL.Expr.Apply) and obj.function_name in ["select_first", "select_all"]:
+            if isinstance(obj.arguments[0], WDL.Expr.Array) and not obj.arguments[0].items:
+                self.add(pt, "empty array passed to " + obj.function_name, obj.arguments[0].pos)
+            elif (
+                isinstance(obj.arguments[0].type, WDL.Type.Array)
+                and not obj.arguments[0].type.item_type.optional
+            ):
+                self.add(
+                    pt,
+                    "array of non-optional items passed to " + obj.function_name,
+                    obj.arguments[0].pos,
+                )

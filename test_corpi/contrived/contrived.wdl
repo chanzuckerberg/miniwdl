@@ -34,7 +34,7 @@ task popular {
         String popular
         String? opt
         Float? i
-        Array[String]+ y = select_all([popular + i])
+        Array[String]+ y = select_all([popular + i, select_first([])])
     }
     String? x = popular + opt   # rhs expr is non-optional although opt is...
     Array[String] args = prefix("-f", y)
