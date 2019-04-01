@@ -140,9 +140,9 @@ def outline(obj, level, file=sys.stdout, show_called=True):
         for task in sorted(obj.tasks, key=lambda task: (not task.called, task.name)):
             descend(task)
         # imports
-        for uri, namespace, subdoc in sorted(obj.imports, key=lambda t: t[1]):
-            print("    {}{} : {}".format(s, namespace, os.path.basename(uri)), file=file)
-            descend(subdoc)
+        for imp in sorted(obj.imports, key=lambda t: t.namespace):
+            print("    {}{} : {}".format(s, imp.namespace, os.path.basename(imp.uri)), file=file)
+            descend(imp.doc)
     # workflow
     elif isinstance(obj, WDL.Workflow):
         print(

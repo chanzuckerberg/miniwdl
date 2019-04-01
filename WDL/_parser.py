@@ -140,7 +140,8 @@ workflow: "workflow" CNAME "{" input_decls? workflow_element* workflow_outputs? 
 
 // WDL document: version, imports, tasks and (at most one) workflow
 version: "version" /[^ \t\r\n]+/
-import_doc: "import" string_literal ["as" CNAME]
+import_alias: "alias" CNAME "as" CNAME
+import_doc: "import" string_literal ["as" CNAME] import_alias*
 document: version? document_element*
         | version? document_element*
 
@@ -655,9 +656,13 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             members[d.name] = d.type
         return D.StructType(sp(self.filename, meta), name, members)
 
+    def import_alias(self, items, meta):
+        assert len(items) == 2
+        return (items[0],items[1])
+
     def import_doc(self, items, meta):
         uri = items[0]
-        if len(items) > 1:
+        if len(items) > 1 and isinstance(items[1],str):
             namespace = items[1].value
         else:
             namespace = uri
@@ -668,7 +673,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             if namespace.endswith(".wdl"):
                 namespace = namespace[:-4]
         # TODO: validate namespace
-        return {"import": (uri, namespace)}
+        aliases = [p for p in items[1:] if isinstance(p,tuple)]
+        return D.DocImport(pos=sp(self.filename, meta), uri=uri, namespace=namespace, aliases=aliases, doc=None)
 
     def document(self, items, meta):
         imports = []
@@ -692,8 +698,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 structs[item.name] = item
             elif isinstance(item, lark.Tree) and item.data == "version":
                 pass
-            elif isinstance(item, dict) and "import" in item:
-                imports.append(item["import"])
+            elif isinstance(item, D.DocImport):
+                imports.append(item)
             else:
                 assert False
         return D.Document(sp(self.filename, meta), imports, structs, tasks, workflow)

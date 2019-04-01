@@ -573,7 +573,11 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow.elements[2].elements[0], WDL.Tree.Scatter)
         self.assertEqual(len(doc.tasks), 1)
         doc.typecheck()
-        self.assertEqual(doc.imports, [("x.wdl","x",None), ("y.wdl","z",None)])
+        self.assertEqual(len(doc.imports), 2)
+        self.assertEqual(doc.imports[0].uri, "x.wdl")
+        self.assertEqual(doc.imports[0].namespace, "x")
+        self.assertEqual(doc.imports[1].uri, "y.wdl")
+        self.assertEqual(doc.imports[1].namespace, "z")
 
     def test_scatter_conditional(self):
         doc = r"""

@@ -24,6 +24,7 @@ from typing import (
     Callable,
     Generator,
     Set,
+    NamedTuple,
 )
 import WDL.Type as T
 import WDL.Expr as E
@@ -345,9 +346,9 @@ class Call(SourceNode):
         if len(self.callee_id) == 1:
             callee_doc = doc
         elif len(self.callee_id) == 2:
-            for _, ns, subdoc in doc.imports:
-                if ns == self.callee_id[0]:
-                    callee_doc = subdoc
+            for imp in doc.imports:
+                if imp.namespace == self.callee_id[0]:
+                    callee_doc = imp.doc
         if callee_doc:
             assert isinstance(callee_doc, Document)
             if callee_doc.workflow and callee_doc.workflow.name == self.callee_id[-1]:
@@ -846,6 +847,12 @@ class Workflow(SourceNode):
         self._output_idents = []
 
 
+DocImport = NamedTuple(
+    "DocImport",
+    [("pos", Err.SourcePosition), ("uri", str), ("namespace", str),
+    ("aliases", List[Tuple[str,str]]), ("doc", Optional[TVDocument])],
+)
+
 class Document(SourceNode):
     """
     Top-level document, with imports, tasks, and a workflow. Typically returned
@@ -854,7 +861,7 @@ class Document(SourceNode):
     but doesn't process imports nor perform typechecking.
     """
 
-    imports: List[Tuple[str, str, Optional[TVDocument]]]
+    imports: List[DocImport]
     """
     :type: List[Tuple[str,str,Optional[WDL.Tree.Document]]]
 
@@ -869,18 +876,13 @@ class Document(SourceNode):
     def __init__(
         self,
         pos: SourcePosition,
-        imports: List[Tuple[str, str]],
+        imports: List[DocImport],
         struct_types: Dict[str, StructType],
         tasks: List[Task],
         workflow: Optional[Workflow],
     ) -> None:
         super().__init__(pos)
-        self.imports = []
-        for (uri, namespace) in imports:
-            # The sub-document is initially None. The WDL.load() function
-            # populates it, after construction of this object but before
-            # typechecking the contents.
-            self.imports.append((uri, namespace, None))
+        self.imports = imports
         self.struct_types = []
         for name, struct_type in struct_types.items():
             self.struct_types = Env.bind(self.struct_types, [], name, struct_type)
@@ -889,9 +891,9 @@ class Document(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        for _, _, doc in self.imports:
-            if doc:
-                yield doc
+        for imp in self.imports:
+            if imp.doc:
+                yield imp.doc
         for task in self.tasks:
             yield task
         if self.workflow:
@@ -902,11 +904,13 @@ class Document(SourceNode):
 
         Documents returned by :func:`~WDL.load` have already been typechecked."""
         names = set()
-        for _, namespace, _ in self.imports:
-            if namespace in names:
-                raise Err.MultipleDefinitions(self, "Multiple imports with namespace " + namespace)
-            names.add(namespace)
+        for imp in self.imports:
+            if imp.namespace in names:
+                raise Err.MultipleDefinitions(self, "Multiple imports with namespace " + imp.namespace)
+            names.add(imp.namespace)
         # TODO: deal with imported/aliased struct_types
+        # register all aliased structs, checking for collisions among them and with this document's structs
+        # register all non-aliased structs, ignoring collisions
         _initialize_struct_types(self.struct_types)
         names = set()
         # typecheck each task
@@ -953,17 +957,18 @@ def load(
                 #       are we supposed to do something smart for relative imports
                 #       within a document loaded by URI?
                 for i in range(len(doc.imports)):
+                    imp = doc.imports[i]
                     try:
                         subpath = [os.path.dirname(fn)] + path
                         subdoc = load(
-                            doc.imports[i][0],
+                            imp.uri,
                             subpath,
                             check_quant=check_quant,
                             import_uri=import_uri,
                         )
                     except Exception as exn:
-                        raise Err.ImportError(uri, doc.imports[i][0]) from exn
-                    doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
+                        raise Err.ImportError(uri, imp.uri) from exn
+                    doc.imports[i] = DocImport(pos=imp.pos, uri=imp.uri, namespace=imp.namespace, aliases=imp.aliases, doc=subdoc)
                 try:
                     doc.typecheck(check_quant=check_quant)
                 except Err.ValidationError as exn:

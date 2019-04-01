@@ -160,8 +160,8 @@ class SetParents(Base):
     def document(self, obj: WDL.Tree.Document) -> None:
         super().document(obj)
         obj.parent = None
-        for _, _, subdoc in obj.imports:
-            subdoc.parent = obj
+        for imp in obj.imports:
+            imp.doc.parent = obj
         for task in obj.tasks:
             task.parent = obj
         if obj.workflow:
