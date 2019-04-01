@@ -107,7 +107,7 @@ is "$(grep '                ^' import_multi_error.err | wc -l)" "2" "import_mult
 is "$(grep '                       ^^^' import_multi_error.err | wc -l)" "1" "import_multi_error.wdl stderr marker 2"
 $miniwdl check --no-shellcheck --no-quant-check import_multi_error.wdl > import_multi_error.no_quant_check.out
 is "$?" "0" "import_multi_error.wdl --no-quant-check"
-is "$(grep QuantityCoercion import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check QuantityCoercion"
+is "$(grep OptionalCoercion import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check OptionalCoercion"
 is "$(grep UnusedDeclaration import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check UnusedDeclaration"
 
 $miniwdl check --no-shellcheck $SOURCE_DIR/test_corpi/DataBiosphere/topmed-workflows/CRAM-no-header-md5sum/CRAM_md5sum_checker_wrapper.wdl > import_uri.out 2> import_uri.err
