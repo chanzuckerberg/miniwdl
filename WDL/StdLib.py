@@ -16,7 +16,7 @@ class _At(E._Function):
         lhs = expr.arguments[0]
         rhs = expr.arguments[1]
         if isinstance(lhs.type, T.Array):
-            if lhs.type.item_type is None:
+            if isinstance(lhs, E.Array) and not lhs.items:
                 # the user wrote: [][idx]
                 raise Error.OutOfBounds(expr)
             try:
@@ -418,13 +418,13 @@ class _SelectFirst(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        if (
-            not isinstance(expr.arguments[0].type, T.Array) or expr.arguments[0].type.optional
-        ):  # TODO no_quant_check...
+        if not isinstance(expr.arguments[0].type, T.Array) or (
+            expr.arguments[0]._check_quant and expr.arguments[0].type.optional
+        ):
             raise Error.StaticTypeMismatch(
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
-        if expr.arguments[0].type.item_type is None:
+        if isinstance(expr.arguments[0].type.item_type, T.Any):
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
         ty = expr.arguments[0].type.item_type
@@ -442,11 +442,13 @@ class _SelectAll(E._Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        if not isinstance(expr.arguments[0].type, T.Array) or expr.arguments[0].type.optional:
+        if not isinstance(expr.arguments[0].type, T.Array) or (
+            not expr.arguments[0]._check_quant and expr.arguments[0].type.optional
+        ):
             raise Error.StaticTypeMismatch(
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
-        if expr.arguments[0].type.item_type is None:
+        if isinstance(expr.arguments[0].type.item_type, T.Any):
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
         ty = expr.arguments[0].type.item_type

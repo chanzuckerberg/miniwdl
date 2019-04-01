@@ -792,14 +792,12 @@ class MixedIndentation(Linter):
 
 @a_linter
 class SelectArray(Linter):
-    # application of select_first or select_all on an empty or non-optional array
+    # application of select_first or select_all on a non-optional array
     def expr(self, obj: WDL.Expr.Base) -> Any:
         pt = getattr(obj, "parent")
         if isinstance(obj, WDL.Expr.Apply) and obj.function_name in ["select_first", "select_all"]:
             arg0 = obj.arguments[0]
-            if isinstance(arg0, WDL.Expr.Array) and not arg0.items:
-                self.add(pt, "empty array passed to " + obj.function_name, obj.arguments[0].pos)
-            elif isinstance(arg0.type, WDL.Type.Array) and not arg0.type.item_type.optional:
+            if isinstance(arg0.type, WDL.Type.Array) and not arg0.type.item_type.optional:
                 self.add(
                     pt,
                     "array of non-optional items passed to " + obj.function_name,

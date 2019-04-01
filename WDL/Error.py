@@ -154,6 +154,11 @@ class OutOfBounds(ValidationError):
         super().__init__(node, "Array index out of bounds")
 
 
+class EmptyArray(ValidationError):
+    def __init__(self, node: SourceNode) -> None:
+        super().__init__(node, "Empty array for Array+ input/declaration")
+
+
 class UnknownIdentifier(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         # avoiding circular dep:
