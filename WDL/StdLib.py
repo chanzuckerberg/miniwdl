@@ -443,7 +443,7 @@ class _SelectAll(E._Function):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, T.Array) or (
-            not expr.arguments[0]._check_quant and expr.arguments[0].type.optional
+            expr.arguments[0]._check_quant and expr.arguments[0].type.optional
         ):
             raise Error.StaticTypeMismatch(
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
