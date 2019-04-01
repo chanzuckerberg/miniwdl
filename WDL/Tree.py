@@ -525,8 +525,6 @@ class Scatter(SourceNode):
             inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
         # Subtlety: if the scatter array is statically nonempty, then so too
         # are the arrayized values.
-        # TODO: extend this to scattering on i in range(length(nonempty_array)) or on
-        #       zip(nonempty_array,...)
         nonempty = isinstance(self.expr._type, T.Array) and self.expr._type.nonempty
         inner_type_env = Env.map(inner_type_env, lambda ns, b: T.Array(b.rhs, nonempty=nonempty))
         return inner_type_env + type_env
