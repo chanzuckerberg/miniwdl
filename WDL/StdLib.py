@@ -470,13 +470,13 @@ class _Zip(E._Function):
         arg0ty: T.Base = expr.arguments[0].type
         if not isinstance(arg0ty, T.Array) or (expr._check_quant and arg0ty.optional):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(T.Any()), arg0ty)
-        if arg0ty.item_type is None:
+        if isinstance(arg0ty.item_type, T.Any):
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[0])
         arg1ty: T.Base = expr.arguments[1].type
         if not isinstance(arg1ty, T.Array) or (expr._check_quant and arg1ty.optional):
             raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(T.Any()), arg1ty)
-        if arg1ty.item_type is None:
+        if isinstance(arg1ty.item_type, T.Any):
             # TODO: error for 'indeterminate type'
             raise Error.EmptyArray(expr.arguments[1])
         return T.Array(
