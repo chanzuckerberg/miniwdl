@@ -658,11 +658,11 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def import_alias(self, items, meta):
         assert len(items) == 2
-        return (items[0],items[1])
+        return (items[0], items[1])
 
     def import_doc(self, items, meta):
         uri = items[0]
-        if len(items) > 1 and isinstance(items[1],str):
+        if len(items) > 1 and isinstance(items[1], str):
             namespace = items[1].value
         else:
             namespace = uri
@@ -673,8 +673,10 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             if namespace.endswith(".wdl"):
                 namespace = namespace[:-4]
         # TODO: validate namespace
-        aliases = [p for p in items[1:] if isinstance(p,tuple)]
-        return D.DocImport(pos=sp(self.filename, meta), uri=uri, namespace=namespace, aliases=aliases, doc=None)
+        aliases = [p for p in items[1:] if isinstance(p, tuple)]
+        return D.DocImport(
+            pos=sp(self.filename, meta), uri=uri, namespace=namespace, aliases=aliases, doc=None
+        )
 
     def document(self, items, meta):
         imports = []

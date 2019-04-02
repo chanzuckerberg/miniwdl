@@ -512,11 +512,11 @@ class UnusedImport(Linter):
             assert imp.doc is not None
             any_called = False
             for task in imp.doc.tasks:
-                if task.called:
+                if getattr(task, "called", False):
                     any_called = True
-            if imp.doc.workflow and imp.doc.workflow.called:
+            if imp.doc.workflow and getattr(imp.doc.workflow, "called", False):
                 any_called = True
-            if not any_called:
+            if not any_called and (imp.doc.tasks or imp.doc.workflow):
                 self.add(obj, "nothing used from the import " + imp.namespace)
 
 

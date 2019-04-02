@@ -39,18 +39,21 @@ class StructType(SourceNode):
 
     name: str
     members: Dict[str, T.Base]
+    imported: bool
 
-    def __init__(self, pos: SourcePosition, name: str, members: Dict[str, T.Base]) -> None:
+    def __init__(
+        self, pos: SourcePosition, name: str, members: Dict[str, T.Base], imported: bool = False
+    ) -> None:
         super().__init__(pos)
         self.name = name
         self.members = members
+        self.imported = imported
 
     @property
-    def type_id(self) -> int:
+    def type_id(self) -> str:
         # Because the same struct type can have different names depending on
-        # the context, we define a unique integer ID for each one, computed as
-        # the python id() of the members dict object.
-        return id(self.members)
+        # the context, we use a content hash of the members
+        return T._struct_type_id(self.members)
 
 
 class Decl(SourceNode):
@@ -849,9 +852,15 @@ class Workflow(SourceNode):
 
 DocImport = NamedTuple(
     "DocImport",
-    [("pos", Err.SourcePosition), ("uri", str), ("namespace", str),
-    ("aliases", List[Tuple[str,str]]), ("doc", Optional[TVDocument])],
+    [
+        ("pos", Err.SourcePosition),
+        ("uri", str),
+        ("namespace", str),
+        ("aliases", List[Tuple[str, str]]),
+        ("doc", Optional[TVDocument]),
+    ],
 )
+
 
 class Document(SourceNode):
     """
@@ -906,11 +915,11 @@ class Document(SourceNode):
         names = set()
         for imp in self.imports:
             if imp.namespace in names:
-                raise Err.MultipleDefinitions(self, "Multiple imports with namespace " + imp.namespace)
+                raise Err.MultipleDefinitions(
+                    self, "Multiple imports with namespace " + imp.namespace
+                )
             names.add(imp.namespace)
-        # TODO: deal with imported/aliased struct_types
-        # register all aliased structs, checking for collisions among them and with this document's structs
-        # register all non-aliased structs, ignoring collisions
+        _import_structs(self)
         _initialize_struct_types(self.struct_types)
         names = set()
         # typecheck each task
@@ -961,14 +970,17 @@ def load(
                     try:
                         subpath = [os.path.dirname(fn)] + path
                         subdoc = load(
-                            imp.uri,
-                            subpath,
-                            check_quant=check_quant,
-                            import_uri=import_uri,
+                            imp.uri, subpath, check_quant=check_quant, import_uri=import_uri
                         )
                     except Exception as exn:
                         raise Err.ImportError(uri, imp.uri) from exn
-                    doc.imports[i] = DocImport(pos=imp.pos, uri=imp.uri, namespace=imp.namespace, aliases=imp.aliases, doc=subdoc)
+                    doc.imports[i] = DocImport(
+                        pos=imp.pos,
+                        uri=imp.uri,
+                        namespace=imp.namespace,
+                        aliases=imp.aliases,
+                        doc=subdoc,
+                    )
                 try:
                     doc.typecheck(check_quant=check_quant)
                 except Err.ValidationError as exn:
@@ -1265,9 +1277,69 @@ def _detect_cycles(p: Tuple[Dict[int, Err.SourceNode], _AdjM]):
         raise Err.CircularDependencies(nodes[node])
 
 
+def _import_structs(doc: Document):
+    # Add imported structs to doc.struct_types, with collision checks
+    for imp in [
+        imp for imp in doc.imports if imp.doc
+    ]:  # imp.doc should be None only for certain legacy unit tests
+        imported_structs = {}
+        for stb in imp.doc.struct_types:
+            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+            imported_structs[stb.name] = stb.rhs
+        for (name, alias) in imp.aliases:
+            if name not in imported_structs:
+                raise Err.NoSuchMember(imp.pos, name)
+            if alias in imported_structs:
+                raise Err.MultipleDefinitions(
+                    imp.pos,
+                    "struct type alias {} collides with another struct type in the imported document".format(
+                        alias
+                    ),
+                )
+            try:
+                existing = Env.resolve(doc.struct_types, [], name)
+                raise Err.MultipleDefinitions(
+                    imp.pos,
+                    "struct type alias {} collides with a struct {} document".format(
+                        name,
+                        (
+                            "type/alias from another imported"
+                            if existing.imported
+                            else "type in this"
+                        ),
+                    ),
+                )
+            except KeyError:
+                pass
+            if alias != name:
+                imported_structs[alias] = imported_structs[name]
+                del imported_structs[name]
+        for (name, st) in imported_structs.items():
+            existing = None
+            try:
+                existing = Env.resolve(doc.struct_types, [], name)
+                if existing.type_id != st.type_id:
+                    raise Err.MultipleDefinitions(
+                        imp.pos,
+                        "imported struct {} must be aliased because it collides with a struct {} document".format(
+                            name,
+                            (
+                                "type/alias from another imported"
+                                if existing.imported
+                                else "type in this"
+                            ),
+                        ),
+                    )
+            except KeyError:
+                pass
+            if not existing:
+                st2 = StructType(imp.pos, name, st.members, imported=True)
+                doc.struct_types = Env.bind(doc.struct_types, [], name, st2)
+
+
 def _resolve_struct_type(
     pos: Err.SourcePosition, ty: T.StructInstance, struct_types: Env.StructTypes
-) -> int:
+):
     # On construction, WDL.Type.StructInstance is not yet resolved to the
     # struct type definition. Here, given the Env.StructTypes computed
     # on document construction, we populate 'members' with the dict of member
@@ -1276,9 +1348,7 @@ def _resolve_struct_type(
         struct_type = Env.resolve(struct_types, [], ty.type_name)
     except KeyError:
         raise Err.InvalidType(pos, "Unknown type " + ty.type_name)
-    assert ty.members is None or ty.type_id == struct_type.type_id
     ty.members = struct_type.members
-    return ty.type_id
 
 
 def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: Env.StructTypes):
@@ -1291,22 +1361,19 @@ def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: Env
 
 def _initialize_struct_types(struct_types: Env.StructTypes):
     # bootstrap struct typechecking: resolve all StructInstance members of the
-    # struct types, and check for circularities
-    node_by_id = dict()
-    adj = _AdjM()
-
-    def p(ns: List[str], b: "Env.Binding[StructTypes]"):
-        node_by_id[b.rhs.type_id] = b.rhs
+    # struct types
+    for b in struct_types:
+        assert isinstance(b, Env.Binding)
         for member_ty in b.rhs.members.values():
             if isinstance(member_ty, T.StructInstance):
-                adj.add_edge(
-                    _resolve_struct_type(b.rhs.pos, member_ty, struct_types), b.rhs.type_id
-                )
-
-    Env.map(struct_types, p)
-
-    # check for cycles
-    _detect_cycles((node_by_id, adj))
+                _resolve_struct_type(b.rhs.pos, member_ty, struct_types)
+    # make a dummy allusion to each StructType.type_id, which will detect any
+    # circular definitions (see Type._struct_type_id)
+    for b in struct_types:
+        try:
+            b.rhs.type_id
+        except StopIteration:
+            raise Err.CircularDependencies(b.rhs)
 
 
 def _add_struct_instance_to_type_env(
