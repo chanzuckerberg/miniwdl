@@ -948,6 +948,7 @@ def load(
     path: List[str] = [],
     check_quant: bool = True,
     import_uri: Optional[Callable[[str], str]] = None,
+    import_max_depth=10,
 ) -> Document:
     if uri.startswith("file://"):
         uri = uri[7:]
@@ -962,15 +963,22 @@ def load(
                 assert isinstance(doc, Document)
                 # recursively descend into document's imports, and store the imported
                 # documents into doc.imports
-                # TODO: limit recursion; prevent mutual recursion
-                #       are we supposed to do something smart for relative imports
+                # TODO: are we supposed to do something smart for relative imports
                 #       within a document loaded by URI?
                 for i in range(len(doc.imports)):
                     imp = doc.imports[i]
+                    if import_max_depth <= 1:
+                        raise Err.ImportError(
+                            uri, imp.uri, "exceeded import_max_depth; circular imports?"
+                        )
                     try:
                         subpath = [os.path.dirname(fn)] + path
                         subdoc = load(
-                            imp.uri, subpath, check_quant=check_quant, import_uri=import_uri
+                            imp.uri,
+                            subpath,
+                            check_quant=check_quant,
+                            import_uri=import_uri,
+                            import_max_depth=(import_max_depth - 1),
                         )
                     except Exception as exn:
                         raise Err.ImportError(uri, imp.uri) from exn
