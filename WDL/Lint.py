@@ -454,8 +454,8 @@ class NameCollision(Linter):
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, "parent")
         assert isinstance(doc, WDL.Document)
-        for _, namespace, _ in doc.imports:
-            if namespace == obj.name:
+        for imp in doc.imports:
+            if imp.namespace == obj.name:
                 msg = "call name '{}' collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
         if doc.workflow and doc.workflow.name == obj.name:
@@ -467,8 +467,8 @@ class NameCollision(Linter):
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, "parent")
         assert isinstance(doc, WDL.Document)
-        for _, namespace, _ in doc.imports:
-            if namespace == obj.name:
+        for imp in doc.imports:
+            if imp.namespace == obj.name:
                 msg = "declaration of '{}' collides with imported document namespace".format(
                     obj.name
                 )
@@ -486,8 +486,8 @@ class NameCollision(Linter):
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, "parent")
         assert isinstance(doc, WDL.Document)
-        for _, namespace, _ in doc.imports:
-            if namespace == obj.name:
+        for imp in doc.imports:
+            if imp.namespace == obj.name:
                 msg = "workflow name '{}' collides with imported document namespace".format(
                     obj.name
                 )
@@ -498,8 +498,8 @@ class NameCollision(Linter):
         while not isinstance(doc, WDL.Document):
             doc = getattr(doc, "parent")
         assert isinstance(doc, WDL.Document)
-        for _, namespace, _ in doc.imports:
-            if namespace == obj.name:
+        for imp in doc.imports:
+            if imp.namespace == obj.name:
                 msg = "task name '{}' collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
 
@@ -508,16 +508,16 @@ class NameCollision(Linter):
 class UnusedImport(Linter):
     # Nothing used from an imported document
     def document(self, obj: WDL.Document) -> Any:
-        for _, namespace, subdoc in obj.imports:
-            assert subdoc is not None
+        for imp in obj.imports:
+            assert imp.doc is not None
             any_called = False
-            for task in subdoc.tasks:
-                if task.called:
+            for task in imp.doc.tasks:
+                if getattr(task, "called", False):
                     any_called = True
-            if subdoc.workflow and subdoc.workflow.called:
+            if imp.doc.workflow and getattr(imp.doc.workflow, "called", False):
                 any_called = True
-            if not any_called:
-                self.add(obj, "nothing used from the import " + namespace)
+            if not any_called and (imp.doc.tasks or imp.doc.workflow):
+                self.add(obj, "nothing used from the import " + imp.namespace)
 
 
 @a_linter

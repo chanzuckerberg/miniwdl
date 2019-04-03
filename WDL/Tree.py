@@ -24,6 +24,7 @@ from typing import (
     Callable,
     Generator,
     Set,
+    NamedTuple,
 )
 import WDL.Type as T
 import WDL.Expr as E
@@ -37,19 +38,42 @@ class StructType(SourceNode):
     """WDL struct type definition"""
 
     name: str
-    members: Dict[str, T.Base]
+    """
+    :type: str
 
-    def __init__(self, pos: SourcePosition, name: str, members: Dict[str, T.Base]) -> None:
+    Name of the struct type (in the current document)
+    """
+
+    members: Dict[str, T.Base]
+    """
+    :type: Dict[str, WDL.Type.Base]
+
+    Member names and types
+    """
+
+    imported: bool
+    """
+    :type: bool
+
+    True if this struct type was imported from another document
+    """
+
+    def __init__(
+        self, pos: SourcePosition, name: str, members: Dict[str, T.Base], imported: bool = False
+    ) -> None:
         super().__init__(pos)
         self.name = name
         self.members = members
+        self.imported = imported
 
     @property
-    def type_id(self) -> int:
-        # Because the same struct type can have different names depending on
-        # the context, we define a unique integer ID for each one, computed as
-        # the python id() of the members dict object.
-        return id(self.members)
+    def type_id(self) -> str:
+        """
+        :type: str
+
+        A string uniquely describing the member names and types, excluding the struct type name; useful to identify aliased struct types.
+        """
+        return T._struct_type_id(self.members)
 
 
 class Decl(SourceNode):
@@ -345,9 +369,9 @@ class Call(SourceNode):
         if len(self.callee_id) == 1:
             callee_doc = doc
         elif len(self.callee_id) == 2:
-            for _, ns, subdoc in doc.imports:
-                if ns == self.callee_id[0]:
-                    callee_doc = subdoc
+            for imp in doc.imports:
+                if imp.namespace == self.callee_id[0]:
+                    callee_doc = imp.doc
         if callee_doc:
             assert isinstance(callee_doc, Document)
             if callee_doc.workflow and callee_doc.workflow.name == self.callee_id[-1]:
@@ -846,6 +870,21 @@ class Workflow(SourceNode):
         self._output_idents = []
 
 
+DocImport = NamedTuple(
+    "DocImport",
+    [
+        ("pos", Err.SourcePosition),
+        ("uri", str),
+        ("namespace", str),
+        ("aliases", List[Tuple[str, str]]),
+        ("doc", "Optional[Document]"),
+    ],
+)
+"""
+Represents one imported document, with position of the import statement, import URI, namespace, struct type aliases, and (after typechecking) the ``Document`` object.
+"""
+
+
 class Document(SourceNode):
     """
     Top-level document, with imports, tasks, and a workflow. Typically returned
@@ -854,11 +893,11 @@ class Document(SourceNode):
     but doesn't process imports nor perform typechecking.
     """
 
-    imports: List[Tuple[str, str, Optional[TVDocument]]]
+    imports: List[DocImport]
     """
-    :type: List[Tuple[str,str,Optional[WDL.Tree.Document]]]
+    :type: List[DocImport]
 
-    Imports in the document (filename/URI, namespace, and later the sub-document)"""
+    Imported documents"""
     struct_types: Env.StructTypes
     """:type: Dict[str, Dict[str, WDL.Type.Base]]"""
     tasks: List[Task]
@@ -869,18 +908,13 @@ class Document(SourceNode):
     def __init__(
         self,
         pos: SourcePosition,
-        imports: List[Tuple[str, str]],
+        imports: List[DocImport],
         struct_types: Dict[str, StructType],
         tasks: List[Task],
         workflow: Optional[Workflow],
     ) -> None:
         super().__init__(pos)
-        self.imports = []
-        for (uri, namespace) in imports:
-            # The sub-document is initially None. The WDL.load() function
-            # populates it, after construction of this object but before
-            # typechecking the contents.
-            self.imports.append((uri, namespace, None))
+        self.imports = imports
         self.struct_types = []
         for name, struct_type in struct_types.items():
             self.struct_types = Env.bind(self.struct_types, [], name, struct_type)
@@ -889,9 +923,9 @@ class Document(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        for _, _, doc in self.imports:
-            if doc:
-                yield doc
+        for imp in self.imports:
+            if imp.doc:
+                yield imp.doc
         for task in self.tasks:
             yield task
         if self.workflow:
@@ -902,11 +936,13 @@ class Document(SourceNode):
 
         Documents returned by :func:`~WDL.load` have already been typechecked."""
         names = set()
-        for _, namespace, _ in self.imports:
-            if namespace in names:
-                raise Err.MultipleDefinitions(self, "Multiple imports with namespace " + namespace)
-            names.add(namespace)
-        # TODO: deal with imported/aliased struct_types
+        for imp in self.imports:
+            if imp.namespace in names:
+                raise Err.MultipleDefinitions(
+                    self, "Multiple imports with namespace " + imp.namespace
+                )
+            names.add(imp.namespace)
+        _import_structs(self)
         _initialize_struct_types(self.struct_types)
         names = set()
         # typecheck each task
@@ -935,6 +971,7 @@ def load(
     path: List[str] = [],
     check_quant: bool = True,
     import_uri: Optional[Callable[[str], str]] = None,
+    import_max_depth=10,
 ) -> Document:
     if uri.startswith("file://"):
         uri = uri[7:]
@@ -949,21 +986,32 @@ def load(
                 assert isinstance(doc, Document)
                 # recursively descend into document's imports, and store the imported
                 # documents into doc.imports
-                # TODO: limit recursion; prevent mutual recursion
-                #       are we supposed to do something smart for relative imports
+                # TODO: are we supposed to do something smart for relative imports
                 #       within a document loaded by URI?
                 for i in range(len(doc.imports)):
+                    imp = doc.imports[i]
+                    if import_max_depth <= 1:
+                        raise Err.ImportError(
+                            uri, imp.uri, "exceeded import_max_depth; circular imports?"
+                        )
                     try:
                         subpath = [os.path.dirname(fn)] + path
                         subdoc = load(
-                            doc.imports[i][0],
+                            imp.uri,
                             subpath,
                             check_quant=check_quant,
                             import_uri=import_uri,
+                            import_max_depth=(import_max_depth - 1),
                         )
                     except Exception as exn:
-                        raise Err.ImportError(uri, doc.imports[i][0]) from exn
-                    doc.imports[i] = (doc.imports[i][0], doc.imports[i][1], subdoc)
+                        raise Err.ImportError(uri, imp.uri) from exn
+                    doc.imports[i] = DocImport(
+                        pos=imp.pos,
+                        uri=imp.uri,
+                        namespace=imp.namespace,
+                        aliases=imp.aliases,
+                        doc=subdoc,
+                    )
                 try:
                     doc.typecheck(check_quant=check_quant)
                 except Err.ValidationError as exn:
@@ -1260,9 +1308,69 @@ def _detect_cycles(p: Tuple[Dict[int, Err.SourceNode], _AdjM]):
         raise Err.CircularDependencies(nodes[node])
 
 
+def _import_structs(doc: Document):
+    # Add imported structs to doc.struct_types, with collision checks
+    for imp in [
+        imp for imp in doc.imports if imp.doc
+    ]:  # imp.doc should be None only for certain legacy unit tests
+        imported_structs = {}
+        for stb in imp.doc.struct_types:
+            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+            imported_structs[stb.name] = stb.rhs
+        for (name, alias) in imp.aliases:
+            if name not in imported_structs:
+                raise Err.NoSuchMember(imp.pos, name)
+            if alias in imported_structs:
+                raise Err.MultipleDefinitions(
+                    imp.pos,
+                    "struct type alias {} collides with another struct type in the imported document".format(
+                        alias
+                    ),
+                )
+            try:
+                existing = Env.resolve(doc.struct_types, [], alias)
+                raise Err.MultipleDefinitions(
+                    imp.pos,
+                    "struct type alias {} collides with a struct {} document".format(
+                        alias,
+                        (
+                            "type/alias from another imported"
+                            if existing.imported
+                            else "type in this"
+                        ),
+                    ),
+                )
+            except KeyError:
+                pass
+            if alias != name:
+                imported_structs[alias] = imported_structs[name]
+                del imported_structs[name]
+        for (name, st) in imported_structs.items():
+            existing = None
+            try:
+                existing = Env.resolve(doc.struct_types, [], name)
+                if existing.type_id != st.type_id:
+                    raise Err.MultipleDefinitions(
+                        imp.pos,
+                        "imported struct {} must be aliased because it collides with a struct {} document".format(
+                            name,
+                            (
+                                "type/alias from another imported"
+                                if existing.imported
+                                else "type in this"
+                            ),
+                        ),
+                    )
+            except KeyError:
+                pass
+            if not existing:
+                st2 = StructType(imp.pos, name, st.members, imported=True)
+                doc.struct_types = Env.bind(doc.struct_types, [], name, st2)
+
+
 def _resolve_struct_type(
     pos: Err.SourcePosition, ty: T.StructInstance, struct_types: Env.StructTypes
-) -> int:
+):
     # On construction, WDL.Type.StructInstance is not yet resolved to the
     # struct type definition. Here, given the Env.StructTypes computed
     # on document construction, we populate 'members' with the dict of member
@@ -1271,9 +1379,7 @@ def _resolve_struct_type(
         struct_type = Env.resolve(struct_types, [], ty.type_name)
     except KeyError:
         raise Err.InvalidType(pos, "Unknown type " + ty.type_name)
-    assert ty.members is None or ty.type_id == struct_type.type_id
     ty.members = struct_type.members
-    return ty.type_id
 
 
 def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: Env.StructTypes):
@@ -1286,22 +1392,19 @@ def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: Env
 
 def _initialize_struct_types(struct_types: Env.StructTypes):
     # bootstrap struct typechecking: resolve all StructInstance members of the
-    # struct types, and check for circularities
-    node_by_id = dict()
-    adj = _AdjM()
-
-    def p(ns: List[str], b: "Env.Binding[StructTypes]"):
-        node_by_id[b.rhs.type_id] = b.rhs
+    # struct types
+    for b in struct_types:
+        assert isinstance(b, Env.Binding)
         for member_ty in b.rhs.members.values():
             if isinstance(member_ty, T.StructInstance):
-                adj.add_edge(
-                    _resolve_struct_type(b.rhs.pos, member_ty, struct_types), b.rhs.type_id
-                )
-
-    Env.map(struct_types, p)
-
-    # check for cycles
-    _detect_cycles((node_by_id, adj))
+                _resolve_struct_type(b.rhs.pos, member_ty, struct_types)
+    # make a dummy allusion to each StructType.type_id, which will detect any
+    # circular definitions (see Type._struct_type_id)
+    for b in struct_types:
+        try:
+            b.rhs.type_id
+        except StopIteration:
+            raise Err.CircularDependencies(b.rhs)
 
 
 def _add_struct_instance_to_type_env(

@@ -1,6 +1,13 @@
 import unittest, inspect, subprocess, tempfile, os, glob
 from .context import WDL
 
+def import_uri(uri):
+    # Note: we should permit use of import_uri only in corpi which are careful
+    # to pin imported WDLs to a specific and highly-available revision
+    dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
+    subprocess.check_call(["wget", "-nv", uri], cwd=dn)
+    return glob.glob(dn + "/*")[0]
+
 def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
     def decorator(test_klass):
 
@@ -21,7 +28,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                 name = "test_" + prefix + "_" + name.replace('.', '_')
                 def t(self, fn=fn):
                     # load & lint the document to verify the lint count
-                    doc = WDL.load(fn, path=gpath, check_quant=check_quant)
+                    doc = WDL.load(fn, path=gpath, check_quant=check_quant, import_uri=import_uri)
                     WDL.Lint.lint(doc)
                     for _, linter, _ in WDL.Lint.collect(doc):
                         test_klass._lint_count[linter] = 1 + test_klass._lint_count.get(linter, 0)
@@ -31,7 +38,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     # also attempt load with the opposite value of check_quant,
                     # exercising additional code paths
                     try:
-                        doc = WDL.load(fn, path=gpath, check_quant=not check_quant)
+                        doc = WDL.load(fn, path=gpath, check_quant=not check_quant, import_uri=import_uri)
                     except (WDL.Error.ImportError, WDL.Error.ValidationError, WDL.Error.MultipleValidationErrors):
                         pass
                 setattr(test_klass, name, t)
@@ -63,12 +70,7 @@ class HCAskylab_workflow(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
-    # path is needed expressly here as a wdl imports from "./tasks_pipelines/import.wdl"
-    # when it itself is in ./tasks_pipelines
-    path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
-    blacklist=['fc_germline_single_sample_workflow'], # uses URI import
-    expected_lint={'StringCoercion': 11, 'FileCoercion': 16, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4},
-    check_quant=False
+    expected_lint={'UnusedDeclaration': 5, 'NameCollision': 2, 'UnusedImport': 2},
 )
 class GATK_five_dollar(unittest.TestCase):
     pass

@@ -1,4 +1,4 @@
-import unittest, inspect
+import unittest, inspect, tempfile, os
 from typing import Optional
 from .context import WDL
 
@@ -573,7 +573,11 @@ class TestDoc(unittest.TestCase):
         self.assertIsInstance(doc.workflow.elements[2].elements[0], WDL.Tree.Scatter)
         self.assertEqual(len(doc.tasks), 1)
         doc.typecheck()
-        self.assertEqual(doc.imports, [("x.wdl","x",None), ("y.wdl","z",None)])
+        self.assertEqual(len(doc.imports), 2)
+        self.assertEqual(doc.imports[0].uri, "x.wdl")
+        self.assertEqual(doc.imports[0].namespace, "x")
+        self.assertEqual(doc.imports[1].uri, "y.wdl")
+        self.assertEqual(doc.imports[1].namespace, "z")
 
     def test_scatter_conditional(self):
         doc = r"""
@@ -1719,3 +1723,80 @@ class TestStruct(unittest.TestCase):
         """
         with self.assertRaises(WDL.Error.InvalidType):
             WDL.parse_document(doc)
+
+    def test_import(self):
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl"
+        """
+        docfn = tempfile.mktemp(".wdl")
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl"
+
+        struct SampleAndUnmappedBams {
+            Int bogus
+        }
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias SampleAndUnmappedBams as SAUB
+
+        struct SampleAndUnmappedBams {
+            Int bogus
+        }
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias PapiSettings as SampleAndUnmappedBams
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias PapiSettings as Person
+
+        struct Person {
+            String name
+        }
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias PapiSettings as PapiSettings
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias Bogus as AlsoBogus
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        with self.assertRaises(WDL.Error.NoSuchMember):
+            doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        os.unlink(docfn)

@@ -15,6 +15,7 @@ def load(
     path: List[str] = [],
     check_quant: bool = True,
     import_uri: Optional[Callable[[str], str]] = None,
+    import_max_depth=10,
 ) -> Document:
     """
     Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
@@ -25,12 +26,20 @@ def load(
 
     :param import_uri: to support non-file URI import, supply a function that takes the URI and returns a local file path
 
+    :param import_max_depth: to prevent recursive import infinite loops, fail when there are too many import nesting levels (default 10)
+
     :raises WDL.Error.SyntaxError: when the document is syntactically invalid under the WDL grammar
     :raises WDL.Error.ValidationError: when the document is syntactically OK, but fails typechecking or other static validity checks
     :raises WDL.Error.MultipleValidationErrors: when multiple validation errors are detected in one pass, listed in the ``exceptions`` attribute
     :raises WDL.Error.ImportError: when an imported sub-document can't be loaded; the ``__cause__`` attribute has the specific error
     """
-    return Tree.load(uri, path=path, check_quant=check_quant, import_uri=import_uri)
+    return Tree.load(
+        uri,
+        path=path,
+        check_quant=check_quant,
+        import_uri=import_uri,
+        import_max_depth=import_max_depth,
+    )
 
 
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:

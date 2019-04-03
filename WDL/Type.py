@@ -39,7 +39,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
    :top-classes: WDL.Type.Base
 """
 from abc import ABC
-from typing import Optional, Tuple, Dict, Iterable
+from typing import Optional, Tuple, Dict, Iterable, List
 import copy
 
 
@@ -356,7 +356,8 @@ class StructInstance(Base):
         self.members = None
 
     def __str__(self) -> str:
-        return self.type_name + ("?" if self.optional else "")
+        assert self.members
+        return _struct_type_id(self.members) + ("?" if self.optional else "")
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
@@ -367,17 +368,34 @@ class StructInstance(Base):
         return False
 
     @property
-    def type_id(self) -> int:
+    def type_id(self) -> str:
         """
-        :type: int
+        :type: str
 
-        An identifier for the struct type, which can go by different names
-        depending on the context.
+        A string uniquely describing the member names and types, excluding the struct type name; useful to identify aliased struct types.
         """
         assert isinstance(self.members, dict)
-        return id(self.members)
+        return _struct_type_id(self.members)
 
     @property
     def parameters(self) -> Iterable[Base]:
         assert self.members is not None
         return self.members.values()
+
+
+def _struct_type_id(members: Dict[str, Base], members_dict_ids: Optional[List[int]] = None) -> str:
+    # generates a content hash of the struct type definition, used to recognize
+    # equivalent struct types going by different aliases
+    members_dict_ids = members_dict_ids or []
+    if id(members) in members_dict_ids:  # circular struct definitions!
+        raise StopIteration
+    members_dict_ids = [id(members)] + members_dict_ids
+    ans = []
+    for (name, ty) in sorted(members.items()):
+        if isinstance(ty, StructInstance):
+            assert ty.members
+            ans.append(_struct_type_id(ty.members, members_dict_ids) + ("?" if ty.optional else ""))
+        else:
+            ans.append(str(ty))
+        ans.append(name)
+    return "struct(" + ":".join(ans) + ")"
