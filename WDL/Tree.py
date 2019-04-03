@@ -38,8 +38,25 @@ class StructType(SourceNode):
     """WDL struct type definition"""
 
     name: str
+    """
+    :type: str
+
+    Name of the struct type (in the current document)
+    """
+
     members: Dict[str, T.Base]
+    """
+    :type: Dict[str, WDL.Type.Base]
+
+    Member names and types
+    """
+
     imported: bool
+    """
+    :type: bool
+
+    True if this struct type was imported from another document
+    """
 
     def __init__(
         self, pos: SourcePosition, name: str, members: Dict[str, T.Base], imported: bool = False
@@ -51,8 +68,11 @@ class StructType(SourceNode):
 
     @property
     def type_id(self) -> str:
-        # Because the same struct type can have different names depending on
-        # the context, we use a content hash of the members
+        """
+        :type: str
+
+        A string uniquely describing the member names and types, excluding the struct type name; useful to identify aliased struct types.
+        """
         return T._struct_type_id(self.members)
 
 
@@ -857,9 +877,12 @@ DocImport = NamedTuple(
         ("uri", str),
         ("namespace", str),
         ("aliases", List[Tuple[str, str]]),
-        ("doc", Optional[TVDocument]),
+        ("doc", "Optional[Document]"),
     ],
 )
+"""
+Represents one imported document, with position of the import statement, import URI, namespace, struct type aliases, and (after typechecking) the ``Document`` object.
+"""
 
 
 class Document(SourceNode):
@@ -872,9 +895,9 @@ class Document(SourceNode):
 
     imports: List[DocImport]
     """
-    :type: List[Tuple[str,str,Optional[WDL.Tree.Document]]]
+    :type: List[DocImport]
 
-    Imports in the document (filename/URI, namespace, and later the sub-document)"""
+    Imported documents"""
     struct_types: Env.StructTypes
     """:type: Dict[str, Dict[str, WDL.Type.Base]]"""
     tasks: List[Task]

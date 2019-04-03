@@ -370,10 +370,9 @@ class StructInstance(Base):
     @property
     def type_id(self) -> str:
         """
-        :type: int
+        :type: str
 
-        An identifier for the struct type, which can go by different names
-        depending on the context.
+        A string uniquely describing the member names and types, excluding the struct type name; useful to identify aliased struct types.
         """
         assert isinstance(self.members, dict)
         return _struct_type_id(self.members)
