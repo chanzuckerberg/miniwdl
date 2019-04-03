@@ -1305,11 +1305,11 @@ def _import_structs(doc: Document):
                     ),
                 )
             try:
-                existing = Env.resolve(doc.struct_types, [], name)
+                existing = Env.resolve(doc.struct_types, [], alias)
                 raise Err.MultipleDefinitions(
                     imp.pos,
                     "struct type alias {} collides with a struct {} document".format(
-                        name,
+                        alias,
                         (
                             "type/alias from another imported"
                             if existing.imported

@@ -68,7 +68,6 @@ class HCAskylab_task(unittest.TestCase):
 class HCAskylab_workflow(unittest.TestCase):
     pass
 
-
 @test_corpus(
     ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
     expected_lint={'UnusedDeclaration': 5, 'NameCollision': 2, 'UnusedImport': 2},
