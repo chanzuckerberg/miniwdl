@@ -69,19 +69,9 @@ class HCAskylab_workflow(unittest.TestCase):
     pass
 
 
-# pending bump https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/issues/17
-#@test_corpus(
-#    ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
-#    expected_lint={'UnusedDeclaration': 5, 'NameCollision': 2, 'UnusedImport': 2},
-#)
 @test_corpus(
     ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
-    # path is needed expressly here as a wdl imports from "./tasks_pipelines/import.wdl"
-    # when it itself is in ./tasks_pipelines
-    path=[["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline"]],
-    blacklist=['fc_germline_single_sample_workflow'], # uses URI import
-    expected_lint={'StringCoercion': 11, 'FileCoercion': 16, 'UnusedDeclaration': 4, 'NameCollision': 2, 'ArrayCoercion': 4},
-    check_quant=False
+    expected_lint={'UnusedDeclaration': 5, 'NameCollision': 2, 'UnusedImport': 2},
 )
 class GATK_five_dollar(unittest.TestCase):
     pass
