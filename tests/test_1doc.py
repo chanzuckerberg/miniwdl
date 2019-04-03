@@ -1768,4 +1768,35 @@ class TestStruct(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
 
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias PapiSettings as Person
+
+        struct Person {
+            String name
+        }
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias PapiSettings as PapiSettings
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
+        doc = r"""
+        version 1.0
+        import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias Bogus as AlsoBogus
+        """
+        with open(docfn,"w") as outfile:
+            outfile.write(doc)
+        with self.assertRaises(WDL.Error.NoSuchMember):
+            doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
+
         os.unlink(docfn)
