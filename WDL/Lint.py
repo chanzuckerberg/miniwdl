@@ -625,9 +625,12 @@ class UnusedDeclaration(Linter):
             isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs
         )
         if not is_output and not getattr(obj, "referrers", []):
-            # heuristic exception: File whose name suggests it's an hts index
-            # file; as these commonly need to be localized, but not explicitly
-            # used in task command
+            # heuristic exceptions:
+            # 1. File whose name suggests it's an hts index file; as these
+            #    commonly need to be localized, but not explicitly used in task
+            #    command
+            # 2. dxWDL "native" task stubs, which declare inputs but leave
+            #    command empty.
             index_suffixes = [
                 "index",
                 "indexes",
@@ -649,6 +652,11 @@ class UnusedDeclaration(Linter):
                     isinstance(obj.type, WDL.Type.Array)
                     and isinstance(obj.type.item_type, WDL.Type.File)
                     and sum(1 for sfx in index_suffixes if obj.name.endswith(sfx))
+                )
+                or (
+                    isinstance(pt, WDL.Tree.Task)
+                    and pt.meta.get("type") == "native"
+                    and pt.meta.get("id")
                 )
             ):
                 self.add(obj, "nothing references {} {}".format(str(obj.type), obj.name))
