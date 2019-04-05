@@ -507,6 +507,7 @@ class NameCollision(Linter):
 @a_linter
 class UnusedImport(Linter):
     # Nothing used from an imported document
+    # TODO: suppress if document is imported just to use its struct type declarations
     def document(self, obj: WDL.Document) -> Any:
         for imp in obj.imports:
             assert imp.doc is not None
@@ -517,7 +518,7 @@ class UnusedImport(Linter):
             if imp.doc.workflow and getattr(imp.doc.workflow, "called", False):
                 any_called = True
             if not any_called and (imp.doc.tasks or imp.doc.workflow):
-                self.add(obj, "nothing used from the import " + imp.namespace)
+                self.add(obj, "no calls to tasks/workflow in the imported document " + imp.namespace)
 
 
 @a_linter

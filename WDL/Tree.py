@@ -1157,11 +1157,18 @@ def _typecheck_workflow_elements(
     with Err.multi_context() as errors:
         for child in self.elements:
             if isinstance(child, Decl):
-                errors.try1(lambda child=child: child.typecheck(self._type_env, check_quant))
+                errors.try1(
+                    _translate_struct_mismatch(
+                        doc, lambda child=child: child.typecheck(self._type_env, check_quant)
+                    )
+                )
             elif isinstance(child, Call):
                 if (
                     errors.try1(
-                        lambda child=child: child.typecheck_input(self._type_env, check_quant)
+                        _translate_struct_mismatch(
+                            doc,
+                            lambda child=child: child.typecheck_input(self._type_env, check_quant),
+                        )
                     )
                     == False
                 ):
@@ -1169,8 +1176,13 @@ def _typecheck_workflow_elements(
             elif isinstance(child, (Scatter, Conditional)):
                 if (
                     errors.try1(
-                        # pyre-ignore
-                        lambda child=child: _typecheck_workflow_elements(doc, check_quant, child)
+                        _translate_struct_mismatch(
+                            doc,
+                            # pyre-ignore
+                            lambda child=child: _typecheck_workflow_elements(
+                                doc, check_quant, child
+                            ),
+                        )
                     )
                     == False
                 ):
@@ -1178,6 +1190,35 @@ def _typecheck_workflow_elements(
             else:
                 assert False
     return complete_calls
+
+
+def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callable[[], Any]:
+    # When we get a StaticTypeMismatch error during workflow typechecking,
+    # which involves a struct type imported from another document, the error
+    # message may require translation from the struct type's original name
+    # within in the imported document to its aliased name in the current
+    # document.
+    def f(doc=doc, stmt=stmt):
+        try:
+            return stmt()
+        except Err.StaticTypeMismatch as exc:
+            expected = exc.expected
+            if isinstance(expected, T.StructInstance):
+                for stb in doc.struct_types:
+                    assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+                    if id(stb.rhs.members) == id(expected.members):
+                        expected = T.StructInstance(stb.name, optional=expected.optional)
+                        expected.members = stb.rhs.members
+            actual = exc.actual
+            if isinstance(actual, T.StructInstance):
+                for stb in doc.struct_types:
+                    assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+                    if id(stb.rhs.members) == id(actual.members):
+                        actual = T.StructInstance(stb.name, optional=actual.optional)
+                        actual.members = stb.rhs.members
+            raise Err.StaticTypeMismatch(exc.node or exc.pos, expected, actual, exc.args[0])
+
+    return f
 
 
 class _AdjM:
