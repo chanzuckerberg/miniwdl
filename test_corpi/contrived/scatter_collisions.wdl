@@ -4,6 +4,12 @@ version 1.0
 import "empty.wdl" as popular
 import "empty.wdl" as contrived
 
+struct contrived {
+}
+
+struct popular {
+}
+
 workflow contrived {
     scatter (popular in []) {
     }
@@ -12,8 +18,10 @@ workflow contrived {
 }
 
 task popular {
+    Int contrived
+
     command {
-        echo "contrived"
+        echo "~{contrived}"
     }
 
     output {

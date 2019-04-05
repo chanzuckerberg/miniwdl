@@ -4,6 +4,12 @@ version 1.0
 import "empty.wdl" as popular
 import "empty.wdl" as contrived
 
+struct contrived {
+}
+
+struct popular {
+}
+
 workflow contrived {
     input {
         String popular = "fox"

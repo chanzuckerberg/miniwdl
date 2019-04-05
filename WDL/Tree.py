@@ -926,6 +926,10 @@ class Document(SourceNode):
         for imp in self.imports:
             if imp.doc:
                 yield imp.doc
+        for stb in self.struct_types:
+            # pylint: disable=no-member
+            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+            yield stb.rhs
         for task in self.tasks:
             yield task
         if self.workflow:
