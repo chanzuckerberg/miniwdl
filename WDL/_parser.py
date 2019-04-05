@@ -234,7 +234,9 @@ struct: "struct" CNAME "{" unbound_decl* "}"
 ?document_element: import_doc | task | workflow | struct
 """
 
-_keywords = "Array Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(" ")
+_keywords = "Array Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
+    " "
+)
 
 
 def _grammar_for_version(version: Optional[str]) -> str:

@@ -268,6 +268,28 @@ class TestCalls(unittest.TestCase):
         doc = WDL.parse_document(txt)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            if (true) {
+                call sum as foo
+            }
+            scatter (foo in [1,2]) {
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            scatter (foo in [1,2]) {
+                call p as foo
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
 
     def test_if_defined(self):
         # test how we typecheck a construct like

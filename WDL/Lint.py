@@ -442,13 +442,21 @@ class NameCollision(Linter):
     # Name collisions between
     # - call and import
     # - call and its containing workflow
+    # - call and struct type/alias
     # - decl and import
     # - decl and workflow
     # - decl and task
+    # - decl and struct type/alias
+    # - scatter variable and import
+    # - scatter variable and workflow
+    # - scatter variable and task
+    # - scatter variable and struct type/alias
     # - workflow and import
+    # - workflow and struct type/alias
     # - task and import
-    # These are allowed, but potentially confusing.
-    # TODO: cover scatter variables
+    # - task and struct type/alias
+    # - struct type/alias and import
+    # These are allowed, but confusing.
     def call(self, obj: WDL.Call) -> Any:
         doc = obj
         while not isinstance(doc, WDL.Document):
@@ -479,6 +487,25 @@ class NameCollision(Linter):
         for task in doc.tasks:
             if obj.name == task.name:
                 msg = "declaration of '{}' collides with a task name".format(obj.name)
+                self.add(obj, msg)
+
+    def scatter(self, obj: WDL.Tree.Scatter) -> Any:
+        doc = obj
+        while not isinstance(doc, WDL.Document):
+            doc = getattr(doc, "parent")
+        assert isinstance(doc, WDL.Document)
+        for imp in doc.imports:
+            if imp.namespace == obj.variable:
+                msg = "scatter variable '{}' collides with imported document namespace".format(
+                    obj.variable
+                )
+                self.add(obj, msg)
+        if doc.workflow and doc.workflow.name == obj.variable:
+            msg = "scatter variable '{}' collides with workflow name".format(obj.variable)
+            self.add(obj, msg)
+        for task in doc.tasks:
+            if obj.variable == task.name:
+                msg = "scatter variable '{}' collides with a task name".format(obj.variable)
                 self.add(obj, msg)
 
     def workflow(self, obj: WDL.Workflow) -> Any:

@@ -1111,6 +1111,13 @@ def _build_workflow_type_env(
             )
         except KeyError:
             pass
+        try:
+            Env.resolve_namespace(type_env, [self.variable])
+            raise Err.MultipleDefinitions(
+                self, "Call name collision for scatter variable " + self.variable
+            )
+        except KeyError:
+            pass
         type_env = Env.bind(type_env, [], self.variable, self.expr.type.item_type, ctx=self)
     elif isinstance(self, Conditional):
         # typecheck the condition
