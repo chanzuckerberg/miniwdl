@@ -234,6 +234,8 @@ struct: "struct" CNAME "{" unbound_decl* "}"
 ?document_element: import_doc | task | workflow | struct
 """
 
+_keywords = "Array Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(" ")
+
 
 def _grammar_for_version(version: Optional[str]) -> str:
     if version == "draft-2":
@@ -432,6 +434,13 @@ class _TypeTransformer(lark.Transformer):
         return T.StructInstance(items[0].value, "optional" in quantifiers)
 
 
+def _check_keyword(pos, name):
+    if name in _keywords:
+        raise Err.SyntaxError(
+            pos.filename, "(Ln {}, Col {}) unexpected keyword {}".format(pos.line, pos.column, name)
+        )
+
+
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
     # pylint: disable=no-self-use,unused-argument
 
@@ -440,6 +449,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         self.filename = file
 
     def decl(self, items, meta):
+        _check_keyword(sp(self.filename, meta), items[1].value)
         return D.Decl(
             sp(self.filename, meta),
             items[0],
@@ -529,6 +539,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 assert isinstance(item, str)
                 assert "name" not in d
                 d["name"] = item.value
+        _check_keyword(sp(self.filename, meta), d["name"])
         return D.Task(
             sp(self.filename, meta),
             d["name"],
@@ -567,6 +578,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         )
 
     def call_as(self, items, meta):
+        _check_keyword(sp(self.filename, meta), items[1].value)
         return D.Call(
             sp(self.filename, meta),
             items[0],
@@ -575,6 +587,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         )
 
     def scatter(self, items, meta):
+        _check_keyword(sp(self.filename, meta), items[0].value)
         return D.Scatter(sp(self.filename, meta), items[0].value, items[1], items[2:])
 
     def conditional(self, items, meta):
@@ -631,6 +644,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 elements.append(item)
             else:
                 assert False
+        _check_keyword(sp(self.filename, meta), items[0].value)
         return D.Workflow(
             sp(self.filename, meta),
             items[0].value,
@@ -646,6 +660,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def struct(self, items, meta):
         assert len(items) >= 1
         name = items[0]
+        _check_keyword(sp(self.filename, meta), name)
         members = {}
         for d in items[1:]:
             assert not d.expr
@@ -658,7 +673,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def import_alias(self, items, meta):
         assert len(items) == 2
-        return (items[0], items[1])
+        _check_keyword(sp(self.filename, meta), items[1].value)
+        return (items[0].value, items[1].value)
 
     def import_doc(self, items, meta):
         uri = items[0]
@@ -672,7 +688,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 pass
             if namespace.endswith(".wdl"):
                 namespace = namespace[:-4]
-        # TODO: validate namespace
+        _check_keyword(sp(self.filename, meta), namespace)
         aliases = [p for p in items[1:] if isinstance(p, tuple)]
         return D.DocImport(
             pos=sp(self.filename, meta), uri=uri, namespace=namespace, aliases=aliases, doc=None

@@ -1299,14 +1299,14 @@ class TestCycleDetection(unittest.TestCase):
         add = r"""
         task add {
             input {
-                Int left
-                Int right
+                Int lhs
+                Int rhs
             }
 
             command{}
 
             output {
-                Int z = left + right
+                Int z = lhs + rhs
             }
         }
         """
@@ -1316,7 +1316,7 @@ class TestCycleDetection(unittest.TestCase):
             input {
                 Int n = add.z
             }
-            call add { input: left = 0, right = n }
+            call add { input: lhs = 0, rhs = n }
         }
         """ + add
         doc = WDL.parse_document(doc)
@@ -1329,8 +1329,8 @@ class TestCycleDetection(unittest.TestCase):
             input {
                 Int n = add.z
             }
-            call add { input: left = 1, right = add2.z }
-            call add as add2 { input: left = n, right = 0 }
+            call add { input: lhs = 1, rhs = add2.z }
+            call add as add2 { input: lhs = n, rhs = 0 }
         }
         """ + add
         doc = WDL.parse_document(doc)
@@ -1344,10 +1344,10 @@ class TestCycleDetection(unittest.TestCase):
                 Boolean b
             }
             scatter (i in [1, 2, 3]) {
-                call add { input: left = i, right = select_first([add2.z,0]) }
+                call add { input: lhs = i, rhs = select_first([add2.z,0]) }
             }
             if (b) {
-                call add as add2 { input: left = add.z[0], right = 0 }
+                call add as add2 { input: lhs = add.z[0], rhs = 0 }
             }
         }
         """ + add
@@ -1358,7 +1358,7 @@ class TestCycleDetection(unittest.TestCase):
         doc = r"""
         version 1.0
         workflow cyclic {
-            call add { input: left = 0, right = add.z }
+            call add { input: lhs = 0, rhs = add.z }
         }
         """ + add
         doc = WDL.parse_document(doc)

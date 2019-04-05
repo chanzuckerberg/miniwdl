@@ -518,7 +518,9 @@ class UnusedImport(Linter):
             if imp.doc.workflow and getattr(imp.doc.workflow, "called", False):
                 any_called = True
             if not any_called and (imp.doc.tasks or imp.doc.workflow):
-                self.add(obj, "no calls to tasks/workflow in the imported document " + imp.namespace)
+                self.add(
+                    obj, "no calls to tasks/workflow in the imported document " + imp.namespace
+                )
 
 
 @a_linter
