@@ -394,8 +394,50 @@ def _struct_type_id(members: Dict[str, Base], members_dict_ids: Optional[List[in
     for (name, ty) in sorted(members.items()):
         if isinstance(ty, StructInstance):
             assert ty.members
-            ans.append(_struct_type_id(ty.members, members_dict_ids) + ("?" if ty.optional else ""))
+            ty = _struct_type_id(ty.members, members_dict_ids) + ("?" if ty.optional else "")
         else:
-            ans.append(str(ty))
-        ans.append(name)
-    return "struct(" + ":".join(ans) + ")"
+            ty = str(ty)
+        ans.append(name + " : " + ty)
+    return "struct(" + ", ".join(ans) + ")"
+
+
+class ObjectLiteral(Base):
+    ""
+    # In WDL 1.0, struct instances are created by coercion from object
+    # literals. So we need something to represent the type of an object literal
+    # (a bag of keys and values) prior to its coercion to a named struct type.
+    # But we hide this from docs to avoid confusion with general Object
+    # support.
+
+    members: Dict[str, Base]
+
+    def __init__(self, members: Dict[str, Base]) -> None:
+        self.members = members
+
+    def __str__(self) -> str:
+        ans = []
+        for name, ty in sorted(self.members.items()):
+            ans.append(name + " : " + str(ty))
+        return "object(" + ", ".join(ans) + ")"
+
+    @property
+    def parameters(self) -> Iterable[Base]:
+        return self.members.values()
+
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+        if isinstance(rhs, (StructInstance, ObjectLiteral)):
+            rhs_members = rhs.members
+            assert rhs_members is not None
+            # Check whether our keys match the struct members, and our types
+            # are coercible to the respective member types.
+            # TODO: in the event of StaticTypeMismatch errors, this may produce
+            # unwieldy error messages
+            if set(self.members.keys()) != set(rhs_members.keys()):
+                return False
+            for k in self.members.keys():
+                if not self.members[k].coerces(rhs_members[k], check_quant):
+                    return False
+            return True
+        if isinstance(rhs, Any):
+            return self._check_optional(rhs, check_quant)
+        return False

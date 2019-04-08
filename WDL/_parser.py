@@ -9,57 +9,6 @@ from WDL import Type as T
 from WDL import Expr as E
 
 common_grammar = r"""
-// WDL expressions
-// start with rules handling infix operator precedence
-?expr: expr_infix
-
-?expr_infix: expr_infix0
-
-?expr_infix0: expr_infix0 "||" expr_infix1 -> lor
-            | expr_infix1
-
-?expr_infix1: expr_infix1 "&&" expr_infix2 -> land
-            | expr_infix2
-
-?expr_infix2: expr_infix2 "==" expr_infix3 -> eqeq
-            | expr_infix2 "!=" expr_infix3 -> neq
-            | expr_infix2 "<=" expr_infix3 -> lte
-            | expr_infix2 ">=" expr_infix3 -> gte
-            | expr_infix2 "<" expr_infix3 -> lt
-            | expr_infix2 ">" expr_infix3 -> gt
-            | expr_infix3
-
-?expr_infix3: expr_infix3 "+" expr_infix4 -> add
-            | expr_infix3 "-" expr_infix4 -> sub
-            | expr_infix4
-
-?expr_infix4: expr_infix4 "*" expr_infix5 -> mul
-            | expr_infix4 "/" expr_infix5 -> div
-            | expr_infix4 "%" expr_infix5 -> rem
-            | expr_infix5
-
-?expr_infix5: expr_core
-
-// expression core (everything but infix)
-?expr_core: "(" expr ")"
-          | literal
-          | string
-          | "!" expr -> negate
-
-          | "[" [expr ("," expr)*] ","? "]" -> array
-          | expr_core "[" expr "]" -> at
-
-          | "(" expr "," expr ")" -> pair
-
-          | "{" [map_kv ("," map_kv)*] "}" -> map
-
-          | "if" expr "then" expr "else" expr -> ifthenelse
-
-          | CNAME "(" [expr ("," expr)*] ")" -> apply
-
-          | CNAME -> left_name
-          | expr_core "." CNAME -> get_name
-
 ?literal: "true"-> boolean_true
         | "false" -> boolean_false
         | INT -> int
@@ -157,6 +106,57 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 %import common.NEWLINE
 %ignore WS
 %ignore COMMENT
+
+// WDL expressions
+?expr: expr_infix
+
+?expr_infix: expr_infix0
+
+?expr_infix0: expr_infix0 "||" expr_infix1 -> lor
+            | expr_infix1
+
+?expr_infix1: expr_infix1 "&&" expr_infix2 -> land
+            | expr_infix2
+
+?expr_infix2: expr_infix2 "==" expr_infix3 -> eqeq
+            | expr_infix2 "!=" expr_infix3 -> neq
+            | expr_infix2 "<=" expr_infix3 -> lte
+            | expr_infix2 ">=" expr_infix3 -> gte
+            | expr_infix2 "<" expr_infix3 -> lt
+            | expr_infix2 ">" expr_infix3 -> gt
+            | expr_infix3
+
+?expr_infix3: expr_infix3 "+" expr_infix4 -> add
+            | expr_infix3 "-" expr_infix4 -> sub
+            | expr_infix4
+
+?expr_infix4: expr_infix4 "*" expr_infix5 -> mul
+            | expr_infix4 "/" expr_infix5 -> div
+            | expr_infix4 "%" expr_infix5 -> rem
+            | expr_infix5
+
+?expr_infix5: expr_core
+
+// expression core (everything but infix)
+// we stuck this last down here so that further language-version-specific
+// productions can be added below
+?expr_core: "(" expr ")"
+          | literal
+          | string
+          | "!" expr -> negate
+
+          | "[" [expr ("," expr)*] ","? "]" -> array
+          | expr_core "[" expr "]" -> at
+
+          | "(" expr "," expr ")" -> pair
+          | "{" [map_kv ("," map_kv)*] "}" -> map
+
+          | "if" expr "then" expr "else" expr -> ifthenelse
+
+          | CNAME "(" [expr ("," expr)*] ")" -> apply
+
+          | CNAME -> left_name
+          | expr_core "." CNAME -> get_name
 """
 
 # pre-1.0 specific productions:
@@ -200,8 +200,14 @@ workflow_wildcard_output: namespaced_ident "." "*" | namespaced_ident ".*"
 # - within interpolated strings and { } task commands, placeholders may be delimited by ${ } or ~{ }
 # - within <<< >>> commands, placeholders are delimited by ~{ } only
 # - workflow outputs are complete decls
-# - struct definitions
+# - struct type definitions
+# - struct literals (as object literals)
 productions_1_0 = r"""
+          | "object" "{" [object_kv ("," object_kv)*] "}" -> obj // appends to expr_core
+
+object_kv:  CNAME ":" expr
+          | string_literal ":" expr
+
 // WDL types
 type: CNAME _quant?
       | CNAME "[" type ["," type] "]" _quant?
@@ -327,12 +333,22 @@ class _ExprTransformer(lark.Transformer):
         assert len(items) == 2
         return E.Pair(sp(self.filename, meta), items[0], items[1])
 
-    def map_kv(self, items, meta) -> E.Base:
+    def map_kv(self, items, meta):
         assert len(items) == 2
         return (items[0], items[1])
 
     def map(self, items, meta) -> E.Base:
         return E.Map(sp(self.filename, meta), items)
+
+    def object_kv(self, items, meta):
+        assert len(items) == 2
+        k = items[0]
+        assert isinstance(k, str)
+        assert isinstance(items[1], E.Base)
+        return (k, items[1])
+
+    def obj(self, items, meta) -> E.Base:
+        return E.Struct(sp(self.filename, meta), items)
 
     def ifthenelse(self, items, meta) -> E.Base:
         assert len(items) == 3
@@ -467,7 +483,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def string_literal(self, items, meta):
         assert len(items) == 1
-        return items[0].value[1:-1]
+        assert items[0].value.startswith('"') or items[0].value.startswith("'")
+        return str.encode(items[0].value[1:-1]).decode("unicode_escape")
 
     def placeholder_option(self, items, meta):
         assert len(items) == 2
