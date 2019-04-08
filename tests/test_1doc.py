@@ -1800,3 +1800,79 @@ class TestStruct(unittest.TestCase):
             doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
 
         os.unlink(docfn)
+
+    def test_object_literal(self):
+        doc = r"""
+        version 1.0
+
+        workflow wf {
+            Person alyssa = object { name: "alyssa", "age": 42, 'birthday': (4,20) }
+            call t { input: p = alyssa }
+        }
+
+        task t {
+            input {
+                Person p
+                Car c
+            }
+
+            command <<<
+                echo "Hello, ~{p.name}!"
+            >>>
+
+            output {
+                Person p2 = object { name: stdout(), age: 99, birthday: (1,23) }
+            }
+        }
+
+        struct Person {
+            String name
+            Int age
+            Pair[Int,Int] birthday
+        }
+
+        struct Car {
+            String make
+            String model
+            Int year
+            Person driver
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
+        workflow wf {
+            Person alyssa = object { name: "alyssa", "name": "ben" }
+        }
+
+        struct Person {
+            String name
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.parse_document(doc)
+
+        doc = r"""
+        version 1.0
+
+        workflow wf {
+            Person alyssa = object { name: "alyssa" }
+            Person ben = object { name: "ben", age: 42, bogus: 3.14}
+            Person cy = object { name: "ben", age: "42"}
+        }
+
+        struct Person {
+            String name
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.MultipleValidationErrors) as ctx:
+            doc.typecheck()
+        self.assertEqual(len(ctx.exception.exceptions), 3)
+        self.assertTrue(isinstance(ctx.exception.exceptions[0], WDL.Error.StaticTypeMismatch))
+        self.assertTrue(isinstance(ctx.exception.exceptions[1], WDL.Error.StaticTypeMismatch))
+        self.assertTrue(isinstance(ctx.exception.exceptions[2], WDL.Error.StaticTypeMismatch))

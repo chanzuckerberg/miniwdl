@@ -453,6 +453,41 @@ class Map(Base):
         return V.Map(self.type, eitems)
 
 
+class Struct(Base):
+    """
+    Struct literal
+    """
+
+    members: Dict[str, Base]
+    """
+    :type: Dict[str,WDL.Expr.Base]
+
+    The struct literal is modelled initially as a bag of keys and values, which
+    can be coerced to a specific struct type during typechecking.
+    """
+
+    def __init__(self, pos: SourcePosition, members: List[Tuple[str, Base]]):
+        super().__init__(pos)
+        self.members = {}
+        for (k, v) in members:
+            if k in self.members:
+                raise Error.MultipleDefinitions(self.pos, "duplicate keys " + k)
+            self.members[k] = v
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        return self.members.values()
+
+    def _infer_type(self, type_env: Env.Types) -> T.Base:
+        member_types = {}
+        for k, v in self.members.items():
+            member_types[k] = v.type
+        return T.ObjectLiteral(member_types)
+
+    def eval(self, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
+
+
 class IfThenElse(Base):
     """
     Ternary conditional expression
