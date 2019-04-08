@@ -402,6 +402,7 @@ def _struct_type_id(members: Dict[str, Base], members_dict_ids: Optional[List[in
 
 
 class ObjectLiteral(Base):
+    ""
     # In WDL 1.0, struct instances are created by coercion from object
     # literals. So we need something to represent the type of an object literal
     # (a bag of keys and values) prior to its coercion to a named struct type.
