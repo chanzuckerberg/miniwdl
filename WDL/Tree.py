@@ -1189,7 +1189,6 @@ def _typecheck_workflow_elements(
                     errors.try1(
                         _translate_struct_mismatch(
                             doc,
-                            # pyre-ignore
                             lambda child=child: _typecheck_workflow_elements(
                                 doc, check_quant, child
                             ),

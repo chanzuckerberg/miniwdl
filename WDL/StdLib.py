@@ -48,7 +48,7 @@ class _At(E._Function):
             idx = rhs.eval(env).expect(T.Int()).value
             if idx < 0 or idx >= len(arr.value):
                 raise Error.OutOfBounds(rhs)
-            return arr.value[idx]  # pyre-fixme
+            return arr.value[idx]
         if isinstance(lhs.type, T.Map):
             mp = lhs.eval(env)
             assert isinstance(mp, V.Map)
@@ -162,6 +162,7 @@ def _notimpl(one: Any = None, two: Any = None) -> None:
     exec("raise NotImplementedError()")
 
 
+# pyre-ignore
 _static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
     ("_negate", [T.Boolean()], T.Boolean(), lambda x: V.Boolean(not x.value)),
     ("_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)),

@@ -622,7 +622,9 @@ class UnusedDeclaration(Linter):
     def decl(self, obj: WDL.Tree.Decl) -> Any:
         pt = getattr(obj, "parent")
         is_output = (
-            isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task)) and pt.outputs and obj in pt.outputs
+            isinstance(pt, (WDL.Tree.Workflow, WDL.Tree.Task))
+            and getattr(pt, "outputs")
+            and obj in getattr(pt, "outputs")
         )
         if not is_output and not getattr(obj, "referrers", []):
             # heuristic exceptions:
