@@ -1862,6 +1862,7 @@ class TestStruct(unittest.TestCase):
             Person alyssa = object { name: "alyssa" }
             Person ben = object { name: "ben", age: 42, bogus: 3.14}
             Person cy = object { name: "ben", age: "42"}
+            Int i = object {}
         }
 
         struct Person {
@@ -1872,7 +1873,25 @@ class TestStruct(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.MultipleValidationErrors) as ctx:
             doc.typecheck()
-        self.assertEqual(len(ctx.exception.exceptions), 3)
-        self.assertTrue(isinstance(ctx.exception.exceptions[0], WDL.Error.StaticTypeMismatch))
-        self.assertTrue(isinstance(ctx.exception.exceptions[1], WDL.Error.StaticTypeMismatch))
-        self.assertTrue(isinstance(ctx.exception.exceptions[2], WDL.Error.StaticTypeMismatch))
+        self.assertEqual(len(ctx.exception.exceptions), 4)
+        for i in range(4):
+            self.assertTrue(isinstance(ctx.exception.exceptions[i], WDL.Error.StaticTypeMismatch))
+
+        doc = r"""
+        version 1.0
+
+        workflow wf {
+            Array[Person] ppl = [
+                object { name: 'alyssa', friends: [2,4] },
+                object { "name": "ben", 'friends': [8,16]},
+                object { 'name': "cy", "friends": [32,64] }
+            ]
+        }
+
+        struct Person {
+            String name
+            Array[Int] friends
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()

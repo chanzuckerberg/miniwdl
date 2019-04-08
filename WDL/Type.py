@@ -417,23 +417,24 @@ class ObjectLiteral(Base):
         ans = []
         for name, ty in sorted(self.members.items()):
             ans.append(name + " : " + str(ty))
-        return "object(" + ",".join(ans) + ")"
+        return "object(" + ", ".join(ans) + ")"
 
     @property
     def parameters(self) -> Iterable[Base]:
         return self.members.values()
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        if isinstance(rhs, StructInstance):
-            assert rhs.members
+        if isinstance(rhs, (StructInstance, ObjectLiteral)):
+            rhs_members = rhs.members
+            assert rhs_members is not None
             # Check whether our keys match the struct members, and our types
             # are coercible to the respective member types.
             # TODO: in the event of StaticTypeMismatch errors, this may produce
             # unwieldy error messages
-            if set(self.members.keys()) != set(rhs.members.keys()):
+            if set(self.members.keys()) != set(rhs_members.keys()):
                 return False
             for k in self.members.keys():
-                if not self.members[k].coerces(rhs.members[k], check_quant):
+                if not self.members[k].coerces(rhs_members[k], check_quant):
                     return False
             return True
         if isinstance(rhs, Any):

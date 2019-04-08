@@ -1,6 +1,5 @@
 # pylint: skip-file
 import inspect
-import json
 from typing import List, Optional
 import lark
 from WDL.Error import SourcePosition
@@ -345,9 +344,6 @@ class _ExprTransformer(lark.Transformer):
         assert len(items) == 2
         k = items[0]
         assert isinstance(k, str)
-        if k.startswith('"') or k.startswith("'"):
-            k = json.loads(k)
-            assert isinstance(k, str)
         assert isinstance(items[1], E.Base)
         return (k, items[1])
 
@@ -487,7 +483,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def string_literal(self, items, meta):
         assert len(items) == 1
-        return items[0].value[1:-1]
+        assert items[0].value.startswith('"') or items[0].value.startswith("'")
+        return str.encode(items[0].value[1:-1]).decode("unicode_escape")
 
     def placeholder_option(self, items, meta):
         assert len(items) == 2
