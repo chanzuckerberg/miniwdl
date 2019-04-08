@@ -394,11 +394,11 @@ def _struct_type_id(members: Dict[str, Base], members_dict_ids: Optional[List[in
     for (name, ty) in sorted(members.items()):
         if isinstance(ty, StructInstance):
             assert ty.members
-            ans.append(_struct_type_id(ty.members, members_dict_ids) + ("?" if ty.optional else ""))
+            ty = _struct_type_id(ty.members, members_dict_ids) + ("?" if ty.optional else "")
         else:
-            ans.append(str(ty))
-        ans.append(name)
-    return "struct(" + ":".join(ans) + ")"
+            ty = str(ty)
+        ans.append(name + " : " + ty)
+    return "struct(" + ", ".join(ans) + ")"
 
 
 class ObjectLiteral(Base):
