@@ -488,7 +488,7 @@ class Struct(Base):
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env)
-        assert isinstance(self.type, T.StructInstance)
+        assert isinstance(self.type, T.ObjectLiteral)
         return V.Struct(self.type, ans)
 
 

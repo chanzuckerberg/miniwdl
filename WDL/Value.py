@@ -170,7 +170,7 @@ class Null(Base):
 class Struct(Base):
     value: Dict[str, Base]
 
-    def __init__(self, type: T.StructInstance, value: Dict[str, Base]) -> None:
+    def __init__(self, type: T.ObjectLiteral, value: Dict[str, Base]) -> None:
         super().__init__(type, value)
         self.value = value
 
@@ -217,7 +217,7 @@ def from_json(type: T.Base, value: Any) -> Base:
         for k, v in value.items():
             assert isinstance(k, str)
             items[k] = from_json(type.members[k], v)
-        return Struct(type, items)
+        return Struct(T.ObjectLiteral(type.members), items)
     if type.optional and value is None:
         return Null()
     raise Error.InputError(
