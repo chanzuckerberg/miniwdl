@@ -485,7 +485,11 @@ class Struct(Base):
         return T.ObjectLiteral(member_types)
 
     def eval(self, env: Env.Values) -> V.Base:
-        raise NotImplementedError()
+        ans = {}
+        for k, v in self.members.items():
+            ans[k] = v.eval(env)
+        assert isinstance(self.type, T.StructInstance)
+        return V.Struct(self.type, ans)
 
 
 class IfThenElse(Base):

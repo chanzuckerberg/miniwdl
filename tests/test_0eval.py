@@ -406,3 +406,9 @@ class TestValue(unittest.TestCase):
                     WDL.Value.from_json(t[0],t[1])
             else:
                 self.assertEqual(t[1], WDL.Value.from_json(t[0],t[1]).json)
+
+        self.assertEqual(
+            WDL.parse_expr('object {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}',
+                           version="1.0").infer_type([]).eval([]).json,
+            {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}
+        )

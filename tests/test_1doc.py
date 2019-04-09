@@ -1,4 +1,4 @@
-import unittest, inspect, tempfile, os
+import unittest, inspect, tempfile, os, pickle
 from typing import Optional
 from .context import WDL
 
@@ -1840,6 +1840,14 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
+
+        # quickly check task pickle-ability with struct types
+        pickled_task = pickle.dumps(doc.tasks[0])
+        unpickled_task = pickle.loads(pickled_task)
+        assert unpickled_task.inputs[0].type.members
+        self.assertEqual(unpickled_task.inputs[0].pos.line, 11)
+        pickled_doc = pickle.dumps(doc)
+        self.assertLess(float(len(pickled_task))/len(pickled_doc), 0.6)
 
         doc = r"""
         version 1.0

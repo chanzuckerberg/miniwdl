@@ -296,7 +296,7 @@ class EvalError(RuntimeError):
         super().__init__(message)
 
 
-class NullValue(RuntimeError):
+class NullValue(EvalError):
     def __init__(self, node: Union[SourceNode, SourcePosition]) -> None:
         super().__init__(node, "Null value")
 

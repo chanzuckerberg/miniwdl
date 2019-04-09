@@ -316,6 +316,11 @@ class _ExprTransformer(lark.Transformer):
         assert parts[-1] in ['"', "'"]
         return E.String(sp(self.filename, meta), parts)
 
+    def string_literal(self, items, meta):
+        assert len(items) == 1
+        assert items[0].value.startswith('"') or items[0].value.startswith("'")
+        return str.encode(items[0].value[1:-1]).decode("unicode_escape")
+
     def array(self, items, meta) -> E.Base:
         return E.Array(sp(self.filename, meta), items)
 
@@ -343,7 +348,7 @@ class _ExprTransformer(lark.Transformer):
     def object_kv(self, items, meta):
         assert len(items) == 2
         k = items[0]
-        assert isinstance(k, str)
+        assert isinstance(k, str), k
         assert isinstance(items[1], E.Base)
         return (k, items[1])
 
@@ -480,11 +485,6 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def noninput_decls(self, items, meta):
         return {"decls": items}
-
-    def string_literal(self, items, meta):
-        assert len(items) == 1
-        assert items[0].value.startswith('"') or items[0].value.startswith("'")
-        return str.encode(items[0].value[1:-1]).decode("unicode_escape")
 
     def placeholder_option(self, items, meta):
         assert len(items) == 2
