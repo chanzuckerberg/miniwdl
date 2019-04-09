@@ -401,7 +401,7 @@ def _struct_type_id(members: Dict[str, Base], members_dict_ids: Optional[List[in
     return "struct(" + ", ".join(ans) + ")"
 
 
-class ObjectLiteral(Base):
+class Object(Base):
     ""
     # In WDL 1.0, struct instances are created by coercion from object
     # literals. So we need something to represent the type of an object literal
@@ -425,7 +425,7 @@ class ObjectLiteral(Base):
         return self.members.values()
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        if isinstance(rhs, (StructInstance, ObjectLiteral)):
+        if isinstance(rhs, (StructInstance, Object)):
             rhs_members = rhs.members
             assert rhs_members is not None
             # Check whether our keys match the struct members, and our types
