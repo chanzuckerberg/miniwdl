@@ -50,8 +50,8 @@ class Base:
             ans = self.decl(obj)
         elif isinstance(obj, WDL.Tree.Task):
             ans = self.task(obj)
-        elif isinstance(obj, WDL.Tree.StructType):
-            ans = self.struct_type(obj)
+        elif isinstance(obj, WDL.Tree.StructTypeDef):
+            ans = self.struct_typedef(obj)
         elif isinstance(obj, WDL.Expr.Base):
             ans = self.expr(obj)
         else:
@@ -89,7 +89,7 @@ class Base:
     def task(self, obj: WDL.Tree.Task) -> Any:
         self._descend(obj)
 
-    def struct_type(self, obj: WDL.Tree.StructType) -> Any:
+    def struct_typedef(self, obj: WDL.Tree.StructTypeDef) -> Any:
         self._descend(obj)
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
@@ -139,9 +139,9 @@ class Multi(Base):
         for w in self._walkers:
             w.task(obj)
 
-    def struct_type(self, obj: WDL.Tree.StructType) -> Any:
+    def struct_typedef(self, obj: WDL.Tree.StructTypeDef) -> Any:
         for w in self._walkers:
-            w.struct_type(obj)
+            w.struct_typedef(obj)
 
     def expr(self, obj: WDL.Expr.Base) -> Any:
         for w in self._walkers:
@@ -171,7 +171,7 @@ class SetParents(Base):
         obj.parent = None
         for imp in obj.imports:
             imp.doc.parent = obj
-        for stb in obj.struct_types:
+        for stb in obj.struct_typedefs:
             stb.rhs.parent = obj
         for task in obj.tasks:
             task.parent = obj

@@ -1382,8 +1382,8 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
-        self.assertEqual(str(WDL.Env.resolve(doc.struct_types, [], "Person").members["age"]), "Int")
-        self.assertEqual(str(WDL.Env.resolve(doc.struct_types, [], "Name").members["myFiles"]), "Array[File]+")
+        self.assertEqual(str(WDL.Env.resolve(doc.struct_typedefs, [], "Person").members["age"]), "Int")
+        self.assertEqual(str(WDL.Env.resolve(doc.struct_typedefs, [], "Name").members["myFiles"]), "Array[File]+")
 
         doc = r"""
         version 1.0

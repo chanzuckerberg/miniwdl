@@ -34,7 +34,7 @@ from WDL.Error import SourcePosition, SourceNode
 import WDL._parser
 
 
-class StructType(SourceNode):
+class StructTypeDef(SourceNode):
     """WDL struct type definition"""
 
     name: str
@@ -110,7 +110,9 @@ class Decl(SourceNode):
         if self.expr:
             yield self.expr
 
-    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(
+        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
+    ) -> Env.Types:
         # Add an appropriate binding in the type env, after checking for name
         # collision.
         try:
@@ -123,7 +125,7 @@ class Decl(SourceNode):
             raise Err.MultipleDefinitions(self, "Value/call name collision on " + self.name)
         except KeyError:
             pass
-        _resolve_struct_types(self.pos, self.type, struct_types)
+        _resolve_struct_typedefs(self.pos, self.type, struct_typedefs)
         if isinstance(self.type, T.StructInstance):
             return _add_struct_instance_to_type_env([self.name], self.type, type_env, ctx=self)
         return Env.bind(type_env, [], self.name, self.type, ctx=self)
@@ -255,9 +257,9 @@ class Task(SourceNode):
             yield ex
 
     def typecheck(
-        self, struct_types: Optional[Env.StructTypes] = None, check_quant: bool = True
+        self, struct_typedefs: Optional[Env.StructTypeDefs] = None, check_quant: bool = True
     ) -> None:
-        struct_types = struct_types or []
+        struct_typedefs = struct_typedefs or []
         # warm-up check: if input{} section exists then all postinput decls
         # must be bound
         if self.inputs is not None:
@@ -274,7 +276,7 @@ class Task(SourceNode):
         # in their right-hand side expressions.
         type_env = []
         for decl in (self.inputs or []) + self.postinputs:
-            type_env = decl.add_to_type_env(struct_types, type_env)
+            type_env = decl.add_to_type_env(struct_typedefs, type_env)
 
         with Err.multi_context() as errors:
             # Pass through input & postinput declarations again, typecheck their
@@ -295,7 +297,7 @@ class Task(SourceNode):
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(
-                    lambda decl=decl: decl.add_to_type_env(struct_types, type_env)
+                    lambda decl=decl: decl.add_to_type_env(struct_typedefs, type_env)
                 )
                 if type_env2:
                     type_env = type_env2
@@ -388,7 +390,9 @@ class Call(SourceNode):
             raise Err.NoSuchTask(self, ".".join(self.callee_id))
         assert isinstance(self.callee, (Task, Workflow))
 
-    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(
+        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
+    ) -> Env.Types:
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
@@ -540,13 +544,15 @@ class Scatter(SourceNode):
         for elt in self.elements:
             yield elt
 
-    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(
+        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
+    ) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as Array[T] outside)
         inner_type_env: Env.Types = []
         for elt in self.elements:
-            inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
+            inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
         # Subtlety: if the scatter array is statically nonempty, then so too
         # are the arrayized values.
         nonempty = isinstance(self.expr._type, T.Array) and self.expr._type.nonempty
@@ -607,13 +613,15 @@ class Conditional(SourceNode):
         for elt in self.elements:
             yield elt
 
-    def add_to_type_env(self, struct_types: Env.StructTypes, type_env: Env.Types) -> Env.Types:
+    def add_to_type_env(
+        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
+    ) -> Env.Types:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as T? outside)
         inner_type_env = []
         for elt in self.elements:
-            inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
+            inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
         return Env.map(inner_type_env, lambda ns, b: b.rhs.copy(optional=True)) + type_env
 
     @property
@@ -898,7 +906,7 @@ class Document(SourceNode):
     :type: List[DocImport]
 
     Imported documents"""
-    struct_types: Env.StructTypes
+    struct_typedefs: Env.StructTypeDefs
     """:type: Dict[str, Dict[str, WDL.Type.Base]]"""
     tasks: List[Task]
     """:type: List[WDL.Tree.Task]"""
@@ -909,15 +917,15 @@ class Document(SourceNode):
         self,
         pos: SourcePosition,
         imports: List[DocImport],
-        struct_types: Dict[str, StructType],
+        struct_typedefs: Dict[str, StructTypeDef],
         tasks: List[Task],
         workflow: Optional[Workflow],
     ) -> None:
         super().__init__(pos)
         self.imports = imports
-        self.struct_types = []
-        for name, struct_type in struct_types.items():
-            self.struct_types = Env.bind(self.struct_types, [], name, struct_type)
+        self.struct_typedefs = []
+        for name, struct_typedef in struct_typedefs.items():
+            self.struct_typedefs = Env.bind(self.struct_typedefs, [], name, struct_typedef)
         self.tasks = tasks
         self.workflow = workflow
 
@@ -926,9 +934,9 @@ class Document(SourceNode):
         for imp in self.imports:
             if imp.doc:
                 yield imp.doc
-        for stb in self.struct_types:
+        for stb in self.struct_typedefs:
             # pylint: disable=no-member
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructTypeDef)
             yield stb.rhs
         for task in self.tasks:
             yield task
@@ -947,7 +955,7 @@ class Document(SourceNode):
                 )
             names.add(imp.namespace)
         _import_structs(self)
-        _initialize_struct_types(self.struct_types)
+        _initialize_struct_typedefs(self.struct_typedefs)
         names = set()
         # typecheck each task
         with Err.multi_context() as errors:
@@ -958,7 +966,7 @@ class Document(SourceNode):
                     )
                 names.add(task.name)
                 errors.try1(
-                    lambda task=task: task.typecheck(self.struct_types, check_quant=check_quant)
+                    lambda task=task: task.typecheck(self.struct_typedefs, check_quant=check_quant)
                 )
         # typecheck the workflow
         if self.workflow:
@@ -1099,7 +1107,7 @@ def _build_workflow_type_env(
     if isinstance(self, Workflow):
         # start with workflow inputs
         for decl in self.inputs or []:
-            type_env = decl.add_to_type_env(doc.struct_types, type_env)
+            type_env = decl.add_to_type_env(doc.struct_typedefs, type_env)
     elif isinstance(self, Scatter):
         # typecheck scatter array
         self.expr.infer_type(type_env, check_quant)
@@ -1140,7 +1148,7 @@ def _build_workflow_type_env(
             for sibling in self.elements:
                 if sibling is not child:
                     child_outer_type_env = sibling.add_to_type_env(
-                        doc.struct_types, child_outer_type_env
+                        doc.struct_typedefs, child_outer_type_env
                     )
             _build_workflow_type_env(doc, check_quant, child, child_outer_type_env)
         elif doc.workflow.inputs is not None and isinstance(child, Decl) and not child.expr:
@@ -1153,7 +1161,7 @@ def _build_workflow_type_env(
 
     # finally, populate self._type_env with all our children
     for child in self.elements:
-        type_env = child.add_to_type_env(doc.struct_types, type_env)
+        type_env = child.add_to_type_env(doc.struct_typedefs, type_env)
     self._type_env = type_env
 
 
@@ -1214,15 +1222,15 @@ def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callab
         except Err.StaticTypeMismatch as exc:
             expected = exc.expected
             if isinstance(expected, T.StructInstance):
-                for stb in doc.struct_types:
-                    assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+                for stb in doc.struct_typedefs:
+                    assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructTypeDef)
                     if id(stb.rhs.members) == id(expected.members):
                         expected = T.StructInstance(stb.name, optional=expected.optional)
                         expected.members = stb.rhs.members
             actual = exc.actual
             if isinstance(actual, T.StructInstance):
-                for stb in doc.struct_types:
-                    assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+                for stb in doc.struct_typedefs:
+                    assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructTypeDef)
                     if id(stb.rhs.members) == id(actual.members):
                         actual = T.StructInstance(stb.name, optional=actual.optional)
                         actual.members = stb.rhs.members
@@ -1360,13 +1368,13 @@ def _detect_cycles(p: Tuple[Dict[int, Err.SourceNode], _AdjM]):
 
 
 def _import_structs(doc: Document):
-    # Add imported structs to doc.struct_types, with collision checks
+    # Add imported structs to doc.struct_typedefs, with collision checks
     for imp in [
         imp for imp in doc.imports if imp.doc
     ]:  # imp.doc should be None only for certain legacy unit tests
         imported_structs = {}
-        for stb in imp.doc.struct_types:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructType)
+        for stb in imp.doc.struct_typedefs:
+            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructTypeDef)
             imported_structs[stb.name] = stb.rhs
         for (name, alias) in imp.aliases:
             if name not in imported_structs:
@@ -1379,7 +1387,7 @@ def _import_structs(doc: Document):
                     ),
                 )
             try:
-                existing = Env.resolve(doc.struct_types, [], alias)
+                existing = Env.resolve(doc.struct_typedefs, [], alias)
                 raise Err.MultipleDefinitions(
                     imp.pos,
                     "struct type alias {} collides with a struct {} document".format(
@@ -1399,7 +1407,7 @@ def _import_structs(doc: Document):
         for (name, st) in imported_structs.items():
             existing = None
             try:
-                existing = Env.resolve(doc.struct_types, [], name)
+                existing = Env.resolve(doc.struct_typedefs, [], name)
                 if existing.type_id != st.type_id:
                     raise Err.MultipleDefinitions(
                         imp.pos,
@@ -1415,43 +1423,45 @@ def _import_structs(doc: Document):
             except KeyError:
                 pass
             if not existing:
-                st2 = StructType(imp.pos, name, st.members, imported=True)
-                doc.struct_types = Env.bind(doc.struct_types, [], name, st2)
+                st2 = StructTypeDef(imp.pos, name, st.members, imported=True)
+                doc.struct_typedefs = Env.bind(doc.struct_typedefs, [], name, st2)
 
 
-def _resolve_struct_type(
-    pos: Err.SourcePosition, ty: T.StructInstance, struct_types: Env.StructTypes
+def _resolve_struct_typedef(
+    pos: Err.SourcePosition, ty: T.StructInstance, struct_typedefs: Env.StructTypeDefs
 ):
     # On construction, WDL.Type.StructInstance is not yet resolved to the
-    # struct type definition. Here, given the Env.StructTypes computed
+    # struct type definition. Here, given the Env.StructTypeDefs computed
     # on document construction, we populate 'members' with the dict of member
     # types and names.
     try:
-        struct_type = Env.resolve(struct_types, [], ty.type_name)
+        struct_typedef = Env.resolve(struct_typedefs, [], ty.type_name)
     except KeyError:
         raise Err.InvalidType(pos, "Unknown type " + ty.type_name)
-    ty.members = struct_type.members
+    ty.members = struct_typedef.members
 
 
-def _resolve_struct_types(pos: Err.SourcePosition, ty: T.Base, struct_types: Env.StructTypes):
+def _resolve_struct_typedefs(
+    pos: Err.SourcePosition, ty: T.Base, struct_typedefs: Env.StructTypeDefs
+):
     # resolve all StructInstance within a potentially compound type
     if isinstance(ty, T.StructInstance):
-        _resolve_struct_type(pos, ty, struct_types)
+        _resolve_struct_typedef(pos, ty, struct_typedefs)
     for p in ty.parameters:
-        _resolve_struct_types(pos, p, struct_types)
+        _resolve_struct_typedefs(pos, p, struct_typedefs)
 
 
-def _initialize_struct_types(struct_types: Env.StructTypes):
+def _initialize_struct_typedefs(struct_typedefs: Env.StructTypeDefs):
     # bootstrap struct typechecking: resolve all StructInstance members of the
     # struct types
-    for b in struct_types:
+    for b in struct_typedefs:
         assert isinstance(b, Env.Binding)
         for member_ty in b.rhs.members.values():
             if isinstance(member_ty, T.StructInstance):
-                _resolve_struct_type(b.rhs.pos, member_ty, struct_types)
-    # make a dummy allusion to each StructType.type_id, which will detect any
+                _resolve_struct_typedef(b.rhs.pos, member_ty, struct_typedefs)
+    # make a dummy allusion to each StructTypeDef.type_id, which will detect any
     # circular definitions (see Type._struct_type_id)
-    for b in struct_types:
+    for b in struct_typedefs:
         try:
             b.rhs.type_id
         except StopIteration:

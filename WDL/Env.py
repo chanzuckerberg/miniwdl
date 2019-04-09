@@ -25,7 +25,7 @@ class Binding:
     name: str
     ":type: str"
     rhs: Any
-    """:type: Union[WDL.Type.Base,WDL.Value.Base,WDL.StructType,WDL.Decl.Base]
+    """:type: Union[WDL.Type.Base,WDL.Value.Base,WDL.StructTypeDef,WDL.Decl.Base]
     
     "Right-hand side" of the binding"""
 
@@ -77,7 +77,7 @@ represented as:
 Once constructed, environments should be considered immutable. There should be
 no name or namespace collisions.
 
-``WDL.Env.{Types,Values,StructTypes,Decls}`` are type aliases for ``Tree``
+``WDL.Env.{Types,Values,StructTypeDefs,Decls}`` are type aliases for ``Tree``
 with the respective `Binding.rhs` type.
 """
 
@@ -91,8 +91,8 @@ Type nickname for environment tree of names to WDL types (``WDL.Type.Base`` inst
 Values = Tree
 """:type: WDL.Env.Tree[WDL.Value.Base]"""
 
-StructTypes = Tree
-""":type: WDL.Env.Tree[WDL.Tree.StructType]"""
+StructTypeDefs = Tree
+""":type: WDL.Env.Tree[WDL.Tree.StructTypeDef]"""
 
 Decls = Tree
 """:type: WDL.Env.Tree[WDL.Tree.Decl]"""
