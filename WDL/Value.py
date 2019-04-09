@@ -7,10 +7,11 @@ Each value is represented by an instance of a Python class inheriting from
 .. inheritance-diagram:: WDL.Value
    :top-classes: WDL.Value.Base
 """
-from abc import ABC
-from typing import Any, List, Optional, Tuple
+from abc import ABC, abstractstaticmethod
+from typing import Any, List, Optional, Tuple, Dict
 import json
 import WDL.Type as T
+import WDL.Error as Error
 
 
 class Base(ABC):
@@ -31,7 +32,7 @@ class Base(ABC):
         return self.type == other.type and self.value == other.value
 
     def __str__(self) -> str:
-        return str(self.value)
+        return json.dumps(self.json)
 
     def coerce(self, desired_type: Optional[T.Base] = None) -> "Base":
         """
@@ -51,15 +52,17 @@ class Base(ABC):
         """Alias for coerce"""
         return self.coerce(desired_type)
 
+    @property
+    def json(self) -> Any:
+        """Return a value representation which can be serialized to JSON using ``json.dumps`` (str, int, float, list, dict, or null)"""
+        return self.value
+
 
 class Boolean(Base):
     """``value`` has Python type ``bool``"""
 
     def __init__(self, value: bool) -> None:
         super().__init__(T.Boolean(), value)
-
-    def __str__(self) -> str:
-        return str(self.value).lower()
 
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
@@ -94,9 +97,6 @@ class String(Base):
     def __init__(self, value: str) -> None:
         super().__init__(T.String(), value)
 
-    def __str__(self) -> str:
-        return json.dumps(self.value)
-
 
 class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
@@ -107,8 +107,9 @@ class Array(Base):
         self.value = []
         super().__init__(type, value)
 
-    def __str__(self) -> str:
-        return "[" + ", ".join([str(item) for item in self.value]) + "]"
+    @property
+    def json(self) -> Any:
+        return [item.json for item in self.value]
 
 
 class Map(Base):
@@ -118,8 +119,13 @@ class Map(Base):
         self.value = []
         super().__init__(type, value)
 
-    def __str__(self) -> str:
-        raise NotImplementedError()  # TODO
+    @property
+    def json(self) -> Any:
+        ans = {}
+        for k, v in self.value:
+            assert isinstance(k, String)  # TODO
+            ans[k.value] = v.json
+        return ans
 
 
 class Pair(Base):
@@ -132,6 +138,10 @@ class Pair(Base):
     def __str__(self) -> str:
         assert isinstance(self.value, tuple)
         return "(" + str(self.value[0]) + "," + str(self.value[1]) + ")"
+
+    @property
+    def json(self) -> Any:
+        raise NotImplementedError()
 
 
 class Null(Base):
@@ -146,12 +156,70 @@ class Null(Base):
         self.type = None
         self.value = None
 
-    def __str__(self) -> str:
-        assert False
-        return ""
-
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
         if desired_type is None or not desired_type.optional:
             raise ReferenceError()
         return self
+
+    @property
+    def json(self) -> Any:
+        return None
+
+
+class Struct(Base):
+    value: Dict[str, Base]
+
+    def __init__(self, type: T.StructInstance, value: Dict[str, Base]) -> None:
+        super().__init__(type, value)
+        self.value = value
+
+    def __str__(self) -> str:
+        return json.dumps(self.json)
+
+    @property
+    def json(self) -> Any:
+        ans = {}
+        for k, v in self.value.items():
+            ans[k] = v.json
+        return ans
+
+
+def from_json(type: T.Base, value: Any) -> Base:
+    """
+    Instantiate a WDL value of the specified type from a parsed JSON value (str, int, float, list, dict, or null).
+
+    :raise WDL.Error.InputError: if the given value isn't coercible to the specified type
+    """
+    if isinstance(type, T.Boolean) and value in [True, False]:
+        return Boolean(value)
+    if isinstance(type, T.Int) and isinstance(value, int):
+        return Int(value)
+    if isinstance(type, T.Float) and isinstance(value, (float, int)):
+        return Float(float(value))
+    if isinstance(type, T.String) and isinstance(value, str):
+        return String(value)
+    if isinstance(type, T.Array) and isinstance(value, list):
+        return Array(type, [from_json(type.item_type, item) for item in value])
+    if isinstance(type, T.Map) and type.item_type[0] == T.String() and isinstance(value, dict):
+        items = []
+        for k, v in value.items():
+            assert isinstance(k, str)
+            items.append((from_json(type.item_type[0], k), from_json(type.item_type[1], v)))
+        return Map(type, items)
+    if (
+        isinstance(type, T.StructInstance)
+        and isinstance(value, dict)
+        and type.members
+        and set(type.members.keys()) == set(value.keys())
+    ):
+        items = {}
+        for k, v in value.items():
+            assert isinstance(k, str)
+            items[k] = from_json(type.members[k], v)
+        return Struct(type, items)
+    if type.optional and value is None:
+        return Null()
+    raise Error.InputError(
+        "couldn't construct {} from input {}".format(str(type), json.dumps(value))
+    )

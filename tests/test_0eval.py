@@ -1,4 +1,4 @@
-import unittest, inspect
+import unittest, inspect, json
 from .context import WDL
 
 class TestEval(unittest.TestCase):
@@ -370,3 +370,39 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
         self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
         self.assertEqual(WDL.Env.resolve(e, ["fruit", "grape"], "green"), "f")
+
+
+class TestValue(unittest.TestCase):
+    def test_json(self):
+        pty = WDL.Type.StructInstance("Person")
+        pty.members = {
+            "name": WDL.Type.String(), "age": WDL.Type.Int(),
+            "pets": WDL.Type.Map((WDL.Type.String(), WDL.Type.Int()), optional=True)
+        }
+        cases = [
+            (WDL.Type.Boolean(), True),
+            (WDL.Type.Boolean(), False),
+            (WDL.Type.Int(), 42),
+            (WDL.Type.Float(), 3.14),
+            (WDL.Type.String(), 'CNN is working frantically to find their "source."'),
+            (WDL.Type.String(optional=True), None),
+            (WDL.Type.Array(WDL.Type.String()), ["apple", "orange"]),
+            (WDL.Type.Array(WDL.Type.String(optional=True)), ["apple", "orange", None]),
+            (WDL.Type.Map((WDL.Type.String(), WDL.Type.Int())), {"cats": 42, "dogs": 99}),
+            (pty, {"name": "Alyssa", "age": 42, "pets": None}),
+            (pty, {"name": "Alyssa", "age": 42, "pets": {"cats": 42, "dogs": 99}}),
+
+            (WDL.Type.Boolean(), 42, WDL.Error.InputError),
+            (WDL.Type.Float(), "your president", WDL.Error.InputError),
+            (WDL.Type.String(), None, WDL.Error.InputError),
+            (pty, {"name": "Alyssa", "age": None, "pets": None}, WDL.Error.InputError),
+            (pty, {"name": "Alyssa", "age": 42}, WDL.Error.InputError),
+            (pty, {"name": "Alyssa", "age": 42, "pets": None, "address": "No 4, Privet Drive"}, WDL.Error.InputError),
+        ]
+
+        for t in cases:
+            if len(t) >= 3 and inspect.isclass(t[2]):
+                with self.assertRaises(t[2]):
+                    WDL.Value.from_json(t[0],t[1])
+            else:
+                self.assertEqual(t[1], WDL.Value.from_json(t[0],t[1]).json)
