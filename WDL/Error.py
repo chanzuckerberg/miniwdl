@@ -181,11 +181,6 @@ class UncallableWorkflow(ValidationError):
         )
 
 
-class NullValue(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "Null value")
-
-
 class MultipleDefinitions(ValidationError):
     pass
 
@@ -274,3 +269,39 @@ def multi_context() -> Generator[_MultiContext, None, None]:
     ctx = _MultiContext()
     yield ctx
     ctx.maybe_raise()
+
+
+class RuntimeError(Exception):
+    pass
+
+
+class EvalError(RuntimeError):
+    """Error evaluating a WDL expression or declaration"""
+
+    pos: SourcePosition
+    """:type: SourcePosition"""
+
+    node: Optional[SourceNode] = None
+    """:type: Optional[SourceNode]"""
+
+    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
+        if isinstance(node, SourceNode):
+            self.node = node
+            self.pos = node.pos
+        else:
+            self.pos = node
+        message = "({} Ln {}, Col {}) {}".format(
+            os.path.basename(self.pos.filename), self.pos.line, self.pos.column, message
+        )
+        super().__init__(message)
+
+
+class NullValue(EvalError):
+    def __init__(self, node: Union[SourceNode, SourcePosition]) -> None:
+        super().__init__(node, "Null value")
+
+
+class InputError(RuntimeError):
+    """Error reading an input value/file"""
+
+    pass
