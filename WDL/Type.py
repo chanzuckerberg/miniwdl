@@ -333,21 +333,25 @@ class Pair(Base):
 
 class StructInstance(Base):
     """
-    Type of a declared instance of a struct
+    Type of an instance of a struct
+
+    Not to be confused with struct type definition, ``WDL.Tree.StructTypeDef``.
     """
 
     type_name: str
     """
     :type: str
 
-    The name with which the instance is declared; note that the same struct
-    type can go by different names depending on the context.
+    The struct type name with which the instance is declared; note that the
+    same struct type can go by different names.
     """
+
     members: Optional[Dict[str, Base]]
     """
     :type: Dict[str,WDL.Type.Base]
 
-    Names and types of the struct members (available after typechecking)
+    Names and types of the struct members, from the struct type definition
+    (available after typechecking)
     """
 
     def __init__(self, type_name: str, optional: bool = False) -> None:
