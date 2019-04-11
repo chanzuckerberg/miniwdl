@@ -469,8 +469,8 @@ class NameCollision(Linter):
         if doc.workflow and doc.workflow.name == obj.name:
             msg = "call name '{}' collides with workflow name".format(obj.name)
             self.add(obj, msg)
-        for stb in doc.struct_types:
-            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructType)
+        for stb in doc.struct_typedefs:
+            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "call name '{}' colides with {}struct type".format(
                     obj.name, "imported " if stb.rhs.imported else ""
@@ -495,8 +495,8 @@ class NameCollision(Linter):
             if obj.name == task.name:
                 msg = "declaration of '{}' collides with a task name".format(obj.name)
                 self.add(obj, msg)
-        for stb in doc.struct_types:
-            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructType)
+        for stb in doc.struct_typedefs:
+            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "declaration of '{}' colides with {}struct type".format(
                     obj.name, "imported " if stb.rhs.imported else ""
@@ -521,8 +521,8 @@ class NameCollision(Linter):
             if obj.variable == task.name:
                 msg = "scatter variable '{}' collides with a task name".format(obj.variable)
                 self.add(obj, msg)
-        for stb in doc.struct_types:
-            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructType)
+        for stb in doc.struct_typedefs:
+            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructTypeDef)
             if stb.name == obj.variable:
                 msg = "scatter variable '{}' colides with {}struct type".format(
                     obj.variable, "imported " if stb.rhs.imported else ""
@@ -540,8 +540,8 @@ class NameCollision(Linter):
                     obj.name
                 )
                 self.add(obj, msg)
-        for stb in doc.struct_types:
-            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructType)
+        for stb in doc.struct_typedefs:
+            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "workflow name '{}' colides with {}struct type".format(
                     obj.name, "imported " if stb.rhs.imported else ""
@@ -557,8 +557,8 @@ class NameCollision(Linter):
             if imp.namespace == obj.name:
                 msg = "task name '{}' collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
-        for stb in doc.struct_types:
-            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructType)
+        for stb in doc.struct_typedefs:
+            assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "task name '{}' colides with {}struct type".format(
                     obj.name, "imported " if stb.rhs.imported else ""
@@ -567,8 +567,10 @@ class NameCollision(Linter):
 
     def document(self, obj: WDL.Tree.Document) -> Any:
         for imp in obj.imports:
-            for stb in obj.struct_types:
-                assert isinstance(stb, WDL.Env.Binding) and isinstance(stb.rhs, WDL.Tree.StructType)
+            for stb in obj.struct_typedefs:
+                assert isinstance(stb, WDL.Env.Binding) and isinstance(
+                    stb.rhs, WDL.Tree.StructTypeDef
+                )
                 if stb.name == imp.namespace:
                     msg = "imported document namespace '{}' collides with {}struct type".format(
                         imp.namespace, "imported " if stb.rhs.imported else ""

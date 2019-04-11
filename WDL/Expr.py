@@ -482,13 +482,13 @@ class Struct(Base):
         member_types = {}
         for k, v in self.members.items():
             member_types[k] = v.type
-        return T.ObjectLiteral(member_types)
+        return T.Object(member_types)
 
     def eval(self, env: Env.Values) -> V.Base:
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env)
-        assert isinstance(self.type, T.ObjectLiteral)
+        assert isinstance(self.type, T.Object)
         return V.Struct(self.type, ans)
 
 

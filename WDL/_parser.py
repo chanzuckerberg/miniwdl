@@ -688,7 +688,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                     sp(self.filename, meta), "duplicate members in struct"
                 )
             members[d.name] = d.type
-        return D.StructType(sp(self.filename, meta), name, members)
+        return D.StructTypeDef(sp(self.filename, meta), name, members)
 
     def import_alias(self, items, meta):
         assert len(items) == 2
@@ -727,7 +727,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                         sp(self.filename, meta), "Document has multiple workflows"
                     )
                 workflow = item
-            elif isinstance(item, D.StructType):
+            elif isinstance(item, D.StructTypeDef):
                 if item.name in structs:
                     raise Err.MultipleDefinitions(
                         sp(self.filename, meta), "multiple structs named " + item.name
