@@ -8,7 +8,7 @@ Each value is represented by an instance of a Python class inheriting from
    :top-classes: WDL.Value.Base
 """
 from abc import ABC, abstractstaticmethod
-from typing import Any, List, Optional, Tuple, Dict
+from typing import Any, List, Optional, Tuple, Dict, Iterable
 import json
 import WDL.Type as T
 import WDL.Error as Error
@@ -57,6 +57,10 @@ class Base(ABC):
         """Return a value representation which can be serialized to JSON using ``json.dumps`` (str, int, float, list, dict, or null)"""
         return self.value
 
+    @property
+    def children(self) -> "Iterable[Base]":
+        return []
+
 
 class Boolean(Base):
     """``value`` has Python type ``bool``"""
@@ -98,6 +102,12 @@ class String(Base):
         super().__init__(T.String(), value)
 
 
+class File(String):
+    """``value`` has Python type ``str``"""
+
+    pass
+
+
 class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
 
@@ -110,6 +120,10 @@ class Array(Base):
     @property
     def json(self) -> Any:
         return [item.json for item in self.value]
+
+    @property
+    def children(self) -> Iterable[Base]:
+        return self.value
 
 
 class Map(Base):
@@ -127,6 +141,12 @@ class Map(Base):
             ans[k.value] = v.json
         return ans
 
+    @property
+    def children(self) -> Iterable[Base]:
+        for (k, v) in self.value:
+            yield k
+            yield v
+
 
 class Pair(Base):
     value: Tuple[Base, Base]
@@ -142,6 +162,11 @@ class Pair(Base):
     @property
     def json(self) -> Any:
         raise NotImplementedError()
+
+    @property
+    def children(self) -> Iterable[Base]:
+        yield self.value[0]
+        yield self.value[1]
 
 
 class Null(Base):
@@ -184,6 +209,10 @@ class Struct(Base):
             ans[k] = v.json
         return ans
 
+    @property
+    def children(self) -> Iterable[Base]:
+        return self.value.values()
+
 
 def from_json(type: T.Base, value: Any) -> Base:
     """
@@ -197,6 +226,8 @@ def from_json(type: T.Base, value: Any) -> Base:
         return Int(value)
     if isinstance(type, T.Float) and isinstance(value, (float, int)):
         return Float(float(value))
+    if isinstance(type, T.File) and isinstance(value, str):
+        return File(value)
     if isinstance(type, T.String) and isinstance(value, str):
         return String(value)
     if isinstance(type, T.Array) and isinstance(value, list):
