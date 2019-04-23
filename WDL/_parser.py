@@ -18,7 +18,7 @@ common_grammar = r"""
 
 ?string: string1 | string2
 
-STRING_INNER1: ("\\\'"|/[^']/)
+STRING_INNER1: ("\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
@@ -48,7 +48,7 @@ placeholder: placeholder_option* expr
 // task meta/parameter_meta sections (effectively JSON)
 meta_object: "{" [meta_kv (","? meta_kv)*] "}"
 meta_kv: CNAME ":" meta_value
-?meta_value: literal | string
+?meta_value: literal | string_literal
            | meta_object
            | "[" [meta_value ("," meta_value)*] "]" -> meta_array
 META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures higher priority than CNAME
@@ -528,6 +528,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def meta_section(self, items, meta):
         kind = items[0].value
+        assert kind in ["meta", "parameter_meta"]
         d = dict()
         d[kind] = items[1]
         return d

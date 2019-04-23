@@ -62,6 +62,7 @@ class SourceNode:
         return False
 
     def __eq__(self, rhs: TVSourceNode) -> bool:
+        assert isinstance(rhs, SourceNode)
         return self.pos == rhs.pos
 
     @property
