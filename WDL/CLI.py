@@ -10,7 +10,7 @@ import json
 import math
 from shlex import quote as shellquote
 from datetime import datetime
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Action
 import WDL
 import WDL.Lint
 
@@ -19,6 +19,12 @@ quant_warning = False
 
 def main(args=None):
     parser = ArgumentParser()
+    parser.add_argument(
+        "--version",
+        nargs=0,
+        action=PipVersionAction,
+        help="show miniwdl package version information",
+    )
     subparsers = parser.add_subparsers()
     subparsers.required = True
     subparsers.dest = "command"
@@ -51,6 +57,16 @@ def main(args=None):
             raise exn
         else:
             sys.exit(2)
+
+
+class PipVersionAction(Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        try:
+            subprocess.check_call(["pip3", "show", "miniwdl"])
+        except subprocess.CalledProcessError:
+            print("miniwdl version unknown (not installed by pip3)")
+        print("Cromwell-Version: " + CROMWELL_VERSION)
+        sys.exit(0)
 
 
 def fill_common(subparser):
@@ -225,7 +241,7 @@ def import_uri(uri):
 
 def fill_cromwell_subparser(subparsers):
     cromwell_parser = subparsers.add_parser(
-        "cromwell", help="Run workflow locally using Cromwell 36"
+        "cromwell", help="Run workflow locally using Cromwell " + CROMWELL_VERSION
     )
     cromwell_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
     cromwell_parser.add_argument(
@@ -370,14 +386,17 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None,
     sys.exit(proc.returncode)
 
 
+CROMWELL_VERSION = "40"
+
+
 def ensure_cromwell_jar():
     """
     Return local path to Cromwell JAR file, first downloading it if necessary.
     """
-    CROMWELL_JAR_URL = (
-        "https://github.com/broadinstitute/cromwell/releases/download/36/cromwell-36.jar"
+    CROMWELL_JAR_URL = "https://github.com/broadinstitute/cromwell/releases/download/{v}/cromwell-{v}.jar".format(
+        v=CROMWELL_VERSION
     )
-    CROMWELL_JAR_SIZE = 175_930_401
+    CROMWELL_JAR_SIZE = 185_381_836
     CROMWELL_JAR_NAME = os.path.basename(CROMWELL_JAR_URL)
 
     jarpath = os.path.join(tempfile.gettempdir(), CROMWELL_JAR_NAME)
