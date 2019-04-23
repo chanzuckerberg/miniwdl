@@ -256,8 +256,8 @@ class TestTasks(unittest.TestCase):
         }
         """)[0]
         task.typecheck()
-        self.assertIsInstance(task.parameter_meta['b']['help'], WDL.Expr.String)
-        self.assertEqual(task.parameter_meta['b']['help'].parts, ['"', "it's a boolean", '"'])
+        self.assertIsInstance(task.parameter_meta['b']['help'], str)
+        self.assertEqual(task.parameter_meta['b']['help'], "it's a boolean")
         self.assertIsInstance(task.runtime['cpu'], WDL.Expr.Int)
         self.assertEqual(task.runtime['cpu'].value, 42)
         self.assertTrue(task.inputs[0].type.optional)
@@ -288,8 +288,8 @@ class TestTasks(unittest.TestCase):
         }
         """)[0]
         task.typecheck()
-        self.assertIsInstance(task.meta['description'], WDL.Expr.String)
-        self.assertEqual(task.meta['description'].parts, ["'", "it\\'s a task", "'"])
+        self.assertIsInstance(task.meta['description'], str)
+        self.assertEqual(task.meta['description'], "it's a task")
 
     def test_compare_md5sums(self):
         txt = """
