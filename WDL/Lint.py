@@ -169,8 +169,8 @@ class StringCoercion(Linter):
                         obj.pos,
                     )
             else:
-                F = WDL.Expr._stdlib[obj.function_name]
-                if isinstance(F, WDL.StdLib._StaticFunction) and obj.function_name != "basename":
+                F = getattr(WDL.StdLib.Base(), obj.function_name)
+                if isinstance(F, WDL.StdLib.StaticFunction) and obj.function_name != "basename":
                     # ok for basename to take either String or File
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
@@ -244,8 +244,8 @@ class FileCoercion(Linter):
         pt = getattr(obj, "parent")
         if isinstance(obj, WDL.Expr.Apply):
             # File function operands with String expression
-            F = WDL.Expr._stdlib[obj.function_name]
-            if isinstance(F, WDL.StdLib._StaticFunction):
+            F = getattr(WDL.StdLib.Base(), obj.function_name)
+            if isinstance(F, WDL.StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
@@ -300,8 +300,8 @@ class ArrayCoercion(Linter):
     def expr(self, obj: WDL.Expr.Base) -> Any:
         pt = getattr(obj, "parent")
         if isinstance(obj, WDL.Expr.Apply):
-            F = WDL.Expr._stdlib[obj.function_name]
-            if isinstance(F, WDL.StdLib._StaticFunction):
+            F = getattr(WDL.StdLib.Base(), obj.function_name)
+            if isinstance(F, WDL.StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
@@ -343,8 +343,8 @@ class OptionalCoercion(Linter):
                         ),
                     )
             else:
-                F = WDL.Expr._stdlib[obj.function_name]
-                if isinstance(F, WDL.StdLib._StaticFunction):
+                F = getattr(WDL.StdLib.Base(), obj.function_name)
+                if isinstance(F, WDL.StdLib.StaticFunction):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
                         arg_i = obj.arguments[i]
@@ -389,8 +389,8 @@ class NonemptyCoercion(Linter):
     # An array of possibly-empty type where a nonempty array is expected
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if isinstance(obj, WDL.Expr.Apply):
-            F = WDL.Expr._stdlib[obj.function_name]
-            if isinstance(F, WDL.StdLib._StaticFunction):
+            F = getattr(WDL.StdLib.Base(), obj.function_name)
+            if isinstance(F, WDL.StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]

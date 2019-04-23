@@ -791,32 +791,6 @@ class Get(Base):
         return []
 
 
-# function applications
-
-# Abstract interface to an internal function implementation
-# (see StdLib.py for concrete implementations)
-
-
-TVApply = TypeVar("TVApply", bound="Apply")
-
-
-class _Function(ABC):
-
-    # Typecheck the function invocation (incl. argument expressions); raise an
-    # exception or return the type of the value that the function will return
-    @abstractmethod
-    def infer_type(self, expr: TVApply) -> T.Base:
-        pass
-
-    @abstractmethod
-    def __call__(self, expr: TVApply, env: Env.Values) -> V.Base:
-        pass
-
-
-# Table of standard library functions, filled in below and in StdLib.py
-_stdlib: Dict[str, _Function] = {}
-
-
 class Apply(Base):
     """Application of a built-in or standard library function"""
 
@@ -831,15 +805,9 @@ class Apply(Base):
     Expressions for each function argument
     """
 
-    function: _Function
-
     def __init__(self, pos: SourcePosition, function: str, arguments: List[Base]) -> None:
         super().__init__(pos)
-        try:
-            self.function = _stdlib[function]
-            self.function_name = function
-        except KeyError:
-            raise Error.NoSuchFunction(self, function) from None
+        self.function_name = function
         self.arguments = arguments
 
     @property
@@ -848,8 +816,18 @@ class Apply(Base):
             yield arg
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
-        return self.function.infer_type(self)
+        from WDL.StdLib import Base as StdLibBase, Function as StdLibFunction
+
+        f = getattr(StdLibBase(), self.function_name, None)
+        if not f:
+            raise Error.NoSuchFunction(self, self.function_name) from None
+        assert isinstance(f, StdLibFunction)
+        return f.infer_type(self)
 
     def eval(self, env: Env.Values) -> V.Base:
         ""
-        return self.function(self, env)
+        from WDL.StdLib import Base as StdLibBase, Function as StdLibFunction
+
+        f = getattr(StdLibBase(), self.function_name, None)
+        assert isinstance(f, StdLibFunction)
+        return f(self, env)

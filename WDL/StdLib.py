@@ -1,16 +1,164 @@
 # pylint: disable=protected-access,exec-used
 from typing import List, Tuple, Callable, Any
+from abc import ABC, abstractmethod
 import WDL.Type as T
 import WDL.Value as V
 import WDL.Expr as E
 import WDL.Env as Env
 import WDL.Error as Error
 
-# Special function for array access arr[index], returning the element type
-#                      or map access map[key], returning the value type
+
+class Function(ABC):
+    # Abstract interface to a standard library function implementation
+
+    @abstractmethod
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        # Typecheck the Apply expression (including the argument expressions);
+        # raise an exception or return the function's return type, which may
+        # depend on the argument types.
+        pass
+
+    @abstractmethod
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+        # Invoke the function, evaluating the arguments as needed
+        pass
 
 
-class _At(E._Function):
+class Base:
+    """
+    Base class for standard library implementations. An instance has an
+    attribute with the name of each available function and a ``Function``
+    object providing the type-checking logic and implementation.
+
+    Subclasses may replace these objects with custom context-dependent logic,
+    or add new ones. For example, ``stdout()`` is only meaningful in task
+    output sections.
+    """
+
+    def __init__(self):
+        # language built-ins
+        self._at = _At()
+        self._land = _And()
+        self._lor = _Or()
+        self._negate = StaticFunction(
+            "_negate", [T.Boolean()], T.Boolean(), lambda x: V.Boolean(not x.value)
+        )
+        self._add = _AddOperator()
+        self._sub = _ArithmeticOperator("-", lambda l, r: l - r)
+        self._mul = _ArithmeticOperator("*", lambda l, r: l * r)
+        self._div = _ArithmeticOperator("/", lambda l, r: l // r)
+        self._rem = StaticFunction(
+            "_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)
+        )
+        self._eqeq = _ComparisonOperator("==", lambda l, r: l == r)
+        self._neq = _ComparisonOperator("!=", lambda l, r: l != r)
+        self._lt = _ComparisonOperator("<", lambda l, r: l < r)
+        self._lte = _ComparisonOperator("<=", lambda l, r: l <= r)
+        self._gt = _ComparisonOperator(">", lambda l, r: l > r)
+        self._gte = _ComparisonOperator(">=", lambda l, r: l >= r)
+
+        # static stdlib functions
+        for (name, argument_types, return_type, F) in [
+            ("floor", [T.Float()], T.Int(), _notimpl),
+            ("ceil", [T.Float()], T.Int(), _notimpl),
+            ("round", [T.Float()], T.Int(), _notimpl),
+            ("length", [T.Array(T.Any())], T.Int(), lambda v: V.Int(len(v.value))),
+            ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
+            ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
+            (
+                "defined",
+                [T.Any(optional=True)],
+                T.Boolean(),
+                lambda v: V.Boolean(not isinstance(v, V.Null)),
+            ),
+            # context-dependent:
+            ("write_lines", [T.Array(T.String())], T.File(), _notimpl),
+            ("write_tsv", [T.Array(T.Array(T.String()))], T.File(), _notimpl),
+            ("write_map", [T.Map((T.Any(), T.Any()))], T.File(), _notimpl),
+            ("write_json", [T.Any()], T.File(), _notimpl),
+            ("stdout", [], T.File(), _notimpl),
+            ("stderr", [], T.File(), _notimpl),
+            ("glob", [T.String()], T.Array(T.File()), _notimpl),
+            ("read_int", [T.File()], T.Int(), _notimpl),
+            ("read_boolean", [T.File()], T.Boolean(), _notimpl),
+            ("read_string", [T.File()], T.String(), _notimpl),
+            ("read_float", [T.File()], T.Float(), _notimpl),
+            ("read_array", [T.File()], T.Array(T.Any()), _notimpl),
+            ("read_map", [T.File()], T.Map((T.Any(), T.Any())), _notimpl),
+            ("read_lines", [T.File()], T.Array(T.Any()), _notimpl),
+            ("read_tsv", [T.File()], T.Array(T.Array(T.String())), _notimpl),
+            ("read_json", [T.File()], T.Any(), _notimpl),
+        ]:
+            setattr(self, name, StaticFunction(name, argument_types, return_type, F))
+
+        # polymorphically typed stdlib functions which require specialized
+        # infer_type logic
+        self.range = _Range()
+        self.prefix = _Prefix()
+        self.size = _Size()
+        self.select_first = _SelectFirst()
+        self.select_all = _SelectAll()
+        self.zip = _Zip()
+        self.cross = _Zip()  # FIXME
+        self.flatten = _Flatten()
+        self.transpose = _Transpose()
+
+
+class StaticFunction(Function):
+    # _Function helper for simple functions with static argument and return
+    # types, and eager argument evaluation
+
+    name: str
+    argument_types: List[T.Base]
+    return_type: T.Base
+    F: Callable
+
+    def __init__(
+        self, name: str, argument_types: List[T.Base], return_type: T.Base, F: Callable
+    ) -> None:
+        self.name = name
+        self.argument_types = argument_types
+        self.return_type = return_type
+        self.F = F
+
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        min_args = len(self.argument_types)
+        for ty in reversed(self.argument_types):
+            if ty.optional:
+                min_args = min_args - 1
+            else:
+                break
+        if len(expr.arguments) > len(self.argument_types) or len(expr.arguments) < min_args:
+            raise Error.WrongArity(expr, len(self.argument_types))
+        for i in range(len(expr.arguments)):
+            try:
+                expr.arguments[i].typecheck(self.argument_types[i])
+            except Error.StaticTypeMismatch:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[i],
+                    self.argument_types[i],
+                    expr.arguments[i].type,
+                    "for {} argument #{}".format(self.name, i + 1),
+                ) from None
+        return self.return_type
+
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+        assert len(expr.arguments) == len(self.argument_types)
+        argument_values = [
+            arg.eval(env).coerce(ty) for arg, ty in zip(expr.arguments, self.argument_types)
+        ]
+        ans: V.Base = self.F(*argument_values)
+        return ans.coerce(self.return_type)
+
+
+def _notimpl(one: Any = None, two: Any = None) -> None:
+    exec("raise NotImplementedError()")
+
+
+class _At(Function):
+    # Special function for array access arr[index], returning the element type
+    #                   or map access map[key], returning the value type
+
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         lhs = expr.arguments[0]
@@ -66,13 +214,8 @@ class _At(E._Function):
         assert False
 
 
-E._stdlib["_at"] = _At()
-
-
-# logical && with short-circuit evaluation
-
-
-class _And(E._Function):
+class _And(Function):
+    # logical && with short-circuit evaluation
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         for arg in expr.arguments:
@@ -89,10 +232,8 @@ class _And(E._Function):
         return expr.arguments[1].eval(env).expect(T.Boolean())
 
 
-E._stdlib["_land"] = _And()
-
-
-class _Or(E._Function):
+class _Or(Function):
+    # logical || with short-circuit evaluation
     def infer_type(self, expr: E.Apply) -> T.Base:
         assert len(expr.arguments) == 2
         for arg in expr.arguments:
@@ -109,94 +250,10 @@ class _Or(E._Function):
         return expr.arguments[1].eval(env).expect(T.Boolean())
 
 
-E._stdlib["_lor"] = _Or()
+class _ArithmeticOperator(Function):
+    # arithmetic infix operators
+    # operands may be Int or Float; return Float iff either operand is Float
 
-# _Function helper for simple functions with fixed argument and return types
-
-
-class _StaticFunction(E._Function):
-    name: str
-    argument_types: List[T.Base]
-    return_type: T.Base
-    F: Callable
-
-    def __init__(
-        self, name: str, argument_types: List[T.Base], return_type: T.Base, F: Callable
-    ) -> None:
-        self.name = name
-        self.argument_types = argument_types
-        self.return_type = return_type
-        self.F = F
-
-    def infer_type(self, expr: E.Apply) -> T.Base:
-        min_args = len(self.argument_types)
-        for ty in reversed(self.argument_types):
-            if ty.optional:
-                min_args = min_args - 1
-            else:
-                break
-        if len(expr.arguments) < min_args:
-            raise Error.WrongArity(expr, len(self.argument_types))
-        for i in range(len(expr.arguments)):
-            try:
-                expr.arguments[i].typecheck(self.argument_types[i])
-            except Error.StaticTypeMismatch:
-                raise Error.StaticTypeMismatch(
-                    expr.arguments[i],
-                    self.argument_types[i],
-                    expr.arguments[i].type,
-                    "for {} argument #{}".format(self.name, i + 1),
-                ) from None
-        return self.return_type
-
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        assert len(expr.arguments) == len(self.argument_types)
-        argument_values = [
-            arg.eval(env).coerce(ty) for arg, ty in zip(expr.arguments, self.argument_types)
-        ]
-        ans: V.Base = self.F(*argument_values)
-        return ans.coerce(self.return_type)
-
-
-def _notimpl(one: Any = None, two: Any = None) -> None:
-    exec("raise NotImplementedError()")
-
-
-# pyre-ignore
-_static_functions: List[Tuple[str, List[T.Base], T.Base, Any]] = [
-    ("_negate", [T.Boolean()], T.Boolean(), lambda x: V.Boolean(not x.value)),
-    ("_rem", [T.Int(), T.Int()], T.Int(), lambda l, r: V.Int(l.value % r.value)),
-    ("stdout", [], T.File(), _notimpl),
-    ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
-    ("floor", [T.Float()], T.Int(), _notimpl),
-    ("ceil", [T.Float()], T.Int(), _notimpl),
-    ("round", [T.Float()], T.Int(), _notimpl),
-    ("glob", [T.String()], T.Array(T.File()), _notimpl),
-    ("read_int", [T.File()], T.Int(), _notimpl),
-    ("read_boolean", [T.File()], T.Boolean(), _notimpl),
-    ("read_string", [T.File()], T.String(), _notimpl),
-    ("read_float", [T.File()], T.Float(), _notimpl),
-    ("read_array", [T.File()], T.Array(T.Any()), _notimpl),
-    ("read_map", [T.File()], T.Map((T.Any(), T.Any())), _notimpl),
-    ("read_lines", [T.File()], T.Array(T.Any()), _notimpl),
-    ("read_tsv", [T.File()], T.Array(T.Array(T.String())), _notimpl),
-    ("read_json", [T.File()], T.Any(), _notimpl),
-    ("write_lines", [T.Array(T.String())], T.File(), _notimpl),
-    ("write_tsv", [T.Array(T.Array(T.String()))], T.File(), _notimpl),
-    ("write_map", [T.Map((T.Any(), T.Any()))], T.File(), _notimpl),
-    ("write_json", [T.Any()], T.File(), _notimpl),
-    ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
-]
-for name, argument_types, return_type, F in _static_functions:
-    E._stdlib[name] = _StaticFunction(name, argument_types, return_type, F)
-
-# Polymorphic functions
-
-# arithmetic infix operators
-# operands may be Int or Float; return Float iff either operand is Float
-
-
-class _ArithmeticOperator(E._Function):
     name: str
     op: Callable
 
@@ -237,11 +294,6 @@ class _ArithmeticOperator(E._Function):
         return V.Float(ans)
 
 
-E._stdlib["_sub"] = _ArithmeticOperator("-", lambda l, r: l - r)
-E._stdlib["_mul"] = _ArithmeticOperator("*", lambda l, r: l * r)
-E._stdlib["_div"] = _ArithmeticOperator("/", lambda l, r: l // r)
-
-
 class _AddOperator(_ArithmeticOperator):
     # + operator can also serve as concatenation for String.
     def __init__(self) -> None:
@@ -279,14 +331,11 @@ class _AddOperator(_ArithmeticOperator):
         return V.String(ans)
 
 
-E._stdlib["_add"] = _AddOperator()
+class _ComparisonOperator(Function):
+    # Comparison operators can compare any two operands of the same type.
+    # Furthermore, given one Int and one Float, coerces the Int to Float for
+    # comparison.
 
-# Comparison operators can compare any two operands of the same type.
-# Furthermore,
-# - given one Int and one Float, coerces the Int to Float for comparison.
-
-
-class _ComparisonOperator(E._Function):
     name: str
     op: Callable
 
@@ -335,53 +384,7 @@ class _ComparisonOperator(E._Function):
         )
 
 
-E._stdlib["_eqeq"] = _ComparisonOperator("==", lambda l, r: l == r)
-E._stdlib["_neq"] = _ComparisonOperator("!=", lambda l, r: l != r)
-E._stdlib["_lt"] = _ComparisonOperator("<", lambda l, r: l < r)
-E._stdlib["_lte"] = _ComparisonOperator("<=", lambda l, r: l <= r)
-E._stdlib["_gt"] = _ComparisonOperator(">", lambda l, r: l > r)
-E._stdlib["_gte"] = _ComparisonOperator(">=", lambda l, r: l >= r)
-
-
-class _Defined(E._Function):
-    # defined(): accepts any type...
-
-    def infer_type(self, expr: E.Apply) -> T.Base:
-        if len(expr.arguments) != 1:
-            raise Error.WrongArity(expr, 1)
-        return T.Boolean()
-
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        if isinstance(expr.arguments[0].eval(env), V.Null):
-            return V.Boolean(False)
-        return V.Boolean(True)
-
-
-E._stdlib["defined"] = _Defined()
-
-
-class _Length(E._Function):
-    def infer_type(self, expr: E.Apply) -> T.Base:
-        if len(expr.arguments) != 1:
-            raise Error.WrongArity(expr, 1)
-        if not isinstance(expr.arguments[0].type, T.Array):
-            raise Error.StaticTypeMismatch(
-                expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
-            )
-        return T.Int()
-
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        v = expr.arguments[0].eval(env)
-        if isinstance(v, V.Null):
-            return V.Int(0)
-        assert isinstance(v.value, list)
-        return V.Int(len(v.value))
-
-
-E._stdlib["length"] = _Length()
-
-
-class _Size(E._Function):
+class _Size(Function):
     # size(): first argument can be File? or Array[File?]
 
     def infer_type(self, expr: E.Apply) -> T.Base:
@@ -412,10 +415,7 @@ class _Size(E._Function):
         raise NotImplementedError()
 
 
-E._stdlib["size"] = _Size()
-
-
-class _SelectFirst(E._Function):
+class _SelectFirst(Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
@@ -436,10 +436,7 @@ class _SelectFirst(E._Function):
         raise NotImplementedError()
 
 
-E._stdlib["select_first"] = _SelectFirst()
-
-
-class _SelectAll(E._Function):
+class _SelectAll(Function):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
@@ -460,10 +457,7 @@ class _SelectAll(E._Function):
         raise NotImplementedError()
 
 
-E._stdlib["select_all"] = _SelectAll()
-
-
-class _Zip(E._Function):
+class _Zip(Function):
     # 'a array -> 'b array -> ('a,'b) array
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 2:
@@ -489,11 +483,7 @@ class _Zip(E._Function):
         raise NotImplementedError()
 
 
-E._stdlib["zip"] = _Zip()
-E._stdlib["cross"] = _Zip()  # TODO
-
-
-class _Flatten(E._Function):
+class _Flatten(Function):
     # t array array -> t array
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
@@ -513,10 +503,7 @@ class _Flatten(E._Function):
         raise NotImplementedError()
 
 
-E._stdlib["flatten"] = _Flatten()
-
-
-class _Transpose(E._Function):
+class _Transpose(Function):
     # t array array -> t array array
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
@@ -536,26 +523,7 @@ class _Transpose(E._Function):
         raise NotImplementedError()
 
 
-E._stdlib["transpose"] = _Transpose()
-
-
-class _Prefix(E._Function):
-    # string -> t array -> string array
-    def infer_type(self, expr: E.Apply) -> T.Base:
-        if len(expr.arguments) != 2:
-            raise Error.WrongArity(expr, 2)
-        expr.arguments[0].typecheck(T.String())
-        expr.arguments[1].typecheck(T.Array(T.String()))
-        return T.Array(T.String())
-
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        raise NotImplementedError()
-
-
-E._stdlib["prefix"] = _Prefix()
-
-
-class _Range(E._Function):
+class _Range(Function):
     # int -> int array
     # with special case: if the argument is a positive integer literal or
     # length(a_nonempty_array), then we can say the returned array is nonempty.
@@ -578,4 +546,21 @@ class _Range(E._Function):
         raise NotImplementedError()
 
 
-E._stdlib["range"] = _Range()
+class _Prefix(Function):
+    # string -> t array -> string array
+    # if input array is nonempty then so is output
+
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+        expr.arguments[0].typecheck(T.String())
+        expr.arguments[1].typecheck(T.Array(T.String()))
+        return T.Array(
+            T.String(),
+            nonempty=(
+                isinstance(expr.arguments[1].type, T.Array) and expr.arguments[1].type.nonempty
+            ),
+        )
+
+    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+        raise NotImplementedError()
