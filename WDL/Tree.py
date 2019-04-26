@@ -30,6 +30,7 @@ import WDL.Type as T
 import WDL.Expr as E
 import WDL.Env as Env
 import WDL.Error as Err
+import WDL.StdLib
 from WDL.Error import SourcePosition, SourceNode
 import WDL._parser
 
@@ -130,11 +131,18 @@ class Decl(SourceNode):
             return _add_struct_instance_to_type_env([self.name], self.type, type_env, ctx=self)
         return Env.bind(type_env, [], self.name, self.type, ctx=self)
 
-    def typecheck(self, type_env: Env.Types, check_quant: bool) -> None:
+    def typecheck(
+        self,
+        type_env: Env.Types,
+        stdlib: Optional[WDL.StdLib.Base] = None,
+        check_quant: bool = True,
+    ) -> None:
         # Infer the expression's type and ensure it checks against the declared
         # type. One time use!
         if self.expr:
-            self.expr.infer_type(type_env, check_quant).typecheck(self.type)
+            self.expr.infer_type(type_env, stdlib=stdlib, check_quant=check_quant).typecheck(
+                self.type
+            )
 
     # TODO: when the declaration is evaluated,
     #  - the optional/nonempty type quantifiers should be checked
@@ -282,16 +290,18 @@ class Task(SourceNode):
             # Pass through input & postinput declarations again, typecheck their
             # right-hand side expressions against the type environment.
             for decl in (self.inputs or []) + self.postinputs:
-                errors.try1(lambda: decl.typecheck(type_env, check_quant))
+                errors.try1(lambda: decl.typecheck(type_env, check_quant=check_quant))
             # Typecheck the command (string)
             errors.try1(
-                lambda: self.command.infer_type(type_env, check_quant).typecheck(T.String())
+                lambda: self.command.infer_type(type_env, check_quant=check_quant).typecheck(
+                    T.String()
+                )
             )
             # Typecheck runtime expressions
             for _, runtime_expr in self.runtime.items():
                 errors.try1(
                     lambda runtime_expr=runtime_expr: runtime_expr.infer_type(
-                        type_env, check_quant
+                        type_env, check_quant=check_quant
                     ).typecheck(T.String())
                 )
             # Add output declarations to type environment
@@ -304,7 +314,7 @@ class Task(SourceNode):
             errors.maybe_raise()
             # Typecheck the output expressions
             for decl in self.outputs:
-                errors.try1(lambda: decl.typecheck(type_env, check_quant))
+                errors.try1(lambda: decl.typecheck(type_env, check_quant=check_quant))
 
         # check for cyclic dependencies among decls
         _detect_cycles(
@@ -429,7 +439,7 @@ class Call(SourceNode):
                     decl = Env.resolve(self.callee.available_inputs, [], name)
                     errors.try1(
                         lambda expr=expr, decl=decl: expr.infer_type(
-                            type_env, check_quant
+                            type_env, check_quant=check_quant
                         ).typecheck(decl.type)
                     )
                 except KeyError:
@@ -803,7 +813,9 @@ class Workflow(SourceNode):
             #    and the inputs to each call (descending into scatter & conditional
             #    sections)
             for decl in self.inputs or []:
-                errors.try1(lambda decl=decl: decl.typecheck(self._type_env, check_quant))
+                errors.try1(
+                    lambda decl=decl: decl.typecheck(self._type_env, check_quant=check_quant)
+                )
             if errors.try1(lambda: _typecheck_workflow_elements(doc, check_quant)) == False:
                 self.complete_calls = False
             # 4. convert deprecated output_idents, if any, to output declarations
@@ -820,7 +832,11 @@ class Workflow(SourceNode):
                                 output, "multiple workflow outputs named " + output.name
                             )
                         )
-                    errors.try1(lambda output=output: output.typecheck(self._type_env, check_quant))
+                    errors.try1(
+                        lambda output=output: output.typecheck(
+                            self._type_env, check_quant=check_quant
+                        )
+                    )
                     output_names.add(output.name)
         # 6. check for cyclic dependencies
         _detect_cycles(_dependency_matrix(_decls_and_calls(self)))  # pyre-fixme
@@ -1110,7 +1126,7 @@ def _build_workflow_type_env(
             type_env = decl.add_to_type_env(doc.struct_typedefs, type_env)
     elif isinstance(self, Scatter):
         # typecheck scatter array
-        self.expr.infer_type(type_env, check_quant)
+        self.expr.infer_type(type_env, check_quant=check_quant)
         if not isinstance(self.expr.type, T.Array):
             raise Err.NotAnArray(self.expr)
         if self.expr.type.item_type is None:
@@ -1133,7 +1149,7 @@ def _build_workflow_type_env(
         type_env = Env.bind(type_env, [], self.variable, self.expr.type.item_type, ctx=self)
     elif isinstance(self, Conditional):
         # typecheck the condition
-        self.expr.infer_type(type_env, check_quant)
+        self.expr.infer_type(type_env, check_quant=check_quant)
         if not self.expr.type.coerces(T.Boolean()):
             raise Err.StaticTypeMismatch(self.expr, T.Boolean(), self.expr.type)
     else:
@@ -1178,7 +1194,10 @@ def _typecheck_workflow_elements(
             if isinstance(child, Decl):
                 errors.try1(
                     _translate_struct_mismatch(
-                        doc, lambda child=child: child.typecheck(self._type_env, check_quant)
+                        doc,
+                        lambda child=child: child.typecheck(
+                            self._type_env, check_quant=check_quant
+                        ),
                     )
                 )
             elif isinstance(child, Call):
@@ -1186,7 +1205,9 @@ def _typecheck_workflow_elements(
                     errors.try1(
                         _translate_struct_mismatch(
                             doc,
-                            lambda child=child: child.typecheck_input(self._type_env, check_quant),
+                            lambda child=child: child.typecheck_input(
+                                self._type_env, check_quant=check_quant
+                            ),
                         )
                     )
                     == False
