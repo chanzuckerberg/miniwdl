@@ -8,22 +8,6 @@ import WDL.Env as Env
 import WDL.Error as Error
 
 
-class Function(ABC):
-    # Abstract interface to a standard library function implementation
-
-    @abstractmethod
-    def infer_type(self, expr: E.Apply) -> T.Base:
-        # Typecheck the Apply expression (including the argument expressions);
-        # raise an exception or return the function's return type, which may
-        # depend on the argument types.
-        pass
-
-    @abstractmethod
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        # Invoke the function, evaluating the arguments as needed
-        pass
-
-
 class Base:
     """
     Base class for standard library implementations. An instance has an
@@ -104,9 +88,35 @@ class Base:
         self.transpose = _Transpose()
 
 
-class StaticFunction(Function):
-    # _Function helper for simple functions with static argument and return
-    # types, and eager argument evaluation
+class Function(ABC):
+    # Abstract interface to a standard library function implementation
+
+    @abstractmethod
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        # Typecheck the Apply expression (including the argument expressions);
+        # raise an exception or return the function's return type, which may
+        # depend on the argument types.
+        pass
+
+    @abstractmethod
+    def __call__(self, expr: E.Apply, env: Env.Values, stdlib: Base) -> V.Base:
+        # Invoke the function, evaluating the arguments as needed
+        pass
+
+
+class EagerFunction(Function):
+    # Function helper providing boilerplate for eager argument evaluation
+
+    @abstractmethod
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
+        pass
+
+    def __call__(self, expr: E.Apply, env: Env.Values, stdlib: Base) -> V.Base:
+        return self._call_eager(expr, [arg.eval(env, stdlib=stdlib) for arg in expr.arguments])
+
+
+class StaticFunction(EagerFunction):
+    # Function helper for static argument and return types
 
     name: str
     argument_types: List[T.Base]
@@ -142,11 +152,8 @@ class StaticFunction(Function):
                 ) from None
         return self.return_type
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        assert len(expr.arguments) == len(self.argument_types)
-        argument_values = [
-            arg.eval(env).coerce(ty) for arg, ty in zip(expr.arguments, self.argument_types)
-        ]
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
+        argument_values = [arg.coerce(ty) for arg, ty in zip(arguments, self.argument_types)]
         ans: V.Base = self.F(*argument_values)
         return ans.coerce(self.return_type)
 
@@ -155,7 +162,7 @@ def _notimpl(one: Any = None, two: Any = None) -> None:
     exec("raise NotImplementedError()")
 
 
-class _At(Function):
+class _At(EagerFunction):
     # Special function for array access arr[index], returning the element type
     #                   or map access map[key], returning the value type
 
@@ -184,32 +191,25 @@ class _At(Function):
             return lhs.type.item_type[1]
         raise Error.NotAnArray(lhs)
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        assert len(expr.arguments) == 2
-        lhs = expr.arguments[0]
-        rhs = expr.arguments[1]
-        if isinstance(lhs.type, T.Array):
-            arr = lhs.eval(env)
-            assert isinstance(arr, V.Array)
-            assert isinstance(arr.type, T.Array)
-            assert isinstance(arr.value, list)
-            idx = rhs.eval(env).expect(T.Int()).value
-            if idx < 0 or idx >= len(arr.value):
-                raise Error.OutOfBounds(rhs)
-            return arr.value[idx]
-        if isinstance(lhs.type, T.Map):
-            mp = lhs.eval(env)
-            assert isinstance(mp, V.Map)
-            assert isinstance(mp.type, T.Map)
-            assert mp.type.item_type is not None
-            assert isinstance(mp.value, list)
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
+        assert len(expr.arguments) == 2 and len(arguments) == 2
+        lhs = arguments[0]
+        rhs = arguments[1]
+        if isinstance(lhs, V.Array):
+            assert isinstance(rhs, V.Int)
+            if rhs.value < 0 or rhs.value >= len(lhs.value):
+                raise Error.OutOfBounds(expr.arguments[1])
+            return lhs.value[rhs.value]
+        if isinstance(lhs, V.Map):
+            mty = expr.arguments[0].type
+            assert isinstance(mty, T.Map)
+            key = rhs.coerce(mty.item_type[0])
             ans = None
-            key = rhs.eval(env).expect(mp.type.item_type[0])
-            for k, v in mp.value:
-                if key == k:
-                    ans = v.expect(mp.type.item_type[1])
+            for k, v in lhs.value:
+                if rhs == k:
+                    ans = v
             if ans is None:
-                raise Error.OutOfBounds(rhs)  # TODO: KeyNotFound
+                raise Error.OutOfBounds(expr.arguments[1])  # TODO: KeyNotFound
             return ans
         assert False
 
@@ -225,11 +225,11 @@ class _And(Function):
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to &&")
         return T.Boolean()
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        lhs = expr.arguments[0].eval(env).expect(T.Boolean()).value
+    def __call__(self, expr: E.Apply, env: Env.Values, stdlib: Base) -> V.Base:
+        lhs = expr.arguments[0].eval(env, stdlib=stdlib).expect(T.Boolean()).value
         if not lhs:
             return V.Boolean(False)
-        return expr.arguments[1].eval(env).expect(T.Boolean())
+        return expr.arguments[1].eval(env, stdlib=stdlib).expect(T.Boolean())
 
 
 class _Or(Function):
@@ -243,14 +243,14 @@ class _Or(Function):
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to ||")
         return T.Boolean()
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        lhs = expr.arguments[0].eval(env).expect(T.Boolean()).value
+    def __call__(self, expr: E.Apply, env: Env.Values, stdlib: Base) -> V.Base:
+        lhs = expr.arguments[0].eval(env, stdlib=stdlib).expect(T.Boolean()).value
         if lhs:
             return V.Boolean(True)
-        return expr.arguments[1].eval(env).expect(T.Boolean())
+        return expr.arguments[1].eval(env, stdlib=stdlib).expect(T.Boolean())
 
 
-class _ArithmeticOperator(Function):
+class _ArithmeticOperator(EagerFunction):
     # arithmetic infix operators
     # operands may be Int or Float; return Float iff either operand is Float
 
@@ -277,13 +277,10 @@ class _ArithmeticOperator(Function):
             ) from None
         return rt
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         ans_type = self.infer_type(expr)
         try:
-            ans = self.op(
-                expr.arguments[0].eval(env).coerce(ans_type).value,
-                expr.arguments[1].eval(env).coerce(ans_type).value,
-            )
+            ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
         except ZeroDivisionError:
             # TODO: different runtime error?
             raise Error.IncompatibleOperand(expr.arguments[1], "Division by zero") from None
@@ -318,20 +315,19 @@ class _AddOperator(_ArithmeticOperator):
             )
         return T.String()
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         ans_type = self.infer_type(expr)
         if not isinstance(ans_type, T.String):
-            return super().__call__(expr, env)
-        # TODO: return missing if either operand is missing
+            return super()._call_eager(expr, arguments)
+        # TODO: in a command interpolation, return missing if either operand is missing
         ans = self.op(
-            str(expr.arguments[0].eval(env).coerce(T.String()).value),
-            str(expr.arguments[1].eval(env).coerce(T.String()).value),
+            str(arguments[0].coerce(T.String()).value), str(arguments[1].coerce(T.String()).value)
         )
         assert isinstance(ans, str)
         return V.String(ans)
 
 
-class _ComparisonOperator(Function):
+class _ComparisonOperator(EagerFunction):
     # Comparison operators can compare any two operands of the same type.
     # Furthermore, given one Int and one Float, coerces the Int to Float for
     # comparison.
@@ -377,14 +373,12 @@ class _ComparisonOperator(Function):
             )
         return T.Boolean()
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
-        assert len(expr.arguments) == 2
-        return V.Boolean(
-            self.op(expr.arguments[0].eval(env).value, expr.arguments[1].eval(env).value)
-        )
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
+        assert len(arguments) == 2
+        return V.Boolean(self.op(arguments[0].value, arguments[1].value))
 
 
-class _Size(Function):
+class _Size(EagerFunction):
     # size(): first argument can be File? or Array[File?]
 
     def infer_type(self, expr: E.Apply) -> T.Base:
@@ -411,11 +405,11 @@ class _Size(Function):
             raise Error.WrongArity(expr, 2)
         return T.Float()
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         raise NotImplementedError()
 
 
-class _SelectFirst(Function):
+class _SelectFirst(EagerFunction):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
@@ -432,11 +426,11 @@ class _SelectFirst(Function):
         assert isinstance(ty, T.Base)
         return ty.copy(optional=False)
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         raise NotImplementedError()
 
 
-class _SelectAll(Function):
+class _SelectAll(EagerFunction):
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
@@ -453,11 +447,11 @@ class _SelectAll(Function):
         assert isinstance(ty, T.Base)
         return T.Array(ty.copy(optional=False))
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         raise NotImplementedError()
 
 
-class _Zip(Function):
+class _Zip(EagerFunction):
     # 'a array -> 'b array -> ('a,'b) array
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 2:
@@ -479,11 +473,11 @@ class _Zip(Function):
             nonempty=(arg0ty.nonempty or arg1ty.nonempty),
         )
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         raise NotImplementedError()
 
 
-class _Flatten(Function):
+class _Flatten(EagerFunction):
     # t array array -> t array
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
@@ -499,11 +493,11 @@ class _Flatten(Function):
             )
         return T.Array(expr.arguments[0].type.item_type.item_type)
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         raise NotImplementedError()
 
 
-class _Transpose(Function):
+class _Transpose(EagerFunction):
     # t array array -> t array array
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 1:
@@ -519,11 +513,11 @@ class _Transpose(Function):
             )
         return expr.arguments[0].type
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         raise NotImplementedError()
 
 
-class _Range(Function):
+class _Range(EagerFunction):
     # int -> int array
     # with special case: if the argument is a positive integer literal or
     # length(a_nonempty_array), then we can say the returned array is nonempty.
@@ -542,11 +536,11 @@ class _Range(Function):
                 nonempty = True
         return T.Array(T.Int(), nonempty=nonempty)
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         raise NotImplementedError()
 
 
-class _Prefix(Function):
+class _Prefix(EagerFunction):
     # string -> t array -> string array
     # if input array is nonempty then so is output
 
@@ -562,5 +556,5 @@ class _Prefix(Function):
             ),
         )
 
-    def __call__(self, expr: E.Apply, env: Env.Values) -> V.Base:
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         raise NotImplementedError()

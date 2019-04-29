@@ -851,6 +851,7 @@ class Apply(Base):
         global _base_stdlib
         if not _base_stdlib:
             _base_stdlib = StdLibBase()
-        f = getattr(stdlib or _base_stdlib, self.function_name, None)
+        stdlib = stdlib or _base_stdlib
+        f = getattr(stdlib, self.function_name, None)
         assert isinstance(f, StdLibFunction)
-        return f(self, env)
+        return f(self, env, stdlib)
