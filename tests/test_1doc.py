@@ -2,57 +2,58 @@ import unittest, inspect, tempfile, os, pickle
 from typing import Optional
 from .context import WDL
 
+
 class TestTasks(unittest.TestCase):
     def test_wc(self):
         variants = [
-        """
-        task wc {
-            input {
-                String in
+            """
+            task wc {
+                input {
+                    String in
+                }
+                command {
+                    echo "~{in}" | wc
+                }
+                output {
+                    String ans = stdout()
+                }
             }
-            command {
-                echo "~{in}" | wc
+            """,
+            """
+            task wc {
+                input {
+                    String in
+                }
+                command {
+                    echo "${in}" | wc
+                    echo "$USER" > /dev/null
+                    echo "$(env)" >> /dev/null
+                }
+                output {
+                    String ans = stdout()
+                }
             }
-            output {
-                String ans = stdout()
+            """,
+            """
+            #
+            task wc {
+                # comment
+                input {
+                    String in
+                }
+                String d = in + "_foo"
+                command <<<
+                    echo "~{in}" | wc
+                    echo "$USER" > /dev/null
+                    echo "$(env)" >> /dev/null
+                    echo "${HOME}" >> /dev/null
+                >>> #
+                # comment
+                output { #comment
+                    String ans = stdout()
+                }
             }
-        }
-        """,
-        """
-        task wc {
-            input {
-                String in
-            }
-            command {
-                echo "${in}" | wc
-                echo "$USER" > /dev/null
-                echo "$(env)" >> /dev/null
-            }
-            output {
-                String ans = stdout()
-            }
-        }
-        """,
-        """
-        #
-        task wc {
-            # comment
-            input {
-                String in
-            }
-            String d = in + "_foo"
-            command <<<
-                echo "~{in}" | wc
-                echo "$USER" > /dev/null
-                echo "$(env)" >> /dev/null
-                echo "${HOME}" >> /dev/null
-            >>> #
-            # comment
-            output { #comment
-                String ans = stdout()
-            }
-        }
-        """]
+            """]
         for task_str in variants:
             task = WDL.parse_tasks(task_str)[0]
             self.assertEqual(len(task.inputs), 1)
@@ -68,7 +69,8 @@ class TestTasks(unittest.TestCase):
 
             task.typecheck()
 
-            self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'in', WDL.Value.String("hello"))).value, 'hello')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'in', WDL.Value.String("hello"))).value,
+                             'hello')
 
             self.assertFalse(task.command.parts[0].strip().startswith("{"))
             self.assertFalse(task.command.parts[0].strip().startswith("<<<"))
@@ -395,7 +397,7 @@ task compare_md5sum {
 
 class TestTypes(unittest.TestCase):
     def test_parser(self):
-        def check(t,v):
+        def check(t, v):
             doc_txt = r"""
             workflow contrived {{
                 {t} x
@@ -409,6 +411,7 @@ class TestTypes(unittest.TestCase):
             self.assertEqual(str(doc.workflow.elements[0].type), t)
             self.assertEqual(doc.workflow.elements[0].type.optional, t.endswith("?"))
             self.assertEqual(str(doc.workflow.effective_outputs[0].rhs), t)
+
         for t in ["Int", "Int?",
                   "Array[Int]", "Array[Int]?", "Array[Int]+?", "Array[Int?]+?",
                   "Map[String,Int]", "Map[String,Array[Float?]+]?",
@@ -417,19 +420,21 @@ class TestTypes(unittest.TestCase):
             check(t, "1.0")
 
     def test_invalid(self):
-        def check(t,v):
+        def check(t, v):
             doc_txt = r"""
             workflow contrived {{
                 {t} x
             }}
             """.format(t=t)
             WDL.parse_document(doc_txt, v)
+
         for t in ["Int+", "Array?+", "Array[Int,Float]", "Map[String]", "Map[Int,Int,Int]",
                   "Pair[Int]", "Pair[Float,Float,Float]", "Array[Pair[Int]?]+",
                   "Bogus", "bogus?"]:
             with self.assertRaises((WDL.Error.InvalidType, WDL.Error.SyntaxError)):
-                check(t,"draft-2")
-                check(t,"1.0")
+                check(t, "draft-2")
+                check(t, "1.0")
+
 
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
@@ -1246,6 +1251,7 @@ class TestDoc(unittest.TestCase):
         except WDL.Error.MultipleValidationErrors as multi:
             self.assertEqual(len(multi.exceptions), 2)
 
+
 class TestCycleDetection(unittest.TestCase):
     def test_task(self):
         doc = r"""
@@ -1364,6 +1370,7 @@ class TestCycleDetection(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
+
 
 class TestStruct(unittest.TestCase):
     def test_parser(self):
@@ -1585,6 +1592,25 @@ class TestStruct(unittest.TestCase):
         doc = r"""
         version 1.0
 
+        struct Person {
+            String name
+            Int age
+            Array[Pair[Int,Car]] cars
+            Pair[Int,Int] birthday
+        }
+
+        struct Car {
+            String make
+            String model
+            Int year
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        doc = r"""
+        version 1.0
+
         workflow UsePerson {
             Person? p
             Int age = p.age
@@ -1730,7 +1756,7 @@ class TestStruct(unittest.TestCase):
         import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl"
         """
         docfn = tempfile.mktemp(".wdl")
-        with open(docfn,"w") as outfile:
+        with open(docfn, "w") as outfile:
             outfile.write(doc)
         doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
 
@@ -1742,7 +1768,7 @@ class TestStruct(unittest.TestCase):
             Int bogus
         }
         """
-        with open(docfn,"w") as outfile:
+        with open(docfn, "w") as outfile:
             outfile.write(doc)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
@@ -1755,7 +1781,7 @@ class TestStruct(unittest.TestCase):
             Int bogus
         }
         """
-        with open(docfn,"w") as outfile:
+        with open(docfn, "w") as outfile:
             outfile.write(doc)
         doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
 
@@ -1763,7 +1789,7 @@ class TestStruct(unittest.TestCase):
         version 1.0
         import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias PapiSettings as SampleAndUnmappedBams
         """
-        with open(docfn,"w") as outfile:
+        with open(docfn, "w") as outfile:
             outfile.write(doc)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
@@ -1776,7 +1802,7 @@ class TestStruct(unittest.TestCase):
             String name
         }
         """
-        with open(docfn,"w") as outfile:
+        with open(docfn, "w") as outfile:
             outfile.write(doc)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
@@ -1785,7 +1811,7 @@ class TestStruct(unittest.TestCase):
         version 1.0
         import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias PapiSettings as PapiSettings
         """
-        with open(docfn,"w") as outfile:
+        with open(docfn, "w") as outfile:
             outfile.write(doc)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
@@ -1794,7 +1820,7 @@ class TestStruct(unittest.TestCase):
         version 1.0
         import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl" alias Bogus as AlsoBogus
         """
-        with open(docfn,"w") as outfile:
+        with open(docfn, "w") as outfile:
             outfile.write(doc)
         with self.assertRaises(WDL.Error.NoSuchMember):
             doc = WDL.load(docfn, path=[os.path.dirname(__file__)])
@@ -1847,7 +1873,7 @@ class TestStruct(unittest.TestCase):
         assert unpickled_task.inputs[0].type.members
         self.assertEqual(unpickled_task.inputs[0].pos.line, 11)
         pickled_doc = pickle.dumps(doc)
-        self.assertLess(float(len(pickled_task))/len(pickled_doc), 0.6)
+        self.assertLess(float(len(pickled_task)) / len(pickled_doc), 0.6)
 
         doc = r"""
         version 1.0

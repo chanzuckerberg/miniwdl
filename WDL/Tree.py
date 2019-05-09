@@ -1480,6 +1480,8 @@ def _initialize_struct_typedefs(struct_typedefs: Env.StructTypeDefs):
         for member_ty in b.rhs.members.values():
             if isinstance(member_ty, T.StructInstance):
                 _resolve_struct_typedef(b.rhs.pos, member_ty, struct_typedefs)
+            else:
+                _resolve_struct_typedefs(b.rhs.pos, member_ty, struct_typedefs)
     # make a dummy allusion to each StructTypeDef.type_id, which will detect any
     # circular definitions (see Type._struct_type_id)
     for b in struct_typedefs:
