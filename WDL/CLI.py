@@ -66,7 +66,7 @@ class PipVersionAction(Action):
             print(pkg_resources.get_distribution("miniwdl"))
         except pkg_resources.DistributionNotFound as exc:
             print("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
-        print("Cromwell-Version: " + CROMWELL_VERSION)
+        print("Cromwell version: " + CROMWELL_VERSION)
         sys.exit(0)
 
 

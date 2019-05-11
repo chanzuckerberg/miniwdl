@@ -1,3 +1,4 @@
 # Packages needed for miniwdl to run in common use. Additional packages needed
 # for miniwdl development are listed in requirements.dev.txt.
-lark-parser==0.7.0
+setuptools
+lark-parser==0.7.1

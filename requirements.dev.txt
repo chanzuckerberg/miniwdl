@@ -9,6 +9,5 @@ sphinx_rtd_theme
 coverage
 python-coveralls
 wheel
-setuptools
 pbr
 twine
