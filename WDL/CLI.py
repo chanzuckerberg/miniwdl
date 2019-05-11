@@ -2,6 +2,7 @@
 miniwdl command-line interface
 """
 import sys
+import pkg_resources
 import os
 import subprocess
 import tempfile
@@ -62,9 +63,9 @@ def main(args=None):
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
         try:
-            subprocess.check_call(["pip3", "show", "miniwdl"])
-        except subprocess.CalledProcessError:
-            print("miniwdl version unknown (not installed by pip3)")
+            print(pkg_resources.get_distribution("miniwdl"))
+        except pkg_resources.DistributionNotFound as exc:
+            print("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
         print("Cromwell-Version: " + CROMWELL_VERSION)
         sys.exit(0)
 
