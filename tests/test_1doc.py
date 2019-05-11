@@ -1724,6 +1724,28 @@ class TestStruct(unittest.TestCase):
         with self.assertRaises(WDL.Error.InvalidType):
             WDL.parse_document(doc)
 
+        # Test struct members with compound types including other structs
+        # (issue #127)
+        doc = r"""
+        version 1.0
+
+        workflow UsePerson {
+            Person p
+        }
+
+        struct Person {
+            String name
+            Array[Pair[Car,Int]] cars
+        }
+
+        struct Car {
+            String make
+            String model
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
     def test_import(self):
         doc = r"""
         version 1.0
