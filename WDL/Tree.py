@@ -1463,30 +1463,33 @@ def _resolve_struct_typedef(
 
 
 def _resolve_struct_typedefs(
-    pos: Err.SourcePosition, ty: T.Base, struct_typedefs: Env.StructTypeDefs
+    pos: Err.SourcePosition,
+    ty: T.Base,
+    struct_typedefs: Env.StructTypeDefs,
+    members_dict_ids: Optional[List[int]] = None,
 ):
+    members_dict_ids = members_dict_ids or []
     # resolve all StructInstance within a potentially compound type
     if isinstance(ty, T.StructInstance):
         _resolve_struct_typedef(pos, ty, struct_typedefs)
+        if id(ty.members) in members_dict_ids:
+            # circular struct types!
+            raise StopIteration
+        members_dict_ids = [id(ty.members)] + (members_dict_ids or [])
     for p in ty.parameters:
-        _resolve_struct_typedefs(pos, p, struct_typedefs)
+        _resolve_struct_typedefs(pos, p, struct_typedefs, members_dict_ids=members_dict_ids)
 
 
 def _initialize_struct_typedefs(struct_typedefs: Env.StructTypeDefs):
     # bootstrap struct typechecking: resolve all StructInstance members of the
-    # struct types
+    # struct types; also detect & error circular struct definitions
     for b in struct_typedefs:
         assert isinstance(b, Env.Binding)
         for member_ty in b.rhs.members.values():
-            if isinstance(member_ty, T.StructInstance):
-                _resolve_struct_typedef(b.rhs.pos, member_ty, struct_typedefs)
-    # make a dummy allusion to each StructTypeDef.type_id, which will detect any
-    # circular definitions (see Type._struct_type_id)
-    for b in struct_typedefs:
-        try:
-            b.rhs.type_id
-        except StopIteration:
-            raise Err.CircularDependencies(b.rhs)
+            try:
+                _resolve_struct_typedefs(b.rhs.pos, member_ty, struct_typedefs)
+            except StopIteration:
+                raise Err.CircularDependencies(b.rhs)
 
 
 def _add_struct_instance_to_type_env(

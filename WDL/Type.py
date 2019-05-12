@@ -387,18 +387,14 @@ class StructInstance(Base):
         return self.members.values()
 
 
-def _struct_type_id(members: Dict[str, Base], members_dict_ids: Optional[List[int]] = None) -> str:
+def _struct_type_id(members: Dict[str, Base]) -> str:
     # generates a content hash of the struct type definition, used to recognize
     # equivalent struct types going by different aliases
-    members_dict_ids = members_dict_ids or []
-    if id(members) in members_dict_ids:  # circular struct definitions!
-        raise StopIteration
-    members_dict_ids = [id(members)] + members_dict_ids
     ans = []
     for (name, ty) in sorted(members.items()):
         if isinstance(ty, StructInstance):
             assert ty.members
-            ty = _struct_type_id(ty.members, members_dict_ids) + ("?" if ty.optional else "")
+            ty = _struct_type_id(ty.members) + ("?" if ty.optional else "")
         else:
             ty = str(ty)
         ans.append(name + " : " + ty)
