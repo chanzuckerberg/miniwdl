@@ -66,7 +66,8 @@ output_decls: "output" "{" bound_decl* "}"
                | meta_section
                | runtime_section
                | any_decl+ -> noninput_decls
-?task_sections2: output_decls
+?task_sections2: input_decls
+               | output_decls
                | meta_section
                | runtime_section
 task: "task" CNAME "{" task_sections1* command task_sections2* "}"
