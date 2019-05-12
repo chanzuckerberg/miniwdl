@@ -60,12 +60,14 @@ runtime_kv: CNAME ":" expr
 
 // WDL tasks
 input_decls: "input" "{" any_decl* "}"
+output_decls: "output" "{" bound_decl* "}"
 ?task_sections1: input_decls
+               | output_decls
                | meta_section
                | runtime_section
                | any_decl+ -> noninput_decls
-output_decls: "output" "{" bound_decl* "}"
-?task_sections2: output_decls
+?task_sections2: input_decls
+               | output_decls
                | meta_section
                | runtime_section
 task: "task" CNAME "{" task_sections1* command task_sections2* "}"

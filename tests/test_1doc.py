@@ -232,6 +232,39 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(False))).value, 'false')
         self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Null())).value, 'foo')
 
+        task = WDL.parse_tasks("""
+            task wc {
+                input {
+                    Boolean? b
+                }
+                output {
+                    String ans = stdout()
+                }
+                command {
+                    echo "${default='foo' b}"
+                }
+            }
+            """)[0]
+        task.typecheck()
+
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_tasks("""
+                task wc {
+                    input {
+                        Boolean? b
+                    }
+                    output {
+                        String ans = stdout()
+                    }
+                    command {
+                        echo "${default='foo' b}"
+                    }
+                    output {
+                        String ans2 = stdout()
+                    }
+                }
+                """)[0]
+
     def test_meta(self):
         task = WDL.parse_tasks("""
         task wc {
