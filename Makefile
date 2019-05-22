@@ -38,6 +38,7 @@ sopretty:
 # run tests in a docker image
 docker:
 	docker build -t miniwdl .
+	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp miniwdl
 
 # push to pypi test
 pypi_test: bdist
