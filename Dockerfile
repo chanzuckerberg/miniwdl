@@ -14,4 +14,4 @@ WORKDIR /miniwdl
 ENV PYTHONPATH $PYTHONPATH:/root/.local/lib/python3.6
 ENV PATH $PATH:/root/.local/bin
 # will trigger typechecking & tests:
-CMD make && make doc
+CMD make

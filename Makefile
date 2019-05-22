@@ -35,10 +35,10 @@ sopretty:
 	$(MAKE) pretty
 	@git diff --quiet || (echo "ERROR: source files were modified by black; please fix up this commit with 'make pretty'"; exit 1)
 
-# run tests in a docker image
+# build docker image with current source tree, poised to run tests e.g.:
+#   docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp miniwdl
 docker:
 	docker build -t miniwdl .
-	docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp miniwdl
 
 # push to pypi test
 pypi_test: bdist
