@@ -386,6 +386,7 @@ class TestValue(unittest.TestCase):
             (WDL.Type.Float(), 3.14),
             (WDL.Type.String(), 'CNN is working frantically to find their "source."'),
             (WDL.Type.String(optional=True), None),
+            (WDL.Type.File(), '/tmp/stdout.txt'),
             (WDL.Type.Array(WDL.Type.String()), ["apple", "orange"]),
             (WDL.Type.Array(WDL.Type.String(optional=True)), ["apple", "orange", None]),
             (WDL.Type.Map((WDL.Type.String(), WDL.Type.Int())), {"cats": 42, "dogs": 99}),
