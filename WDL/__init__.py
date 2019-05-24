@@ -3,8 +3,9 @@ import os
 import errno
 import inspect
 from typing import List, Optional, Callable
-from WDL import _parser, Error, Type, Value, Env, Expr, Tree, Walker, StdLib
+from WDL import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker, StdLib
 from WDL.Tree import Decl, StructTypeDef, Task, Call, Scatter, Conditional, Workflow, Document
+import WDL.runtime
 
 SourcePosition = Error.SourcePosition
 SourceNode = Error.SourceNode

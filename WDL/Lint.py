@@ -754,7 +754,7 @@ class CommandShellCheck(Linter):
             else:
                 assert isinstance(part, str)
                 command.append(part)
-        col_offset, command = _strip_leading_whitespace("".join(command))
+        col_offset, command = WDL._util.strip_leading_whitespace("".join(command))
 
         # write out a temp file with this fake script
         tfn = os.path.join(self._tmpdir, obj.name)
@@ -828,29 +828,6 @@ def _shellcheck_dummy_value(ty, pos):
     # https://github.com/HumanCellAtlas/skylab/blob/a99b8ddffdb3c0ebdea1a8905d28f01a4d365af5/pipelines/10x/count/count.wdl#L325
     # https://github.com/openwdl/wdl/blob/master/versions/draft-2/SPEC.md#map-serialization
     return "x" * desired_length
-
-
-def _strip_leading_whitespace(txt):
-    lines = txt.split("\n")
-
-    to_strip = None
-    for line in lines:
-        lsl = len(line.lstrip())
-        if lsl:
-            c = len(line) - lsl
-            assert c >= 0
-            if to_strip is None or to_strip > c:
-                to_strip = c
-            # TODO: do something about mixed tabs & spaces
-
-    if not to_strip:
-        return (0, txt)
-
-    for i, line_i in enumerate(lines):
-        if line_i.lstrip():
-            lines[i] = line_i[to_strip:]
-
-    return (to_strip, "\n".join(lines))
 
 
 @a_linter

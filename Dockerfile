@@ -11,8 +11,7 @@ RUN bash -o pipefail -c "pip3 install --user -r <(cat /miniwdl/requirements.txt 
 # minor source change.
 ADD . /miniwdl
 WORKDIR /miniwdl
-# Run the default make rule, which will trigger typechecking and tests.
 ENV PYTHONPATH $PYTHONPATH:/root/.local/lib/python3.6
 ENV PATH $PATH:/root/.local/bin
-RUN make && make doc
+# will trigger typechecking & tests:
 CMD make
