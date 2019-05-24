@@ -13,9 +13,6 @@ from typing import NamedTuple, Tuple, List, Dict, Optional, Iterable
 import WDL
 
 
-# InputError
-
-
 class CommandError(WDL.Error.RuntimeError):
     pass
 
@@ -446,29 +443,37 @@ def _eval_task_inputs(
         posix_inputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs))
     )
 
-    # Collect task declarations requiring evaluation.
-    decls_to_eval = {}
+    # initialize value environment with the inputs
+    container_env = []
+    for b in container_inputs:
+        assert isinstance(b, WDL.Env.Binding)
+        v = b.rhs
+        assert isinstance(v, WDL.Value.Base)
+        container_env = WDL.Env.bind(container_env, [], b.name, v)
+        vj = json.dumps(v.json)
+        logger.info("input {} -> {}".format(b.name, vj if len(vj) < 4096 else "(large)"))
+
+    # collect remaining declarations requiring evaluation.
+    decls_to_eval = []
     for decl in (task.inputs or []) + (task.postinputs or []):
         try:
-            WDL.Env.resolve(container_inputs, [], decl.name)
+            WDL.Env.resolve(container_env, [], decl.name)
         except KeyError:
-            decls_to_eval[decl.name] = decl
+            decls_to_eval.append(decl)
 
     # TODO: topsort decls_to_eval according to internal dependencies
-
-    container_env = container_inputs
-    for b in container_env:
-        assert isinstance(b, WDL.Env.Binding)
-        logger.info("input {} -> {}".format(b.name, json.dumps(b.rhs.json)))
 
     # evaluate each declaration in order
     # note: the write_* functions call container.add_files as a side-effect
     stdlib = container.stdlib_input()
-    for decl in decls_to_eval.values():
+    for decl in decls_to_eval:
         v = WDL.Value.Null()
         if decl.expr:
             v = decl.expr.eval(container_env, stdlib=stdlib)
-        logger.info("eval {} -> {}".format(decl.name, json.dumps(v.json)))
+        else:
+            assert decl.type.optional
+        vj = json.dumps(v.json)
+        logger.info("eval {} -> {}".format(decl.name, vj if len(vj) < 4096 else "(large)"))
         container_env = WDL.Env.bind(container_env, [], decl.name, v)
 
     return container_env

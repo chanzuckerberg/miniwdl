@@ -300,3 +300,49 @@ class TestTaskRunner(unittest.TestCase):
             self.assertEqual(infile.read(), "Alyssa,")
         with open(friends.value[1].value) as infile:
             self.assertEqual(infile.read(), "Ben,")
+
+    def test_optional_inputs(self):
+        code = R"""
+        version 1.0
+        task defaults {
+            input {
+                String s0
+                String s1 = "ben"
+                String? s2
+            }
+            command {
+                echo "~{s0}"
+                echo "~{s1}"
+                echo "~{if (defined(s2)) then s2 else 'None'}"
+            }
+            output {
+                String out = read_string(stdout())
+            }
+        }
+        """
+        outputs = self._test_task(code, WDL.Env.bind([], [], "s0", WDL.Value.String("alyssa")))
+        self.assertEqual(WDL.Env.resolve(outputs, [], "out").value, "alyssa\nben\nNone\n")
+
+        outputs = self._test_task(code,
+            WDL.Env.bind(WDL.Env.bind([], [], "s1", WDL.Value.String("cy")),
+                            [], "s0", WDL.Value.String("alyssa")))
+        self.assertEqual(WDL.Env.resolve(outputs, [], "out").value, "alyssa\ncy\nNone\n")
+
+        outputs = self._test_task(code,
+            WDL.Env.bind(WDL.Env.bind([], [], "s2", WDL.Value.String("mallory")),
+                            [], "s0", WDL.Value.String("alyssa")))
+        self.assertEqual(WDL.Env.resolve(outputs, [], "out").value, "alyssa\nben\nmallory\n")
+
+        # FIXME: need some restrictions on what File inputs can default to
+        self._test_task(R"""
+        version 1.0
+        task hacker {
+            File host_passwords = "/etc/passwd"
+            command {
+                >&2 cat "~{host_passwords}"
+            }
+            output {
+                String owned = read_string(stderr())
+            }
+        }
+        """)
