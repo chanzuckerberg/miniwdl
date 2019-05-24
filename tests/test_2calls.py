@@ -291,6 +291,34 @@ class TestCalls(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
+        task_no_outputs = r"""
+        task p {
+            Array[Int]+ x
+            command <<<
+                echo "~{sep=', ' x}"
+            >>>
+        }
+        """
+        txt = task_no_outputs + r"""
+        workflow contrived {
+            call p
+            call p
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        txt = task_no_outputs + r"""
+        workflow contrived {
+            call p as q
+            call p as q
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
     def test_if_defined(self):
         # test how we typecheck a construct like
         #   if defined(x) then EXPR_WITH_x else SOME_DEFAULT

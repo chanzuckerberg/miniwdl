@@ -373,7 +373,7 @@ class Call(SourceNode):
         for _, ex in self.inputs.items():
             yield ex
 
-    def resolve(self, doc: TVDocument) -> None:
+    def resolve(self, doc: TVDocument, call_names: Optional[Set[str]] = None) -> None:
         # Set self.callee to the Task/Workflow being called. Use exactly once
         # prior to add_to_type_env() or typecheck_input()
         if self.callee:
@@ -400,6 +400,16 @@ class Call(SourceNode):
         if self.callee is None:
             raise Err.NoSuchTask(self, ".".join(self.callee_id))
         assert isinstance(self.callee, (Task, Workflow))
+        # If given call_names, check for name collisions
+        if call_names is not None:
+            if self.name in call_names:
+                raise Err.MultipleDefinitions(
+                    self,
+                    "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
+                        self.name, self.callee.name
+                    ),
+                )
+            call_names.add(self.name)
 
     def add_to_type_env(
         self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
@@ -407,16 +417,6 @@ class Call(SourceNode):
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
-        try:
-            Env.resolve_namespace(type_env, [self.name])
-            raise Err.MultipleDefinitions(
-                self,
-                "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
-                    self.name, self.callee.name
-                ),
-            )
-        except KeyError:
-            pass
         try:
             Env.resolve(type_env, [], self.name)
             raise Err.MultipleDefinitions(self, "Value/call name collision on " + self.name)
@@ -804,7 +804,7 @@ class Workflow(SourceNode):
     def typecheck(self, doc: TVDocument, check_quant: bool) -> None:
         assert doc.workflow is self
         assert self._type_env is None
-        # 1. resolve all calls
+        # 1. resolve all calls and check for call name collisions
         _resolve_calls(doc)
         # 2. build type environments in the workflow and each scatter &
         #    conditional section therein
@@ -1079,12 +1079,13 @@ def _decls_and_calls(
 
 def _resolve_calls(doc: Document) -> None:
     # Resolve all calls in the workflow (descending into scatter & conditional
-    # sections)
+    # sections). Also check for call name collisions
     if doc.workflow:
         with Err.multi_context() as errors:
+            call_names = set()
             for c in _decls_and_calls(doc.workflow):
                 if isinstance(c, Call):
-                    errors.try1(lambda c=c: c.resolve(doc))
+                    errors.try1(lambda c=c: c.resolve(doc, call_names))
 
 
 def _build_workflow_type_env(
