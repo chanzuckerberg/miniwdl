@@ -736,7 +736,7 @@ class Workflow(SourceNode):
             for decl in self.inputs:
                 ans = Env.bind(ans, [], decl.name, decl)
 
-        for elt in _decls_and_calls(self):
+        for elt in _decls_and_calls(self, exclude_outputs=True):
             if isinstance(elt, Decl):
                 if self.inputs is None:
                     ans = Env.bind(ans, [], elt.name, elt)
@@ -760,7 +760,7 @@ class Workflow(SourceNode):
                 if decl.expr is None and decl.type.optional is False:
                     ans = Env.bind(ans, [], decl.name, decl)
 
-        for elt in _decls_and_calls(self):
+        for elt in _decls_and_calls(self, exclude_outputs=True):
             if isinstance(elt, Decl):
                 if self.inputs is None and elt.expr is None and elt.type.optional is False:
                     ans = Env.bind(ans, [], elt.name, elt)
@@ -1060,11 +1060,15 @@ def load(
 
 
 def _decls_and_calls(
-    element: Union[Workflow, Scatter, Conditional]
+    element: Union[Workflow, Scatter, Conditional], exclude_outputs: bool = True
 ) -> Generator[Union[Decl, Call], None, None]:
     # Yield each Decl and Call in the workflow, including those nested within
     # scatter/conditional sections
-    for ch in element.children:
+    children = element.children
+    if isinstance(element, Workflow) and exclude_outputs:
+        children = element.inputs if element.inputs else []
+        children = children + element.elements
+    for ch in children:
         if isinstance(ch, (Decl, Call)):
             yield ch
         elif isinstance(ch, (Scatter, Conditional)):

@@ -1279,6 +1279,22 @@ class TestDoc(unittest.TestCase):
         except WDL.Error.MultipleValidationErrors as multi:
             self.assertEqual(len(multi.exceptions), 2)
 
+    def test_issue135_workflow_available_inputs(self):
+        # Workflow.available_inputs should not include declarations in the
+        # output section
+        doc = r"""
+        workflow a {
+            File in
+            output {
+                File out = in
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertEqual(len(doc.workflow.available_inputs), 1)
+        self.assertEqual(doc.workflow.available_inputs[0].name, "in")
+
 class TestCycleDetection(unittest.TestCase):
     def test_task(self):
         doc = r"""
