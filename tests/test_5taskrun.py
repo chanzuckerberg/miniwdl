@@ -57,6 +57,23 @@ class TestTaskRunner(unittest.TestCase):
         """)
         self.assertTrue("18.10" in WDL.Env.resolve(outputs, [], "issue").value)
 
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            String version
+            command <<<
+                cat /etc/issue
+            >>>
+            runtime {
+                docker: "ubuntu:" + version
+            }
+            output {
+                String issue = read_string(stdout())
+            }
+        }
+        """, WDL.Env.bind([], [], "version", WDL.Value.String("18.10")))
+        self.assertTrue("18.10" in WDL.Env.resolve(outputs, [], "issue").value)
+
         self._test_task(R"""
         version 1.0
         task hello {
@@ -142,7 +159,19 @@ class TestTaskRunner(unittest.TestCase):
         with open(WDL.Env.resolve(outputs, [], "message").value) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
 
-        # attempt to output an existent but illegal file
+    def test_weird_output_files(self):
+        # nonexistent output file
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            command {}
+            output {
+                File issue = "bogus.txt"
+            }
+        }
+        """, expected_exception=WDL.runtime.task.OutputError)
+
+        # attempt to output file which exists but we're not allowed to output
         self._test_task(R"""
         version 1.0
         task hello {
@@ -152,6 +181,54 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.runtime.task.OutputError)
+
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            String trick = "/etc"
+            command {}
+            output {
+                File issue = trick + "/issue"
+            }
+        }
+        """, expected_exception=WDL.runtime.task.OutputError)
+
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                touch ../nono
+            }
+            output {
+                File issue = "../nono"
+            }
+        }
+        """, expected_exception=WDL.runtime.task.OutputError)
+
+        # circuitously output a file using an absolute path
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                echo -n $(pwd) > my_pwd
+            }
+            output {
+                File issue = read_string("my_pwd") + "/my_pwd"
+            }
+        }
+        """)
+        with open(WDL.Env.resolve(outputs, [], "issue").value) as infile:
+            pass
+
+    def test_command_error(self):
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                exit 1
+            }
+        }
+        """, expected_exception=WDL.runtime.task.CommandError)
 
     def test_write_lines(self):
         outputs = self._test_task(R"""
@@ -188,3 +265,38 @@ class TestTaskRunner(unittest.TestCase):
             """,
             WDL.Env.bind([], [], "friends", WDL.Value.from_json(WDL.Type.Array(WDL.Type.String()), ["Alyssa", "Ben"])))
         self.assertEqual(WDL.Env.resolve(outputs, [], "messages").value, " Hello, Alyssa! Hello, Ben!")
+
+    def test_compound_files(self):
+        # tests filename mappings when Files are embedded in compound types
+        with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
+            outfile.write("Alyssa\n")
+        with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
+            outfile.write("Ben\n")
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            Array[File] files
+            command {
+                while read fn; do
+                    cat "$fn"
+                done < ~{write_lines(files)}
+                echo -n Alyssa, > alyssa.csv
+                echo -n Ben, > ben.csv
+            }
+            output {
+                File stdout = stdout()
+                Array[File] friends = ["alyssa.csv", "ben.csv"]
+            }
+        }
+        """, WDL.Env.bind([], [], "files", WDL.Value.Array(WDL.Type.Array(WDL.Type.String), [
+                WDL.Value.File(os.path.join(self._dir, "alyssa.txt")),
+                WDL.Value.File(os.path.join(self._dir, "ben.txt")),
+            ])))
+        with open(WDL.Env.resolve(outputs, [], "stdout").value) as infile:
+            self.assertEqual(infile.read(), "Alyssa\nBen\n")
+        friends = WDL.Env.resolve(outputs, [], "friends")
+        self.assertEqual(len(friends.value), 2)
+        with open(friends.value[0].value) as infile:
+            self.assertEqual(infile.read(), "Alyssa,")
+        with open(friends.value[1].value) as infile:
+            self.assertEqual(infile.read(), "Ben,")

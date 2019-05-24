@@ -394,12 +394,8 @@ def run_local_task(
         # evaluate runtime.docker
         image_tag_expr = task.runtime.get("docker", None)
         if image_tag_expr:
-            if isinstance(image_tag_expr, str):
-                container.image_tag = image_tag_expr
-            elif isinstance(image_tag_expr, WDL.Expr.Base):
-                container.image_tag = image_tag_expr.eval(posix_inputs).value
-            else:
-                assert False
+            assert isinstance(image_tag_expr, WDL.Expr.Base)
+            container.image_tag = image_tag_expr.eval(posix_inputs).value
 
         # interpolate command
         command = WDL._util.strip_leading_whitespace(
