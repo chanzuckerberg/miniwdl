@@ -20,15 +20,13 @@ This project in alpha development; interfaces are liable to change somewhat. See
 - [WDL Python library](#wdl-python-library)
   - [API documentation](#api-documentation)
 - [Contributing](#contributing)
+- [Security](#security)
 
 ## Installation
 
 ``pip3 install miniwdl``
 
-This will also install the [Lark parsing library](https://github.com/lark-parser/lark) automatically. 
-
-For development, `git clone --recursive` this repository and ``docker build -t miniwdl .`` to run miniwdl's test suite in a locally-built docker container. The [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) illustrates how to configure another environment.
-
+This will also install the [Lark parsing library](https://github.com/lark-parser/lark) and other dependencies automatically.
 
 ## Command-line tools
 
@@ -174,9 +172,26 @@ Locally, `make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to g
 
 Feedback and contributions are welcome on this repository. Please:
 
-1. Send pull requests from a dedicated branch without unrelated edits
-2. Add appropriate tests to the automatic suite
-3. Use `make pretty` to reformat the code with [black](https://github.com/ambv/black)
-4. Ensure compatibility with this project's MIT license
+1. Add appropriate tests to the automatic suite
+2. Use `make pretty` to reformat the code with [black](https://github.com/python/black)
+3. Ensure compatibility with this project's MIT license
+4. Send pull requests from a dedicated branch without unrelated edits
 
 The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker.
+
+To set up your local development environment,
+
+1. `git clone --recursive` this repository
+2. Install dependencies as illustrated in the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) (OS packages + PyPI packages listed in `requirements.txt` and `requirements.dev.txt`)
+3. Invoking user must be able to [access local Docker daemon](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user).
+
+The Makefile has a few typical scripted flows:
+
+- `make pretty` reformats the code with [black](https://github.com/python/black)
+- `make check` validates the code with [Pylint](https://www.pylint.org/) and [Pyre](https://pyre-check.org/)
+- `make` or `make test` runs the full test suite with code coverage report (takes several minutes)
+- `make qtest` runs most of the tests more quickly (by omitting some slower cases, and not tracking coverage)
+
+## Security
+
+Please disclose security issues responsibly by contacting security@chanzuckerberg.com.

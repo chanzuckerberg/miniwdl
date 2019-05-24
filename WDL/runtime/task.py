@@ -5,11 +5,11 @@ import tempfile
 import json
 import copy
 import traceback
-import docker
 from datetime import datetime
-from requests.exceptions import ReadTimeout
 from abc import ABC, abstractmethod
-from typing import NamedTuple, Tuple, List, Dict, Optional, Iterable
+from typing import Tuple, List, Dict, Optional
+from requests.exceptions import ReadTimeout
+import docker
 import WDL
 
 

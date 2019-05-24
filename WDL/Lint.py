@@ -2,7 +2,11 @@
 """
 Linting: annotate WDL AST with hygiene warning
 """
-import subprocess, tempfile, json, os, shutil
+import subprocess
+import tempfile
+import json
+import os
+import shutil
 from typing import Any, Optional, Union
 import WDL
 

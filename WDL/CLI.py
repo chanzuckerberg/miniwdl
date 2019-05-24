@@ -2,7 +2,6 @@
 miniwdl command-line interface
 """
 import sys
-import pkg_resources
 import os
 import subprocess
 import tempfile
@@ -12,6 +11,7 @@ import math
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action
+import pkg_resources
 import WDL
 import WDL.Lint
 
@@ -56,8 +56,7 @@ def main(args=None):
             )
         if args.debug:
             raise exn
-        else:
-            sys.exit(2)
+        sys.exit(2)
 
 
 class PipVersionAction(Action):
@@ -104,18 +103,18 @@ def fill_check_subparser(subparsers):
     return check_parser
 
 
-def check(uri=[], path=[], check_quant=True, shellcheck=True, **kwargs):
+def check(uri=None, path=None, check_quant=True, shellcheck=True, **kwargs):
     # Load the document (read, parse, and typecheck)
     if not shellcheck:
         WDL.Lint._shellcheck_available = False
 
-    for uri in uri:
-        doc = WDL.load(uri, path or [], check_quant=check_quant, import_uri=import_uri)
+    for uri1 in uri or []:
+        doc = WDL.load(uri1, path or [], check_quant=check_quant, import_uri=import_uri)
 
         WDL.Lint.lint(doc)
 
         # Print an outline
-        print(os.path.basename(uri))
+        print(os.path.basename(uri1))
         outline(doc, 0, show_called=(doc.workflow is not None))
 
     if shellcheck and WDL.Lint._shellcheck_available == False:

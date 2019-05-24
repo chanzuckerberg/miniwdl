@@ -7,7 +7,7 @@ Each value is represented by an instance of a Python class inheriting from
 .. inheritance-diagram:: WDL.Value
    :top-classes: WDL.Value.Base
 """
-from abc import ABC, abstractstaticmethod
+from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable
 import json
 import WDL.Type as T
