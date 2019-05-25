@@ -12,7 +12,7 @@ qtest:
 	prove -v tests/check.t
 
 check:
-	pylint -j `python -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
+	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
 	pyre \
 		--search-path stubs \
 		--typeshed ${PYTHON_PKG_BASE}/lib/pyre_check/typeshed \
