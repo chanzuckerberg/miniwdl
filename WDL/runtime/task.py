@@ -13,6 +13,8 @@ import signal
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
 from types import FrameType
+
+from pygtail import Pygtail
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
@@ -229,7 +231,8 @@ class TaskDockerContainer(TaskContainer):
         try:
             container = None
             exit_info = None
-
+            error_file = [x for x in list(volumes) if "stderr.txt" in x][0]
+            pygtail = Pygtail(error_file, full_lines=True)
             try:
                 # run container
                 logger.info("docker starting image {}".format(self.image_tag))
@@ -248,13 +251,13 @@ class TaskDockerContainer(TaskContainer):
                 logger.debug(
                     "docker container name = {}, id = {}".format(container.name, container.id)
                 )
-
                 # long-poll for container exit
                 while exit_info is None:
                     try:
+                        for line in pygtail:
+                            logger.info(f"StdError: {line}")
                         exit_info = container.wait(timeout=1)
                     except Exception as exn:
-                        # TODO: tail stderr.txt into logger
                         if self._terminate:
                             raise Terminated() from None
                         # workaround for docker-py not throwing the exception class
@@ -284,6 +287,8 @@ class TaskDockerContainer(TaskContainer):
             return exit_info["StatusCode"]
         finally:
             try:
+                for line in pygtail:
+                    logger.info(f"StdError: {line}")
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")

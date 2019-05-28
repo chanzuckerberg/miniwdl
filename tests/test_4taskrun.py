@@ -6,6 +6,7 @@ import docker
 import signal
 import time
 from .context import WDL
+from testfixtures import log_capture
 
 class TestTaskRunner(unittest.TestCase):
 
@@ -93,6 +94,68 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """, expected_exception=docker.errors.ImageNotFound)
+
+    @log_capture()
+    def test_logging_std_err(self, capture):
+        self._test_task(R"""
+        version 1.0
+        task std_err_log_check {
+            input {}
+            command <<<
+                >&2 echo "Start logging"
+                >&2 echo "0="$(date +"%s")
+                sleep 1
+                >&2 echo "1="$(date +"%s")
+                sleep 1
+                >&2 echo "2="$(date +"%s")
+                sleep 1
+                >&2 echo "3="$(date +"%s")
+                sleep 1
+                >&2 echo "4="$(date +"%s")
+                sleep 1
+                >&2 echo "End logging"
+            >>>
+            
+        }
+        """)
+
+        std_error_msgs = [record for record in capture.records if "StdError:" in record.msg]
+
+        self.assertEqual(std_error_msgs.pop(0).msg, "StdError: Start logging\n")
+        self.assertEqual(std_error_msgs.pop().msg, "StdError: End logging\n")
+        for record in std_error_msgs:
+            line_written = int(record.msg.split('=')[1].strip('\n'))
+            self.assertGreater(record.created, line_written)
+            # check line logged within 2 seconds of being written
+            self.assertGreater(line_written+2, record.created)
+
+    @log_capture()
+    def test_logging_std_err_captures_full_line(self, capture):
+        self._test_task(R"""
+                version 1.0
+                task std_err_log_check {
+                    input {}
+                    command <<<
+                        >&2 printf "Part one"
+                        sleep 2
+                        >&2 echo "Part two"
+                        >&2 echo "1="$(date +"%s")
+                        sleep 1
+                        >&2 echo "2="$(date +"%s")
+                        sleep 1
+                        >&2 echo "3="$(date +"%s")
+                        sleep 1
+                        >&2 echo "4="$(date +"%s")
+                        sleep 1
+                        >&2 echo "End logging"
+                    >>>
+
+                }
+                """)
+        std_error_msgs = [record for record in capture.records if "StdError:" in record.msg]
+
+        self.assertEqual(len(std_error_msgs), 6)
+        self.assertEqual(std_error_msgs[0].msg, "StdError: Part onePart two\n")
 
     def test_hello_blank(self):
         self._test_task(R"""

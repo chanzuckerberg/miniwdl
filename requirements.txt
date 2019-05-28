@@ -4,3 +4,4 @@ setuptools
 lark-parser==0.7.1
 docker
 argcomplete
+pygtail==0.11.0
