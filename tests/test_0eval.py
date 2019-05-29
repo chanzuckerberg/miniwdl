@@ -450,6 +450,10 @@ class TestValue(unittest.TestCase):
         rt(doc.workflow, {"s.who": "Alyssa", "s.age": 24})
         with self.assertRaises(WDL.Error.InputError):
             rt(doc.workflow, {})
+        with self.assertRaises(WDL.Error.InputError):
+            rt(doc.workflow, {".who": "a"})
+        with self.assertRaises(WDL.Error.InputError):
+            rt(doc.workflow, {"s..who": "b"})
 
         # misc functionality
         self.assertEqual(WDL.values_to_json(doc.workflow.required_inputs, ["w"]), {"w.s.who": "String"})
