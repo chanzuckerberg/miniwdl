@@ -85,7 +85,7 @@ def values_from_json(
         try:
             ty = Env.resolve(available, fqn[:-1], fqn[-1]).type
         except KeyError:
-            raise Error.InputError("unknown input/output: " + key)
+            raise Error.InputError("unknown input/output: " + key) from None
         v = Value.from_json(ty, values_json[key])
         ans = Env.bind(ans, fqn[:-1], fqn[-1], v)
     if required:
