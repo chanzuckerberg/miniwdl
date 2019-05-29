@@ -413,3 +413,50 @@ class TestValue(unittest.TestCase):
                            version="1.0").infer_type([]).eval([]).json,
             {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}
         )
+
+    def test_env_json(self):
+        doc = WDL.parse_document(R"""
+        version 1.0
+
+        workflow w {
+            call t as s
+        }
+
+        task t {
+            input {
+                String who
+                Int age = 42
+            }
+            command {}
+            output {
+                String message = read_string("dummy")
+            }
+        }
+        """)
+        doc.typecheck()
+
+        def rt(exe, d):
+            namespace = None
+            if isinstance(exe, WDL.Workflow):
+                namespace = [exe.name]
+            self.assertEqual(WDL.values_to_json(WDL.values_from_json(d, exe.available_inputs, exe.required_inputs, namespace=namespace), namespace=namespace), d)
+
+        rt(doc.tasks[0], {"who": "Alyssa"})
+        rt(doc.tasks[0], {"who": "Alyssa", "age": 24})
+        with self.assertRaises(WDL.Error.InputError):
+            rt(doc.tasks[0], {"who": "Alyssa", "bogus": "Ben"})
+        with self.assertRaises(WDL.Error.InputError):
+            rt(doc.tasks[0], {})
+
+        rt(doc.workflow, {"w.s.who": "Alyssa"})
+        rt(doc.workflow, {"w.s.who": "Alyssa", "w.s.age": 24})
+        with self.assertRaises(WDL.Error.InputError):
+            rt(doc.workflow, {})
+        with self.assertRaises(WDL.Error.InputError):
+            rt(doc.workflow, {".who": "a"})
+        with self.assertRaises(WDL.Error.InputError):
+            rt(doc.workflow, {"w.s..who": "b"})
+
+        # misc functionality
+        self.assertEqual(WDL.values_to_json(doc.workflow.required_inputs, ["w"]), {"w.s.who": "String"})
+        self.assertEqual(WDL.values_to_json(doc.workflow._type_env), {"s.message": "String"})

@@ -11,10 +11,12 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
 
-    def _test_task(self, wdl:str, inputs: WDL.Env.Values = None, expected_outputs: WDL.Env.Values = None, expected_exception: Exception = None):
+    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None):
         doc = WDL.parse_document(wdl)
         assert len(doc.tasks) == 1
         doc.typecheck()
+        if isinstance(inputs, dict):
+            inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
         if expected_exception:
             try:
                 WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
@@ -23,9 +25,7 @@ class TestTaskRunner(unittest.TestCase):
                 return exn.__context__
             self.assertFalse(str(expected_exception) + " not raised")
         rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
-        if expected_outputs is not None:
-            self.assertEqual(outputs, expected_outputs)
-        return outputs
+        return WDL.values_to_json(outputs)
 
     def test_docker(self):
         outputs = self._test_task(R"""
@@ -39,7 +39,7 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """)
-        self.assertTrue("18.04" in WDL.Env.resolve(outputs, [], "issue").value)
+        self.assertTrue("18.04" in outputs["issue"])
 
         outputs = self._test_task(R"""
         version 1.0
@@ -55,7 +55,7 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """)
-        self.assertTrue("18.10" in WDL.Env.resolve(outputs, [], "issue").value)
+        self.assertTrue("18.10" in outputs["issue"])
 
         outputs = self._test_task(R"""
         version 1.0
@@ -71,8 +71,8 @@ class TestTaskRunner(unittest.TestCase):
                 String issue = read_string(stdout())
             }
         }
-        """, WDL.Env.bind([], [], "version", WDL.Value.String("18.10")))
-        self.assertTrue("18.10" in WDL.Env.resolve(outputs, [], "issue").value)
+        """, {"version": "18.10"})
+        self.assertTrue("18.10" in outputs["issue"])
 
         self._test_task(R"""
         version 1.0
@@ -97,8 +97,7 @@ class TestTaskRunner(unittest.TestCase):
                 echo "Hello, ~{who}!"
             >>>
         }
-        """,
-        WDL.Env.bind([], [], "who", WDL.Value.String("Alyssa")))
+        """, {"who": "Alyssa"})
 
     def test_hello_file(self):
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
@@ -117,8 +116,8 @@ class TestTaskRunner(unittest.TestCase):
                 }
             }
             """,
-            WDL.Env.bind([], [], "who", WDL.Value.File(os.path.join(self._dir, "alyssa.txt"))))
-        with open(WDL.Env.resolve(outputs, [], "message").value) as infile:
+            {"who": os.path.join(self._dir, "alyssa.txt")})
+        with open(outputs["message"]) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
 
         # output an input file
@@ -136,8 +135,8 @@ class TestTaskRunner(unittest.TestCase):
                 }
             }
             """,
-            WDL.Env.bind([], [], "who", WDL.Value.File(os.path.join(self._dir, "alyssa.txt"))))
-        self.assertEqual(WDL.Env.resolve(outputs, [], "who2").value, os.path.join(self._dir, "alyssa.txt"))
+            {"who": os.path.join(self._dir, "alyssa.txt")})
+        self.assertEqual(outputs["who2"], os.path.join(self._dir, "alyssa.txt"))
 
         # stdout()
         outputs = self._test_task(R"""
@@ -154,9 +153,9 @@ class TestTaskRunner(unittest.TestCase):
                 }
             }
             """,
-            WDL.Env.bind([], [], "who", WDL.Value.File(os.path.join(self._dir, "alyssa.txt"))))
-        self.assertEqual(os.path.basename(WDL.Env.resolve(outputs, [], "message").value), "stdout.txt")
-        with open(WDL.Env.resolve(outputs, [], "message").value) as infile:
+            {"who": os.path.join(self._dir, "alyssa.txt")})
+        self.assertEqual(os.path.basename(outputs["message"]), "stdout.txt")
+        with open(outputs["message"]) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
 
     def test_weird_output_files(self):
@@ -217,7 +216,7 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """)
-        with open(WDL.Env.resolve(outputs, [], "issue").value) as infile:
+        with open(outputs["issue"]) as infile:
             pass
 
     def test_command_error(self):
@@ -245,8 +244,8 @@ class TestTaskRunner(unittest.TestCase):
                 }
             }
             """,
-            WDL.Env.bind([], [], "friends", WDL.Value.from_json(WDL.Type.Array(WDL.Type.String()), ["Alyssa", "Ben"])))
-        self.assertEqual(WDL.Env.resolve(outputs, [], "messages").value, " Hello, Alyssa! Hello, Ben!")
+            {"friends": ["Alyssa", "Ben"]})
+        self.assertEqual(outputs["messages"], " Hello, Alyssa! Hello, Ben!")
 
         outputs = self._test_task(R"""
             version 1.0
@@ -263,8 +262,8 @@ class TestTaskRunner(unittest.TestCase):
                 }
             }
             """,
-            WDL.Env.bind([], [], "friends", WDL.Value.from_json(WDL.Type.Array(WDL.Type.String()), ["Alyssa", "Ben"])))
-        self.assertEqual(WDL.Env.resolve(outputs, [], "messages").value, " Hello, Alyssa! Hello, Ben!")
+            {"friends": ["Alyssa", "Ben"]})
+        self.assertEqual(outputs["messages"], " Hello, Alyssa! Hello, Ben!")
 
     def test_compound_files(self):
         # tests filename mappings when Files are embedded in compound types
@@ -288,17 +287,14 @@ class TestTaskRunner(unittest.TestCase):
                 Array[File] friends = ["alyssa.csv", "ben.csv"]
             }
         }
-        """, WDL.Env.bind([], [], "files", WDL.Value.Array(WDL.Type.Array(WDL.Type.String), [
-                WDL.Value.File(os.path.join(self._dir, "alyssa.txt")),
-                WDL.Value.File(os.path.join(self._dir, "ben.txt")),
-            ])))
-        with open(WDL.Env.resolve(outputs, [], "stdout").value) as infile:
+        """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
+                         os.path.join(self._dir, "ben.txt") ]})
+        with open(outputs["stdout"]) as infile:
             self.assertEqual(infile.read(), "Alyssa\nBen\n")
-        friends = WDL.Env.resolve(outputs, [], "friends")
-        self.assertEqual(len(friends.value), 2)
-        with open(friends.value[0].value) as infile:
+        self.assertEqual(len(outputs["friends"]), 2)
+        with open(outputs["friends"][0]) as infile:
             self.assertEqual(infile.read(), "Alyssa,")
-        with open(friends.value[1].value) as infile:
+        with open(outputs["friends"][1]) as infile:
             self.assertEqual(infile.read(), "Ben,")
 
     def test_optional_inputs(self):
@@ -320,18 +316,14 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """
-        outputs = self._test_task(code, WDL.Env.bind([], [], "s0", WDL.Value.String("alyssa")))
-        self.assertEqual(WDL.Env.resolve(outputs, [], "out").value, "alyssa\nben\nNone\n")
+        outputs = self._test_task(code, {"s0": "alyssa"})
+        self.assertEqual(outputs["out"], "alyssa\nben\nNone\n")
 
-        outputs = self._test_task(code,
-            WDL.Env.bind(WDL.Env.bind([], [], "s1", WDL.Value.String("cy")),
-                            [], "s0", WDL.Value.String("alyssa")))
-        self.assertEqual(WDL.Env.resolve(outputs, [], "out").value, "alyssa\ncy\nNone\n")
+        outputs = self._test_task(code, {"s0": "alyssa", "s1": "cy"})
+        self.assertEqual(outputs["out"], "alyssa\ncy\nNone\n")
 
-        outputs = self._test_task(code,
-            WDL.Env.bind(WDL.Env.bind([], [], "s2", WDL.Value.String("mallory")),
-                            [], "s0", WDL.Value.String("alyssa")))
-        self.assertEqual(WDL.Env.resolve(outputs, [], "out").value, "alyssa\nben\nmallory\n")
+        outputs = self._test_task(code, {"s0": "alyssa", "s2": "mallory"})
+        self.assertEqual(outputs["out"], "alyssa\nben\nmallory\n")
 
         # FIXME: need some restrictions on what File inputs can default to
         self._test_task(R"""

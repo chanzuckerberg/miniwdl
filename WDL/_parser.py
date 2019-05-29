@@ -328,6 +328,7 @@ class _ExprTransformer(lark.Transformer):
 
     def apply(self, items, meta) -> E.Base:
         assert len(items) >= 1
+        assert not items[0].startswith("_")  # TODO enforce in grammar
         return E.Apply(sp(self.filename, meta), items[0], items[1:])
 
     def negate(self, items, meta) -> E.Base:

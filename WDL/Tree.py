@@ -997,11 +997,12 @@ class Document(SourceNode):
 
 def load(
     uri: str,
-    path: List[str] = [],
+    path: Optional[List[str]] = None,
     check_quant: bool = True,
     import_uri: Optional[Callable[[str], str]] = None,
     import_max_depth=10,
 ) -> Document:
+    path = path or []
     if uri.startswith("file://"):
         uri = uri[7:]
     elif uri.find("://") > 0 and import_uri:
