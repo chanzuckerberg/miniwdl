@@ -14,6 +14,7 @@ from argparse import ArgumentParser, Action
 import pkg_resources
 import WDL
 import WDL.Lint
+from . import values_from_json, values_to_json
 
 quant_warning = False
 
@@ -508,7 +509,7 @@ def cromwell_input(doc, inputs, empty):
         die(
             "missing required inputs for {}: {}\n{}".format(
                 target.name,
-                ", ".join(cromwell_input_dict(missing_inputs).keys()),
+                ", ".join(values_to_json(missing_inputs).keys()),
                 cromwell_input_help(target),
             )
         )
@@ -516,7 +517,7 @@ def cromwell_input(doc, inputs, empty):
     # make a pass over the Env to create a dict for Cromwell-style input JSON
     return (
         target,
-        cromwell_input_dict(
+        values_to_json(
             input_env, namespace=([target.name] if isinstance(target, WDL.Workflow) else [])
         ),
     )
@@ -528,7 +529,7 @@ def cromwell_input_help(target):
     ans = []
     required_inputs = target.required_inputs
     ans.append("\nrequired inputs:")
-    for name, ty in cromwell_input_dict(required_inputs).items():
+    for name, ty in values_to_json(required_inputs).items():
         ans.append("  {} {}".format(ty, name))
     optional_inputs = WDL.Env.subtract(target.available_inputs, target.required_inputs)
     if target.inputs is None:
@@ -539,10 +540,10 @@ def cromwell_input_help(target):
         )
     if optional_inputs:
         ans.append("\noptional inputs:")
-        for name, ty in cromwell_input_dict(optional_inputs).items():
+        for name, ty in values_to_json(optional_inputs).items():
             ans.append("  {} {}".format(ty, name))
     ans.append("\noutputs:")
-    for name, ty in cromwell_input_dict(target.effective_outputs).items():
+    for name, ty in values_to_json(target.effective_outputs).items():
         ans.append("  {} {}".format(ty, name))
     return "\n".join(ans)
 
@@ -590,35 +591,6 @@ def cromwell_input_value(s_value, ty):
         # just produce a length-1 array, to be combined ex post facto
         return WDL.Value.Array(ty, [cromwell_input_value(s_value, ty.item_type)])
     return die("No command-line support yet for inputs of type {}".format(str(ty)))
-
-
-def cromwell_input_dict(value_env, namespace=None):
-    """
-    Convert an Env.Values of the inputs to a dict which json.dumps to
-    Cromwell input.
-    """
-    namespace = namespace or []
-    ans = {}
-    for item in reversed(value_env):
-        if isinstance(item, WDL.Env.Binding):
-            if isinstance(item.rhs, WDL.Value.Base):
-                json_rhs = item.rhs.value
-                if isinstance(json_rhs, list):
-                    json_rhs = [elt.value for elt in json_rhs]
-            elif isinstance(item.rhs, WDL.Decl):
-                json_rhs = str(item.rhs.type)
-            else:
-                assert isinstance(item.rhs, WDL.Type.Base)
-                json_rhs = str(item.rhs)
-            ans[".".join(namespace + [item.name])] = json_rhs
-        elif isinstance(item, WDL.Env.Namespace):
-            for k, v in cromwell_input_dict(
-                item.bindings, namespace=(namespace + [item.namespace])
-            ).items():
-                ans[k] = v
-        else:
-            assert False
-    return ans
 
 
 def organize_cromwell_outputs(target, outputs_json, rundir):
