@@ -436,7 +436,10 @@ class TestValue(unittest.TestCase):
         doc.typecheck()
 
         def rt(exe, d):
-            self.assertEqual(WDL.values_to_json(WDL.values_from_json(d, exe.available_inputs, exe.required_inputs)), d)
+            namespace = None
+            if isinstance(exe, WDL.Workflow):
+                namespace = [exe.name]
+            self.assertEqual(WDL.values_to_json(WDL.values_from_json(d, exe.available_inputs, exe.required_inputs, namespace=namespace), namespace=namespace), d)
 
         rt(doc.tasks[0], {"who": "Alyssa"})
         rt(doc.tasks[0], {"who": "Alyssa", "age": 24})
@@ -445,15 +448,14 @@ class TestValue(unittest.TestCase):
         with self.assertRaises(WDL.Error.InputError):
             rt(doc.tasks[0], {})
 
-        # TODO: shouldn't these have w. namespace?
-        rt(doc.workflow, {"s.who": "Alyssa"})
-        rt(doc.workflow, {"s.who": "Alyssa", "s.age": 24})
+        rt(doc.workflow, {"w.s.who": "Alyssa"})
+        rt(doc.workflow, {"w.s.who": "Alyssa", "w.s.age": 24})
         with self.assertRaises(WDL.Error.InputError):
             rt(doc.workflow, {})
         with self.assertRaises(WDL.Error.InputError):
             rt(doc.workflow, {".who": "a"})
         with self.assertRaises(WDL.Error.InputError):
-            rt(doc.workflow, {"s..who": "b"})
+            rt(doc.workflow, {"w.s..who": "b"})
 
         # misc functionality
         self.assertEqual(WDL.values_to_json(doc.workflow.required_inputs, ["w"]), {"w.s.who": "String"})

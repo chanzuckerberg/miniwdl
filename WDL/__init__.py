@@ -67,21 +67,27 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[Task]:
 
 
 def values_from_json(
-    values_json: Dict[str, Any], available: Env.Decls, required: Optional[Env.Decls] = None
-) -> Env.Values:
+    values_json: Dict[str, Any],
+    available: "WDL.Env.Decls",
+    required: "Optional[WDL.Env.Decls]" = None,
+    namespace: Optional[List[str]] = None,
+) -> "WDL.Env.Values":
     """
-    Given a dict parsed from Cromwell-style JSON and the available input/output
-    declarations of a task or workflow, create a ``WDL.Env.Values`` for the
-    inputs/outputs.
+    Given a dict parsed from Cromwell-style JSON and the available input (or
+    output) declarations of a task or workflow, create a ``WDL.Env.Values``.
 
-    :param required: raise an error if any of these required inputs/outputs
-                     are not present
+    :param required: raise an error if any of these required inputs aren't
+                     present
+    :param namespace: expect each key to start with this namespace prefixed to
+                      the input/output names (e.g. the workflow name)
     """
     ans = []
     for key in values_json:
         fqn = key.split(".")
-        if [name for name in fqn if not name]:
+        if not fqn or [name for name in fqn if not name]:
             raise Error.InputError("invalid key in JSON: " + key)
+        if namespace and len(fqn) > len(namespace):
+            fqn = fqn[len(namespace) :]
         try:
             ty = Env.resolve(available, fqn[:-1], fqn[-1]).type
         except KeyError:
@@ -97,10 +103,14 @@ def values_from_json(
     return ans
 
 
-def values_to_json(values_env: Env.Values, namespace: Optional[List[str]] = None) -> Dict[str, Any]:
+def values_to_json(
+    values_env: "WDL.Env.Values", namespace: Optional[List[str]] = None
+) -> Dict[str, Any]:
     """
     Convert a ``WDL.Env.Values`` to a dict which ``json.dumps`` to
     Cromwell-style JSON.
+
+    :param namespace: prefix this namespace to each key (e.g. workflow name)
     """
     # also can be used on Env.Decls or Env.Types, then the right-hand side of
     # each entry will be the type string.
