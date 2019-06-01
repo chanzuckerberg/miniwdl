@@ -87,6 +87,18 @@ class Base:
         self.flatten = _Flatten()
         self.transpose = _Transpose()
 
+    def _override(self, name: str, fn: "Function") -> None:
+        # replace a Function
+        assert isinstance(getattr(self, name), Function)
+        setattr(self, name, fn)
+
+    def _override_static(self, name: str, f: Callable) -> None:
+        # replace the implementation lambda of a StaticFunction (keeping its
+        # types etc. the same)
+        sf = getattr(self, name)
+        assert isinstance(sf, StaticFunction)
+        setattr(sf, "F", f)
+
 
 class Function(ABC):
     # Abstract interface to a standard library function implementation

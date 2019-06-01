@@ -186,7 +186,8 @@ class TaskContainer(ABC):
             self.add_files([host_fn])
             return WDL.Value.File(self.input_file_map[host_fn])
 
-        setattr(getattr(ans, "write_lines"), "F", _write_lines)
+        ans._override_static("write_lines", _write_lines)
+
         return ans
 
     def stdlib_input(self) -> WDL.StdLib.Base:
@@ -211,16 +212,14 @@ class TaskContainer(ABC):
         # - their argument has to be translated from container to host path to actually execute
 
         ans = self._stdlib_base()
-        setattr(
-            getattr(ans, "stdout"),
-            "F",
+        ans._override_static(
+            "stdout",
             lambda container_dir=self.container_dir: WDL.Value.File(
                 os.path.join(container_dir, "stdout.txt")
             ),
         )
-        setattr(
-            getattr(ans, "stderr"),
-            "F",
+        ans._override_static(
+            "stderr",
             lambda container_dir=self.container_dir: WDL.Value.File(
                 os.path.join(container_dir, "stderr.txt")
             ),
@@ -234,7 +233,7 @@ class TaskContainer(ABC):
             with open(host_file, "r") as infile:
                 return WDL.Value.String(infile.read())
 
-        setattr(getattr(ans, "read_string"), "F", _read_string)
+        ans._override_static("read_string", _read_string)
 
         return ans
 
