@@ -1011,7 +1011,7 @@ class TestDoc(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
-        with self.assertRaises(WDL.Error.SyntaxError):
+        try:
             doc = WDL.parse_document("""
                 version 1.0
                 task sum {
@@ -1034,6 +1034,10 @@ class TestDoc(unittest.TestCase):
                     }
                 }
             """)
+            assert False
+        except WDL.Error.SyntaxError as err:
+            self.assertEqual(err.pos.line, 19)
+            self.assertEqual(err.pos.column, 30)
 
         doc = WDL.parse_document("""
             task sum {

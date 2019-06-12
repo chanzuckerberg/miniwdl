@@ -462,9 +462,7 @@ class _TypeTransformer(lark.Transformer):
 
 def _check_keyword(pos, name):
     if name in _keywords:
-        raise Err.SyntaxError(
-            pos.filename, "(Ln {}, Col {}) unexpected keyword {}".format(pos.line, pos.column, name)
-        )
+        raise Err.SyntaxError(pos, "unexpected keyword {}".format(name))
 
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
@@ -757,7 +755,14 @@ def parse_expr(txt: str, version: Optional[str] = None) -> E.Base:
     try:
         return _ExprTransformer(txt).transform(parse(txt, "expr", version))
     except lark.exceptions.UnexpectedInput as exn:
-        raise Err.SyntaxError("(buffer)", str(exn)) from None
+        pos = SourcePosition(
+            filename="(buffer)",
+            line=getattr(exn, "line", "?"),
+            column=getattr(exn, "column", "?"),
+            end_line=getattr(exn, "line", "?"),
+            end_column=getattr(exn, "column", "?"),
+        )
+        raise Err.SyntaxError(pos, str(exn)) from None
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
 
@@ -791,6 +796,13 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> D.
     try:
         return _DocTransformer(uri).transform(parse(txt, "document", version))
     except lark.exceptions.UnexpectedInput as exn:
-        raise Err.SyntaxError(uri if uri != "" else "(buffer)", str(exn)) from None
+        pos = SourcePosition(
+            filename=(uri if uri != "" else "(buffer)"),
+            line=getattr(exn, "line", "?"),
+            column=getattr(exn, "column", "?"),
+            end_line=getattr(exn, "line", "?"),
+            end_column=getattr(exn, "column", "?"),
+        )
+        raise Err.SyntaxError(pos, str(exn)) from None
     except lark.exceptions.VisitError as exn:
         raise exn.__context__

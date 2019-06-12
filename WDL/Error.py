@@ -6,11 +6,21 @@ from contextlib import contextmanager
 import WDL.Type as T
 
 
+SourcePosition = NamedTuple(
+    "SourcePosition",
+    [("filename", str), ("line", int), ("column", int), ("end_line", int), ("end_column", int)],
+)
+"""Source file, line, and column, attached to each AST node"""
+
+
 class SyntaxError(Exception):
     """Failure to lex/parse a WDL document"""
 
-    def __init__(self, filename: str, msg: str) -> None:
-        super().__init__("({}) {}".format(filename, msg))
+    pos: SourcePosition
+
+    def __init__(self, pos: SourcePosition, msg: str) -> None:
+        super().__init__("({} Ln {} Col {}) {}".format(pos.filename, pos.line, pos.column, msg))
+        self.pos = pos
 
 
 class ImportError(Exception):
@@ -18,18 +28,17 @@ class ImportError(Exception):
 
     The ``__cause__`` attribute may hold the inner error object."""
 
-    def __init__(self, document: str, import_uri: str, message: Optional[str] = None) -> None:
-        msg = "({}) Failed to import {}".format(document, import_uri)
+    pos: SourcePosition
+
+    def __init__(self, pos: SourcePosition, import_uri: str, message: Optional[str] = None) -> None:
+        msg = "({} Ln {} Col {}) Failed to import {}".format(
+            pos.filename, pos.line, pos.column, import_uri
+        )
         if message:
             msg = msg + ", " + message
         super().__init__(msg)
+        self.pos = pos
 
-
-SourcePosition = NamedTuple(
-    "SourcePosition",
-    [("filename", str), ("line", int), ("column", int), ("end_line", int), ("end_column", int)],
-)
-"""Source file, line, and column, attached to each AST node"""
 
 TVSourceNode = TypeVar("TVSourceNode", bound="SourceNode")
 
