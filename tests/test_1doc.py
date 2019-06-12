@@ -2016,3 +2016,27 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
+
+    def test_keywords(self):
+        templ = r"""
+        version 1.0
+
+        struct {} {{
+            String {}
+        }}
+        """
+        WDL.parse_document(templ.format("foo","bar")).typecheck()
+        for p in [
+            ("task","bar"),
+            ("foo","task"),
+            ("struct","bar"),
+            ("foo","struct"),
+            ("Int","bar"),
+            ("foo","Int")
+        ]:
+            try:
+                WDL.parse_document(templ.format(*p))
+                assert False
+            except WDL.Error.SyntaxError as err:
+                self.assertIsInstance(err.pos.line, int)
+                self.assertIsInstance(err.pos.column, int)
