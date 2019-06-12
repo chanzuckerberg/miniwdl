@@ -272,13 +272,21 @@ def fill_cromwell_subparser(subparsers):
         action="append",
         help="explicitly set an array input to the empty array",
     )
+    cromwell_parser.add_argument(
+        "-c",
+        "--config",
+        metavar="CONFIG",
+        dest="config",
+        type=str,
+        help="Cromwell backend configuration filename/URI",
+    )
     # TODO:
     # accept an input JSON file, add any command-line keys into it
     # way to specify None for an optional value (that has a default)
     return cromwell_parser
 
 
-def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None, **kwargs):
+def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, config=None, path=None, **kwargs):
     path = path or []
 
     # load WDL document
@@ -327,10 +335,14 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None,
 
     # launch Cromwell
     jarpath = ensure_cromwell_jar()
+    config_string=""
+    if config:
+        config_string="-Dconfig.file={}".format(config)
     cromwell_cmd = [
         "java",
         "-DLOG_LEVEL=warn",
         "-DLOG_MODE=pretty",
+        config_string,
         "-jar",
         jarpath,
         "run",
