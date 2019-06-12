@@ -1022,7 +1022,7 @@ def load(
                     imp = doc.imports[i]
                     if import_max_depth <= 1:
                         raise Err.ImportError(
-                            uri, imp.uri, "exceeded import_max_depth; circular imports?"
+                            imp.pos, imp.uri, "exceeded import_max_depth; circular imports?"
                         )
                     try:
                         subpath = [os.path.dirname(fn)] + path
@@ -1034,7 +1034,7 @@ def load(
                             import_max_depth=(import_max_depth - 1),
                         )
                     except Exception as exn:
-                        raise Err.ImportError(uri, imp.uri) from exn
+                        raise Err.ImportError(imp.pos, imp.uri) from exn
                     doc.imports[i] = DocImport(
                         pos=imp.pos,
                         uri=imp.uri,

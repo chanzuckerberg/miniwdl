@@ -1011,7 +1011,7 @@ class TestDoc(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
-        with self.assertRaises(WDL.Error.SyntaxError):
+        try:
             doc = WDL.parse_document("""
                 version 1.0
                 task sum {
@@ -1034,6 +1034,10 @@ class TestDoc(unittest.TestCase):
                     }
                 }
             """)
+            assert False
+        except WDL.Error.SyntaxError as err:
+            self.assertEqual(err.pos.line, 19)
+            self.assertEqual(err.pos.column, 30)
 
         doc = WDL.parse_document("""
             task sum {
@@ -2012,3 +2016,27 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
+
+    def test_keywords(self):
+        templ = r"""
+        version 1.0
+
+        struct {} {{
+            String {}
+        }}
+        """
+        WDL.parse_document(templ.format("foo","bar")).typecheck()
+        for p in [
+            ("task","bar"),
+            ("foo","task"),
+            ("struct","bar"),
+            ("foo","struct"),
+            ("Int","bar"),
+            ("foo","Int")
+        ]:
+            try:
+                WDL.parse_document(templ.format(*p))
+                assert False
+            except WDL.Error.SyntaxError as err:
+                self.assertIsInstance(err.pos.line, int)
+                self.assertIsInstance(err.pos.column, int)
