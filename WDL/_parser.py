@@ -262,7 +262,7 @@ def parse(txt: str, start: str, version: Optional[str] = None) -> lark.Tree:
         _lark_cache[(version, start)] = lark.Lark(
             _grammar_for_version(version), start=start, parser="lalr", propagate_positions=True
         )
-    return _lark_cache[(version, start)].parse(txt)
+    return _lark_cache[(version, start)].parse(txt + ("\n" if not txt.endswith("\n") else ""))
 
 
 def sp(filename, meta) -> SourcePosition:
