@@ -825,6 +825,8 @@ class Workflow(SourceNode):
             # 5. typecheck the output expressions
             if self.outputs:
                 output_names = set()
+                output_type_env = self._type_env
+                assert output_type_env
                 for output in self.outputs:
                     assert output.expr
                     if output.name in output_names:
@@ -835,10 +837,11 @@ class Workflow(SourceNode):
                         )
                     errors.try1(
                         lambda output=output: output.typecheck(
-                            self._type_env, check_quant=check_quant
+                            output_type_env, check_quant=check_quant
                         )
                     )
                     output_names.add(output.name)
+                    output_type_env = Env.bind(output_type_env, [], output.name, output.type)
         # 6. check for cyclic dependencies
         WDL._util.detect_cycles(_dependency_matrix(_decls_and_calls(self)))  # pyre-fixme
 
