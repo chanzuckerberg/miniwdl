@@ -61,16 +61,12 @@ runtime_kv: CNAME ":" expr
 // WDL tasks
 input_decls: "input" "{" any_decl* "}"
 output_decls: "output" "{" bound_decl* "}"
-?task_sections1: input_decls
-               | output_decls
-               | meta_section
-               | runtime_section
-               | any_decl+ -> noninput_decls
-?task_sections2: input_decls
-               | output_decls
-               | meta_section
-               | runtime_section
-task: "task" CNAME "{" task_sections1* command task_sections2* "}"
+?task_section: input_decls
+             | output_decls
+             | meta_section
+             | runtime_section
+             | any_decl -> noninput_decl
+task: "task" CNAME "{" task_section* command task_section* "}"
 
 tasks: task*
 
@@ -484,8 +480,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def input_decls(self, items, meta):
         return {"inputs": items}
 
-    def noninput_decls(self, items, meta):
-        return {"decls": items}
+    def noninput_decl(self, items, meta):
+        return {"noninput_decl": items[0]}
 
     def placeholder_option(self, items, meta):
         assert len(items) == 2
@@ -547,15 +543,18 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return {"runtime": d}
 
     def task(self, items, meta):
-        d = {}
+        d = {"noninput_decls": []}
         for item in items:
             if isinstance(item, dict):
                 for k, v in item.items():
-                    if k in d:
+                    if k == "noninput_decl":
+                        d["noninput_decls"].append(v)
+                    elif k in d:
                         raise Err.MultipleDefinitions(
                             sp(self.filename, meta), "redundant sections in task"
                         )
-                    d[k] = v
+                    else:
+                        d[k] = v
             else:
                 assert isinstance(item, str)
                 assert "name" not in d
@@ -565,7 +564,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             sp(self.filename, meta),
             d["name"],
             d.get("inputs", None),
-            d.get("decls", []),
+            d["noninput_decls"],
             d["command"],
             d.get("outputs", []),
             d.get("parameter_meta", {}),

@@ -203,14 +203,12 @@ class Contrived2(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/biowdl/tasks/**"],
-    expected_lint={'OptionalCoercion': 3, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 3, 'UnusedDeclaration': 6},
+    expected_lint={'OptionalCoercion': 4, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 3, 'UnusedDeclaration': 9},
     check_quant=False,
     blacklist=[
         # use Object
         "common", "bamstats", "seqstat", "flash", "sampleconfig", "strelka",
         "stringtie", "vardict", "manta", "somaticseq", "biopet",
-        # preoutput declarations (FIXME)
-        "gffcompare", "multiqc",
     ],
 )
 class BioWDLTasks(unittest.TestCase):
