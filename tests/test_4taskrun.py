@@ -285,6 +285,7 @@ class TestTaskRunner(unittest.TestCase):
             output {
                 File stdout = stdout()
                 Array[File] friends = ["alyssa.csv", "ben.csv"]
+                File alyssa_csv = "alyssa.csv"
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
@@ -296,6 +297,8 @@ class TestTaskRunner(unittest.TestCase):
             self.assertEqual(infile.read(), "Alyssa,")
         with open(outputs["friends"][1]) as infile:
             self.assertEqual(infile.read(), "Ben,")
+        with open(outputs["alyssa_csv"]) as infile:
+            self.assertEqual(infile.read(), "Alyssa,")
 
     def test_optional_inputs(self):
         code = R"""
