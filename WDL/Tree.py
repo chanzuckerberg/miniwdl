@@ -1000,60 +1000,65 @@ def load(
     path: Optional[List[str]] = None,
     check_quant: bool = True,
     import_uri: Optional[Callable[[str], str]] = None,
-    import_max_depth=10,
+    import_max_depth: int = 10,
+    source_text: Optional[str] = None,
 ) -> Document:
     path = path or []
-    if uri.startswith("file://"):
-        uri = uri[7:]
-    elif uri.find("://") > 0 and import_uri:
-        uri = import_uri(uri)
-    for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
-        if os.path.exists(fn):
-            with open(fn, "r") as infile:
-                # read and parse the document
-                source_text = infile.read()
-                doc = WDL._parser.parse_document(source_text, uri=uri)
-                assert isinstance(doc, Document)
-                # recursively descend into document's imports, and store the imported
-                # documents into doc.imports
-                # TODO: are we supposed to do something smart for relative imports
-                #       within a document loaded by URI?
-                for i in range(len(doc.imports)):
-                    imp = doc.imports[i]
-                    if import_max_depth <= 1:
-                        raise Err.ImportError(
-                            imp.pos, imp.uri, "exceeded import_max_depth; circular imports?"
-                        )
-                    try:
-                        subpath = [os.path.dirname(fn)] + path
-                        subdoc = load(
-                            imp.uri,
-                            subpath,
-                            check_quant=check_quant,
-                            import_uri=import_uri,
-                            import_max_depth=(import_max_depth - 1),
-                        )
-                    except Exception as exn:
-                        raise Err.ImportError(imp.pos, imp.uri) from exn
-                    doc.imports[i] = DocImport(
-                        pos=imp.pos,
-                        uri=imp.uri,
-                        namespace=imp.namespace,
-                        aliases=imp.aliases,
-                        doc=subdoc,
-                    )
-                try:
-                    doc.typecheck(check_quant=check_quant)
-                except Err.ValidationError as exn:
-                    exn.source_text = source_text
-                    raise exn
-                except Err.MultipleValidationErrors as multi:
-                    for exn in multi.exceptions:
-                        if not exn.source_text:
-                            exn.source_text = source_text
-                    raise multi
-                return doc
-    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+    if source_text is None:
+        if uri.startswith("file://"):
+            uri = uri[7:]
+        elif uri.find("://") > 0 and import_uri:
+            uri = import_uri(uri)
+        # search cwd and path for an extant file
+        fn = next(
+            (
+                fn
+                for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)])
+                if os.path.exists(fn)
+            ),
+            None,
+        )
+        if not fn:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+        # read the document source text
+        with open(fn, "r") as infile:
+            source_text = infile.read()
+        path = path + [os.path.dirname(fn)]
+    # parse the document
+    doc = WDL._parser.parse_document(source_text, uri=uri)
+    assert isinstance(doc, Document)
+    # recursively descend into document's imports, and store the imported
+    # documents into doc.imports
+    # TODO: are we supposed to do something smart for relative imports
+    #       within a document loaded by URI?
+    for i in range(len(doc.imports)):
+        imp = doc.imports[i]
+        if import_max_depth <= 1:
+            raise Err.ImportError(imp.pos, imp.uri, "exceeded import_max_depth; circular imports?")
+        try:
+            subdoc = load(
+                imp.uri,
+                path,
+                check_quant=check_quant,
+                import_uri=import_uri,
+                import_max_depth=(import_max_depth - 1),
+            )
+        except Exception as exn:
+            raise Err.ImportError(imp.pos, imp.uri) from exn
+        doc.imports[i] = DocImport(
+            pos=imp.pos, uri=imp.uri, namespace=imp.namespace, aliases=imp.aliases, doc=subdoc
+        )
+    try:
+        doc.typecheck(check_quant=check_quant)
+    except Err.ValidationError as exn:
+        exn.source_text = source_text
+        raise exn
+    except Err.MultipleValidationErrors as multi:
+        for exn in multi.exceptions:
+            if not exn.source_text:
+                exn.source_text = source_text
+        raise multi
+    return doc
 
 
 #
