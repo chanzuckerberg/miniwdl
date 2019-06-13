@@ -86,7 +86,7 @@ $miniwdl check --no-shellcheck trivial_type_error.wdl > trivial_type_error.out 2
 is "$?" "2" "trivial_type_error.wdl exit code"
 is "$(cat trivial_type_error.out | wc -c)" "0" "trivial_type_error.wdl stdout"
 is "$(grep Traceback trivial_type_error.err | wc -l)" "0" "trivial_type_error.wdl stderr, no traceback"
-is "$(grep '(trivial_type_error.wdl Ln 2, Col 13) Expected Int instead of String' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 1"
+is "$(grep '(trivial_type_error.wdl Ln 2 Col 13) Expected Int instead of String' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 1"
 is "$(grep '        Int x = \"42\"' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 2"
 is "$(grep '                ^^^^' trivial_type_error.err | wc -l)" "1" "trivial_type_error.wdl error message line 3"
 

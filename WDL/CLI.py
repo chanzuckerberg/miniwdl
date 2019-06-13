@@ -209,7 +209,15 @@ def print_error(exn):
         for exn1 in exn.exceptions:
             print_error(exn1)
     else:
-        print(str(exn), file=sys.stderr)
+        if isinstance(getattr(exn, "pos", None), WDL.SourcePosition):
+            print(
+                "({} Ln {} Col {}) {}".format(
+                    exn.pos.filename, exn.pos.line, exn.pos.column, str(exn)
+                ),
+                file=sys.stderr,
+            )
+        else:
+            print(str(exn), file=sys.stderr)
         if isinstance(exn, WDL.Error.ImportError) and hasattr(exn, "__cause__"):
             print_error(exn.__cause__)
         if isinstance(exn, WDL.Error.ValidationError) and exn.source_text:
