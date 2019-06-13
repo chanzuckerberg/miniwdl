@@ -1390,7 +1390,7 @@ def _resolve_struct_typedef(
     try:
         struct_typedef = Env.resolve(struct_typedefs, [], ty.type_name)
     except KeyError:
-        raise Err.InvalidType(pos, "Unknown type " + ty.type_name)
+        raise Err.InvalidType(pos, "Unknown type " + ty.type_name) from None
     ty.members = struct_typedef.members
 
 
@@ -1421,7 +1421,7 @@ def _initialize_struct_typedefs(struct_typedefs: Env.StructTypeDefs):
             try:
                 _resolve_struct_typedefs(b.rhs.pos, member_ty, struct_typedefs)
             except StopIteration:
-                raise Err.CircularDependencies(b.rhs)
+                raise Err.CircularDependencies(b.rhs) from None
 
 
 def _add_struct_instance_to_type_env(
