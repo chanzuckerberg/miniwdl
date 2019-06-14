@@ -61,16 +61,20 @@ class TestStdLib(unittest.TestCase):
             with self.assertRaises(case[1]):
                 doc.typecheck()
 
-    def test_length(self):
+    def test_length_and_defined(self):
         outputs = self._test_task(R"""
         version 1.0
         task test_length {
+            input {
+                Int one
+                Int? two
+                Int? three
+            }
             command {}
             output {
-                Int l0 = length([])
-                Int l1 = length([42])
-                Int l2 = length([42,43])
+                Array[Int] lengths = [length([]), length([42]), length([42,43])]
+                Array[Boolean] defineds = [defined(one), defined(two), defined(three)]
             }
         }
-        """)
-        self.assertEqual(outputs, {"l0": 0, "l1": 1, "l2" : 2})
+        """, {"one": 42, "two": 43})
+        self.assertEqual(outputs, {"lengths": [0, 1, 2], "defineds": [True, True, False]})
