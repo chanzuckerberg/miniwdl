@@ -453,7 +453,12 @@ class _SelectFirst(EagerFunction):
         return ty.copy(optional=False)
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        arr = arguments[0]
+        assert isinstance(arr, V.Array)
+        for arg in arr.value:
+            if not isinstance(arg, V.Null):
+                return arg
+        raise Error.NullValue(expr)
 
 
 class _SelectAll(EagerFunction):
@@ -474,7 +479,11 @@ class _SelectAll(EagerFunction):
         return T.Array(ty.copy(optional=False))
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        arr = arguments[0]
+        assert isinstance(arr, V.Array)
+        arrty = arr.type
+        assert isinstance(arrty, T.Array)
+        return V.Array(arrty, [arg for arg in arr.value if not isinstance(arg, V.Null)])
 
 
 class _Zip(EagerFunction):

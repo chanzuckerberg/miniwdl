@@ -113,3 +113,45 @@ class TestStdLib(unittest.TestCase):
         }
         """)
         self.assertEqual(outputs, {"ans": ["file.txt", "file.txt", "file.txt", "file", "file.sam"]})
+
+    def test_select(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_select {
+            input {
+                Array[Int] one
+                Array[Int]? two
+                Array[Int]? three
+            }
+            command {}
+            output {
+                Array[Int] first1 = select_first([one, two, three])
+                Array[Int] first2 = select_first([two, three])
+                Array[Int] first3 = select_first([three, two])
+                Array[Int] first4 = select_first([two])
+
+                Array[Array[Int]] all1 = select_all([one, two, three])
+                Array[Array[Int]] all2 = select_all([three])
+            }
+        }
+        """, {"one": [1], "two": [2]})
+        self.assertEqual(outputs, {
+            "first1": [1],
+            "first2": [2],
+            "first3": [2],
+            "first4": [2],
+            "all1": [[1],[2]],
+            "all2": []
+        })
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_select {
+            input {
+                Array[Int]? one
+            }
+            command {}
+            output {
+                Array[Int] bogus = select_first([one])
+            }
+        }
+        """, expected_exception=WDL.Error.NullValue)
