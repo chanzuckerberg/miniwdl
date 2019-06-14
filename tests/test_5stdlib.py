@@ -61,7 +61,7 @@ class TestStdLib(unittest.TestCase):
             with self.assertRaises(case[1]):
                 doc.typecheck()
 
-    def test_length_and_defined(self):
+    def test_length_defined_range(self):
         outputs = self._test_task(R"""
         version 1.0
         task test_length {
@@ -74,10 +74,24 @@ class TestStdLib(unittest.TestCase):
             output {
                 Array[Int] lengths = [length([]), length([42]), length([42,43])]
                 Array[Boolean] defineds = [defined(one), defined(two), defined(three)]
+                Array[Array[Int]] ranges = [range(0), range(1), range(3)]
             }
         }
         """, {"one": 42, "two": 43})
-        self.assertEqual(outputs, {"lengths": [0, 1, 2], "defineds": [True, True, False]})
+        self.assertEqual(outputs, {
+            "lengths": [0, 1, 2],
+            "defineds": [True, True, False],
+            "ranges": [[], [0], [0,1,2]]
+        })
+        self._test_task(R"""
+        version 1.0
+        task bogus {
+            command {}
+            output {
+                Array[Int] bogus = range(-42)
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_floor_ceil_round(self):
         outputs = self._test_task(R"""

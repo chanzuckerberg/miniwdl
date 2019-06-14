@@ -580,7 +580,11 @@ class _Range(EagerFunction):
         return T.Array(T.Int(), nonempty=nonempty)
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        arg0 = arguments[0]
+        assert isinstance(arg0, V.Int)
+        if arg0.value < 0:
+            raise Error.EvalError(expr, "range() got negative argument")
+        return V.Array(T.Array(T.Int()), [V.Int(x) for x in range(arg0.value)])
 
 
 class _Prefix(EagerFunction):
