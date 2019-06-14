@@ -1,6 +1,7 @@
 # pylint: disable=protected-access,exec-used
 import math
 import os
+import re
 from typing import List, Tuple, Callable, Any
 from abc import ABC, abstractmethod
 import WDL.Type as T
@@ -49,7 +50,7 @@ class Base:
             ("ceil", [T.Float()], T.Int(), lambda v: V.Int(math.ceil(v.value))),
             ("round", [T.Float()], T.Int(), lambda v: V.Int(round(v.value))),
             ("length", [T.Array(T.Any())], T.Int(), lambda v: V.Int(len(v.value))),
-            ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
+            ("sub", [T.String(), T.String(), T.String()], T.String(), _sub),
             ("basename", [T.String(), T.String(optional=True)], T.String(), _basename),
             (
                 "defined",
@@ -168,15 +169,18 @@ class StaticFunction(EagerFunction):
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         argument_values = [arg.coerce(ty) for arg, ty in zip(arguments, self.argument_types)]
-        ans: V.Base = self.F(*argument_values)
+        try:
+            ans: V.Base = self.F(*argument_values)
+        except Exception as exn:
+            raise Error.EvalError(expr, "function evaluation failed") from exn
         return ans.coerce(self.return_type)
 
 
-def _notimpl(one: Any = None, two: Any = None) -> None:
+def _notimpl(*args, **kwargs) -> None:
     exec("raise NotImplementedError()")
 
 
-def _basename(*args):
+def _basename(*args) -> V.String:
     assert len(args) in (1, 2)
     assert isinstance(args[0], V.String)
     path = args[0].value
@@ -186,6 +190,10 @@ def _basename(*args):
         if path.endswith(suffix):
             path = path[: -len(suffix)]
     return V.String(os.path.basename(path))
+
+
+def _sub(input: V.String, pattern: V.String, replace: V.String) -> V.String:
+    return V.String(re.compile(pattern.value).sub(replace.value, input.value))
 
 
 class _At(EagerFunction):

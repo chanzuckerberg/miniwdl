@@ -155,3 +155,46 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.NullValue)
+
+    def test_sub(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_sub {
+            command {}
+            output {
+                String chocolike = "I like chocolate when it's late"
+                String chocolove = sub(chocolike, "like", "love") # I love chocolate when it's late
+                String chocoearly = sub(chocolike, "late", "early") # I like chocoearly when it's early
+                String chocolate = sub(chocolike, "late$", "early") # I like chocolate when it's early
+            }
+        }
+        """)
+        self.assertEqual(outputs, {
+            "chocolike": "I like chocolate when it's late",
+            "chocolove": "I love chocolate when it's late",
+            "chocoearly": "I like chocoearly when it's early",
+            "chocolate": "I like chocolate when it's early"
+        })
+        outputs = self._test_task(R"""
+        task example {
+            input {
+                String input_file = "my_input_file.bam"
+                String output_file_name = sub(input_file, "\\.bam$", ".index") # my_input_file.index
+            }
+            command {
+                echo "I want an index instead" > ${output_file_name}
+            }
+            output {
+                File outputFile = output_file_name
+            }
+        }
+        """)
+        self.assertTrue(outputs["outputFile"].endswith("my_input_file.index"))
+        outputs = self._test_task(R"""
+        task bogus {
+            command {}
+            output {
+                String bogus = sub("foo", "(()", "bar")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)

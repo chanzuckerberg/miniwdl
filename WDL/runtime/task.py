@@ -490,6 +490,7 @@ def _eval_task_outputs(
         )  # TODO: are we happy with this coercion approach?
         logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
         outputs = WDL.Env.bind(outputs, [], decl.name, v)
+        env = WDL.Env.bind(env, [], decl.name, v)
 
     # map Files from in-container paths to host paths
     def map_files(v: WDL.Value.Base) -> WDL.Value.Base:
