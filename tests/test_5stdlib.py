@@ -95,3 +95,21 @@ class TestStdLib(unittest.TestCase):
         }
         """)
         self.assertEqual(outputs, {"ans": [3, -3, 42, 43]})
+
+    def test_basename(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_basename {
+            command {}
+            output {
+                Array[String] ans = [
+                    basename("file.txt"),
+                    basename("to/file.txt"),
+                    basename("/path/to/file.txt"),
+                    basename("/path/to/file.txt", ".txt"),
+                    basename("/path/to/file.sam", ".txt")
+                ]
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"ans": ["file.txt", "file.txt", "file.txt", "file", "file.sam"]})

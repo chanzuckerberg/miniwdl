@@ -1,5 +1,6 @@
 # pylint: disable=protected-access,exec-used
 import math
+import os
 from typing import List, Tuple, Callable, Any
 from abc import ABC, abstractmethod
 import WDL.Type as T
@@ -49,7 +50,7 @@ class Base:
             ("round", [T.Float()], T.Int(), lambda v: V.Int(round(v.value))),
             ("length", [T.Array(T.Any())], T.Int(), lambda v: V.Int(len(v.value))),
             ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
-            ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
+            ("basename", [T.String(), T.String(optional=True)], T.String(), _basename),
             (
                 "defined",
                 [T.Any(optional=True)],
@@ -173,6 +174,18 @@ class StaticFunction(EagerFunction):
 
 def _notimpl(one: Any = None, two: Any = None) -> None:
     exec("raise NotImplementedError()")
+
+
+def _basename(*args):
+    assert len(args) in (1, 2)
+    assert isinstance(args[0], V.String)
+    path = args[0].value
+    if len(args) > 1:
+        assert isinstance(args[1], V.String)
+        suffix = args[1].value
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+    return V.String(os.path.basename(path))
 
 
 class _At(EagerFunction):
