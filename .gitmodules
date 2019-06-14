@@ -43,3 +43,6 @@
 [submodule "tests/bash-tap"]
 	path = tests/bash-tap
 	url = https://github.com/illusori/bash-tap.git
+[submodule "test_corpi/biowdl/tasks"]
+	path = test_corpi/biowdl/tasks
+	url = https://github.com/biowdl/tasks.git

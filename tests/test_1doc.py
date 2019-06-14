@@ -1187,7 +1187,9 @@ class TestDoc(unittest.TestCase):
                 y = y
             }
             output {
-                Int z = z
+                Int z = z+1
+                Int w = x+y
+                Array[Int] outs = [z,w]
             }
         }
         """

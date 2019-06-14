@@ -200,3 +200,16 @@ class Contrived(unittest.TestCase):
 )
 class Contrived2(unittest.TestCase):
     pass
+
+@test_corpus(
+    ["test_corpi/biowdl/tasks/**"],
+    expected_lint={'OptionalCoercion': 4, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 3, 'UnusedDeclaration': 9},
+    check_quant=False,
+    blacklist=[
+        # use Object
+        "common", "bamstats", "seqstat", "flash", "sampleconfig", "strelka",
+        "stringtie", "vardict", "manta", "somaticseq", "biopet",
+    ],
+)
+class BioWDLTasks(unittest.TestCase):
+    pass
