@@ -1,4 +1,5 @@
 # pylint: disable=protected-access,exec-used
+import math
 from typing import List, Tuple, Callable, Any
 from abc import ABC, abstractmethod
 import WDL.Type as T
@@ -43,9 +44,9 @@ class Base:
 
         # static stdlib functions
         for (name, argument_types, return_type, F) in [
-            ("floor", [T.Float()], T.Int(), _notimpl),
-            ("ceil", [T.Float()], T.Int(), _notimpl),
-            ("round", [T.Float()], T.Int(), _notimpl),
+            ("floor", [T.Float()], T.Int(), lambda v: V.Int(math.floor(v.value))),
+            ("ceil", [T.Float()], T.Int(), lambda v: V.Int(math.ceil(v.value))),
+            ("round", [T.Float()], T.Int(), lambda v: V.Int(round(v.value))),
             ("length", [T.Array(T.Any())], T.Int(), lambda v: V.Int(len(v.value))),
             ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
             ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),

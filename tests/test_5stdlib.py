@@ -78,3 +78,20 @@ class TestStdLib(unittest.TestCase):
         }
         """, {"one": 42, "two": 43})
         self.assertEqual(outputs, {"lengths": [0, 1, 2], "defineds": [True, True, False]})
+
+    def test_floor_ceil_round(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_floor_ceil_round {
+            command {}
+            output {
+                Array[Int] ans = [
+                    floor(3.14),
+                    ceil(-3.14),
+                    round(42.5),
+                    round(42.5000000001)
+                ]
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"ans": [3, -3, 42, 43]})
