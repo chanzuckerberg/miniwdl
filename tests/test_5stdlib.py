@@ -110,10 +110,12 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs, {"ans": [3, -3, 42, 43]})
 
-    def test_basename(self):
+    def test_basename_prefix(self):
         outputs = self._test_task(R"""
         version 1.0
-        task test_basename {
+        task test_basename_prefix {
+            Array[String] env = ["key1=value1", "key2=value2", "key3=value3"]
+            Array[Int] env2 = [1, 2, 3]
             command {}
             output {
                 Array[String] ans = [
@@ -123,10 +125,16 @@ class TestStdLib(unittest.TestCase):
                     basename("/path/to/file.txt", ".txt"),
                     basename("/path/to/file.sam", ".txt")
                 ]
+                Array[String] env_param = prefix("-e ", env)
+                Array[String] env2_param = prefix("-f ", env2)
             }
         }
         """)
-        self.assertEqual(outputs, {"ans": ["file.txt", "file.txt", "file.txt", "file", "file.sam"]})
+        self.assertEqual(outputs, {
+            "ans": ["file.txt", "file.txt", "file.txt", "file", "file.sam"],
+            "env_param": ["-e key1=value1", "-e key2=value2", "-e key3=value3"],
+            "env2_param": ["-f 1", "-f 2", "-f 3"]
+        })
 
     def test_select(self):
         outputs = self._test_task(R"""

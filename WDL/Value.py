@@ -112,9 +112,11 @@ class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
 
     value: List[Base]
+    type: T.Array
 
     def __init__(self, type: T.Array, value: List[Base]) -> None:
         self.value = []
+        self.type = type
         super().__init__(type, value)
 
     @property
@@ -124,6 +126,13 @@ class Array(Base):
     @property
     def children(self) -> Iterable[Base]:
         return self.value
+
+    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+        if isinstance(desired_type, T.Array) and desired_type.item_type != self.type.item_type:
+            # TODO: coerce Array[T] to Array[Array[T]] and so on
+            # TODO: is this where we should enforce nonempty?"
+            return Array(desired_type, [v.coerce(desired_type.item_type) for v in self.value])
+        return super().coerce(desired_type)
 
 
 class Map(Base):

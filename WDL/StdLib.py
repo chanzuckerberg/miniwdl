@@ -604,4 +604,8 @@ class _Prefix(EagerFunction):
         )
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        pfx = arguments[0].coerce(T.String()).value
+        return V.Array(
+            T.Array(T.String()),
+            [V.String(pfx + s.coerce(T.String()).value) for s in arguments[1].value],
+        )
