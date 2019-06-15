@@ -292,11 +292,9 @@ def fill_cromwell_subparser(subparsers):
 def cromwell_input_completer(prefix, parsed_args, **kwargs):
     # argcomplete completer for `miniwdl cromwell`
     if "uri" in parsed_args:
-        # load document. in the completer setting, we need to substitute ~ and $HOME
-        # (technically other environment variables too, but this covers most needs)
-        uri = parsed_args.uri
-        if uri.startswith("~/") or uri.startswith("$HOME/"):
-            uri = os.path.join(os.path.expanduser("~"), uri[(uri.index("/") + 1) :])
+        # load document. in the completer setting, we need to substitute the home directory
+        # and environment variables
+        uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
         if not os.path.exists(uri):
             argcomplete.warn("file not found: " + uri)
             return []
