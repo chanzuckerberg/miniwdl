@@ -313,11 +313,7 @@ class _ArithmeticOperator(EagerFunction):
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         ans_type = self.infer_type(expr)
-        try:
-            ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
-        except ZeroDivisionError:
-            # TODO: different runtime error?
-            raise Error.IncompatibleOperand(expr.arguments[1], "Division by zero") from None
+        ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
         if ans_type == T.Int():
             assert isinstance(ans, int)
             return V.Int(ans)
@@ -454,8 +450,7 @@ class _SelectFirst(EagerFunction):
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
         if isinstance(expr.arguments[0].type.item_type, T.Any):
-            # TODO: error for 'indeterminate type'
-            raise Error.EmptyArray(expr.arguments[0])
+            raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
         ty = expr.arguments[0].type.item_type
         assert isinstance(ty, T.Base)
         return ty.copy(optional=False)
@@ -480,8 +475,7 @@ class _SelectAll(EagerFunction):
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
         if isinstance(expr.arguments[0].type.item_type, T.Any):
-            # TODO: error for 'indeterminate type'
-            raise Error.EmptyArray(expr.arguments[0])
+            raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
         ty = expr.arguments[0].type.item_type
         assert isinstance(ty, T.Base)
         return T.Array(ty.copy(optional=False))
@@ -503,14 +497,12 @@ class _Zip(EagerFunction):
         if not isinstance(arg0ty, T.Array) or (expr._check_quant and arg0ty.optional):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(T.Any()), arg0ty)
         if isinstance(arg0ty.item_type, T.Any):
-            # TODO: error for 'indeterminate type'
-            raise Error.EmptyArray(expr.arguments[0])
+            raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
         arg1ty: T.Base = expr.arguments[1].type
         if not isinstance(arg1ty, T.Array) or (expr._check_quant and arg1ty.optional):
             raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(T.Any()), arg1ty)
         if isinstance(arg1ty.item_type, T.Any):
-            # TODO: error for 'indeterminate type'
-            raise Error.EmptyArray(expr.arguments[1])
+            raise Error.IndeterminateType(expr.arguments[1], "can't infer item type of empty array")
         return T.Array(
             T.Pair(arg0ty.item_type, arg1ty.item_type),
             nonempty=(arg0ty.nonempty or arg1ty.nonempty),
