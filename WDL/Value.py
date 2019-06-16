@@ -141,6 +141,8 @@ class Array(Base):
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
         if isinstance(desired_type, T.Array):
+            if desired_type.nonempty and not self.value:
+                raise ValueError("Empty array for Array+ input/declaration")
             if desired_type.item_type == self.type.item_type or (
                 isinstance(desired_type.item_type, T.Any) or isinstance(self.type.item_type, T.Any)
             ):
@@ -234,10 +236,10 @@ class Null(Base):
 
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
-        if desired_type is None or not desired_type.optional:
+        if desired_type and not desired_type.optional:
             # normally the typechecker should prevent this, but it might have
-            # been done check_quant=False
-            raise ReferenceError()
+            # had check_quant=False
+            raise ValueError("'None' for non-optional input/declaration")
         return self
 
     @property
