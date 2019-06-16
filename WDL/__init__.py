@@ -43,7 +43,7 @@ def load(
         check_quant=check_quant,
         import_uri=import_uri,
         import_max_depth=import_max_depth,
-        source_text=None,
+        source_text=source_text,
     )
 
 
