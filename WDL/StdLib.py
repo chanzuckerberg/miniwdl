@@ -120,7 +120,9 @@ class Function(ABC):
 
 
 class EagerFunction(Function):
-    # Function helper providing boilerplate for eager argument evaluation
+    # Function helper providing boilerplate for eager argument evaluation.
+    # Implementation is responsible for any appropriate type coercion of
+    # argument and return values.
 
     @abstractmethod
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
@@ -131,7 +133,8 @@ class EagerFunction(Function):
 
 
 class StaticFunction(EagerFunction):
-    # Function helper for static argument and return types
+    # Function helper for static argument and return types.
+    # In this case the boilerplate can handle the coercions.
 
     name: str
     argument_types: List[T.Base]
@@ -229,11 +232,6 @@ class _At(EagerFunction):
         assert len(expr.arguments) == 2 and len(arguments) == 2
         lhs = arguments[0]
         rhs = arguments[1]
-        if isinstance(lhs, V.Array):
-            assert isinstance(rhs, V.Int)
-            if rhs.value < 0 or rhs.value >= len(lhs.value):
-                raise Error.OutOfBounds(expr.arguments[1])
-            return lhs.value[rhs.value]
         if isinstance(lhs, V.Map):
             mty = expr.arguments[0].type
             assert isinstance(mty, T.Map)
@@ -245,7 +243,12 @@ class _At(EagerFunction):
             if ans is None:
                 raise Error.OutOfBounds(expr.arguments[1])  # TODO: KeyNotFound
             return ans
-        assert False
+        else:
+            lhs = lhs.coerce(T.Array(T.Any()))
+            rhs = rhs.coerce(T.Int())
+            if rhs.value < 0 or rhs.value >= len(lhs.value):
+                raise Error.OutOfBounds(expr.arguments[1])
+            return lhs.value[rhs.value]
 
 
 class _And(Function):
@@ -461,7 +464,7 @@ class _SelectFirst(EagerFunction):
         return ty.copy(optional=False)
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        arr = arguments[0]
+        arr = arguments[0].coerce(T.Array(T.Any()))
         assert isinstance(arr, V.Array)
         for arg in arr.value:
             if not isinstance(arg, V.Null):
@@ -487,7 +490,7 @@ class _SelectAll(EagerFunction):
         return T.Array(ty.copy(optional=False))
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        arr = arguments[0]
+        arr = arguments[0].coerce(T.Array(T.Any()))
         assert isinstance(arr, V.Array)
         arrty = arr.type
         assert isinstance(arrty, T.Array)
@@ -580,7 +583,7 @@ class _Range(EagerFunction):
         return T.Array(T.Int(), nonempty=nonempty)
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        arg0 = arguments[0]
+        arg0 = arguments[0].coerce(T.Int())
         assert isinstance(arg0, V.Int)
         if arg0.value < 0:
             raise Error.EvalError(expr, "range() got negative argument")

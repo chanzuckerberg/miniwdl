@@ -45,10 +45,11 @@ class Base(ABC):
         """
         if isinstance(desired_type, T.String):
             return String(str(self.value))
-        # coercion T to Array[T] (x to [x])
         if isinstance(desired_type, T.Array) and self.type.coerces(
             desired_type.item_type, check_quant=False
         ):
+            # coercion of T to Array[T] (x to [x])
+            # if self is an Array, then Array.coerce precludes this path
             return Array(desired_type, [self.coerce(desired_type.item_type)])
         return self
 
@@ -234,7 +235,8 @@ class Null(Base):
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
         if desired_type is None or not desired_type.optional:
-            # the typechecker should prevent this
+            # normally the typechecker should prevent this, but it might have
+            # been done check_quant=False
             raise ReferenceError()
         return self
 
