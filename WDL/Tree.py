@@ -1144,8 +1144,8 @@ def _build_workflow_type_env(
         self.expr.infer_type(type_env, check_quant=check_quant)
         if not isinstance(self.expr.type, T.Array):
             raise Err.NotAnArray(self.expr)
-        if self.expr.type.item_type is None:
-            raise Err.EmptyArray(self.expr)
+        if isinstance(self.expr.type.item_type, T.Any):
+            raise Err.IndeterminateType(self.expr, "can't infer item type of empty array")
         # bind the scatter variable to the array item type within the body
         try:
             Env.resolve(type_env, [], self.variable)
