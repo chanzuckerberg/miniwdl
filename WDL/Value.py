@@ -45,7 +45,11 @@ class Base(ABC):
         """
         if isinstance(desired_type, T.String):
             return String(str(self.value))
-        # TODO: coerce T to Array[T] (x to [x])
+        # coercion T to Array[T] (x to [x])
+        if isinstance(desired_type, T.Array) and self.type.coerces(
+            desired_type.item_type, check_quant=False
+        ):
+            return Array(desired_type, [self.coerce(desired_type.item_type)])
         return self
 
     def expect(self, desired_type: Optional[T.Base] = None) -> "Base":
@@ -90,7 +94,7 @@ class Int(Base):
 
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
-        if desired_type is not None and isinstance(desired_type, T.Float):
+        if isinstance(desired_type, T.Float):
             return Float(float(self.value))
         return super().coerce(desired_type)
 
@@ -100,6 +104,12 @@ class String(Base):
 
     def __init__(self, value: str) -> None:
         super().__init__(T.String(), value)
+
+    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+        ""
+        if isinstance(desired_type, T.File):
+            return File(self.value)
+        return super().coerce(desired_type)
 
 
 class File(String):
@@ -128,18 +138,23 @@ class Array(Base):
         return self.value
 
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
-        if isinstance(desired_type, T.Array) and desired_type.item_type != self.type.item_type:
-            # TODO: coerce Array[T] to Array[Array[T]] and so on
-            # TODO: is this where we should enforce nonempty?"
+        ""
+        if isinstance(desired_type, T.Array):
+            if desired_type.item_type == self.type.item_type or (
+                isinstance(desired_type.item_type, T.Any) or isinstance(self.type.item_type, T.Any)
+            ):
+                return self
             return Array(desired_type, [v.coerce(desired_type.item_type) for v in self.value])
         return super().coerce(desired_type)
 
 
 class Map(Base):
     value: List[Tuple[Base, Base]]
+    type: T.Map
 
     def __init__(self, type: T.Map, value: List[Tuple[Base, Base]]) -> None:
         self.value = []
+        self.type = type
         super().__init__(type, value)
 
     @property
@@ -156,13 +171,27 @@ class Map(Base):
             yield k
             yield v
 
+    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+        ""
+        if isinstance(desired_type, T.Map) and desired_type != self.type:
+            return Map(
+                desired_type,
+                [
+                    (k.coerce(desired_type.item_type[0]), v.coerce(desired_type.item_type[1]))
+                    for (k, v) in self.value
+                ],
+            )
+        return super().coerce(desired_type)
+
 
 class Pair(Base):
     value: Tuple[Base, Base]
+    type: T.Pair
 
     def __init__(self, type: T.Pair, value: Tuple[Base, Base]) -> None:
-        super().__init__(type, value)
         self.value = value
+        self.type = type
+        super().__init__(type, value)
 
     def __str__(self) -> str:
         assert isinstance(self.value, tuple)
@@ -176,6 +205,18 @@ class Pair(Base):
     def children(self) -> Iterable[Base]:
         yield self.value[0]
         yield self.value[1]
+
+    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+        ""
+        if isinstance(desired_type, T.Pair) and desired_type != self.type:
+            return Pair(
+                desired_type,
+                (
+                    self.value[0].coerce(desired_type.left_type),
+                    self.value[1].coerce(desired_type.right_type),
+                ),
+            )
+        return super().coerce(desired_type)
 
 
 class Null(Base):
@@ -193,6 +234,7 @@ class Null(Base):
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
         if desired_type is None or not desired_type.optional:
+            # the typechecker should prevent this
             raise ReferenceError()
         return self
 

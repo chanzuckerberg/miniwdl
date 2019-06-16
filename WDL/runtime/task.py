@@ -468,7 +468,7 @@ def _eval_task_inputs(
     for decl in decls_to_eval:
         v = WDL.Value.Null()
         if decl.expr:
-            v = decl.expr.eval(container_env, stdlib=stdlib)
+            v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
         else:
             assert decl.type.optional
         vj = json.dumps(v.json)
@@ -485,9 +485,7 @@ def _eval_task_outputs(
     outputs = []
     for decl in task.outputs:
         assert decl.expr
-        v = WDL.Value.from_json(
-            decl.type, decl.expr.eval(env, stdlib=container.stdlib_output()).json
-        )  # TODO: are we happy with this coercion approach?
+        v = decl.expr.eval(env, stdlib=container.stdlib_output()).coerce(decl.type)
         logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
         outputs = WDL.Env.bind(outputs, [], decl.name, v)
         env = WDL.Env.bind(env, [], decl.name, v)
