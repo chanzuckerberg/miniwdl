@@ -109,6 +109,10 @@ class InvalidType(ValidationError):
     pass
 
 
+class IndeterminateType(ValidationError):
+    pass
+
+
 class NoSuchTask(ValidationError):
     def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
         super().__init__(node, "No such task/workflow: " + name)
@@ -152,16 +156,6 @@ class StaticTypeMismatch(ValidationError):
 class IncompatibleOperand(ValidationError):
     def __init__(self, node: SourceNode, message: str) -> None:
         super().__init__(node, message)
-
-
-class OutOfBounds(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "Array index out of bounds")
-
-
-class EmptyArray(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "Empty array for Array+ input/declaration")
 
 
 class UnknownIdentifier(ValidationError):
@@ -296,6 +290,16 @@ class EvalError(RuntimeError):
         else:
             self.pos = node
         super().__init__(message)
+
+
+class OutOfBounds(EvalError):
+    def __init__(self, node: SourceNode) -> None:
+        super().__init__(node, "Array index out of bounds")
+
+
+class EmptyArray(EvalError):
+    def __init__(self, node: SourceNode) -> None:
+        super().__init__(node, "Empty array for Array+ input/declaration")
 
 
 class NullValue(EvalError):

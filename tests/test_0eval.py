@@ -284,9 +284,9 @@ class TestEval(unittest.TestCase):
 
     def test_short_circuit(self):
         self._test_tuples(
-            ("true && 1/0 == 1", "", WDL.Error.IncompatibleOperand),
+            ("true && 1/0 == 1", "", WDL.Error.EvalError),
             ("false && 1/0 == 1", "false"),
-            ("false || 1/0 == 1", "", WDL.Error.IncompatibleOperand),
+            ("false || 1/0 == 1", "", WDL.Error.EvalError),
             ("true || 1/0 == 1", "true"),
         )
 
