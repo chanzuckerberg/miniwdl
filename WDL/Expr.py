@@ -595,14 +595,11 @@ class IfThenElse(Base):
 
     def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ""
-        try:
-            if self.condition.eval(env, stdlib).expect(T.Boolean()).value:
-                ans = self.consequent.eval(env, stdlib)
-            else:
-                ans = self.alternative.eval(env, stdlib)
-            return ans
-        except ReferenceError:
-            raise Error.NullValue(self) from None
+        if self.condition.eval(env, stdlib).expect(T.Boolean()).value:
+            ans = self.consequent.eval(env, stdlib)
+        else:
+            ans = self.alternative.eval(env, stdlib)
+        return ans
 
 
 class Ident(Base):

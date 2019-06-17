@@ -176,7 +176,7 @@ class TestStdLib(unittest.TestCase):
                 Array[Int] bogus = select_first([one])
             }
         }
-        """, expected_exception=WDL.Error.NullValue)
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_sub(self):
         outputs = self._test_task(R"""
