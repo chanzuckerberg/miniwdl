@@ -846,6 +846,16 @@ class TestDoc(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
+        doc = r"""
+        workflow wf {
+            scatter (x in []) {
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.IndeterminateType):
+            doc.typecheck()
+
     def test_task_forward_reference(self):
         doc = r"""
         version 1.0
