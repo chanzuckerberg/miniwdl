@@ -348,6 +348,20 @@ class TestTaskRunner(unittest.TestCase):
         }
         """)
 
+    def test_coercion(self):
+        self._test_task(R"""
+        version 1.0
+        task t {
+            input {
+                Map[String,Pair[Array[String],Float]] x = {
+                    1: ([2,3],4),
+                    5: ([6,7],8)
+                }
+            }
+            command {}
+        }
+        """)
+
     def test_errors(self):
         self._test_task(R"""
         version 1.0

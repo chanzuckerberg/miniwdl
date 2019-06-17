@@ -202,7 +202,7 @@ class Pair(Base):
 
     @property
     def json(self) -> Any:
-        raise NotImplementedError()
+        return [self.value[0].json, self.value[1].json]
 
     @property
     def children(self) -> Iterable[Base]:
