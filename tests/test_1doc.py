@@ -142,7 +142,7 @@ class TestTasks(unittest.TestCase):
         task.typecheck()
         self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(True))).value, 'yes')
         self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(False))).value, 'no')
-        with self.assertRaises(WDL.Error.EvalError):
+        with self.assertRaises(WDL.Error.NullValue):
             self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Null())).value, '')
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):

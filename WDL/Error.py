@@ -297,6 +297,16 @@ class OutOfBounds(EvalError):
         super().__init__(node, "Array index out of bounds")
 
 
+class EmptyArray(EvalError):
+    def __init__(self, node: SourceNode) -> None:
+        super().__init__(node, "Empty array for Array+ input/declaration")
+
+
+class NullValue(EvalError):
+    def __init__(self, node: Union[SourceNode, SourcePosition]) -> None:
+        super().__init__(node, "Null value")
+
+
 class InputError(RuntimeError):
     """Error reading an input value/file"""
 

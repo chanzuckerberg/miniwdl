@@ -464,7 +464,7 @@ class _SelectFirst(EagerFunction):
         for arg in arr.value:
             if not isinstance(arg, V.Null):
                 return arg
-        raise ValueError("no non-null arguments for select_first()")
+        raise Error.NullValue(expr)
 
 
 class _SelectAll(EagerFunction):

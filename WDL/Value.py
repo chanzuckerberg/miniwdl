@@ -23,10 +23,17 @@ class Base(ABC):
     value: Any
     """The "raw" Python value"""
 
+    expr: "Optional[WDL.Expr.Base]"
+    """
+    Reference to the WDL expression that generated this value, if it originated
+    from ``WDL.Expr.eval``
+    """
+
     def __init__(self, type: T.Base, value: Any) -> None:
         assert isinstance(type, T.Base)
         self.type = type
         self.value = value
+        self.expr = None
 
     def __eq__(self, other) -> bool:
         return self.type == other.type and self.value == other.value
@@ -142,7 +149,10 @@ class Array(Base):
         ""
         if isinstance(desired_type, T.Array):
             if desired_type.nonempty and not self.value:
-                raise ValueError("Empty array for Array+ input/declaration")
+                if self.expr:
+                    raise Error.EmptyArray(self.expr)
+                else:
+                    raise ValueError("Empty array for Array+ input/declaration")
             if desired_type.item_type == self.type.item_type or (
                 isinstance(desired_type.item_type, T.Any) or isinstance(self.type.item_type, T.Any)
             ):
@@ -239,7 +249,10 @@ class Null(Base):
         if desired_type and not desired_type.optional:
             # normally the typechecker should prevent this, but it might have
             # had check_quant=False
-            raise ValueError("'None' for non-optional input/declaration")
+            if self.expr:
+                raise Error.NullValue(self.expr)
+            else:
+                raise ValueError("'None' for non-optional input/declaration")
         return self
 
     @property

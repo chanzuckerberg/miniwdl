@@ -105,7 +105,9 @@ class Base(SourceNode, ABC):
         :param stdlib: a context-specific standard function library implementation
         """
         try:
-            return self._eval(env, stdlib)
+            ans = self._eval(env, stdlib)
+            ans.expr = self
+            return ans
         except Error.EvalError:
             raise
         except Exception as exn:

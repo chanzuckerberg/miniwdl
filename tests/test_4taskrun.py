@@ -372,7 +372,7 @@ class TestTaskRunner(unittest.TestCase):
             Array[Int]+ y = x
             command {}
         }
-        """, expected_exception=WDL.Error.EvalError)
+        """, expected_exception=WDL.Error.EmptyArray)
         self._test_task(R"""
         version 1.0
         task t {
@@ -384,4 +384,4 @@ class TestTaskRunner(unittest.TestCase):
                 Array[Int]+ y = x
             }
         }
-        """, expected_exception=WDL.Error.EvalError)
+        """, expected_exception=WDL.Error.EmptyArray)

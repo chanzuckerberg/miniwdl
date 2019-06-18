@@ -182,7 +182,7 @@ class TestStdLib(unittest.TestCase):
                 Array[Int] bogus = select_first([one])
             }
         }
-        """, expected_exception=WDL.Error.EvalError)
+        """, expected_exception=WDL.Error.NullValue)
         outputs = self._test_task(R"""
         version 1.0
         task test_select {
