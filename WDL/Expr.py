@@ -105,7 +105,9 @@ class Base(SourceNode, ABC):
         :param stdlib: a context-specific standard function library implementation
         """
         try:
-            return self._eval(env, stdlib)
+            ans = self._eval(env, stdlib)
+            ans.expr = self
+            return ans
         except Error.EvalError:
             raise
         except Exception as exn:
@@ -595,14 +597,11 @@ class IfThenElse(Base):
 
     def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ""
-        try:
-            if self.condition.eval(env, stdlib).expect(T.Boolean()).value:
-                ans = self.consequent.eval(env, stdlib)
-            else:
-                ans = self.alternative.eval(env, stdlib)
-            return ans
-        except ReferenceError:
-            raise Error.NullValue(self) from None
+        if self.condition.eval(env, stdlib).expect(T.Boolean()).value:
+            ans = self.consequent.eval(env, stdlib)
+        else:
+            ans = self.alternative.eval(env, stdlib)
+        return ans
 
 
 class Ident(Base):

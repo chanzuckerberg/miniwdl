@@ -10,19 +10,25 @@ class TestStdLib(unittest.TestCase):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_stdlib_")
 
     def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None):
-        doc = WDL.parse_document(wdl)
-        assert len(doc.tasks) == 1
-        doc.typecheck()
-        if isinstance(inputs, dict):
-            inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-        if expected_exception:
-            try:
-                WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
-            except WDL.runtime.task.TaskFailure as exn:
+        try:
+            doc = WDL.parse_document(wdl)
+            assert len(doc.tasks) == 1
+            doc.typecheck()
+            if isinstance(inputs, dict):
+                inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
+            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
+        except WDL.runtime.task.TaskFailure as exn:
+            if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
                 return exn.__context__
+            raise exn.__context__
+        except Exception as exn:
+            if expected_exception:
+                self.assertIsInstance(exn, expected_exception)
+                return exn.__context__
+            raise
+        if expected_exception:
             self.assertFalse(str(expected_exception) + " not raised")
-        rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
         return WDL.values_to_json(outputs)
 
     def test_size_polytype(self):
@@ -177,6 +183,28 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.NullValue)
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_select {
+            input {
+            }
+            command {}
+            output {
+                Int bogus = select_first([])
+            }
+        }
+        """, expected_exception=WDL.Error.IndeterminateType)
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_select {
+            input {
+            }
+            command {}
+            output {
+                Array[Int] bogus = select_all([])
+            }
+        }
+        """, expected_exception=WDL.Error.IndeterminateType)
 
     def test_sub(self):
         outputs = self._test_task(R"""
