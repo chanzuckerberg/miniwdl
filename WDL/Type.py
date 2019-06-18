@@ -432,10 +432,16 @@ class Object(Base):
             # are coercible to the respective member types.
             # TODO: in the event of StaticTypeMismatch errors, this may produce
             # unwieldy error messages
-            if set(self.members.keys()) != set(rhs_members.keys()):
+            self_keys = set(self.members.keys())
+            rhs_keys = set(rhs_members.keys())
+            if self_keys - rhs_keys:
                 return False
-            for k in self.members.keys():
+            for k in self_keys:
                 if not self.members[k].coerces(rhs_members[k], check_quant):
+                    return False
+            for opt_k in (rhs_keys - self_keys):
+                # object literal may omit optional struct fields
+                if not rhs_members[opt_k].optional:
                     return False
             return True
         if isinstance(rhs, Any):

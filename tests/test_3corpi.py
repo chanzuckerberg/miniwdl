@@ -203,11 +203,10 @@ class Contrived2(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/biowdl/tasks/**"],
-    expected_lint={'UnusedImport': 7, 'OptionalCoercion': 9, 'StringCoercion': 10, 'UnusedDeclaration': 10, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 3, 'NameCollision': 1},
+    expected_lint={'UnusedImport': 10, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
     check_quant=False,
     blacklist=[
-        # issue #167
-        "biopet", "flash", "manta"
+
     ],
 )
 class BioWDLTasks(unittest.TestCase):
