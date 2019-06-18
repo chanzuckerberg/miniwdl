@@ -125,6 +125,8 @@ $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 
 By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
 
+The tool supports shell tab-completion for the workflow's available input names. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl cromwell hello.wdl ` and try double-tab.
+
 ## WDL Python library
 
 The `WDL` package provides programmatic access to the WDL parser and AST. The following example prints all declarations in a workflow, descending into `scatter` and `if` stanzas as needed.
