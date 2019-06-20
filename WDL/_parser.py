@@ -346,7 +346,9 @@ class _ExprTransformer(lark.Transformer):
 
     def object_kv(self, items, meta):
         assert len(items) == 2
-        k = items[0].value
+        k = items[0]
+        if isinstance(k, lark.Token):
+            k = k.value
         assert isinstance(k, str), k
         assert isinstance(items[1], E.Base)
         return (k, items[1])
