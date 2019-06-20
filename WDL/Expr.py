@@ -108,7 +108,7 @@ class Base(SourceNode, ABC):
             ans = self._eval(env, stdlib)
             ans.expr = self
             return ans
-        except Error.EvalError:
+        except Error.RuntimeError:
             raise
         except Exception as exn:
             raise Error.EvalError(self, str(exn)) from exn

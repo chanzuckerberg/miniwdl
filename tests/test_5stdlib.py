@@ -1,6 +1,7 @@
 import unittest
 import logging
 import tempfile
+import os
 from .context import WDL
 
 class TestStdLib(unittest.TestCase):
@@ -248,3 +249,44 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
+    def test_size(self):
+        # tests filename mappings when Files are embedded in compound types
+        with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
+            outfile.write("Alyssa\n")
+        with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
+            outfile.write("Ben\n")
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            Array[File] files
+            Array[Float] sizes_ = [
+                size(files[0]),
+                size(files),
+                size(files[0], "MB"),
+                size(files[0], "MiB"),
+                size(files, "GB"),
+                size(files, "GiB")
+            ]
+            command {}
+            output {
+                Array[Float] sizes = sizes_
+            }
+        }
+        """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
+                         os.path.join(self._dir, "ben.txt") ]})
+        self.assertEqual(len(outputs["sizes"]), 6)
+        self.assertEqual(outputs["sizes"][0], 7)
+        self.assertEqual(outputs["sizes"][1], 11)
+        self.assertAlmostEqual(outputs["sizes"][2], 7/1000000)
+        self.assertAlmostEqual(outputs["sizes"][3], 7/1048576)
+        self.assertAlmostEqual(outputs["sizes"][4], 11/1000000000)
+        self.assertAlmostEqual(outputs["sizes"][5], 11/1073741824)
+
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            Float x = size("/etc/passwd")
+            command {}
+        }
+        """, expected_exception=WDL.Error.InputError)

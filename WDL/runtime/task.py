@@ -199,7 +199,43 @@ class TaskContainer(ABC):
         # - Invocations of size(), read_* are permitted only on input files (no string coercions)
         # - forbidden/undefined: stdout, stderr, glob
 
+        def _size(expr: WDL.Expr.Apply, arguments: List[WDL.Value.Base]) -> WDL.Value.Base:
+            files = arguments[0].coerce(WDL.Type.Array(WDL.Type.File()))
+            unit = arguments[1].coerce(WDL.Type.String()) if len(arguments) > 1 else None
+            ans = float(0)
+            for fn_c in files.value:
+                found = None
+                for fn_h in self.input_file_map:
+                    if self.input_file_map[fn_h] == fn_c.value:
+                        found = os.path.getsize(fn_h)
+                if found is None:
+                    raise WDL.Error.InputError(
+                        expr, "size() invoked on non-existent or non-input file " + fn_c.value
+                    )
+                ans += float(found)
+            if unit:
+                if unit.value in ["K", "KB"]:
+                    ans /= 1000
+                elif unit.value == "KiB":
+                    ans /= 1024
+                elif unit.value in ["M", "MB"]:
+                    ans /= 1000000
+                elif unit.value == "MiB":
+                    ans /= 1048576
+                elif unit.value in ["G", "GB"]:
+                    ans /= 1000000000
+                elif unit.value == "GiB":
+                    ans /= 1073741824
+                elif unit.value in ["T", "TB"]:
+                    ans /= 1000000000000
+                elif unit.value == "TiB":
+                    ans /= 1099511627776
+                else:
+                    raise WDL.Error.EvalError(expr, "size(): invalid unit " + unit.value)
+            return WDL.Value.Float(ans)
+
         ans = self._stdlib_base()
+        setattr(getattr(ans, "size"), "_call_eager", _size)
         return ans
 
     def stdlib_output(self) -> WDL.StdLib.Base:
@@ -470,7 +506,7 @@ def _eval_task_inputs(
         if decl.expr:
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
-            except WDL.Error.EvalError:
+            except WDL.Error.RuntimeError:
                 raise
             except Exception as exn:
                 raise WDL.Error.EvalError(decl, str(exn)) from exn
@@ -492,7 +528,7 @@ def _eval_task_outputs(
         assert decl.expr
         try:
             v = decl.expr.eval(env, stdlib=container.stdlib_output()).coerce(decl.type)
-        except WDL.Error.EvalError:
+        except WDL.Error.RuntimeError:
             raise
         except Exception as exn:
             raise WDL.Error.EvalError(decl, str(exn)) from exn
