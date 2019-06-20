@@ -361,6 +361,24 @@ class TestTaskRunner(unittest.TestCase):
             command {}
         }
         """)
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Car {
+            String model
+            Int year
+            Int? mileage
+        }
+        task t {
+            command {}
+            output {
+                Car car = object {
+                    model: "Mazda",
+                    year: 2017
+                }
+            }
+        }
+        """)
+        self.assertEqual(outputs["car"], {"model": "Mazda", "year": 2017, "mileage": None})
 
     def test_errors(self):
         self._test_task(R"""

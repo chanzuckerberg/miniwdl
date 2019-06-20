@@ -439,7 +439,7 @@ class Object(Base):
             for k in self_keys:
                 if not self.members[k].coerces(rhs_members[k], check_quant):
                     return False
-            for opt_k in (rhs_keys - self_keys):
+            for opt_k in rhs_keys - self_keys:
                 # object literal may omit optional struct fields
                 if not rhs_members[opt_k].optional:
                     return False
