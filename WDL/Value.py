@@ -8,7 +8,7 @@ Each value is represented by an instance of a Python class inheriting from
    :top-classes: WDL.Value.Base
 """
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable
+from typing import Any, List, Optional, Tuple, Dict, Iterable, Union
 import json
 import WDL.Type as T
 import WDL.Error as Error
@@ -263,9 +263,24 @@ class Null(Base):
 class Struct(Base):
     value: Dict[str, Base]
 
-    def __init__(self, type: T.Object, value: Dict[str, Base]) -> None:
+    def __init__(self, type: Union[T.Object, T.StructInstance], value: Dict[str, Base]) -> None:
         super().__init__(type, value)
         self.value = value
+
+    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+        ""
+        if isinstance(self.type, T.Object) and isinstance(desired_type, T.StructInstance):
+            ans = dict(self.value)
+            # object literal may omit optional struct members; fill them out with null
+            # TODO: this should be done in the eval() of struct literals when there's
+            # a new syntax specifying the struct type in the literal
+            assert desired_type.members
+            for k in desired_type.members:
+                if k not in self.value:
+                    assert desired_type.members[k].optional  # typechecker should ensure
+                    ans[k] = Null()
+            return Struct(desired_type, ans)
+        return self
 
     def __str__(self) -> str:
         return json.dumps(self.json)
