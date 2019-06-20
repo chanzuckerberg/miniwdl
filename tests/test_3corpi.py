@@ -205,9 +205,6 @@ class Contrived2(unittest.TestCase):
     ["test_corpi/biowdl/tasks/**"],
     expected_lint={'UnusedImport': 10, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
     check_quant=False,
-    blacklist=[
-
-    ],
 )
 class BioWDLTasks(unittest.TestCase):
     pass
