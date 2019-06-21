@@ -19,7 +19,7 @@ class SyntaxError(Exception):
     pos: SourcePosition
 
     def __init__(self, pos: SourcePosition, msg: str) -> None:
-        super().__init__("({} Ln {} Col {}) {}".format(pos.filename, pos.line, pos.column, msg))
+        super().__init__(msg)
         self.pos = pos
 
 
@@ -31,9 +31,7 @@ class ImportError(Exception):
     pos: SourcePosition
 
     def __init__(self, pos: SourcePosition, import_uri: str, message: Optional[str] = None) -> None:
-        msg = "({} Ln {} Col {}) Failed to import {}".format(
-            pos.filename, pos.line, pos.column, import_uri
-        )
+        msg = "Failed to import " + import_uri
         if message:
             msg = msg + ", " + message
         super().__init__(msg)
@@ -104,13 +102,14 @@ class ValidationError(Exception):
             self.pos = node.pos
         else:
             self.pos = node
-        message = "({} Ln {}, Col {}) {}".format(
-            os.path.basename(self.pos.filename), self.pos.line, self.pos.column, message
-        )
         super().__init__(message)
 
 
 class InvalidType(ValidationError):
+    pass
+
+
+class IndeterminateType(ValidationError):
     pass
 
 
@@ -157,16 +156,6 @@ class StaticTypeMismatch(ValidationError):
 class IncompatibleOperand(ValidationError):
     def __init__(self, node: SourceNode, message: str) -> None:
         super().__init__(node, message)
-
-
-class OutOfBounds(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "Array index out of bounds")
-
-
-class EmptyArray(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "Empty array for Array+ input/declaration")
 
 
 class UnknownIdentifier(ValidationError):
@@ -300,10 +289,17 @@ class EvalError(RuntimeError):
             self.pos = node.pos
         else:
             self.pos = node
-        message = "({} Ln {}, Col {}) {}".format(
-            os.path.basename(self.pos.filename), self.pos.line, self.pos.column, message
-        )
         super().__init__(message)
+
+
+class OutOfBounds(EvalError):
+    def __init__(self, node: SourceNode) -> None:
+        super().__init__(node, "Array index out of bounds")
+
+
+class EmptyArray(EvalError):
+    def __init__(self, node: SourceNode) -> None:
+        super().__init__(node, "Empty array for Array+ input/declaration")
 
 
 class NullValue(EvalError):

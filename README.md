@@ -3,6 +3,7 @@
 
 ![Project Status](https://img.shields.io/badge/status-alpha-red.svg)
 [![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/)
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/master/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
@@ -24,9 +25,9 @@ This project in alpha development; interfaces are liable to change somewhat. See
 
 ## Installation
 
-``pip3 install miniwdl``
+pip: `pip3 install miniwdl`
 
-This will also install the [Lark parsing library](https://github.com/lark-parser/lark) and other dependencies automatically.
+conda: [configure conda-forge](http://conda-forge.org/docs/user/introduction.html) and `conda install miniwdl`
 
 ## Command-line tools
 
@@ -124,6 +125,8 @@ $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 ```
 
 By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
+
+The tool supports shell tab-completion for the workflow's available input names. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl cromwell hello.wdl ` and try double-tab.
 
 ## WDL Python library
 

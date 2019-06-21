@@ -654,12 +654,12 @@ class UnusedDeclaration(Linter):
             if not (
                 (
                     isinstance(obj.type, WDL.Type.File)
-                    and sum(1 for sfx in index_suffixes if obj.name.endswith(sfx))
+                    and sum(1 for sfx in index_suffixes if obj.name.lower().endswith(sfx))
                 )
                 or (
                     isinstance(obj.type, WDL.Type.Array)
                     and isinstance(obj.type.item_type, WDL.Type.File)
-                    and sum(1 for sfx in index_suffixes if obj.name.endswith(sfx))
+                    and sum(1 for sfx in index_suffixes if obj.name.lower().endswith(sfx))
                 )
                 or (
                     isinstance(pt, WDL.Tree.Task)

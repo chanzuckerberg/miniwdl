@@ -825,6 +825,8 @@ class Workflow(SourceNode):
             # 5. typecheck the output expressions
             if self.outputs:
                 output_names = set()
+                output_type_env = self._type_env
+                assert output_type_env
                 for output in self.outputs:
                     assert output.expr
                     if output.name in output_names:
@@ -835,10 +837,11 @@ class Workflow(SourceNode):
                         )
                     errors.try1(
                         lambda output=output: output.typecheck(
-                            self._type_env, check_quant=check_quant
+                            output_type_env, check_quant=check_quant
                         )
                     )
                     output_names.add(output.name)
+                    output_type_env = Env.bind(output_type_env, [], output.name, output.type)
         # 6. check for cyclic dependencies
         WDL._util.detect_cycles(_dependency_matrix(_decls_and_calls(self)))  # pyre-fixme
 
@@ -1000,60 +1003,65 @@ def load(
     path: Optional[List[str]] = None,
     check_quant: bool = True,
     import_uri: Optional[Callable[[str], str]] = None,
-    import_max_depth=10,
+    import_max_depth: int = 10,
+    source_text: Optional[str] = None,
 ) -> Document:
     path = path or []
-    if uri.startswith("file://"):
-        uri = uri[7:]
-    elif uri.find("://") > 0 and import_uri:
-        uri = import_uri(uri)
-    for fn in [uri] + [os.path.join(dn, uri) for dn in reversed(path)]:
-        if os.path.exists(fn):
-            with open(fn, "r") as infile:
-                # read and parse the document
-                source_text = infile.read()
-                doc = WDL._parser.parse_document(source_text, uri=uri)
-                assert isinstance(doc, Document)
-                # recursively descend into document's imports, and store the imported
-                # documents into doc.imports
-                # TODO: are we supposed to do something smart for relative imports
-                #       within a document loaded by URI?
-                for i in range(len(doc.imports)):
-                    imp = doc.imports[i]
-                    if import_max_depth <= 1:
-                        raise Err.ImportError(
-                            imp.pos, imp.uri, "exceeded import_max_depth; circular imports?"
-                        )
-                    try:
-                        subpath = [os.path.dirname(fn)] + path
-                        subdoc = load(
-                            imp.uri,
-                            subpath,
-                            check_quant=check_quant,
-                            import_uri=import_uri,
-                            import_max_depth=(import_max_depth - 1),
-                        )
-                    except Exception as exn:
-                        raise Err.ImportError(imp.pos, imp.uri) from exn
-                    doc.imports[i] = DocImport(
-                        pos=imp.pos,
-                        uri=imp.uri,
-                        namespace=imp.namespace,
-                        aliases=imp.aliases,
-                        doc=subdoc,
-                    )
-                try:
-                    doc.typecheck(check_quant=check_quant)
-                except Err.ValidationError as exn:
-                    exn.source_text = source_text
-                    raise exn
-                except Err.MultipleValidationErrors as multi:
-                    for exn in multi.exceptions:
-                        if not exn.source_text:
-                            exn.source_text = source_text
-                    raise multi
-                return doc
-    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+    if source_text is None:
+        if uri.startswith("file://"):
+            uri = uri[7:]
+        elif uri.find("://") > 0 and import_uri:
+            uri = import_uri(uri)
+        # search cwd and path for an extant file
+        fn = next(
+            (
+                fn
+                for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)])
+                if os.path.exists(fn)
+            ),
+            None,
+        )
+        if not fn:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+        # read the document source text
+        with open(fn, "r") as infile:
+            source_text = infile.read()
+        path = path + [os.path.dirname(fn)]
+    # parse the document
+    doc = WDL._parser.parse_document(source_text, uri=uri)
+    assert isinstance(doc, Document)
+    # recursively descend into document's imports, and store the imported
+    # documents into doc.imports
+    # TODO: are we supposed to do something smart for relative imports
+    #       within a document loaded by URI?
+    for i in range(len(doc.imports)):
+        imp = doc.imports[i]
+        if import_max_depth <= 1:
+            raise Err.ImportError(imp.pos, imp.uri, "exceeded import_max_depth; circular imports?")
+        try:
+            subdoc = load(
+                imp.uri,
+                path,
+                check_quant=check_quant,
+                import_uri=import_uri,
+                import_max_depth=(import_max_depth - 1),
+            )
+        except Exception as exn:
+            raise Err.ImportError(imp.pos, imp.uri) from exn
+        doc.imports[i] = DocImport(
+            pos=imp.pos, uri=imp.uri, namespace=imp.namespace, aliases=imp.aliases, doc=subdoc
+        )
+    try:
+        doc.typecheck(check_quant=check_quant)
+    except Err.ValidationError as exn:
+        exn.source_text = source_text
+        raise exn
+    except Err.MultipleValidationErrors as multi:
+        for exn in multi.exceptions:
+            if not exn.source_text:
+                exn.source_text = source_text
+        raise multi
+    return doc
 
 
 #
@@ -1136,8 +1144,8 @@ def _build_workflow_type_env(
         self.expr.infer_type(type_env, check_quant=check_quant)
         if not isinstance(self.expr.type, T.Array):
             raise Err.NotAnArray(self.expr)
-        if self.expr.type.item_type is None:
-            raise Err.EmptyArray(self.expr)
+        if isinstance(self.expr.type.item_type, T.Any):
+            raise Err.IndeterminateType(self.expr, "can't infer item type of empty array")
         # bind the scatter variable to the array item type within the body
         try:
             Env.resolve(type_env, [], self.variable)
@@ -1382,7 +1390,7 @@ def _resolve_struct_typedef(
     try:
         struct_typedef = Env.resolve(struct_typedefs, [], ty.type_name)
     except KeyError:
-        raise Err.InvalidType(pos, "Unknown type " + ty.type_name)
+        raise Err.InvalidType(pos, "Unknown type " + ty.type_name) from None
     ty.members = struct_typedef.members
 
 
@@ -1413,7 +1421,7 @@ def _initialize_struct_typedefs(struct_typedefs: Env.StructTypeDefs):
             try:
                 _resolve_struct_typedefs(b.rhs.pos, member_ty, struct_typedefs)
             except StopIteration:
-                raise Err.CircularDependencies(b.rhs)
+                raise Err.CircularDependencies(b.rhs) from None
 
 
 def _add_struct_instance_to_type_env(

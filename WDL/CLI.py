@@ -1,6 +1,7 @@
 """
 miniwdl command-line interface
 """
+# PYTHON_ARGCOMPLETE_OK
 import sys
 import os
 import subprocess
@@ -8,10 +9,11 @@ import tempfile
 import glob
 import json
 import math
+import pkg_resources
+import argcomplete
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action
-import pkg_resources
 import WDL
 import WDL.Lint
 from . import values_from_json, values_to_json
@@ -33,6 +35,7 @@ def main(args=None):
     fill_common(fill_check_subparser(subparsers))
     fill_common(fill_cromwell_subparser(subparsers))
 
+    argcomplete.autocomplete(parser)
     args = parser.parse_args(args if args is not None else sys.argv[1:])
 
     try:
@@ -209,7 +212,15 @@ def print_error(exn):
         for exn1 in exn.exceptions:
             print_error(exn1)
     else:
-        print(str(exn), file=sys.stderr)
+        if isinstance(getattr(exn, "pos", None), WDL.SourcePosition):
+            print(
+                "({} Ln {} Col {}) {}".format(
+                    exn.pos.filename, exn.pos.line, exn.pos.column, str(exn)
+                ),
+                file=sys.stderr,
+            )
+        else:
+            print(str(exn), file=sys.stderr)
         if isinstance(exn, WDL.Error.ImportError) and hasattr(exn, "__cause__"):
             print_error(exn.__cause__)
         if isinstance(exn, WDL.Error.ValidationError) and exn.source_text:
@@ -251,7 +262,7 @@ def fill_cromwell_subparser(subparsers):
         type=str,
         nargs="*",
         help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
-    )
+    ).completer = cromwell_input_completer
     cromwell_parser.add_argument(
         "-d",
         "--dir",
@@ -292,6 +303,44 @@ def fill_cromwell_subparser(subparsers):
     # accept an input JSON file, add any command-line keys into it
     # way to specify None for an optional value (that has a default)
     return cromwell_parser
+
+def cromwell_input_completer(prefix, parsed_args, **kwargs):
+    # argcomplete completer for `miniwdl cromwell`
+    if "uri" in parsed_args:
+        # load document. in the completer setting, we need to substitute the home directory
+        # and environment variables
+        uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
+        if not os.path.exists(uri):
+            argcomplete.warn("file not found: " + uri)
+            return []
+        try:
+            doc = WDL.load(uri, parsed_args.path, parsed_args.check_quant, import_uri=import_uri)
+        except Exception as exn:
+            argcomplete.warn(
+                "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
+            )
+            return []
+        # resolve target
+        if doc.workflow:
+            target = doc.workflow
+        elif len(doc.tasks) == 1:
+            target = doc.tasks[0]
+        elif len(doc.tasks) > 1:
+            argcomplete.warn("WDL document contains multiple tasks and no workflow")
+            return []
+        else:
+            argcomplete.warn("WDL document is empty")
+            return []
+        assert target
+        # figure the available input names (starting with prefix, if any)
+        available_input_names = [nm + "=" for nm in values_to_json(target.available_inputs)]
+        if prefix and prefix.find("=") == -1:
+            available_input_names = [nm for nm in available_input_names if nm.startswith(prefix)]
+        # TODO idea -- complete only required inputs until they're all present, then start
+        # completing the non-required inputs. Tricky with arrays, because we want to keep
+        # allowing their completion even after already supplied.
+        # compute set of inputs already supplied
+        return available_input_names
 
 
 def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, jarfile=None, config=None, path=None, **kwargs):

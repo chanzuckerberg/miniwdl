@@ -11,9 +11,9 @@ struct popular {
 }
 
 workflow contrived {
-    scatter (popular in []) {
+    scatter (popular in [1]) {
     }
-    scatter (contrived in []) {
+    scatter (contrived in [2]) {
     }
 }
 

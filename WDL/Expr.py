@@ -93,13 +93,25 @@ class Base(SourceNode, ABC):
         return self
 
     @abstractmethod
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+        # to be overridden by subclasses. eval() calls this and deals with any
+        # exceptions raised
+        pass
+
     def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         """
         Evaluate the expression in the given environment
         
         :param stdlib: a context-specific standard function library implementation
         """
-        pass
+        try:
+            ans = self._eval(env, stdlib)
+            ans.expr = self
+            return ans
+        except Error.EvalError:
+            raise
+        except Exception as exn:
+            raise Error.EvalError(self, str(exn)) from exn
 
 
 class Boolean(Base):
@@ -121,7 +133,7 @@ class Boolean(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         return T.Boolean()
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Boolean:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Boolean:
         ""
         return V.Boolean(self.value)
 
@@ -145,7 +157,7 @@ class Int(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         return T.Int()
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Int:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Int:
         ""
         return V.Int(self.value)
 
@@ -172,7 +184,7 @@ class Float(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         return T.Float()
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Float:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Float:
         ""
         return V.Float(self.value)
 
@@ -237,7 +249,7 @@ class Placeholder(Base):
                 )
         return T.String()
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.String:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.String:
         ""
         v = self.expr.eval(env, stdlib)
         if isinstance(v, V.Null):
@@ -285,7 +297,7 @@ class String(Base):
         ""
         return super().typecheck(expected)  # pyre-ignore
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.String:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.String:
         ""
         ans = []
         for part in self.parts:
@@ -371,7 +383,7 @@ class Array(Base):
             return self
         return super().typecheck(expected)  # pyre-ignore
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Array:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Array:
         ""
         assert isinstance(self.type, T.Array)
         return V.Array(
@@ -410,7 +422,7 @@ class Pair(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         return T.Pair(self.left.type, self.right.type)
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ""
         assert isinstance(self.type, T.Pair)
         lv = self.left.eval(env, stdlib)
@@ -457,7 +469,7 @@ class Map(Base):
         assert vty is not None
         return T.Map((kty, vty))
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ""
         assert isinstance(self.type, T.Map)
         eitems = []
@@ -498,7 +510,7 @@ class Struct(Base):
             member_types[k] = v.type
         return T.Object(member_types)
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
@@ -583,16 +595,13 @@ class IfThenElse(Base):
             ) from None
         return self_type
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ""
-        try:
-            if self.condition.eval(env, stdlib).expect(T.Boolean()).value:
-                ans = self.consequent.eval(env, stdlib)
-            else:
-                ans = self.alternative.eval(env, stdlib)
-            return ans
-        except ReferenceError:
-            raise Error.NullValue(self) from None
+        if self.condition.eval(env, stdlib).expect(T.Boolean()).value:
+            ans = self.consequent.eval(env, stdlib)
+        else:
+            ans = self.alternative.eval(env, stdlib)
+        return ans
 
 
 class Ident(Base):
@@ -640,7 +649,7 @@ class Ident(Base):
         self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
         return ans
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ""
         ans: V.Base = Env.resolve(env, self.namespace, self.name)
         return ans
@@ -669,7 +678,7 @@ class _LeftName(Base):
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         raise NotImplementedError()
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         raise NotImplementedError()
 
     @property
@@ -787,7 +796,7 @@ class Get(Base):
                 pass
         raise Error.NoSuchMember(self, self.member)
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         innard_value = self.expr.eval(env, stdlib)
         if not self.member:
             return innard_value
@@ -844,7 +853,7 @@ class Apply(Base):
         assert isinstance(f, StdLibFunction)
         return f.infer_type(self)
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ""
         from WDL.StdLib import Base as StdLibBase, Function as StdLibFunction
 

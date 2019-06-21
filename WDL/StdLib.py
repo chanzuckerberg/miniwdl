@@ -1,4 +1,7 @@
 # pylint: disable=protected-access,exec-used
+import math
+import os
+import re
 from typing import List, Tuple, Callable, Any
 from abc import ABC, abstractmethod
 import WDL.Type as T
@@ -43,12 +46,12 @@ class Base:
 
         # static stdlib functions
         for (name, argument_types, return_type, F) in [
-            ("floor", [T.Float()], T.Int(), _notimpl),
-            ("ceil", [T.Float()], T.Int(), _notimpl),
-            ("round", [T.Float()], T.Int(), _notimpl),
+            ("floor", [T.Float()], T.Int(), lambda v: V.Int(math.floor(v.value))),
+            ("ceil", [T.Float()], T.Int(), lambda v: V.Int(math.ceil(v.value))),
+            ("round", [T.Float()], T.Int(), lambda v: V.Int(round(v.value))),
             ("length", [T.Array(T.Any())], T.Int(), lambda v: V.Int(len(v.value))),
-            ("sub", [T.String(), T.String(), T.String()], T.String(), _notimpl),
-            ("basename", [T.String(), T.String(optional=True)], T.String(), _notimpl),
+            ("sub", [T.String(), T.String(), T.String()], T.String(), _sub),
+            ("basename", [T.String(), T.String(optional=True)], T.String(), _basename),
             (
                 "defined",
                 [T.Any(optional=True)],
@@ -117,7 +120,9 @@ class Function(ABC):
 
 
 class EagerFunction(Function):
-    # Function helper providing boilerplate for eager argument evaluation
+    # Function helper providing boilerplate for eager argument evaluation.
+    # Implementation is responsible for any appropriate type coercion of
+    # argument and return values.
 
     @abstractmethod
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
@@ -128,7 +133,8 @@ class EagerFunction(Function):
 
 
 class StaticFunction(EagerFunction):
-    # Function helper for static argument and return types
+    # Function helper for static argument and return types.
+    # In this case the boilerplate can handle the coercions.
 
     name: str
     argument_types: List[T.Base]
@@ -166,12 +172,31 @@ class StaticFunction(EagerFunction):
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         argument_values = [arg.coerce(ty) for arg, ty in zip(arguments, self.argument_types)]
-        ans: V.Base = self.F(*argument_values)
+        try:
+            ans: V.Base = self.F(*argument_values)
+        except Exception as exn:
+            raise Error.EvalError(expr, "function evaluation failed") from exn
         return ans.coerce(self.return_type)
 
 
-def _notimpl(one: Any = None, two: Any = None) -> None:
+def _notimpl(*args, **kwargs) -> None:
     exec("raise NotImplementedError()")
+
+
+def _basename(*args) -> V.String:
+    assert len(args) in (1, 2)
+    assert isinstance(args[0], V.String)
+    path = args[0].value
+    if len(args) > 1:
+        assert isinstance(args[1], V.String)
+        suffix = args[1].value
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+    return V.String(os.path.basename(path))
+
+
+def _sub(input: V.String, pattern: V.String, replace: V.String) -> V.String:
+    return V.String(re.compile(pattern.value).sub(replace.value, input.value))
 
 
 class _At(EagerFunction):
@@ -207,11 +232,6 @@ class _At(EagerFunction):
         assert len(expr.arguments) == 2 and len(arguments) == 2
         lhs = arguments[0]
         rhs = arguments[1]
-        if isinstance(lhs, V.Array):
-            assert isinstance(rhs, V.Int)
-            if rhs.value < 0 or rhs.value >= len(lhs.value):
-                raise Error.OutOfBounds(expr.arguments[1])
-            return lhs.value[rhs.value]
         if isinstance(lhs, V.Map):
             mty = expr.arguments[0].type
             assert isinstance(mty, T.Map)
@@ -223,7 +243,12 @@ class _At(EagerFunction):
             if ans is None:
                 raise Error.OutOfBounds(expr.arguments[1])  # TODO: KeyNotFound
             return ans
-        assert False
+        else:
+            lhs = lhs.coerce(T.Array(T.Any()))
+            rhs = rhs.coerce(T.Int())
+            if rhs.value < 0 or rhs.value >= len(lhs.value):
+                raise Error.OutOfBounds(expr.arguments[1])
+            return lhs.value[rhs.value]
 
 
 class _And(Function):
@@ -291,11 +316,7 @@ class _ArithmeticOperator(EagerFunction):
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
         ans_type = self.infer_type(expr)
-        try:
-            ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
-        except ZeroDivisionError:
-            # TODO: different runtime error?
-            raise Error.IncompatibleOperand(expr.arguments[1], "Division by zero") from None
+        ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
         if ans_type == T.Int():
             assert isinstance(ans, int)
             return V.Int(ans)
@@ -432,14 +453,18 @@ class _SelectFirst(EagerFunction):
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
         if isinstance(expr.arguments[0].type.item_type, T.Any):
-            # TODO: error for 'indeterminate type'
-            raise Error.EmptyArray(expr.arguments[0])
+            raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
         ty = expr.arguments[0].type.item_type
         assert isinstance(ty, T.Base)
         return ty.copy(optional=False)
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        arr = arguments[0].coerce(T.Array(T.Any()))
+        assert isinstance(arr, V.Array)
+        for arg in arr.value:
+            if not isinstance(arg, V.Null):
+                return arg
+        raise Error.NullValue(expr)
 
 
 class _SelectAll(EagerFunction):
@@ -453,14 +478,17 @@ class _SelectAll(EagerFunction):
                 expr.arguments[0], T.Array(T.Any()), expr.arguments[0].type
             )
         if isinstance(expr.arguments[0].type.item_type, T.Any):
-            # TODO: error for 'indeterminate type'
-            raise Error.EmptyArray(expr.arguments[0])
+            raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
         ty = expr.arguments[0].type.item_type
         assert isinstance(ty, T.Base)
         return T.Array(ty.copy(optional=False))
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        arr = arguments[0].coerce(T.Array(T.Any()))
+        assert isinstance(arr, V.Array)
+        arrty = arr.type
+        assert isinstance(arrty, T.Array)
+        return V.Array(arrty, [arg for arg in arr.value if not isinstance(arg, V.Null)])
 
 
 class _Zip(EagerFunction):
@@ -472,14 +500,12 @@ class _Zip(EagerFunction):
         if not isinstance(arg0ty, T.Array) or (expr._check_quant and arg0ty.optional):
             raise Error.StaticTypeMismatch(expr.arguments[0], T.Array(T.Any()), arg0ty)
         if isinstance(arg0ty.item_type, T.Any):
-            # TODO: error for 'indeterminate type'
-            raise Error.EmptyArray(expr.arguments[0])
+            raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
         arg1ty: T.Base = expr.arguments[1].type
         if not isinstance(arg1ty, T.Array) or (expr._check_quant and arg1ty.optional):
             raise Error.StaticTypeMismatch(expr.arguments[1], T.Array(T.Any()), arg1ty)
         if isinstance(arg1ty.item_type, T.Any):
-            # TODO: error for 'indeterminate type'
-            raise Error.EmptyArray(expr.arguments[1])
+            raise Error.IndeterminateType(expr.arguments[1], "can't infer item type of empty array")
         return T.Array(
             T.Pair(arg0ty.item_type, arg1ty.item_type),
             nonempty=(arg0ty.nonempty or arg1ty.nonempty),
@@ -549,7 +575,11 @@ class _Range(EagerFunction):
         return T.Array(T.Int(), nonempty=nonempty)
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        arg0 = arguments[0].coerce(T.Int())
+        assert isinstance(arg0, V.Int)
+        if arg0.value < 0:
+            raise Error.EvalError(expr, "range() got negative argument")
+        return V.Array(T.Array(T.Int()), [V.Int(x) for x in range(arg0.value)])
 
 
 class _Prefix(EagerFunction):
@@ -569,4 +599,8 @@ class _Prefix(EagerFunction):
         )
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        pfx = arguments[0].coerce(T.String()).value
+        return V.Array(
+            T.Array(T.String()),
+            [V.String(pfx + s.coerce(T.String()).value) for s in arguments[1].value],
+        )
