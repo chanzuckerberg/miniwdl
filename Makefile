@@ -2,7 +2,7 @@ SHELL := /bin/bash
 PYTHON_PKG_BASE?=$(HOME)/.local
 
 test: check check_check
-	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
+	coverage run --include "WDL/**" --omit WDL/CLI.py -m unittest -v
 	coverage report -m
 	prove -v tests/check.t tests/cromwell.t
 
