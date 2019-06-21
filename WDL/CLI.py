@@ -289,20 +289,21 @@ def fill_cromwell_subparser(subparsers):
         metavar="jarfile",
         dest="jarfile",
         type=str,
-        help="Cromwell jarfile filename/URI",
+        help="Cromwell jarfile file path (also set by CROMWELL_JAR environment variable). Overrides default behavior of downloading a hard-coded version",
     )
     cromwell_parser.add_argument(
         "-c",
         "--config",
-        metavar="CONFIG",
+        metavar="CONFIG.json",
         dest="config",
         type=str,
-        help="Cromwell backend configuration filename/URI",
+        help="Cromwell backend configuration JSON file path (also set by CROMWELL_CONFIG environment variable)",
     )
     # TODO:
     # accept an input JSON file, add any command-line keys into it
     # way to specify None for an optional value (that has a default)
     return cromwell_parser
+
 
 def cromwell_input_completer(prefix, parsed_args, **kwargs):
     # argcomplete completer for `miniwdl cromwell`
@@ -343,7 +344,18 @@ def cromwell_input_completer(prefix, parsed_args, **kwargs):
         return available_input_names
 
 
-def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, jarfile=None, config=None, path=None, **kwargs):
+def cromwell(
+    uri,
+    inputs,
+    json_only,
+    empty,
+    check_quant,
+    rundir=None,
+    jarfile=None,
+    config=None,
+    path=None,
+    **kwargs,
+):
     path = path or []
 
     # load WDL document
@@ -389,33 +401,31 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, jarfile=No
     cromwell_options_filename = os.path.join(rundir, "cromwell", "options.json")
     with open(cromwell_options_filename, "w") as options_json:
         print(json.dumps(cromwell_options, indent=2), file=options_json)
-    
+
     # setup Cromwell config file
     config_setting = None
     if config:
         config_setting = "-Dconfig.file={}".format(config)
     elif "CROMWELL_CONFIG" in os.environ:
         config_setting = "-Dconfig.file={}".format(os.getenv("CROMWELL_CONFIG"))
-    
+
     # launch Cromwell
     jarpath = ensure_cromwell_jar(jarfile)
-    cromwell_cmd = [
-        "java",
-        "-DLOG_LEVEL=warn",
-        "-DLOG_MODE=pretty",
-        "-jar",
-        jarpath,
-        "run",
-        (os.path.abspath(uri) if "://" not in uri else uri),
-        "-o",
-        cromwell_options_filename,
-        "-i",
-        input_json_filename,
-    ]
-    
-    if config_setting:
-        cromwell_cmd.insert(3, config_setting)
-    
+    cromwell_cmd = ["java", "-DLOG_LEVEL=warn", "-DLOG_LEVEL=pretty"]
+    cromwell_cmd.extend([config_setting] if config_setting else [])
+    cromwell_cmd.extend(
+        [
+            "-jar",
+            jarpath,
+            "run",
+            (os.path.abspath(uri) if "://" not in uri else uri),
+            "-o",
+            cromwell_options_filename,
+            "-i",
+            input_json_filename,
+        ]
+    )
+
     for p in path:
         cromwell_cmd.append("--imports")
         cromwell_cmd.append(p)
@@ -488,7 +498,9 @@ def ensure_cromwell_jar(jarfile=None):
         except:
             pass
         subprocess.check_call(["wget", "-nv", "-O", jarpath, CROMWELL_JAR_URL])
-        assert os.path.getsize(jarpath) == CROMWELL_JAR_SIZE, "unexpected size of downloaded " + jarpath
+        assert os.path.getsize(jarpath) == CROMWELL_JAR_SIZE, (
+            "unexpected size of downloaded " + jarpath
+        )
     return jarpath
 
 
