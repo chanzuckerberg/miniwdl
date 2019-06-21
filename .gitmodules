@@ -46,3 +46,6 @@
 [submodule "test_corpi/biowdl/tasks"]
 	path = test_corpi/biowdl/tasks
 	url = https://github.com/biowdl/tasks.git
+[submodule "test_corpi/biowdl/expression-quantification"]
+	path = test_corpi/biowdl/expression-quantification
+	url = https://github.com/biowdl/expression-quantification.git
