@@ -446,25 +446,26 @@ class _Size(EagerFunction):
         ans = sum(float(os.path.getsize(fn.value)) for fn in files.value)
 
         if unit:
-            if unit.value in ["K", "KB"]:
-                ans /= 1000
-            elif unit.value == "KiB":
-                ans /= 1024
-            elif unit.value in ["M", "MB"]:
-                ans /= 1000000
-            elif unit.value == "MiB":
-                ans /= 1048576
-            elif unit.value in ["G", "GB"]:
-                ans /= 1000000000
-            elif unit.value == "GiB":
-                ans /= 1073741824
-            elif unit.value in ["T", "TB"]:
-                ans /= 1000000000000
-            elif unit.value == "TiB":
-                ans /= 1099511627776
-            else:
+            try:
+                ans /= float(_Size.unit_divisors[unit.value])
+            except KeyError:
                 raise Error.EvalError(expr, "size(): invalid unit " + unit.value)
         return V.Float(ans)
+
+    unit_divisors = {
+        "K": 1000,
+        "KB": 1000,
+        "KiB": 1024,
+        "M": 1000000,
+        "MB": 1000000,
+        "MiB": 1048576,
+        "G": 1000000000,
+        "GB": 1000000000,
+        "GiB": 1073741824,
+        "T": 1000000000000,
+        "TB": 1000000000000,
+        "TiB": 1099511627776,
+    }
 
 
 class _SelectFirst(EagerFunction):

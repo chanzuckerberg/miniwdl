@@ -301,3 +301,15 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.runtime.task.OutputError)
+
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                touch foo
+            }
+            output {
+                Float x = size("foo", "bogus")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
