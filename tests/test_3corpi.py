@@ -208,3 +208,11 @@ class Contrived2(unittest.TestCase):
 )
 class BioWDLTasks(unittest.TestCase):
     pass
+
+@test_corpus(
+    ["test_corpi/biowdl/aligning/**"],
+    expected_lint={},
+    check_quant=False,
+)
+class BioWDLAligning(unittest.TestCase):
+    pass
