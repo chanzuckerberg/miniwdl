@@ -180,7 +180,7 @@ class StaticFunction(EagerFunction):
 
 
 def _notimpl(*args, **kwargs) -> None:
-    exec("raise NotImplementedError()")
+    exec("raise NotImplementedError('function not available in this context')")
 
 
 def _basename(*args) -> V.String:
@@ -439,7 +439,33 @@ class _Size(EagerFunction):
         return T.Float()
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        # this default implementation attempts os.path.getsize() on the argument(s)
+        files = arguments[0].coerce(T.Array(T.File()))
+        unit = arguments[1].coerce(T.String()) if len(arguments) > 1 else None
+
+        ans = sum(float(os.path.getsize(fn.value)) for fn in files.value)
+
+        if unit:
+            try:
+                ans /= float(_Size.unit_divisors[unit.value])
+            except KeyError:
+                raise Error.EvalError(expr, "size(): invalid unit " + unit.value)
+        return V.Float(ans)
+
+    unit_divisors = {
+        "K": 1000,
+        "KB": 1000,
+        "KiB": 1024,
+        "M": 1000000,
+        "MB": 1000000,
+        "MiB": 1048576,
+        "G": 1000000000,
+        "GB": 1000000000,
+        "GiB": 1073741824,
+        "T": 1000000000000,
+        "TB": 1000000000000,
+        "TiB": 1099511627776,
+    }
 
 
 class _SelectFirst(EagerFunction):
@@ -532,7 +558,12 @@ class _Flatten(EagerFunction):
         return T.Array(expr.arguments[0].type.item_type.item_type)
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        ty = self.infer_type(expr)
+        assert isinstance(ty, T.Array)
+        ans = []
+        for row in arguments[0].coerce(T.Array(ty)).value:
+            ans.extend(row.value)
+        return V.Array(ty, ans)
 
 
 class _Transpose(EagerFunction):

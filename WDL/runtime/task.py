@@ -128,7 +128,7 @@ class TaskContainer(ABC):
     def _run(self, logger: logging.Logger, command: str) -> None:
         raise NotImplementedError()
 
-    def host_file(self, container_file: str) -> str:
+    def host_file(self, container_file: str, inputs_only: bool = False) -> str:
         """
         Map an output file's in-container path under ``container_dir`` to a
         host path.
@@ -148,6 +148,11 @@ class TaskContainer(ABC):
             ]
             if host_input_files:
                 return host_input_files[0]
+            if inputs_only:
+                raise WDL.Error.InputError(
+                    "task inputs attempted to use a non-input or non-existent file "
+                    + container_file
+                )
             # otherwise make sure the file is in/under the working directory
             dpfx = os.path.join(self.container_dir, "work") + "/"
             if not container_file.startswith(dpfx):
@@ -198,8 +203,8 @@ class TaskContainer(ABC):
 
         # - Invocations of size(), read_* are permitted only on input files (no string coercions)
         # - forbidden/undefined: stdout, stderr, glob
-
         ans = self._stdlib_base()
+        setattr(ans, "size", _Size(self, inputs_only=True))
         return ans
 
     def stdlib_output(self) -> WDL.StdLib.Base:
@@ -212,6 +217,7 @@ class TaskContainer(ABC):
         # - their argument has to be translated from container to host path to actually execute
 
         ans = self._stdlib_base()
+        setattr(ans, "size", _Size(self, inputs_only=False))
         ans._override_static(
             "stdout",
             lambda container_dir=self.container_dir: WDL.Value.File(
@@ -470,7 +476,7 @@ def _eval_task_inputs(
         if decl.expr:
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
-            except WDL.Error.EvalError:
+            except WDL.Error.RuntimeError:
                 raise
             except Exception as exn:
                 raise WDL.Error.EvalError(decl, str(exn)) from exn
@@ -492,7 +498,7 @@ def _eval_task_outputs(
         assert decl.expr
         try:
             v = decl.expr.eval(env, stdlib=container.stdlib_output()).coerce(decl.type)
-        except WDL.Error.EvalError:
+        except WDL.Error.RuntimeError:
             raise
         except Exception as exn:
             raise WDL.Error.EvalError(decl, str(exn)) from exn
@@ -511,3 +517,25 @@ def _eval_task_outputs(
         return v
 
     return WDL.Env.map(outputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs)))
+
+
+class _Size(WDL.StdLib._Size):
+    # overrides WDL.StdLib._Size() to perform translation of in-container to host paths
+
+    container: TaskContainer
+    inputs_only: bool
+
+    def __init__(self, container: TaskContainer, inputs_only: bool) -> None:
+        super().__init__()
+        self.container = container
+        self.inputs_only = inputs_only
+
+    def _call_eager(self, expr: WDL.Expr.Apply, arguments: List[WDL.Value.Base]) -> WDL.Value.Base:
+        files = arguments[0].coerce(WDL.Type.Array(WDL.Type.File()))
+        host_files = [
+            WDL.Value.File(self.container.host_file(fn_c.value, inputs_only=self.inputs_only))
+            for fn_c in files.value
+        ]
+        # pyre-ignore
+        arguments = [WDL.Value.Array(files.type, host_files)] + arguments[1:]
+        return super()._call_eager(expr, arguments)
