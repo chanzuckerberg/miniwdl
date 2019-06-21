@@ -251,7 +251,6 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
     def test_size(self):
-        # tests filename mappings when Files are embedded in compound types
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
             outfile.write("Alyssa\n")
         with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
@@ -268,9 +267,12 @@ class TestStdLib(unittest.TestCase):
                 size(files, "GB"),
                 size(files, "GiB")
             ]
-            command {}
+            command {
+                cat ~{sep=' ' files} > alyssa_ben.txt
+            }
             output {
                 Array[Float] sizes = sizes_
+                Float size2 = size("alyssa_ben.txt", "KiB")
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
@@ -282,6 +284,7 @@ class TestStdLib(unittest.TestCase):
         self.assertAlmostEqual(outputs["sizes"][3], 7/1048576)
         self.assertAlmostEqual(outputs["sizes"][4], 11/1000000000)
         self.assertAlmostEqual(outputs["sizes"][5], 11/1073741824)
+        self.assertAlmostEqual(outputs["size2"], 11/1024)
 
         self._test_task(R"""
         version 1.0
@@ -290,3 +293,13 @@ class TestStdLib(unittest.TestCase):
             command {}
         }
         """, expected_exception=WDL.Error.InputError)
+
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            command {}
+            output {
+                Float x = size("/etc/passwd")
+            }
+        }
+        """, expected_exception=WDL.runtime.task.OutputError)

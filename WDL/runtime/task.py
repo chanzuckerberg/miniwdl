@@ -128,7 +128,7 @@ class TaskContainer(ABC):
     def _run(self, logger: logging.Logger, command: str) -> None:
         raise NotImplementedError()
 
-    def host_file(self, container_file: str) -> str:
+    def host_file(self, container_file: str, inputs_only: bool = False) -> str:
         """
         Map an output file's in-container path under ``container_dir`` to a
         host path.
@@ -148,6 +148,11 @@ class TaskContainer(ABC):
             ]
             if host_input_files:
                 return host_input_files[0]
+            if inputs_only:
+                raise WDL.Error.InputError(
+                    "task inputs attempted to use a non-input or non-existent file "
+                    + container_file
+                )
             # otherwise make sure the file is in/under the working directory
             dpfx = os.path.join(self.container_dir, "work") + "/"
             if not container_file.startswith(dpfx):
@@ -198,44 +203,8 @@ class TaskContainer(ABC):
 
         # - Invocations of size(), read_* are permitted only on input files (no string coercions)
         # - forbidden/undefined: stdout, stderr, glob
-
-        def _size(expr: WDL.Expr.Apply, arguments: List[WDL.Value.Base]) -> WDL.Value.Base:
-            files = arguments[0].coerce(WDL.Type.Array(WDL.Type.File()))
-            unit = arguments[1].coerce(WDL.Type.String()) if len(arguments) > 1 else None
-            ans = float(0)
-            for fn_c in files.value:
-                found = None
-                for fn_h in self.input_file_map:
-                    if self.input_file_map[fn_h] == fn_c.value:
-                        found = os.path.getsize(fn_h)
-                if found is None:
-                    raise WDL.Error.InputError(
-                        expr, "size() invoked on non-existent or non-input file " + fn_c.value
-                    )
-                ans += float(found)
-            if unit:
-                if unit.value in ["K", "KB"]:
-                    ans /= 1000
-                elif unit.value == "KiB":
-                    ans /= 1024
-                elif unit.value in ["M", "MB"]:
-                    ans /= 1000000
-                elif unit.value == "MiB":
-                    ans /= 1048576
-                elif unit.value in ["G", "GB"]:
-                    ans /= 1000000000
-                elif unit.value == "GiB":
-                    ans /= 1073741824
-                elif unit.value in ["T", "TB"]:
-                    ans /= 1000000000000
-                elif unit.value == "TiB":
-                    ans /= 1099511627776
-                else:
-                    raise WDL.Error.EvalError(expr, "size(): invalid unit " + unit.value)
-            return WDL.Value.Float(ans)
-
         ans = self._stdlib_base()
-        setattr(getattr(ans, "size"), "_call_eager", _size)
+        setattr(ans, "size", _Size(self, inputs_only=True))
         return ans
 
     def stdlib_output(self) -> WDL.StdLib.Base:
@@ -248,6 +217,7 @@ class TaskContainer(ABC):
         # - their argument has to be translated from container to host path to actually execute
 
         ans = self._stdlib_base()
+        setattr(ans, "size", _Size(self, inputs_only=False))
         ans._override_static(
             "stdout",
             lambda container_dir=self.container_dir: WDL.Value.File(
@@ -547,3 +517,25 @@ def _eval_task_outputs(
         return v
 
     return WDL.Env.map(outputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs)))
+
+
+class _Size(WDL.StdLib._Size):
+    # overrides WDL.StdLib._Size() to perform translation of in-container to host paths
+
+    container: TaskContainer
+    inputs_only: bool
+
+    def __init__(self, container: TaskContainer, inputs_only: bool) -> None:
+        super().__init__()
+        self.container = container
+        self.inputs_only = inputs_only
+
+    def _call_eager(self, expr: WDL.Expr.Apply, arguments: List[WDL.Value.Base]) -> WDL.Value.Base:
+        files = arguments[0].coerce(WDL.Type.Array(WDL.Type.File()))
+        host_files = [
+            WDL.Value.File(self.container.host_file(fn_c.value, inputs_only=self.inputs_only))
+            for fn_c in files.value
+        ]
+        # pyre-ignore
+        arguments = [WDL.Value.Array(files.type, host_files)] + arguments[1:]
+        return super()._call_eager(expr, arguments)

@@ -180,7 +180,7 @@ class StaticFunction(EagerFunction):
 
 
 def _notimpl(*args, **kwargs) -> None:
-    exec("raise NotImplementedError()")
+    exec("raise NotImplementedError('function not available in this context')")
 
 
 def _basename(*args) -> V.String:
@@ -439,7 +439,32 @@ class _Size(EagerFunction):
         return T.Float()
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        # this default implementation attempts os.path.getsize() on the argument(s)
+        files = arguments[0].coerce(T.Array(T.File()))
+        unit = arguments[1].coerce(T.String()) if len(arguments) > 1 else None
+
+        ans = sum(float(os.path.getsize(fn.value)) for fn in files.value)
+
+        if unit:
+            if unit.value in ["K", "KB"]:
+                ans /= 1000
+            elif unit.value == "KiB":
+                ans /= 1024
+            elif unit.value in ["M", "MB"]:
+                ans /= 1000000
+            elif unit.value == "MiB":
+                ans /= 1048576
+            elif unit.value in ["G", "GB"]:
+                ans /= 1000000000
+            elif unit.value == "GiB":
+                ans /= 1073741824
+            elif unit.value in ["T", "TB"]:
+                ans /= 1000000000000
+            elif unit.value == "TiB":
+                ans /= 1099511627776
+            else:
+                raise Error.EvalError(expr, "size(): invalid unit " + unit.value)
+        return V.Float(ans)
 
 
 class _SelectFirst(EagerFunction):
