@@ -557,7 +557,12 @@ class _Flatten(EagerFunction):
         return T.Array(expr.arguments[0].type.item_type.item_type)
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        ty = self.infer_type(expr)
+        assert isinstance(ty, T.Array)
+        ans = []
+        for row in arguments[0].coerce(T.Array(ty)).value:
+            ans.extend(row.value)
+        return V.Array(ty, ans)
 
 
 class _Transpose(EagerFunction):

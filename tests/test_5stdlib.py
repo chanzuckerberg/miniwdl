@@ -263,15 +263,13 @@ class TestStdLib(unittest.TestCase):
                 size(files[0]),
                 size(files),
                 size(files[0], "MB"),
-                size(files[0], "MiB"),
-                size(files, "GB"),
-                size(files, "GiB")
+                size(files[0], "MiB")
             ]
             command {
                 cat ~{sep=' ' files} > alyssa_ben.txt
             }
             output {
-                Array[Float] sizes = sizes_
+                Array[Float] sizes = flatten([sizes_, [size(files, "GB"), size(files, "GiB")]])
                 Float size2 = size("alyssa_ben.txt", "KiB")
             }
         }
