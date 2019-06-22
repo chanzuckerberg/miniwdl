@@ -113,20 +113,21 @@ class Decl(SourceNode):
             yield self.expr
 
     def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
+        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types, collision_ok: bool = False
     ) -> Env.Types:
         # Add an appropriate binding in the type env, after checking for name
         # collision.
-        try:
-            Env.resolve(type_env, [], self.name)
-            raise Err.MultipleDefinitions(self, "Multiple declarations of " + self.name)
-        except KeyError:
-            pass
-        try:
-            Env.resolve_namespace(type_env, [self.name])
-            raise Err.MultipleDefinitions(self, "Value/call name collision on " + self.name)
-        except KeyError:
-            pass
+        if not collision_ok:
+            try:
+                Env.resolve(type_env, [], self.name)
+                raise Err.MultipleDefinitions(self, "Multiple declarations of " + self.name)
+            except KeyError:
+                pass
+            try:
+                Env.resolve_namespace(type_env, [self.name])
+                raise Err.MultipleDefinitions(self, "Value/call name collision on " + self.name)
+            except KeyError:
+                pass
         _resolve_struct_typedefs(self.pos, self.type, struct_typedefs)
         if isinstance(self.type, T.StructInstance):
             return _add_struct_instance_to_type_env([self.name], self.type, type_env, ctx=self)
@@ -835,13 +836,24 @@ class Workflow(SourceNode):
                                 output, "multiple workflow outputs named " + output.name
                             )
                         )
+                    output_names.add(output.name)
+                    # tricky sequence here: we need to call Decl.add_to_type_env to resolve
+                    # potential struct type, but:
+                    # 1. we don't want it to check for name collision in the usual way in order to
+                    #    handle a quirk of draft-2 workflow output style, where an output may take
+                    #    the name of another decl in the workflow. Instead we've tracked and
+                    #    rejected any duplicate names among the workflow outputs.
+                    # 2. we still want to typecheck the output expression againsnt the 'old' type
+                    #    environment
+                    output_type_env2 = output.add_to_type_env(
+                        doc.struct_typedefs, output_type_env, collision_ok=True
+                    )
                     errors.try1(
                         lambda output=output: output.typecheck(
                             output_type_env, check_quant=check_quant
                         )
                     )
-                    output_names.add(output.name)
-                    output_type_env = Env.bind(output_type_env, [], output.name, output.type)
+                    output_type_env = output_type_env2
         # 6. check for cyclic dependencies
         WDL._util.detect_cycles(_dependency_matrix(_decls_and_calls(self)))  # pyre-fixme
 

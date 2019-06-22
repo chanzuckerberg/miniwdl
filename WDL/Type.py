@@ -39,7 +39,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
    :top-classes: WDL.Type.Base
 """
 from abc import ABC
-from typing import Optional, Tuple, Dict, Iterable
+from typing import Optional, Tuple, Dict, Iterable, Set
 import copy
 
 
@@ -250,11 +250,23 @@ class Map(Base):
     The key and value types may be ``Any`` when not known statically, such as in a literal empty map ``{}``.
     """
 
-    def __init__(self, item_type: Tuple[Base, Base], optional: bool = False) -> None:
+    literal_keys: Optional[Set[str]]
+    ""
+    # Special use: Map[String,_] literal stores the key names here for potential use in
+    # struct coercions where we need them. (Normally the Map type would record the common
+    # type of the keys but not the keys themselves.)
+
+    def __init__(
+        self,
+        item_type: Tuple[Base, Base],
+        optional: bool = False,
+        literal_keys: Optional[Set[str]] = None,
+    ) -> None:
         self._optional = optional
         if item_type is None:
             item_type = (Any(), Any())
         self.item_type = item_type
+        self.literal_keys = literal_keys
 
     def __str__(self) -> str:
         return (
@@ -281,6 +293,21 @@ class Map(Base):
                 and self.item_type[1].coerces(rhs.item_type[1], check_quant)
                 and self._check_optional(rhs, check_quant)
             )
+        if isinstance(rhs, StructInstance) and self.literal_keys is not None:
+            # struct assignment from map literal: the map literal must contain all non-optional
+            # struct members, and the value type must be coercible to those member types
+            rhs_members = rhs.members
+            assert rhs_members is not None
+            rhs_keys = set(rhs_members.keys())
+            if self.literal_keys - rhs_keys:
+                return False
+            for k in self.literal_keys:
+                if not self.item_type[1].coerces(rhs_members[k], check_quant):
+                    return False
+            for opt_k in rhs_keys - self.literal_keys:
+                if not rhs_members[opt_k].optional:
+                    return False
+            return True
         if isinstance(rhs, Any):
             return self._check_optional(rhs, check_quant)
         return False
