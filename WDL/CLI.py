@@ -294,10 +294,10 @@ def fill_cromwell_subparser(subparsers):
     cromwell_parser.add_argument(
         "-c",
         "--config",
-        metavar="CONFIG.json",
+        metavar="CONFIG.conf",
         dest="config",
         type=str,
-        help="Cromwell backend configuration JSON file path (also set by CROMWELL_CONFIG environment variable)",
+        help="Cromwell backend configuration CONF file path (also set by CROMWELL_CONFIG environment variable)",
     )
     # TODO:
     # accept an input JSON file, add any command-line keys into it
