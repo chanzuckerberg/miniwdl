@@ -411,7 +411,7 @@ def cromwell(
 
     # launch Cromwell
     jarpath = ensure_cromwell_jar(jarfile)
-    cromwell_cmd = ["java", "-DLOG_LEVEL=warn", "-DLOG_LEVEL=pretty"]
+    cromwell_cmd = ["java", "-DLOG_LEVEL=warn", "-DLOG_MODE=pretty"]
     cromwell_cmd.extend([config_setting] if config_setting else [])
     cromwell_cmd.extend(
         [
