@@ -1311,6 +1311,27 @@ class TestDoc(unittest.TestCase):
         self.assertEqual(len(doc.workflow.available_inputs), 1)
         self.assertEqual(doc.workflow.available_inputs[0].name, "in")
 
+    def test_issue173_workflow_section_order(self):
+        doc = r"""
+        version 1.0
+        workflow a {
+            output {
+                String d = c
+            }
+            String c = b
+            input {
+                String b
+            }
+            parameter_meta {
+                b: "Test"
+            }
+            meta {
+                test: "This is a test"
+            }
+        }
+        """
+        WDL.parse_document(doc).typecheck()
+
 class TestCycleDetection(unittest.TestCase):
     def test_task(self):
         doc = r"""

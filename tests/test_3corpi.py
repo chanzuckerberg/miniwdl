@@ -215,4 +215,9 @@ class BioWDLTasks(unittest.TestCase):
     check_quant=False,
 )
 class BioWDLAligning(unittest.TestCase):
+    ["test_corpi/biowdl/expression-quantification/**"],
+    expected_lint={'UnusedImport': 12, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 3, 'NameCollision': 1},
+    check_quant=False,
+)
+class BioWDLExpressionQuantification(unittest.TestCase):
     pass
