@@ -17,11 +17,15 @@ from argparse import ArgumentParser, Action
 import WDL
 import WDL.Lint
 from . import values_from_json, values_to_json
+import collections
 
 quant_warning = False
 
 
 def main(args=None):
+    command_dict = collections.OrderedDict(
+        check=fill_check_subparser, cromwell=fill_cromwell_subparser
+    )
     parser = ArgumentParser()
     parser.add_argument(
         "--version",
@@ -29,14 +33,20 @@ def main(args=None):
         action=PipVersionAction,
         help="show miniwdl package version information",
     )
+    args = args if args is not None else sys.argv[1:]
+    # If the first arg is a file (shebang was used),
+    # add it as the first argparse argument and skip adding it in the subparsers
+    is_file_first = check_is_file_first(args, command_dict)
+    if is_file_first:
+        parser.add_argument("uri", help="This WDL file")
     subparsers = parser.add_subparsers()
     subparsers.required = True
     subparsers.dest = "command"
-    fill_common(fill_check_subparser(subparsers))
-    fill_common(fill_cromwell_subparser(subparsers))
+    for command, fill_subparser in command_dict.items():
+        fill_common(fill_subparser(subparsers, skip_uri=is_file_first))
 
     argcomplete.autocomplete(parser)
-    args = parser.parse_args(args if args is not None else sys.argv[1:])
+    args = parser.parse_args(args)
 
     try:
         if args.command == "check":
@@ -61,6 +71,15 @@ def main(args=None):
         if args.debug:
             raise exn
         sys.exit(2)
+
+
+def check_is_file_first(args, command_dict):
+    if len(args) < 1:
+        return False
+    first = args[0]
+    if first in command_dict:
+        return False
+    return os.path.exists(first)
 
 
 class PipVersionAction(Action):
@@ -91,13 +110,14 @@ def fill_common(subparser):
     subparser.add_argument("--debug", action="store_true", help="show full exception traceback")
 
 
-def fill_check_subparser(subparsers):
+def fill_check_subparser(subparsers, skip_uri=False):
     check_parser = subparsers.add_parser(
         "check", help="Load and typecheck a WDL document; show an outline with lint warnings"
     )
-    check_parser.add_argument(
-        "uri", metavar="URI", type=str, nargs="+", help="WDL document filename/URI"
-    )
+    if not skip_uri:
+        check_parser.add_argument(
+            "uri", metavar="URI", type=str, nargs="+", help="WDL document filename/URI"
+        )
     check_parser.add_argument(
         "--no-shellcheck",
         dest="shellcheck",
@@ -111,7 +131,9 @@ def check(uri=None, path=None, check_quant=True, shellcheck=True, **kwargs):
     # Load the document (read, parse, and typecheck)
     if not shellcheck:
         WDL.Lint._shellcheck_available = False
-
+    # Accept also just one URI by wrapping it in a singleton list
+    if isinstance(uri, str):
+        uri = [uri]
     for uri1 in uri or []:
         doc = WDL.load(uri1, path or [], check_quant=check_quant, import_uri=import_uri)
 
@@ -251,11 +273,14 @@ def import_uri(uri):
     return glob.glob(dn + "/*")[0]
 
 
-def fill_cromwell_subparser(subparsers):
+def fill_cromwell_subparser(subparsers, skip_uri=False):
     cromwell_parser = subparsers.add_parser(
         "cromwell", help="Run workflow locally using Cromwell " + CROMWELL_VERSION
     )
-    cromwell_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
+    if not skip_uri:
+        cromwell_parser.add_argument(
+            "uri", metavar="URI", type=str, help="WDL document filename/URI"
+        )
     cromwell_parser.add_argument(
         "inputs",
         metavar="input_key=value",
