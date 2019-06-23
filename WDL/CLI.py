@@ -283,6 +283,22 @@ def fill_cromwell_subparser(subparsers):
         action="append",
         help="explicitly set an array input to the empty array",
     )
+    cromwell_parser.add_argument(
+        "-r",
+        "--jar",
+        metavar="jarfile",
+        dest="jarfile",
+        type=str,
+        help="Cromwell jarfile file path (also set by CROMWELL_JAR environment variable). Overrides default behavior of downloading a hard-coded version",
+    )
+    cromwell_parser.add_argument(
+        "-c",
+        "--config",
+        metavar="CONFIG.conf",
+        dest="config",
+        type=str,
+        help="Cromwell backend configuration CONF file path (also set by CROMWELL_CONFIG environment variable)",
+    )
     # TODO:
     # accept an input JSON file, add any command-line keys into it
     # way to specify None for an optional value (that has a default)
@@ -328,7 +344,18 @@ def cromwell_input_completer(prefix, parsed_args, **kwargs):
         return available_input_names
 
 
-def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None, **kwargs):
+def cromwell(
+    uri,
+    inputs,
+    json_only,
+    empty,
+    check_quant,
+    rundir=None,
+    jarfile=None,
+    config=None,
+    path=None,
+    **kwargs,
+):
     path = path or []
 
     # load WDL document
@@ -375,21 +402,30 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None,
     with open(cromwell_options_filename, "w") as options_json:
         print(json.dumps(cromwell_options, indent=2), file=options_json)
 
+    # setup Cromwell config file
+    config_setting = None
+    if config:
+        config_setting = "-Dconfig.file={}".format(config)
+    elif "CROMWELL_CONFIG" in os.environ:
+        config_setting = "-Dconfig.file={}".format(os.getenv("CROMWELL_CONFIG"))
+
     # launch Cromwell
-    jarpath = ensure_cromwell_jar()
-    cromwell_cmd = [
-        "java",
-        "-DLOG_LEVEL=warn",
-        "-DLOG_MODE=pretty",
-        "-jar",
-        jarpath,
-        "run",
-        (os.path.abspath(uri) if "://" not in uri else uri),
-        "-o",
-        cromwell_options_filename,
-        "-i",
-        input_json_filename,
-    ]
+    jarpath = ensure_cromwell_jar(jarfile)
+    cromwell_cmd = ["java", "-DLOG_LEVEL=warn", "-DLOG_MODE=pretty"]
+    cromwell_cmd.extend([config_setting] if config_setting else [])
+    cromwell_cmd.extend(
+        [
+            "-jar",
+            jarpath,
+            "run",
+            (os.path.abspath(uri) if "://" not in uri else uri),
+            "-o",
+            cromwell_options_filename,
+            "-i",
+            input_json_filename,
+        ]
+    )
+
     for p in path:
         cromwell_cmd.append("--imports")
         cromwell_cmd.append(p)
@@ -440,24 +476,31 @@ def cromwell(uri, inputs, json_only, empty, check_quant, rundir=None, path=None,
 CROMWELL_VERSION = "40"
 
 
-def ensure_cromwell_jar():
+def ensure_cromwell_jar(jarfile=None):
     """
     Return local path to Cromwell JAR file, first downloading it if necessary.
     """
-    CROMWELL_JAR_URL = "https://github.com/broadinstitute/cromwell/releases/download/{v}/cromwell-{v}.jar".format(
-        v=CROMWELL_VERSION
-    )
-    CROMWELL_JAR_SIZE = 185_381_836
-    CROMWELL_JAR_NAME = os.path.basename(CROMWELL_JAR_URL)
+    if jarfile:
+        jarpath = jarfile
+    elif "CROMWELL_JAR" in os.environ:
+        jarpath = os.getenv("CROMWELL_JAR")
+    else:
+        CROMWELL_JAR_URL = "https://github.com/broadinstitute/cromwell/releases/download/{v}/cromwell-{v}.jar".format(
+            v=CROMWELL_VERSION
+        )
+        CROMWELL_JAR_SIZE = 185_381_836
+        CROMWELL_JAR_NAME = os.path.basename(CROMWELL_JAR_URL)
 
-    jarpath = os.path.join(tempfile.gettempdir(), CROMWELL_JAR_NAME)
-    try:
-        if os.path.getsize(jarpath) == CROMWELL_JAR_SIZE:
-            return jarpath
-    except:
-        pass
-    subprocess.check_call(["wget", "-nv", "-O", jarpath, CROMWELL_JAR_URL])
-    assert os.path.getsize(jarpath) == CROMWELL_JAR_SIZE, "unexpected size of downloaded " + jarpath
+        jarpath = os.path.join(tempfile.gettempdir(), CROMWELL_JAR_NAME)
+        try:
+            if os.path.getsize(jarpath) == CROMWELL_JAR_SIZE:
+                return jarpath
+        except:
+            pass
+        subprocess.check_call(["wget", "-nv", "-O", jarpath, CROMWELL_JAR_URL])
+        assert os.path.getsize(jarpath) == CROMWELL_JAR_SIZE, (
+            "unexpected size of downloaded " + jarpath
+        )
     return jarpath
 
 
