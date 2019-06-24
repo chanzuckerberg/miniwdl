@@ -313,3 +313,56 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
+    def test_glob(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                mkdir stuff
+                cd stuff
+                touch foo bar bas baz bat
+            }
+            output {
+                Array[Array[File]] globs = [
+                    glob("stuff/foo"),
+                    glob("./stuff/b*"),
+                    glob("*/*"),
+                    glob("bogus")
+                ]
+            }
+        }
+        """)
+        self.assertEqual(len(outputs["globs"][0]), 1)
+        self.assertTrue(outputs["globs"][0][0].endswith("/stuff/foo"))
+        self.assertEqual(len(outputs["globs"][1]), 4)
+        self.assertTrue(outputs["globs"][1][0].endswith("/stuff/bar"))
+        self.assertTrue(outputs["globs"][1][1].endswith("/stuff/bas"))
+        self.assertTrue(outputs["globs"][1][2].endswith("/stuff/bat"))
+        self.assertTrue(outputs["globs"][1][3].endswith("/stuff/baz"))
+        self.assertEqual(len(outputs["globs"][2]), 5)
+        self.assertTrue(outputs["globs"][2][4].endswith("/stuff/foo"))
+        self.assertEqual(len(outputs["globs"][3]), 0)
+        for g in outputs["globs"]:
+            for fn in g:
+                self.assertTrue(os.path.isfile(fn))
+
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            command {}
+            output {
+                Array[File] filez = glob("/etc/passwd")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        self._test_task(R"""
+        version 1.0
+        task hello {
+            command {}
+            output {
+                Array[File] filez = glob("../../etc/passwd")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)

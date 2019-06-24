@@ -5,6 +5,7 @@ import tempfile
 import json
 import copy
 import traceback
+import glob
 from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional
@@ -204,7 +205,7 @@ class TaskContainer(ABC):
         # - Invocations of size(), read_* are permitted only on input files (no string coercions)
         # - forbidden/undefined: stdout, stderr, glob
         ans = self._stdlib_base()
-        setattr(ans, "size", _Size(self, inputs_only=True))
+        ans._override("size", _Size(self, inputs_only=True))
         return ans
 
     def stdlib_output(self) -> WDL.StdLib.Base:
@@ -213,11 +214,8 @@ class TaskContainer(ABC):
         expressions
         """
 
-        # - size(), read_* and glob are permitted only on paths in or under the container directory (cdup from working directory)
-        # - their argument has to be translated from container to host path to actually execute
-
         ans = self._stdlib_base()
-        setattr(ans, "size", _Size(self, inputs_only=False))
+        ans._override("size", _Size(self, inputs_only=False))
         ans._override_static(
             "stdout",
             lambda container_dir=self.container_dir: WDL.Value.File(
@@ -240,6 +238,25 @@ class TaskContainer(ABC):
                 return WDL.Value.String(infile.read())
 
         ans._override_static("read_string", _read_string)
+
+        def _glob(pattern: WDL.Value.String, self: "TaskContainer" = self) -> WDL.Value.Array:
+            pat = pattern.coerce(WDL.Type.String()).value
+            if not pat:
+                raise OutputError("empty glob() pattern")
+            assert isinstance(pat, str)
+            if pat[0] == "/":
+                raise OutputError("glob() pattern must be relative to task working directory")
+            if pat.startswith("..") or "/.." in pat:
+                raise OutputError("glob() pattern must not use .. uplevels")
+            if pat.startswith("./"):
+                pat = pat[2:]
+            pat = os.path.join(self.host_dir, "work", pat)
+            return WDL.Value.Array(
+                WDL.Type.Array(WDL.Type.File()),
+                [WDL.Value.String(fn) for fn in sorted(glob.glob(pat)) if os.path.isfile(fn)],
+            )
+
+        ans._override_static("glob", _glob)
 
         return ans
 
