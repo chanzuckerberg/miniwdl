@@ -195,6 +195,7 @@ class Map(Base):
                 ],
             )
         if isinstance(desired_type, T.StructInstance):
+            assert desired_type.members
             ans = {}
             for k, v in self.value:
                 k = k.coerce(T.String()).value
@@ -276,6 +277,7 @@ class Struct(Base):
         if isinstance(type, T.StructInstance):
             # if initializer (map or object literal) omits optional members,
             # fill them in with null
+            assert type.members
             for k in type.members:
                 if k not in self.value:
                     assert type.members[k].optional
