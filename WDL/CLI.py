@@ -271,6 +271,13 @@ def fill_cromwell_subparser(subparsers):
         help="directory to be created for the workflow products (must not already exist; defaults to a timestamp-based subdirectory of the current directory)",
     )
     cromwell_parser.add_argument(
+        "-i",
+        "--input",
+        metavar="INPUT.json",
+        dest="input_file",
+        help="file with Cromwell-style input JSON; command-line inputs will be merged in",
+    )
+    cromwell_parser.add_argument(
         "-j",
         "--json",
         dest="json_only",
@@ -281,7 +288,7 @@ def fill_cromwell_subparser(subparsers):
         "--empty",
         metavar="input_key",
         action="append",
-        help="explicitly set an array input to the empty array",
+        help="explicitly set an array input to the empty array (to override a default)",
     )
     cromwell_parser.add_argument(
         "-r",
@@ -300,7 +307,6 @@ def fill_cromwell_subparser(subparsers):
         help="Cromwell backend configuration CONF file path (also set by CROMWELL_CONFIG environment variable)",
     )
     # TODO:
-    # accept an input JSON file, add any command-line keys into it
     # way to specify None for an optional value (that has a default)
     return cromwell_parser
 
@@ -347,6 +353,7 @@ def cromwell_input_completer(prefix, parsed_args, **kwargs):
 def cromwell(
     uri,
     inputs,
+    input_file,
     json_only,
     empty,
     check_quant,
@@ -362,7 +369,7 @@ def cromwell(
     doc = WDL.load(uri, path, check_quant=check_quant, import_uri=import_uri)
 
     # validate the provided inputs
-    target, input_dict = cromwell_input(doc, inputs, empty)
+    target, input_dict = cromwell_input(doc, inputs, input_file, empty)
 
     if json_only:
         print(json.dumps(input_dict, indent=2))
@@ -504,7 +511,7 @@ def ensure_cromwell_jar(jarfile=None):
     return jarpath
 
 
-def cromwell_input(doc, inputs, empty):
+def cromwell_input(doc, inputs, input_file, empty):
     """
     - Determine the target workflow/task
     - Check types of supplied inputs
@@ -527,6 +534,33 @@ def cromwell_input(doc, inputs, empty):
     available_inputs = target.available_inputs
     input_env = []
 
+    # first load input JSON file if any
+    if input_file:
+        with open(input_file) as infile:
+            input_env = values_from_json(json.loads(infile.read()), available_inputs)
+
+    # set explicitly empty arrays
+    for empty_name in empty or []:
+        empty_name = empty_name.split(".")
+        if not empty_name or ([True for s in empty_name if not s]):
+            die("Invalid input name: " + empty_name)
+        namespace = empty_name[:-1]
+        name = empty_name[-1]
+        try:
+            decl = WDL.Env.resolve(available_inputs, namespace, name)
+        except KeyError:
+            die(
+                "No such input to {}: {}\n{}".format(
+                    target.name, ".".join(empty_name), cromwell_input_help(target)
+                )
+            )
+        if not isinstance(decl.type, WDL.Type.Array) or decl.type.nonempty:
+            die("Cannot set input {} {} to empty array".format(str(decl.type), decl.name))
+        input_env = WDL.Env.bind(
+            input_env, namespace, name, WDL.Value.Array(decl.type, []), ctx=decl
+        )
+
+    # add in command-line inputs
     for one_input in inputs:
         # parse [namespace], name, and value
         buf = one_input.split("=", 1)
@@ -570,40 +604,12 @@ def cromwell_input(doc, inputs, empty):
         else:
             input_env = WDL.Env.bind(input_env, namespace, name, v, ctx=decl)
 
-    # add explicitly empty arrays
-    for empty_name in empty or []:
-        empty_name = empty_name.split(".")
-        if not empty_name or ([True for s in empty_name if not s]):
-            die("Invalid input name: " + empty_name)
-        namespace = empty_name[:-1]
-        name = empty_name[-1]
-        try:
-            decl = WDL.Env.resolve(available_inputs, namespace, name)
-        except KeyError:
-            die(
-                "No such input to {}: {}\n{}".format(
-                    target.name, ".".join(empty_name), cromwell_input_help(target)
-                )
-            )
-        if not isinstance(decl.type, WDL.Type.Array) or decl.type.nonempty:
-            die("Cannot set input {} {} to empty array".format(str(decl.type), decl.name))
-        try:
-            WDL.Env.resolve(input_env, namespace, name)
-            die("--empty {} conflicts with another supplied input".format(".".join(empty_name)))
-        except KeyError:
-            pass
-        input_env = WDL.Env.bind(
-            input_env, namespace, name, WDL.Value.Array(decl.type, []), ctx=decl
-        )
-
     # check for missing inputs
-    missing_inputs = WDL.Env.subtract(target.required_inputs, input_env)
+    missing_inputs = values_to_json(WDL.Env.subtract(target.required_inputs, input_env))
     if missing_inputs:
         die(
             "missing required inputs for {}: {}\n{}".format(
-                target.name,
-                ", ".join(values_to_json(missing_inputs).keys()),
-                cromwell_input_help(target),
+                target.name, ", ".join(missing_inputs.keys()), cromwell_input_help(target)
             )
         )
 
@@ -683,7 +689,11 @@ def cromwell_input_value(s_value, ty):
     ):
         # just produce a length-1 array, to be combined ex post facto
         return WDL.Value.Array(ty, [cromwell_input_value(s_value, ty.item_type)])
-    return die("No command-line support yet for inputs of type {}".format(str(ty)))
+    return die(
+        "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
+            str(ty)
+        )
+    )
 
 
 def organize_cromwell_outputs(target, outputs_json, rundir):

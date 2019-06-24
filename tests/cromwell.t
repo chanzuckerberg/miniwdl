@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 54
+plan tests 59
 
 DN=$(mktemp -d --tmpdir miniwdl_cromwell_tests_XXXXXX)
 cd $DN
@@ -117,7 +117,15 @@ is "$(cat stderr | wc -l)" "19" "help lines"
 $miniwdl cromwell echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s --json > workflow_inputs.json
 is "$?" "0" "workflow json status"
 is "$(jq '.["echo.t.a_s"] | length' workflow_inputs.json)" "1" "workflow json t.a_s length"
-is "$(jq '.["echo.as"] | length' workflow_inputs.json)" "0" "--empty"
+is "$(jq '.["echo.a_s"] | length' workflow_inputs.json)" "0" "workflow json --empty"
+
+echo '{"i":88,"t.f":"quick","t.a_f":["brown"],"a_s":["bogus"]}' > test_input.json
+$miniwdl cromwell echo.wdl t.s=foo t.a_s=bar a_s=ok --input test_input.json --empty a_s --json > workflow_inputs2.json
+is "$?" "0" "workflow --input json status"
+is "$(jq '.["echo.i"]' workflow_inputs2.json)" "88" "workflow --input json i"
+is "$(jq -r '.["echo.t.f"]' workflow_inputs2.json)" 'quick' "workflow --input json t.f"
+is "$(jq '.["echo.a_s"] | length' workflow_inputs2.json)" "1" "workflow --input --empty"
+is "$(jq -r '.["echo.a_s"][0]' workflow_inputs2.json)" "ok" "workflow --input --empty & append"
 
 $miniwdl cromwell --dir workflowrun echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s | tee stdout
 is "$?" "0" "workflow run"
