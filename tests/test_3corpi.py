@@ -210,6 +210,14 @@ class BioWDLTasks(unittest.TestCase):
     pass
 
 @test_corpus(
+    ["test_corpi/biowdl/aligning/**"],
+    expected_lint={'UnusedImport': 12, 'OptionalCoercion': 12, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
+    check_quant=False,
+)
+class BioWDLAligning(unittest.TestCase):
+    pass
+
+@test_corpus(
     ["test_corpi/biowdl/expression-quantification/**"],
     expected_lint={'UnusedImport': 12, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 3, 'NameCollision': 1},
     check_quant=False,

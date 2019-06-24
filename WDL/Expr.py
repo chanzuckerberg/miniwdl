@@ -465,9 +465,25 @@ class Map(Base):
             else:
                 v.typecheck(vty)
         if kty is None:
-            return T.Map((T.Any(), T.Any()))
+            return T.Map((T.Any(), T.Any()), literal_keys=set())
         assert vty is not None
-        return T.Map((kty, vty))
+        literal_keys = None
+        if kty == T.String():
+            # If the keys are string constants, record them in the Type object
+            # for potential later use in struct coercion. (Normally the Type
+            # encodes the common type of the keys, but not the keys themselves)
+            literal_keys = set()
+            for k, _ in self.items:
+                if (
+                    literal_keys is not None
+                    and isinstance(k, String)
+                    and len(k.parts) == 3
+                    and isinstance(k.parts[1], str)
+                ):
+                    literal_keys.add(k.parts[1])
+                else:
+                    literal_keys = None
+        return T.Map((kty, vty), literal_keys=literal_keys)
 
     def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
         ""

@@ -236,7 +236,8 @@ class _MultiContext:
         if len(self._exceptions) == 1:
             raise self._exceptions[0]
         if self._exceptions:
-            raise MultipleValidationErrors(*self._exceptions)  # pyre-ignore
+            # pyre-ignore
+            raise MultipleValidationErrors(*self._exceptions) from self._exceptions[0]
 
 
 @contextmanager

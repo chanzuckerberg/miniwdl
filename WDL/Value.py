@@ -194,6 +194,14 @@ class Map(Base):
                     for (k, v) in self.value
                 ],
             )
+        if isinstance(desired_type, T.StructInstance):
+            assert desired_type.members
+            ans = {}
+            for k, v in self.value:
+                k = k.coerce(T.String()).value
+                assert k in desired_type.members
+                ans[k] = v
+            return Struct(desired_type, ans)
         return super().coerce(desired_type)
 
 
@@ -265,21 +273,20 @@ class Struct(Base):
 
     def __init__(self, type: Union[T.Object, T.StructInstance], value: Dict[str, Base]) -> None:
         super().__init__(type, value)
-        self.value = value
+        self.value = dict(value)
+        if isinstance(type, T.StructInstance):
+            # if initializer (map or object literal) omits optional members,
+            # fill them in with null
+            assert type.members
+            for k in type.members:
+                if k not in self.value:
+                    assert type.members[k].optional
+                    self.value[k] = Null()
 
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
         if isinstance(self.type, T.Object) and isinstance(desired_type, T.StructInstance):
-            ans = dict(self.value)
-            # object literal may omit optional struct members; fill them out with null
-            # TODO: this should be done in the eval() of struct literals when there's
-            # a new syntax specifying the struct type in the literal
-            assert desired_type.members
-            for k in desired_type.members:
-                if k not in self.value:
-                    assert desired_type.members[k].optional  # typechecker should ensure
-                    ans[k] = Null()
-            return Struct(desired_type, ans)
+            return Struct(desired_type, self.value)
         return self
 
     def __str__(self) -> str:
