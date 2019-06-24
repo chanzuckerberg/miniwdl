@@ -32,7 +32,7 @@ $miniwdl check --no-shellcheck \
     > optimus_smartseq2.out
 is "$?" "0" "check Optimus.wdl and SmartSeq2SingleSample.wdl"
 is "$(grep UnusedDeclaration optimus_smartseq2.out | wc -l)" "2" "UnusedDeclaration in Optimus.wdl and SmartSeq2SingleSample.wdl"
-is "$(cat optimus_smartseq2.out | wc -l)" "80" "Optimus.wdl and SmartSeq2SingleSample.wdl output"
+is "$(cat optimus_smartseq2.out | wc -l)" "81" "Optimus.wdl and SmartSeq2SingleSample.wdl output"
 
 cat << EOF > lex_error.wdl
 # comment

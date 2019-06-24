@@ -55,7 +55,7 @@ def check_lint(cls):
 
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/library/tasks/**"],
-    expected_lint={'StringCoercion': 3, 'UnusedDeclaration': 1}
+    expected_lint={'StringCoercion': 3, 'UnusedDeclaration': 1, 'UnknownRuntimeKey': 1}
 )
 class HCAskylab_task(unittest.TestCase):
     pass
@@ -63,7 +63,7 @@ class HCAskylab_task(unittest.TestCase):
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
-    expected_lint={'UnusedDeclaration': 10, 'NameCollision': 1, 'StringCoercion': 4, 'FileCoercion': 1, 'MixedIndentation': 1}
+    expected_lint={'UnusedDeclaration': 10, 'NameCollision': 1, 'StringCoercion': 4, 'FileCoercion': 1, 'MixedIndentation': 1, 'UnknownRuntimeKey': 2}
 )
 class HCAskylab_workflow(unittest.TestCase):
     pass
@@ -77,7 +77,7 @@ class GATK_five_dollar(unittest.TestCase):
 
 @test_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
-    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 20, 'FileCoercion': 1}
+    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 20, 'FileCoercion': 1, 'UnknownRuntimeKey': 1}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass

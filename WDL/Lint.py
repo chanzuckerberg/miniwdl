@@ -871,3 +871,43 @@ class SelectArray(Linter):
                     "array of non-optional items passed to " + obj.function_name,
                     obj.arguments[0].pos,
                 )
+
+
+@a_linter
+class UnknownRuntimeKey(Linter):
+
+    # refs:
+    # https://cromwell.readthedocs.io/en/develop/RuntimeAttributes/
+    # https://github.com/broadinstitute/cromwell/blob/develop/wom/src/main/scala/wom/RuntimeAttributes.scala
+    # https://github.com/broadinstitute/cromwell/blob/develop/supportedBackends/google/pipelines/common/src/main/scala/cromwell/backend/google/pipelines/common/PipelinesApiRuntimeAttributes.scala
+    # https://github.com/broadinstitute/cromwell/blob/develop/supportedBackends/aws/src/main/scala/cromwell/backend/impl/aws/AwsBatchRuntimeAttributes.scala
+    # https://github.com/openwdl/wdl/pull/315
+    # https://github.com/dnanexus/dxWDL/blob/master/doc/ExpertOptions.md
+    known_keys = set(
+        [
+            "bootDiskSizeGb",
+            "container",
+            "continueOnReturnCode",
+            "cpu",
+            "cpuPlatform",
+            "disks",
+            "docker",
+            "dx_instance_type",
+            "gpu",
+            "gpuCount",
+            "gpuType",
+            "maxRetries",
+            "memory",
+            "noAddress",
+            "preemptible",
+            "queueArn",
+            "returnCodes",
+            "time",
+            "zones",
+        ]
+    )
+
+    def task(self, obj: WDL.Task) -> Any:
+        for k in obj.runtime:
+            if k not in self.known_keys:
+                self.add(obj, "unknown entry in task runtime section: " + k, obj.runtime[k].pos)
