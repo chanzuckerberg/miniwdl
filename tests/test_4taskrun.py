@@ -365,7 +365,7 @@ class TestTaskRunner(unittest.TestCase):
         version 1.0
         struct Car {
             String model
-            Int year
+            Int? year
             Int? mileage
         }
         task t {
@@ -375,10 +375,14 @@ class TestTaskRunner(unittest.TestCase):
                     model: "Mazda",
                     year: 2017
                 }
+                Car car2 = {
+                    "model": "Toyota"
+                }
             }
         }
         """)
         self.assertEqual(outputs["car"], {"model": "Mazda", "year": 2017, "mileage": None})
+        self.assertEqual(outputs["car2"], {"model": "Toyota", "year": None, "mileage": None})
 
     def test_errors(self):
         self._test_task(R"""
