@@ -473,7 +473,7 @@ def cromwell(
     sys.exit(proc.returncode)
 
 
-CROMWELL_VERSION = "40"
+CROMWELL_VERSION = "42"
 
 
 def ensure_cromwell_jar(jarfile=None):
@@ -488,7 +488,7 @@ def ensure_cromwell_jar(jarfile=None):
         CROMWELL_JAR_URL = "https://github.com/broadinstitute/cromwell/releases/download/{v}/cromwell-{v}.jar".format(
             v=CROMWELL_VERSION
         )
-        CROMWELL_JAR_SIZE = 185_381_836
+        CROMWELL_JAR_SIZE = 185_212_769
         CROMWELL_JAR_NAME = os.path.basename(CROMWELL_JAR_URL)
 
         jarpath = os.path.join(tempfile.gettempdir(), CROMWELL_JAR_NAME)
