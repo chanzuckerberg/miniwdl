@@ -214,6 +214,19 @@ class Placeholder(Base):
     def children(self) -> Iterable[SourceNode]:
         yield self.expr
 
+    def infer_type(
+        self,
+        type_env: Env.Types,
+        stdlib: "Optional[WDL.StdLib.Base]" = None,
+        check_quant: bool = True,
+    ) -> Base:
+        import WDL.StdLib as StdLib
+
+        with StdLib.transient_override(
+            stdlib or StdLib.Base(), "_add", StdLib.InterpolationAddOperator()
+        ) as stdlib2:
+            return super().infer_type(type_env, stdlib2, check_quant)
+
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         if isinstance(self.expr.type, T.Array):
             if "sep" not in self.options:
@@ -251,7 +264,12 @@ class Placeholder(Base):
 
     def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.String:
         ""
-        v = self.expr.eval(env, stdlib)
+        import WDL.StdLib as StdLib
+
+        with StdLib.transient_override(
+            stdlib or StdLib.Base(), "_add", StdLib.InterpolationAddOperator()
+        ) as stdlib2:
+            v = self.expr.eval(env, stdlib2)
         if isinstance(v, V.Null):
             if "default" in self.options:
                 return V.String(self.options["default"])

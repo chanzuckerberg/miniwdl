@@ -4,6 +4,7 @@ import os
 import re
 from typing import List, Tuple, Callable, Any
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 import WDL.Type as T
 import WDL.Value as V
 import WDL.Expr as E
@@ -179,6 +180,16 @@ class StaticFunction(EagerFunction):
         return ans.coerce(self.return_type)
 
 
+@contextmanager
+def transient_override(stdlib: Base, name: str, fn: Function):
+    orig = getattr(stdlib, name)
+    setattr(stdlib, name, fn)
+    try:
+        yield stdlib
+    finally:
+        setattr(stdlib, name, orig)
+
+
 def _notimpl(*args, **kwargs) -> None:
     exec("raise NotImplementedError('function not available in this context')")
 
@@ -339,7 +350,7 @@ class _AddOperator(_ArithmeticOperator):
         if t2 is None:
             # neither operand is a string; defer to _ArithmeticOperator
             return super().infer_type(expr)
-        if not t2.coerces(T.String(optional=True)):
+        if not t2.coerces(T.String(optional=not expr._check_quant)):
             raise Error.IncompatibleOperand(
                 expr,
                 "Cannot add/concatenate {} and {}".format(
@@ -358,6 +369,28 @@ class _AddOperator(_ArithmeticOperator):
         )
         assert isinstance(ans, str)
         return V.String(ans)
+
+
+class InterpolationAddOperator(_AddOperator):
+    # + operator within an interpolation; for string concatenation, either operand may be optional;
+    # in evaluation, if either operand is null, then the result is null.
+
+    def infer_type(self, expr: E.Apply) -> T.Base:
+        either_string = sum(1 for arg in expr.arguments if isinstance(arg.type, T.String)) > 0
+        either_optional = sum(1 for arg in expr.arguments if arg.type.optional) > 0
+        both_stringifiable = (
+            sum(1 for arg in expr.arguments if arg.type.coerces(T.String(optional=True))) > 1
+        )
+        return (
+            T.String(optional=True)
+            if either_string and either_optional and both_stringifiable
+            else super().infer_type(expr)
+        )
+
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
+        if sum(1 for arg in arguments if isinstance(arg, V.Null)):
+            return V.Null()
+        return super()._call_eager(expr, arguments)
 
 
 class _ComparisonOperator(EagerFunction):
