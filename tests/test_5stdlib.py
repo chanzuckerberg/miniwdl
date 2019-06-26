@@ -366,3 +366,28 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
+    def test_concat(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            String foo = "foo"
+            String? bar = "bar"
+            String? none
+            Int i = 42
+            Int? i_none
+            command {
+                echo ~{foo + bar}
+                echo ~{foo + bar + i}
+                echo ~{foo + none}
+                echo ~{none + bar}
+                echo ~{foo + none + bar}
+                echo ~{foo + bar + none}
+                echo ~{foo + bar + i_none}
+            }
+            output {
+                String s = read_string(stdout())
+            }
+        }
+        """)
+        self.assertEqual(outputs["s"], "foobar\nfoobar42\n\n\n\n\n\n")
