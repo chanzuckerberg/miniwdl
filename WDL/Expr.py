@@ -222,10 +222,11 @@ class Placeholder(Base):
     ) -> Base:
         import WDL.StdLib as StdLib
 
-        with StdLib.transient_override(
-            stdlib or StdLib.Base(), "_add", StdLib.InterpolationAddOperator()
-        ) as stdlib2:
-            return super().infer_type(type_env, stdlib2, check_quant)
+        # override the + operator with the within-interpolation version which accepts String?
+        # operands and produces a String? result
+        stdlib = stdlib or StdLib.Base()
+        with stdlib._context_override("_add", StdLib.InterpolationAddOperator()):
+            return super().infer_type(type_env, stdlib, check_quant)
 
     def _infer_type(self, type_env: Env.Types) -> T.Base:
         if isinstance(self.expr.type, T.Array):
@@ -266,10 +267,11 @@ class Placeholder(Base):
         ""
         import WDL.StdLib as StdLib
 
-        with StdLib.transient_override(
-            stdlib or StdLib.Base(), "_add", StdLib.InterpolationAddOperator()
-        ) as stdlib2:
-            v = self.expr.eval(env, stdlib2)
+        # override the + operator with the within-interpolation version which evaluates to None
+        # if either operand is None
+        stdlib = stdlib or StdLib.Base()
+        with stdlib._context_override("_add", StdLib.InterpolationAddOperator()):
+            v = self.expr.eval(env, stdlib)
         if isinstance(v, V.Null):
             if "default" in self.options:
                 return V.String(self.options["default"])

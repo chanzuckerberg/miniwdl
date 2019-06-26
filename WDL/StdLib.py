@@ -103,6 +103,16 @@ class Base:
         assert isinstance(sf, StaticFunction)
         setattr(sf, "F", f)
 
+    @contextmanager
+    def _context_override(self, name: str, fn: "Function"):
+        # replace a Function only for the life of the contextmanager.
+        orig = getattr(self, name)
+        self._override(name, fn)
+        try:
+            yield self
+        finally:
+            self._override(name, orig)
+
 
 class Function(ABC):
     # Abstract interface to a standard library function implementation
@@ -178,16 +188,6 @@ class StaticFunction(EagerFunction):
         except Exception as exn:
             raise Error.EvalError(expr, "function evaluation failed") from exn
         return ans.coerce(self.return_type)
-
-
-@contextmanager
-def transient_override(stdlib: Base, name: str, fn: Function):
-    orig = getattr(stdlib, name)
-    setattr(stdlib, name, fn)
-    try:
-        yield stdlib
-    finally:
-        setattr(stdlib, name, orig)
 
 
 def _notimpl(*args, **kwargs) -> None:
@@ -372,8 +372,8 @@ class _AddOperator(_ArithmeticOperator):
 
 
 class InterpolationAddOperator(_AddOperator):
-    # + operator within an interpolation; for string concatenation, either operand may be optional;
-    # in evaluation, if either operand is null, then the result is null.
+    # + operator within an interpolation; accepts String? operands, evaluating to None if either
+    # operand is None.
 
     def infer_type(self, expr: E.Apply) -> T.Base:
         either_string = sum(1 for arg in expr.arguments if isinstance(arg.type, T.String)) > 0
