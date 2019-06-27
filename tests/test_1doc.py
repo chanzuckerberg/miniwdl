@@ -2015,7 +2015,7 @@ class TestStruct(unittest.TestCase):
         workflow wf {
             Person alyssa = object { name: "alyssa" }
             Person ben = object { name: "ben", age: 42, bogus: 3.14}
-            Person cy = object { name: "ben", age: "42"}
+            Person cy = object { name: "ben", age: "42",}
             Int i = object {}
         }
 

@@ -274,7 +274,7 @@ class TestEval(unittest.TestCase):
             ("{0: 1, 2: 3}['foo']", "", WDL.Error.StaticTypeMismatch),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
             ("{3: 1, false: 2}", "", WDL.Error.StaticTypeMismatch),
-            ("{'foo': true, 'bar': 0}", "", WDL.Error.StaticTypeMismatch)
+            ("{'foo': true, 'bar': 0,}", "", WDL.Error.StaticTypeMismatch)
         )
 
     def test_errors(self):

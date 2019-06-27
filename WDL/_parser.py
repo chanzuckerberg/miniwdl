@@ -147,7 +147,7 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
           | expr_core "[" expr "]" -> at
 
           | "(" expr "," expr ")" -> pair
-          | "{" [map_kv ("," map_kv)*] "}" -> map
+          | "{" [map_kv ("," map_kv)*] ","? "}" -> map
 
           | "if" expr "then" expr "else" expr -> ifthenelse
 
@@ -201,7 +201,7 @@ workflow_wildcard_output: namespaced_ident "." "*" | namespaced_ident ".*"
 # - struct type definitions
 # - struct literals (as object literals)
 productions_1_0 = r"""
-          | "object" "{" [object_kv ("," object_kv)*] "}" -> obj // appends to expr_core
+          | "object" "{" [object_kv ("," object_kv)* ","?] "}" -> obj // appends to expr_core
 
 object_kv:  CNAME ":" expr
           | string_literal ":" expr
