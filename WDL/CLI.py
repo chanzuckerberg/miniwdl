@@ -367,7 +367,11 @@ def runner_input(doc, inputs, input_file, empty):
     # first load input JSON file if any
     if input_file:
         with open(input_file) as infile:
-            input_env = values_from_json(json.loads(infile.read()), available_inputs)
+            input_env = values_from_json(
+                json.loads(infile.read()),
+                available_inputs,
+                namespace=([target.name] if isinstance(target, WDL.Workflow) else []),
+            )
 
     # set explicitly empty arrays
     for empty_name in empty or []:
@@ -442,7 +446,13 @@ def runner_input(doc, inputs, input_file, empty):
         )
 
     # make a pass over the Env to create a dict for Cromwell-style input JSON
-    return (target, input_env)
+    return (
+        target,
+        input_env,
+        values_to_json(
+            input_env, namespace=([target.name] if isinstance(target, WDL.Workflow) else [])
+        ),
+    )
 
 
 def runner_input_help(target):
@@ -517,6 +527,27 @@ def runner_input_value(s_value, ty):
             str(ty)
         )
     )
+
+
+def runner_provision_directory(rundir=None):
+    if rundir:
+        rundir = os.path.abspath(rundir)
+        try:
+            os.makedirs(rundir, exist_ok=False)
+        except FileExistsError:
+            die("workflow directory already exists: " + rundir)
+    else:
+        now = datetime.today()
+        try:
+            rundir = os.path.join(os.getcwd(), now.strftime("%Y%m%d_%H%M%S") + "_" + target.name)
+            os.makedirs(rundir, exist_ok=False)
+        except FileExistsError:
+            rundir = os.path.join(
+                os.getcwd(),
+                now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + target.name,
+            )
+            os.makedirs(rundir, exist_ok=False)
+    return rundir
 
 
 def fill_cromwell_subparser(subparsers):
@@ -598,42 +629,22 @@ def cromwell(
     doc = WDL.load(uri, path, check_quant=check_quant, import_uri=import_uri)
 
     # validate the provided inputs and prepare Cromwell-style JSON
-    target, input_env = runner_input(doc, inputs, input_file, empty)
-    input_dict = values_to_json(
-        input_env, namespace=([target.name] if isinstance(target, WDL.Workflow) else [])
-    )
+    target, input_env, input_json = runner_input(doc, inputs, input_file, empty)
 
     if json_only:
-        print(json.dumps(input_dict, indent=2))
+        print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
     # provision a run directory
-    if rundir:
-        rundir = os.path.abspath(rundir)
-        try:
-            os.makedirs(rundir, exist_ok=False)
-        except FileExistsError:
-            die("workflow directory already exists: " + rundir)
-    else:
-        now = datetime.today()
-        try:
-            rundir = os.path.join(os.getcwd(), now.strftime("%Y%m%d_%H%M%S") + "_" + target.name)
-            os.makedirs(rundir, exist_ok=False)
-        except FileExistsError:
-            rundir = os.path.join(
-                os.getcwd(),
-                now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + target.name,
-            )
-            os.makedirs(rundir, exist_ok=False)
-    print("+ mkdir -p " + rundir, file=sys.stderr)
+    rundir = runner_provision_directory(rundir)
     os.makedirs(os.path.join(rundir, "cromwell"))
 
     # write the JSON inputs file
     input_json_filename = None
-    print("Cromwell input: " + json.dumps(input_dict, indent=2), file=sys.stderr)
+    print("Cromwell input: " + json.dumps(input_json, indent=2), file=sys.stderr)
     input_json_filename = os.path.join(rundir, "inputs.json")
-    with open(input_json_filename, "w") as input_json:
-        print(json.dumps(input_dict, indent=2), file=input_json)
+    with open(input_json_filename, "w") as outfile:
+        print(json.dumps(input_json, indent=2), file=outfile)
 
     # write Cromwell options
     cromwell_options = {"final_workflow_log_dir": os.path.join(rundir, "cromwell")}
