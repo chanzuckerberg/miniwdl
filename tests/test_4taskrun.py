@@ -407,3 +407,45 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EmptyArray)
+
+    def test_filename_collisions(self):
+        os.mkdir(os.path.join(self._dir, "a"))
+        with open(os.path.join(self._dir, "a", "x"), "w") as outfile:
+            outfile.write("x\n")
+        with open(os.path.join(self._dir, "a", "x.y"), "w") as outfile:
+            outfile.write("x.y\n")
+        os.mkdir(os.path.join(self._dir, "b"))
+        with open(os.path.join(self._dir, "b", "x"), "w") as outfile:
+            outfile.write("x\n")
+        with open(os.path.join(self._dir, "b", "x.y"), "w") as outfile:
+            outfile.write("x.y\n")
+        outputs = self._test_task(R"""
+        version 1.0
+        task t {
+            input {
+                Array[File] files
+            }
+            command {
+                sort "~{write_lines(files)}"
+            }
+            output {
+                Array[String] outfiles = read_lines(stdout())
+            }
+        }
+        """, {"files": [
+            os.path.join(self._dir, "a", "x"),
+            os.path.join(self._dir, "a", "x.y"),
+            os.path.join(self._dir, "b", "x"),
+            os.path.join(self._dir, "b", "x.y"),
+            os.path.join(self._dir, "b", "x.y") # intentional duplicate
+        ]})
+        outfiles = outputs["outfiles"]
+        self.assertEqual(len(outfiles), 5)
+        self.assertEqual(os.path.basename(outfiles[0]), "x")
+        self.assertEqual(os.path.basename(outfiles[1]), "x.y")
+        self.assertEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[1]))
+        self.assertEqual(os.path.basename(outfiles[2]), "x")
+        self.assertEqual(os.path.basename(outfiles[3]), "x.y")
+        self.assertEqual(os.path.dirname(outfiles[2]), os.path.dirname(outfiles[3]))
+        self.assertNotEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[2]))
+        self.assertEqual(outfiles[3], outfiles[4])

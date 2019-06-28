@@ -90,24 +90,22 @@ class TaskContainer(ABC):
         with any name collisions among them.
         """
         assert not self._running
-        ans = {}
-        basenames = {}
-        for fn in host_files:
-            if fn not in self.input_file_map:
-                bn = os.path.basename(fn)
-                basenames[bn] = 1 + basenames.get(bn, 0)
-                ans[fn] = os.path.join(self.container_dir, "inputs", bn)
 
-        # Error out if any input filenames collide.
-        # TODO: assort them into separate subdirectories, also with a heuristic
-        # grouping together files that come from the same host directory.
-        collisions = [bn for bn, ct in basenames.items() if ct > 1]
-        if collisions:
-            raise WDL.Error.InputError("input filename collision(s): " + " ".join(collisions))
+        # partition the files by host directory
+        host_files_by_dir = {}
+        for host_file in host_files:
+            host_files_by_dir.setdefault(os.path.dirname(host_file), set()).add(host_file)
 
-        for k, v in ans.items():
-            assert k not in self.input_file_map
-            self.input_file_map[k] = v
+        # map the files in each host directory into a unique container
+        # directory. ensuring that (i) there will be no name collisions, and
+        # (ii) files co-located in the same host directory will be mounted into
+        # the same container directory.
+        for files in host_files_by_dir.values():
+            dn = str(len(self.input_file_map))
+            for host_file in files:
+                self.input_file_map[host_file] = os.path.join(
+                    self.container_dir, "inputs", dn, os.path.basename(host_file)
+                )
 
     def run(self, logger: logging.Logger, command: str) -> None:
         """
