@@ -87,7 +87,7 @@ class Base:
         self.select_first = _SelectFirst()
         self.select_all = _SelectAll()
         self.zip = _Zip()
-        self.cross = _Zip()  # FIXME
+        self.cross = _Cross()
         self.flatten = _Flatten()
         self.transpose = _Transpose()
 
@@ -550,7 +550,7 @@ class _SelectAll(EagerFunction):
         return V.Array(arrty, [arg for arg in arr.value if not isinstance(arg, V.Null)])
 
 
-class _Zip(EagerFunction):
+class _ZipOrCross(EagerFunction):
     # 'a array -> 'b array -> ('a,'b) array
     def infer_type(self, expr: E.Apply) -> T.Base:
         if len(expr.arguments) != 2:
@@ -570,8 +570,40 @@ class _Zip(EagerFunction):
             nonempty=(arg0ty.nonempty or arg1ty.nonempty),
         )
 
-    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+    def _coerce_args(
+        self, expr: E.Apply, arguments: List[V.Base]
+    ) -> Tuple[T.Array, V.Array, V.Array]:
+        ty = self.infer_type(expr)
+        assert isinstance(ty, T.Array) and isinstance(ty.item_type, T.Pair)
+        lhs = arguments[0].coerce(T.Array(ty.item_type.left_type))
+        rhs = arguments[1].coerce(T.Array(ty.item_type.right_type))
+        assert isinstance(lhs, V.Array) and isinstance(rhs, V.Array)
+        return (ty, lhs, rhs)
+
+
+class _Zip(_ZipOrCross):
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Array:
+        ty, lhs, rhs = self._coerce_args(expr, arguments)
+        assert isinstance(ty, T.Array) and isinstance(ty.item_type, T.Pair)
+        if len(lhs.value) != len(rhs.value):
+            raise Error.EvalError(expr, "zip(): input arrays must have equal length")
+        return V.Array(
+            ty, [V.Pair(ty.item_type, (lhs.value[i], rhs.value[i])) for i in range(len(lhs.value))]
+        )
+
+
+class _Cross(_ZipOrCross):
+    def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Array:
+        ty, lhs, rhs = self._coerce_args(expr, arguments)
+        assert isinstance(ty, T.Array) and isinstance(ty.item_type, T.Pair)
+        return V.Array(
+            ty,
+            [
+                V.Pair(ty.item_type, (lhs_item, rhs_item))
+                for lhs_item in lhs.value
+                for rhs_item in rhs.value
+            ],
+        )
 
 
 class _Flatten(EagerFunction):

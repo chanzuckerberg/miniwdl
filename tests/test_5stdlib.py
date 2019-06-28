@@ -486,3 +486,33 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
+    def test_zip_cross(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            Array[Int] xs = [ 1, 2, 3 ]
+            Array[String] ys = [ "a", "b", "c" ]
+            Array[String] zs = [ "d", "e" ]
+            command {}
+            output {
+                Array[Pair[Int, String]] zipped = zip(xs, ys)
+                Array[Pair[Int, String]] crossed = cross(xs, zs)
+            }
+        }
+        """)
+        self.assertEqual(outputs["zipped"], [[1, "a"], [2, "b"], [3, "c"]])
+        self.assertEqual(outputs["crossed"], [[1, "d"], [1, "e"], [2, "d"], [2, "e"], [3, "d"], [3, "e"]])
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            Array[Int] xs = [ 1, 2, 3 ]
+            Array[String] ys = [ "a", "b", "c" ]
+            Array[String] zs = [ "d", "e" ]
+            command {}
+            output {
+                Array[Pair[Int, String]] zipped = zip(xs, zs)
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
