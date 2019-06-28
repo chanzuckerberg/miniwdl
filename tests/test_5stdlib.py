@@ -408,6 +408,10 @@ class TestStdLib(unittest.TestCase):
             command {
                 echo Alyssa
                 echo Ben
+                echo 42 > fortytwo.txt
+                echo 6.02e23 > mole.txt
+                echo true > true.txt
+                echo false > false.txt
             }
             output {
                 String i_strings_string = i1
@@ -416,6 +420,9 @@ class TestStdLib(unittest.TestCase):
                 Array[String] i_strings_lines = i2
                 Array[String] o_strings_lines = read_lines(strings2)
                 Array[String] o_names_lines = read_lines(stdout())
+                Int o_fortytwo = read_int("fortytwo.txt")
+                Float o_mole = read_float("mole.txt")
+                Array[Boolean] o_boolean = [read_boolean("true.txt"), read_boolean("false.txt")]
             }
         }
         """, {"strings": os.path.join(self._dir, "strings.txt")})
@@ -425,3 +432,5 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["i_strings_lines"], ["foo", "bar", "bas"])
         self.assertEqual(outputs["o_strings_lines"], ["foo", "bar", "bas"])
         self.assertEqual(outputs["o_names_lines"], ["Alyssa", "Ben"])
+        self.assertEqual(outputs["o_fortytwo"], 42)
+        self.assertEqual(outputs["o_boolean"], [True, False])

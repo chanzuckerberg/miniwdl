@@ -8,7 +8,7 @@ import traceback
 import glob
 from datetime import datetime
 from abc import ABC, abstractmethod
-from typing import Tuple, List, Dict, Optional
+from typing import Tuple, List, Dict, Optional, Callable
 from requests.exceptions import ReadTimeout
 import docker
 import WDL
@@ -463,12 +463,33 @@ class _StdLib(WDL.StdLib.Base):
 
         self._override("size", _Size(self))
 
-        def _read_string(container_file: WDL.Value.File, lib: _StdLib = self) -> WDL.Value.String:
-            host_file = lib.container.host_file(container_file.value, lib.inputs_only)
-            with open(host_file, "r") as infile:
-                return WDL.Value.String(infile.read())
+        def _read_value(
+            parse: Callable[[str], WDL.Value.Base], lib: _StdLib = self
+        ) -> Callable[[WDL.Value.File], WDL.Value.Base]:
+            def _f(
+                container_file: WDL.Value.File,
+                parse: Callable[[str], WDL.Value.Base] = parse,
+                lib: _StdLib = lib,
+            ) -> WDL.Value.Base:
+                host_file = lib.container.host_file(container_file.value, lib.inputs_only)
+                with open(host_file, "r") as infile:
+                    return parse(infile.read())
 
-        self._override_static("read_string", _read_string)
+            return _f
+
+        self._override_static("read_string", _read_value(lambda s: WDL.Value.String(s)))
+        self._override_static("read_int", _read_value(lambda s: WDL.Value.Int(int(s))))
+        self._override_static("read_float", _read_value(lambda s: WDL.Value.Float(float(s))))
+
+        def _parse_boolean(s: str) -> WDL.Value.Boolean:
+            s = s.rstrip()
+            if s == "true":
+                return WDL.Value.Boolean(True)
+            if s == "false":
+                return WDL.Value.Boolean(False)
+            raise ValueError('read_boolean(): file content is not "true" or "false"')
+
+        self._override_static("read_boolean", _read_value(_parse_boolean))
 
         def _read_lines(container_file: WDL.Value.File, lib: _StdLib = self) -> WDL.Value.Array:
             host_file = lib.container.host_file(container_file.value, lib.inputs_only)
