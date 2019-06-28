@@ -49,6 +49,9 @@ Error
    :members:
    :show-inheritance:
 
+Lint
+----
+.. automodule:: WDL.Lint
 
 Indices and tables
 ==================

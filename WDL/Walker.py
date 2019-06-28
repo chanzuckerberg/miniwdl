@@ -30,9 +30,11 @@ class Base:
     """
 
     auto_descend: bool
+    descend_imports: bool
 
-    def __init__(self, auto_descend: bool = False) -> None:
+    def __init__(self, auto_descend: bool = False, descend_imports: bool = True) -> None:
         self.auto_descend = auto_descend
+        self.descend_imports = descend_imports
 
     def __call__(self, obj: WDL.Error.SourceNode, descend: Optional[bool] = None) -> Any:
         ans = None
@@ -60,13 +62,15 @@ class Base:
             descend = self.auto_descend
         if descend:
             for ch in obj.children:
-                self(ch)
+                if not isinstance(ch, WDL.Tree.Document) or self.descend_imports:
+                    self(ch)
         return ans
 
     def _descend(self, obj: WDL.Error.SourceNode) -> Any:
         if not self.auto_descend:
             for ch in obj.children:
-                self(ch)
+                if not isinstance(ch, WDL.Tree.Document) or self.descend_imports:
+                    self(ch)
 
     def document(self, obj: WDL.Tree.Document) -> Any:
         self._descend(obj)
@@ -105,11 +109,11 @@ class Multi(Base):
 
     _walkers: List[Base]
 
-    def __init__(self, walkers: List[Base]) -> None:
+    def __init__(self, walkers: List[Base], descend_imports: bool = True) -> None:
         for w in walkers:
             assert w.auto_descend
         self._walkers = walkers
-        super().__init__(auto_descend=True)
+        super().__init__(auto_descend=True, descend_imports=descend_imports)
 
     def document(self, obj: WDL.Tree.Document) -> Any:
         for w in self._walkers:

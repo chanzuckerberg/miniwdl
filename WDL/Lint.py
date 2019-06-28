@@ -1,6 +1,25 @@
 # pylint: disable=protected-access
 """
-Linting: annotate WDL AST with hygiene warning
+Annotate WDL document AST with hygiene warnings (underlies ``miniwdl check``)
+
+Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
+
+    lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
+    for (pos, lint_class, message) in lint:
+        assert isinstance(pos, WDL.SourcePosition)
+        assert isinstance(lint_class, str) and isinstance(message, str)
+        print(json.dumps({
+            "filename"   : pos.filename,
+            "line"       : pos.line,
+            "end_line"   : pos.end_line,
+            "column"     : pos.column,
+            "end_column" : pos.end_column,
+            "lint"       : lint_class,
+            "message"    : message,
+        }))
+
+The ``descend_imports`` flag controls whether lint warnings are generated for imported documents
+recursively (true, default), or otherwise only the given document (false).
 """
 import subprocess
 import tempfile
@@ -22,10 +41,15 @@ class Linter(WDL.Walker.Base):
     but this can be overridden if control of recursive descent is needed.
     """
 
-    def __init__(self, auto_descend: bool = True):
-        super().__init__(auto_descend=auto_descend)
+    def __init__(self, auto_descend: bool = True, descend_imports: bool = True):
+        super().__init__(auto_descend=auto_descend, descend_imports=descend_imports)
 
-    def add(self, obj: WDL.SourceNode, message: str, pos: Optional[WDL.SourcePosition] = None):
+    def add(
+        self,
+        obj: WDL.Error.SourceNode,
+        message: str,
+        pos: Optional[WDL.Error.SourcePosition] = None,
+    ):
         """
         Used by subclasses to attach lint to a node.
 
@@ -51,7 +75,7 @@ def a_linter(cls):
     _all_linters.append(cls)
 
 
-def lint(doc):
+def lint(doc, descend_imports: bool = True):
     """
     Apply all linters to the document
     """
@@ -62,10 +86,13 @@ def lint(doc):
     WDL.Walker.SetReferrers()(doc)
 
     # instantiate linters
-    linter_instances = [cons() for cons in _all_linters]
+    linter_instances = [cons(descend_imports=descend_imports) for cons in _all_linters]
 
     # run auto-descend linters "concurrently"
-    WDL.Walker.Multi([linter for linter in linter_instances if linter.auto_descend])(doc)
+    WDL.Walker.Multi(
+        [linter for linter in linter_instances if linter.auto_descend],
+        descend_imports=descend_imports,
+    )(doc)
     # run each non-auto-descend linter
     for linter in linter_instances:
         if not linter.auto_descend:
@@ -126,7 +153,9 @@ def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
     return False
 
 
-def _parent_executable(obj: WDL.SourceNode) -> Optional[Union[WDL.Tree.Task, WDL.Tree.Workflow]]:
+def _parent_executable(
+    obj: WDL.Error.SourceNode
+) -> Optional[Union[WDL.Tree.Task, WDL.Tree.Workflow]]:
     if isinstance(obj, (WDL.Tree.Task, WDL.Tree.Workflow)):
         return obj
     if hasattr(obj, "parent_executable"):
@@ -143,7 +172,7 @@ class StringCoercion(Linter):
     # String declaration with non-String rhs expression
     # File-to-String coercions are normal in tasks, but flagged at the workflow level.
 
-    def decl(self, obj: WDL.Decl) -> Any:
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
         if obj.expr and _compound_coercion(
             obj.type,
             obj.expr.type,
@@ -164,7 +193,7 @@ class StringCoercion(Linter):
                         any_string = True
                     elif not isinstance(arg.type, WDL.Type.File):
                         all_string = arg.type
-                if any_string and all_string is not True and not isinstance(pt, WDL.Task):
+                if any_string and all_string is not True and not isinstance(pt, WDL.Tree.Task):
                     # exception when parent is Task (i.e. we're in the task
                     # command) because the coercion is probably intentional
                     self.add(
@@ -224,8 +253,8 @@ class FileCoercion(Linter):
     # String-to-File coercions are typical in task outputs, but potentially
     # problematic elsewhere.
 
-    def __init__(self):
-        super().__init__(auto_descend=False)
+    def __init__(self, descend_imports: bool = True):
+        super().__init__(auto_descend=False, descend_imports=descend_imports)
 
     def task(self, obj: WDL.Tree.Task) -> Any:
         # descend into everything but outputs
@@ -238,7 +267,7 @@ class FileCoercion(Linter):
             self(ex)
 
     # File declaration with String rhs expression
-    def decl(self, obj: WDL.Decl) -> Any:
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
         super().decl(obj)
         if obj.expr and _compound_coercion(obj.type, obj.expr.type, WDL.Type.File):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
@@ -296,7 +325,7 @@ def _is_array_coercion(value_type: WDL.Type.Base, expr_type: WDL.Type.Base):
 @a_linter
 class ArrayCoercion(Linter):
     # implicit promotion of T to Array[T]
-    def decl(self, obj: WDL.Decl) -> Any:
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
         if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
             msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
             self.add(obj, msg)
@@ -333,7 +362,8 @@ class OptionalCoercion(Linter):
                 arg0ty = obj.arguments[0].type
                 arg1ty = obj.arguments[1].type
                 if (arg0ty.optional or arg1ty.optional) and (
-                    obj.function_name != "_add" or not isinstance(getattr(obj, "parent"), WDL.Task)
+                    obj.function_name != "_add"
+                    or not isinstance(getattr(obj, "parent"), WDL.Tree.Task)
                 ):
                     # exception for + in task command because the coercion is
                     # probably intentional, per "Prepending a String to an
@@ -360,7 +390,7 @@ class OptionalCoercion(Linter):
                             )
                             self.add(getattr(obj, "parent"), msg, obj.arguments[i].pos)
 
-    def decl(self, obj: WDL.Decl) -> Any:
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
         if (
             obj.expr
             and not obj.expr.type.coerces(obj.type, check_quant=True)
@@ -404,7 +434,7 @@ class NonemptyCoercion(Linter):
                         )
                         self.add(getattr(obj, "parent"), msg, obj.arguments[i].pos)
 
-    def decl(self, obj: WDL.Decl) -> Any:
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
         # heuristic exception for: Array[File]+ outp = glob(...)
         if (
             obj.expr
@@ -427,7 +457,7 @@ class NonemptyCoercion(Linter):
 @a_linter
 class IncompleteCall(Linter):
     # Call without all required inputs (allowed for top-level workflow)
-    def call(self, obj: WDL.Call) -> Any:
+    def call(self, obj: WDL.Tree.Call) -> Any:
         assert obj.callee is not None
         # pyre-fixme
         required_inputs = set(decl.name for decl in obj.callee.required_inputs)
@@ -461,11 +491,11 @@ class NameCollision(Linter):
     # - task and struct type/alias
     # - struct type/alias and import
     # These are allowed, but confusing.
-    def call(self, obj: WDL.Call) -> Any:
+    def call(self, obj: WDL.Tree.Call) -> Any:
         doc = obj
-        while not isinstance(doc, WDL.Document):
+        while not isinstance(doc, WDL.Tree.Document):
             doc = getattr(doc, "parent")
-        assert isinstance(doc, WDL.Document)
+        assert isinstance(doc, WDL.Tree.Document)
         for imp in doc.imports:
             if imp.namespace == obj.name:
                 msg = "call name '{}' collides with imported document namespace".format(obj.name)
@@ -481,11 +511,11 @@ class NameCollision(Linter):
                 )
                 self.add(obj, msg)
 
-    def decl(self, obj: WDL.Decl) -> Any:
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
         doc = obj
-        while not isinstance(doc, WDL.Document):
+        while not isinstance(doc, WDL.Tree.Document):
             doc = getattr(doc, "parent")
-        assert isinstance(doc, WDL.Document)
+        assert isinstance(doc, WDL.Tree.Document)
         for imp in doc.imports:
             if imp.namespace == obj.name:
                 msg = "declaration of '{}' collides with imported document namespace".format(
@@ -509,9 +539,9 @@ class NameCollision(Linter):
 
     def scatter(self, obj: WDL.Tree.Scatter) -> Any:
         doc = obj
-        while not isinstance(doc, WDL.Document):
+        while not isinstance(doc, WDL.Tree.Document):
             doc = getattr(doc, "parent")
-        assert isinstance(doc, WDL.Document)
+        assert isinstance(doc, WDL.Tree.Document)
         for imp in doc.imports:
             if imp.namespace == obj.variable:
                 msg = "scatter variable '{}' collides with imported document namespace".format(
@@ -533,11 +563,11 @@ class NameCollision(Linter):
                 )
                 self.add(obj, msg)
 
-    def workflow(self, obj: WDL.Workflow) -> Any:
+    def workflow(self, obj: WDL.Tree.Workflow) -> Any:
         doc = obj
-        while not isinstance(doc, WDL.Document):
+        while not isinstance(doc, WDL.Tree.Document):
             doc = getattr(doc, "parent")
-        assert isinstance(doc, WDL.Document)
+        assert isinstance(doc, WDL.Tree.Document)
         for imp in doc.imports:
             if imp.namespace == obj.name:
                 msg = "workflow name '{}' collides with imported document namespace".format(
@@ -552,11 +582,11 @@ class NameCollision(Linter):
                 )
                 self.add(obj, msg)
 
-    def task(self, obj: WDL.Task) -> Any:
+    def task(self, obj: WDL.Tree.Task) -> Any:
         doc = obj
-        while not isinstance(doc, WDL.Document):
+        while not isinstance(doc, WDL.Tree.Document):
             doc = getattr(doc, "parent")
-        assert isinstance(doc, WDL.Document)
+        assert isinstance(doc, WDL.Tree.Document)
         for imp in doc.imports:
             if imp.namespace == obj.name:
                 msg = "task name '{}' collides with imported document namespace".format(obj.name)
@@ -586,7 +616,7 @@ class NameCollision(Linter):
 class UnusedImport(Linter):
     # Nothing used from an imported document
     # TODO: suppress if document is imported just to use its struct type declarations
-    def document(self, obj: WDL.Document) -> Any:
+    def document(self, obj: WDL.Tree.Document) -> Any:
         for imp in obj.imports:
             assert imp.doc is not None
             any_called = False
@@ -607,15 +637,15 @@ class ForwardReference(Linter):
     def expr(self, obj: WDL.Expr.Base) -> Any:
         if (
             isinstance(obj, WDL.Expr.Ident)
-            and isinstance(obj.ctx, (WDL.Decl, WDL.Call))
+            and isinstance(obj.ctx, (WDL.Tree.Decl, WDL.Tree.Call))
             and (
                 obj.ctx.pos.line > obj.pos.line
                 or (obj.ctx.pos.line == obj.pos.line and obj.ctx.pos.column > obj.pos.column)
             )
         ):
-            if isinstance(obj.ctx, WDL.Decl):
+            if isinstance(obj.ctx, WDL.Tree.Decl):
                 msg = "reference to {} precedes its declaration".format(obj.name)
-            elif isinstance(obj.ctx, WDL.Call):
+            elif isinstance(obj.ctx, WDL.Tree.Call):
                 msg = "reference to output of {} precedes the call".format(".".join(obj.namespace))
             else:
                 assert False
@@ -697,7 +727,7 @@ class UnnecessaryQuantifier(Linter):
     # input section (where it denotes that the default value can be overridden
     # by expressly passing null)
 
-    def decl(self, obj: WDL.Decl) -> Any:
+    def decl(self, obj: WDL.Tree.Decl) -> Any:
         if obj.type.optional and obj.expr and not obj.expr.type.optional:
             tw = obj
             while not isinstance(tw, (WDL.Tree.Task, WDL.Tree.Workflow)):
@@ -730,8 +760,8 @@ class CommandShellCheck(Linter):
     # also SC1009 and SC1072 are non-informative commentary
     _suppressions = [1009, 1072, 1083, 2043, 2050, 2157, 2193]
 
-    def __init__(self, *args):
-        super().__init__(*args)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._tmpdir = tempfile.mkdtemp(prefix="miniwdl_shellcheck_")
         global _shellcheck_available
         if _shellcheck_available is None:
@@ -744,7 +774,7 @@ class CommandShellCheck(Linter):
     def __del__(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
-    def task(self, obj: WDL.Task) -> Any:
+    def task(self, obj: WDL.Tree.Task) -> Any:
         global _shellcheck_available
         if not _shellcheck_available:
             return
@@ -837,7 +867,7 @@ def _shellcheck_dummy_value(ty, pos):
 @a_linter
 class MixedIndentation(Linter):
     # Line of task command mixes tab and space indentation
-    def task(self, obj: WDL.Task) -> Any:
+    def task(self, obj: WDL.Tree.Task) -> Any:
         command_lines = "".join(
             (s if isinstance(s, str) else "$") for s in obj.command.parts
         ).split("\n")
@@ -907,7 +937,7 @@ class UnknownRuntimeKey(Linter):
         ]
     )
 
-    def task(self, obj: WDL.Task) -> Any:
+    def task(self, obj: WDL.Tree.Task) -> Any:
         for k in obj.runtime:
             if k not in self.known_keys:
                 self.add(obj, "unknown entry in task runtime section: " + k, obj.runtime[k].pos)
