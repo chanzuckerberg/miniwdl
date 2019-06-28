@@ -33,6 +33,7 @@ def main(args=None):
     subparsers.required = True
     subparsers.dest = "command"
     fill_common(fill_check_subparser(subparsers))
+    fill_common(fill_run_subparser(subparsers))
     fill_common(fill_cromwell_subparser(subparsers))
 
     argcomplete.autocomplete(parser)
@@ -41,6 +42,8 @@ def main(args=None):
     try:
         if args.command == "check":
             check(**vars(args))
+        elif args.command == "run":
+            runner(**vars(args))
         elif args.command == "cromwell":
             cromwell(**vars(args))
         else:
@@ -251,9 +254,274 @@ def import_uri(uri):
     return glob.glob(dn + "/*")[0]
 
 
+def fill_run_subparser(subparsers):
+    run_parser = subparsers.add_parser("run", help="Run task locally")
+    run_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
+    run_parser.add_argument(
+        "inputs",
+        metavar="input_key=value",
+        type=str,
+        nargs="*",
+        help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
+    ).completer = runner_input_completer
+    run_parser.add_argument(
+        "-d",
+        "--dir",
+        metavar="NEW_DIR",
+        dest="rundir",
+        help="directory to be created for the workflow products (must not already exist; defaults to a timestamp-based subdirectory of the current directory)",
+    )
+    run_parser.add_argument(
+        "-i",
+        "--input",
+        metavar="INPUT.json",
+        dest="input_file",
+        help="file with Cromwell-style input JSON; command-line inputs will be merged in",
+    )
+    run_parser.add_argument(
+        "-j",
+        "--json",
+        dest="json_only",
+        action="store_true",
+        help="just print Cromwell-style input JSON to standard output, then exit",
+    )
+    run_parser.add_argument(
+        "--empty",
+        metavar="input_key",
+        action="append",
+        help="explicitly set an array input to the empty array (to override a default)",
+    )
+    # TODO:
+    # way to specify None for an optional value (that has a default)
+    return run_parser
+
+
+def runner(
+    uri, inputs, input_file, json_only, empty, check_quant, rundir=None, path=None, **kwargs
+):
+    raise NotImplementedError()
+
+
+def runner_input_completer(prefix, parsed_args, **kwargs):
+    # argcomplete completer for `miniwdl run` and `miniwdl cromwell`
+    if "uri" in parsed_args:
+        # load document. in the completer setting, we need to substitute the home directory
+        # and environment variables
+        uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
+        if not os.path.exists(uri):
+            argcomplete.warn("file not found: " + uri)
+            return []
+        try:
+            doc = WDL.load(uri, parsed_args.path, parsed_args.check_quant, import_uri=import_uri)
+        except Exception as exn:
+            argcomplete.warn(
+                "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
+            )
+            return []
+        # resolve target
+        if doc.workflow:
+            target = doc.workflow
+        elif len(doc.tasks) == 1:
+            target = doc.tasks[0]
+        elif len(doc.tasks) > 1:
+            argcomplete.warn("WDL document contains multiple tasks and no workflow")
+            return []
+        else:
+            argcomplete.warn("WDL document is empty")
+            return []
+        assert target
+        # figure the available input names (starting with prefix, if any)
+        available_input_names = [nm + "=" for nm in values_to_json(target.available_inputs)]
+        if prefix and prefix.find("=") == -1:
+            available_input_names = [nm for nm in available_input_names if nm.startswith(prefix)]
+        # TODO idea -- complete only required inputs until they're all present, then start
+        # completing the non-required inputs. Tricky with arrays, because we want to keep
+        # allowing their completion even after already supplied.
+        # compute set of inputs already supplied
+        return available_input_names
+
+
+def runner_input(doc, inputs, input_file, empty):
+    """
+    - Determine the target workflow/task
+    - Check types of supplied inputs
+    - Check all required inputs are supplied
+    - Return inputs as WDL.Env.Values
+    """
+
+    # resolve target
+    if doc.workflow:
+        target = doc.workflow
+    elif len(doc.tasks) == 1:
+        target = doc.tasks[0]
+    elif len(doc.tasks) > 1:
+        die("WDL document contains multiple tasks and no workflow")
+    else:
+        die("Empty WDL document")
+    assert target
+
+    # build up an Env.Values of the provided inputs
+    available_inputs = target.available_inputs
+    input_env = []
+
+    # first load input JSON file if any
+    if input_file:
+        with open(input_file) as infile:
+            input_env = values_from_json(json.loads(infile.read()), available_inputs)
+
+    # set explicitly empty arrays
+    for empty_name in empty or []:
+        empty_name = empty_name.split(".")
+        if not empty_name or ([True for s in empty_name if not s]):
+            die("Invalid input name: " + empty_name)
+        namespace = empty_name[:-1]
+        name = empty_name[-1]
+        try:
+            decl = WDL.Env.resolve(available_inputs, namespace, name)
+        except KeyError:
+            die(
+                "No such input to {}: {}\n{}".format(
+                    target.name, ".".join(empty_name), runner_input_help(target)
+                )
+            )
+        if not isinstance(decl.type, WDL.Type.Array) or decl.type.nonempty:
+            die("Cannot set input {} {} to empty array".format(str(decl.type), decl.name))
+        input_env = WDL.Env.bind(
+            input_env, namespace, name, WDL.Value.Array(decl.type, []), ctx=decl
+        )
+
+    # add in command-line inputs
+    for one_input in inputs:
+        # parse [namespace], name, and value
+        buf = one_input.split("=", 1)
+        if len(buf) != 2 or not buf[0]:
+            die("Invalid input name=value pair: " + one_input)
+        name, s_value = buf
+        name = name.split(".")
+        if not name or ([True for s in name if not s]):
+            die("Invalid input name=value pair: " + one_input)
+        namespace = name[:-1]
+        name = name[-1]
+
+        # find corresponding input declaration
+        try:
+            decl = WDL.Env.resolve(available_inputs, namespace, name)
+        except KeyError:
+            die(
+                "No such input to {}: {}\n{}".format(target.name, buf[0], runner_input_help(target))
+            )
+
+        # create a WDL.Value based on the expected type
+        v = runner_input_value(s_value, decl.type)
+
+        # insert value into input_env
+        try:
+            existing = WDL.Env.resolve(input_env, namespace, name)
+        except KeyError:
+            existing = None
+        if existing:
+            if isinstance(v, WDL.Value.Array):
+                assert isinstance(existing, WDL.Value.Array) and existing.type == v.type
+                existing.value.extend(v.value)
+            else:
+                die(
+                    "non-array input {} duplicated on command line\n{}".format(
+                        buf[0], runner_input_help(target)
+                    )
+                )
+        else:
+            input_env = WDL.Env.bind(input_env, namespace, name, v, ctx=decl)
+
+    # check for missing inputs
+    missing_inputs = values_to_json(WDL.Env.subtract(target.required_inputs, input_env))
+    if missing_inputs:
+        die(
+            "missing required inputs for {}: {}\n{}".format(
+                target.name, ", ".join(missing_inputs.keys()), runner_input_help(target)
+            )
+        )
+
+    # make a pass over the Env to create a dict for Cromwell-style input JSON
+    return (target, input_env)
+
+
+def runner_input_help(target):
+    # TODO: get help message from parameter_meta
+    # TODO: show default values of optionals
+    ans = []
+    required_inputs = target.required_inputs
+    ans.append("\nrequired inputs:")
+    for name, ty in values_to_json(required_inputs).items():
+        ans.append("  {} {}".format(ty, name))
+    optional_inputs = WDL.Env.subtract(target.available_inputs, target.required_inputs)
+    if target.inputs is None:
+        # if the target doesn't have an input{} section (pre WDL 1.0), exclude
+        # declarations bound to a non-constant expression (heuristic)
+        optional_inputs = WDL.Env.filter(
+            optional_inputs, lambda _, b: b.rhs.expr is None or is_constant_expr(b.rhs.expr)
+        )
+    if optional_inputs:
+        ans.append("\noptional inputs:")
+        for name, ty in values_to_json(optional_inputs).items():
+            ans.append("  {} {}".format(ty, name))
+    ans.append("\noutputs:")
+    for name, ty in values_to_json(target.effective_outputs).items():
+        ans.append("  {} {}".format(ty, name))
+    return "\n".join(ans)
+
+
+def is_constant_expr(expr):
+    """
+    Decide if the expression is "constant" for the above purposes
+    """
+    if isinstance(expr, (WDL.Expr.Int, WDL.Expr.Float, WDL.Expr.Boolean)):
+        return True
+    if isinstance(expr, WDL.Expr.String) and (
+        len(expr.parts) == 2 or (len(expr.parts) == 3 and isinstance(expr.parts[1], str))
+    ):
+        return True
+    if isinstance(expr, WDL.Expr.Array):
+        return not [item for item in expr.items if not is_constant_expr(item)]
+    # TODO: Pair, Map, Struct???
+    return False
+
+
+def runner_input_value(s_value, ty):
+    """
+    Given an input value from the command line (right-hand side of =) and the
+    WDL type of the corresponding input decl, create an appropriate WDL.Value.
+    """
+    if isinstance(ty, WDL.Type.String):
+        return WDL.Value.String(s_value)
+    if isinstance(ty, WDL.Type.File):
+        if not os.path.exists(s_value):
+            die("File not found: " + s_value)
+        return WDL.Value.String(os.path.abspath(s_value))
+    if isinstance(ty, WDL.Type.Boolean):
+        if s_value == "true":
+            return WDL.Value.Boolean(True)
+        if s_value == "false":
+            return WDL.Value.Boolean(False)
+        die("Boolean input should be true or false instead of {}".format(s_value))
+    if isinstance(ty, WDL.Type.Int):
+        return WDL.Value.Int(int(s_value))
+    if isinstance(ty, WDL.Type.Float):
+        return WDL.Value.Float(float(s_value))
+    if isinstance(ty, WDL.Type.Array) and isinstance(
+        ty.item_type, (WDL.Type.String, WDL.Type.File, WDL.Type.Int, WDL.Type.Float)
+    ):
+        # just produce a length-1 array, to be combined ex post facto
+        return WDL.Value.Array(ty, [runner_input_value(s_value, ty.item_type)])
+    return die(
+        "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
+            str(ty)
+        )
+    )
+
+
 def fill_cromwell_subparser(subparsers):
     cromwell_parser = subparsers.add_parser(
-        "cromwell", help="Run workflow locally using Cromwell " + CROMWELL_VERSION
+        "cromwell", help="Run workflow/task locally using Cromwell " + CROMWELL_VERSION
     )
     cromwell_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
     cromwell_parser.add_argument(
@@ -262,7 +530,7 @@ def fill_cromwell_subparser(subparsers):
         type=str,
         nargs="*",
         help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
-    ).completer = cromwell_input_completer
+    ).completer = runner_input_completer
     cromwell_parser.add_argument(
         "-d",
         "--dir",
@@ -311,45 +579,6 @@ def fill_cromwell_subparser(subparsers):
     return cromwell_parser
 
 
-def cromwell_input_completer(prefix, parsed_args, **kwargs):
-    # argcomplete completer for `miniwdl cromwell`
-    if "uri" in parsed_args:
-        # load document. in the completer setting, we need to substitute the home directory
-        # and environment variables
-        uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
-        if not os.path.exists(uri):
-            argcomplete.warn("file not found: " + uri)
-            return []
-        try:
-            doc = WDL.load(uri, parsed_args.path, parsed_args.check_quant, import_uri=import_uri)
-        except Exception as exn:
-            argcomplete.warn(
-                "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
-            )
-            return []
-        # resolve target
-        if doc.workflow:
-            target = doc.workflow
-        elif len(doc.tasks) == 1:
-            target = doc.tasks[0]
-        elif len(doc.tasks) > 1:
-            argcomplete.warn("WDL document contains multiple tasks and no workflow")
-            return []
-        else:
-            argcomplete.warn("WDL document is empty")
-            return []
-        assert target
-        # figure the available input names (starting with prefix, if any)
-        available_input_names = [nm + "=" for nm in values_to_json(target.available_inputs)]
-        if prefix and prefix.find("=") == -1:
-            available_input_names = [nm for nm in available_input_names if nm.startswith(prefix)]
-        # TODO idea -- complete only required inputs until they're all present, then start
-        # completing the non-required inputs. Tricky with arrays, because we want to keep
-        # allowing their completion even after already supplied.
-        # compute set of inputs already supplied
-        return available_input_names
-
-
 def cromwell(
     uri,
     inputs,
@@ -368,8 +597,11 @@ def cromwell(
     # load WDL document
     doc = WDL.load(uri, path, check_quant=check_quant, import_uri=import_uri)
 
-    # validate the provided inputs
-    target, input_dict = cromwell_input(doc, inputs, input_file, empty)
+    # validate the provided inputs and prepare Cromwell-style JSON
+    target, input_env = runner_input(doc, inputs, input_file, empty)
+    input_dict = values_to_json(
+        input_env, namespace=([target.name] if isinstance(target, WDL.Workflow) else [])
+    )
 
     if json_only:
         print(json.dumps(input_dict, indent=2))
@@ -509,191 +741,6 @@ def ensure_cromwell_jar(jarfile=None):
             "unexpected size of downloaded " + jarpath
         )
     return jarpath
-
-
-def cromwell_input(doc, inputs, input_file, empty):
-    """
-    - Determine the target workflow/task
-    - Check types of supplied inputs
-    - Check all required inputs are supplied
-    - Return a dict which json.dumps to Cromwell input format
-    """
-
-    # resolve target
-    if doc.workflow:
-        target = doc.workflow
-    elif len(doc.tasks) == 1:
-        target = doc.tasks[0]
-    elif len(doc.tasks) > 1:
-        die("WDL document contains multiple tasks and no workflow")
-    else:
-        die("Empty WDL document")
-    assert target
-
-    # build up an Env.Values of the provided inputs
-    available_inputs = target.available_inputs
-    input_env = []
-
-    # first load input JSON file if any
-    if input_file:
-        with open(input_file) as infile:
-            input_env = values_from_json(json.loads(infile.read()), available_inputs)
-
-    # set explicitly empty arrays
-    for empty_name in empty or []:
-        empty_name = empty_name.split(".")
-        if not empty_name or ([True for s in empty_name if not s]):
-            die("Invalid input name: " + empty_name)
-        namespace = empty_name[:-1]
-        name = empty_name[-1]
-        try:
-            decl = WDL.Env.resolve(available_inputs, namespace, name)
-        except KeyError:
-            die(
-                "No such input to {}: {}\n{}".format(
-                    target.name, ".".join(empty_name), cromwell_input_help(target)
-                )
-            )
-        if not isinstance(decl.type, WDL.Type.Array) or decl.type.nonempty:
-            die("Cannot set input {} {} to empty array".format(str(decl.type), decl.name))
-        input_env = WDL.Env.bind(
-            input_env, namespace, name, WDL.Value.Array(decl.type, []), ctx=decl
-        )
-
-    # add in command-line inputs
-    for one_input in inputs:
-        # parse [namespace], name, and value
-        buf = one_input.split("=", 1)
-        if len(buf) != 2 or not buf[0]:
-            die("Invalid input name=value pair: " + one_input)
-        name, s_value = buf
-        name = name.split(".")
-        if not name or ([True for s in name if not s]):
-            die("Invalid input name=value pair: " + one_input)
-        namespace = name[:-1]
-        name = name[-1]
-
-        # find corresponding input declaration
-        try:
-            decl = WDL.Env.resolve(available_inputs, namespace, name)
-        except KeyError:
-            die(
-                "No such input to {}: {}\n{}".format(
-                    target.name, buf[0], cromwell_input_help(target)
-                )
-            )
-
-        # create a WDL.Value based on the expected type
-        v = cromwell_input_value(s_value, decl.type)
-
-        # insert value into input_env
-        try:
-            existing = WDL.Env.resolve(input_env, namespace, name)
-        except KeyError:
-            existing = None
-        if existing:
-            if isinstance(v, WDL.Value.Array):
-                assert isinstance(existing, WDL.Value.Array) and existing.type == v.type
-                existing.value.extend(v.value)
-            else:
-                die(
-                    "non-array input {} duplicated on command line\n{}".format(
-                        buf[0], cromwell_input_help(target)
-                    )
-                )
-        else:
-            input_env = WDL.Env.bind(input_env, namespace, name, v, ctx=decl)
-
-    # check for missing inputs
-    missing_inputs = values_to_json(WDL.Env.subtract(target.required_inputs, input_env))
-    if missing_inputs:
-        die(
-            "missing required inputs for {}: {}\n{}".format(
-                target.name, ", ".join(missing_inputs.keys()), cromwell_input_help(target)
-            )
-        )
-
-    # make a pass over the Env to create a dict for Cromwell-style input JSON
-    return (
-        target,
-        values_to_json(
-            input_env, namespace=([target.name] if isinstance(target, WDL.Workflow) else [])
-        ),
-    )
-
-
-def cromwell_input_help(target):
-    # TODO: get help message from parameter_meta
-    # TODO: show default values of optionals
-    ans = []
-    required_inputs = target.required_inputs
-    ans.append("\nrequired inputs:")
-    for name, ty in values_to_json(required_inputs).items():
-        ans.append("  {} {}".format(ty, name))
-    optional_inputs = WDL.Env.subtract(target.available_inputs, target.required_inputs)
-    if target.inputs is None:
-        # if the target doesn't have an input{} section (pre WDL 1.0), exclude
-        # declarations bound to a non-constant expression (heuristic)
-        optional_inputs = WDL.Env.filter(
-            optional_inputs, lambda _, b: b.rhs.expr is None or is_constant_expr(b.rhs.expr)
-        )
-    if optional_inputs:
-        ans.append("\noptional inputs:")
-        for name, ty in values_to_json(optional_inputs).items():
-            ans.append("  {} {}".format(ty, name))
-    ans.append("\noutputs:")
-    for name, ty in values_to_json(target.effective_outputs).items():
-        ans.append("  {} {}".format(ty, name))
-    return "\n".join(ans)
-
-
-def is_constant_expr(expr):
-    """
-    Decide if the expression is "constant" for the above purposes
-    """
-    if isinstance(expr, (WDL.Expr.Int, WDL.Expr.Float, WDL.Expr.Boolean)):
-        return True
-    if isinstance(expr, WDL.Expr.String) and (
-        len(expr.parts) == 2 or (len(expr.parts) == 3 and isinstance(expr.parts[1], str))
-    ):
-        return True
-    if isinstance(expr, WDL.Expr.Array):
-        return not [item for item in expr.items if not is_constant_expr(item)]
-    # TODO: Pair, Map, Struct???
-    return False
-
-
-def cromwell_input_value(s_value, ty):
-    """
-    Given an input value from the command line (right-hand side of =) and the
-    WDL type of the corresponding input decl, create an appropriate WDL.Value.
-    """
-    if isinstance(ty, WDL.Type.String):
-        return WDL.Value.String(s_value)
-    if isinstance(ty, WDL.Type.File):
-        if not os.path.exists(s_value):
-            die("File not found: " + s_value)
-        return WDL.Value.String(os.path.abspath(s_value))
-    if isinstance(ty, WDL.Type.Boolean):
-        if s_value == "true":
-            return WDL.Value.Boolean(True)
-        if s_value == "false":
-            return WDL.Value.Boolean(False)
-        die("Boolean input should be true or false instead of {}".format(s_value))
-    if isinstance(ty, WDL.Type.Int):
-        return WDL.Value.Int(int(s_value))
-    if isinstance(ty, WDL.Type.Float):
-        return WDL.Value.Float(float(s_value))
-    if isinstance(ty, WDL.Type.Array) and isinstance(
-        ty.item_type, (WDL.Type.String, WDL.Type.File, WDL.Type.Int, WDL.Type.Float)
-    ):
-        # just produce a length-1 array, to be combined ex post facto
-        return WDL.Value.Array(ty, [cromwell_input_value(s_value, ty.item_type)])
-    return die(
-        "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
-            str(ty)
-        )
-    )
 
 
 def organize_cromwell_outputs(target, outputs_json, rundir):
