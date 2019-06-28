@@ -394,12 +394,16 @@ def _eval_task_inputs(
         except KeyError:
             decls_to_eval.append(decl)
 
-    # TODO: topsort decls_to_eval according to internal dependencies
+    # topsort them according to internal dependencies. prior static validation
+    # should have ensured they're acyclic.
+    decls_by_id, decls_adj = WDL.Tree._dependency_matrix(decls_to_eval, exclusive=True)
+    decls_to_eval = [decls_by_id[did] for did in WDL._util.topsort(decls_adj)]
 
-    # evaluate each declaration in order
+    # evaluate each declaration in that order
     # note: the write_* functions call container.add_files as a side-effect
     stdlib = InputStdLib(container)
     for decl in decls_to_eval:
+        assert isinstance(decl, WDL.Tree.Decl)
         v = WDL.Value.Null()
         if decl.expr:
             try:

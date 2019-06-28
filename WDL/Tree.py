@@ -319,7 +319,7 @@ class Task(SourceNode):
                 errors.try1(lambda: decl.typecheck(type_env, check_quant=check_quant))
 
         # check for cyclic dependencies among decls
-        WDL._util.detect_cycles(
+        _detect_cycles(
             # pyre-ignore
             _dependency_matrix(ch for ch in self.children if isinstance(ch, Decl))
         )
@@ -855,7 +855,7 @@ class Workflow(SourceNode):
                     )
                     output_type_env = output_type_env2
         # 6. check for cyclic dependencies
-        WDL._util.detect_cycles(_dependency_matrix(_decls_and_calls(self)))  # pyre-fixme
+        _detect_cycles(_dependency_matrix(_decls_and_calls(self)))  # pyre-fixme
 
     def _rewrite_output_idents(self) -> None:
         # for pre-1.0 workflow output sections with a list of namespaced
@@ -1312,24 +1312,38 @@ def _dependencies(obj: Union[Decl, Call, E.Base]) -> Iterable[Union[Decl, Call]]
 
 
 def _dependency_matrix(
-    objs: Iterable[Union[Decl, Call]], obj_id: Optional[Callable[[Err.SourceNode], int]] = None
+    objs: Iterable[Union[Decl, Call]],
+    obj_id: Optional[Callable[[Err.SourceNode], int]] = None,
+    exclusive: bool = False,
 ) -> Tuple[Dict[int, Union[Decl, Call]], WDL._util.AdjM]:
-    # Given collection of Decl & Call, produce mapping of object ids
-    # to the objects and the adjacency matrix for their dependencies
+    # Given collection of Decl & Call, produce mapping of object ids to the
+    # objects and the adjacency matrix for their dependencies
     # obj_id: get unique int id for object, defaults to id()
+    # exclusive: if True then exclude dependencies that aren't among objs to
+    #            begin with.
     obj_id = obj_id or id
-    obj_ids = dict()
+    objs_by_id = dict((obj_id(obj), obj) for obj in objs)
     adj = WDL._util.AdjM()
-    for obj in objs:
-        oid = obj_id(obj)
-        assert oid not in obj_ids or id(obj) == id(obj_ids[oid])
-        obj_ids[oid] = obj
-        for dep in _dependencies(obj):
+    for oid in objs_by_id:
+        adj.add_node(oid)
+        for dep in _dependencies(objs_by_id[oid]):
             did = obj_id(dep)
-            assert did not in obj_ids or id(dep) == id(obj_ids[did])
-            obj_ids[did] = dep
-            adj.add_edge(did, oid)
-    return (obj_ids, adj)
+            if objs_by_id.get(did, not exclusive):
+                assert id(objs_by_id.get(did, dep)) == id(dep)
+                objs_by_id[did] = dep
+                adj.add_edge(did, oid)
+    return (objs_by_id, adj)
+
+
+def _detect_cycles(p: Tuple[Dict[int, WDL.Error.SourceNode], WDL._util.AdjM]) -> None:
+    # given the result of _dependency_matrix, detect if there exists a cycle
+    # and if so, then raise WDL.Error.CircularDependencies with a relevant
+    # SourceNode.
+    nodes, adj = p
+    try:
+        WDL._util.topsort(adj)
+    except StopIteration as err:
+        raise WDL.Error.CircularDependencies(nodes[getattr(err, "node")])
 
 
 def _import_structs(doc: Document):

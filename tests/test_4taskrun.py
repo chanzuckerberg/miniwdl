@@ -449,3 +449,21 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(os.path.dirname(outfiles[2]), os.path.dirname(outfiles[3]))
         self.assertNotEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[2]))
         self.assertEqual(outfiles[3], outfiles[4])
+
+    def test_topsort(self):
+        txt = R"""
+        version 1.0
+        task t {
+            input {
+                Int y = z-2
+                Int x
+            }
+            Int z = x*2
+            command {}
+            output {
+                Int yy = y
+            }
+        }
+        """
+        self.assertEqual(self._test_task(txt, {"x": 22})["yy"], 42)
+        self.assertEqual(self._test_task(txt, {"x": 22, "y": 99})["yy"], 99)

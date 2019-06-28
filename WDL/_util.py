@@ -1,7 +1,7 @@
 # pyre-strict
 # misc utility functions...
 
-from typing import Tuple, Dict, Set, Iterable
+from typing import Tuple, Dict, Set, Iterable, List
 import WDL.Error
 
 
@@ -102,15 +102,19 @@ class AdjM:
         self._unconstrained.remove(node)
 
 
-def detect_cycles(p: Tuple[Dict[int, WDL.Error.SourceNode], AdjM]) -> None:
-    # Given a mapping of SourceNode's by their object id(), and an AdjM
-    # representing their dependencies, detect if there exists a cycle and if
-    # so, then raise WDL.Error.CircularDependencies with a relevant SourceNode.
-    nodes, adj = p
+def topsort(adj: AdjM) -> List[int]:
+    # topsort node IDs in adj (destroys adj)
+    # if there's a cycle, raises err: StopIteration with err.node = ID of a
+    # node involved in a cycle.
+    ans = []
     node = next(adj.unconstrained, None)  # pyre-ignore
     while node:
         adj.remove_node(node)
+        ans.append(node)
         node = next(adj.unconstrained, None)  # pyre-ignore
     node = next(adj.nodes, None)  # pyre-ignore
     if node:
-        raise WDL.Error.CircularDependencies(nodes[node])
+        err = StopIteration()
+        setattr(err, "node", node)
+        raise err
+    return ans
