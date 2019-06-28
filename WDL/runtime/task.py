@@ -461,15 +461,24 @@ class _StdLib(WDL.StdLib.Base):
 
         self._override("size", _Size(self))
 
-        def _read_string(
-            container_file: WDL.Value.File, lib: _StdLib = self, inputs_only: bool = inputs_only
-        ) -> WDL.Value.String:
-            host_file = lib.container.host_file(container_file.value, inputs_only)
-            assert host_file.startswith(lib.container.host_dir)
+        def _read_string(container_file: WDL.Value.File, lib: _StdLib = self) -> WDL.Value.String:
+            host_file = lib.container.host_file(container_file.value, lib.inputs_only)
             with open(host_file, "r") as infile:
                 return WDL.Value.String(infile.read())
 
         self._override_static("read_string", _read_string)
+
+        def _read_lines(container_file: WDL.Value.File, lib: _StdLib = self) -> WDL.Value.Array:
+            host_file = lib.container.host_file(container_file.value, lib.inputs_only)
+            ans = []
+            with open(host_file, "r") as infile:
+                for line in infile:
+                    if line.endswith("\n"):
+                        line = line[:-1]
+                    ans.append(WDL.Value.String(line))
+            return WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), ans)
+
+        self._override_static("read_lines", _read_lines)
 
         def _write_lines(array: WDL.Value.Array, lib: _StdLib = self) -> WDL.Value.File:
             host_fn = None

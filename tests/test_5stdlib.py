@@ -391,3 +391,37 @@ class TestStdLib(unittest.TestCase):
         }
         """)
         self.assertEqual(outputs["s"], "foobar\nfoobar42\n\n\n\n\n\n")
+
+    def test_read(self):
+        with open(os.path.join(self._dir, "strings.txt"), "w") as outfile:
+            outfile.write("foo\nbar\nbas\n")
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            input {
+                File strings
+            }
+            String i1 = read_string(strings)
+            Array[String] i2 = read_lines(strings)
+            File strings2 = write_lines(i2)
+
+            command {
+                echo Alyssa
+                echo Ben
+            }
+            output {
+                String i_strings_string = i1
+                String o_strings_string = read_string(strings)
+                String o_names_string = read_string(stdout())
+                Array[String] i_strings_lines = i2
+                Array[String] o_strings_lines = read_lines(strings2)
+                Array[String] o_names_lines = read_lines(stdout())
+            }
+        }
+        """, {"strings": os.path.join(self._dir, "strings.txt")})
+        self.assertEqual(outputs["i_strings_string"], "foo\nbar\nbas\n")
+        self.assertEqual(outputs["o_strings_string"], "foo\nbar\nbas\n")
+        self.assertEqual(outputs["o_names_string"], "Alyssa\nBen\n")
+        self.assertEqual(outputs["i_strings_lines"], ["foo", "bar", "bas"])
+        self.assertEqual(outputs["o_strings_lines"], ["foo", "bar", "bas"])
+        self.assertEqual(outputs["o_names_lines"], ["Alyssa", "Ben"])
