@@ -118,13 +118,21 @@ class TaskContainer(ABC):
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
         assert not self._running
-        self._running = True
-        # container-specific logic should be in _run(). this wrapper traps SIGTERM/SIGHUP
-        # and sets self._terminate
-        return self._run(logger, command)
+        if command.strip():  # if the command is empty then don't bother with any of this
+            self._running = True
+            # container-specific logic should be in _run(). this wrapper traps SIGTERM/SIGHUP
+            # and sets self._terminate
+            try:
+                exit_status = self._run(logger, command)
+            finally:
+                self._running = False
+
+            if exit_status != 0:
+                raise CommandError("command exit status = " + str(exit_status))
 
     @abstractmethod
-    def _run(self, logger: logging.Logger, command: str) -> None:
+    def _run(self, logger: logging.Logger, command: str) -> int:
+        # run command in container & return exit status
         raise NotImplementedError()
 
     def host_file(self, container_file: str, inputs_only: bool = False) -> str:
@@ -184,7 +192,7 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    def _run(self, logger: logging.Logger, command: str) -> None:
+    def _run(self, logger: logging.Logger, command: str) -> int:
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
         pipe_files = ["stdout.txt", "stderr.txt"]
@@ -268,8 +276,7 @@ class TaskDockerContainer(TaskContainer):
                 raise CommandError(
                     "docker finished without reporting exit status in: " + str(exit_info)
                 )
-            if exit_info["StatusCode"] != 0:
-                raise CommandError("command exit status = " + str(exit_info["StatusCode"]))
+            return exit_info["StatusCode"]
         finally:
             try:
                 client.close()
@@ -332,7 +339,7 @@ def run_local_task(
             task.command.eval(container_env, stdlib=InputStdLib(container)).value
         )[1]
 
-        # run container
+        # start container & run command
         container.run(logger, command)
 
         # evaluate output declarations
