@@ -464,3 +464,25 @@ class TestStdLib(unittest.TestCase):
         with open(outputs["o_json"]) as infile:
             self.assertEqual(json.load(infile), {"key1": "value1", "key2": "value2"})
         self.assertEqual(outputs["o_tsv"], [["one", "two", "three"], ["un", "deux", "trois"]])
+
+    def test_transpose(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            command {}
+            output {
+                Array[Array[Int]] mat = transpose([[0, 1, 2], [3, 4, 5]])
+            }
+        }
+        """)
+        self.assertEqual(outputs["mat"], [[0, 3], [1, 4], [2, 5]])
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            command {}
+            output {
+                Array[Array[Int]] mat = transpose([[0, 1, 2], [3, 4, 5], []])
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)

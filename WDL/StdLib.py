@@ -616,7 +616,22 @@ class _Transpose(EagerFunction):
         return expr.arguments[0].type
 
     def _call_eager(self, expr: E.Apply, arguments: List[V.Base]) -> V.Base:
-        raise NotImplementedError()
+        ty = self.infer_type(expr)
+        assert isinstance(ty, T.Array) and isinstance(ty.item_type, T.Array)
+        mat = arguments[0].coerce(ty)
+        assert isinstance(mat, V.Array)
+        n = None
+        ans = []
+        for row in mat.value:
+            assert isinstance(row, V.Array)
+            if n is None:
+                n = len(row.value)
+                ans = [V.Array(ty.item_type, []) for _ in row.value]
+            if len(row.value) != n:
+                raise Error.EvalError(expr, "transpose(): ragged input matrix")
+            for i in range(len(row.value)):
+                ans[i].value.append(row.value[i])
+        return V.Array(ty, ans)
 
 
 class _Range(EagerFunction):
