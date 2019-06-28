@@ -491,17 +491,30 @@ class _StdLib(WDL.StdLib.Base):
 
         self._override_static("read_boolean", _read_something(_parse_boolean))
 
-        def _read_lines(container_file: WDL.Value.File, lib: _StdLib = self) -> WDL.Value.Array:
-            host_file = lib.container.host_file(container_file.value, lib.inputs_only)
+        def parse_lines(s: str) -> WDL.Value.Array:
             ans = []
-            with open(host_file, "r") as infile:
-                for line in infile:
-                    if line.endswith("\n"):
-                        line = line[:-1]
-                    ans.append(WDL.Value.String(line))
+            if s:
+                ans = [
+                    WDL.Value.String(line)
+                    for line in (s[:-1] if s.endswith("\n") else s).split("\n")
+                ]
             return WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), ans)
 
-        self._override_static("read_lines", _read_lines)
+        self._override_static("read_lines", _read_something(parse_lines))
+
+        def parse_tsv(s: str) -> WDL.Value.Array:
+            # TODO: should a blank line parse as [] or ['']?
+            ans = [
+                WDL.Value.Array(
+                    WDL.Type.Array(WDL.Type.String()),
+                    [WDL.Value.String(field) for field in line.value.split("\t")],
+                )
+                for line in parse_lines(s).value
+            ]
+            # pyre-ignore
+            return WDL.Value.Array(WDL.Type.Array(WDL.Type.Array(WDL.Type.String())), ans)
+
+        self._override_static("read_tsv", _read_something(parse_tsv))
 
         def _write_something(
             serialize: Callable[[WDL.Value.Base, BinaryIO], None], lib: _StdLib = self
@@ -536,6 +549,22 @@ class _StdLib(WDL.StdLib.Base):
         self._override_static(
             "write_json",
             _write_something(lambda v, outfile: outfile.write(json.dumps(v.json).encode("utf-8"))),
+        )
+
+        self._override_static(
+            "write_tsv",
+            _write_something(
+                lambda v, outfile: _serialize_lines(
+                    WDL.Value.Array(
+                        WDL.Type.Array(WDL.Type.String()),
+                        [
+                            WDL.Value.String("\t".join([part.value for part in parts.value]))
+                            for parts in v.value
+                        ],
+                    ),
+                    outfile,
+                )
+            ),
         )
 
 

@@ -441,6 +441,7 @@ class TestStdLib(unittest.TestCase):
         version 1.0
         task hello {
             File foo = write_lines(["foo","bar","baz"])
+            File tsv = write_tsv([["one", "two", "three"], ["un", "deux", "trois"]])
             File json = write_json({"key1": "value1", "key2": "value2"})
 
             command <<<
@@ -448,12 +449,18 @@ class TestStdLib(unittest.TestCase):
                 if [ "$foo_sha" != "b1b113c6ed8ab3a14779f7c54179eac2b87d39fcebbf65a50556b8d68caaa2fb" ]; then
                     exit 1
                 fi
+                tsv_sha=$(sha256sum < ~{tsv} | cut -f1 -d ' ')
+                if [ "$tsv_sha" != "a7124e688203195cd674cf147bbf965eda49e8df581d01c05944330fab096084" ]; then
+                    exit 1
+                fi
             >>>
 
             output {
                 File o_json = json
+                Array[Array[String]] o_tsv = read_tsv(tsv)
             }
         }
         """)
         with open(outputs["o_json"]) as infile:
             self.assertEqual(json.load(infile), {"key1": "value1", "key2": "value2"})
+        self.assertEqual(outputs["o_tsv"], [["one", "two", "three"], ["un", "deux", "trois"]])
