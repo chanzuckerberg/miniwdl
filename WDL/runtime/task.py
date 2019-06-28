@@ -8,7 +8,7 @@ import traceback
 import glob
 from datetime import datetime
 from abc import ABC, abstractmethod
-from typing import Tuple, List, Dict, Optional, Callable
+from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
 from requests.exceptions import ReadTimeout
 import docker
 import WDL
@@ -463,7 +463,7 @@ class _StdLib(WDL.StdLib.Base):
 
         self._override("size", _Size(self))
 
-        def _read_value(
+        def _read_something(
             parse: Callable[[str], WDL.Value.Base], lib: _StdLib = self
         ) -> Callable[[WDL.Value.File], WDL.Value.Base]:
             def _f(
@@ -477,9 +477,9 @@ class _StdLib(WDL.StdLib.Base):
 
             return _f
 
-        self._override_static("read_string", _read_value(lambda s: WDL.Value.String(s)))
-        self._override_static("read_int", _read_value(lambda s: WDL.Value.Int(int(s))))
-        self._override_static("read_float", _read_value(lambda s: WDL.Value.Float(float(s))))
+        self._override_static("read_string", _read_something(lambda s: WDL.Value.String(s)))
+        self._override_static("read_int", _read_something(lambda s: WDL.Value.Int(int(s))))
+        self._override_static("read_float", _read_something(lambda s: WDL.Value.Float(float(s))))
 
         def _parse_boolean(s: str) -> WDL.Value.Boolean:
             s = s.rstrip()
@@ -489,7 +489,7 @@ class _StdLib(WDL.StdLib.Base):
                 return WDL.Value.Boolean(False)
             raise ValueError('read_boolean(): file content is not "true" or "false"')
 
-        self._override_static("read_boolean", _read_value(_parse_boolean))
+        self._override_static("read_boolean", _read_something(_parse_boolean))
 
         def _read_lines(container_file: WDL.Value.File, lib: _StdLib = self) -> WDL.Value.Array:
             host_file = lib.container.host_file(container_file.value, lib.inputs_only)
@@ -503,22 +503,40 @@ class _StdLib(WDL.StdLib.Base):
 
         self._override_static("read_lines", _read_lines)
 
-        def _write_lines(array: WDL.Value.Array, lib: _StdLib = self) -> WDL.Value.File:
-            host_fn = None
-            os.makedirs(os.path.join(lib.container.host_dir, "write"), exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                prefix="lines_", dir=os.path.join(lib.container.host_dir, "write"), delete=False
-            ) as outfile:
-                for item in array.value:
-                    assert isinstance(item, WDL.Value.String)
-                    outfile.write(item.value.encode("utf-8"))
-                    outfile.write(b"\n")
-                host_fn = outfile.name
-            assert os.path.isabs(host_fn)
-            lib.container.add_files([host_fn])
-            return WDL.Value.File(lib.container.input_file_map[host_fn])
+        def _write_something(
+            serialize: Callable[[WDL.Value.Base, BinaryIO], None], lib: _StdLib = self
+        ) -> Callable[[WDL.Value.Base], WDL.Value.File]:
+            def _f(
+                v: WDL.Value.Base,
+                serialize: Callable[[WDL.Value.Base, BinaryIO], None] = serialize,
+                lib: _StdLib = lib,
+            ) -> WDL.Value.File:
+                host_fn = None
+                os.makedirs(os.path.join(lib.container.host_dir, "write"), exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    dir=os.path.join(lib.container.host_dir, "write"), delete=False
+                ) as outfile:
+                    outfile: BinaryIO = outfile  # pyre-ignore
+                    serialize(v, outfile)
+                    host_fn = outfile.name
+                assert os.path.isabs(host_fn)
+                lib.container.add_files([host_fn])
+                return WDL.Value.File(lib.container.input_file_map[host_fn])
 
-        self._override_static("write_lines", _write_lines)
+            return _f
+
+        def _serialize_lines(array: WDL.Value.Array, outfile: BinaryIO) -> None:
+            for item in array.value:
+                assert isinstance(item, WDL.Value.String)
+                outfile.write(item.value.encode("utf-8"))
+                outfile.write(b"\n")
+
+        self._override_static("write_lines", _write_something(_serialize_lines))  # pyre-ignore
+
+        self._override_static(
+            "write_json",
+            _write_something(lambda v, outfile: outfile.write(json.dumps(v.json).encode("utf-8"))),
+        )
 
 
 class InputStdLib(_StdLib):

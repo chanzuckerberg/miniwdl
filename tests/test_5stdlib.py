@@ -2,6 +2,7 @@ import unittest
 import logging
 import tempfile
 import os
+import json
 from .context import WDL
 
 class TestStdLib(unittest.TestCase):
@@ -434,3 +435,25 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["o_names_lines"], ["Alyssa", "Ben"])
         self.assertEqual(outputs["o_fortytwo"], 42)
         self.assertEqual(outputs["o_boolean"], [True, False])
+
+    def test_write(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            File foo = write_lines(["foo","bar","baz"])
+            File json = write_json({"key1": "value1", "key2": "value2"})
+
+            command <<<
+                foo_sha=$(sha256sum < ~{foo} | cut -f1 -d ' ')
+                if [ "$foo_sha" != "b1b113c6ed8ab3a14779f7c54179eac2b87d39fcebbf65a50556b8d68caaa2fb" ]; then
+                    exit 1
+                fi
+            >>>
+
+            output {
+                File o_json = json
+            }
+        }
+        """)
+        with open(outputs["o_json"]) as infile:
+            self.assertEqual(json.load(infile), {"key1": "value1", "key2": "value2"})
