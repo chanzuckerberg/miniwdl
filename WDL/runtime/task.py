@@ -173,93 +173,6 @@ class TaskContainer(ABC):
             raise OutputError("task output file not found: " + container_file)
         return ans
 
-    def _stdlib_base(self) -> WDL.StdLib.Base:
-        # - Invocations of write_* will use self.add_files
-        ans = WDL.StdLib.Base()
-
-        def _write_lines(array: WDL.Value.Array, self: "TaskContainer" = self) -> WDL.Value.File:
-            host_fn = None
-            os.makedirs(os.path.join(self.host_dir, "write"), exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                prefix="lines_", dir=os.path.join(self.host_dir, "write"), delete=False
-            ) as outfile:
-                for item in array.value:
-                    assert isinstance(item, WDL.Value.String)
-                    outfile.write(item.value.encode("utf-8"))
-                    outfile.write(b"\n")
-                host_fn = outfile.name
-            assert os.path.isabs(host_fn)
-            self.add_files([host_fn])
-            return WDL.Value.File(self.input_file_map[host_fn])
-
-        ans._override_static("write_lines", _write_lines)
-
-        return ans
-
-    def stdlib_input(self) -> WDL.StdLib.Base:
-        """
-        Produce a StdLib implementation suitable for evaluation of task input
-        declarations and command interpolation
-        """
-
-        # - Invocations of size(), read_* are permitted only on input files (no string coercions)
-        # - forbidden/undefined: stdout, stderr, glob
-        ans = self._stdlib_base()
-        ans._override("size", _Size(self, inputs_only=True))
-        return ans
-
-    def stdlib_output(self) -> WDL.StdLib.Base:
-        """
-        Produce a StdLib implementation suitable for evaluation of task output
-        expressions
-        """
-
-        ans = self._stdlib_base()
-        ans._override("size", _Size(self, inputs_only=False))
-        ans._override_static(
-            "stdout",
-            lambda container_dir=self.container_dir: WDL.Value.File(
-                os.path.join(container_dir, "stdout.txt")
-            ),
-        )
-        ans._override_static(
-            "stderr",
-            lambda container_dir=self.container_dir: WDL.Value.File(
-                os.path.join(container_dir, "stderr.txt")
-            ),
-        )
-
-        def _read_string(
-            container_file: WDL.Value.File, self: "TaskContainer" = self
-        ) -> WDL.Value.String:
-            host_file = self.host_file(container_file.value)
-            assert host_file.startswith(self.host_dir)
-            with open(host_file, "r") as infile:
-                return WDL.Value.String(infile.read())
-
-        ans._override_static("read_string", _read_string)
-
-        def _glob(pattern: WDL.Value.String, self: "TaskContainer" = self) -> WDL.Value.Array:
-            pat = pattern.coerce(WDL.Type.String()).value
-            if not pat:
-                raise OutputError("empty glob() pattern")
-            assert isinstance(pat, str)
-            if pat[0] == "/":
-                raise OutputError("glob() pattern must be relative to task working directory")
-            if pat.startswith("..") or "/.." in pat:
-                raise OutputError("glob() pattern must not use .. uplevels")
-            if pat.startswith("./"):
-                pat = pat[2:]
-            pat = os.path.join(self.host_dir, "work", pat)
-            return WDL.Value.Array(
-                WDL.Type.Array(WDL.Type.File()),
-                [WDL.Value.String(fn) for fn in sorted(glob.glob(pat)) if os.path.isfile(fn)],
-            )
-
-        ans._override_static("glob", _glob)
-
-        return ans
-
 
 class TaskDockerContainer(TaskContainer):
     """
@@ -418,7 +331,7 @@ def run_local_task(
 
         # interpolate command
         command = WDL._util.strip_leading_whitespace(
-            task.command.eval(container_env, stdlib=container.stdlib_input()).value
+            task.command.eval(container_env, stdlib=InputStdLib(container)).value
         )[1]
 
         # run container
@@ -487,7 +400,7 @@ def _eval_task_inputs(
 
     # evaluate each declaration in order
     # note: the write_* functions call container.add_files as a side-effect
-    stdlib = container.stdlib_input()
+    stdlib = InputStdLib(container)
     for decl in decls_to_eval:
         v = WDL.Value.Null()
         if decl.expr:
@@ -514,7 +427,7 @@ def _eval_task_outputs(
     for decl in task.outputs:
         assert decl.expr
         try:
-            v = decl.expr.eval(env, stdlib=container.stdlib_output()).coerce(decl.type)
+            v = decl.expr.eval(env, stdlib=OutputStdLib(container)).coerce(decl.type)
         except WDL.Error.RuntimeError:
             raise
         except Exception as exn:
@@ -536,21 +449,105 @@ def _eval_task_outputs(
     return WDL.Env.map(outputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs)))
 
 
-class _Size(WDL.StdLib._Size):
-    # overrides WDL.StdLib._Size() to perform translation of in-container to host paths
-
+class _StdLib(WDL.StdLib.Base):
+    # implements the various task-specific standard library functions
     container: TaskContainer
-    inputs_only: bool
+    inputs_only: bool  # if True then only permit access to input files
 
     def __init__(self, container: TaskContainer, inputs_only: bool) -> None:
         super().__init__()
         self.container = container
         self.inputs_only = inputs_only
 
+        self._override("size", _Size(self))
+
+        def _read_string(
+            container_file: WDL.Value.File, lib: _StdLib = self, inputs_only: bool = inputs_only
+        ) -> WDL.Value.String:
+            host_file = lib.container.host_file(container_file.value, inputs_only)
+            assert host_file.startswith(lib.container.host_dir)
+            with open(host_file, "r") as infile:
+                return WDL.Value.String(infile.read())
+
+        self._override_static("read_string", _read_string)
+
+        def _write_lines(array: WDL.Value.Array, lib: _StdLib = self) -> WDL.Value.File:
+            host_fn = None
+            os.makedirs(os.path.join(lib.container.host_dir, "write"), exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                prefix="lines_", dir=os.path.join(lib.container.host_dir, "write"), delete=False
+            ) as outfile:
+                for item in array.value:
+                    assert isinstance(item, WDL.Value.String)
+                    outfile.write(item.value.encode("utf-8"))
+                    outfile.write(b"\n")
+                host_fn = outfile.name
+            assert os.path.isabs(host_fn)
+            lib.container.add_files([host_fn])
+            return WDL.Value.File(lib.container.input_file_map[host_fn])
+
+        self._override_static("write_lines", _write_lines)
+
+
+class InputStdLib(_StdLib):
+    # StdLib for evaluation of task inputs and command
+    def __init__(self, container: TaskContainer) -> None:
+        super().__init__(container, True)
+
+
+class OutputStdLib(_StdLib):
+    # StdLib for evaluation of task outputs
+    def __init__(self, container: TaskContainer) -> None:
+        super().__init__(container, False)
+
+        self._override_static(
+            "stdout",
+            lambda container_dir=self.container.container_dir: WDL.Value.File(
+                os.path.join(container_dir, "stdout.txt")
+            ),
+        )
+        self._override_static(
+            "stderr",
+            lambda container_dir=self.container.container_dir: WDL.Value.File(
+                os.path.join(container_dir, "stderr.txt")
+            ),
+        )
+
+        def _glob(pattern: WDL.Value.String, lib: OutputStdLib = self) -> WDL.Value.Array:
+            pat = pattern.coerce(WDL.Type.String()).value
+            if not pat:
+                raise OutputError("empty glob() pattern")
+            assert isinstance(pat, str)
+            if pat[0] == "/":
+                raise OutputError("glob() pattern must be relative to task working directory")
+            if pat.startswith("..") or "/.." in pat:
+                raise OutputError("glob() pattern must not use .. uplevels")
+            if pat.startswith("./"):
+                pat = pat[2:]
+            pat = os.path.join(lib.container.host_dir, "work", pat)
+            return WDL.Value.Array(
+                WDL.Type.Array(WDL.Type.File()),
+                [WDL.Value.String(fn) for fn in sorted(glob.glob(pat)) if os.path.isfile(fn)],
+            )
+
+        self._override_static("glob", _glob)
+
+
+class _Size(WDL.StdLib._Size):
+    # overrides WDL.StdLib._Size() to perform translation of in-container to host paths
+
+    lib: _StdLib
+
+    def __init__(self, lib: _StdLib) -> None:
+        super().__init__()
+        self.lib = lib
+
     def _call_eager(self, expr: WDL.Expr.Apply, arguments: List[WDL.Value.Base]) -> WDL.Value.Base:
         files = arguments[0].coerce(WDL.Type.Array(WDL.Type.File()))
         host_files = [
-            WDL.Value.File(self.container.host_file(fn_c.value, inputs_only=self.inputs_only))
+            WDL.Value.File(
+                self.lib.container.host_file(fn_c.value, inputs_only=self.lib.inputs_only)
+            )
             for fn_c in files.value
         ]
         # pyre-ignore
