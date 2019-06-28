@@ -3,6 +3,7 @@ from .context import WDL
 
 class Lint(unittest.TestCase):
     # test programmatic access to linter results
+    # this code should be kept in sync with the example shown in the WDL/Lint.py docstring.
     def test_api(self):
         doc = WDL.load(
             "test_corpi/HumanCellAtlas/skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl",

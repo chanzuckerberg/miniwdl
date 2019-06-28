@@ -1,6 +1,25 @@
 # pylint: disable=protected-access
 """
-Linting: annotate WDL AST with hygiene warning
+Annotate WDL document AST with hygiene warnings (underlies ``miniwdl check``)
+
+Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
+
+    lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
+    for (pos, lint_class, message) in lint:
+        assert isinstance(pos, WDL.SourcePosition)
+        assert isinstance(lint_class, str) and isinstance(message, str)
+        print(json.dumps({
+            "filename"   : pos.filename,
+            "line"       : pos.line,
+            "end_line"   : pos.end_line,
+            "column"     : pos.column,
+            "end_column" : pos.end_column,
+            "lint"       : lint_class,
+            "message"    : message,
+        }))
+
+The ``descend_imports`` flag controls whether lint warnings are generated for imported documents
+recursively (true, default), or otherwise only the given document (false).
 """
 import subprocess
 import tempfile
