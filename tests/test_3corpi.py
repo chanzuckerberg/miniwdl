@@ -1,5 +1,27 @@
-import unittest, inspect, subprocess, tempfile, os, glob
+import unittest, inspect, subprocess, tempfile, os, glob, json
 from .context import WDL
+
+class Lint(unittest.TestCase):
+    # test programmatic access to linter results
+    def test_api(self):
+        doc = WDL.load(
+            "test_corpi/HumanCellAtlas/skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl",
+            path=["test_corpi/HumanCellAtlas/skylab/library/tasks"]
+        )
+        lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
+        for (pos, lint_class, message) in lint:
+            assert isinstance(pos, WDL.SourcePosition)
+            assert isinstance(lint_class, str) and isinstance(message, str)
+            print(json.dumps({
+                "filename"   : pos.filename,
+                "line"       : pos.line,
+                "end_line"   : pos.end_line,
+                "column"     : pos.column,
+                "end_column" : pos.end_column,
+                "lint"       : lint_class,
+                "message"    : message,
+            }))
+        self.assertEqual(len(lint), 1)
 
 def import_uri(uri):
     # Note: we should permit use of import_uri only in corpi which are careful
