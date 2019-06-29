@@ -347,10 +347,8 @@ def runner(
         sys.exit(2)
 
     # link output files
-    outputs_json = values_to_json(
-        output_env, namespace=([target.name] if isinstance(target, WDL.Workflow) else [])
-    )
-    runner_organize_outputs(target, outputs_json, rundir)
+    outputs_json = values_to_json(output_env, namespace=[target.name])
+    runner_organize_outputs(target, {"outputs": outputs_json}, rundir)
 
 
 def runner_input_completer(prefix, parsed_args, **kwargs):
@@ -557,7 +555,7 @@ def runner_input_value(s_value, ty):
     if isinstance(ty, WDL.Type.File):
         if not os.path.exists(s_value):
             die("File not found: " + s_value)
-        return WDL.Value.String(os.path.abspath(s_value))
+        return WDL.Value.File(os.path.abspath(s_value))
     if isinstance(ty, WDL.Type.Boolean):
         if s_value == "true":
             return WDL.Value.Boolean(True)
