@@ -34,8 +34,8 @@ def main(args=None):
     subparsers.required = True
     subparsers.dest = "command"
     fill_common(fill_check_subparser(subparsers))
-    fill_common(fill_run_subparser(subparsers))
     fill_common(fill_cromwell_subparser(subparsers))
+    fill_common(fill_run_subparser(subparsers))
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args(args if args is not None else sys.argv[1:])
@@ -256,7 +256,7 @@ def import_uri(uri):
 
 
 def fill_run_subparser(subparsers):
-    run_parser = subparsers.add_parser("run", help="Run task locally")
+    run_parser = subparsers.add_parser("run", help="Run task locally [alpha test]")
     run_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
     run_parser.add_argument(
         "inputs",
@@ -601,7 +601,7 @@ def runner_provision_directory(target, rundir=None):
 
 def runner_organize_outputs(target, outputs_json, rundir):
     """
-    After Cromwell runs successfully, the output files are typically sprayed
+    After a successful workflow run, the output files are typically sprayed
     across a bushy directory tree used for execution. To help the user find
     what they're looking for, we create another directory tree with nicer
     organization, containing symlinks to the output files (so as not to disturb
