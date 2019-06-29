@@ -11,6 +11,7 @@ import json
 import math
 import pkg_resources
 import argcomplete
+import logging
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action
@@ -327,6 +328,7 @@ def runner(
         print(json.dumps(input_json, indent=2), file=outfile)
 
     # run task
+    logging.basicConfig(level=logging.INFO)
     try:
         _, output_env = WDL.runtime.run_local_task(
             target, input_env, task_id=target.name, parent_dir=rundir
