@@ -4,12 +4,12 @@ PYTHON_PKG_BASE?=$(HOME)/.local
 test: check check_check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
 	coverage report -m
-	prove -v tests/check.t tests/cromwell.t
+	prove -v tests/check.t tests/cromwell.t tests/runner.t
 
 # fail fast
 qtest:
 	python3 -m unittest -v -f
-	prove -v tests/check.t
+	prove -v tests/check.t tests/runner.t
 
 check:
 	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL

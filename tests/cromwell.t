@@ -119,7 +119,7 @@ is "$?" "0" "workflow json status"
 is "$(jq '.["echo.t.a_s"] | length' workflow_inputs.json)" "1" "workflow json t.a_s length"
 is "$(jq '.["echo.a_s"] | length' workflow_inputs.json)" "0" "workflow json --empty"
 
-echo '{"i":88,"t.f":"quick","t.a_f":["brown"],"a_s":["bogus"]}' > test_input.json
+echo '{"echo.i":88,"echo.t.f":"quick","echo.t.a_f":["brown"],"echo.a_s":["bogus"]}' > test_input.json
 $miniwdl cromwell echo.wdl t.s=foo t.a_s=bar a_s=ok --input test_input.json --empty a_s --json > workflow_inputs2.json
 is "$?" "0" "workflow --input json status"
 is "$(jq '.["echo.i"]' workflow_inputs2.json)" "88" "workflow --input json i"
