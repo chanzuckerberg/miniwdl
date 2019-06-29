@@ -716,11 +716,13 @@ def cromwell(
     path=None,
     **kwargs,
 ):
+    path = path or []
+
     # load WDL document
-    doc = WDL.load(uri, path or [], check_quant=check_quant, import_uri=import_uri)
+    doc = WDL.load(uri, path, check_quant=check_quant, import_uri=import_uri)
 
     # validate the provided inputs and prepare Cromwell-style JSON
-    target, input_env, input_json = runner_input(doc, inputs, input_file, empty)
+    target, _, input_json = runner_input(doc, inputs, input_file, empty)
 
     if json_only:
         print(json.dumps(input_json, indent=2))
