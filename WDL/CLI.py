@@ -299,7 +299,56 @@ def fill_run_subparser(subparsers):
 def runner(
     uri, inputs, input_file, json_only, empty, check_quant, rundir=None, path=None, **kwargs
 ):
-    raise NotImplementedError()
+    # load WDL document
+    doc = WDL.load(uri, path or [], check_quant=check_quant, import_uri=import_uri)
+
+    # validate the provided inputs and prepare Cromwell-style JSON
+    target, input_env, input_json = runner_input(doc, inputs, input_file, empty)
+
+    if json_only:
+        print(json.dumps(input_json, indent=2))
+        sys.exit(0)
+
+    if not isinstance(target, WDL.Task):
+        print(
+            "`miniwdl run` only supports individual tasks right now; try `miniwdl cromwell`",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    # provision a run directory
+    rundir = runner_provision_directory(target, rundir)
+
+    # write the JSON inputs file
+    input_json_filename = None
+    print("input JSON: " + json.dumps(input_json, indent=2), file=sys.stderr)
+    input_json_filename = os.path.join(rundir, "inputs.json")
+    with open(input_json_filename, "w") as outfile:
+        print(json.dumps(input_json, indent=2), file=outfile)
+
+    # run task
+    try:
+        _, output_env = WDL.runtime.run_local_task(
+            target, input_env, task_id=target.name, parent_dir=rundir
+        )
+    except WDL.runtime.task.TaskFailure as exn:
+        if exn.__cause__ and isinstance(getattr(exn.__cause__, "pos", None), WDL.SourcePosition):
+            pos = getattr(exn.__cause__, "pos")
+            print(
+                "({} Ln {} Col {}) {}".format(pos.filename, pos.line, pos.column, str(exn)),
+                file=sys.stderr,
+            )
+        else:
+            print(str(exn.__cause__ or exn), file=sys.stderr)
+        if kwargs["debug"]:
+            raise (exn.__cause__ or exn)
+        sys.exit(2)
+
+    # link output files
+    outputs_json = values_to_json(
+        output_env, namespace=([target.name] if isinstance(target, WDL.Workflow) else [])
+    )
+    runner_organize_outputs(target, outputs_json, rundir)
 
 
 def runner_input_completer(prefix, parsed_args, **kwargs):
@@ -529,7 +578,7 @@ def runner_input_value(s_value, ty):
     )
 
 
-def runner_provision_directory(rundir=None):
+def runner_provision_directory(target, rundir=None):
     if rundir:
         rundir = os.path.abspath(rundir)
         try:
@@ -548,6 +597,50 @@ def runner_provision_directory(rundir=None):
             )
             os.makedirs(rundir, exist_ok=False)
     return rundir
+
+
+def runner_organize_outputs(target, outputs_json, rundir):
+    """
+    After Cromwell runs successfully, the output files are typically sprayed
+    across a bushy directory tree used for execution. To help the user find
+    what they're looking for, we create another directory tree with nicer
+    organization, containing symlinks to the output files (so as not to disturb
+    them).
+
+    One of the subtleties is to organize compound outputs like Array[File],
+    Array[Array[File]], etc.
+    """
+    assert "dir" not in outputs_json
+    outputs_json["dir"] = rundir
+    print(json.dumps(outputs_json, indent=2))
+    with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
+        print(json.dumps(outputs_json, indent=2), file=outfile)
+
+    os.makedirs(os.path.join(rundir, "outputs"), exist_ok=False)
+
+    def link_output_files(dn, files):
+        # dn: output directory which already exists
+        # files: either a filename str, or a [nested] list thereof
+        if isinstance(files, str) and os.path.exists(files):
+            os.symlink(files, os.path.join(dn, os.path.basename(files)))
+        if isinstance(files, list) and files:
+            d = int(math.ceil(math.log10(len(files))))  # how many digits needed
+            for i, elt in enumerate(files):
+                subdn = os.path.join(dn, str(i).rjust(d, "0"))
+                os.makedirs(subdn, exist_ok=False)
+                link_output_files(subdn, elt)
+
+    def output_links(namespace, binding):
+        fqon = ".".join([target.name] + namespace + [binding.name])
+        if _is_files(binding.rhs) and fqon in outputs_json["outputs"]:
+            odn = os.path.join(rundir, "outputs", fqon)
+            os.makedirs(os.path.join(rundir, odn), exist_ok=False)
+            link_output_files(odn, outputs_json["outputs"][fqon])
+        return True
+
+    WDL.Env.filter(target.effective_outputs, output_links)
+    # TODO: handle File's inside other compound types,
+    # Pair[File,File], Map[String,File], Structs, etc.
 
 
 def fill_cromwell_subparser(subparsers):
@@ -623,10 +716,8 @@ def cromwell(
     path=None,
     **kwargs,
 ):
-    path = path or []
-
     # load WDL document
-    doc = WDL.load(uri, path, check_quant=check_quant, import_uri=import_uri)
+    doc = WDL.load(uri, path or [], check_quant=check_quant, import_uri=import_uri)
 
     # validate the provided inputs and prepare Cromwell-style JSON
     target, input_env, input_json = runner_input(doc, inputs, input_file, empty)
@@ -636,7 +727,7 @@ def cromwell(
         sys.exit(0)
 
     # provision a run directory
-    rundir = runner_provision_directory(rundir)
+    rundir = runner_provision_directory(target, rundir)
     os.makedirs(os.path.join(rundir, "cromwell"))
 
     # write the JSON inputs file
@@ -718,7 +809,7 @@ def cromwell(
             )
         except:
             die("failed to find outputs JSON in Cromwell standard output")
-        organize_cromwell_outputs(target, outputs_json, rundir)
+        runner_organize_outputs(target, outputs_json, rundir)
 
     sys.exit(proc.returncode)
 
@@ -752,50 +843,6 @@ def ensure_cromwell_jar(jarfile=None):
             "unexpected size of downloaded " + jarpath
         )
     return jarpath
-
-
-def organize_cromwell_outputs(target, outputs_json, rundir):
-    """
-    After Cromwell runs successfully, the output files are typically sprayed
-    across a bushy directory tree used for execution. To help the user find
-    what they're looking for, we create another directory tree with nicer
-    organization, containing symlinks to the output files (so as not to disturb
-    them).
-
-    One of the subtleties is to organize compound outputs like Array[File],
-    Array[Array[File]], etc.
-    """
-    assert "dir" not in outputs_json
-    outputs_json["dir"] = rundir
-    print(json.dumps(outputs_json, indent=2))
-    with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
-        print(json.dumps(outputs_json, indent=2), file=outfile)
-
-    os.makedirs(os.path.join(rundir, "outputs"), exist_ok=False)
-
-    def link_output_files(dn, files):
-        # dn: output directory which already exists
-        # files: either a filename str, or a [nested] list thereof
-        if isinstance(files, str) and os.path.exists(files):
-            os.symlink(files, os.path.join(dn, os.path.basename(files)))
-        if isinstance(files, list) and files:
-            d = int(math.ceil(math.log10(len(files))))  # how many digits needed
-            for i, elt in enumerate(files):
-                subdn = os.path.join(dn, str(i).rjust(d, "0"))
-                os.makedirs(subdn, exist_ok=False)
-                link_output_files(subdn, elt)
-
-    def output_links(namespace, binding):
-        fqon = ".".join([target.name] + namespace + [binding.name])
-        if _is_files(binding.rhs) and fqon in outputs_json["outputs"]:
-            odn = os.path.join(rundir, "outputs", fqon)
-            os.makedirs(os.path.join(rundir, odn), exist_ok=False)
-            link_output_files(odn, outputs_json["outputs"][fqon])
-        return True
-
-    WDL.Env.filter(target.effective_outputs, output_links)
-    # TODO: handle File's inside other compound types,
-    # Pair[File,File], Map[String,File], Structs, etc.
 
 
 def _is_files(ty):
