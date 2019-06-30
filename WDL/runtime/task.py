@@ -124,10 +124,16 @@ class TaskContainer(ABC):
         assert not (self._running or self._terminate)
         if command.strip():  # if the command is empty then don't bother with any of this
             signals = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGPIPE, signal.SIGALRM]
-            def handle_signal(signal, frame, self: TaskContainer=self, logger: logging.Logger=logger):
+
+            def handle_signal(
+                signal, frame, self: TaskContainer = self, logger: logging.Logger = logger
+            ):
                 logger.critical("received termination signal {}".format(signal))
                 self._terminate = True
-            restore_signal_handlers = dict((sig, signal.signal(sig, handle_signal)) for sig in signals)
+
+            restore_signal_handlers = dict(
+                (sig, signal.signal(sig, handle_signal)) for sig in signals
+            )
 
             self._running = True
             try:
