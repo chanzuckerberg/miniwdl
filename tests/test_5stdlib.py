@@ -251,6 +251,25 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+    def test_flatten(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            Array[Array[Int]] ai2D = [[1, 2, 3], [1], [21, 22]]
+            Array[Array[String]] af2D = [["/tmp/X.txt"], ["/tmp/Y.txt", "/tmp/Z.txt"], []]
+            Array[Array[Pair[Float,String]]] aap2D = [[(0.1, "mouse")], [(3, "cat"), (15, "dog")]]
+            command {}
+            output {
+                Array[Int] ai = flatten(ai2D)
+                Array[String] af = flatten(af2D)
+                Array[Pair[Float,String]] ap = flatten(aap2D)
+            }
+        }
+        """)
+        self.assertEqual(outputs["ai"], [1, 2, 3, 1, 21, 22])
+        self.assertEqual(outputs["af"], ["/tmp/X.txt", "/tmp/Y.txt", "/tmp/Z.txt"])
+        self.assertEqual(outputs["ap"], [[0.1, "mouse"], [3, "cat"], [15, "dog"]])
+
     def test_size(self):
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
             outfile.write("Alyssa\n")

@@ -365,7 +365,6 @@ class _AddOperator(_ArithmeticOperator):
         ans_type = self.infer_type(expr)
         if not isinstance(ans_type, T.String):
             return super()._call_eager(expr, arguments)
-        # TODO: in a command interpolation, return missing if either operand is missing
         ans = self.op(
             str(arguments[0].coerce(T.String()).value), str(arguments[1].coerce(T.String()).value)
         )
