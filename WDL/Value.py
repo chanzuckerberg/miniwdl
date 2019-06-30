@@ -244,17 +244,12 @@ class Null(Base):
     """Represents the missing value which optional inputs may take.
     ``type`` and ``value`` are both None."""
 
-    type: Optional[Any]
-    value: Optional[Any]
-
     def __init__(self) -> None:
-        # pylint: disable=super-init-not-called
-        self.type = None
-        self.value = None
+        super().__init__(T.Any(optional=True), None)
 
     def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
         ""
-        if desired_type and not desired_type.optional:
+        if desired_type and not desired_type.optional and not isinstance(desired_type, T.Any):
             # normally the typechecker should prevent this, but it might have
             # had check_quant=False
             if self.expr:

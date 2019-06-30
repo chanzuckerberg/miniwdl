@@ -564,6 +564,30 @@ class _StdLib(WDL.StdLib.Base):
 
         self._override_static("read_map", _read_something(parse_map))
 
+        def parse_json(s: str) -> WDL.Value.Base:
+            # TODO: parse int/float/boolean inside map or list as such
+            j = json.loads(s)
+            if isinstance(j, dict):
+                ans = []
+                for k in j:
+                    ans.append((WDL.Value.String(str(k)), WDL.Value.String(str(j[k]))))
+                return WDL.Value.Map(WDL.Type.Map((WDL.Type.String(), WDL.Type.String())), ans)
+            if isinstance(j, list):
+                return WDL.Value.Array(
+                    WDL.Type.Array(WDL.Type.String()), [WDL.Value.String(str(v)) for v in j]
+                )
+            if isinstance(j, bool):
+                return WDL.Value.Boolean(j)
+            if isinstance(j, int):
+                return WDL.Value.Int(j)
+            if isinstance(j, float):
+                return WDL.Value.Float(j)
+            if j is None:
+                return WDL.Value.Null()
+            raise WDL.Error.InputError("parse_json()")
+
+        self._override_static("read_json", _read_something(parse_json))
+
         def _write_something(
             serialize: Callable[[WDL.Value.Base, BinaryIO], None], lib: _StdLib = self
         ) -> Callable[[WDL.Value.Base], WDL.Value.File]:

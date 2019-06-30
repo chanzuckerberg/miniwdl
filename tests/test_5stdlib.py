@@ -440,6 +440,35 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["o_boolean"], [True, False])
         self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2"})
 
+    def test_read_json(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            command <<<
+                echo '{"foo": "bar", "bas": "baz"}' > object.json
+                echo '["foo", "bar", "bas", "baz"]' > list.json
+                echo 42 > int.json
+                echo 3.14159 > float.json
+                echo true > bool.json
+                echo null > null.json
+            >>>
+            output {
+                Map[String,String] map = read_json("object.json")
+                Array[String] array = read_json("list.json")
+                Int int = read_json("int.json")
+                Float float = read_json("float.json")
+                Boolean bool = read_json("bool.json")
+                String? null = read_json("null.json")
+            }
+        }
+        """)
+        self.assertEqual(outputs["map"], {"foo": "bar", "bas": "baz"})
+        self.assertEqual(outputs["array"], ["foo", "bar", "bas", "baz"])
+        self.assertEqual(outputs["int"], 42)
+        self.assertAlmostEqual(outputs["float"], 3.14159)
+        self.assertEqual(outputs["bool"], True)
+        self.assertEqual(outputs["null"], None)
+
     def test_write(self):
         outputs = self._test_task(R"""
         version 1.0
