@@ -34,7 +34,7 @@ def main(args=None):
     subparsers.required = True
     subparsers.dest = "command"
     fill_common(fill_check_subparser(subparsers))
-    fill_common(fill_cromwell_subparser(subparsers))
+    fill_common(fill_cromwell_subparser(subparsers), path=False)  # FIXME path issue #131
     fill_common(fill_run_subparser(subparsers))
 
     argcomplete.autocomplete(parser)
@@ -77,21 +77,22 @@ class PipVersionAction(Action):
         sys.exit(0)
 
 
-def fill_common(subparser):
+def fill_common(subparser, path=True):
     subparser.add_argument(
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
         help="relax static typechecking of optional types, and permit coercion of T to Array[T] (discouraged; for backwards compatibility with older WDL)",
     )
-    subparser.add_argument(
-        "-p",
-        "--path",
-        metavar="DIR",
-        type=str,
-        action="append",
-        help="local directory to search for imports",
-    )
+    if path:
+        subparser.add_argument(
+            "-p",
+            "--path",
+            metavar="DIR",
+            type=str,
+            action="append",
+            help="local directory to search for imports",
+        )
     subparser.add_argument("--debug", action="store_true", help="show full exception traceback")
 
 
@@ -770,6 +771,7 @@ def cromwell(
     )
 
     for p in path:
+        # FIXME issue #131
         cromwell_cmd.append("--imports")
         cromwell_cmd.append(p)
     print(" ".join(["+"] + [shellquote(s) for s in cromwell_cmd]), file=sys.stderr)

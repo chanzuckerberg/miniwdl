@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 59
+plan tests 61
 
 DN=$(mktemp -d --tmpdir miniwdl_cromwell_tests_XXXXXX)
 cd $DN
@@ -169,5 +169,29 @@ is "$(ls scatterrun/outputs/echo.t.out_f/0/2)" "fox" "scatter product 0 fox link
 is "$(ls scatterrun/outputs/echo.t.out_f/1/0)" "quick" "scatter product 1 quick link"
 is "$(ls scatterrun/outputs/echo.t.out_f/1/1)" "brown" "scatter product 1 brown link"
 is "$(ls scatterrun/outputs/echo.t.out_f/1/2)" "fox" "scatter product 1 fox link"
+
+mkdir my_imports
+cat << 'EOF' > my_imports/my_hello.wdl
+version 1.0
+task hello {
+    command {}
+    output {
+        String message = "Hello, world!"
+    }
+}
+EOF
+cat << 'EOF' > importer1.wdl
+version 1.0
+import "my_imports/my_hello.wdl"
+workflow wf {
+    call my_hello.hello
+    output {
+        String message = hello.message
+    }
+}
+EOF
+$miniwdl cromwell importer1.wdl | tee stdout
+is "$?" "0" "relative importer"
+is "$(jq -r '.outputs["wf.message"]' stdout)" "Hello, world!" "relative importer output"
 
 rm -rf $DN
