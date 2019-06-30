@@ -10,6 +10,7 @@ import signal
 from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
+from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
 import WDL
@@ -126,8 +127,11 @@ class TaskContainer(ABC):
             signals = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGPIPE, signal.SIGALRM]
 
             def handle_signal(
-                signal, frame, self: TaskContainer = self, logger: logging.Logger = logger
-            ):
+                signal: int,
+                frame: FrameType,
+                self: TaskContainer = self,
+                logger: logging.Logger = logger,
+            ) -> None:
                 logger.critical("received termination signal {}".format(signal))
                 self._terminate = True
 
