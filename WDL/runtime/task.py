@@ -6,9 +6,11 @@ import json
 import copy
 import traceback
 import glob
+import signal
 from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
+from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
 import WDL
@@ -117,16 +119,36 @@ class TaskContainer(ABC):
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
-        assert not self._running
+        # container-specific logic should be in _run(). this wrapper traps SIGTERM/SIGHUP
+        # and sets self._terminate
+
+        assert not (self._running or self._terminate)
         if command.strip():  # if the command is empty then don't bother with any of this
+            signals = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGPIPE, signal.SIGALRM]
+
+            def handle_signal(
+                signal: int,
+                frame: FrameType,
+                self: TaskContainer = self,
+                logger: logging.Logger = logger,
+            ) -> None:
+                logger.critical("received termination signal {}".format(signal))
+                self._terminate = True
+
+            restore_signal_handlers = dict(
+                (sig, signal.signal(sig, handle_signal)) for sig in signals
+            )
+
             self._running = True
-            # container-specific logic should be in _run(). this wrapper traps SIGTERM/SIGHUP
-            # and sets self._terminate
             try:
                 exit_status = self._run(logger, command)
             finally:
                 self._running = False
+                for sig, handler in restore_signal_handlers.items():
+                    signal.signal(sig, handler)
 
+            if self._terminate:
+                raise Terminated()
             if exit_status != 0:
                 raise CommandError("command exit status = " + str(exit_status))
 
@@ -256,7 +278,7 @@ class TaskDockerContainer(TaskContainer):
                         # workaround for docker-py not throwing the exception class
                         # it's supposed to
                         s_exn = str(exn)
-                        if "Read timed out" not in s_exn and "Timeout" not in s_exn:
+                        if "timed out" not in s_exn and "Timeout" not in s_exn:
                             raise
                 logger.info("container exit info = " + str(exit_info))
             except:
@@ -268,6 +290,7 @@ class TaskDockerContainer(TaskContainer):
                         container.remove(force=True)
                     except Exception as exn:
                         logger.error("failed to remove docker container: " + str(exn))
+                    logger.info("force-removed docker container")
                 raise
 
             # retrieve and check container exit status
@@ -350,7 +373,10 @@ def run_local_task(
     except Exception as exn:
         logger.debug(traceback.format_exc())
         wrapper = TaskFailure(task.name, task_id)
-        logger.error("{}: {}, {}".format(str(wrapper), exn.__class__.__name__, str(exn)))
+        msg = "{}: {}".format(str(wrapper), exn.__class__.__name__)
+        if str(exn):
+            msg += ", " + str(exn)
+        logger.error(msg)
         raise wrapper from exn
 
 

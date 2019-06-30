@@ -4,7 +4,7 @@ PYTHON_PKG_BASE?=$(HOME)/.local
 test: check check_check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
 	coverage report -m
-	prove -v tests/check.t tests/cromwell.t tests/runner.t
+	prove -v tests/*.t
 
 # fail fast
 qtest:
