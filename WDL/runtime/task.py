@@ -520,7 +520,7 @@ class _StdLib(WDL.StdLib.Base):
                 return WDL.Value.Boolean(True)
             if s == "false":
                 return WDL.Value.Boolean(False)
-            raise ValueError('read_boolean(): file content is not "true" or "false"')
+            raise WDL.Error.InputError('read_boolean(): file content is not "true" or "false"')
 
         self._override_static("read_boolean", _read_something(_parse_boolean))
 
@@ -549,6 +549,21 @@ class _StdLib(WDL.StdLib.Base):
 
         self._override_static("read_tsv", _read_something(parse_tsv))
 
+        def parse_map(s: str) -> WDL.Value.Map:
+            keys = set()
+            ans = []
+            for line in parse_tsv(s).value:
+                assert isinstance(line, WDL.Value.Array)
+                if len(line.value) != 2:
+                    raise WDL.Error.InputError("read_map(): each line must have two fields")
+                if line.value[0].value in keys:
+                    raise WDL.Error.InputError("read_map(): duplicate key")
+                keys.add(line.value[0].value)
+                ans.append((line.value[0], line.value[1]))
+            return WDL.Value.Map(WDL.Type.Map((WDL.Type.String(), WDL.Type.String())), ans)
+
+        self._override_static("read_map", _read_something(parse_map))
+
         def _write_something(
             serialize: Callable[[WDL.Value.Base, BinaryIO], None], lib: _StdLib = self
         ) -> Callable[[WDL.Value.Base], WDL.Value.File]:
@@ -573,8 +588,7 @@ class _StdLib(WDL.StdLib.Base):
 
         def _serialize_lines(array: WDL.Value.Array, outfile: BinaryIO) -> None:
             for item in array.value:
-                assert isinstance(item, WDL.Value.String)
-                outfile.write(item.value.encode("utf-8"))
+                outfile.write(item.coerce(WDL.Type.String()).value.encode("utf-8"))
                 outfile.write(b"\n")
 
         self._override_static("write_lines", _write_something(_serialize_lines))  # pyre-ignore
@@ -591,7 +605,11 @@ class _StdLib(WDL.StdLib.Base):
                     WDL.Value.Array(
                         WDL.Type.Array(WDL.Type.String()),
                         [
-                            WDL.Value.String("\t".join([part.value for part in parts.value]))
+                            WDL.Value.String(
+                                "\t".join(
+                                    [part.coerce(WDL.Type.String()).value for part in parts.value]
+                                )
+                            )
                             for parts in v.value
                         ],
                     ),
@@ -599,6 +617,20 @@ class _StdLib(WDL.StdLib.Base):
                 )
             ),
         )
+
+        def _serialize_map(map: WDL.Value.Map, outfile: BinaryIO) -> None:
+            lines = []
+            for (k, v) in map.value:
+                k = k.coerce(WDL.Type.String()).value
+                v = v.coerce(WDL.Type.String()).value
+                if "\n" in k or "\t" in k or "\n" in v or "\t" in v:
+                    raise ValueError(
+                        "write_map(): keys & values must not contain tab or newline characters"
+                    )
+                lines.append(WDL.Value.String(k + "\t" + v))
+            _serialize_lines(WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), lines), outfile)
+
+        self._override_static("write_map", _write_something(_serialize_map))  # pyre-ignore
 
 
 class InputStdLib(_StdLib):

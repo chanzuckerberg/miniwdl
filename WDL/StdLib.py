@@ -71,8 +71,7 @@ class Base:
             ("read_boolean", [T.File()], T.Boolean(), _notimpl),
             ("read_string", [T.File()], T.String(), _notimpl),
             ("read_float", [T.File()], T.Float(), _notimpl),
-            ("read_array", [T.File()], T.Array(T.Any()), _notimpl),
-            ("read_map", [T.File()], T.Map((T.Any(), T.Any())), _notimpl),
+            ("read_map", [T.File()], T.Map((T.String(), T.String())), _notimpl),
             ("read_lines", [T.File()], T.Array(T.Any()), _notimpl),
             ("read_tsv", [T.File()], T.Array(T.Array(T.String())), _notimpl),
             ("read_json", [T.File()], T.Any(), _notimpl),
@@ -186,7 +185,10 @@ class StaticFunction(EagerFunction):
         try:
             ans: V.Base = self.F(*argument_values)
         except Exception as exn:
-            raise Error.EvalError(expr, "function evaluation failed") from exn
+            msg = "function evaluation failed"
+            if str(exn):
+                msg += ", " + str(exn)
+            raise Error.EvalError(expr, msg) from exn
         return ans.coerce(self.return_type)
 
 

@@ -413,6 +413,8 @@ class TestStdLib(unittest.TestCase):
                 echo 6.02e23 > mole.txt
                 echo true > true.txt
                 echo false > false.txt
+                echo -e "key1\tvalue1" > map.txt
+                echo -e "key2\tvalue2" >> map.txt
             }
             output {
                 String i_strings_string = i1
@@ -424,6 +426,7 @@ class TestStdLib(unittest.TestCase):
                 Int o_fortytwo = read_int("fortytwo.txt")
                 Float o_mole = read_float("mole.txt")
                 Array[Boolean] o_boolean = [read_boolean("true.txt"), read_boolean("false.txt")]
+                Map[String,String] o_map = read_map("map.txt")
             }
         }
         """, {"strings": os.path.join(self._dir, "strings.txt")})
@@ -435,6 +438,7 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["o_names_lines"], ["Alyssa", "Ben"])
         self.assertEqual(outputs["o_fortytwo"], 42)
         self.assertEqual(outputs["o_boolean"], [True, False])
+        self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2"})
 
     def test_write(self):
         outputs = self._test_task(R"""
@@ -443,6 +447,7 @@ class TestStdLib(unittest.TestCase):
             File foo = write_lines(["foo","bar","baz"])
             File tsv = write_tsv([["one", "two", "three"], ["un", "deux", "trois"]])
             File json = write_json({"key1": "value1", "key2": "value2"})
+            File map = write_map({"key1": "value1", "key2": "value2"})
 
             command <<<
                 foo_sha=$(sha256sum < ~{foo} | cut -f1 -d ' ')
@@ -458,12 +463,49 @@ class TestStdLib(unittest.TestCase):
             output {
                 File o_json = json
                 Array[Array[String]] o_tsv = read_tsv(tsv)
+                Map[String,String] o_map = read_map(map)
             }
         }
         """)
         with open(outputs["o_json"]) as infile:
             self.assertEqual(json.load(infile), {"key1": "value1", "key2": "value2"})
         self.assertEqual(outputs["o_tsv"], [["one", "two", "three"], ["un", "deux", "trois"]])
+        self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2"})
+
+    def test_bad_map(self):
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            File map = write_map({"foo": "bar\t"})
+            command {}
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                echo -e "a\tb" > map.txt
+                echo -e "c\td\te" >> map.txt
+            >>>
+            output {
+                Map[String,String] map = read_map("map.txt")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                echo -e "a\tb" > map.txt
+                echo -e "a\tc" >> map.txt
+            >>>
+            output {
+                Map[String,String] map = read_map("map.txt")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_transpose(self):
         outputs = self._test_task(R"""
