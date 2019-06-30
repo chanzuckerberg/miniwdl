@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 19
+plan tests 20
 
 DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)
 cd $DN
@@ -75,3 +75,23 @@ is "$(basename $f1)" "fox" "task product fox"
 is "$(ls $f1)" "$f1" "task product fox file"
 is "$(ls taskrun/outputs/echo.out_f/2)" "fox" "task product fox link"
 
+cat << 'EOF' > sleep.wdl
+version 1.0
+task sleep {
+    input {
+        Int seconds
+    }
+
+    command {
+        sleep ~{seconds}
+    }
+}
+EOF
+
+t0=$(date +%s)
+$miniwdl run sleep.wdl seconds=10 & pid=$!
+sleep 3
+kill $pid
+wait $pid || true
+t1=$(date +%s)
+is "$(( t1 - t0 < 5 ))" "1" "task SIGTERM"

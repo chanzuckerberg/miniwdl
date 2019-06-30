@@ -3,6 +3,8 @@ import logging
 import tempfile
 import os
 import docker
+import signal
+import time
 from .context import WDL
 
 class TestTaskRunner(unittest.TestCase):
@@ -467,3 +469,17 @@ class TestTaskRunner(unittest.TestCase):
         """
         self.assertEqual(self._test_task(txt, {"x": 22})["yy"], 42)
         self.assertEqual(self._test_task(txt, {"x": 22, "y": 99})["yy"], 99)
+
+    def test_signal(self):
+        signal.alarm(3)
+        t0 = time.time()
+        self._test_task(R"""
+        version 1.0
+        task t {
+            command {
+                sleep 10
+            }
+        }
+        """, expected_exception=WDL.runtime.task.Terminated)
+        t1 = time.time()
+        self.assertLess(t1 - t0, 5)
