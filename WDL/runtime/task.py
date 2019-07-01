@@ -14,28 +14,7 @@ from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
 import WDL
-
-
-class CommandError(WDL.Error.RuntimeError):
-    pass
-
-
-class Terminated(WDL.Error.RuntimeError):
-    pass
-
-
-class OutputError(WDL.Error.RuntimeError):
-    pass
-
-
-class TaskFailure(WDL.Error.RuntimeError):
-    task_name: str
-    task_id: str
-
-    def __init__(self, task_name: str, task_id: str) -> None:
-        super().__init__("task {} ({}) failed".format(task_name, task_id))
-        self.task_name = task_name
-        self.task_id = task_id
+from .error import *
 
 
 class TaskContainer(ABC):

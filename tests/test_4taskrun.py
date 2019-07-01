@@ -21,7 +21,7 @@ class TestTaskRunner(unittest.TestCase):
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
             rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
-        except WDL.runtime.task.TaskFailure as exn:
+        except WDL.runtime.TaskFailure as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
                 return exn.__context__
@@ -176,7 +176,7 @@ class TestTaskRunner(unittest.TestCase):
                 File issue = "bogus.txt"
             }
         }
-        """, expected_exception=WDL.runtime.task.OutputError)
+        """, expected_exception=WDL.runtime.OutputError)
 
         # attempt to output file which exists but we're not allowed to output
         self._test_task(R"""
@@ -187,7 +187,7 @@ class TestTaskRunner(unittest.TestCase):
                 File issue = "/etc/issue"
             }
         }
-        """, expected_exception=WDL.runtime.task.OutputError)
+        """, expected_exception=WDL.runtime.OutputError)
 
         self._test_task(R"""
         version 1.0
@@ -198,7 +198,7 @@ class TestTaskRunner(unittest.TestCase):
                 File issue = trick + "/issue"
             }
         }
-        """, expected_exception=WDL.runtime.task.OutputError)
+        """, expected_exception=WDL.runtime.OutputError)
 
         self._test_task(R"""
         version 1.0
@@ -210,7 +210,7 @@ class TestTaskRunner(unittest.TestCase):
                 File issue = "../nono"
             }
         }
-        """, expected_exception=WDL.runtime.task.OutputError)
+        """, expected_exception=WDL.runtime.OutputError)
 
         # circuitously output a file using an absolute path
         outputs = self._test_task(R"""
@@ -235,7 +235,7 @@ class TestTaskRunner(unittest.TestCase):
                 exit 1
             }
         }
-        """, expected_exception=WDL.runtime.task.CommandError)
+        """, expected_exception=WDL.runtime.CommandError)
 
     def test_write_lines(self):
         outputs = self._test_task(R"""
@@ -480,6 +480,6 @@ class TestTaskRunner(unittest.TestCase):
                 sleep 10
             }
         }
-        """, expected_exception=WDL.runtime.task.Terminated)
+        """, expected_exception=WDL.runtime.Terminated)
         t1 = time.time()
         self.assertLess(t1 - t0, 5)
