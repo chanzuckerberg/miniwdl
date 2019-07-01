@@ -113,14 +113,14 @@ class Function(ABC):
     # Abstract interface to a standard library function implementation
 
     @abstractmethod
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         # Typecheck the Apply expression (including the argument expressions);
         # raise an exception or return the function's return type, which may
         # depend on the argument types.
         pass
 
     @abstractmethod
-    def __call__(self, expr: Expr.Apply, env: Env.Values, stdlib: Base) -> Value.Base:
+    def __call__(self, expr: "Expr.Apply", env: Env.Values, stdlib: Base) -> Value.Base:
         # Invoke the function, evaluating the arguments as needed
         pass
 
@@ -131,10 +131,10 @@ class EagerFunction(Function):
     # argument and return values.
 
     @abstractmethod
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         pass
 
-    def __call__(self, expr: Expr.Apply, env: Env.Values, stdlib: Base) -> Value.Base:
+    def __call__(self, expr: "Expr.Apply", env: Env.Values, stdlib: Base) -> Value.Base:
         return self._call_eager(expr, [arg.eval(env, stdlib=stdlib) for arg in expr.arguments])
 
 
@@ -155,7 +155,7 @@ class StaticFunction(EagerFunction):
         self.return_type = return_type
         self.F = F
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         min_args = len(self.argument_types)
         for ty in reversed(self.argument_types):
             if ty.optional:
@@ -176,7 +176,7 @@ class StaticFunction(EagerFunction):
                 ) from None
         return self.return_type
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         argument_values = [arg.coerce(ty) for arg, ty in zip(arguments, self.argument_types)]
         try:
             ans: Value.Base = self.F(*argument_values)
@@ -212,7 +212,7 @@ class _At(EagerFunction):
     # Special function for array access arr[index], returning the element type
     #                   or map access map[key], returning the value type
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
         lhs = expr.arguments[0]
         rhs = expr.arguments[1]
@@ -237,7 +237,7 @@ class _At(EagerFunction):
             return lhs.type.item_type[1]
         raise Error.NotAnArray(lhs)
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         assert len(expr.arguments) == 2 and len(arguments) == 2
         lhs = arguments[0]
         rhs = arguments[1]
@@ -262,7 +262,7 @@ class _At(EagerFunction):
 
 class _And(Function):
     # logical && with short-circuit evaluation
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
         for arg in expr.arguments:
             if not isinstance(arg.type, Type.Boolean):
@@ -271,7 +271,7 @@ class _And(Function):
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to &&")
         return Type.Boolean()
 
-    def __call__(self, expr: Expr.Apply, env: Env.Values, stdlib: Base) -> Value.Base:
+    def __call__(self, expr: "Expr.Apply", env: Env.Values, stdlib: Base) -> Value.Base:
         lhs = expr.arguments[0].eval(env, stdlib=stdlib).expect(Type.Boolean()).value
         if not lhs:
             return Value.Boolean(False)
@@ -280,7 +280,7 @@ class _And(Function):
 
 class _Or(Function):
     # logical || with short-circuit evaluation
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
         for arg in expr.arguments:
             if not isinstance(arg.type, Type.Boolean):
@@ -289,7 +289,7 @@ class _Or(Function):
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to ||")
         return Type.Boolean()
 
-    def __call__(self, expr: Expr.Apply, env: Env.Values, stdlib: Base) -> Value.Base:
+    def __call__(self, expr: "Expr.Apply", env: Env.Values, stdlib: Base) -> Value.Base:
         lhs = expr.arguments[0].eval(env, stdlib=stdlib).expect(Type.Boolean()).value
         if lhs:
             return Value.Boolean(True)
@@ -307,7 +307,7 @@ class _ArithmeticOperator(EagerFunction):
         self.name = name
         self.op = op
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
         rt = Type.Int()
         if isinstance(expr.arguments[0].type, Type.Float) or isinstance(
@@ -323,7 +323,7 @@ class _ArithmeticOperator(EagerFunction):
             ) from None
         return rt
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         ans_type = self.infer_type(expr)
         ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
         if ans_type == Type.Int():
@@ -338,7 +338,7 @@ class _AddOperator(_ArithmeticOperator):
     def __init__(self) -> None:
         super().__init__("+", lambda l, r: l + r)
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
         t2 = None
         if isinstance(expr.arguments[0].type, Type.String):
@@ -357,7 +357,7 @@ class _AddOperator(_ArithmeticOperator):
             )
         return Type.String()
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         ans_type = self.infer_type(expr)
         if not isinstance(ans_type, Type.String):
             return super()._call_eager(expr, arguments)
@@ -373,7 +373,7 @@ class InterpolationAddOperator(_AddOperator):
     # + operator within an interpolation; accepts String? operands, evaluating to None if either
     # operand is None.
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         either_string = sum(1 for arg in expr.arguments if isinstance(arg.type, Type.String)) > 0
         either_optional = sum(1 for arg in expr.arguments if arg.type.optional) > 0
         both_stringifiable = (
@@ -385,7 +385,7 @@ class InterpolationAddOperator(_AddOperator):
             else super().infer_type(expr)
         )
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         if sum(1 for arg in arguments if isinstance(arg, Value.Null)):
             return Value.Null()
         return super()._call_eager(expr, arguments)
@@ -403,7 +403,7 @@ class _ComparisonOperator(EagerFunction):
         self.name = name
         self.op = op
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
         if (
             (
@@ -437,7 +437,7 @@ class _ComparisonOperator(EagerFunction):
             )
         return Type.Boolean()
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         assert len(arguments) == 2
         return Value.Boolean(self.op(arguments[0].value, arguments[1].value))
 
@@ -445,7 +445,7 @@ class _ComparisonOperator(EagerFunction):
 class _Size(EagerFunction):
     # size(): first argument can be File? or Array[File?]
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if not expr.arguments:
             raise Error.WrongArity(expr, 1)
         if not expr.arguments[0].type.coerces(Type.File(optional=True)):
@@ -471,7 +471,7 @@ class _Size(EagerFunction):
             raise Error.WrongArity(expr, 2)
         return Type.Float()
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         # this default implementation attempts os.path.getsize() on the argument(s)
         files = arguments[0].coerce(Type.Array(Type.File()))
         unit = arguments[1].coerce(Type.String()) if len(arguments) > 1 else None
@@ -502,7 +502,7 @@ class _Size(EagerFunction):
 
 
 class _SelectFirst(EagerFunction):
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, Type.Array) or (
@@ -517,7 +517,7 @@ class _SelectFirst(EagerFunction):
         assert isinstance(ty, Type.Base)
         return ty.copy(optional=False)
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         arr = arguments[0].coerce(Type.Array(Type.Any()))
         assert isinstance(arr, Value.Array)
         for arg in arr.value:
@@ -527,7 +527,7 @@ class _SelectFirst(EagerFunction):
 
 
 class _SelectAll(EagerFunction):
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         if not isinstance(expr.arguments[0].type, Type.Array) or (
@@ -542,7 +542,7 @@ class _SelectAll(EagerFunction):
         assert isinstance(ty, Type.Base)
         return Type.Array(ty.copy(optional=False))
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         arr = arguments[0].coerce(Type.Array(Type.Any()))
         assert isinstance(arr, Value.Array)
         arrty = arr.type
@@ -552,7 +552,7 @@ class _SelectAll(EagerFunction):
 
 class _ZipOrCross(EagerFunction):
     # 'a array -> 'b array -> ('a,'b) array
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 2:
             raise Error.WrongArity(expr, 2)
         arg0ty: Type.Base = expr.arguments[0].type
@@ -571,7 +571,7 @@ class _ZipOrCross(EagerFunction):
         )
 
     def _coerce_args(
-        self, expr: Expr.Apply, arguments: List[Value.Base]
+        self, expr: "Expr.Apply", arguments: List[Value.Base]
     ) -> Tuple[Type.Array, Value.Array, Value.Array]:
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
@@ -582,7 +582,7 @@ class _ZipOrCross(EagerFunction):
 
 
 class _Zip(_ZipOrCross):
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Array:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Array:
         ty, lhs, rhs = self._coerce_args(expr, arguments)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         if len(lhs.value) != len(rhs.value):
@@ -594,7 +594,7 @@ class _Zip(_ZipOrCross):
 
 
 class _Cross(_ZipOrCross):
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Array:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Array:
         ty, lhs, rhs = self._coerce_args(expr, arguments)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         return Value.Array(
@@ -609,7 +609,7 @@ class _Cross(_ZipOrCross):
 
 class _Flatten(EagerFunction):
     # t array array -> t array
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Array(Type.Any()))
@@ -623,7 +623,7 @@ class _Flatten(EagerFunction):
             )
         return Type.Array(expr.arguments[0].type.item_type.item_type)
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array)
         ans = []
@@ -634,7 +634,7 @@ class _Flatten(EagerFunction):
 
 class _Transpose(EagerFunction):
     # t array array -> t array array
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Array(Type.Any()))
@@ -648,7 +648,7 @@ class _Transpose(EagerFunction):
             )
         return expr.arguments[0].type
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Array)
         mat = arguments[0].coerce(ty)
@@ -672,7 +672,7 @@ class _Range(EagerFunction):
     # with special case: if the argument is a positive integer literal or
     # length(a_nonempty_array), then we can say the returned array is nonempty.
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Int())
@@ -686,7 +686,7 @@ class _Range(EagerFunction):
                 nonempty = True
         return Type.Array(Type.Int(), nonempty=nonempty)
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         arg0 = arguments[0].coerce(Type.Int())
         assert isinstance(arg0, Value.Int)
         if arg0.value < 0:
@@ -698,7 +698,7 @@ class _Prefix(EagerFunction):
     # string -> t array -> string array
     # if input array is nonempty then so is output
 
-    def infer_type(self, expr: Expr.Apply) -> Type.Base:
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 2:
             raise Error.WrongArity(expr, 2)
         expr.arguments[0].typecheck(Type.String())
@@ -710,7 +710,7 @@ class _Prefix(EagerFunction):
             ),
         )
 
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         pfx = arguments[0].coerce(Type.String()).value
         return Value.Array(
             Type.Array(Type.String()),

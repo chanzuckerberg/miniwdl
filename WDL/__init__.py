@@ -72,10 +72,10 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[Task]:
 
 def values_from_json(
     values_json: Dict[str, Any],
-    available: "WDL.Env.Decls",
-    required: "Optional[WDL.Env.Decls]" = None,
+    available: Env.Decls,
+    required: Optional[Env.Decls] = None,
     namespace: Optional[List[str]] = None,
-) -> "WDL.Env.Values":
+) -> Env.Values:
     """
     Given a dict parsed from Cromwell-style JSON and the available input (or
     output) declarations of a task or workflow, create a ``WDL.Env.Values``.
@@ -107,9 +107,7 @@ def values_from_json(
     return ans
 
 
-def values_to_json(
-    values_env: "WDL.Env.Values", namespace: Optional[List[str]] = None
-) -> Dict[str, Any]:
+def values_to_json(values_env: Env.Values, namespace: Optional[List[str]] = None) -> Dict[str, Any]:
     """
     Convert a ``WDL.Env.Values`` to a dict which ``json.dumps`` to
     Cromwell-style JSON.
