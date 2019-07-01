@@ -2,11 +2,8 @@
 import inspect
 from typing import List, Optional
 import lark
-from WDL.Error import SourcePosition
-from WDL import Error as Err
-from WDL import Tree as D
-from WDL import Type as T
-from WDL import Expr as E
+from .Error import SourcePosition
+from . import Error, Tree, Type, Expr
 
 common_grammar = r"""
 ?literal: "true"-> boolean_true
@@ -288,61 +285,61 @@ class _ExprTransformer(lark.Transformer):
     def __init__(self, file: str) -> None:
         self.filename = file
 
-    def boolean_true(self, items, meta) -> E.Base:
-        return E.Boolean(sp(self.filename, meta), True)
+    def boolean_true(self, items, meta) -> Expr.Base:
+        return Expr.Boolean(sp(self.filename, meta), True)
 
-    def boolean_false(self, items, meta) -> E.Base:
-        return E.Boolean(sp(self.filename, meta), False)
+    def boolean_false(self, items, meta) -> Expr.Base:
+        return Expr.Boolean(sp(self.filename, meta), False)
 
-    def int(self, items, meta) -> E.Base:
+    def int(self, items, meta) -> Expr.Base:
         assert len(items) == 1
-        return E.Int(sp(self.filename, meta), to_int(items[0]))
+        return Expr.Int(sp(self.filename, meta), to_int(items[0]))
 
-    def float(self, items, meta) -> E.Base:
+    def float(self, items, meta) -> Expr.Base:
         assert len(items) == 1
-        return E.Float(sp(self.filename, meta), to_float(items[0]))
+        return Expr.Float(sp(self.filename, meta), to_float(items[0]))
 
-    def string(self, items, meta) -> E.Base:
+    def string(self, items, meta) -> Expr.Base:
         parts = []
         for item in items:
-            if isinstance(item, E.Base):
-                parts.append(E.Placeholder(item.pos, {}, item))
+            if isinstance(item, Expr.Base):
+                parts.append(Expr.Placeholder(item.pos, {}, item))
             else:
                 parts.append(item.value)
         assert len(parts) >= 2
         assert parts[0] in ['"', "'"]
         assert parts[-1] in ['"', "'"]
-        return E.String(sp(self.filename, meta), parts)
+        return Expr.String(sp(self.filename, meta), parts)
 
     def string_literal(self, items, meta):
         assert len(items) == 1
         assert items[0].value.startswith('"') or items[0].value.startswith("'")
         return str.encode(items[0].value[1:-1]).decode("unicode_escape")
 
-    def array(self, items, meta) -> E.Base:
-        return E.Array(sp(self.filename, meta), items)
+    def array(self, items, meta) -> Expr.Base:
+        return Expr.Array(sp(self.filename, meta), items)
 
-    def apply(self, items, meta) -> E.Base:
+    def apply(self, items, meta) -> Expr.Base:
         assert len(items) >= 1
         assert not items[0].startswith("_")  # TODO enforce in grammar
-        return E.Apply(sp(self.filename, meta), items[0], items[1:])
+        return Expr.Apply(sp(self.filename, meta), items[0], items[1:])
 
-    def negate(self, items, meta) -> E.Base:
-        return E.Apply(sp(self.filename, meta), "_negate", items)
+    def negate(self, items, meta) -> Expr.Base:
+        return Expr.Apply(sp(self.filename, meta), "_negate", items)
 
-    def at(self, items, meta) -> E.Base:
-        return E.Apply(sp(self.filename, meta), "_at", items)
+    def at(self, items, meta) -> Expr.Base:
+        return Expr.Apply(sp(self.filename, meta), "_at", items)
 
-    def pair(self, items, meta) -> E.Base:
+    def pair(self, items, meta) -> Expr.Base:
         assert len(items) == 2
-        return E.Pair(sp(self.filename, meta), items[0], items[1])
+        return Expr.Pair(sp(self.filename, meta), items[0], items[1])
 
     def map_kv(self, items, meta):
         assert len(items) == 2
         return (items[0], items[1])
 
-    def map(self, items, meta) -> E.Base:
-        return E.Map(sp(self.filename, meta), items)
+    def map(self, items, meta) -> Expr.Base:
+        return Expr.Map(sp(self.filename, meta), items)
 
     def object_kv(self, items, meta):
         assert len(items) == 2
@@ -350,23 +347,25 @@ class _ExprTransformer(lark.Transformer):
         if isinstance(k, lark.Token):
             k = k.value
         assert isinstance(k, str), k
-        assert isinstance(items[1], E.Base)
+        assert isinstance(items[1], Expr.Base)
         return (k, items[1])
 
-    def obj(self, items, meta) -> E.Base:
-        return E.Struct(sp(self.filename, meta), items)
+    def obj(self, items, meta) -> Expr.Base:
+        return Expr.Struct(sp(self.filename, meta), items)
 
-    def ifthenelse(self, items, meta) -> E.Base:
+    def ifthenelse(self, items, meta) -> Expr.Base:
         assert len(items) == 3
-        return E.IfThenElse(sp(self.filename, meta), *items)
+        return Expr.IfThenElse(sp(self.filename, meta), *items)
 
-    def left_name(self, items, meta) -> E.Base:
+    def left_name(self, items, meta) -> Expr.Base:
         assert len(items) == 1 and isinstance(items[0], str)
-        return E.Get(sp(self.filename, meta), E._LeftName(sp(self.filename, meta), items[0]), None)
+        return Expr.Get(
+            sp(self.filename, meta), Expr._LeftName(sp(self.filename, meta), items[0]), None
+        )
 
-    def get_name(self, items, meta) -> E.Base:
-        assert len(items) == 2 and isinstance(items[0], E.Base) and isinstance(items[1], str)
-        return E.Get(sp(self.filename, meta), items[0], items[1])
+    def get_name(self, items, meta) -> Expr.Base:
+        assert len(items) == 2 and isinstance(items[0], Expr.Base) and isinstance(items[1], str)
+        return Expr.Get(sp(self.filename, meta), items[0], items[1])
 
 
 # _ExprTransformer infix operators
@@ -388,7 +387,7 @@ for op in [
 
     def fn(self, items, meta, op=op):
         assert len(items) == 2
-        return E.Apply(sp(self.filename, meta), "_" + op, items)
+        return Expr.Apply(sp(self.filename, meta), "_" + op, items)
 
     setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))  # pyre-fixme
 
@@ -417,50 +416,56 @@ class _TypeTransformer(lark.Transformer):
 
         if items[0].value == "Array":
             if not param or param2:
-                raise Err.InvalidType(sp(self.filename, meta), "Array must have one type parameter")
+                raise Error.InvalidType(
+                    sp(self.filename, meta), "Array must have one type parameter"
+                )
             if quantifiers - set(["optional", "nonempty"]):
-                raise Err.ValidationError(
+                raise Error.ValidationError(
                     sp(self.filename, meta), "invalid type quantifier(s) for Array"
                 )
-            return T.Array(param, "optional" in quantifiers, "nonempty" in quantifiers)
+            return Type.Array(param, "optional" in quantifiers, "nonempty" in quantifiers)
         if "nonempty" in quantifiers:
-            raise Err.InvalidType(
+            raise Error.InvalidType(
                 sp(self.filename, meta), "invalid type quantifier(s) for " + items[0].value
             )
 
         atomic_types = {
-            "Int": T.Int,
-            "Float": T.Float,
-            "Boolean": T.Boolean,
-            "String": T.String,
-            "File": T.File,
+            "Int": Type.Int,
+            "Float": Type.Float,
+            "Boolean": Type.Boolean,
+            "String": Type.String,
+            "File": Type.File,
         }
         if items[0].value in atomic_types:
             if param or param2:
-                raise Err.InvalidType(
+                raise Error.InvalidType(
                     sp(self.filename, meta), items[0] + " type doesn't accept parameters"
                 )
             return atomic_types[items[0].value]("optional" in quantifiers)
 
         if items[0].value == "Map":
             if not (param and param2):
-                raise Err.InvalidType(sp(self.filename, meta), "Map must have two type parameters")
-            return T.Map((param, param2), "optional" in quantifiers)
+                raise Error.InvalidType(
+                    sp(self.filename, meta), "Map must have two type parameters"
+                )
+            return Type.Map((param, param2), "optional" in quantifiers)
 
         if items[0].value == "Pair":
             if not (param and param2):
-                raise Err.InvalidType(sp(self.filename, meta), "Pair must have two type parameters")
-            return T.Pair(param, param2, "optional" in quantifiers)
+                raise Error.InvalidType(
+                    sp(self.filename, meta), "Pair must have two type parameters"
+                )
+            return Type.Pair(param, param2, "optional" in quantifiers)
 
         if param or param2:
-            raise Err.InvalidType(sp(self.filename, meta), "Unexpected type parameter(s)")
+            raise Error.InvalidType(sp(self.filename, meta), "Unexpected type parameter(s)")
 
-        return T.StructInstance(items[0].value, "optional" in quantifiers)
+        return Type.StructInstance(items[0].value, "optional" in quantifiers)
 
 
 def _check_keyword(pos, name):
     if name in _keywords:
-        raise Err.SyntaxError(pos, "unexpected keyword {}".format(name))
+        raise Error.SyntaxError(pos, "unexpected keyword {}".format(name))
 
 
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
@@ -472,7 +477,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def decl(self, items, meta):
         _check_keyword(sp(self.filename, meta), items[1].value)
-        return D.Decl(
+        return Tree.Decl(
             sp(self.filename, meta),
             items[0],
             items[1].value,
@@ -492,19 +497,19 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def placeholder(self, items, meta):
         options = dict(items[:-1])
         if len(options.items()) < len(items) - 1:
-            raise Err.MultipleDefinitions(
+            raise Error.MultipleDefinitions(
                 sp(self.filename, meta), "duplicate options in expression placeholder"
             )
-        return E.Placeholder(sp(self.filename, meta), options, items[-1])
+        return Expr.Placeholder(sp(self.filename, meta), options, items[-1])
 
     def command(self, items, meta):
         parts = []
         for item in items:
-            if isinstance(item, E.Placeholder):
+            if isinstance(item, Expr.Placeholder):
                 parts.append(item)
             else:
                 parts.append(item.value)
-        return {"command": E.String(sp(self.filename, meta), parts)}
+        return {"command": Expr.String(sp(self.filename, meta), parts)}
 
     def output_decls(self, items, meta):
         return {"outputs": items}
@@ -516,7 +521,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         d = dict()
         for k, v in items:
             if k in d:
-                raise Err.MultipleDefinitions(
+                raise Error.MultipleDefinitions(
                     sp(self.filename, meta), "duplicate keys in meta object"
                 )
             d[k] = v
@@ -540,7 +545,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         for k, v in items:
             # TODO: restore duplicate check, cf. https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/blob/89f11befc13abae97ab8fb1b457731f390c8728d/tasks_pipelines/qc.wdl#L288
             # if k in d:
-            #    raise Err.MultipleDefinitions(sp(self.filename, meta), "duplicate keys in runtime section")
+            #    raise Error.MultipleDefinitions(sp(self.filename, meta), "duplicate keys in runtime section")
             d[k] = v
         return {"runtime": d}
 
@@ -552,7 +557,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                     if k == "noninput_decl":
                         d["noninput_decls"].append(v)
                     elif k in d:
-                        raise Err.MultipleDefinitions(
+                        raise Error.MultipleDefinitions(
                             sp(self.filename, meta), "redundant sections in task"
                         )
                     else:
@@ -562,7 +567,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 assert "name" not in d
                 d["name"] = item.value
         _check_keyword(sp(self.filename, meta), d["name"])
-        return D.Task(
+        return Tree.Task(
             sp(self.filename, meta),
             d["name"],
             d.get("inputs", None),
@@ -577,7 +582,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def tasks(self, items, meta):
         return items
 
-    def namespaced_ident(self, items, meta) -> E.Base:
+    def namespaced_ident(self, items, meta) -> Expr.Base:
         assert items
         return [item.value for item in items]
 
@@ -588,20 +593,20 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         d = dict()
         for k, v in items:
             if k in d:
-                raise Err.MultipleDefinitions(
+                raise Error.MultipleDefinitions(
                     sp(self.filename, meta), "duplicate keys in call inputs"
                 )
             d[k] = v
         return d
 
     def call(self, items, meta):
-        return D.Call(
+        return Tree.Call(
             sp(self.filename, meta), items[0], None, items[1] if len(items) > 1 else dict()
         )
 
     def call_as(self, items, meta):
         _check_keyword(sp(self.filename, meta), items[1].value)
-        return D.Call(
+        return Tree.Call(
             sp(self.filename, meta),
             items[0],
             items[1].value,
@@ -610,17 +615,17 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def scatter(self, items, meta):
         _check_keyword(sp(self.filename, meta), items[0].value)
-        return D.Scatter(sp(self.filename, meta), items[0].value, items[1], items[2:])
+        return Tree.Scatter(sp(self.filename, meta), items[0].value, items[1], items[2:])
 
     def conditional(self, items, meta):
-        return D.Conditional(sp(self.filename, meta), items[0], items[1:])
+        return Tree.Conditional(sp(self.filename, meta), items[0], items[1:])
 
     def workflow_wildcard_output(self, items, meta):
         return items[0] + ["*"]
-        # return E.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
+        # return Expr.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
 
     def workflow_output_decls(self, items, meta):
-        decls = [elt for elt in items if isinstance(elt, D.Decl)]
+        decls = [elt for elt in items if isinstance(elt, Tree.Decl)]
         idents = [elt for elt in items if isinstance(elt, list)]
         assert len(decls) + len(idents) == len(items)
         return {"outputs": decls, "output_idents": idents, "pos": sp(self.filename, meta)}
@@ -637,13 +642,13 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             if isinstance(item, dict):
                 if "inputs" in item:
                     if inputs is not None:
-                        raise Err.MultipleDefinitions(
+                        raise Error.MultipleDefinitions(
                             sp(self.filename, meta), "redundant workflow input sections"
                         )
                     inputs = item["inputs"]
                 elif "outputs" in item:
                     if outputs is not None:
-                        raise Err.MultipleDefinitions(
+                        raise Error.MultipleDefinitions(
                             sp(self.filename, meta), "redundant workflow output sections"
                         )
                     outputs = item["outputs"]
@@ -653,24 +658,24 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                         output_idents_pos = item["pos"]
                 elif "meta" in item:
                     if meta_section is not None:
-                        raise Err.MultipleDefinitions(
+                        raise Error.MultipleDefinitions(
                             sp(self.filename, meta), "redundant workflow meta sections"
                         )
                     meta_section = item["meta"]
                 elif "parameter_meta" in item:
                     if parameter_meta is not None:
-                        raise Err.MultipleDefinitions(
+                        raise Error.MultipleDefinitions(
                             sp(self.filename, meta), "redundant workflow parameter_meta sections"
                         )
                     parameter_meta = item["parameter_meta"]
                 else:
                     assert False
-            elif isinstance(item, (D.Call, D.Conditional, D.Decl, D.Scatter)):
+            elif isinstance(item, (Tree.Call, Tree.Conditional, Tree.Decl, Tree.Scatter)):
                 elements.append(item)
             else:
                 assert False
         _check_keyword(sp(self.filename, meta), items[0].value)
-        return D.Workflow(
+        return Tree.Workflow(
             sp(self.filename, meta),
             items[0].value,
             inputs,
@@ -690,11 +695,11 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         for d in items[1:]:
             assert not d.expr
             if d.name in members:
-                raise Err.MultipleDefinitions(
+                raise Error.MultipleDefinitions(
                     sp(self.filename, meta), "duplicate members in struct"
                 )
             members[d.name] = d.type
-        return D.StructTypeDef(sp(self.filename, meta), name, members)
+        return Tree.StructTypeDef(sp(self.filename, meta), name, members)
 
     def import_alias(self, items, meta):
         assert len(items) == 2
@@ -715,7 +720,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 namespace = namespace[:-4]
         _check_keyword(sp(self.filename, meta), namespace)
         aliases = [p for p in items[1:] if isinstance(p, tuple)]
-        return D.DocImport(
+        return Tree.DocImport(
             pos=sp(self.filename, meta), uri=uri, namespace=namespace, aliases=aliases, doc=None
         )
 
@@ -725,27 +730,27 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         tasks = []
         workflow = None
         for item in items:
-            if isinstance(item, D.Task):
+            if isinstance(item, Tree.Task):
                 tasks.append(item)
-            elif isinstance(item, D.Workflow):
+            elif isinstance(item, Tree.Workflow):
                 if workflow is not None:
-                    raise Err.MultipleDefinitions(
+                    raise Error.MultipleDefinitions(
                         sp(self.filename, meta), "Document has multiple workflows"
                     )
                 workflow = item
-            elif isinstance(item, D.StructTypeDef):
+            elif isinstance(item, Tree.StructTypeDef):
                 if item.name in structs:
-                    raise Err.MultipleDefinitions(
+                    raise Error.MultipleDefinitions(
                         sp(self.filename, meta), "multiple structs named " + item.name
                     )
                 structs[item.name] = item
             elif isinstance(item, lark.Tree) and item.data == "version":
                 pass
-            elif isinstance(item, D.DocImport):
+            elif isinstance(item, Tree.DocImport):
                 imports.append(item)
             else:
                 assert False
-        return D.Document(sp(self.filename, meta), imports, structs, tasks, workflow)
+        return Tree.Document(sp(self.filename, meta), imports, structs, tasks, workflow)
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
@@ -755,7 +760,7 @@ for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
             setattr(_klass, name, lark.v_args(meta=True)(method))  # pyre-fixme
 
 
-def parse_expr(txt: str, version: Optional[str] = None) -> E.Base:
+def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
     try:
         return _ExprTransformer(txt).transform(parse(txt, "expr", version))
     except lark.exceptions.UnexpectedInput as exn:
@@ -766,19 +771,19 @@ def parse_expr(txt: str, version: Optional[str] = None) -> E.Base:
             end_line=getattr(exn, "line", "?"),
             end_column=getattr(exn, "column", "?"),
         )
-        raise Err.SyntaxError(pos, str(exn)) from None
+        raise Error.SyntaxError(pos, str(exn)) from None
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
 
 
-def parse_tasks(txt: str, version: Optional[str] = None) -> List[D.Task]:
+def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
     try:
         return _DocTransformer("").transform(parse(txt, "tasks", version))
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
 
 
-def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> D.Document:
+def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Tree.Document:
     if version is None:
         # for now assume the version is 1.0 if the first line is "version <number>"
         # otherwise draft-2
@@ -790,7 +795,7 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> D.
                     version = "1.0"
                 break
     if not txt.strip():
-        return D.Document(
+        return Tree.Document(
             SourcePosition(filename=uri, line=0, column=0, end_line=0, end_column=0),
             [],
             {},
@@ -807,6 +812,6 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> D.
             end_line=getattr(exn, "line", "?"),
             end_column=getattr(exn, "column", "?"),
         )
-        raise Err.SyntaxError(pos, str(exn)) from None
+        raise Error.SyntaxError(pos, str(exn)) from None
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
