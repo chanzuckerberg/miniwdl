@@ -15,9 +15,7 @@ import logging
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action
-import WDL
-import WDL.Lint
-from . import values_from_json, values_to_json
+from . import *
 
 quant_warning = False
 
@@ -50,10 +48,10 @@ def main(args=None):
         else:
             assert False
     except (
-        WDL.Error.SyntaxError,
-        WDL.Error.ImportError,
-        WDL.Error.ValidationError,
-        WDL.Error.MultipleValidationErrors,
+        Error.SyntaxError,
+        Error.ImportError,
+        Error.ValidationError,
+        Error.MultipleValidationErrors,
     ) as exn:
         global quant_warning
         print_error(exn)
@@ -115,18 +113,18 @@ def fill_check_subparser(subparsers):
 def check(uri=None, path=None, check_quant=True, shellcheck=True, **kwargs):
     # Load the document (read, parse, and typecheck)
     if not shellcheck:
-        WDL.Lint._shellcheck_available = False
+        Lint._shellcheck_available = False
 
     for uri1 in uri or []:
-        doc = WDL.load(uri1, path or [], check_quant=check_quant, import_uri=import_uri)
+        doc = load(uri1, path or [], check_quant=check_quant, import_uri=import_uri)
 
-        WDL.Lint.lint(doc)
+        Lint.lint(doc)
 
         # Print an outline
         print(os.path.basename(uri1))
         outline(doc, 0, show_called=(doc.workflow is not None))
 
-    if shellcheck and WDL.Lint._shellcheck_available == False:
+    if shellcheck and Lint._shellcheck_available == False:
         print(
             "* Hint: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this message)",
             file=sys.stderr,
@@ -151,13 +149,13 @@ def outline(obj, level, file=sys.stdout, show_called=True):
         if dobj:
             outline(
                 dobj,
-                level + (1 if not isinstance(dobj, WDL.Decl) else 0),
+                level + (1 if not isinstance(dobj, Decl) else 0),
                 file=file,
                 show_called=show_called,
             )
 
     # document
-    if isinstance(obj, WDL.Document):
+    if isinstance(obj, Document):
         # workflow
         if obj.workflow:
             descend(obj.workflow)
@@ -169,7 +167,7 @@ def outline(obj, level, file=sys.stdout, show_called=True):
             print("    {}{} : {}".format(s, imp.namespace, os.path.basename(imp.uri)), file=file)
             descend(imp.doc)
     # workflow
-    elif isinstance(obj, WDL.Workflow):
+    elif isinstance(obj, Workflow):
         print(
             "{}workflow {}{}".format(
                 s, obj.name, " (not called)" if show_called and not obj.called else ""
@@ -179,7 +177,7 @@ def outline(obj, level, file=sys.stdout, show_called=True):
         for elt in (obj.inputs or []) + obj.elements + (obj.outputs or []):
             descend(elt)
     # task
-    elif isinstance(obj, WDL.Task):
+    elif isinstance(obj, Task):
         print(
             "{}task {}{}".format(
                 s, obj.name, " (not called)" if show_called and not obj.called else ""
@@ -189,23 +187,23 @@ def outline(obj, level, file=sys.stdout, show_called=True):
         for decl in (obj.inputs or []) + obj.postinputs + obj.outputs:
             descend(decl)
     # call
-    elif isinstance(obj, WDL.Call):
+    elif isinstance(obj, Call):
         if obj.name != obj.callee_id[-1]:
             print("{}call {} as {}".format(s, ".".join(obj.callee_id), obj.name), file=file)
         else:
             print("{}call {}".format(s, ".".join(obj.callee_id)), file=file)
     # scatter
-    elif isinstance(obj, WDL.Scatter):
+    elif isinstance(obj, Scatter):
         print("{}scatter {}".format(s, obj.variable), file=file)
         for elt in obj.elements:
             descend(elt)
     # if
-    elif isinstance(obj, WDL.Conditional):
+    elif isinstance(obj, Conditional):
         print("{}if".format(s), file=file)
         for elt in obj.elements:
             descend(elt)
     # decl
-    elif isinstance(obj, WDL.Decl):
+    elif isinstance(obj, Decl):
         pass
 
     descend()
@@ -213,11 +211,11 @@ def outline(obj, level, file=sys.stdout, show_called=True):
 
 def print_error(exn):
     global quant_warning
-    if isinstance(exn, WDL.Error.MultipleValidationErrors):
+    if isinstance(exn, Error.MultipleValidationErrors):
         for exn1 in exn.exceptions:
             print_error(exn1)
     else:
-        if isinstance(getattr(exn, "pos", None), WDL.SourcePosition):
+        if isinstance(getattr(exn, "pos", None), SourcePosition):
             print(
                 "({} Ln {} Col {}) {}".format(
                     exn.pos.filename, exn.pos.line, exn.pos.column, str(exn)
@@ -226,9 +224,9 @@ def print_error(exn):
             )
         else:
             print(str(exn), file=sys.stderr)
-        if isinstance(exn, WDL.Error.ImportError) and hasattr(exn, "__cause__"):
+        if isinstance(exn, Error.ImportError) and hasattr(exn, "__cause__"):
             print_error(exn.__cause__)
-        if isinstance(exn, WDL.Error.ValidationError) and exn.source_text:
+        if isinstance(exn, Error.ValidationError) and exn.source_text:
             # show source excerpt
             lines = exn.source_text.split("\n")
             error_line = lines[exn.pos.line - 1].replace("\t", " ")
@@ -244,7 +242,7 @@ def print_error(exn):
                 "    " + " " * (exn.pos.column - 1) + "^" * (end_column - exn.pos.column),
                 file=sys.stderr,
             )
-            if isinstance(exn, WDL.Error.StaticTypeMismatch) and exn.actual.coerces(
+            if isinstance(exn, Error.StaticTypeMismatch) and exn.actual.coerces(
                 exn.expected, check_quant=False
             ):
                 quant_warning = True
@@ -302,7 +300,7 @@ def runner(
     uri, inputs, input_file, json_only, empty, check_quant, rundir=None, path=None, **kwargs
 ):
     # load WDL document
-    doc = WDL.load(uri, path or [], check_quant=check_quant, import_uri=import_uri)
+    doc = load(uri, path or [], check_quant=check_quant, import_uri=import_uri)
 
     # validate the provided inputs and prepare Cromwell-style JSON
     target, input_env, input_json = runner_input(doc, inputs, input_file, empty)
@@ -311,7 +309,7 @@ def runner(
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    if not isinstance(target, WDL.Task):
+    if not isinstance(target, Task):
         print(
             "`miniwdl run` only supports individual tasks right now; try `miniwdl cromwell`",
             file=sys.stderr,
@@ -331,11 +329,11 @@ def runner(
     # run task
     logging.basicConfig(level=logging.INFO)
     try:
-        _, output_env = WDL.runtime.run_local_task(
+        _, output_env = runtime.run_local_task(
             target, input_env, task_id=target.name, parent_dir=rundir
         )
-    except WDL.runtime.task.TaskFailure as exn:
-        if exn.__cause__ and isinstance(getattr(exn.__cause__, "pos", None), WDL.SourcePosition):
+    except runtime.task.TaskFailure as exn:
+        if exn.__cause__ and isinstance(getattr(exn.__cause__, "pos", None), SourcePosition):
             pos = getattr(exn.__cause__, "pos")
             print(
                 "({} Ln {} Col {}) {}".format(pos.filename, pos.line, pos.column, str(exn)),
@@ -362,7 +360,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
             argcomplete.warn("file not found: " + uri)
             return []
         try:
-            doc = WDL.load(uri, parsed_args.path, parsed_args.check_quant, import_uri=import_uri)
+            doc = load(uri, parsed_args.path, parsed_args.check_quant, import_uri=import_uri)
         except Exception as exn:
             argcomplete.warn(
                 "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
@@ -396,7 +394,7 @@ def runner_input(doc, inputs, input_file, empty):
     - Determine the target workflow/task
     - Check types of supplied inputs
     - Check all required inputs are supplied
-    - Return inputs as WDL.Env.Values
+    - Return inputs as Env.Values
     """
 
     # resolve target
@@ -420,7 +418,7 @@ def runner_input(doc, inputs, input_file, empty):
             input_env = values_from_json(
                 json.loads(infile.read()),
                 available_inputs,
-                namespace=([target.name] if isinstance(target, WDL.Workflow) else []),
+                namespace=([target.name] if isinstance(target, Workflow) else []),
             )
 
     # set explicitly empty arrays
@@ -431,18 +429,16 @@ def runner_input(doc, inputs, input_file, empty):
         namespace = empty_name[:-1]
         name = empty_name[-1]
         try:
-            decl = WDL.Env.resolve(available_inputs, namespace, name)
+            decl = Env.resolve(available_inputs, namespace, name)
         except KeyError:
             die(
                 "No such input to {}: {}\n{}".format(
                     target.name, ".".join(empty_name), runner_input_help(target)
                 )
             )
-        if not isinstance(decl.type, WDL.Type.Array) or decl.type.nonempty:
+        if not isinstance(decl.type, Type.Array) or decl.type.nonempty:
             die("Cannot set input {} {} to empty array".format(str(decl.type), decl.name))
-        input_env = WDL.Env.bind(
-            input_env, namespace, name, WDL.Value.Array(decl.type, []), ctx=decl
-        )
+        input_env = Env.bind(input_env, namespace, name, Value.Array(decl.type, []), ctx=decl)
 
     # add in command-line inputs
     for one_input in inputs:
@@ -459,23 +455,23 @@ def runner_input(doc, inputs, input_file, empty):
 
         # find corresponding input declaration
         try:
-            decl = WDL.Env.resolve(available_inputs, namespace, name)
+            decl = Env.resolve(available_inputs, namespace, name)
         except KeyError:
             die(
                 "No such input to {}: {}\n{}".format(target.name, buf[0], runner_input_help(target))
             )
 
-        # create a WDL.Value based on the expected type
+        # create a Value based on the expected type
         v = runner_input_value(s_value, decl.type)
 
         # insert value into input_env
         try:
-            existing = WDL.Env.resolve(input_env, namespace, name)
+            existing = Env.resolve(input_env, namespace, name)
         except KeyError:
             existing = None
         if existing:
-            if isinstance(v, WDL.Value.Array):
-                assert isinstance(existing, WDL.Value.Array) and existing.type == v.type
+            if isinstance(v, Value.Array):
+                assert isinstance(existing, Value.Array) and existing.type == v.type
                 existing.value.extend(v.value)
             else:
                 die(
@@ -484,10 +480,10 @@ def runner_input(doc, inputs, input_file, empty):
                     )
                 )
         else:
-            input_env = WDL.Env.bind(input_env, namespace, name, v, ctx=decl)
+            input_env = Env.bind(input_env, namespace, name, v, ctx=decl)
 
     # check for missing inputs
-    missing_inputs = values_to_json(WDL.Env.subtract(target.required_inputs, input_env))
+    missing_inputs = values_to_json(Env.subtract(target.required_inputs, input_env))
     if missing_inputs:
         die(
             "missing required inputs for {}: {}\n{}".format(
@@ -500,7 +496,7 @@ def runner_input(doc, inputs, input_file, empty):
         target,
         input_env,
         values_to_json(
-            input_env, namespace=([target.name] if isinstance(target, WDL.Workflow) else [])
+            input_env, namespace=([target.name] if isinstance(target, Workflow) else [])
         ),
     )
 
@@ -513,11 +509,11 @@ def runner_input_help(target):
     ans.append("\nrequired inputs:")
     for name, ty in values_to_json(required_inputs).items():
         ans.append("  {} {}".format(ty, name))
-    optional_inputs = WDL.Env.subtract(target.available_inputs, target.required_inputs)
+    optional_inputs = Env.subtract(target.available_inputs, target.required_inputs)
     if target.inputs is None:
         # if the target doesn't have an input{} section (pre WDL 1.0), exclude
         # declarations bound to a non-constant expression (heuristic)
-        optional_inputs = WDL.Env.filter(
+        optional_inputs = Env.filter(
             optional_inputs, lambda _, b: b.rhs.expr is None or is_constant_expr(b.rhs.expr)
         )
     if optional_inputs:
@@ -534,13 +530,13 @@ def is_constant_expr(expr):
     """
     Decide if the expression is "constant" for the above purposes
     """
-    if isinstance(expr, (WDL.Expr.Int, WDL.Expr.Float, WDL.Expr.Boolean)):
+    if isinstance(expr, (Expr.Int, Expr.Float, Expr.Boolean)):
         return True
-    if isinstance(expr, WDL.Expr.String) and (
+    if isinstance(expr, Expr.String) and (
         len(expr.parts) == 2 or (len(expr.parts) == 3 and isinstance(expr.parts[1], str))
     ):
         return True
-    if isinstance(expr, WDL.Expr.Array):
+    if isinstance(expr, Expr.Array):
         return not [item for item in expr.items if not is_constant_expr(item)]
     # TODO: Pair, Map, Struct???
     return False
@@ -549,29 +545,29 @@ def is_constant_expr(expr):
 def runner_input_value(s_value, ty):
     """
     Given an input value from the command line (right-hand side of =) and the
-    WDL type of the corresponding input decl, create an appropriate WDL.Value.
+    WDL type of the corresponding input decl, create an appropriate Value.
     """
-    if isinstance(ty, WDL.Type.String):
-        return WDL.Value.String(s_value)
-    if isinstance(ty, WDL.Type.File):
+    if isinstance(ty, Type.String):
+        return Value.String(s_value)
+    if isinstance(ty, Type.File):
         if not os.path.exists(s_value):
             die("File not found: " + s_value)
-        return WDL.Value.File(os.path.abspath(s_value))
-    if isinstance(ty, WDL.Type.Boolean):
+        return Value.File(os.path.abspath(s_value))
+    if isinstance(ty, Type.Boolean):
         if s_value == "true":
-            return WDL.Value.Boolean(True)
+            return Value.Boolean(True)
         if s_value == "false":
-            return WDL.Value.Boolean(False)
+            return Value.Boolean(False)
         die("Boolean input should be true or false instead of {}".format(s_value))
-    if isinstance(ty, WDL.Type.Int):
-        return WDL.Value.Int(int(s_value))
-    if isinstance(ty, WDL.Type.Float):
-        return WDL.Value.Float(float(s_value))
-    if isinstance(ty, WDL.Type.Array) and isinstance(
-        ty.item_type, (WDL.Type.String, WDL.Type.File, WDL.Type.Int, WDL.Type.Float)
+    if isinstance(ty, Type.Int):
+        return Value.Int(int(s_value))
+    if isinstance(ty, Type.Float):
+        return Value.Float(float(s_value))
+    if isinstance(ty, Type.Array) and isinstance(
+        ty.item_type, (Type.String, Type.File, Type.Int, Type.Float)
     ):
         # just produce a length-1 array, to be combined ex post facto
-        return WDL.Value.Array(ty, [runner_input_value(s_value, ty.item_type)])
+        return Value.Array(ty, [runner_input_value(s_value, ty.item_type)])
     return die(
         "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
             str(ty)
@@ -639,7 +635,7 @@ def runner_organize_outputs(target, outputs_json, rundir):
             link_output_files(odn, outputs_json["outputs"][fqon])
         return True
 
-    WDL.Env.filter(target.effective_outputs, output_links)
+    Env.filter(target.effective_outputs, output_links)
     # TODO: handle File's inside other compound types,
     # Pair[File,File], Map[String,File], Structs, etc.
 
@@ -720,7 +716,7 @@ def cromwell(
     path = path or []
 
     # load WDL document
-    doc = WDL.load(uri, path, check_quant=check_quant, import_uri=import_uri)
+    doc = load(uri, path, check_quant=check_quant, import_uri=import_uri)
 
     # validate the provided inputs and prepare Cromwell-style JSON
     target, _, input_json = runner_input(doc, inputs, input_file, empty)
@@ -853,9 +849,9 @@ def _is_files(ty):
     """
     is ty a File or an Array[File] or an Array[Array[File]] or an Array[Array[Array[File]]]...
     """
-    return isinstance(ty, WDL.Type.File) or (
-        isinstance(ty, WDL.Type.Array)
-        and (isinstance(ty.item_type, WDL.Type.File) or _is_files(ty.item_type))
+    return isinstance(ty, Type.File) or (
+        isinstance(ty, Type.Array)
+        and (isinstance(ty.item_type, Type.File) or _is_files(ty.item_type))
     )
 
 

@@ -2,7 +2,6 @@
 # misc utility functions...
 
 from typing import Tuple, Dict, Set, Iterable, List
-import WDL.Error
 
 
 def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
