@@ -13,22 +13,19 @@ given a suitable ``Env.Values``.
 """
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, TypeVar, Tuple, Union, Any, Iterable
-import WDL.Type as T
-import WDL.Value as V
-import WDL.Env as Env
-from WDL.Error import SourcePosition, SourceNode
-import WDL.Error as Error
+from .Error import SourcePosition, SourceNode
+from . import Type, Value, Env, Error
 
 
 class Base(SourceNode, ABC):
     """Superclass of all expression AST nodes"""
 
-    _type: Optional[T.Base] = None
+    _type: Optional[Type.Base] = None
     _check_quant: bool = True
     _stdlib: "Optional[WDL.StdLib.Base]" = None
 
     @property
-    def type(self) -> T.Base:
+    def type(self) -> Type.Base:
         """
         :type: WDL.Type.Base
 
@@ -41,7 +38,7 @@ class Base(SourceNode, ABC):
         return self._type
 
     @abstractmethod
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         # Abstract protected method called by infer_type(): return the inferred
         # type with no side-effects, obeying self._check_quant.
         pass
@@ -76,11 +73,11 @@ class Base(SourceNode, ABC):
         self._stdlib = stdlib
         self._type = self._infer_type(type_env)
         self._stdlib = None
-        assert self._type and isinstance(self.type, T.Base)
+        assert self._type and isinstance(self.type, Type.Base)
         return self
 
-    def typecheck(self, expected: T.Base) -> "Base":
-        """typecheck(self, expected : T.Base) -> WDL.Expr.Base
+    def typecheck(self, expected: Type.Base) -> "Base":
+        """typecheck(self, expected : Type.Base) -> WDL.Expr.Base
 
         Check that this expression's type is, or can be coerced to,
         ``expected``.
@@ -93,12 +90,12 @@ class Base(SourceNode, ABC):
         return self
 
     @abstractmethod
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         # to be overridden by subclasses. eval() calls this and deals with any
         # exceptions raised
         pass
 
-    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         """
         Evaluate the expression in the given environment
         
@@ -130,12 +127,12 @@ class Boolean(Base):
         super().__init__(pos)
         self.value = literal
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        return T.Boolean()
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+        return Type.Boolean()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Boolean:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Boolean:
         ""
-        return V.Boolean(self.value)
+        return Value.Boolean(self.value)
 
 
 class Int(Base):
@@ -154,12 +151,12 @@ class Int(Base):
         super().__init__(pos)
         self.value = literal
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        return T.Int()
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+        return Type.Int()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Int:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Int:
         ""
-        return V.Int(self.value)
+        return Value.Int(self.value)
 
 
 # Float literal
@@ -181,12 +178,12 @@ class Float(Base):
         super().__init__(pos)
         self.value = literal
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        return T.Float()
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+        return Type.Float()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Float:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Float:
         ""
-        return V.Float(self.value)
+        return Value.Float(self.value)
 
 
 class Placeholder(Base):
@@ -228,42 +225,42 @@ class Placeholder(Base):
         with stdlib._context_override("_add", StdLib.InterpolationAddOperator()):
             return super().infer_type(type_env, stdlib, check_quant)
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        if isinstance(self.expr.type, T.Array):
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+        if isinstance(self.expr.type, Type.Array):
             if "sep" not in self.options:
                 raise Error.StaticTypeMismatch(
                     self,
-                    T.Array(T.Any()),
+                    Type.Array(Type.Any()),
                     self.expr.type,
                     "array command placeholder must have 'sep'",
                 )
-            # if sum(1 for t in [T.Int, T.Float, T.Boolean, T.String, T.File] if isinstance(self.expr.type.item_type, t)) == 0:
-            #    raise Error.StaticTypeMismatch(self, T.Array(T.Any()), self.expr.type, "cannot use array of complex types for command placeholder")
+            # if sum(1 for t in [Type.Int, Type.Float, Type.Boolean, Type.String, Type.File] if isinstance(self.expr.type.item_type, t)) == 0:
+            #    raise Error.StaticTypeMismatch(self, Type.Array(Type.Any()), self.expr.type, "cannot use array of complex types for command placeholder")
         elif "sep" in self.options:
             raise Error.StaticTypeMismatch(
                 self,
-                T.Array(T.Any()),
+                Type.Array(Type.Any()),
                 self.expr.type,
                 "command placeholder has 'sep' option for non-Array expression",
             )
         if "true" in self.options or "false" in self.options:
-            if not isinstance(self.expr.type, T.Boolean):
+            if not isinstance(self.expr.type, Type.Boolean):
                 raise Error.StaticTypeMismatch(
                     self,
-                    T.Boolean(),
+                    Type.Boolean(),
                     self.expr.type,
                     "command placeholder 'true' and 'false' options used with non-Boolean expression",
                 )
             if not ("true" in self.options and "false" in self.options):
                 raise Error.StaticTypeMismatch(
                     self,
-                    T.Boolean(),
+                    Type.Boolean(),
                     self.expr.type,
                     "command placeholder with only one of 'true' and 'false' options",
                 )
-        return T.String()
+        return Type.String()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.String:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.String:
         ""
         import WDL.StdLib as StdLib
 
@@ -272,19 +269,19 @@ class Placeholder(Base):
         stdlib = stdlib or StdLib.Base()
         with stdlib._context_override("_add", StdLib.InterpolationAddOperator()):
             v = self.expr.eval(env, stdlib)
-        if isinstance(v, V.Null):
+        if isinstance(v, Value.Null):
             if "default" in self.options:
-                return V.String(self.options["default"])
-            return V.String("")
-        if isinstance(v, V.String):
+                return Value.String(self.options["default"])
+            return Value.String("")
+        if isinstance(v, Value.String):
             return v
-        if isinstance(v, V.Array):
-            return V.String(self.options["sep"].join(str(item.value) for item in v.value))
-        if v == V.Boolean(True) and "true" in self.options:
-            return V.String(self.options["true"])
-        if v == V.Boolean(False) and "false" in self.options:
-            return V.String(self.options["false"])
-        return V.String(str(v))
+        if isinstance(v, Value.Array):
+            return Value.String(self.options["sep"].join(str(item.value) for item in v.value))
+        if v == Value.Boolean(True) and "true" in self.options:
+            return Value.String(self.options["true"])
+        if v == Value.Boolean(False) and "false" in self.options:
+            return Value.String(self.options["false"])
+        return Value.String(str(v))
 
 
 class String(Base):
@@ -310,14 +307,14 @@ class String(Base):
             if isinstance(p, Base):
                 yield p
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        return T.String()
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+        return Type.String()
 
-    def typecheck(self, expected: Optional[T.Base]) -> Base:
+    def typecheck(self, expected: Optional[Type.Base]) -> Base:
         ""
         return super().typecheck(expected)  # pyre-ignore
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.String:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.String:
         ""
         ans = []
         for part in self.parts:
@@ -330,7 +327,7 @@ class String(Base):
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
-        return V.String("".join(ans)[1:-1])
+        return Value.String("".join(ans)[1:-1])
 
 
 class Array(Base):
@@ -354,31 +351,31 @@ class Array(Base):
         for it in self.items:
             yield it
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         if not self.items:
-            return T.Array(T.Any())
+            return Type.Array(Type.Any())
         # Start by assuming the type of the first item is the item type
-        item_type: T.Base = self.items[0].type
+        item_type: Type.Base = self.items[0].type
         # Allow a mixture of Int and Float to construct Array[Float]
-        if isinstance(item_type, T.Int):
+        if isinstance(item_type, Type.Int):
             for item in self.items:
-                if isinstance(item.type, T.Float):
-                    item_type = T.Float()
+                if isinstance(item.type, Type.Float):
+                    item_type = Type.Float()
         # If any item is String, assume item type is String
         # If any item has optional quantifier, assume item type is optional
         # If all items have nonempty quantifier, assume item type is nonempty
         all_nonempty = len(self.items) > 0
         all_stringifiable = True
         for item in self.items:
-            if isinstance(item.type, T.String):
-                item_type = T.String(optional=item_type.optional)
+            if isinstance(item.type, Type.String):
+                item_type = Type.String(optional=item_type.optional)
             if item.type.optional:
                 item_type = item_type.copy(optional=True)
-            if isinstance(item.type, T.Array) and not item.type.nonempty:
+            if isinstance(item.type, Type.Array) and not item.type.nonempty:
                 all_nonempty = False
-            if not item.type.coerces(T.String(optional=True)):
+            if not item.type.coerces(Type.String(optional=True)):
                 all_stringifiable = False
-        if isinstance(item_type, T.Array):
+        if isinstance(item_type, Type.Array):
             item_type = item_type.copy(nonempty=all_nonempty)
         # Check all items are coercible to item_type
         for item in self.items:
@@ -387,26 +384,26 @@ class Array(Base):
             except Error.StaticTypeMismatch:
                 if all_stringifiable:
                     # Last resort: coerce all to strings if possible
-                    return T.Array(
-                        T.String(optional=item_type.optional), optional=False, nonempty=True
+                    return Type.Array(
+                        Type.String(optional=item_type.optional), optional=False, nonempty=True
                     )
-                self._type = T.Array(item_type, optional=False, nonempty=True)
+                self._type = Type.Array(item_type, optional=False, nonempty=True)
                 raise Error.StaticTypeMismatch(
                     self, item_type, item.type, "(inconsistent types within array)"
                 ) from None
-        return T.Array(item_type, optional=False, nonempty=True)
+        return Type.Array(item_type, optional=False, nonempty=True)
 
-    def typecheck(self, expected: Optional[T.Base]) -> Base:
+    def typecheck(self, expected: Optional[Type.Base]) -> Base:
         ""
-        if not self.items and isinstance(expected, T.Array):
+        if not self.items and isinstance(expected, Type.Array):
             # the literal empty array satisfies any array type
             return self
         return super().typecheck(expected)  # pyre-ignore
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Array:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Array:
         ""
-        assert isinstance(self.type, T.Array)
-        return V.Array(
+        assert isinstance(self.type, Type.Array)
+        return Value.Array(
             self.type, [item.eval(env, stdlib).coerce(self.type.item_type) for item in self.items]
         )
 
@@ -439,15 +436,15 @@ class Pair(Base):
         yield self.left
         yield self.right
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
-        return T.Pair(self.left.type, self.right.type)
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+        return Type.Pair(self.left.type, self.right.type)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         ""
-        assert isinstance(self.type, T.Pair)
+        assert isinstance(self.type, Type.Pair)
         lv = self.left.eval(env, stdlib)
         rv = self.right.eval(env, stdlib)
-        return V.Pair(self.type, (lv, rv))
+        return Value.Pair(self.type, (lv, rv))
 
 
 class Map(Base):
@@ -472,7 +469,7 @@ class Map(Base):
             yield k
             yield v
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         kty = None
         vty = None
         for k, v in self.items:
@@ -480,15 +477,19 @@ class Map(Base):
                 kty = k.type
             else:
                 k.typecheck(kty)
-            if vty is None or vty == T.Array(T.Any()) or vty == T.Map((T.Any(), T.Any())):
+            if (
+                vty is None
+                or vty == Type.Array(Type.Any())
+                or vty == Type.Map((Type.Any(), Type.Any()))
+            ):
                 vty = v.type
             else:
                 v.typecheck(vty)
         if kty is None:
-            return T.Map((T.Any(), T.Any()), literal_keys=set())
+            return Type.Map((Type.Any(), Type.Any()), literal_keys=set())
         assert vty is not None
         literal_keys = None
-        if kty == T.String():
+        if kty == Type.String():
             # If the keys are string constants, record them in the Type object
             # for potential later use in struct coercion. (Normally the Type
             # encodes the common type of the keys, but not the keys themselves)
@@ -503,16 +504,16 @@ class Map(Base):
                     literal_keys.add(k.parts[1])
                 else:
                     literal_keys = None
-        return T.Map((kty, vty), literal_keys=literal_keys)
+        return Type.Map((kty, vty), literal_keys=literal_keys)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         ""
-        assert isinstance(self.type, T.Map)
+        assert isinstance(self.type, Type.Map)
         eitems = []
         for k, v in self.items:
             eitems.append((k.eval(env, stdlib), v.eval(env, stdlib)))
         # TODO: complain of duplicate keys
-        return V.Map(self.type, eitems)
+        return Value.Map(self.type, eitems)
 
 
 class Struct(Base):
@@ -540,18 +541,18 @@ class Struct(Base):
     def children(self) -> Iterable[SourceNode]:
         return self.members.values()
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         member_types = {}
         for k, v in self.members.items():
             member_types[k] = v.type
-        return T.Object(member_types)
+        return Type.Object(member_types)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
-        assert isinstance(self.type, T.Object)
-        return V.Struct(self.type, ans)
+        assert isinstance(self.type, Type.Object)
+        return Value.Struct(self.type, ans)
 
 
 class IfThenElse(Base):
@@ -594,11 +595,11 @@ class IfThenElse(Base):
         yield self.consequent
         yield self.alternative
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         # check for Boolean condition
-        if self.condition.type != T.Boolean():
+        if self.condition.type != Type.Boolean():
             raise Error.StaticTypeMismatch(
-                self, T.Boolean(), self.condition.type, "in if condition"
+                self, Type.Boolean(), self.condition.type, "in if condition"
             )
         # Unify consequent & alternative types. Subtleties:
         # 1. If either is optional, unify to optional
@@ -606,15 +607,15 @@ class IfThenElse(Base):
         # 3. If one is a nonempty array and the other is a possibly empty
         #    array, unify to possibly empty array
         self_type = self.consequent.type
-        assert isinstance(self_type, T.Base)
-        if isinstance(self_type, T.Int) and isinstance(self.alternative.type, T.Float):
-            self_type = T.Float(optional=self_type.optional)
+        assert isinstance(self_type, Type.Base)
+        if isinstance(self_type, Type.Int) and isinstance(self.alternative.type, Type.Float):
+            self_type = Type.Float(optional=self_type.optional)
         if self.alternative.type.optional:
             self_type = self_type.copy(optional=True)
         if (
-            isinstance(self_type, T.Array)
-            and isinstance(self.consequent.type, T.Array)
-            and isinstance(self.alternative.type, T.Array)
+            isinstance(self_type, Type.Array)
+            and isinstance(self.consequent.type, Type.Array)
+            and isinstance(self.alternative.type, Type.Array)
         ):
             self_type = self_type.copy(
                 nonempty=(self.consequent.type.nonempty and self.alternative.type.nonempty)
@@ -631,9 +632,9 @@ class IfThenElse(Base):
             ) from None
         return self_type
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         ""
-        if self.condition.eval(env, stdlib).expect(T.Boolean()).value:
+        if self.condition.eval(env, stdlib).expect(Type.Boolean()).value:
             ans = self.consequent.eval(env, stdlib)
         else:
             ans = self.alternative.eval(env, stdlib)
@@ -676,18 +677,18 @@ class Ident(Base):
     def children(self) -> Iterable[SourceNode]:
         return []
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         # The following Env.resolve will never fail, as Get._infer_type does
         # the heavy lifting for us.
-        ans: T.Base = Env.resolve(type_env, self.namespace, self.name)
+        ans: Type.Base = Env.resolve(type_env, self.namespace, self.name)
         # the ctx for each binding in the type environment should be the
         # originating Decl (for inputs/values) or Call (for call outputs)
         self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
         return ans
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         ""
-        ans: V.Base = Env.resolve(env, self.namespace, self.name)
+        ans: Value.Base = Env.resolve(env, self.namespace, self.name)
         return ans
 
     @property
@@ -711,10 +712,10 @@ class _LeftName(Base):
         assert name
         self.name = name
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         raise NotImplementedError()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         raise NotImplementedError()
 
     @property
@@ -777,7 +778,7 @@ class Get(Base):
             # suppress children until resolution/typechecking is complete
             yield self.expr
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         if isinstance(self.expr, _LeftName):
             # expr is a lone "name" -- try to resolve it as an identifier,
             # and if that works, transform it to Ident("name")
@@ -816,15 +817,15 @@ class Get(Base):
             return ety
         # now we expect expr to be a pair or struct, whose member we're
         # accessing
-        if not isinstance(ety, (T.Pair, T.StructInstance)):
+        if not isinstance(ety, (Type.Pair, Type.StructInstance)):
             raise Error.NoSuchMember(self, self.member)
         if self._check_quant and ety.optional:
             raise Error.StaticTypeMismatch(self.expr, ety.copy(optional=False), ety)
         if self.member in ["left", "right"]:
-            if isinstance(ety, T.Pair):
+            if isinstance(ety, Type.Pair):
                 return ety.left_type if self.member == "left" else ety.right_type
             raise Error.NoSuchMember(self, self.member)
-        if isinstance(ety, T.StructInstance):
+        if isinstance(ety, Type.StructInstance):
             try:
                 assert ety.members is not None
                 return ety.members[self.member]
@@ -832,11 +833,11 @@ class Get(Base):
                 pass
         raise Error.NoSuchMember(self, self.member)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         innard_value = self.expr.eval(env, stdlib)
         if not self.member:
             return innard_value
-        if isinstance(innard_value, V.Pair):
+        if isinstance(innard_value, Value.Pair):
             assert self.member in ["left", "right"]
             return innard_value.value[0 if self.member == "left" else 1]
         raise NotImplementedError()
@@ -877,7 +878,7 @@ class Apply(Base):
         for arg in self.arguments:
             yield arg
 
-    def _infer_type(self, type_env: Env.Types) -> T.Base:
+    def _infer_type(self, type_env: Env.Types) -> Type.Base:
         from WDL.StdLib import Base as StdLibBase, Function as StdLibFunction
 
         global _base_stdlib
@@ -889,7 +890,7 @@ class Apply(Base):
         assert isinstance(f, StdLibFunction)
         return f.infer_type(self)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> V.Base:
+    def _eval(self, env: Env.Values, stdlib: "Optional[WDL.StdLib.Base]" = None) -> Value.Base:
         ""
         from WDL.StdLib import Base as StdLibBase, Function as StdLibFunction
 

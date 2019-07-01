@@ -3,7 +3,7 @@ import os
 from typing import List, Optional, NamedTuple, Union, Iterable, TypeVar, Generator, Callable, Any
 from functools import total_ordering
 from contextlib import contextmanager
-import WDL.Type as T
+from . import Type
 
 
 SourcePosition = NamedTuple(
@@ -143,7 +143,11 @@ class NoSuchMember(ValidationError):
 
 class StaticTypeMismatch(ValidationError):
     def __init__(
-        self, node: SourceNode, expected: T.Base, actual: T.Base, message: Optional[str] = None
+        self,
+        node: SourceNode,
+        expected: Type.Base,
+        actual: Type.Base,
+        message: Optional[str] = None,
     ) -> None:
         self.expected = expected
         self.actual = actual
