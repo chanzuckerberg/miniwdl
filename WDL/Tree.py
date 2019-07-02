@@ -379,12 +379,11 @@ class Call(SourceNode):
                     callee_doc = imp.doc
         if callee_doc:
             assert isinstance(callee_doc, Document)
-            if callee_doc.workflow and callee_doc.workflow.name == self.callee_id[-1]:
-                if not callee_doc.workflow.complete_calls or (
-                    callee_doc.workflow.outputs is None and callee_doc.workflow.effective_outputs
-                ):
+            wf = callee_doc.workflow
+            if isinstance(wf, Workflow) and wf.name == self.callee_id[-1]:
+                if not wf.complete_calls or (wf.outputs is None and wf.effective_outputs):
                     raise Error.UncallableWorkflow(self, ".".join(self.callee_id))
-                self.callee = callee_doc.workflow
+                self.callee = wf
             else:
                 for task in callee_doc.tasks:
                     if task.name == self.callee_id[-1]:
@@ -555,7 +554,7 @@ class Scatter(SourceNode):
         # seen as Array[T] outside)
         inner_type_env: Env.Types = []
         for elt in self.elements:
-            inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
+            inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)  # pyre-ignore
         # Subtlety: if the scatter array is statically nonempty, then so too
         # are the arrayized values.
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
@@ -1183,6 +1182,7 @@ def _build_workflow_type_env(
             child_outer_type_env = type_env
             for sibling in self.elements:
                 if sibling is not child:
+                    # pyre-ignore
                     child_outer_type_env = sibling.add_to_type_env(
                         doc.struct_typedefs, child_outer_type_env
                     )
@@ -1197,7 +1197,7 @@ def _build_workflow_type_env(
 
     # finally, populate self._type_env with all our children
     for child in self.elements:
-        type_env = child.add_to_type_env(doc.struct_typedefs, type_env)
+        type_env = child.add_to_type_env(doc.struct_typedefs, type_env)  # pyre-ignore
     self._type_env = type_env
 
 

@@ -275,9 +275,9 @@ class FileCoercion(Linter):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
                         self.add(pt, msg, arg_i.pos)
             elif obj.function_name == "size":
-                if not isinstance(obj.arguments[0].type, Type.File) and not (
-                    isinstance(obj.arguments[0].type, Type.Array)
-                    and isinstance(obj.arguments[0].type.item_type, Type.File)
+                arg0ty = obj.arguments[0].type
+                if not isinstance(arg0ty, Type.File) and not (
+                    isinstance(arg0ty, Type.Array) and isinstance(arg0ty.item_type, Type.File)
                 ):
                     self.add(
                         pt,
@@ -719,7 +719,7 @@ class UnnecessaryQuantifier(Linter):
             while not isinstance(tw, (Tree.Task, Tree.Workflow)):
                 tw = getattr(tw, "parent")
             assert isinstance(tw, (Tree.Task, Tree.Workflow))
-            if tw.inputs is not None and obj not in tw.inputs:
+            if isinstance(tw.inputs, list) and obj not in tw.inputs:
                 self.add(
                     obj,
                     "unnecessary optional quantifier (?) for non-input {} {}".format(

@@ -448,20 +448,15 @@ class _Size(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if not expr.arguments:
             raise Error.WrongArity(expr, 1)
-        if not expr.arguments[0].type.coerces(Type.File(optional=True)):
-            if isinstance(expr.arguments[0].type, Type.Array):
-                if expr.arguments[0].type.optional or not expr.arguments[0].type.item_type.coerces(
-                    Type.File(optional=True)
-                ):
+        arg0ty = expr.arguments[0].type
+        if not arg0ty.coerces(Type.File(optional=True)):
+            if isinstance(arg0ty, Type.Array):
+                if arg0ty.optional or not arg0ty.item_type.coerces(Type.File(optional=True)):
                     raise Error.StaticTypeMismatch(
-                        expr.arguments[0],
-                        Type.Array(Type.File(optional=True)),
-                        expr.arguments[0].type,
+                        expr.arguments[0], Type.Array(Type.File(optional=True)), arg0ty
                     )
             else:
-                raise Error.StaticTypeMismatch(
-                    expr.arguments[0], Type.File(optional=True), expr.arguments[0].type
-                )
+                raise Error.StaticTypeMismatch(expr.arguments[0], Type.File(optional=True), arg0ty)
         if len(expr.arguments) == 2:
             if expr.arguments[1].type != Type.String():
                 raise Error.StaticTypeMismatch(
@@ -505,17 +500,14 @@ class _SelectFirst(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        if not isinstance(expr.arguments[0].type, Type.Array) or (
-            expr.arguments[0]._check_quant and expr.arguments[0].type.optional
+        arg0ty = expr.arguments[0].type
+        if not isinstance(arg0ty, Type.Array) or (
+            expr.arguments[0]._check_quant and arg0ty.optional
         ):
-            raise Error.StaticTypeMismatch(
-                expr.arguments[0], Type.Array(Type.Any()), expr.arguments[0].type
-            )
-        if isinstance(expr.arguments[0].type.item_type, Type.Any):
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
+        if isinstance(arg0ty.item_type, Type.Any):
             raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
-        ty = expr.arguments[0].type.item_type
-        assert isinstance(ty, Type.Base)
-        return ty.copy(optional=False)
+        return arg0ty.item_type.copy(optional=False)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         arr = arguments[0].coerce(Type.Array(Type.Any()))
@@ -530,17 +522,14 @@ class _SelectAll(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
-        if not isinstance(expr.arguments[0].type, Type.Array) or (
-            expr.arguments[0]._check_quant and expr.arguments[0].type.optional
+        arg0ty = expr.arguments[0].type
+        if not isinstance(arg0ty, Type.Array) or (
+            expr.arguments[0]._check_quant and arg0ty.optional
         ):
-            raise Error.StaticTypeMismatch(
-                expr.arguments[0], Type.Array(Type.Any()), expr.arguments[0].type
-            )
-        if isinstance(expr.arguments[0].type.item_type, Type.Any):
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
+        if isinstance(arg0ty.item_type, Type.Any):
             raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
-        ty = expr.arguments[0].type.item_type
-        assert isinstance(ty, Type.Base)
-        return Type.Array(ty.copy(optional=False))
+        return Type.Array(arg0ty.item_type.copy(optional=False))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         arr = arguments[0].coerce(Type.Array(Type.Any()))
@@ -609,19 +598,23 @@ class _Cross(_ZipOrCross):
 
 class _Flatten(EagerFunction):
     # t array array -> t array
+    # TODO: if any of the input arrays are statically nonempty then so is output
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Array(Type.Any()))
         # TODO: won't handle implicit coercion from T to Array[T]
-        assert isinstance(expr.arguments[0].type, Type.Array)
-        if expr.arguments[0].type.item_type is None:
+        arg0ty = expr.arguments[0].type
+        assert isinstance(arg0ty, Type.Array)
+        if isinstance(arg0ty.item_type, Type.Any):
             return Type.Array(Type.Any())
-        if not isinstance(expr.arguments[0].type.item_type, Type.Array):
+        if not isinstance(arg0ty.item_type, Type.Array) or (
+            expr._check_quant and arg0ty.item_type.optional
+        ):
             raise Error.StaticTypeMismatch(
-                expr.arguments[0], Type.Array(Type.Array(Type.Any())), expr.arguments[0].type
+                expr.arguments[0], Type.Array(Type.Array(Type.Any())), arg0ty
             )
-        return Type.Array(expr.arguments[0].type.item_type.item_type)
+        return Type.Array(arg0ty.item_type.item_type)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         ty = self.infer_type(expr)
@@ -634,19 +627,23 @@ class _Flatten(EagerFunction):
 
 class _Transpose(EagerFunction):
     # t array array -> t array array
+    # TODO: if any of the input arrays are statically nonempty then so is output
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Array(Type.Any()))
         # TODO: won't handle implicit coercion from T to Array[T]
-        assert isinstance(expr.arguments[0].type, Type.Array)
-        if expr.arguments[0].type.item_type is None:
+        arg0ty = expr.arguments[0].type
+        assert isinstance(arg0ty, Type.Array)
+        if isinstance(arg0ty.item_type, Type.Any):
             return Type.Array(Type.Any())
-        if not isinstance(expr.arguments[0].type.item_type, Type.Array):
+        if not isinstance(arg0ty.item_type, Type.Array) or (
+            expr._check_quant and arg0ty.item_type.optional
+        ):
             raise Error.StaticTypeMismatch(
-                expr.arguments[0], Type.Array(Type.Array(Type.Any())), expr.arguments[0].type
+                expr.arguments[0], Type.Array(Type.Array(Type.Any())), arg0ty
             )
-        return expr.arguments[0].type
+        return Type.Array(Type.Array(arg0ty.item_type.item_type))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         ty = self.infer_type(expr)
@@ -703,11 +700,9 @@ class _Prefix(EagerFunction):
             raise Error.WrongArity(expr, 2)
         expr.arguments[0].typecheck(Type.String())
         expr.arguments[1].typecheck(Type.Array(Type.String()))
+        arg1ty = expr.arguments[1].type
         return Type.Array(
-            Type.String(),
-            nonempty=(
-                isinstance(expr.arguments[1].type, Type.Array) and expr.arguments[1].type.nonempty
-            ),
+            Type.String(), nonempty=(isinstance(arg1ty, Type.Array) and arg1ty.nonempty)
         )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:

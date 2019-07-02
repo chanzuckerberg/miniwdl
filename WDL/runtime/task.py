@@ -13,7 +13,7 @@ from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
 from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
-from .. import Error, Type, Env, Expr, Value, StdLib, Task, Tree, _util
+from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
 from .error import *
 
 
@@ -287,7 +287,7 @@ class TaskDockerContainer(TaskContainer):
 
 
 def run_local_task(
-    task: Task,
+    task: Tree.Task,
     posix_inputs: Env.Values,
     task_id: Optional[str] = None,
     parent_dir: Optional[str] = None,
@@ -360,7 +360,7 @@ def run_local_task(
 
 
 def _eval_task_inputs(
-    logger: logging.Logger, task: Task, posix_inputs: Env.Values, container: TaskContainer
+    logger: logging.Logger, task: Tree.Task, posix_inputs: Env.Values, container: TaskContainer
 ) -> Env.Values:
     # Map all the provided input Files to in-container paths
     # First make a pass to collect all the host paths and pass them to the
@@ -434,7 +434,7 @@ def _eval_task_inputs(
 
 
 def _eval_task_outputs(
-    logger: logging.Logger, task: Task, env: Env.Values, container: TaskContainer
+    logger: logging.Logger, task: Tree.Task, env: Env.Values, container: TaskContainer
 ) -> Env.Values:
 
     outputs = []
