@@ -13,7 +13,7 @@ from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
 from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
-import WDL
+from .. import Error, Type, Env, Expr, Value, StdLib, Task, Tree, _util
 from .error import *
 
 
@@ -157,7 +157,7 @@ class TaskContainer(ABC):
             if host_input_files:
                 return host_input_files[0]
             if inputs_only:
-                raise WDL.Error.InputError(
+                raise Error.InputError(
                     "task inputs attempted to use a non-input or non-existent file "
                     + container_file
                 )
@@ -287,11 +287,11 @@ class TaskDockerContainer(TaskContainer):
 
 
 def run_local_task(
-    task: WDL.Task,
-    posix_inputs: WDL.Env.Values,
+    task: Task,
+    posix_inputs: Env.Values,
     task_id: Optional[str] = None,
     parent_dir: Optional[str] = None,
-) -> Tuple[str, WDL.Env.Values]:
+) -> Tuple[str, Env.Values]:
     """
     Run a task locally.
 
@@ -333,11 +333,11 @@ def run_local_task(
         # evaluate runtime.docker
         image_tag_expr = task.runtime.get("docker", None)
         if image_tag_expr:
-            assert isinstance(image_tag_expr, WDL.Expr.Base)
+            assert isinstance(image_tag_expr, Expr.Base)
             container.image_tag = image_tag_expr.eval(posix_inputs).value
 
         # interpolate command
-        command = WDL._util.strip_leading_whitespace(
+        command = _util.strip_leading_whitespace(
             task.command.eval(container_env, stdlib=InputStdLib(container)).value
         )[1]
 
@@ -360,41 +360,41 @@ def run_local_task(
 
 
 def _eval_task_inputs(
-    logger: logging.Logger, task: WDL.Task, posix_inputs: WDL.Env.Values, container: TaskContainer
-) -> WDL.Env.Values:
+    logger: logging.Logger, task: Task, posix_inputs: Env.Values, container: TaskContainer
+) -> Env.Values:
     # Map all the provided input Files to in-container paths
     # First make a pass to collect all the host paths and pass them to the
     # container as a group (so that it can deal with any basename collisions)
     host_files = []
 
-    def collect_host_files(v: WDL.Value.Base) -> None:
-        if isinstance(v, WDL.Value.File):
+    def collect_host_files(v: Value.Base) -> None:
+        if isinstance(v, Value.File):
             host_files.append(v.value)
         for ch in v.children:
             collect_host_files(ch)
 
-    WDL.Env.map(posix_inputs, lambda namespace, binding: collect_host_files(binding.rhs))
+    Env.map(posix_inputs, lambda namespace, binding: collect_host_files(binding.rhs))
     container.add_files(host_files)
 
     # copy posix_inputs with all Files mapped to their in-container paths
-    def map_files(v: WDL.Value.Base) -> WDL.Value.Base:
-        if isinstance(v, WDL.Value.File):
+    def map_files(v: Value.Base) -> Value.Base:
+        if isinstance(v, Value.File):
             v.value = container.input_file_map[v.value]
         for ch in v.children:
             map_files(ch)
         return v
 
-    container_inputs = WDL.Env.map(
+    container_inputs = Env.map(
         posix_inputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs))
     )
 
     # initialize value environment with the inputs
     container_env = []
     for b in container_inputs:
-        assert isinstance(b, WDL.Env.Binding)
+        assert isinstance(b, Env.Binding)
         v = b.rhs
-        assert isinstance(v, WDL.Value.Base)
-        container_env = WDL.Env.bind(container_env, [], b.name, v)
+        assert isinstance(v, Value.Base)
+        container_env = Env.bind(container_env, [], b.name, v)
         vj = json.dumps(v.json)
         logger.info("input {} -> {}".format(b.name, vj if len(vj) < 4096 else "(large)"))
 
@@ -402,57 +402,57 @@ def _eval_task_inputs(
     decls_to_eval = []
     for decl in (task.inputs or []) + (task.postinputs or []):
         try:
-            WDL.Env.resolve(container_env, [], decl.name)
+            Env.resolve(container_env, [], decl.name)
         except KeyError:
             decls_to_eval.append(decl)
 
     # topsort them according to internal dependencies. prior static validation
     # should have ensured they're acyclic.
-    decls_by_id, decls_adj = WDL.Tree._dependency_matrix(decls_to_eval, exclusive=True)
-    decls_to_eval = [decls_by_id[did] for did in WDL._util.topsort(decls_adj)]
+    decls_by_id, decls_adj = Tree._dependency_matrix(decls_to_eval, exclusive=True)
+    decls_to_eval = [decls_by_id[did] for did in _util.topsort(decls_adj)]
 
     # evaluate each declaration in that order
     # note: the write_* functions call container.add_files as a side-effect
     stdlib = InputStdLib(container)
     for decl in decls_to_eval:
-        assert isinstance(decl, WDL.Tree.Decl)
-        v = WDL.Value.Null()
+        assert isinstance(decl, Tree.Decl)
+        v = Value.Null()
         if decl.expr:
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
-            except WDL.Error.RuntimeError:
+            except Error.RuntimeError:
                 raise
             except Exception as exn:
-                raise WDL.Error.EvalError(decl, str(exn)) from exn
+                raise Error.EvalError(decl, str(exn)) from exn
         else:
             assert decl.type.optional
         vj = json.dumps(v.json)
         logger.info("eval {} -> {}".format(decl.name, vj if len(vj) < 4096 else "(large)"))
-        container_env = WDL.Env.bind(container_env, [], decl.name, v)
+        container_env = Env.bind(container_env, [], decl.name, v)
 
     return container_env
 
 
 def _eval_task_outputs(
-    logger: logging.Logger, task: WDL.Task, env: WDL.Env.Values, container: TaskContainer
-) -> WDL.Env.Values:
+    logger: logging.Logger, task: Task, env: Env.Values, container: TaskContainer
+) -> Env.Values:
 
     outputs = []
     for decl in task.outputs:
         assert decl.expr
         try:
             v = decl.expr.eval(env, stdlib=OutputStdLib(container)).coerce(decl.type)
-        except WDL.Error.RuntimeError:
+        except Error.RuntimeError:
             raise
         except Exception as exn:
-            raise WDL.Error.EvalError(decl, str(exn)) from exn
+            raise Error.EvalError(decl, str(exn)) from exn
         logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
-        outputs = WDL.Env.bind(outputs, [], decl.name, v)
-        env = WDL.Env.bind(env, [], decl.name, v)
+        outputs = Env.bind(outputs, [], decl.name, v)
+        env = Env.bind(env, [], decl.name, v)
 
     # map Files from in-container paths to host paths
-    def map_files(v: WDL.Value.Base) -> WDL.Value.Base:
-        if isinstance(v, WDL.Value.File):
+    def map_files(v: Value.Base) -> Value.Base:
+        if isinstance(v, Value.File):
             host_file = container.host_file(v.value)
             logger.debug("File {} -> {}".format(v.value, host_file))
             v.value = host_file
@@ -460,10 +460,10 @@ def _eval_task_outputs(
             map_files(ch)
         return v
 
-    return WDL.Env.map(outputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs)))
+    return Env.map(outputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs)))
 
 
-class _StdLib(WDL.StdLib.Base):
+class _StdLib(StdLib.Base):
     # implements the various task-specific standard library functions
     container: TaskContainer
     inputs_only: bool  # if True then only permit access to input files
@@ -476,105 +476,102 @@ class _StdLib(WDL.StdLib.Base):
         self._override("size", _Size(self))
 
         def _read_something(
-            parse: Callable[[str], WDL.Value.Base], lib: _StdLib = self
-        ) -> Callable[[WDL.Value.File], WDL.Value.Base]:
+            parse: Callable[[str], Value.Base], lib: _StdLib = self
+        ) -> Callable[[Value.File], Value.Base]:
             def _f(
-                container_file: WDL.Value.File,
-                parse: Callable[[str], WDL.Value.Base] = parse,
+                container_file: Value.File,
+                parse: Callable[[str], Value.Base] = parse,
                 lib: _StdLib = lib,
-            ) -> WDL.Value.Base:
+            ) -> Value.Base:
                 host_file = lib.container.host_file(container_file.value, lib.inputs_only)
                 with open(host_file, "r") as infile:
                     return parse(infile.read())
 
             return _f
 
-        self._override_static("read_string", _read_something(lambda s: WDL.Value.String(s)))
-        self._override_static("read_int", _read_something(lambda s: WDL.Value.Int(int(s))))
-        self._override_static("read_float", _read_something(lambda s: WDL.Value.Float(float(s))))
+        self._override_static("read_string", _read_something(lambda s: Value.String(s)))
+        self._override_static("read_int", _read_something(lambda s: Value.Int(int(s))))
+        self._override_static("read_float", _read_something(lambda s: Value.Float(float(s))))
 
-        def _parse_boolean(s: str) -> WDL.Value.Boolean:
+        def _parse_boolean(s: str) -> Value.Boolean:
             s = s.rstrip()
             if s == "true":
-                return WDL.Value.Boolean(True)
+                return Value.Boolean(True)
             if s == "false":
-                return WDL.Value.Boolean(False)
-            raise WDL.Error.InputError('read_boolean(): file content is not "true" or "false"')
+                return Value.Boolean(False)
+            raise Error.InputError('read_boolean(): file content is not "true" or "false"')
 
         self._override_static("read_boolean", _read_something(_parse_boolean))
 
-        def parse_lines(s: str) -> WDL.Value.Array:
+        def parse_lines(s: str) -> Value.Array:
             ans = []
             if s:
                 ans = [
-                    WDL.Value.String(line)
-                    for line in (s[:-1] if s.endswith("\n") else s).split("\n")
+                    Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")
                 ]
-            return WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), ans)
+            return Value.Array(Type.Array(Type.String()), ans)
 
         self._override_static("read_lines", _read_something(parse_lines))
 
-        def parse_tsv(s: str) -> WDL.Value.Array:
+        def parse_tsv(s: str) -> Value.Array:
             # TODO: should a blank line parse as [] or ['']?
             ans = [
-                WDL.Value.Array(
-                    WDL.Type.Array(WDL.Type.String()),
-                    [WDL.Value.String(field) for field in line.value.split("\t")],
+                Value.Array(
+                    Type.Array(Type.String()),
+                    [Value.String(field) for field in line.value.split("\t")],
                 )
                 for line in parse_lines(s).value
             ]
             # pyre-ignore
-            return WDL.Value.Array(WDL.Type.Array(WDL.Type.Array(WDL.Type.String())), ans)
+            return Value.Array(Type.Array(Type.Array(Type.String())), ans)
 
         self._override_static("read_tsv", _read_something(parse_tsv))
 
-        def parse_map(s: str) -> WDL.Value.Map:
+        def parse_map(s: str) -> Value.Map:
             keys = set()
             ans = []
             for line in parse_tsv(s).value:
-                assert isinstance(line, WDL.Value.Array)
+                assert isinstance(line, Value.Array)
                 if len(line.value) != 2:
-                    raise WDL.Error.InputError("read_map(): each line must have two fields")
+                    raise Error.InputError("read_map(): each line must have two fields")
                 if line.value[0].value in keys:
-                    raise WDL.Error.InputError("read_map(): duplicate key")
+                    raise Error.InputError("read_map(): duplicate key")
                 keys.add(line.value[0].value)
                 ans.append((line.value[0], line.value[1]))
-            return WDL.Value.Map(WDL.Type.Map((WDL.Type.String(), WDL.Type.String())), ans)
+            return Value.Map(Type.Map((Type.String(), Type.String())), ans)
 
         self._override_static("read_map", _read_something(parse_map))
 
-        def parse_json(s: str) -> WDL.Value.Base:
+        def parse_json(s: str) -> Value.Base:
             # TODO: parse int/float/boolean inside map or list as such
             j = json.loads(s)
             if isinstance(j, dict):
                 ans = []
                 for k in j:
-                    ans.append((WDL.Value.String(str(k)), WDL.Value.String(str(j[k]))))
-                return WDL.Value.Map(WDL.Type.Map((WDL.Type.String(), WDL.Type.String())), ans)
+                    ans.append((Value.String(str(k)), Value.String(str(j[k]))))
+                return Value.Map(Type.Map((Type.String(), Type.String())), ans)
             if isinstance(j, list):
-                return WDL.Value.Array(
-                    WDL.Type.Array(WDL.Type.String()), [WDL.Value.String(str(v)) for v in j]
-                )
+                return Value.Array(Type.Array(Type.String()), [Value.String(str(v)) for v in j])
             if isinstance(j, bool):
-                return WDL.Value.Boolean(j)
+                return Value.Boolean(j)
             if isinstance(j, int):
-                return WDL.Value.Int(j)
+                return Value.Int(j)
             if isinstance(j, float):
-                return WDL.Value.Float(j)
+                return Value.Float(j)
             if j is None:
-                return WDL.Value.Null()
-            raise WDL.Error.InputError("parse_json()")
+                return Value.Null()
+            raise Error.InputError("parse_json()")
 
         self._override_static("read_json", _read_something(parse_json))
 
         def _write_something(
-            serialize: Callable[[WDL.Value.Base, BinaryIO], None], lib: _StdLib = self
-        ) -> Callable[[WDL.Value.Base], WDL.Value.File]:
+            serialize: Callable[[Value.Base, BinaryIO], None], lib: _StdLib = self
+        ) -> Callable[[Value.Base], Value.File]:
             def _f(
-                v: WDL.Value.Base,
-                serialize: Callable[[WDL.Value.Base, BinaryIO], None] = serialize,
+                v: Value.Base,
+                serialize: Callable[[Value.Base, BinaryIO], None] = serialize,
                 lib: _StdLib = lib,
-            ) -> WDL.Value.File:
+            ) -> Value.File:
                 host_fn = None
                 os.makedirs(os.path.join(lib.container.host_dir, "write"), exist_ok=True)
                 with tempfile.NamedTemporaryFile(
@@ -585,13 +582,13 @@ class _StdLib(WDL.StdLib.Base):
                     host_fn = outfile.name
                 assert os.path.isabs(host_fn)
                 lib.container.add_files([host_fn])
-                return WDL.Value.File(lib.container.input_file_map[host_fn])
+                return Value.File(lib.container.input_file_map[host_fn])
 
             return _f
 
-        def _serialize_lines(array: WDL.Value.Array, outfile: BinaryIO) -> None:
+        def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
             for item in array.value:
-                outfile.write(item.coerce(WDL.Type.String()).value.encode("utf-8"))
+                outfile.write(item.coerce(Type.String()).value.encode("utf-8"))
                 outfile.write(b"\n")
 
         self._override_static("write_lines", _write_something(_serialize_lines))  # pyre-ignore
@@ -605,12 +602,12 @@ class _StdLib(WDL.StdLib.Base):
             "write_tsv",
             _write_something(
                 lambda v, outfile: _serialize_lines(
-                    WDL.Value.Array(
-                        WDL.Type.Array(WDL.Type.String()),
+                    Value.Array(
+                        Type.Array(Type.String()),
                         [
-                            WDL.Value.String(
+                            Value.String(
                                 "\t".join(
-                                    [part.coerce(WDL.Type.String()).value for part in parts.value]
+                                    [part.coerce(Type.String()).value for part in parts.value]
                                 )
                             )
                             for parts in v.value
@@ -621,17 +618,17 @@ class _StdLib(WDL.StdLib.Base):
             ),
         )
 
-        def _serialize_map(map: WDL.Value.Map, outfile: BinaryIO) -> None:
+        def _serialize_map(map: Value.Map, outfile: BinaryIO) -> None:
             lines = []
             for (k, v) in map.value:
-                k = k.coerce(WDL.Type.String()).value
-                v = v.coerce(WDL.Type.String()).value
+                k = k.coerce(Type.String()).value
+                v = v.coerce(Type.String()).value
                 if "\n" in k or "\t" in k or "\n" in v or "\t" in v:
                     raise ValueError(
                         "write_map(): keys & values must not contain tab or newline characters"
                     )
-                lines.append(WDL.Value.String(k + "\t" + v))
-            _serialize_lines(WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), lines), outfile)
+                lines.append(Value.String(k + "\t" + v))
+            _serialize_lines(Value.Array(Type.Array(Type.String()), lines), outfile)
 
         self._override_static("write_map", _write_something(_serialize_map))  # pyre-ignore
 
@@ -649,19 +646,19 @@ class OutputStdLib(_StdLib):
 
         self._override_static(
             "stdout",
-            lambda container_dir=self.container.container_dir: WDL.Value.File(
+            lambda container_dir=self.container.container_dir: Value.File(
                 os.path.join(container_dir, "stdout.txt")
             ),
         )
         self._override_static(
             "stderr",
-            lambda container_dir=self.container.container_dir: WDL.Value.File(
+            lambda container_dir=self.container.container_dir: Value.File(
                 os.path.join(container_dir, "stderr.txt")
             ),
         )
 
-        def _glob(pattern: WDL.Value.String, lib: OutputStdLib = self) -> WDL.Value.Array:
-            pat = pattern.coerce(WDL.Type.String()).value
+        def _glob(pattern: Value.String, lib: OutputStdLib = self) -> Value.Array:
+            pat = pattern.coerce(Type.String()).value
             if not pat:
                 raise OutputError("empty glob() pattern")
             assert isinstance(pat, str)
@@ -672,16 +669,16 @@ class OutputStdLib(_StdLib):
             if pat.startswith("./"):
                 pat = pat[2:]
             pat = os.path.join(lib.container.host_dir, "work", pat)
-            return WDL.Value.Array(
-                WDL.Type.Array(WDL.Type.File()),
-                [WDL.Value.String(fn) for fn in sorted(glob.glob(pat)) if os.path.isfile(fn)],
+            return Value.Array(
+                Type.Array(Type.File()),
+                [Value.String(fn) for fn in sorted(glob.glob(pat)) if os.path.isfile(fn)],
             )
 
         self._override_static("glob", _glob)
 
 
-class _Size(WDL.StdLib._Size):
-    # overrides WDL.StdLib._Size() to perform translation of in-container to host paths
+class _Size(StdLib._Size):
+    # overrides StdLib._Size() to perform translation of in-container to host paths
 
     lib: _StdLib
 
@@ -689,14 +686,12 @@ class _Size(WDL.StdLib._Size):
         super().__init__()
         self.lib = lib
 
-    def _call_eager(self, expr: WDL.Expr.Apply, arguments: List[WDL.Value.Base]) -> WDL.Value.Base:
-        files = arguments[0].coerce(WDL.Type.Array(WDL.Type.File()))
+    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
+        files = arguments[0].coerce(Type.Array(Type.File()))
         host_files = [
-            WDL.Value.File(
-                self.lib.container.host_file(fn_c.value, inputs_only=self.lib.inputs_only)
-            )
+            Value.File(self.lib.container.host_file(fn_c.value, inputs_only=self.lib.inputs_only))
             for fn_c in files.value
         ]
         # pyre-ignore
-        arguments = [WDL.Value.Array(files.type, host_files)] + arguments[1:]
+        arguments = [Value.Array(files.type, host_files)] + arguments[1:]
         return super()._call_eager(expr, arguments)

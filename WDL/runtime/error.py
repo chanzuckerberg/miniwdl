@@ -1,4 +1,4 @@
-from WDL.Error import RuntimeError as _RuntimeError
+from ..Error import RuntimeError as _RuntimeError
 
 
 class CommandError(_RuntimeError):

@@ -10,14 +10,13 @@ Each value is represented by an instance of a Python class inheriting from
 from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union
 import json
-import WDL.Type as T
-import WDL.Error as Error
+from . import Error, Type
 
 
 class Base(ABC):
     """The abstract base class for WDL values"""
 
-    type: T.Base
+    type: Type.Base
     ":type: WDL.Type.Base"
 
     value: Any
@@ -29,8 +28,8 @@ class Base(ABC):
     from ``WDL.Expr.eval``
     """
 
-    def __init__(self, type: T.Base, value: Any) -> None:
-        assert isinstance(type, T.Base)
+    def __init__(self, type: Type.Base, value: Any) -> None:
+        assert isinstance(type, Type.Base)
         self.type = type
         self.value = value
         self.expr = None
@@ -41,7 +40,7 @@ class Base(ABC):
     def __str__(self) -> str:
         return json.dumps(self.json)
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> "Base":
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> "Base":
         """
         Coerce the value to the desired type and return it
 
@@ -50,9 +49,9 @@ class Base(ABC):
 
         :raises: ReferenceError for a null value and non-optional type
         """
-        if isinstance(desired_type, T.String):
+        if isinstance(desired_type, Type.String):
             return String(str(self.value))
-        if isinstance(desired_type, T.Array) and self.type.coerces(
+        if isinstance(desired_type, Type.Array) and self.type.coerces(
             desired_type.item_type, check_quant=False
         ):
             # coercion of T to Array[T] (x to [x])
@@ -60,7 +59,7 @@ class Base(ABC):
             return Array(desired_type, [self.coerce(desired_type.item_type)])
         return self
 
-    def expect(self, desired_type: Optional[T.Base] = None) -> "Base":
+    def expect(self, desired_type: Optional[Type.Base] = None) -> "Base":
         """Alias for coerce"""
         return self.coerce(desired_type)
 
@@ -78,11 +77,11 @@ class Boolean(Base):
     """``value`` has Python type ``bool``"""
 
     def __init__(self, value: bool) -> None:
-        super().__init__(T.Boolean(), value)
+        super().__init__(Type.Boolean(), value)
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if isinstance(desired_type, T.String):
+        if isinstance(desired_type, Type.String):
             return String(str(self))
         return super().coerce(desired_type)
 
@@ -91,18 +90,18 @@ class Float(Base):
     """``value`` has Python type ``float``"""
 
     def __init__(self, value: float) -> None:
-        super().__init__(T.Float(), value)
+        super().__init__(Type.Float(), value)
 
 
 class Int(Base):
     """``value`` has Python type ``int``"""
 
     def __init__(self, value: int) -> None:
-        super().__init__(T.Int(), value)
+        super().__init__(Type.Int(), value)
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if isinstance(desired_type, T.Float):
+        if isinstance(desired_type, Type.Float):
             return Float(float(self.value))
         return super().coerce(desired_type)
 
@@ -111,11 +110,11 @@ class String(Base):
     """``value`` has Python type ``str``"""
 
     def __init__(self, value: str) -> None:
-        super().__init__(T.String(), value)
+        super().__init__(Type.String(), value)
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if isinstance(desired_type, T.File):
+        if isinstance(desired_type, Type.File):
             return File(self.value)
         return super().coerce(desired_type)
 
@@ -130,9 +129,9 @@ class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
 
     value: List[Base]
-    type: T.Array
+    type: Type.Array
 
-    def __init__(self, type: T.Array, value: List[Base]) -> None:
+    def __init__(self, type: Type.Array, value: List[Base]) -> None:
         self.value = []
         self.type = type
         super().__init__(type, value)
@@ -145,16 +144,17 @@ class Array(Base):
     def children(self) -> Iterable[Base]:
         return self.value
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if isinstance(desired_type, T.Array):
+        if isinstance(desired_type, Type.Array):
             if desired_type.nonempty and not self.value:
                 if self.expr:
                     raise Error.EmptyArray(self.expr)
                 else:
                     raise ValueError("Empty array for Array+ input/declaration")
             if desired_type.item_type == self.type.item_type or (
-                isinstance(desired_type.item_type, T.Any) or isinstance(self.type.item_type, T.Any)
+                isinstance(desired_type.item_type, Type.Any)
+                or isinstance(self.type.item_type, Type.Any)
             ):
                 return self
             return Array(desired_type, [v.coerce(desired_type.item_type) for v in self.value])
@@ -163,9 +163,9 @@ class Array(Base):
 
 class Map(Base):
     value: List[Tuple[Base, Base]]
-    type: T.Map
+    type: Type.Map
 
-    def __init__(self, type: T.Map, value: List[Tuple[Base, Base]]) -> None:
+    def __init__(self, type: Type.Map, value: List[Tuple[Base, Base]]) -> None:
         self.value = []
         self.type = type
         super().__init__(type, value)
@@ -184,9 +184,9 @@ class Map(Base):
             yield k
             yield v
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if isinstance(desired_type, T.Map) and desired_type != self.type:
+        if isinstance(desired_type, Type.Map) and desired_type != self.type:
             return Map(
                 desired_type,
                 [
@@ -194,11 +194,11 @@ class Map(Base):
                     for (k, v) in self.value
                 ],
             )
-        if isinstance(desired_type, T.StructInstance):
+        if isinstance(desired_type, Type.StructInstance):
             assert desired_type.members
             ans = {}
             for k, v in self.value:
-                k = k.coerce(T.String()).value
+                k = k.coerce(Type.String()).value
                 assert k in desired_type.members
                 ans[k] = v
             return Struct(desired_type, ans)
@@ -207,9 +207,9 @@ class Map(Base):
 
 class Pair(Base):
     value: Tuple[Base, Base]
-    type: T.Pair
+    type: Type.Pair
 
-    def __init__(self, type: T.Pair, value: Tuple[Base, Base]) -> None:
+    def __init__(self, type: Type.Pair, value: Tuple[Base, Base]) -> None:
         self.value = value
         self.type = type
         super().__init__(type, value)
@@ -227,9 +227,9 @@ class Pair(Base):
         yield self.value[0]
         yield self.value[1]
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if isinstance(desired_type, T.Pair) and desired_type != self.type:
+        if isinstance(desired_type, Type.Pair) and desired_type != self.type:
             return Pair(
                 desired_type,
                 (
@@ -245,11 +245,11 @@ class Null(Base):
     ``type`` and ``value`` are both None."""
 
     def __init__(self) -> None:
-        super().__init__(T.Any(optional=True), None)
+        super().__init__(Type.Any(optional=True), None)
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if desired_type and not desired_type.optional and not isinstance(desired_type, T.Any):
+        if desired_type and not desired_type.optional and not isinstance(desired_type, Type.Any):
             # normally the typechecker should prevent this, but it might have
             # had check_quant=False
             if self.expr:
@@ -266,10 +266,12 @@ class Null(Base):
 class Struct(Base):
     value: Dict[str, Base]
 
-    def __init__(self, type: Union[T.Object, T.StructInstance], value: Dict[str, Base]) -> None:
+    def __init__(
+        self, type: Union[Type.Object, Type.StructInstance], value: Dict[str, Base]
+    ) -> None:
         super().__init__(type, value)
         self.value = dict(value)
-        if isinstance(type, T.StructInstance):
+        if isinstance(type, Type.StructInstance):
             # if initializer (map or object literal) omits optional members,
             # fill them in with null
             assert type.members
@@ -278,9 +280,9 @@ class Struct(Base):
                     assert type.members[k].optional
                     self.value[k] = Null()
 
-    def coerce(self, desired_type: Optional[T.Base] = None) -> Base:
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if isinstance(self.type, T.Object) and isinstance(desired_type, T.StructInstance):
+        if isinstance(self.type, Type.Object) and isinstance(desired_type, Type.StructInstance):
             return Struct(desired_type, self.value)
         return self
 
@@ -299,32 +301,36 @@ class Struct(Base):
         return self.value.values()
 
 
-def from_json(type: T.Base, value: Any) -> Base:
+def from_json(type: Type.Base, value: Any) -> Base:
     """
     Instantiate a WDL value of the specified type from a parsed JSON value (str, int, float, list, dict, or null).
 
     :raise WDL.Error.InputError: if the given value isn't coercible to the specified type
     """
-    if isinstance(type, T.Boolean) and value in [True, False]:
+    if isinstance(type, Type.Boolean) and value in [True, False]:
         return Boolean(value)
-    if isinstance(type, T.Int) and isinstance(value, int):
+    if isinstance(type, Type.Int) and isinstance(value, int):
         return Int(value)
-    if isinstance(type, T.Float) and isinstance(value, (float, int)):
+    if isinstance(type, Type.Float) and isinstance(value, (float, int)):
         return Float(float(value))
-    if isinstance(type, T.File) and isinstance(value, str):
+    if isinstance(type, Type.File) and isinstance(value, str):
         return File(value)
-    if isinstance(type, T.String) and isinstance(value, str):
+    if isinstance(type, Type.String) and isinstance(value, str):
         return String(value)
-    if isinstance(type, T.Array) and isinstance(value, list):
+    if isinstance(type, Type.Array) and isinstance(value, list):
         return Array(type, [from_json(type.item_type, item) for item in value])
-    if isinstance(type, T.Map) and type.item_type[0] == T.String() and isinstance(value, dict):
+    if (
+        isinstance(type, Type.Map)
+        and type.item_type[0] == Type.String()
+        and isinstance(value, dict)
+    ):
         items = []
         for k, v in value.items():
             assert isinstance(k, str)
             items.append((from_json(type.item_type[0], k), from_json(type.item_type[1], v)))
         return Map(type, items)
     if (
-        isinstance(type, T.StructInstance)
+        isinstance(type, Type.StructInstance)
         and isinstance(value, dict)
         and type.members
         and set(type.members.keys()) == set(value.keys())
@@ -333,7 +339,7 @@ def from_json(type: T.Base, value: Any) -> Base:
         for k, v in value.items():
             assert isinstance(k, str)
             items[k] = from_json(type.members[k], v)
-        return Struct(T.Object(type.members), items)
+        return Struct(Type.Object(type.members), items)
     if type.optional and value is None:
         return Null()
     raise Error.InputError(
