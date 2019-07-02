@@ -89,9 +89,9 @@ task sleep {
 EOF
 
 t0=$(date +%s)
-$miniwdl run sleep.wdl seconds=10 & pid=$!
+$miniwdl run sleep.wdl seconds=30 & pid=$!
 sleep 3
 kill $pid
 wait $pid || true
 t1=$(date +%s)
-is "$(( t1 - t0 < 5 ))" "1" "task SIGTERM"
+is "$(( t1 - t0 < 15 ))" "1" "task SIGTERM"

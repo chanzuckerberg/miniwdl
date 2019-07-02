@@ -477,9 +477,9 @@ class TestTaskRunner(unittest.TestCase):
         version 1.0
         task t {
             command {
-                sleep 10
+                sleep 30
             }
         }
         """, expected_exception=WDL.runtime.Terminated)
         t1 = time.time()
-        self.assertLess(t1 - t0, 5)
+        self.assertLess(t1 - t0, 15)
