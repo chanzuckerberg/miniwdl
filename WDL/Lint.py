@@ -751,11 +751,7 @@ class CommandShellCheck(Linter):
         self._tmpdir = tempfile.mkdtemp(prefix="miniwdl_shellcheck_")
         global _shellcheck_available
         if _shellcheck_available is None:
-            try:
-                subprocess.check_output(["which", "shellcheck"])
-                _shellcheck_available = True
-            except subprocess.CalledProcessError:
-                _shellcheck_available = False
+            _shellcheck_available = shutil.which("shellcheck") is not None
 
     def __del__(self):
         shutil.rmtree(self._tmpdir, ignore_errors=True)

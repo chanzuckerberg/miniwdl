@@ -437,11 +437,12 @@ def _eval_task_outputs(
     logger: logging.Logger, task: Tree.Task, env: Env.Values, container: TaskContainer
 ) -> Env.Values:
 
+    stdlib = OutputStdLib(container)
     outputs = []
     for decl in task.outputs:
         assert decl.expr
         try:
-            v = decl.expr.eval(env, stdlib=OutputStdLib(container)).coerce(decl.type)
+            v = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
         except Error.RuntimeError:
             raise
         except Exception as exn:
