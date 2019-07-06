@@ -1,8 +1,7 @@
 """
-The **plan** is a directed acyclic graph (DAG) modeling the steps of a workflow, compiled
-from the AST with a more explicit and uniform treatment of the internal dataflow. It's an
-intermediate form meant to guide workflow execution without intrinsic assumptions about the
-scheduler backend.
+The **plan** is a directed acyclic graph (DAG) representing a WDL workflow, compiled from the AST
+with a more explicit & uniform model of the internal dependencies. It's an intermediate
+representation to guide the scheduling of workflow execution, whatever the backend.
 
 A node in this DAG represents either:
   - binding of name(s) to value(s) obtained by evaluation of WDL expression(s)
@@ -61,7 +60,7 @@ class Call(Node):
 
     def _populate_outputs(self) -> None:
         def add_output(namespace: List[str], name: str, binding: Env.Binding) -> bool:
-            b = Binding(namespace, name, binding.rhs, self.source)
+            b = Binding(namespace, name, self.source)
             b.dependencies.append(self)
             return True
         Env.filter(self.source.effective_outputs, add_output)
@@ -95,7 +94,7 @@ class Scatter(Node):
 
 class Gather(Node):
     """
-    A ``Gather`` node represents the array of results arising from a node within a Scatter section,
+    A ``Gather`` node represents the array of results arising from a node within a scatter section,
     as seen by other workflow elements outside of the scatter. It stores one dependency which is
     the said node inside the scatter body. (Note that this may itself be another ``Gather`` node,
     in the case of nested sections.)
