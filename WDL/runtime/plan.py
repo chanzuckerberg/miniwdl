@@ -4,12 +4,17 @@ with a more explicit & uniform model of the internal dependencies. It's an inter
 representation used to inform scheduling of workflow execution, whatever the backend.
 
 A node in this DAG represents either:
-  - binding of name(s) to value(s) obtained by evaluation of WDL expression(s)
+  - binding a name to a value (obtained from input or by evaluation of a WDL expression)
   - a call to invoke a task or sub-workflow, generating namespaced outputs
-  - a scatter or conditional section, containing a sub-DAG to be executed with the respective
-    semantics
-An edge from n1 to n2 in the DAG represents the dependency of n2 on n1, usually including the flow
-of a ``WDL.Env.Values`` from n1 to n2.
+  - a scatter or conditional section, containing a sub-DAG to be executed with the
+    runtime-determined multiplicity
+  - specialized nodes associated with scatter & conditional nodes represent the array & optional
+    values, respectively, that will arise from execution of the sub-DAG.
+Each node stores a list of dependencies, other nodes from which it has in-edges. Such an edge
+from n1 to n2 represents the dependency of n2 on n1, usually including the flow of a
+``WDL.Env.Values`` from n1 to n2.
+
+The plan is meant to be pickled easily, with each node assigned a readable ID.
 """
 
 from abc import ABC, abstractmethod
@@ -17,6 +22,7 @@ from typing import Tuple, List, Dict, Optional, Set, Iterable
 from .. import Error, Env, Expr, Value, StdLib, Tree, _util
 from Error import SourceNode
 from .error import *
+
 
 class Node(ABC):
     id: str
@@ -31,13 +37,18 @@ class Node(ABC):
     def source(self) -> SourceNode:
         ...
 
+    @property
+    def children(self) -> "Iterable[Node]":
+        return []
+
+
 class Binding(Node):
     _source: SourceNode
     namespace: List[str]
     name: str
 
     def __init__(self, namespace: List[str], name: str, source: SourceNode) -> None:
-        super().__init__(".".join(namespace+[name]))
+        super().__init__(".".join(namespace + [name]))
         self._source = source
         self.namespace = namespace
         self.name = name
@@ -45,6 +56,7 @@ class Binding(Node):
     @property
     def source(self) -> SourceNode:
         return self._source
+
 
 class Decl(Binding):
     _source: Tree.Decl
@@ -57,41 +69,49 @@ class Decl(Binding):
     def source(self) -> SourceNode:
         return self._source
 
+
 class Output(Decl):
     pass
+
 
 class Call(Node):
     _source: Tree.Call
     outputs: List[Binding]
 
     def __init__(self, source: Tree.Call) -> None:
-        super().__init__("call:"+source.name)
+        super().__init__("call:" + source.name)
         self._source = source
         self.outputs = []
 
-    def _populate_outputs(self) -> None:
+    def _compile_outputs(self) -> None:
         def add_output(namespace: List[str], binding: Env.Binding) -> bool:
             b = Binding(namespace, binding.name, self.source)
             b.dependencies.append(self)
             return True
+
         Env.filter(self.source.effective_outputs, add_output)
 
     @property
     def source(self) -> Tree.Call:
         return self._source
 
+    @property
+    def children(self) -> Iterable[Node]:
+        for outp in self.outputs:
+            yield outp
+
 class Scatter(Node):
     _source: Tree.Scatter
     body: List[Node]
     gathers: "List[Gather]"
-    
+
     def __init__(self, source: Tree.Scatter) -> None:
         super().__init__("scatter_" + source.variable)
         self.body = []
         self.gathers = []
         self._source = source
 
-    def _populate_gathers(self) -> None:
+    def _compile_gathers(self) -> None:
         for n in self.body:
             if isinstance(n, Decl):
                 self.gathers.append(Gather(n))
@@ -110,6 +130,13 @@ class Scatter(Node):
     @property
     def source(self) -> Tree.Scatter:
         return self._source
+
+    @property
+    def children(self) -> Iterable[Node]:
+        for ch in self.body:
+            yield ch
+        for g in self.gathers:
+            yield g
 
 
 class Gather(Node):
@@ -132,6 +159,7 @@ class Gather(Node):
     def source(self) -> SourceNode:
         return self.dependency.source
 
+
 class Conditional(Node):
     _source: Tree.Conditional
     body: List[Node]
@@ -143,7 +171,7 @@ class Conditional(Node):
         self.values = []
         self._source = source
 
-    def _populate_values(self) -> None:
+    def _compile_values(self) -> None:
         for n in self.body:
             if isinstance(n, Decl):
                 self.values.append(ConditionalValue(n))
@@ -163,6 +191,14 @@ class Conditional(Node):
     def source(self) -> Tree.Conditional:
         return self._source
 
+    @property
+    def children(self) -> Iterable[Node]:
+        for ch in self.body:
+            yield ch
+        for v in self.values:
+            yield v
+
+
 class ConditionalValue(Node):
     """
     A ``ConditionalValue`` node represents the result of a node within a Conditional section, which
@@ -170,8 +206,9 @@ class ConditionalValue(Node):
     Like ``Gather`` it has one dependency inside the conditional body, which may itself be an
     ``Optional`` or ``Gather``.
     """
+
     def __init__(self, dependency: Node) -> None:
-        super().__init__(dependency.id+"?")
+        super().__init__(dependency.id + "?")
         self.dependencies.append(dependency)
 
     @property
@@ -184,4 +221,6 @@ class ConditionalValue(Node):
 
 
 def compile(workflow: Tree.Workflow, workflow_inputs: Env.Values) -> List[Node]:
-    ...
+    # 1. instantiate Nodes for each workflow element (recursively), indexed by python object ID of
+    #    SourceNode
+    # 2. populate their dependencies
