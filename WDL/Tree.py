@@ -596,12 +596,24 @@ class Scatter(SourceNode):
         # and namespaced appropriately, as they'll be propagated if the
         # workflow lacks an explicit output{} section
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
-        ans: Env.Types = []
+        inner_outputs: Env.Types = []
         for elt in self.elements:
             if not isinstance(elt, Decl):
-                ans = elt.effective_outputs + ans
-        ans = Env.map(ans, lambda ns, b: Type.Array(b.rhs, nonempty=nonempty))
-        return ans
+                inner_outputs = elt.effective_outputs + inner_outputs
+
+        box = [[]]
+
+        def visit(namespace: List[str], binding: Env.Binding) -> None:
+            box[0] = Env.bind(
+                box[0],
+                namespace,
+                binding.name,
+                Type.Array(binding.rhs, nonempty=nonempty),
+                ctx=Gather(section=self, referee=binding.ctx),
+            )
+
+        Env.map(inner_outputs, visit)  # pyre-ignore
+        return box[0]
 
 
 class Conditional(SourceNode):
@@ -674,11 +686,24 @@ class Conditional(SourceNode):
         # Yield the outputs of calls in this section and subsections, typed
         # and namespaced appropriately, as they'll be propagated if the
         # workflow lacks an explicit output{} section
-        ans = []
+        inner_outputs = []
         for elt in self.elements:
             if not isinstance(elt, Decl):
-                ans = elt.effective_outputs + ans
-        return Env.map(ans, lambda ns, b: b.rhs.copy(optional=True))
+                inner_outputs = elt.effective_outputs + inner_outputs
+
+        box = [[]]
+
+        def visit(namespace: List[str], binding: Env.Binding) -> None:
+            box[0] = Env.bind(
+                box[0],
+                namespace,
+                binding.name,
+                binding.rhs.copy(optional=True),
+                ctx=Gather(section=self, referee=binding.ctx),
+            )
+
+        Env.map(inner_outputs, visit)  # pyre-ignore
+        return box[0]
 
 
 class Workflow(SourceNode):
