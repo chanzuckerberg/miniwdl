@@ -621,23 +621,23 @@ class UnusedImport(Linter):
 class ForwardReference(Linter):
     # Ident referencing a value or call output lexically precedes Decl/Call
     def expr(self, obj: Expr.Base) -> Any:
-        if (
-            isinstance(obj, Expr.Ident)
-            and isinstance(obj.referee, (Tree.Decl, Tree.Call))
-            and (
-                obj.referee.pos.line > obj.pos.line
-                or (
-                    obj.referee.pos.line == obj.pos.line and obj.referee.pos.column > obj.pos.column
-                )
-            )
-        ):
-            if isinstance(obj.referee, Tree.Decl):
-                msg = "reference to {} precedes its declaration".format(obj.name)
-            elif isinstance(obj.referee, Tree.Call):
-                msg = "reference to output of {} precedes the call".format(".".join(obj.namespace))
-            else:
-                assert False
-            self.add(getattr(obj, "parent"), msg, obj.pos)
+        if isinstance(obj, Expr.Ident):
+            referee = obj.referee
+            while isinstance(referee, Tree.Gather):
+                referee = referee.referee
+            if isinstance(referee, (Tree.Decl, Tree.Call)) and (
+                referee.pos.line > obj.pos.line
+                or (referee.pos.line == obj.pos.line and referee.pos.column > obj.pos.column)
+            ):
+                if isinstance(referee, Tree.Decl):
+                    msg = "reference to {} precedes its declaration".format(obj.name)
+                elif isinstance(referee, Tree.Call):
+                    msg = "reference to output of {} precedes the call".format(
+                        ".".join(obj.namespace)
+                    )
+                else:
+                    assert False
+                self.add(getattr(obj, "parent"), msg, obj.pos)
 
 
 @a_linter
