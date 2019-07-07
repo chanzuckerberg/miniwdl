@@ -623,15 +623,17 @@ class ForwardReference(Linter):
     def expr(self, obj: Expr.Base) -> Any:
         if (
             isinstance(obj, Expr.Ident)
-            and isinstance(obj.ctx, (Tree.Decl, Tree.Call))
+            and isinstance(obj.referee, (Tree.Decl, Tree.Call))
             and (
-                obj.ctx.pos.line > obj.pos.line
-                or (obj.ctx.pos.line == obj.pos.line and obj.ctx.pos.column > obj.pos.column)
+                obj.referee.pos.line > obj.pos.line
+                or (
+                    obj.referee.pos.line == obj.pos.line and obj.referee.pos.column > obj.pos.column
+                )
             )
         ):
-            if isinstance(obj.ctx, Tree.Decl):
+            if isinstance(obj.referee, Tree.Decl):
                 msg = "reference to {} precedes its declaration".format(obj.name)
-            elif isinstance(obj.ctx, Tree.Call):
+            elif isinstance(obj.referee, Tree.Call):
                 msg = "reference to output of {} precedes the call".format(".".join(obj.namespace))
             else:
                 assert False

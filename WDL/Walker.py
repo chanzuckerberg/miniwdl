@@ -272,5 +272,5 @@ class SetReferrers(Base):
         super().__init__(auto_descend=True)
 
     def expr(self, obj: Expr.Base) -> None:
-        if isinstance(obj, Expr.Ident) and isinstance(obj.ctx, (Tree.Decl, Tree.Call)):
-            setattr(obj.ctx, "referrers", getattr(obj.ctx, "referrers", []) + [obj])
+        if isinstance(obj, Expr.Ident) and isinstance(obj.referee, (Tree.Decl, Tree.Call)):
+            setattr(obj.referee, "referrers", getattr(obj.referee, "referrers", []) + [obj])

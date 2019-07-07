@@ -647,14 +647,11 @@ class Ident(Base):
     name: str
     ":type: str"
 
-    ctx: Optional[Any] = None
+    referee: Optional[SourceNode]
     """
-    After typechecking, stores context about the binding from the type
-    environment.
-
-    The ``Tree`` typechecker typically stores here a reference to a ``Decl``
-    (for value references in tasks and workflows), a ``Call`` (for references
-    to a call output), or a ``Scatter`` (for references to a scatter variable).
+    After typechecking within a task or workflow, stores the AST node to which the identifier
+    refers: a ``WDL.Tree.Decl`` for value references; a ``WDL.Tree.Call`` for call outputs; or a
+    ``WDL.Tree.Scatter`` for scatter variables.
     """
 
     def __init__(self, pos: SourcePosition, parts: List[str]) -> None:
@@ -662,6 +659,7 @@ class Ident(Base):
         assert parts
         self.name = parts[-1]
         self.namespace = parts[:-1]
+        self.referee = None
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -671,9 +669,12 @@ class Ident(Base):
         # The following Env.resolve will never fail, as Get._infer_type does
         # the heavy lifting for us.
         ans: Type.Base = Env.resolve(type_env, self.namespace, self.name)
-        # the ctx for each binding in the type environment should be the
-        # originating Decl (for inputs/values) or Call (for call outputs)
-        self.ctx = Env.resolve_ctx(type_env, self.namespace, self.name)
+        # referee comes from the type environment's context values
+        referee = Env.resolve_ctx(type_env, self.namespace, self.name)
+        if referee:
+            assert isinstance(referee, SourceNode)
+            assert referee.__class__.__name__ in ["Decl", "Call", "Scatter"]
+            self.referee = referee
         return ans
 
     def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:

@@ -1292,10 +1292,10 @@ def _dependencies(obj: Union[Decl, Call, Expr.Base]) -> Iterable[Union[Decl, Cal
             for dep in _dependencies(v):
                 yield dep
     elif isinstance(obj, Expr.Ident):
-        if isinstance(obj.ctx, (Decl, Call)):
-            yield obj.ctx
+        if isinstance(obj.referee, (Decl, Call)):
+            yield obj.referee
         else:
-            assert isinstance(obj.ctx, Scatter)
+            assert isinstance(obj.referee, Scatter)
     else:
         assert isinstance(obj, Expr.Base)
         for subexpr in obj.children:
