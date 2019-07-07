@@ -502,14 +502,15 @@ Gather = NamedTuple(
     "Gather", [("section", "Union[Scatter, Conditional]"), ("referee", "Union[Decl,Call,Gather]")]
 )
 """
-A ``Gather`` object represents a reference to a value inside a scatter or conditional section from
-some identifier expression outside of that section. In such a case, it's stored in the ``referee``
-attribute of the ``WDL.Expr.Ident`` to symbolize the gathering of results into an array (for
-scatter sections) or an optional value (for conditional sections) for use outside of the section.
+A ``Gather`` node symbolizes the operation to gather an array of declared values or call outputs in
+a scatter section, or optional values from a conditional section. It's an abstract symbol rather
+than a ``SourceNode`` because these operations are implicit in WDL.
 
-It links to the ``Scatter`` or ``Conditional`` section node and the specific ``Decl`` referenced or
-``Call`` whose output is used. Futhermore, its referee can be another ``Gather``object, in the case
-of nested scatter/conditional sections.
+When a ``WDL.Expr.Ident`` outside of the scatter/conditional section references the array/optional,
+its ``referee`` attribute is the ``Gather`` node, which in turn points to the
+``Scatter``/``Conditional`` node and to the specific ``Decl`` or ``Call`` whose output is
+referenced. Futhermore, the ``Gather``'s referee can be another ``Gather``node, in the case of
+nested scatter/conditional sections.
 """
 
 
@@ -567,6 +568,7 @@ class Scatter(SourceNode):
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as Array[T] outside)
+
         inner_type_env: Env.Types = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)  # pyre-ignore
@@ -575,11 +577,14 @@ class Scatter(SourceNode):
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
 
         box = [type_env]
-
+        # array-ize each inner type binding and add gather nodes
         def visit(namespace: List[str], binding: Env.Binding) -> None:
-            g = Gather(section=self, referee=binding.ctx)
             box[0] = Env.bind(
-                box[0], namespace, binding.name, Type.Array(binding.rhs, nonempty=nonempty), ctx=g
+                box[0],
+                namespace,
+                binding.name,
+                Type.Array(binding.rhs, nonempty=nonempty),
+                ctx=Gather(section=self, referee=binding.ctx),
             )
 
         Env.map(inner_type_env, visit)
@@ -645,16 +650,20 @@ class Conditional(SourceNode):
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as T? outside)
+
         inner_type_env = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
 
         box = [type_env]
-
+        # optional-ize each inner type binding and add gather nodes
         def visit(namespace: List[str], binding: Env.Binding) -> None:
-            g = Gather(section=self, referee=binding.ctx)
             box[0] = Env.bind(
-                box[0], namespace, binding.name, binding.rhs.copy(optional=True), ctx=g
+                box[0],
+                namespace,
+                binding.name,
+                binding.rhs.copy(optional=True),
+                ctx=Gather(section=self, referee=binding.ctx),
             )
 
         Env.map(inner_type_env, visit)
