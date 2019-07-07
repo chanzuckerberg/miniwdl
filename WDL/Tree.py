@@ -498,6 +498,21 @@ class Call(SourceNode):
         return ans
 
 
+Gather = NamedTuple(
+    "Gather", [("section", "Union[Scatter, Conditional]"), ("referee", "Union[Decl,Call,Gather]")]
+)
+"""
+A ``Gather`` object represents a reference to a value inside a scatter or conditional section from
+some identifier expression outside of that section. In such a case, it's stored in the ``referee``
+attribute of the ``WDL.Expr.Ident`` to symbolize the gathering of results into an array (for
+scatter sections) or an optional value (for conditional sections) for use outside of the section.
+
+It links to the ``Scatter`` or ``Conditional`` section node and the specific ``Decl`` referenced or
+``Call`` whose output is used. Futhermore, its referee can be another ``Gather``object, in the case
+of nested scatter/conditional sections.
+"""
+
+
 class Scatter(SourceNode):
     """A scatter stanza within a workflow"""
 
@@ -558,8 +573,17 @@ class Scatter(SourceNode):
         # Subtlety: if the scatter array is statically nonempty, then so too
         # are the arrayized values.
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
-        inner_type_env = Env.map(inner_type_env, lambda ns, b: Type.Array(b.rhs, nonempty=nonempty))
-        return inner_type_env + type_env
+
+        box = [type_env]
+
+        def visit(namespace: List[str], binding: Env.Binding) -> None:
+            g = Gather(section=self, referee=binding.ctx)
+            box[0] = Env.bind(
+                box[0], namespace, binding.name, Type.Array(binding.rhs, nonempty=nonempty), ctx=g
+            )
+
+        Env.map(inner_type_env, visit)
+        return box[0]
 
     @property
     def effective_outputs(self) -> Env.Types:
@@ -624,7 +648,17 @@ class Conditional(SourceNode):
         inner_type_env = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
-        return Env.map(inner_type_env, lambda ns, b: b.rhs.copy(optional=True)) + type_env
+
+        box = [type_env]
+
+        def visit(namespace: List[str], binding: Env.Binding) -> None:
+            g = Gather(section=self, referee=binding.ctx)
+            box[0] = Env.bind(
+                box[0], namespace, binding.name, binding.rhs.copy(optional=True), ctx=g
+            )
+
+        Env.map(inner_type_env, visit)
+        return box[0]
 
     @property
     def effective_outputs(self) -> Env.Types:
@@ -1292,10 +1326,13 @@ def _dependencies(obj: Union[Decl, Call, Expr.Base]) -> Iterable[Union[Decl, Cal
             for dep in _dependencies(v):
                 yield dep
     elif isinstance(obj, Expr.Ident):
-        if isinstance(obj.referee, (Decl, Call)):
-            yield obj.referee
+        referee = obj.referee
+        while isinstance(referee, Gather):
+            referee = referee.referee
+        if isinstance(referee, (Decl, Call)):
+            yield referee
         else:
-            assert isinstance(obj.referee, Scatter)
+            assert isinstance(referee, Scatter)
     else:
         assert isinstance(obj, Expr.Base)
         for subexpr in obj.children:

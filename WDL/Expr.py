@@ -647,11 +647,12 @@ class Ident(Base):
     name: str
     ":type: str"
 
-    referee: Optional[SourceNode]
+    referee: "Union[None, WDL.Tree.Decl, WDL.Tree.Call, WDL.Tree.Scatter, WDL.Tree.Gather]"
     """
     After typechecking within a task or workflow, stores the AST node to which the identifier
-    refers: a ``WDL.Tree.Decl`` for value references; a ``WDL.Tree.Call`` for call outputs; or a
-    ``WDL.Tree.Scatter`` for scatter variables.
+    refers: a ``WDL.Tree.Decl`` for value references; a ``WDL.Tree.Call`` for call outputs; a
+    ``WDL.Tree.Scatter`` for scatter variables; or a ``WDL.Tree.Gather`` object representing a
+    value or call output that resides within a scatter or conditional section.
     """
 
     def __init__(self, pos: SourcePosition, parts: List[str]) -> None:
@@ -672,8 +673,12 @@ class Ident(Base):
         # referee comes from the type environment's context values
         referee = Env.resolve_ctx(type_env, self.namespace, self.name)
         if referee:
-            assert isinstance(referee, SourceNode)
-            assert referee.__class__.__name__ in ["Decl", "Call", "Scatter"]
+            assert referee.__class__.__name__ in [
+                "Decl",
+                "Call",
+                "Scatter",
+                "Gather",
+            ], referee.__class__.__name__
             self.referee = referee
         return ans
 
