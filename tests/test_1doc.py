@@ -1444,6 +1444,34 @@ class TestCycleDetection(unittest.TestCase):
         doc = r"""
         version 1.0
         workflow cyclic {
+            if (select_first([c])) {
+                Boolean b = true
+            }
+            if (select_first([b])) {
+                Boolean c = true
+            }
+        }
+        """ + add
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+        workflow cyclic {
+            scatter (i in arr) {
+                Int j = i
+            }
+            Array[Int] arr = j
+        }
+        """ + add
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            doc.typecheck()
+
+        doc = r"""
+        version 1.0
+        workflow cyclic {
             call add { input: lhs = 0, rhs = add.z }
         }
         """ + add

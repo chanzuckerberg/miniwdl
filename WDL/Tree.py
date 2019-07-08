@@ -312,7 +312,7 @@ class Task(SourceNode):
         # check for cyclic dependencies among decls
         _detect_cycles(
             # pyre-ignore
-            _dependency_matrix(ch for ch in self.children if isinstance(ch, Decl))
+            _decl_dependency_matrix([ch for ch in self.children if isinstance(ch, Decl)])
         )
 
 
@@ -532,6 +532,7 @@ class Scatter(SourceNode):
     :type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional]]
 
     Scatter body"""
+    name: str
 
     _type_env: Optional[Env.Types] = None
     """
@@ -555,6 +556,7 @@ class Scatter(SourceNode):
         self.variable = variable
         self.expr = expr
         self.elements = elements  # pyre-ignore
+        self.name = "scatter:" + self.variable
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -629,6 +631,7 @@ class Conditional(SourceNode):
     :type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional]]
 
     Conditional body"""
+    name: str
 
     _type_env: Optional[Env.Types] = None
     """
@@ -649,6 +652,7 @@ class Conditional(SourceNode):
         super().__init__(pos)
         self.expr = expr
         self.elements = elements  # pyre-ignore
+        self.name = "if:L{}C{}".format(pos.line, pos.column)
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -913,7 +917,7 @@ class Workflow(SourceNode):
                     )
                     output_type_env = output_type_env2
         # 6. check for cyclic dependencies
-        _detect_cycles(_dependency_matrix(_decls_and_calls(self)))  # pyre-fixme
+        _detect_cycles(_workflow_dependency_matrix(self))  # pyre-ignore
 
     def _rewrite_output_idents(self) -> None:
         # for pre-1.0 workflow output sections with a list of namespaced
@@ -1348,54 +1352,81 @@ def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callab
     return f
 
 
-def _dependencies(obj: Union[Decl, Call, Expr.Base]) -> Iterable[Union[Decl, Call]]:
-    # Yield each Decl/Call referenced by any Expr.Ident within the given
-    # Decl/Call/Expr
-    if isinstance(obj, Decl):
+def _ident_dependencies(
+    obj: Union[Decl, Call, Scatter, Conditional, Expr.Base]
+) -> Iterable[Union[Decl, Call, Scatter]]:
+    # Yield each Decl/Call/Scatter referenced by any Expr.Ident within the given element or expr.
+    # - dependence on Call = use of call output
+    # - dependence on Scatter = use of scatter variable
+    if isinstance(obj, (Decl, Scatter, Conditional)):
         if obj.expr:
-            for dep in _dependencies(obj.expr):
-                yield dep
+            yield from _ident_dependencies(obj.expr)  # pyre-ignore
     elif isinstance(obj, Call):
         for v in obj.inputs.values():
-            for dep in _dependencies(v):
-                yield dep
+            yield from _ident_dependencies(v)
     elif isinstance(obj, Expr.Ident):
         referee = obj.referee
         while isinstance(referee, Gather):
             referee = referee.referee
-        if isinstance(referee, (Decl, Call)):
-            yield referee
-        else:
-            assert isinstance(referee, Scatter)
+        assert isinstance(referee, (Decl, Call, Scatter))
+        yield referee
     else:
         assert isinstance(obj, Expr.Base)
         for subexpr in obj.children:
-            assert isinstance(subexpr, (Decl, Call, Expr.Base))  #???
-            for dep in _dependencies(subexpr):
-                yield dep
+            yield from _ident_dependencies(subexpr)
 
 
-def _dependency_matrix(
-    objs: Iterable[Union[Decl, Call]],
-    obj_id: Optional[Callable[[Error.SourceNode], int]] = None,
-    exclusive: bool = False,
-) -> Tuple[Dict[int, Union[Decl, Call]], _util.AdjM]:
-    # Given collection of Decl & Call, produce mapping of object ids to the
-    # objects and the adjacency matrix for their dependencies
-    # obj_id: get unique int id for object, defaults to id()
-    # exclusive: if True then exclude dependencies that aren't among objs to
-    #            begin with.
-    obj_id = obj_id or id
-    objs_by_id = dict((obj_id(obj), obj) for obj in objs)
+def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[int, Decl], _util.AdjM]:
+    # Given decls, produce mapping of object id() to the objects, and the adjacency matrix of their
+    # ident dependencies (edge from o1 to o2 = o2 depends on o1).
+    # IGNORES any dependencies involving objects not found in the given list!
+    objs_by_id = dict((id(decl), decl) for decl in decls)
+    assert len(objs_by_id) == len(decls)
     adj = _util.AdjM()
-    for oid in objs_by_id:
+
+    for obj in decls:
+        oid = id(obj)
         adj.add_node(oid)
-        for dep in _dependencies(objs_by_id[oid]):
-            did = obj_id(dep)
-            if objs_by_id.get(did, not exclusive):
-                assert id(objs_by_id.get(did, dep)) == id(dep)
-                objs_by_id[did] = dep
+        for dep in _ident_dependencies(obj):
+            did = id(dep)
+            if did in objs_by_id:
                 adj.add_edge(did, oid)
+
+    assert set(objs_by_id.keys()) == set(adj.nodes)
+    return (objs_by_id, adj)
+
+
+def _workflow_dependency_matrix(
+    workflow: Workflow
+) -> Tuple[Dict[int, Union[Decl, Call, Scatter, Conditional]], _util.AdjM]:
+    # Given workflow, produce mapping of object id() to the workflow elements, and the adjacency
+    # matrix of their dependencies (edge from o1 to o2 = o2 depends on o1). In addition to the
+    # identifier dependencies, each Scatter and Conditional object is a dependency of each element
+    # within that section.
+    objs_by_id = {}
+    adj = _util.AdjM()
+
+    def visit(obj: Union[Decl, Call, Scatter, Conditional]) -> None:
+        oid = id(obj)
+        objs_by_id[oid] = obj
+        adj.add_node(oid)
+        if isinstance(obj, (Scatter, Conditional)):
+            for ch in obj.elements:
+                visit(ch)
+                adj.add_edge(oid, id(ch))
+        for dep in _ident_dependencies(obj):
+            did = id(dep)
+            objs_by_id[did] = dep
+            adj.add_edge(did, oid)
+
+    for obj in workflow.inputs or []:
+        visit(obj)
+    for obj in workflow.elements:
+        visit(obj)
+    for obj in workflow.outputs or []:
+        visit(obj)
+
+    assert set(objs_by_id.keys()) == set(adj.nodes)
     return (objs_by_id, adj)
 
 
