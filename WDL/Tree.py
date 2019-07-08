@@ -498,6 +498,22 @@ class Call(SourceNode):
         return ans
 
 
+Gather = NamedTuple(
+    "Gather", [("section", "Union[Scatter, Conditional]"), ("referee", "Union[Decl,Call,Gather]")]
+)
+"""
+A ``Gather`` node symbolizes the operation to gather an array of declared values or call outputs in
+a scatter section, or optional values from a conditional section. It's an abstract symbol rather
+than a ``SourceNode`` because these operations are implicit in WDL.
+
+When a ``WDL.Expr.Ident`` outside of the scatter/conditional section references the array/optional,
+its ``referee`` attribute is the ``Gather`` node, which in turn points to the
+``Scatter``/``Conditional`` node and to the specific ``Decl`` or ``Call`` whose output is
+referenced. Futhermore, the ``Gather``'s referee can be another ``Gather``node, in the case of
+nested scatter/conditional sections.
+"""
+
+
 class Scatter(SourceNode):
     """A scatter stanza within a workflow"""
 
@@ -552,14 +568,27 @@ class Scatter(SourceNode):
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as Array[T] outside)
+
         inner_type_env: Env.Types = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)  # pyre-ignore
         # Subtlety: if the scatter array is statically nonempty, then so too
         # are the arrayized values.
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
-        inner_type_env = Env.map(inner_type_env, lambda ns, b: Type.Array(b.rhs, nonempty=nonempty))
-        return inner_type_env + type_env
+
+        box = [type_env]
+        # array-ize each inner type binding and add gather nodes
+        def visit(namespace: List[str], binding: Env.Binding) -> None:
+            box[0] = Env.bind(
+                box[0],
+                namespace,
+                binding.name,
+                Type.Array(binding.rhs, nonempty=nonempty),
+                ctx=Gather(section=self, referee=binding.ctx),
+            )
+
+        Env.map(inner_type_env, visit)
+        return box[0]
 
     @property
     def effective_outputs(self) -> Env.Types:
@@ -567,12 +596,24 @@ class Scatter(SourceNode):
         # and namespaced appropriately, as they'll be propagated if the
         # workflow lacks an explicit output{} section
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
-        ans: Env.Types = []
+        inner_outputs: Env.Types = []
         for elt in self.elements:
             if not isinstance(elt, Decl):
-                ans = elt.effective_outputs + ans
-        ans = Env.map(ans, lambda ns, b: Type.Array(b.rhs, nonempty=nonempty))
-        return ans
+                inner_outputs = elt.effective_outputs + inner_outputs
+
+        box = [[]]
+
+        def visit(namespace: List[str], binding: Env.Binding) -> None:
+            box[0] = Env.bind(
+                box[0],
+                namespace,
+                binding.name,
+                Type.Array(binding.rhs, nonempty=nonempty),
+                ctx=Gather(section=self, referee=binding.ctx),
+            )
+
+        Env.map(inner_outputs, visit)  # pyre-ignore
+        return box[0]
 
 
 class Conditional(SourceNode):
@@ -621,21 +662,48 @@ class Conditional(SourceNode):
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as T? outside)
+
         inner_type_env = []
         for elt in self.elements:
             inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
-        return Env.map(inner_type_env, lambda ns, b: b.rhs.copy(optional=True)) + type_env
+
+        box = [type_env]
+        # optional-ize each inner type binding and add gather nodes
+        def visit(namespace: List[str], binding: Env.Binding) -> None:
+            box[0] = Env.bind(
+                box[0],
+                namespace,
+                binding.name,
+                binding.rhs.copy(optional=True),
+                ctx=Gather(section=self, referee=binding.ctx),
+            )
+
+        Env.map(inner_type_env, visit)
+        return box[0]
 
     @property
     def effective_outputs(self) -> Env.Types:
         # Yield the outputs of calls in this section and subsections, typed
         # and namespaced appropriately, as they'll be propagated if the
         # workflow lacks an explicit output{} section
-        ans = []
+        inner_outputs = []
         for elt in self.elements:
             if not isinstance(elt, Decl):
-                ans = elt.effective_outputs + ans
-        return Env.map(ans, lambda ns, b: b.rhs.copy(optional=True))
+                inner_outputs = elt.effective_outputs + inner_outputs
+
+        box = [[]]
+
+        def visit(namespace: List[str], binding: Env.Binding) -> None:
+            box[0] = Env.bind(
+                box[0],
+                namespace,
+                binding.name,
+                binding.rhs.copy(optional=True),
+                ctx=Gather(section=self, referee=binding.ctx),
+            )
+
+        Env.map(inner_outputs, visit)  # pyre-ignore
+        return box[0]
 
 
 class Workflow(SourceNode):
@@ -1292,10 +1360,13 @@ def _dependencies(obj: Union[Decl, Call, Expr.Base]) -> Iterable[Union[Decl, Cal
             for dep in _dependencies(v):
                 yield dep
     elif isinstance(obj, Expr.Ident):
-        if isinstance(obj.ctx, (Decl, Call)):
-            yield obj.ctx
+        referee = obj.referee
+        while isinstance(referee, Gather):
+            referee = referee.referee
+        if isinstance(referee, (Decl, Call)):
+            yield referee
         else:
-            assert isinstance(obj.ctx, Scatter)
+            assert isinstance(referee, Scatter)
     else:
         assert isinstance(obj, Expr.Base)
         for subexpr in obj.children:
