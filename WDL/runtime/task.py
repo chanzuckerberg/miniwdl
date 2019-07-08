@@ -408,8 +408,9 @@ def _eval_task_inputs(
 
     # topsort them according to internal dependencies. prior static validation
     # should have ensured they're acyclic.
-    decls_by_id, decls_adj = Tree._dependency_matrix(decls_to_eval, exclusive=True)
+    decls_by_id, decls_adj = Tree._decl_dependency_matrix(decls_to_eval)
     decls_to_eval = [decls_by_id[did] for did in _util.topsort(decls_adj)]
+    assert len(decls_by_id) == len(decls_to_eval)
 
     # evaluate each declaration in that order
     # note: the write_* functions call container.add_files as a side-effect
