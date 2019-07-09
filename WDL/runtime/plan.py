@@ -1,19 +1,22 @@
 # pyre-strict
 """
-The **plan** is a directed acyclic graph (DAG) representing a WDL workflow, derived from the AST
-but providing a more-convenient model of the internal dependencies. It's an intermediate
-representation used to inform scheduling of workflow execution, whatever the backend.
+The **plan** is a directed acyclic graph representing a WDL workflow, derived from the AST but
+providing a simpler explicit model of the internal dependencies. It's an intermediate
+representation used to inform job scheduling for workflow execution, whatever the backend.
 
-The DAG nodes correspond to each workflow element (Decl, Call, Scatter, Conditional, Gather), and
-each Node keeps a set of the Nodes on which it depends. Each Node has a human-readable ID string,
-and its dependencies are represented as sets of these IDs. Abstractly, workflow execution proceeds
-by "visiting" each node after all of its dependencies have been visited, if any. Each node
-prescribes actions to take upon its visitation, according to its particular type.
+The graph nodes correspond to each workflow element (Decl, Call, Scatter, Conditional, and
+implicitly Gather), and each Node keeps a set of the Nodes on which it depends. To facilitate
+mapping the graph onto diverse scheduler backends, each node has a human-readable ID string with
+the dependencies encoded as sets of these IDs. Abstractly, workflow execution proceeds by
+"visiting" each node after all of its dependencies have been visited. Each node prescribes a job to
+do upon its visitation, according to its particular type. An environment (``WDL.Env.Values``) is
+grown along the way.
 
-Scatter nodes contain a "sub-plan", which is like a prototype for the sub-DAG to be instantiated
-with some multiplicity determined only upon runtime evaluation of the scatter array expression.
-At runtime, dependencies of Gather nodes on the sub-plan nodes should be multiplexed accordingly.
-The body of a conditional section is treated similarly, but its only possible multiplicities are 0
+Scatter nodes contain a "sub-plan", which is like a prototype for the job subgraph to be scheduled
+for each element of the runtime-evaluated scatter array. They also contain prototype Gather nodes,
+each dependent on a sub-plan node. Once all the job subgraphs have been scheduled, the Gather jobs
+should be scheduled as well, with the sub-plan dependency multiplexed to the corresponding jobs.
+Conditional sections are treated similarly but their only possible subgraph multiplicities are 0
 and 1.
 """
 
@@ -59,7 +62,7 @@ class Decl(Node):
     A value declared in the workflow's body or its input/output sections.
 
     Upon visiting this node, add to the environment a binding for the declared name to the value
-    obtained either by evaluating the expression, or from the workflow inputs.
+    obtained either (i) by evaluating the expression, or (ii) from the workflow inputs.
     """
 
     _source: Tree.Decl
@@ -99,11 +102,12 @@ class Call(Node):
 
 class Gather(Node):
     """
-    Gather an array or optional value from a node within a scatter or conditional section.
+    Gather an array or optional value from a node within a scatter or conditional section. This
+    operation is implicit in the WDL syntax, but presented explicitly here.
 
-    On visiting, bind the name of each decl, call output, or sub-gather to the corresponding
+    On visiting, bind the name of each decl, call output, or nested gather to the corresponding
     array of values generated from the multiplexed sub-node. (For Conditional sections, the array
-    has length 0 or 1, and None or the value should be bound accordingly)
+    has length 0 or 1, and None or the value should be bound accordingly.)
     """
 
     _source: Tree.Gather
@@ -138,12 +142,12 @@ class Section(Node):
 
 class Scatter(Section):
     """
-    Scatter section:
+    Scatter section
 
-    1. Evaluate scatter array expression
-    2. For each scatter array element, schedule an instance of the body sub-plan, with an
-       environment including the appropriate binding for the scatter variable.
-    3. Schedule the Gather operations with the appropriate multiplexed dependencies.
+    On visiting, evaluate the scatter array expression. Then for each scatter array element,
+    schedule an instance of the body sub-plan with a forked environment including the appropriate
+    binding for the scatter variable. Lastly, schedule the Gather operation for each sub-plan node,
+    with dependencies multiplexed to the corresponding jobs.
     """
 
     _source: Tree.Scatter
@@ -161,9 +165,9 @@ class Conditional(Section):
     """
     Conditional section
 
-    1. Evaluate the boolean expression
-    2. If true, schedule the body sub-plan and trivial Gather operations to propagate its results
-    3. If false, schedule vacuous Gather operations to propagate None values immediately
+    On visiting, evaluate the boolean expression. If true, schedule the body sub-plan and trivial
+    Gather operations to propagate its results. Otherwise, schedule vacuous Gather operations to
+    propagate None values.
     """
 
     _source: Tree.Conditional
@@ -179,7 +183,7 @@ class Conditional(Section):
 
 def compile(workflow: Tree.Workflow) -> List[Node]:
     """
-    Compile a workflow to the top-level plan nodes. The returned order is unspecified.
+    Compile a workflow to the top-level plan nodes. The returned list has no particular order.
     """
     nodes: Dict[str, Node] = dict()
 
