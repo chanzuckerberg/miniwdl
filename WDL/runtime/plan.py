@@ -194,16 +194,18 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
                 node.body.append(subnode)
                 if isinstance(ch, (Tree.Decl, Tree.Call)):
                     g = _wrap(Tree.Gather(section=elt, referee=ch))
-                    if not (g2 for g2 in node.gathers if g.id == g2.id):
+                    if not [g2 for g2 in node.gathers if g.id == g2.id]:
                         assert isinstance(g, Gather)
                         node.gathers.append(g)
+                        nodes[g.id] = g
                 elif isinstance(ch, (Tree.Scatter, Tree.Conditional)):
                     assert isinstance(subnode, Section)
                     for subgather in subnode.gathers:
-                        g = _wrap(Tree.Gather(section=elt, referee=nodes[subgather].source))
-                        if not (g2 for g2 in node.gathers if g.id == g2.id):
+                        g = _wrap(Tree.Gather(section=elt, referee=nodes[subgather.id].source))
+                        if not [g2 for g2 in node.gathers if g.id == g2.id]:
                             assert isinstance(g, Gather)
                             node.gathers.append(g)
+                            nodes[g.id] = g
                 else:
                     assert False
         assert node.id not in nodes, node.id
