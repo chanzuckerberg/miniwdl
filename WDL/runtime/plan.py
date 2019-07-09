@@ -222,6 +222,8 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
 
 
 _classmap = {}
+
+
 def _wrap(elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]) -> Node:
     global _classmap
     if not _classmap:
