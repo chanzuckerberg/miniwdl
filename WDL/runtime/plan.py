@@ -1,11 +1,13 @@
 """
 The **plan** is a directed acyclic graph (DAG) representing a WDL workflow, derived from the AST
-but providing a more explicit & uniform model of the internal dependencies. It's an intermediate
+but providing a more-convenient model of the internal dependencies. It's an intermediate
 representation used to inform scheduling of workflow execution, whatever the backend.
 
 The DAG nodes correspond to each workflow element (Decl, Call, Scatter, Conditional, Gather), and
-each Node keeps a set of the Nodes on which it depends. Each Node has a human-readable ID string
-and its dependencies are represented as sets of these IDs.
+each Node keeps a set of the Nodes on which it depends. Each Node has a human-readable ID string,
+and its dependencies are represented as sets of these IDs. Abstractly, workflow execution proceeds
+by "visiting" each node (taking prescribed actions according to the node type) once all of
+its dependencies have been visited, if any.
 
 Scatter nodes contain a "sub-plan", which is like a prototype for the sub-DAG to be instantiated
 with some multiplicity determined only upon runtime evaluation of the scatter array expression.
@@ -115,7 +117,7 @@ class Gather(Node):
 
 class Section(Node):
     """
-    Scatter or conditional section
+    Common structure of scatter and conditional sections    
     """
 
     body: List[Node]
