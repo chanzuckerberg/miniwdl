@@ -232,5 +232,5 @@ def _wrap(elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.
 def _expr_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]:
     if isinstance(expr, Expr.Ident):
         yield _wrap(expr.referee).id
-    for ch in (expr.children if expr else []):
+    for ch in expr.children if expr else []:
         yield from _expr_dependencies(ch)
