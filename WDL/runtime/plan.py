@@ -10,8 +10,8 @@ and its dependencies are represented as sets of these IDs.
 Scatter nodes contain a "sub-plan", which is like a prototype for the sub-DAG to be instantiated
 with some multiplicity determined only upon runtime evaluation of the scatter array expression.
 At runtime, dependencies of Gather nodes on the sub-plan nodes should be multiplexed accordingly.
-Conditional section bodies receive similar treatment, but 0 and 1 are their only possible
-multiplicities.
+The body of a conditional section is treated similarly, but its only possible multiplicities are 0
+and 1.
 """
 
 from abc import ABC, abstractmethod
@@ -113,9 +113,25 @@ class Gather(Node):
         yield _wrap(self.source.referee).id
 
 
-class Scatter(Node):
+class Section(Node):
     """
-    Scatter: on visiting,
+    Scatter or conditional section
+    """
+
+    body: List[Node]
+    "Nodes in the sub-plan DAG"
+    gathers: List[Gather]
+    "Gather nodes exposed to other nodes in the plan"
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.body = []
+        self.gathers = []
+
+
+class Scatter(Section):
+    """
+    Scatter section:
 
     1. Evaluate scatter array expression
     2. For each scatter array element, schedule the body sub-plan with an environment including
@@ -124,23 +140,19 @@ class Scatter(Node):
     """
 
     _source: Tree.Scatter
-    body: List[Node]
-    gathers: List[Gather]
 
     def __init__(self, source: Tree.Scatter) -> None:
         super().__init__(source.name)
         self._source = source
-        self.body = []
-        self.gathers = []
 
     @property
     def source(self) -> Tree.Scatter:
         return self._source
 
 
-class Conditional(Node):
+class Conditional(Section):
     """
-    Conditional: on visiting,
+    Conditional section
 
     1. Evaluate the boolean expression
     2. If true, schedule the body sub-plan
@@ -148,14 +160,10 @@ class Conditional(Node):
     """
 
     _source: Tree.Conditional
-    body: List[Node]
-    gathers: List[Gather]
 
     def __init__(self, source: Tree.Conditional) -> None:
         super().__init__(source.name)
         self._source = source
-        self.body = []
-        self.gathers = []
 
     @property
     def source(self) -> Tree.Conditional:
@@ -172,7 +180,7 @@ def compile(workflow: Tree.Workflow) -> Iterable[Node]:
         elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]
     ) -> Node:
         node = _wrap(elt)
-        if isinstance(node, (Scatter, Conditional)):
+        if isinstance(node, Section):
             assert isinstance(elt, (Tree.Scatter, Tree.Conditional))
             for ch in elt.elements:
                 subnode = visit(ch)
@@ -183,7 +191,7 @@ def compile(workflow: Tree.Workflow) -> Iterable[Node]:
                         assert isinstance(g, Gather)
                         node.gathers.append(g)
                 elif isinstance(ch, (Tree.Scatter, Tree.Conditional)):
-                    assert isinstance(subnode, (Scatter, Conditional))
+                    assert isinstance(subnode, Section)
                     for subgather in subnode.gathers:
                         g = _wrap(Tree.Gather(section=elt, referee=nodes[subgather].source))
                         if not (g2 for g2 in node.gathers if g.id == g2.id):
