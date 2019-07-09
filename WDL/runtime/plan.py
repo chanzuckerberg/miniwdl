@@ -1,21 +1,17 @@
 """
 The **plan** is a directed acyclic graph (DAG) representing a WDL workflow, derived from the AST
-with a more explicit & uniform model of the internal dependencies. It's an intermediate
+but providing a more explicit & uniform model of the internal dependencies. It's an intermediate
 representation used to inform scheduling of workflow execution, whatever the backend.
 
-A node in this DAG represents either:
-  - binding a name to a value (obtained from input or by evaluation of a WDL expression)
-  - a call to invoke a task or sub-workflow, generating namespaced outputs
-  - a scatter or conditional section, containing a sub-DAG to be executed with the
-    runtime-determined multiplicity
-  - specialized nodes associated with scatter & conditional nodes represent the array & optional
-    values, respectively, that will arise from execution of the sub-DAG.
-Each node stores a list of dependencies, other nodes from which it has in-edges. Such an edge
-from n1 to n2 represents the dependency of n2 on n1, usually including the flow of a
-``WDL.Env.Values`` from n1 to n2.
+The DAG nodes correspond to each workflow element (Decl, Call, Scatter, Conditional, Gather), and
+each Node keeps a set of the Nodes on which it depends. Each Node has a human-readable ID string
+and its dependencies are represented as sets of these IDs.
 
-The plan is meant to be pickled easily, with each node assigned a readable ID, and dependencies
-referenced by such ID.
+Scatter nodes contain a "sub-plan", which is like a prototype for the sub-DAG to be instantiated
+with some multiplicity determined only upon runtime evaluation of the scatter array expression.
+At runtime, dependencies of Gather nodes on the sub-plan nodes should be multiplexed accordingly.
+Conditional section bodies receive similar treatment, but 0 and 1 are their only possible
+multiplicities.
 """
 
 from abc import ABC, abstractmethod
@@ -27,28 +23,39 @@ from .error import *
 
 class Node(ABC):
     id: str
-    _memo_dependencies: Optional[Set[str]]
+    "Human-readable node ID, unique within the workflow"
+    _memo_dependencies: Optional[Set[str]] = None
 
     def __init__(self, id: str):
         self.id = id
-        self._memo_dependencies = None
 
     @abstractmethod
     @property
     def source(self) -> Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]:
+        "The ``WDL.Tree`` object represented by this node"
         ...
 
     @property
     def dependencies(self) -> Set[str]:
+        "IDs of the nodes upon which this node depends"
+        # memoize self._dependencies()
         if self._memo_dependencies is None:
             self._memo_dependencies = set(self._dependencies())
         return self._memo_dependencies
 
     def _dependencies(self) -> Iterable[str]:
+        # subclasses override if the following isn't appropriate for the specific type of node
         return _expr_dependencies(getattr(self.source, "expr"))
 
 
 class Decl(Node):
+    """
+    A value declared in the workflow's body or its input/output sections.
+
+    Upon "visiting" this node, the runtime system should create the binding of the declared name to
+    the value obtained either by evaluating the expression or from the workflow inputs.
+    """
+
     _source: Tree.Decl
 
     def __init__(self, source: Tree.Decl) -> None:
@@ -60,13 +67,15 @@ class Decl(Node):
         return self._source
 
 
-class WorkflowOutput(Decl):
-    def __init__(self, source: Tree.Decl) -> None:
-        super().__init__(source)
-        self.id = "output:" + self.id
-
-
 class Call(Node):
+    """
+    Call out to a task or sub-workflow. On visiting:
+
+    1. Evaluate call input expressions in the environment of value bindings so far accumulated
+    2. Execute task or sub-workflow with these inputs
+    3. Bind call outputs in the appropriate namespace
+    """
+
     _source: Tree.Call
 
     def __init__(self, source: Tree.Call) -> None:
@@ -83,6 +92,13 @@ class Call(Node):
 
 
 class Gather(Node):
+    """
+    Gather an array or optional value from a sub-node within a scatter or conditional section.
+    On visiting, bind the name of each decl, call output, or sub-gather to the corresponding
+    array of values generated from the multiplexed sub-node. (For Conditional sections, the array
+    has length 0 or 1, and None or the value should be bound accordingly)
+    """
+
     _source: Tree.Gather
 
     def __init__(self, source: Tree.Gather) -> None:
@@ -98,6 +114,15 @@ class Gather(Node):
 
 
 class Scatter(Node):
+    """
+    Scatter: on visiting,
+
+    1. Evaluate scatter array expression
+    2. For each scatter array element, schedule the body sub-plan with an environment including
+       the appropriate binding for the scatter variable.
+    3. Schedule Gather operations with the appropriate multiplexed dependencies.
+    """
+
     _source: Tree.Scatter
     body: List[Node]
     gathers: List[Gather]
@@ -114,6 +139,14 @@ class Scatter(Node):
 
 
 class Conditional(Node):
+    """
+    Conditional: on visiting,
+
+    1. Evaluate the boolean expression
+    2. If true, schedule the body sub-plan
+    3. If false, schedule vacuous Gather operations immediately
+    """
+
     _source: Tree.Conditional
     body: List[Node]
     gathers: List[Gather]
@@ -129,36 +162,42 @@ class Conditional(Node):
         return self._source
 
 
-def compile(workflow: Tree.Workflow, workflow_inputs: Env.Values) -> Iterable[Node]:
-    gathers: Dict[int, List[Tree.Gather]] = {}  # indexed by id(tree section object)
+def compile(workflow: Tree.Workflow) -> Iterable[Node]:
+    """
+    Compile a workflow to an unordered collection of plan nodes
+    """
+    nodes: Dict[str, Node]
 
     def visit(
         elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]
-    ) -> Iterable[Node]:
-        yield _wrap(elt)
-        if isinstance(elt, (Tree.Scatter, Tree.Conditional)):
-            assert id(elt) not in gathers
-            gathers[id(elt)] = []
+    ) -> Node:
+        node = _wrap(elt)
+        if isinstance(node, (Scatter, Conditional)):
+            assert isinstance(elt, (Tree.Scatter, Tree.Conditional))
             for ch in elt.elements:
-                yield from visit(ch)
+                subnode = visit(ch)
+                node.body.append(subnode)
                 if isinstance(ch, (Tree.Decl, Tree.Call)):
-                    g = Tree.Gather(section=elt, referee=ch)
-                    gathers[id(elt)].append(g)
-                    yield _wrap(g)
+                    g = _wrap(Tree.Gather(section=elt, referee=ch))
+                    if not (g2 for g2 in node.gathers if g.id == g2.id):
+                        assert isinstance(g, Gather)
+                        node.gathers.append(g)
                 elif isinstance(ch, (Tree.Scatter, Tree.Conditional)):
-                    for subgather in gathers[id(ch)]:
-                        g = Tree.Gather(section=elt, referee=subgather)
-                        gathers[id(elt)].append(g)
-                        yield _wrap(g)
+                    assert isinstance(subnode, (Scatter, Conditional))
+                    for subgather in subnode.gathers:
+                        g = _wrap(Tree.Gather(section=elt, referee=nodes[subgather].source))
+                        if not (g2 for g2 in node.gathers if g.id == g2.id):
+                            assert isinstance(g, Gather)
+                            node.gathers.append(g)
                 else:
                     assert False
+        assert node.id not in nodes
+        nodes[node.id] = node
+        return node
 
-    for elt in workflow.inputs or []:
-        yield from visit(elt)
-    for elt in workflow.elements:
-        yield from visit(elt)
-    for elt in workflow.outputs or []:
-        yield from visit(elt)
+    return [
+        visit(elt) for elt in (workflow.inputs or []) + workflow.elements + (workflow.outputs or [])
+    ]
 
 
 def _wrap(elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]) -> Node:
