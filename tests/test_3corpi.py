@@ -58,6 +58,18 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     print("\n" + os.path.basename(fn))
                     WDL.CLI.outline(doc, 0, show_called=(doc.workflow is not None))
 
+                    if doc.workflow:
+                        print()
+                        def _p(node, level=1):
+                            print("    "*level + str(node))
+                            if isinstance(node, WDL.runtime.plan.Section):
+                                for node2 in node.body:
+                                    _p(node2, level+1)
+                                for g in node.gathers:
+                                    _p(node2, level+1)
+                        for node in WDL.runtime.plan.compile(doc.workflow):
+                            _p(node)
+
                     # also attempt load with the opposite value of check_quant,
                     # exercising additional code paths
                     try:

@@ -1,3 +1,4 @@
+# pyre-strict
 """
 The **plan** is a directed acyclic graph (DAG) representing a WDL workflow, derived from the AST
 but providing a more-convenient model of the internal dependencies. It's an intermediate
@@ -6,8 +7,8 @@ representation used to inform scheduling of workflow execution, whatever the bac
 The DAG nodes correspond to each workflow element (Decl, Call, Scatter, Conditional, Gather), and
 each Node keeps a set of the Nodes on which it depends. Each Node has a human-readable ID string,
 and its dependencies are represented as sets of these IDs. Abstractly, workflow execution proceeds
-by "visiting" each node (taking prescribed actions according to the node type) once all of
-its dependencies have been visited, if any.
+by "visiting" each node after all of its dependencies have been visited, if any. Each node
+prescribes actions to take upon its visitation, according to its particular type.
 
 Scatter nodes contain a "sub-plan", which is like a prototype for the sub-DAG to be instantiated
 with some multiplicity determined only upon runtime evaluation of the scatter array expression.
@@ -28,11 +29,14 @@ class Node(ABC):
     "Human-readable node ID, unique within the workflow"
     _memo_dependencies: Optional[Set[str]] = None
 
-    def __init__(self, id: str):
+    def __init__(self, id: str) -> None:
         self.id = id
 
-    @abstractmethod
+    def __str__(self) -> str:
+        return "{} < {{{}}}".format(self.id, ", ".join(str(dep) for dep in self.dependencies))
+
     @property
+    @abstractmethod
     def source(self) -> Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]:
         "The ``WDL.Tree`` object represented by this node"
         ...
@@ -54,8 +58,8 @@ class Decl(Node):
     """
     A value declared in the workflow's body or its input/output sections.
 
-    Upon "visiting" this node, the runtime system should create the binding of the declared name to
-    the value obtained either by evaluating the expression or from the workflow inputs.
+    Upon visiting this node, add to the environment a binding for the declared name to the value
+    obtained either by evaluating the expression, or from the workflow inputs.
     """
 
     _source: Tree.Decl
@@ -71,11 +75,11 @@ class Decl(Node):
 
 class Call(Node):
     """
-    Call out to a task or sub-workflow. On visiting:
+    Call a task or sub-workflow. On visiting,
 
     1. Evaluate call input expressions in the environment of value bindings so far accumulated
-    2. Execute task or sub-workflow with these inputs
-    3. Bind call outputs in the appropriate namespace
+    2. Run task or sub-workflow with these inputs
+    3. Bind call outputs in the appropriate environment namespace
     """
 
     _source: Tree.Call
@@ -95,7 +99,8 @@ class Call(Node):
 
 class Gather(Node):
     """
-    Gather an array or optional value from a sub-node within a scatter or conditional section.
+    Gather an array or optional value from a node within a scatter or conditional section.
+
     On visiting, bind the name of each decl, call output, or sub-gather to the corresponding
     array of values generated from the multiplexed sub-node. (For Conditional sections, the array
     has length 0 or 1, and None or the value should be bound accordingly)
@@ -117,7 +122,7 @@ class Gather(Node):
 
 class Section(Node):
     """
-    Common structure of scatter and conditional sections    
+    Common structure for scatter and conditional sections
     """
 
     body: List[Node]
@@ -136,9 +141,9 @@ class Scatter(Section):
     Scatter section:
 
     1. Evaluate scatter array expression
-    2. For each scatter array element, schedule the body sub-plan with an environment including
-       the appropriate binding for the scatter variable.
-    3. Schedule Gather operations with the appropriate multiplexed dependencies.
+    2. For each scatter array element, schedule an instance of the body sub-plan, with an
+       environment including the appropriate binding for the scatter variable.
+    3. Schedule the Gather operations with the appropriate multiplexed dependencies.
     """
 
     _source: Tree.Scatter
@@ -157,8 +162,8 @@ class Conditional(Section):
     Conditional section
 
     1. Evaluate the boolean expression
-    2. If true, schedule the body sub-plan
-    3. If false, schedule vacuous Gather operations immediately
+    2. If true, schedule the body sub-plan and trivial Gather operations to propagate its results
+    3. If false, schedule vacuous Gather operations to propagate None values immediately
     """
 
     _source: Tree.Conditional
@@ -172,11 +177,11 @@ class Conditional(Section):
         return self._source
 
 
-def compile(workflow: Tree.Workflow) -> Iterable[Node]:
+def compile(workflow: Tree.Workflow) -> List[Node]:
     """
-    Compile a workflow to an unordered collection of plan nodes
+    Compile a workflow to the top-level plan nodes. The returned order is unspecified.
     """
-    nodes: Dict[str, Node]
+    nodes: Dict[str, Node] = dict()
 
     def visit(
         elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]
@@ -201,7 +206,7 @@ def compile(workflow: Tree.Workflow) -> Iterable[Node]:
                             node.gathers.append(g)
                 else:
                     assert False
-        assert node.id not in nodes
+        assert node.id not in nodes, node.id
         nodes[node.id] = node
         return node
 
@@ -224,8 +229,8 @@ def _wrap(elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.
     assert False
 
 
-def _expr_dependencies(expr: Expr.Base) -> Iterable[str]:
+def _expr_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]:
     if isinstance(expr, Expr.Ident):
         yield _wrap(expr.referee).id
-    for ch in expr.children:
+    for ch in (expr.children if expr else []):
         yield from _expr_dependencies(ch)
