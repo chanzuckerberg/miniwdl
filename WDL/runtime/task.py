@@ -193,6 +193,9 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
+    def __init__(self, task_id: str, host_dir: str) -> None:
+        super().__init__(task_id, host_dir)
+
     def _run(self, logger: logging.Logger, command: str) -> int:
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
@@ -371,7 +374,7 @@ def _eval_task_inputs(
         if isinstance(v, Value.File):
             host_files.append(v.value)
         for ch in v.children:
-            collect_host_files(ch)
+            collect_host_files(ch)  # pyre-ignore
 
     Env.map(posix_inputs, lambda namespace, binding: collect_host_files(binding.rhs))
     container.add_files(host_files)
@@ -381,7 +384,7 @@ def _eval_task_inputs(
         if isinstance(v, Value.File):
             v.value = container.input_file_map[v.value]
         for ch in v.children:
-            map_files(ch)
+            map_files(ch)  # pyre-ignore
         return v
 
     container_inputs = Env.map(
@@ -459,7 +462,7 @@ def _eval_task_outputs(
             logger.debug("File {} -> {}".format(v.value, host_file))
             v.value = host_file
         for ch in v.children:
-            map_files(ch)
+            map_files(ch)  # pyre-ignore
         return v
 
     return Env.map(outputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs)))

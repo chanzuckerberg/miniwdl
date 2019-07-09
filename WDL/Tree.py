@@ -614,7 +614,7 @@ class Scatter(SourceNode):
                 ctx=Gather(section=self, referee=binding.ctx),
             )
 
-        Env.map(inner_outputs, visit)  # pyre-ignore
+        Env.map(inner_outputs, visit)
         return box[0]
 
 
@@ -706,7 +706,7 @@ class Conditional(SourceNode):
                 ctx=Gather(section=self, referee=binding.ctx),
             )
 
-        Env.map(inner_outputs, visit)  # pyre-ignore
+        Env.map(inner_outputs, visit)
         return box[0]
 
 
@@ -1412,7 +1412,7 @@ def _workflow_dependency_matrix(
         adj.add_node(oid)
         if isinstance(obj, (Scatter, Conditional)):
             for ch in obj.elements:
-                visit(ch)
+                visit(ch)  # pyre-ignore
                 adj.add_edge(oid, id(ch))
         for dep in _ident_dependencies(obj):
             did = id(dep)

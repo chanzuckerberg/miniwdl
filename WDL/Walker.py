@@ -1,6 +1,6 @@
 # pylint: disable=assignment-from-no-return
 from typing import Any, List, Optional
-from . import Error, Expr, Tree
+from . import Error, Expr, Tree, Env
 
 
 class Base:
@@ -172,21 +172,22 @@ class SetParents(Base):
 
     def document(self, obj: Tree.Document) -> None:
         super().document(obj)
-        obj.parent = None
+        setattr(obj, "parent", None)
         for imp in obj.imports:
-            imp.doc.parent = obj
+            setattr(imp.doc, "parent", obj)
         for stb in obj.struct_typedefs:
-            stb.rhs.parent = obj
+            assert isinstance(stb, Env.Binding)
+            setattr(stb.rhs, "parent", obj)
         for task in obj.tasks:
-            task.parent = obj
+            setattr(task, "parent", obj)
         if obj.workflow:
-            obj.workflow.parent = obj
+            setattr(obj.workflow, "parent", obj)
 
     def workflow(self, obj: Tree.Workflow) -> None:
         super().workflow(obj)
-        obj.parent = None
+        setattr(obj, "parent", None)
         for elt in (obj.inputs or []) + obj.elements + (obj.outputs or []):
-            elt.parent = obj
+            setattr(elt, "parent", obj)
 
     def call(self, obj: Tree.Call) -> None:
         self._parent_stack.append(obj)
@@ -197,25 +198,25 @@ class SetParents(Base):
         self._parent_stack.append(obj)
         super().scatter(obj)
         self._parent_stack.pop()
-        obj.parent = None
+        setattr(obj, "parent", None)
         for elt in obj.elements:
-            elt.parent = obj
+            setattr(elt, "parent", obj)
 
     def conditional(self, obj: Tree.Conditional) -> None:
         self._parent_stack.append(obj)
         super().conditional(obj)
         self._parent_stack.pop()
-        obj.parent = None
+        setattr(obj, "parent", None)
         for elt in obj.elements:
-            elt.parent = obj
+            setattr(elt, "parent", obj)
 
     def task(self, obj: Tree.Task) -> None:
         self._parent_stack.append(obj)
         super().task(obj)
         self._parent_stack.pop()
-        obj.parent = None
+        setattr(obj, "parent", None)
         for elt in (obj.inputs or []) + obj.postinputs + obj.outputs:
-            elt.parent = obj
+            setattr(elt, "parent", obj)
 
     def decl(self, obj: Tree.Decl) -> None:
         self._parent_stack.append(obj)
@@ -224,7 +225,7 @@ class SetParents(Base):
 
     def expr(self, obj: Expr.Base) -> None:
         super().expr(obj)
-        obj.parent = self._parent_stack[-1]
+        setattr(obj, "parent", self._parent_stack[-1])
 
 
 class MarkCalled(Base):
@@ -239,10 +240,10 @@ class MarkCalled(Base):
     marking: bool = False  # True while recursing from the top-level workflow
 
     def workflow(self, obj: Tree.Workflow) -> None:
-        obj.called = False
+        setattr(obj, "called", False)
         if obj.parent.parent is None:  # pyre-ignore
             assert not self.marking
-            obj.called = True
+            setattr(obj, "called", True)
             self.marking = True
             super().workflow(obj)
             self.marking = False
@@ -253,10 +254,10 @@ class MarkCalled(Base):
         assert self.marking
         if isinstance(obj.callee, Tree.Workflow):
             self(obj.callee)
-        obj.callee.called = True
+        setattr(obj.callee, "called", True)
 
     def task(self, obj: Tree.Task) -> None:
-        obj.called = False
+        setattr(obj, "called", False)
 
 
 class SetReferrers(Base):

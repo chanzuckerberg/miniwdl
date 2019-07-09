@@ -233,6 +233,7 @@ class Array(Base):
 
     def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
         ans = super().copy(optional)
+        assert isinstance(ans, Array)
         if nonempty is not None:
             ans._nonempty = nonempty
         return ans
