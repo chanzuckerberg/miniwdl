@@ -653,6 +653,7 @@ class Conditional(SourceNode):
         self.expr = expr
         self.elements = elements  # pyre-ignore
         self.name = "if:L{}C{}".format(pos.line, pos.column)
+        # TODO: add name of 'shallowest' (closest to root) ident in expr
 
     @property
     def children(self) -> Iterable[SourceNode]:

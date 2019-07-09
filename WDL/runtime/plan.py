@@ -68,7 +68,7 @@ class Decl(Node):
     _source: Tree.Decl
 
     def __init__(self, source: Tree.Decl) -> None:
-        super().__init__("decl:"+source.name)
+        super().__init__("decl:" + source.name)
         self._source = source
 
     @property

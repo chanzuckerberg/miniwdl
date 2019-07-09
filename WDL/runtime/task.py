@@ -1,4 +1,7 @@
 # pyre-strict
+"""
+Local task runner
+"""
 import logging
 import os
 import tempfile

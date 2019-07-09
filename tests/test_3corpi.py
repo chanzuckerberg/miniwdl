@@ -59,6 +59,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     WDL.CLI.outline(doc, 0, show_called=(doc.workflow is not None))
 
                     if doc.workflow:
+                        # check workflow plan compilation
                         print()
                         def _p(node, level=0):
                             print("    "*level + str(node))
