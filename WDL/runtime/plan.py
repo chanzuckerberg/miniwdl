@@ -221,18 +221,13 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
     ]
 
 
+_classmap = {}
 def _wrap(elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]) -> Node:
-    if isinstance(elt, Tree.Decl):
-        return Decl(elt)
-    if isinstance(elt, Tree.Call):
-        return Call(elt)
-    if isinstance(elt, Tree.Scatter):
-        return Scatter(elt)
-    if isinstance(elt, Tree.Conditional):
-        return Conditional(elt)
-    if isinstance(elt, Tree.Gather):
-        return Gather(elt)
-    assert False
+    global _classmap
+    if not _classmap:
+        for klass in [Decl, Call, Scatter, Conditional, Gather]:
+            _classmap[klass.__name__] = klass
+    return _classmap[elt.__class__.__name__](elt)
 
 
 def _expr_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]:
