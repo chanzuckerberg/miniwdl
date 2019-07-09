@@ -221,7 +221,7 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
     ]
 
 
-_classmap = {}
+_classmap = {}  # pyre-ignore
 
 
 def _wrap(elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]) -> Node:
