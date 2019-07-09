@@ -60,13 +60,13 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
 
                     if doc.workflow:
                         print()
-                        def _p(node, level=1):
+                        def _p(node, level=0):
                             print("    "*level + str(node))
                             if isinstance(node, WDL.runtime.plan.Section):
                                 for node2 in node.body:
                                     _p(node2, level+1)
                                 for g in node.gathers:
-                                    _p(node2, level+1)
+                                    _p(g, level+1)
                         for node in WDL.runtime.plan.compile(doc.workflow):
                             _p(node)
 
