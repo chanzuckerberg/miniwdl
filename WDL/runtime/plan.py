@@ -1,13 +1,13 @@
 # pyre-strict
 """
 The **plan** is a directed acyclic graph representing a WDL workflow, derived from the AST but
-providing a simpler explicit model of the internal dependencies. It's an intermediate
+providing a simpler, explicit model of the internal dependencies. It's an intermediate
 representation used to inform job scheduling for workflow execution, whatever the backend.
 
 The graph nodes correspond to each workflow element (Decl, Call, Scatter, Conditional, and
 implicitly Gather), and each Node keeps a set of the Nodes on which it depends. To facilitate
-mapping the graph onto diverse scheduler backends, each node has a human-readable ID string with
-the dependencies encoded as sets of these IDs. Abstractly, workflow execution proceeds by
+instantiation of the graph on diverse scheduler backends, each node has a human-readable ID string,
+with the dependencies encoded as sets of these IDs. Abstractly, workflow execution proceeds by
 "visiting" each node after all of its dependencies have been visited. Each node prescribes a job to
 do upon its visitation, according to its particular type. An environment (``WDL.Env.Values``) is
 grown along the way.
@@ -26,6 +26,8 @@ from .. import Expr, Tree
 
 
 class Node(ABC):
+    "Base class for plan node"
+
     id: str
     "Human-readable node ID, unique within the workflow"
     _memo_dependencies: Optional[Set[str]] = None
@@ -45,7 +47,8 @@ class Node(ABC):
         return self._memo_dependencies
 
     def _dependencies(self) -> Iterable[str]:
-        # subclasses override if the following isn't appropriate for the specific type of node
+        # each node should study its AST to self-describe the IDs of the nodes it depends on.
+        # the following applies to most but not all node subclasses:
         return _expr_dependencies(getattr(getattr(self, "source"), "expr"))
 
 
@@ -175,10 +178,14 @@ class WorkflowOutputs(Node):
 
 def compile(workflow: Tree.Workflow) -> List[Node]:
     """
-    Compile a workflow to the top-level plan nodes. The returned list has no particular order.
+    Compile a workflow to the top-level plan nodes. The workflow shall have been typechecked
+    already, and thus known acyclic.
+    
+    The returned list has no particular order.
     """
-    nodes: Dict[str, Node] = dict()
 
+    # traverse the AST depth-first, generating the Node wrapper for each element, and the Gather
+    # nodes associated with each scatter/conditional section.
     def visit(
         elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]
     ) -> Node:
@@ -190,29 +197,31 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
                 node.body.append(subnode)
                 if isinstance(ch, (Tree.Decl, Tree.Call)):
                     g = _wrap(Tree.Gather(section=elt, referee=ch))
-                    if not [g2 for g2 in node.gathers if g.id == g2.id]:
-                        assert isinstance(g, Gather)
-                        node.gathers.append(g)
-                        nodes[g.id] = g
+                    assert isinstance(g, Gather)
+                    node.gathers.append(g)
                 elif isinstance(ch, (Tree.Scatter, Tree.Conditional)):
                     assert isinstance(subnode, Section)
                     for subgather in subnode.gathers:
-                        g = _wrap(Tree.Gather(section=elt, referee=nodes[subgather.id].source))
-                        if not [g2 for g2 in node.gathers if g.id == g2.id]:
-                            assert isinstance(g, Gather)
-                            node.gathers.append(g)
-                            nodes[g.id] = g
+                        g = _wrap(Tree.Gather(section=elt, referee=subgather.source))
+                        assert isinstance(g, Gather)
+                        node.gathers.append(g)
                 else:
                     assert False
-        assert node.id not in nodes, node.id
-        nodes[node.id] = node
         return node
 
     ans = [visit(elt) for elt in (workflow.inputs or []) + workflow.elements]
 
-    output_nodes = [visit(elt) for elt in (workflow.outputs or [])]
-    ans.extend(output_nodes)
-    ans.append(WorkflowOutputs(n.id for n in output_nodes))
+    # tack on WorkflowOutputs
+    if workflow.outputs is not None:
+        output_nodes = [visit(elt) for elt in workflow.outputs]
+        ans.extend(output_nodes)
+        ans.append(WorkflowOutputs(n.id for n in output_nodes))
+    else:
+        # TODO: instantiate WorkflowOutputs on all top-level Call nodes (and all top-level Gather
+        # nodes whose ultimate referee is a Call)
+        pass
+
+    # TODO: final sanity check that all dependencies are known nodes
 
     return ans
 

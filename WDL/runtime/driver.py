@@ -41,13 +41,13 @@ def run_local_workflow(
             os.makedirs(run_dir, exist_ok=False)
 
     while True:
-        crq = state.step()
-        if crq:
-            if isinstance(crq.callee, Tree.Task):
+        next_call = state.step()
+        if next_call:
+            if isinstance(next_call.callee, Tree.Task):
                 _, outputs = run_local_task(
-                    crq.callee, crq.inputs, run_id=crq.id, parent_dir=run_dir
+                    next_call.callee, next_call.inputs, run_id=next_call.id, parent_dir=run_dir
                 )
-                state.call_finished(crq.id, outputs)
+                state.call_finished(next_call.id, outputs)
             else:
                 raise NotImplementedError()
         elif state.outputs:
