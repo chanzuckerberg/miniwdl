@@ -26,7 +26,7 @@ class TaskContainer(ABC):
     implementations (e.g. Docker).
     """
 
-    task_id: str
+    run_id: str
 
     host_dir: str
     """
@@ -55,8 +55,8 @@ class TaskContainer(ABC):
     _running: bool
     _terminate: bool
 
-    def __init__(self, task_id: str, host_dir: str) -> None:
-        self.task_id = task_id
+    def __init__(self, run_id: str, host_dir: str) -> None:
+        self.run_id = run_id
         self.host_dir = host_dir
         self.container_dir = "/mnt/miniwdl_task_container"
         self.input_file_map = {}
@@ -292,7 +292,7 @@ class TaskDockerContainer(TaskContainer):
 def run_local_task(
     task: Tree.Task,
     posix_inputs: Env.Values,
-    task_id: Optional[str] = None,
+    run_id: Optional[str] = None,
     parent_dir: Optional[str] = None,
 ) -> Tuple[str, Env.Values]:
     """
@@ -306,28 +306,28 @@ def run_local_task(
     parent_dir = parent_dir or os.getcwd()
 
     # formulate task ID & provision local directory
-    if task_id:
-        run_dir = os.path.join(parent_dir, task_id)
+    if run_id:
+        run_dir = os.path.join(parent_dir, run_id)
         os.makedirs(run_dir, exist_ok=False)
     else:
         now = datetime.today()
-        task_id = now.strftime("%Y%m%d_%H%M%S") + "_" + task.name
+        run_id = now.strftime("%Y%m%d_%H%M%S") + "_" + task.name
         try:
-            run_dir = os.path.join(parent_dir, task_id)
+            run_dir = os.path.join(parent_dir, run_id)
             os.makedirs(run_dir, exist_ok=False)
         except FileExistsError:
-            task_id = now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + task.name
-            run_dir = os.path.join(parent_dir, task_id)
+            run_id = now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + task.name
+            run_dir = os.path.join(parent_dir, run_id)
             os.makedirs(run_dir, exist_ok=False)
 
     # provision logger
-    logger = logging.getLogger("miniwdl_task:" + task_id)
+    logger = logging.getLogger("miniwdl_task:" + run_id)
     logger.info("starting task")
     logger.debug("task run directory " + run_dir)
 
     try:
         # create appropriate TaskContainer
-        container = TaskDockerContainer(task_id, run_dir)
+        container = TaskDockerContainer(run_id, run_dir)
 
         # evaluate input/postinput declarations, including mapping from host to
         # in-container file paths
@@ -354,7 +354,7 @@ def run_local_task(
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
-        wrapper = TaskFailure(task.name, task_id)
+        wrapper = TaskFailure(task.name, run_id)
         msg = "{}: {}".format(str(wrapper), exn.__class__.__name__)
         if str(exn):
             msg += ", " + str(exn)

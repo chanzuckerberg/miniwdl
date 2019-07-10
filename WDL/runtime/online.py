@@ -5,7 +5,7 @@ in-memory state (or pickled between iterations).
 """
 
 import concurrent
-from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union
+from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
 from abc import ABC
 from .. import Env, Value, Tree
 from . import plan
@@ -29,7 +29,6 @@ _Job = NamedTuple(
         ("plan", plan.Node),
         ("dependencies", Set[str]),
         ("binding", Optional[Tuple[str, Value.Base]]),
-        ("env_out", Optional[Env.Values]),
     ],
 )
 
@@ -37,6 +36,7 @@ _Job = NamedTuple(
 class StateMachine(ABC):
     inputs: Env.Values
     jobs: Dict[str, _Job]
+    job_outputs: Dict[str, Env.Values]
     finished: Set[str]
     running: Set[str]
     waiting: Set[str]
@@ -47,6 +47,7 @@ class StateMachine(ABC):
         """
         self.inputs = inputs
         self.jobs = {}
+        self.job_outputs = {}
         self.finished = set()
         self.running = set()
         self.waiting = set()
@@ -63,7 +64,7 @@ class StateMachine(ABC):
         """
         if len(self.finished) < len(self.jobs):
             return None
-        ans = self.jobs["outputs"].env_out
+        ans = self.job_outputs["outputs"]
         assert ans is not None
         return ans
 
@@ -96,12 +97,7 @@ class StateMachine(ABC):
             raise NotImplementedError()
 
         # compute job's environment by merging outputs of all dependencies
-        dep_envs = []
-        for dep in job.dependencies:
-            dep_env = self.jobs[dep].env_out
-            assert isinstance(dep_env, Env.Values)
-            dep_envs.append(dep_env)
-        env = _merge_environments(dep_envs)
+        env = _merge_environments(self.job_outputs[dep] for dep in job.dependencies)
 
         if isinstance(job.plan, plan.Call):
             # evaluate input expressions and issue CallNow
@@ -120,10 +116,10 @@ class StateMachine(ABC):
             except KeyError:
                 assert job.plan.source.expr
                 v = job.plan.source.expr.eval(env)
-            job.env_out = Env.bind([], [], job.plan.source.name, v)
+            self.job_outputs[job.id] = Env.bind([], [], job.plan.source.name, v)
 
         elif isinstance(job.plan, plan.WorkflowOutputs):
-            job.env_out = env  # ez ;)
+            self.job_outputs[job.id] = env  # ez ;)
 
         elif isinstance(job.plan, plan.Section):
             raise NotImplementedError()
@@ -142,7 +138,9 @@ class StateMachine(ABC):
         Deliver notice of a job's successful completion, along with its outputs
         """
         assert job_id in self.running
-        self.jobs[job_id].env_out = outputs
+        call_node = self.jobs[job_id].plan
+        assert isinstance(call_node, plan.Call)
+        self.job_outputs[job_id] = [Env.Namespace(call_node.source.name, outputs)]
         self.finished.add(job_id)
         self.running.remove(job_id)
 
@@ -154,13 +152,13 @@ class StateMachine(ABC):
     ) -> None:
         if isinstance(node, plan.Section):
             raise NotImplementedError()
-        job = _Job(id=node.id, dependencies=set(node.dependencies), binding=binding, env_out=None)
+        job = _Job(id=node.id, plan=node, dependencies=set(node.dependencies), binding=binding)
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
 
 
-def _merge_environments(envs: List[Env.Values]) -> Env.Values:
+def _merge_environments(envs: Iterable[Env.Values]) -> Env.Values:
     ans = [[]]
 
     def visit(namespace: List[str], binding: Env.Binding) -> None:

@@ -60,7 +60,7 @@ class Decl(Node):
     source: Tree.Decl
 
     def __init__(self, source: Tree.Decl) -> None:
-        super().__init__("decl:" + source.name)
+        super().__init__("decl-" + source.name)
         self.source = source
 
 
@@ -76,7 +76,7 @@ class Call(Node):
     source: Tree.Call
 
     def __init__(self, source: Tree.Call) -> None:
-        super().__init__("call:" + source.name)
+        super().__init__("call-" + source.name)
         self.source = source
 
     def _dependencies(self) -> Iterable[str]:
@@ -97,7 +97,7 @@ class Gather(Node):
     source: Tree.Gather
 
     def __init__(self, source: Tree.Gather) -> None:
-        super().__init__("gather:" + _wrap(source.referee).id)
+        super().__init__("gather-" + _wrap(source.referee).id)
         self.source = source
 
     def _dependencies(self) -> Iterable[str]:

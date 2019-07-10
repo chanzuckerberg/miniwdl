@@ -309,13 +309,6 @@ def runner(
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    if not isinstance(target, Task):
-        print(
-            "`miniwdl run` only supports individual tasks right now; try `miniwdl cromwell`",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     # provision a run directory
     rundir = runner_provision_directory(target, rundir)
 
@@ -329,9 +322,8 @@ def runner(
     # run task
     logging.basicConfig(level=logging.INFO)
     try:
-        _, output_env = runtime.run_local_task(
-            target, input_env, task_id=target.name, parent_dir=rundir
-        )
+        runner = runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
+        _, output_env = runner(target, input_env, run_id=target.name, parent_dir=rundir)
     except runtime.task.TaskFailure as exn:
         if exn.__cause__ and isinstance(getattr(exn.__cause__, "pos", None), SourcePosition):
             pos = getattr(exn.__cause__, "pos")

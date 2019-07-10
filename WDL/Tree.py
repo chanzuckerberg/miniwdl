@@ -556,7 +556,7 @@ class Scatter(SourceNode):
         self.variable = variable
         self.expr = expr
         self.elements = elements  # pyre-ignore
-        self.name = "scatter:L{}C{}:{}".format(pos.line, pos.column, self.variable)
+        self.name = "scatter-L{}C{}-{}".format(pos.line, pos.column, self.variable)
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -652,7 +652,7 @@ class Conditional(SourceNode):
         super().__init__(pos)
         self.expr = expr
         self.elements = elements  # pyre-ignore
-        self.name = "if:L{}C{}".format(pos.line, pos.column)
+        self.name = "if-L{}C{}".format(pos.line, pos.column)
         # TODO: add name of 'shallowest' (closest to root) ident in expr
 
     @property
