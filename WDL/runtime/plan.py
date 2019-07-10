@@ -9,8 +9,9 @@ implicitly Gather), and each Node keeps a set of the Nodes on which it depends. 
 instantiation of the graph on diverse scheduler backends, each node has a human-readable ID string,
 with the dependencies encoded as sets of these IDs. Abstractly, workflow execution proceeds by
 "visiting" each node after all of its dependencies have been visited. Each node prescribes a job to
-do upon its visitation, according to its particular type. An environment (``WDL.Env.Values``) is
-grown along the way.
+do upon its visitation, according to its particular type. Named WDL values (``WDL.Env.Values``) are
+transmitted along each dependency edge, and any WDL expressions in each node are evaluated in the
+environment formed from the union of the node's incoming dependency edges.
 
 Scatter nodes contain a "sub-plan", which is like a prototype for the job subgraph to be scheduled
 for each element of the runtime-evaluated scatter array. They also contain prototype Gather nodes,
