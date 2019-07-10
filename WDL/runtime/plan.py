@@ -20,11 +20,9 @@ Conditional sections are treated similarly but their only possible subgraph mult
 and 1.
 """
 
-from abc import ABC, abstractmethod
-from typing import Tuple, List, Dict, Optional, Set, Iterable, Union
-from .. import Error, Env, Expr, Value, StdLib, Tree, _util
-from ..Error import SourceNode
-from .error import *
+from abc import ABC
+from typing import List, Dict, Optional, Set, Iterable, Union
+from .. import Expr, Tree
 
 
 class Node(ABC):
@@ -39,12 +37,6 @@ class Node(ABC):
         return "{} < {{{}}}".format(self.id, ", ".join(str(dep) for dep in self.dependencies))
 
     @property
-    @abstractmethod
-    def source(self) -> Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]:
-        "The ``WDL.Tree`` object represented by this node"
-        ...
-
-    @property
     def dependencies(self) -> Set[str]:
         "IDs of the nodes upon which this node depends"
         # memoize self._dependencies()
@@ -54,7 +46,7 @@ class Node(ABC):
 
     def _dependencies(self) -> Iterable[str]:
         # subclasses override if the following isn't appropriate for the specific type of node
-        return _expr_dependencies(getattr(self.source, "expr"))
+        return _expr_dependencies(getattr(getattr(self, "source"), "expr"))
 
 
 class Decl(Node):
@@ -65,15 +57,11 @@ class Decl(Node):
     obtained either (i) by evaluating the expression, or (ii) from the workflow inputs.
     """
 
-    _source: Tree.Decl
+    source: Tree.Decl
 
     def __init__(self, source: Tree.Decl) -> None:
         super().__init__("decl:" + source.name)
-        self._source = source
-
-    @property
-    def source(self) -> Tree.Decl:
-        return self._source
+        self.source = source
 
 
 class Call(Node):
@@ -85,15 +73,11 @@ class Call(Node):
     3. Bind call outputs in the appropriate environment namespace
     """
 
-    _source: Tree.Call
+    source: Tree.Call
 
     def __init__(self, source: Tree.Call) -> None:
         super().__init__("call:" + source.name)
-        self._source = source
-
-    @property
-    def source(self) -> Tree.Call:
-        return self._source
+        self.source = source
 
     def _dependencies(self) -> Iterable[str]:
         for expr in self.source.inputs.values():
@@ -110,15 +94,11 @@ class Gather(Node):
     has length 0 or 1, and None or the value should be bound accordingly.)
     """
 
-    _source: Tree.Gather
+    source: Tree.Gather
 
     def __init__(self, source: Tree.Gather) -> None:
         super().__init__("gather:" + _wrap(source.referee).id)
-        self._source = source
-
-    @property
-    def source(self) -> Tree.Gather:
-        return self._source
+        self.source = source
 
     def _dependencies(self) -> Iterable[str]:
         yield _wrap(self.source.referee).id
@@ -150,15 +130,11 @@ class Scatter(Section):
     with dependencies multiplexed to the corresponding jobs.
     """
 
-    _source: Tree.Scatter
+    source: Tree.Scatter
 
     def __init__(self, source: Tree.Scatter) -> None:
         super().__init__(source.name)
-        self._source = source
-
-    @property
-    def source(self) -> Tree.Scatter:
-        return self._source
+        self.source = source
 
 
 class Conditional(Section):
@@ -170,15 +146,31 @@ class Conditional(Section):
     propagate None values.
     """
 
-    _source: Tree.Conditional
+    source: Tree.Conditional
 
     def __init__(self, source: Tree.Conditional) -> None:
         super().__init__(source.name)
-        self._source = source
+        self.source = source
 
-    @property
-    def source(self) -> Tree.Conditional:
-        return self._source
+
+class WorkflowOutputs(Node):
+    """
+    A no-op node which depends on each ``Decl`` node from the workflow output section. Or, if the
+    workflow is missing the output section, depends on ``Call`` and ``Gather`` nodes for all call
+    outputs.
+
+    There is no WorkflowInputs node because all plan nodes implicitly depend on the workflow
+    inputs, which have no dependencies by definition.
+    """
+
+    output_node_ids: Set[str]
+
+    def __init__(self, output_node_ids: Iterable[str]) -> None:
+        super().__init__("outputs")
+        self.output_node_ids = set(output_node_ids)
+
+    def _dependencies(self) -> Iterable[str]:
+        yield from self.output_node_ids
 
 
 def compile(workflow: Tree.Workflow) -> List[Node]:
@@ -216,9 +208,13 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
         nodes[node.id] = node
         return node
 
-    return [
-        visit(elt) for elt in (workflow.inputs or []) + workflow.elements + (workflow.outputs or [])
-    ]
+    ans = [visit(elt) for elt in (workflow.inputs or []) + workflow.elements]
+
+    output_nodes = [visit(elt) for elt in (workflow.outputs or [])]
+    ans.extend(output_nodes)
+    ans.append(WorkflowOutputs(n.id for n in output_nodes))
+
+    return ans
 
 
 _classmap = {}  # pyre-ignore
