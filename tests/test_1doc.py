@@ -1101,7 +1101,7 @@ class TestDoc(unittest.TestCase):
                     sum.*
                     adder.*
                     k
-                    Int j2 = j
+                    Int j = j
                 }
             }
         """)
