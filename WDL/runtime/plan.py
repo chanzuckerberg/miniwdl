@@ -137,7 +137,7 @@ class Scatter(Section):
     source: Tree.Scatter
 
     def __init__(self, source: Tree.Scatter) -> None:
-        super().__init__(source.name)
+        super().__init__(source.workflow_node_id)
         self.source = source
 
 
@@ -153,7 +153,7 @@ class Conditional(Section):
     source: Tree.Conditional
 
     def __init__(self, source: Tree.Conditional) -> None:
-        super().__init__(source.name)
+        super().__init__(source.workflow_node_id)
         self.source = source
 
 
@@ -187,13 +187,11 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
 
     # traverse the AST depth-first, generating the Node wrapper for each element, and the Gather
     # nodes associated with each scatter/conditional section.
-    def visit(
-        elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]
-    ) -> Node:
+    def visit(elt: Union[Tree.WorkflowNode]) -> Node:
         node = _wrap(elt)
         if isinstance(node, Section):
-            assert isinstance(elt, (Tree.Scatter, Tree.Conditional))
-            for ch in elt.elements:
+            assert isinstance(elt, Tree.WorkflowSection)
+            for ch in elt.body:
                 subnode = visit(ch)
                 node.body.append(subnode)
                 if isinstance(ch, (Tree.Decl, Tree.Call)):
@@ -210,7 +208,7 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
                     assert False
         return node
 
-    ans = [visit(elt) for elt in (workflow.inputs or []) + workflow.elements]
+    ans = [visit(elt) for elt in (workflow.inputs or []) + workflow.body]
 
     # tack on WorkflowOutputs
     if workflow.outputs is not None:
@@ -230,7 +228,7 @@ def compile(workflow: Tree.Workflow) -> List[Node]:
 _classmap = {}  # pyre-ignore
 
 
-def _wrap(elt: Union[Tree.Decl, Tree.Call, Tree.Scatter, Tree.Conditional, Tree.Gather]) -> Node:
+def _wrap(elt: Tree.WorkflowNode) -> Node:
     global _classmap
     if not _classmap:
         for klass in [Decl, Call, Scatter, Conditional, Gather]:
