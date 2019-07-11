@@ -999,7 +999,7 @@ class Workflow(SourceNode):
                     output_names.add(output.name)
                     # tricky sequence here: we need to call Decl.add_to_type_env to resolve
                     # potential struct type, but:
-                    # 1. we may not want it to check for name collision in the usual way in order to
+                    # 1. we don't want it to check for name collision in the usual way in order to
                     #    handle a quirk of draft-2 workflow output style, where an output may take
                     #    the name of another decl in the workflow. Instead we've tracked and
                     #    rejected any duplicate names among the workflow outputs.
