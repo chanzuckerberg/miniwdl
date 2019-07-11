@@ -599,8 +599,14 @@ class WorkflowSection(WorkflowNode):
 
     Section body, potentially including nested sections
     """
-    _gathers: List[Gather]
-    "memoized gather nodes"
+    gathers: Dict[str, Gather]
+    """
+    :type: Dict[WorkflowNode, Gather]
+
+    ``Gather`` nodes exposing the section body's products to the rest of the workflow. The dict is
+    keyed by ``workflow_node_id`` of the interior node, to expedite looking up the corresponding
+    gather node.
+    """
 
     _type_env: Optional[Env.Types] = None
     """
@@ -614,25 +620,18 @@ class WorkflowSection(WorkflowNode):
     def __init__(self, body: List[WorkflowNode], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.body = body
-        self._gathers = []
         # TODO: add dependency on self to each body node?
-
-    @property
-    def gathers(self) -> Iterable[Gather]:
-        """
-        :type: Iterable[Gather]
-
-        ``Gather`` nodes exposing the section body's products to the rest of the workflow.
-        """
-        # TODO: is the lazy construction needed?
-        if not self._gathers:
-            for elt in self.body:
-                if isinstance(elt, (Decl, Call)):
-                    self._gathers.append(Gather(self, elt))
-                elif isinstance(elt, WorkflowSection):
-                    for subgather in elt.gathers:
-                        self._gathers.append(Gather(self, subgather))
-        yield from self._gathers
+        # populate gathers
+        self.gathers = dict()
+        for elt in self.body:
+            if isinstance(elt, (Decl, Call)):
+                assert elt.workflow_node_id not in self.gathers
+                self.gathers[elt.workflow_node_id] = Gather(self, elt)
+            elif isinstance(elt, WorkflowSection):
+                # gather gathers!
+                for subgather in elt.gathers.values():
+                    assert subgather.workflow_node_id not in self.gathers
+                    self.gathers[subgather.workflow_node_id] = Gather(self, subgather)
 
     @property
     @abstractmethod
@@ -689,7 +688,7 @@ class Scatter(WorkflowSection):
                 namespace,
                 binding.name,
                 Type.Array(binding.rhs, nonempty=nonempty),
-                ctx=Gather(section=self, referee=binding.ctx),
+                ctx=self.gathers[binding.ctx.workflow_node_id],
             )
 
         Env.map(inner_type_env, visit)
@@ -715,7 +714,7 @@ class Scatter(WorkflowSection):
                 namespace,
                 binding.name,
                 Type.Array(binding.rhs, nonempty=nonempty),
-                ctx=Gather(section=self, referee=binding.ctx),
+                ctx=self.gathers[binding.ctx.workflow_node_id],
             )
 
         Env.map(inner_outputs, visit)  # pyre-ignore
@@ -764,7 +763,7 @@ class Conditional(WorkflowSection):
                 namespace,
                 binding.name,
                 binding.rhs.copy(optional=True),
-                ctx=Gather(section=self, referee=binding.ctx),
+                ctx=self.gathers[binding.ctx.workflow_node_id],
             )
 
         Env.map(inner_type_env, visit)
@@ -788,7 +787,7 @@ class Conditional(WorkflowSection):
                 namespace,
                 binding.name,
                 binding.rhs.copy(optional=True),
-                ctx=Gather(section=self, referee=binding.ctx),
+                ctx=self.gathers[binding.ctx.workflow_node_id],
             )
 
         Env.map(inner_outputs, visit)  # pyre-ignore
