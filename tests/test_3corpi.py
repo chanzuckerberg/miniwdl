@@ -51,7 +51,15 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                 name = "test_" + prefix + "_" + name.replace('.', '_')
                 def t(self, fn=fn):
                     # load & lint the document to verify the lint count
-                    doc = WDL.load(fn, path=gpath, check_quant=check_quant, import_uri=import_uri)
+                    try:
+                        doc = WDL.load(fn, path=gpath, check_quant=check_quant, import_uri=import_uri)
+                    except Exception as exn:
+                        if isinstance(exn, WDL.Error.MultipleValidationErrors):
+                            for subexn in exn.exceptions:
+                                print(subexn.node.pos)
+                        if hasattr(exn, "node"):
+                            print(exn.node.pos)
+                        raise
                     WDL.Lint.lint(doc)
                     for _, linter, _ in WDL.Lint.collect(doc):
                         test_klass._lint_count[linter] = 1 + test_klass._lint_count.get(linter, 0)
@@ -192,16 +200,13 @@ class ENCODE_WGBS(unittest.TestCase):
 @test_corpus(
     ["test_corpi/dnanexus/dxWDL/test/**"],
     blacklist=[
-        # library_math and docs that import it use Object
-        "cast","complex","decl_mid_wf","dict","library_math","math","math2","optionals","toplevel_calls","trivial","trivial2",
+        # String to Int/Float casts
+        "cast",
         # use dnanexus extensions
-        "call_native", "call_native_app",
-        # circular imports
-        "foo_toplevel", "foo_if_flag",
-        # double quantifier
-        "conditionals_base"
+        "call_native", "call_native_app", "call_native_v1",
     ],
-    expected_lint={'UnusedDeclaration': 22, 'UnusedCall': 13, 'NameCollision': 2, 'OptionalCoercion': 1, 'StringCoercion': 2, 'FileCoercion': 2},
+    path=[["test_corpi/dnanexus/dxWDL/test/imports/lib"]],
+    expected_lint={'UnusedDeclaration': 29, 'UnusedCall': 16, 'NameCollision': 2, 'OptionalCoercion': 2, 'FileCoercion': 3, 'StringCoercion': 2, 'UnnecessaryQuantifier': 1},
     check_quant=False,
 )
 class dxWDL(unittest.TestCase):
