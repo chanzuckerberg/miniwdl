@@ -11,6 +11,7 @@ can be abbreviated ``WDL.Document``.
 
 import os
 import errno
+import itertools
 from typing import (
     Any,
     List,
@@ -147,9 +148,9 @@ class Decl(WorkflowNode):
     Bound expression, if any"""
 
     def __init__(
-        self, pos: SourcePosition, type: Type.Base, name: str, expr: Optional[Expr.Base] = None
+        self, pos: SourcePosition, type: Type.Base, name: str, expr: Optional[Expr.Base] = None, id_prefix="decl",
     ) -> None:
-        super().__init__("decl-" + name, pos)
+        super().__init__(id_prefix+"-" + name, pos)
         self.type = type
         self.name = name
         self.expr = expr
@@ -988,7 +989,7 @@ class Workflow(SourceNode):
                     output_names.add(output.name)
                     # tricky sequence here: we need to call Decl.add_to_type_env to resolve
                     # potential struct type, but:
-                    # 1. we don't want it to check for name collision in the usual way in order to
+                    # 1. we may not want it to check for name collision in the usual way in order to
                     #    handle a quirk of draft-2 workflow output style, where an output may take
                     #    the name of another decl in the workflow. Instead we've tracked and
                     #    rejected any duplicate names among the workflow outputs.
@@ -1004,7 +1005,7 @@ class Workflow(SourceNode):
                     )
                     output_type_env = output_type_env2
         # 6. check for cyclic dependencies
-        _detect_cycles(_workflow_dependency_matrix(self))  # pyre-ignore
+        _detect_cycles(_workflow_dependency_matrix(self))
 
     def _rewrite_output_idents(self) -> None:
         # for pre-1.0 workflow output sections with a list of namespaced
@@ -1051,6 +1052,7 @@ class Workflow(SourceNode):
                         ty,
                         synthetic_output_name,
                         Expr.Ident(self._output_idents_pos, output_ident),
+                        id_prefix="output-"
                     )
                 )
 
@@ -1451,70 +1453,41 @@ def _expr_workflow_node_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]
         yield from _expr_workflow_node_dependencies(ch)
 
 
-def _ident_dependencies(
-    obj: Union[WorkflowNode, Expr.Base]
-) -> Iterable[Union[Decl, Call, Scatter]]:
-    # Yield each Decl/Call/Scatter referenced by any Expr.Ident within the given element or expr.
-    # - dependence on Call = use of call output
-    # - dependence on Scatter = use of scatter variable
-    if isinstance(obj, (Decl, Scatter, Conditional)):
-        if obj.expr:
-            yield from _ident_dependencies(obj.expr)  # pyre-ignore
-    elif isinstance(obj, Call):
-        for v in obj.inputs.values():
-            yield from _ident_dependencies(v)
-    elif isinstance(obj, Expr.Ident):
-        referee = obj.referee
-        while isinstance(referee, Gather):
-            referee = referee.referee
-        assert isinstance(referee, (Decl, Call, Scatter))
-        yield referee
-    else:
-        assert isinstance(obj, Expr.Base)
-        for subexpr in obj.children:
-            yield from _ident_dependencies(subexpr)
-
-
-def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[int, Decl], _util.AdjM]:
-    # Given decls, produce mapping of object id() to the objects, and the adjacency matrix of their
-    # ident dependencies (edge from o1 to o2 = o2 depends on o1).
-    # IGNORES any dependencies involving objects not found in the given list!
-    objs_by_id = dict((id(decl), decl) for decl in decls)
+def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[str, Decl], _util.AdjM[str]]:
+    # Given decls (e.g. in a task), produce mapping of workflow node id to the objects, and the
+    # AdjM of their dependencies (edge from o1 to o2 = o2 depends on o1)
+    objs_by_id = dict((decl.workflow_node_id, decl) for decl in decls)
     assert len(objs_by_id) == len(decls)
     adj = _util.AdjM()
 
     for obj in decls:
-        oid = id(obj)
+        oid = obj.workflow_node_id
         adj.add_node(oid)
-        for dep in _ident_dependencies(obj):
-            did = id(dep)
-            if did in objs_by_id:
-                adj.add_edge(did, oid)
+        for dep_id in obj.workflow_node_dependencies:
+            assert dep_id in objs_by_id
+            adj.add_edge(dep_id, oid)
 
     assert set(objs_by_id.keys()) == set(adj.nodes)
     return (objs_by_id, adj)
 
 
-def _workflow_dependency_matrix(workflow: Workflow) -> Tuple[Dict[int, WorkflowNode], _util.AdjM]:
-    # Given workflow, produce mapping of object id() to the workflow elements, and the adjacency
-    # matrix of their dependencies (edge from o1 to o2 = o2 depends on o1). In addition to the
-    # identifier dependencies, each Scatter and Conditional object is a dependency of each element
-    # within that section.
+def _workflow_dependency_matrix(workflow: Workflow) -> Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]:
+    # Given workflow, produce mapping of workflow node id to each node, and the AdjM of their
+    # dependencies (edge from o1 to o2 = o2 depends on o1). Considers each Scatter and Conditional
+    # node a dependency of each of its body nodes.
     objs_by_id = {}
     adj = _util.AdjM()
 
     def visit(obj: WorkflowNode) -> None:
-        oid = id(obj)
+        oid = obj.workflow_node_id
         objs_by_id[oid] = obj
         adj.add_node(oid)
-        if isinstance(obj, (Scatter, Conditional)):
-            for ch in obj.body:
+        if isinstance(obj, WorkflowSection):
+            for ch in itertools.chain(obj.body, obj.gathers.values()):
                 visit(ch)
-                adj.add_edge(oid, id(ch))
-        for dep in _ident_dependencies(obj):
-            did = id(dep)
-            objs_by_id[did] = dep
-            adj.add_edge(did, oid)
+                adj.add_edge(oid, ch.workflow_node_id)
+        for dep_id in obj.workflow_node_dependencies:
+            adj.add_edge(dep_id, oid)
 
     for obj in workflow.inputs or []:
         visit(obj)
@@ -1527,7 +1500,7 @@ def _workflow_dependency_matrix(workflow: Workflow) -> Tuple[Dict[int, WorkflowN
     return (objs_by_id, adj)
 
 
-def _detect_cycles(p: Tuple[Dict[int, SourceNode], _util.AdjM]) -> None:
+def _detect_cycles(p: Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]) -> None:
     # given the result of _dependency_matrix, detect if there exists a cycle
     # and if so, then raise WDL.Error.CircularDependencies with a relevant
     # SourceNode.
@@ -1535,7 +1508,7 @@ def _detect_cycles(p: Tuple[Dict[int, SourceNode], _util.AdjM]) -> None:
     try:
         _util.topsort(adj)
     except StopIteration as err:
-        raise Error.CircularDependencies(nodes[getattr(err, "node")])
+        raise Error.CircularDependencies(nodes[getattr(err, "node")]) from None
 
 
 def _import_structs(doc: Document):
