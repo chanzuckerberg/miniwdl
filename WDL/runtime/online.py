@@ -26,7 +26,7 @@ _Job = NamedTuple(
     "Job",
     [
         ("id", str),
-        ("plan", plan.Node),
+        ("node", Tree.WorkflowNode),
         ("dependencies", Set[str]),
         ("binding", Optional[Tuple[str, Value.Base]]),
     ],
@@ -41,7 +41,7 @@ class StateMachine(ABC):
     running: Set[str]
     waiting: Set[str]
 
-    def __init__(self, workflow_plan: List[plan.Node], inputs: Env.Values) -> None:
+    def __init__(self, workflow_nodes: List[Tree.WorkflowNode], inputs: Env.Values) -> None:
         """
         Initialize the workflow state machine, given the plan and the workflow inputs
         """
@@ -52,7 +52,7 @@ class StateMachine(ABC):
         self.running = set()
         self.waiting = set()
 
-        for node in workflow_plan:
+        for node in workflow_nodes:
             # TODO: disregard dependencies of any decl node whose value is supplied in inputs
             self._schedule(node)
         assert "outputs" in self.jobs
@@ -92,36 +92,36 @@ class StateMachine(ABC):
         self.running.add(job.id)
         self.waiting.remove(job.id)
 
-        if isinstance(job.plan, plan.Gather):
+        if isinstance(job.node, Tree.Gather):
             # special use of dependency outputs
             raise NotImplementedError()
 
         # compute job's environment by merging outputs of all dependencies
         env = _merge_environments(self.job_outputs[dep] for dep in job.dependencies)
 
-        if isinstance(job.plan, plan.Call):
+        if isinstance(job.node, Tree.Call):
             # evaluate input expressions and issue CallNow
             call_inputs = []
-            for name, expr in job.plan.source.inputs.items():
+            for name, expr in job.node.inputs.items():
                 call_inputs = Env.bind(call_inputs, [], name, expr.eval(env))
             # TODO: check workflow inputs for optional call inputs
-            assert isinstance(job.plan.source.callee, (Tree.Task, Tree.Workflow))
-            return CallNow(id=job.id, callee=job.plan.source.callee, inputs=call_inputs)
+            assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
+            return CallNow(id=job.id, callee=job.node.callee, inputs=call_inputs)
 
-        if isinstance(job.plan, plan.Decl):
+        if isinstance(job.node, Tree.Decl):
             # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
             # the expr
             try:
-                v = Env.resolve(self.inputs, [], job.plan.source.name)
+                v = Env.resolve(self.inputs, [], job.node.name)
             except KeyError:
-                assert job.plan.source.expr
-                v = job.plan.source.expr.eval(env)
-            self.job_outputs[job.id] = Env.bind([], [], job.plan.source.name, v)
+                assert job.node.expr
+                v = job.node.expr.eval(env)
+            self.job_outputs[job.id] = Env.bind([], [], job.node.name, v)
 
-        elif isinstance(job.plan, plan.WorkflowOutputs):
+        elif isinstance(job.node, plan.WorkflowOutputs):
             self.job_outputs[job.id] = env  # ez ;)
 
-        elif isinstance(job.plan, plan.Section):
+        elif isinstance(job.node, Tree.WorkflowSection):
             raise NotImplementedError()
 
         else:
@@ -138,21 +138,26 @@ class StateMachine(ABC):
         Deliver notice of a job's successful completion, along with its outputs
         """
         assert job_id in self.running
-        call_node = self.jobs[job_id].plan
-        assert isinstance(call_node, plan.Call)
-        self.job_outputs[job_id] = [Env.Namespace(call_node.source.name, outputs)]
+        call_node = self.jobs[job_id].node
+        assert isinstance(call_node, Tree.Call)
+        self.job_outputs[job_id] = [Env.Namespace(call_node.name, outputs)]
         self.finished.add(job_id)
         self.running.remove(job_id)
 
     def _schedule(
         self,
-        node: plan.Node,
+        node: Tree.WorkflowNode,
         index: Optional[int] = None,
         binding: Optional[Tuple[str, Value.Base]] = None,
     ) -> None:
-        if isinstance(node, plan.Section):
+        if isinstance(node, Tree.WorkflowSection):
             raise NotImplementedError()
-        job = _Job(id=node.id, plan=node, dependencies=set(node.dependencies), binding=binding)
+        job = _Job(
+            id=node.workflow_node_id,
+            node=node,
+            dependencies=set(node.workflow_node_dependencies),
+            binding=binding,
+        )
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
