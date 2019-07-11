@@ -439,8 +439,8 @@ class TestTypes(unittest.TestCase):
             }}
             """.format(t=t)
             doc = WDL.parse_document(doc_txt, v)
-            self.assertEqual(str(doc.workflow.elements[0].type), t)
-            self.assertEqual(doc.workflow.elements[0].type.optional, t.endswith("?"))
+            self.assertEqual(str(doc.workflow.body[0].type), t)
+            self.assertEqual(doc.workflow.body[0].type.optional, t.endswith("?"))
             self.assertEqual(str(doc.workflow.effective_outputs[0].rhs), t)
         for t in ["Int", "Int?",
                   "Array[Int]", "Array[Int]?", "Array[Int]+?", "Array[Int?]+?",
@@ -500,7 +500,7 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         self.assertIsInstance(doc.workflow, WDL.Tree.Workflow)
-        self.assertEqual(len(doc.workflow.elements), 2)
+        self.assertEqual(len(doc.workflow.body), 2)
         self.assertEqual(len(doc.tasks), 2)
         doc.typecheck()
 
@@ -558,9 +558,9 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc, version="draft-2")
         self.assertIsInstance(doc.workflow, WDL.Tree.Workflow)
-        self.assertEqual(len(doc.workflow.elements), 3)
-        self.assertIsInstance(doc.workflow.elements[2], WDL.Tree.Scatter)
-        self.assertEqual(len(doc.workflow.elements[2].elements), 1)
+        self.assertEqual(len(doc.workflow.body), 3)
+        self.assertIsInstance(doc.workflow.body[2], WDL.Tree.Scatter)
+        self.assertEqual(len(doc.workflow.body[2].body), 1)
         self.assertEqual(len(doc.tasks), 2)
         self.assertEqual(doc.tasks[0].name, "slice_bam")
         self.assertEqual(len(doc.tasks[0].command.parts), 7)
@@ -602,8 +602,8 @@ class TestDoc(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         self.assertIsInstance(doc.workflow, WDL.Tree.Workflow)
-        self.assertIsInstance(doc.workflow.elements[2], WDL.Tree.Scatter)
-        self.assertIsInstance(doc.workflow.elements[2].elements[0], WDL.Tree.Scatter)
+        self.assertIsInstance(doc.workflow.body[2], WDL.Tree.Scatter)
+        self.assertIsInstance(doc.workflow.body[2].body[0], WDL.Tree.Scatter)
         self.assertEqual(len(doc.tasks), 1)
         doc.typecheck()
         self.assertEqual(len(doc.imports), 2)
