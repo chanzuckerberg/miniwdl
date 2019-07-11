@@ -148,9 +148,14 @@ class Decl(WorkflowNode):
     Bound expression, if any"""
 
     def __init__(
-        self, pos: SourcePosition, type: Type.Base, name: str, expr: Optional[Expr.Base] = None, id_prefix="decl",
+        self,
+        pos: SourcePosition,
+        type: Type.Base,
+        name: str,
+        expr: Optional[Expr.Base] = None,
+        id_prefix="decl",
     ) -> None:
-        super().__init__(id_prefix+"-" + name, pos)
+        super().__init__(id_prefix + "-" + name, pos)
         self.type = type
         self.name = name
         self.expr = expr
@@ -868,6 +873,11 @@ class Workflow(SourceNode):
         self.meta = meta
         self.complete_calls = True
 
+        # Hack: modify workflow node IDs for output decls since, in draft-2, they could reuse names
+        # of earlier decls
+        for output_decl in self.outputs or []:
+            output_decl.workflow_node_id = output_decl.workflow_node_id.replace("decl-", "output-")
+
     @property
     def available_inputs(self) -> Env.Decls:
         """:type: WDL.Env.Decls
@@ -1052,7 +1062,7 @@ class Workflow(SourceNode):
                         ty,
                         synthetic_output_name,
                         Expr.Ident(self._output_idents_pos, output_ident),
-                        id_prefix="output-"
+                        id_prefix="output",
                     )
                 )
 
@@ -1456,6 +1466,8 @@ def _expr_workflow_node_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]
 def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[str, Decl], _util.AdjM[str]]:
     # Given decls (e.g. in a task), produce mapping of workflow node id to the objects, and the
     # AdjM of their dependencies (edge from o1 to o2 = o2 depends on o1)
+    # IGNORES dependencies that aren't among decls to begin with (the task runtime omits decls that
+    # are supplied/overriden by runtime inputs)
     objs_by_id = dict((decl.workflow_node_id, decl) for decl in decls)
     assert len(objs_by_id) == len(decls)
     adj = _util.AdjM()
@@ -1464,14 +1476,16 @@ def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[str, Decl], _util.A
         oid = obj.workflow_node_id
         adj.add_node(oid)
         for dep_id in obj.workflow_node_dependencies:
-            assert dep_id in objs_by_id
-            adj.add_edge(dep_id, oid)
+            if dep_id in objs_by_id:
+                adj.add_edge(dep_id, oid)
 
     assert set(objs_by_id.keys()) == set(adj.nodes)
     return (objs_by_id, adj)
 
 
-def _workflow_dependency_matrix(workflow: Workflow) -> Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]:
+def _workflow_dependency_matrix(
+    workflow: Workflow
+) -> Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]:
     # Given workflow, produce mapping of workflow node id to each node, and the AdjM of their
     # dependencies (edge from o1 to o2 = o2 depends on o1). Considers each Scatter and Conditional
     # node a dependency of each of its body nodes.

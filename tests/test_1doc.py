@@ -831,18 +831,6 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = r"""
-        workflow contrived {
-            Int x
-            output {
-                Int x = 1
-            }
-        }
-        """
-        doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.MultipleDefinitions):
-            doc.typecheck()
-
-        doc = r"""
         import "x.wdl"
         import "x.wdl"
         """
