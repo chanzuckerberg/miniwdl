@@ -1,17 +1,17 @@
 """
-Abstract syntax tree (AST) for WDL documents, containing tasks and workflows,
-which contain declarations, calls, and scatter & if sections. The AST is
-typically constructed and returned by :func:`~WDL.load` or
-:func:`~WDL.parse_document`.
+Abstract syntax tree (AST) for WDL documents, containing tasks and workflows, which contain
+declarations, calls, and scatter & if sections. The AST is typically constructed and returned by
+:func:`~WDL.load` or :func:`~WDL.parse_document`.
 
-The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e.
-``WDL.Tree.Document`` can be abbreviated ``WDL.Document``.
+The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e. ``WDL.Tree.Document``
+can be abbreviated ``WDL.Document``.
 
 .. inheritance-diagram:: WDL.Tree
 """
 
 import os
 import errno
+import itertools
 from typing import (
     Any,
     List,
@@ -74,33 +74,67 @@ class StructTypeDef(SourceNode):
 
 
 class WorkflowNode(SourceNode, ABC):
+    """
+    Base class for workflow "nodes" including declarations, calls, and scatter/if sections and
+    their bodies.
+
+    Each node has a human-readable ID string which is unique within the workflow. It also exposes
+    the set of workflow node IDs upon which it depends. Abstractly, workflow execution can proceed
+    by "visiting" each node once all of its dependencies have been visited, performing some
+    action(s) appropriate to the specific node type (such as evaluating a WDL expression and
+    binding a name in the environment, or executing a task and binding its outputs).
+    """
+
     workflow_node_id: str
+    """
+    :type: str
+
+    Human-readable node ID unique within the current workflow
+    """
+
     _memo_workflow_node_dependencies: Optional[Set[str]] = None
 
     def __init__(self, workflow_node_id: str, pos: SourcePosition):
         super().__init__(pos)
         self.workflow_node_id = workflow_node_id
 
-    @abstractmethod
-    def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
-    ) -> Env.Types:
-        raise NotImplementedError()
-
     @property
     def workflow_node_dependencies(self) -> Set[str]:
-        "available only after typechecking"
+        """
+        :type: Set[str]
+
+        Set of workflow node IDs on which this node depends. Available once workflow has been
+        typechecked.
+        """
+        # in particular, requires all ident expressions have their referees resolved
+        # memoize
         if self._memo_workflow_node_dependencies is None:
             self._memo_workflow_node_dependencies = set(self._workflow_node_dependencies())
         return self._memo_workflow_node_dependencies
 
     @abstractmethod
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        # to be supplied by subclasses
+        raise NotImplementedError()
+
+    @abstractmethod
+    def add_to_type_env(
+        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
+    ) -> Env.Types:
+        # typechecking helper -- add this node to the type environment; for sections, this includes
+        # everything in the section body as visible outside of the section.
         raise NotImplementedError()
 
 
 class Decl(WorkflowNode):
-    """A value declaration within a task or workflow"""
+    """
+    A value declaration within a task or workflow.
+
+    Within a task, the declarations can be viewed as "workflow nodes" insofar as they must be
+    evaluated in an order consistent with their dependency structure, and ensured acyclic. The
+    "workflow node IDs" of a task's declarations are unique within the task only, and unrelated to
+    the top-level workflow, if any, in the WDL document.
+    """
 
     type: Type.Base
     ":type: WDL.Type.Base"
@@ -114,9 +148,14 @@ class Decl(WorkflowNode):
     Bound expression, if any"""
 
     def __init__(
-        self, pos: SourcePosition, type: Type.Base, name: str, expr: Optional[Expr.Base] = None
+        self,
+        pos: SourcePosition,
+        type: Type.Base,
+        name: str,
+        expr: Optional[Expr.Base] = None,
+        id_prefix="decl",
     ) -> None:
-        super().__init__("decl-" + name, pos)
+        super().__init__(id_prefix + "-" + name, pos)
         self.type = type
         self.name = name
         self.expr = expr
@@ -169,7 +208,9 @@ class Decl(WorkflowNode):
 
 
 class Task(SourceNode):
-    """WDL Task"""
+    """
+    WDL Task
+    """
 
     name: str
     """:type: str"""
@@ -342,12 +383,6 @@ class Task(SourceNode):
         )
 
 
-# forward-declarations
-TVScatter = TypeVar("TVScatter", bound="Scatter")
-TVConditional = TypeVar("TVConditional", bound="Conditional")
-TVDocument = TypeVar("TVDocument", bound="Document")
-
-
 class Call(WorkflowNode):
     """A call (within a workflow) to a task or sub-workflow"""
 
@@ -355,11 +390,11 @@ class Call(WorkflowNode):
     """
     :type: List[str]
 
-    Namespaced identifier of the desired task/workflow"""
+    WDL namespaced identifier of the desired task/workflow"""
     name: str
     """:type: string
 
-    defaults to task/workflow name"""
+    Call name, defaults to task/workflow name"""
     inputs: Dict[str, Expr.Base]
     """
     :type: Dict[str,WDL.Expr.Base]
@@ -370,7 +405,7 @@ class Call(WorkflowNode):
     """
     :type: Union[WDL.Tree.Task, WDL.Tree.Workflow]
 
-    After the AST is typechecked, refers to the Task or Workflow object to call"""
+    Refers to the ``Task`` or imported ``Workflow`` object to be called (after AST typechecking)"""
 
     def __init__(
         self,
@@ -391,7 +426,7 @@ class Call(WorkflowNode):
         for _, ex in self.inputs.items():
             yield ex
 
-    def resolve(self, doc: TVDocument, call_names: Optional[Set[str]] = None) -> None:
+    def resolve(self, doc: "Document", call_names: Optional[Set[str]] = None) -> None:
         # Set self.callee to the Task/Workflow being called. Use exactly once
         # prior to add_to_type_env() or typecheck_input()
         if self.callee:
@@ -530,15 +565,16 @@ class Call(WorkflowNode):
 
 class Gather(WorkflowNode):
     """
-    A ``Gather`` node symbolizes the operation to gather an array of declared values or call outputs in
-    a scatter section, or optional values from a conditional section. It's an abstract symbol rather
-    than a ``SourceNode`` because these operations are implicit in WDL.
+    A ``Gather`` node symbolizes the operation to gather an array of declared values or call
+    outputs in a scatter section, or optional values from a conditional section. These operations
+    are implicit in the WDL syntax, but represented explicitly in the AST to facilitate analysis of
+    the data types and dependency structure in the workflow.
 
-    When a ``WDL.Expr.Ident`` outside of the scatter/conditional section references the array/optional,
-    its ``referee`` attribute is the ``Gather`` node, which in turn points to the
-    ``Scatter``/``Conditional`` node and to the specific ``Decl`` or ``Call`` whose output is
-    referenced. Futhermore, the ``Gather``'s referee can be another ``Gather``node, in the case of
-    nested scatter/conditional sections.
+    Each scatter/conditional section provides ``Gather`` nodes to expose the section body's
+    products to the rest of the workflow. When a ``WDL.Expr.Ident`` elsewhere identifies a node
+    inside the section, its ``referee`` attribute is the corresponding ``Gather`` node, which in
+    turn references the interior node. The interior node might itself be another ``Gather`` node,
+    from a nested scatter/conditional section.
     """
 
     section: "WorkflowSection"
@@ -559,9 +595,24 @@ class Gather(WorkflowNode):
 
 
 class WorkflowSection(WorkflowNode):
+    """
+    Base class for workflow nodes representing scatter and conditional sections
+    """
 
     body: List[WorkflowNode]
-    _gathers: List[Gather]
+    """
+    :type: List[WorkflowNode]
+
+    Section body, potentially including nested sections
+    """
+    gathers: Dict[str, Gather]
+    """
+    :type: Dict[WorkflowNode, Gather]
+
+    ``Gather`` nodes exposing the section body's products to the rest of the workflow. The dict is
+    keyed by ``workflow_node_id`` of the interior node, to expedite looking up the corresponding
+    gather node.
+    """
 
     _type_env: Optional[Env.Types] = None
     """
@@ -575,18 +626,18 @@ class WorkflowSection(WorkflowNode):
     def __init__(self, body: List[WorkflowNode], *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.body = body
-        self._gathers = []
-
-    @property
-    def gathers(self) -> Iterable[Gather]:
-        if not self._gathers:
-            for elt in self.body:
-                if isinstance(elt, (Decl, Call)):
-                    self._gathers.append(Gather(self, elt))
-                elif isinstance(elt, WorkflowSection):
-                    for subgather in elt.gathers:
-                        self._gathers.append(Gather(self, subgather))
-        yield from self._gathers
+        # TODO: add dependency on self to each body node?
+        # populate gathers
+        self.gathers = dict()
+        for elt in self.body:
+            if isinstance(elt, (Decl, Call)):
+                assert elt.workflow_node_id not in self.gathers
+                self.gathers[elt.workflow_node_id] = Gather(self, elt)
+            elif isinstance(elt, WorkflowSection):
+                # gather gathers!
+                for subgather in elt.gathers.values():
+                    assert subgather.workflow_node_id not in self.gathers
+                    self.gathers[subgather.workflow_node_id] = Gather(self, subgather)
 
     @property
     @abstractmethod
@@ -595,7 +646,7 @@ class WorkflowSection(WorkflowNode):
 
 
 class Scatter(WorkflowSection):
-    """A scatter stanza within a workflow"""
+    """Workflow scatter section"""
 
     variable: str
     """
@@ -643,7 +694,7 @@ class Scatter(WorkflowSection):
                 namespace,
                 binding.name,
                 Type.Array(binding.rhs, nonempty=nonempty),
-                ctx=Gather(section=self, referee=binding.ctx),
+                ctx=self.gathers[binding.ctx.workflow_node_id],
             )
 
         Env.map(inner_type_env, visit)
@@ -669,7 +720,7 @@ class Scatter(WorkflowSection):
                 namespace,
                 binding.name,
                 Type.Array(binding.rhs, nonempty=nonempty),
-                ctx=Gather(section=self, referee=binding.ctx),
+                ctx=self.gathers[binding.ctx.workflow_node_id],
             )
 
         Env.map(inner_outputs, visit)  # pyre-ignore
@@ -680,7 +731,7 @@ class Scatter(WorkflowSection):
 
 
 class Conditional(WorkflowSection):
-    """A conditional (if) stanza within a workflow"""
+    """Workflow conditional (if) section"""
 
     expr: Expr.Base
     """
@@ -718,7 +769,7 @@ class Conditional(WorkflowSection):
                 namespace,
                 binding.name,
                 binding.rhs.copy(optional=True),
-                ctx=Gather(section=self, referee=binding.ctx),
+                ctx=self.gathers[binding.ctx.workflow_node_id],
             )
 
         Env.map(inner_type_env, visit)
@@ -742,7 +793,7 @@ class Conditional(WorkflowSection):
                 namespace,
                 binding.name,
                 binding.rhs.copy(optional=True),
-                ctx=Gather(section=self, referee=binding.ctx),
+                ctx=self.gathers[binding.ctx.workflow_node_id],
             )
 
         Env.map(inner_outputs, visit)  # pyre-ignore
@@ -821,6 +872,11 @@ class Workflow(SourceNode):
         self.parameter_meta = parameter_meta
         self.meta = meta
         self.complete_calls = True
+
+        # Hack: modify workflow node IDs for output decls since, in draft-2, they could reuse names
+        # of earlier decls
+        for output_decl in self.outputs or []:
+            output_decl.workflow_node_id = output_decl.workflow_node_id.replace("decl-", "output-")
 
     @property
     def available_inputs(self) -> Env.Decls:
@@ -906,7 +962,7 @@ class Workflow(SourceNode):
         for d in self.outputs or []:
             yield d
 
-    def typecheck(self, doc: TVDocument, check_quant: bool) -> None:
+    def typecheck(self, doc: "Document", check_quant: bool) -> None:
         assert doc.workflow is self
         assert self._type_env is None
         # 1. resolve all calls and check for call name collisions
@@ -959,7 +1015,7 @@ class Workflow(SourceNode):
                     )
                     output_type_env = output_type_env2
         # 6. check for cyclic dependencies
-        _detect_cycles(_workflow_dependency_matrix(self))  # pyre-ignore
+        _detect_cycles(_workflow_dependency_matrix(self))
 
     def _rewrite_output_idents(self) -> None:
         # for pre-1.0 workflow output sections with a list of namespaced
@@ -1006,6 +1062,7 @@ class Workflow(SourceNode):
                         ty,
                         synthetic_output_name,
                         Expr.Ident(self._output_idents_pos, output_ident),
+                        id_prefix="output",
                     )
                 )
 
@@ -1391,70 +1448,60 @@ def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callab
     return f
 
 
-def _ident_dependencies(
-    obj: Union[WorkflowNode, Expr.Base]
-) -> Iterable[Union[Decl, Call, Scatter]]:
-    # Yield each Decl/Call/Scatter referenced by any Expr.Ident within the given element or expr.
-    # - dependence on Call = use of call output
-    # - dependence on Scatter = use of scatter variable
-    if isinstance(obj, (Decl, Scatter, Conditional)):
-        if obj.expr:
-            yield from _ident_dependencies(obj.expr)  # pyre-ignore
-    elif isinstance(obj, Call):
-        for v in obj.inputs.values():
-            yield from _ident_dependencies(v)
-    elif isinstance(obj, Expr.Ident):
-        referee = obj.referee
-        while isinstance(referee, Gather):
-            referee = referee.referee
-        assert isinstance(referee, (Decl, Call, Scatter))
-        yield referee
-    else:
-        assert isinstance(obj, Expr.Base)
-        for subexpr in obj.children:
-            yield from _ident_dependencies(subexpr)
+def _expr_workflow_node_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]:
+    # Given some Expr within a workflow, yield the workflow node IDs of the referees of each
+    # Expr.Ident subexpression. These referees can include
+    #   - Decl: reference to a named value
+    #   - Call: reference to a call output
+    #   - Scatter: reference to the scatter variable
+    #   - Gather: reference to values(s) (array/optional) gathered from a scatter or conditional
+    #             section
+    if isinstance(expr, Expr.Ident):
+        assert isinstance(expr.referee, WorkflowNode)
+        yield expr.referee.workflow_node_id
+    for ch in expr.children if expr else []:
+        yield from _expr_workflow_node_dependencies(ch)
 
 
-def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[int, Decl], _util.AdjM]:
-    # Given decls, produce mapping of object id() to the objects, and the adjacency matrix of their
-    # ident dependencies (edge from o1 to o2 = o2 depends on o1).
-    # IGNORES any dependencies involving objects not found in the given list!
-    objs_by_id = dict((id(decl), decl) for decl in decls)
+def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[str, Decl], _util.AdjM[str]]:
+    # Given decls (e.g. in a task), produce mapping of workflow node id to the objects, and the
+    # AdjM of their dependencies (edge from o1 to o2 = o2 depends on o1)
+    # IGNORES dependencies that aren't among decls to begin with (the task runtime omits decls that
+    # are supplied/overriden by runtime inputs)
+    objs_by_id = dict((decl.workflow_node_id, decl) for decl in decls)
     assert len(objs_by_id) == len(decls)
     adj = _util.AdjM()
 
     for obj in decls:
-        oid = id(obj)
+        oid = obj.workflow_node_id
         adj.add_node(oid)
-        for dep in _ident_dependencies(obj):
-            did = id(dep)
-            if did in objs_by_id:
-                adj.add_edge(did, oid)
+        for dep_id in obj.workflow_node_dependencies:
+            if dep_id in objs_by_id:
+                adj.add_edge(dep_id, oid)
 
     assert set(objs_by_id.keys()) == set(adj.nodes)
     return (objs_by_id, adj)
 
 
-def _workflow_dependency_matrix(workflow: Workflow) -> Tuple[Dict[int, WorkflowNode], _util.AdjM]:
-    # Given workflow, produce mapping of object id() to the workflow elements, and the adjacency
-    # matrix of their dependencies (edge from o1 to o2 = o2 depends on o1). In addition to the
-    # identifier dependencies, each Scatter and Conditional object is a dependency of each element
-    # within that section.
+def _workflow_dependency_matrix(
+    workflow: Workflow
+) -> Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]:
+    # Given workflow, produce mapping of workflow node id to each node, and the AdjM of their
+    # dependencies (edge from o1 to o2 = o2 depends on o1). Considers each Scatter and Conditional
+    # node a dependency of each of its body nodes.
     objs_by_id = {}
     adj = _util.AdjM()
 
     def visit(obj: WorkflowNode) -> None:
-        oid = id(obj)
+        oid = obj.workflow_node_id
         objs_by_id[oid] = obj
         adj.add_node(oid)
-        if isinstance(obj, (Scatter, Conditional)):
-            for ch in obj.body:
+        if isinstance(obj, WorkflowSection):
+            for ch in itertools.chain(obj.body, obj.gathers.values()):
                 visit(ch)
-                adj.add_edge(oid, id(ch))
-        for dep in _ident_dependencies(obj):
-            did = id(dep)
-            objs_by_id[did] = dep
-            adj.add_edge(did, oid)
+                adj.add_edge(oid, ch.workflow_node_id)
+        for dep_id in obj.workflow_node_dependencies:
+            adj.add_edge(dep_id, oid)
 
     for obj in workflow.inputs or []:
         visit(obj)
@@ -1467,7 +1514,7 @@ def _workflow_dependency_matrix(workflow: Workflow) -> Tuple[Dict[int, WorkflowN
     return (objs_by_id, adj)
 
 
-def _detect_cycles(p: Tuple[Dict[int, SourceNode], _util.AdjM]) -> None:
+def _detect_cycles(p: Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]) -> None:
     # given the result of _dependency_matrix, detect if there exists a cycle
     # and if so, then raise WDL.Error.CircularDependencies with a relevant
     # SourceNode.
@@ -1475,7 +1522,7 @@ def _detect_cycles(p: Tuple[Dict[int, SourceNode], _util.AdjM]) -> None:
     try:
         _util.topsort(adj)
     except StopIteration as err:
-        raise Error.CircularDependencies(nodes[getattr(err, "node")])
+        raise Error.CircularDependencies(nodes[getattr(err, "node")]) from None
 
 
 def _import_structs(doc: Document):

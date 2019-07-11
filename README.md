@@ -29,6 +29,8 @@ pip: `pip3 install miniwdl`
 
 conda: [configure conda-forge](http://conda-forge.org/docs/user/introduction.html) and `conda install miniwdl`
 
+locally: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) for an example of dependencies prior to running `setup.py`
+
 ## Command-line tools
 
 ### `miniwdl check`
@@ -124,7 +126,8 @@ $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 }
 ```
 
-By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
+By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. You can use the `-r/--jar` option if you already have a local copy of Cromwell; other Cromwell configuration options are available (see `--help`).
+ The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
 
 The tool supports shell tab-completion for the workflow's available input names. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl cromwell hello.wdl ` and try double-tab.
 
@@ -139,13 +142,13 @@ import WDL
 doc = WDL.load('skylab/pipelines/optimus/Optimus.wdl',
                path=['skylab/library/tasks/'])
 
-def show(elements):
-  for elt in elements:
+def show(body):
+  for elt in body:
     if isinstance(elt, WDL.Decl):
       print(str(elt.type) + ' ' + elt.name)
     elif isinstance(elt, WDL.Scatter) or isinstance(elt, WDL.Conditional):
-      show(elt.elements)
-show(doc.workflow.elements)
+      show(elt.body)
+show(doc.workflow.body)
 "
 
 String version
