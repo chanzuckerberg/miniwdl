@@ -901,14 +901,16 @@ class Workflow(SourceNode):
                     output_names.add(output.name)
                     # tricky sequence here: we need to call Decl.add_to_type_env to resolve
                     # potential struct type, but:
-                    # 1. we don't want it to check for name collision in the usual way in order to
+                    # 1. we may not want it to check for name collision in the usual way in order to
                     #    handle a quirk of draft-2 workflow output style, where an output may take
                     #    the name of another decl in the workflow. Instead we've tracked and
                     #    rejected any duplicate names among the workflow outputs.
                     # 2. we still want to typecheck the output expression againsnt the 'old' type
                     #    environment
                     output_type_env2 = output.add_to_type_env(
-                        doc.struct_typedefs, output_type_env, collision_ok=True
+                        doc.struct_typedefs,
+                        output_type_env,
+                        collision_ok=getattr(output, "_rewritten_ident", False),
                     )
                     errors.try1(
                         lambda output=output: output.typecheck(
@@ -966,6 +968,9 @@ class Workflow(SourceNode):
                         Expr.Ident(self._output_idents_pos, output_ident),
                     )
                 )
+
+        for decl in output_ident_decls:
+            setattr(decl, "_rewritten_ident", True)
 
         # put the synthetic declarations into self.outputs
         self.outputs = output_ident_decls + self.outputs  # pyre-fixme
