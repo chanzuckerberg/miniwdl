@@ -1,11 +1,36 @@
 # pyre-strict
 """
 Workflow runner building blocks & local driver
+
+--------
+Overview
+--------
+
+Workflow execution proceeds according to the AST's ``WorkflowNode`` graph, in which each Decl,
+Call, Scatter, Conditional, and (implicit) Gather operation has its own node which advertises its
+dependencies on the other nodes.
+
+Abstractly, we plan to "visit" each node after visiting all of its dependencies. The node's type
+prescribes some job to do upon visitation, such as evaluating a Decl's WDL expression, or running a
+task on some inputs. Named WDL values (``WDL.Env.Values``) are transmitted along each dependency
+edge, and WDL expressions in each node are evaluated in the environment formed from the union of
+the node's incoming dependency edges.
+
+Scatter sections contain a body, which provides a prototype for the job subgraph to be scheduled
+for each element of the runtime-evaluated scatter array. They also contain prototype Gather nodes,
+each dependent on a body subgraph node. Once all the body subgraph jobs have been scheduled, the
+Gather jobs can be scheduled as well, with their dependencies multiplexed to the corresponding
+subgraph jobs. Nodes outside of the scatter section depend on the Gather nodes rather reaching into
+the body subgraph directly.
+
+Conditional sections are treated similarly, but 0 and 1 are their only possible subgraph
+multiplicities. Scatter and Conditional sections may be nested, inducing a tree of the Gather nodes
+for each level.
 """
 
 import concurrent
 import os
-from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
+from typing import Optional, Set, Tuple, NamedTuple, Dict, Union, Iterable
 from abc import ABC
 from datetime import datetime
 from .. import Env, Value, Tree
@@ -47,23 +72,12 @@ _Job = NamedTuple(
     ],
 )
 
-CallNow = NamedTuple(
-    "CallNow", [("id", str), ("callee", Union[Tree.Task, Tree.Workflow]), ("inputs", Env.Values)]
-)
-"""
-The state machine produces a ``CallNow`` object when it's time for the driver to launch a
-task/subworkflow job.
-
-:param id: call/job ID string, unique in the workflow
-:param callee: ``WDL.Call`` or ``WDL.Workflow`` to launch
-:param inputs: ``WDL.Env.Values`` of call inputs
-"""
-
 
 class StateMachine(ABC):
     """
     On-line workflow state machine, suitable for use within a singleton driver process managing
-    in-memory state (or pickled between iterations).
+    in-memory state. The state machine evaluates WDL expressions locally, while informing the
+    driver when to launch tasks/subworkflows, agnostic to how it actually does so.
     """
 
     inputs: Env.Values
@@ -122,7 +136,20 @@ class StateMachine(ABC):
         assert ans is not None
         return ans
 
-    def step(self) -> Optional[CallNow]:
+    CallNow = NamedTuple(
+        "CallNow",
+        [("id", str), ("callee", Union[Tree.Task, Tree.Workflow]), ("inputs", Env.Values)],
+    )
+    """
+    The state machine produces a ``CallNow`` object when it's time for the driver to launch a
+    task/subworkflow job.
+
+    :param id: call/job ID string, unique in the workflow
+    :param callee: ``WDL.Call`` or ``WDL.Workflow`` to launch
+    :param inputs: ``WDL.Env.Values`` of call inputs
+    """
+
+    def step(self) -> "Optional[StateMachine.CallNow]":
         """
         Advance the workflow state machine, returning the next call to initiate.
 
@@ -151,7 +178,7 @@ class StateMachine(ABC):
             raise NotImplementedError()
 
         # compute job's environment by merging outputs of all dependencies
-        env = _merge_environments(self.job_outputs[dep] for dep in job.dependencies)
+        env = Env.merge(*(self.job_outputs[dep] for dep in job.dependencies))
 
         if isinstance(job.node, Tree.Call):
             # evaluate input expressions and issue CallNow
@@ -160,7 +187,7 @@ class StateMachine(ABC):
                 call_inputs = Env.bind(call_inputs, [], name, expr.eval(env))
             # TODO: check workflow inputs for optional call inputs
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
-            return CallNow(id=job.id, callee=job.node.callee, inputs=call_inputs)
+            return StateMachine.CallNow(id=job.id, callee=job.node.callee, inputs=call_inputs)
 
         if isinstance(job.node, Tree.Decl):
             # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
@@ -230,6 +257,10 @@ def run_local_workflow(
 
     File inputs are presumed to be local POSIX file paths that can be mounted into containers
     """
+    # TODO:
+    # - error handling
+    # - logging
+    # - concurrency
 
     state = StateMachine(workflow, posix_inputs)
 
@@ -261,17 +292,3 @@ def run_local_workflow(
                 raise NotImplementedError()
         elif state.outputs:
             return (run_dir, state.outputs)
-
-
-def _merge_environments(envs: Iterable[Env.Values]) -> Env.Values:
-    ans = [[]]
-
-    def visit(namespace: List[str], binding: Env.Binding) -> None:
-        try:
-            Env.resolve(ans[0], namespace, binding.name)
-        except KeyError:
-            ans[0] = Env.bind(ans[0], namespace, binding.name, binding.rhs, binding.ctx)
-
-    for env in envs:
-        Env.map(env, visit)
-    return ans[0]

@@ -4,7 +4,18 @@ import errno
 import inspect
 from typing import List, Optional, Callable, Dict, Any
 from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker, Lint, StdLib
-from .Tree import Decl, StructTypeDef, Task, Call, Scatter, Conditional, Workflow, Document
+from .Tree import (
+    Decl,
+    StructTypeDef,
+    Task,
+    Call,
+    Scatter,
+    Conditional,
+    Workflow,
+    Document,
+    WorkflowNode,
+    WorkflowSection,
+)
 from . import runtime
 
 SourcePosition = Error.SourcePosition

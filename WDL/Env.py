@@ -210,6 +210,24 @@ def unbind(tree: Tree, namespace: List[str], name: str) -> Tree:
     )
 
 
+def merge(*args) -> Tree:
+    """
+    Merge multiple evironments. If multiple environments have bindings for the same (namespaced)
+    name, the result includes one of these bindings chosen arbitrarily.
+    """
+    ans = [[]]
+
+    def visit(namespace: List[str], binding: Binding) -> None:
+        try:
+            resolve(ans[0], namespace, binding.name)
+        except KeyError:
+            ans[0] = bind(ans[0], namespace, binding.name, binding.rhs, binding.ctx)
+
+    for env in args:
+        map(env, visit)
+    return ans[0]
+
+
 def subtract(lhs: Tree, rhs: Tree) -> Tree:
     """
     Return a copy of ``lhs`` without any binding matching one in ``rhs`` (by
