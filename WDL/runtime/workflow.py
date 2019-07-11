@@ -1,14 +1,51 @@
 # pyre-strict
 """
-On-line workflow state machine, suitable for use within a singleton "driver" process with
-in-memory state (or pickled between iterations).
+Workflow runner building blocks & local driver
 """
 
 import concurrent
+import os
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
 from abc import ABC
+from datetime import datetime
 from .. import Env, Value, Tree
-from . import plan
+from .task import run_local_task
+
+
+class WorkflowOutputs(Tree.WorkflowNode):
+    """
+    A no-op workflow node which depends on each ``Decl`` node from the workflow output section. Or,
+    if the workflow is missing the output section, depends on ``Call`` and ``Gather`` nodes for all
+    call outputs.
+
+    The workflow state machine tacks this on to the workflow graph to facilitate assembly of the
+    outputs environment.
+    """
+
+    output_node_ids: Set[str]
+
+    def __init__(self, output_node_ids: Iterable[str], pos: Tree.SourcePosition) -> None:
+        super().__init__("outputs", pos)
+        self.output_node_ids = set(output_node_ids)
+
+    def _workflow_node_dependencies(self) -> Iterable[str]:
+        yield from self.output_node_ids
+
+    def add_to_type_env(
+        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
+    ) -> Env.Types:
+        raise NotImplementedError()
+
+
+_Job = NamedTuple(
+    "Job",
+    [
+        ("id", str),
+        ("node", Tree.WorkflowNode),
+        ("dependencies", Set[str]),
+        ("binding", Optional[Tuple[str, Value.Base]]),
+    ],
+)
 
 CallNow = NamedTuple(
     "CallNow", [("id", str), ("callee", Union[Tree.Task, Tree.Workflow]), ("inputs", Env.Values)]
@@ -22,18 +59,13 @@ task/subworkflow job.
 :param inputs: ``WDL.Env.Values`` of call inputs
 """
 
-_Job = NamedTuple(
-    "Job",
-    [
-        ("id", str),
-        ("node", Tree.WorkflowNode),
-        ("dependencies", Set[str]),
-        ("binding", Optional[Tuple[str, Value.Base]]),
-    ],
-)
-
 
 class StateMachine(ABC):
+    """
+    On-line workflow state machine, suitable for use within a singleton driver process managing
+    in-memory state (or pickled between iterations).
+    """
+
     inputs: Env.Values
     jobs: Dict[str, _Job]
     job_outputs: Dict[str, Env.Values]
@@ -41,7 +73,7 @@ class StateMachine(ABC):
     running: Set[str]
     waiting: Set[str]
 
-    def __init__(self, workflow_nodes: List[Tree.WorkflowNode], inputs: Env.Values) -> None:
+    def __init__(self, workflow: Tree.Workflow, inputs: Env.Values) -> None:
         """
         Initialize the workflow state machine, given the plan and the workflow inputs
         """
@@ -52,10 +84,32 @@ class StateMachine(ABC):
         self.running = set()
         self.waiting = set()
 
+        workflow_nodes = [node for node in (workflow.inputs or []) + workflow.body]
+        # tack on WorkflowOutputs
+        if workflow.outputs is not None:
+            output_nodes = [node for node in workflow.outputs]
+            workflow_nodes.extend(output_nodes)
+            workflow_nodes.append(
+                WorkflowOutputs((n.workflow_node_id for n in output_nodes), workflow.pos)
+            )
+        else:
+            # TODO: instantiate WorkflowOutputs on all top-level Call nodes (and all top-level
+            # Gather nodes whose ultimate referee is a Call)
+            pass
+
         for node in workflow_nodes:
             # TODO: disregard dependencies of any decl node whose value is supplied in inputs
             self._schedule(node)
+
+        # sanity check
         assert "outputs" in self.jobs
+        known_jobs = set(self.waiting)
+        for node in workflow_nodes:
+            if isinstance(node, Tree.WorkflowSection):
+                for g_id in node.gathers:
+                    known_jobs.add(g_id)
+        for job in self.jobs.values():
+            assert not (job.dependencies - known_jobs)
 
     @property
     def outputs(self) -> Optional[Env.Values]:
@@ -118,7 +172,7 @@ class StateMachine(ABC):
                 v = job.node.expr.eval(env)
             self.job_outputs[job.id] = Env.bind([], [], job.node.name, v)
 
-        elif isinstance(job.node, plan.WorkflowOutputs):
+        elif isinstance(job.node, WorkflowOutputs):
             self.job_outputs[job.id] = env  # ez ;)
 
         elif isinstance(job.node, Tree.WorkflowSection):
@@ -161,6 +215,52 @@ class StateMachine(ABC):
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
+
+
+def run_local_workflow(
+    workflow: Tree.Workflow,
+    posix_inputs: Env.Values,
+    run_id: Optional[str] = None,
+    parent_dir: Optional[str] = None,
+) -> Tuple[str, Env.Values]:
+    """
+    Run a workflow locally.
+
+    Inputs shall have been typechecked already.
+
+    File inputs are presumed to be local POSIX file paths that can be mounted into containers
+    """
+
+    state = StateMachine(workflow, posix_inputs)
+
+    parent_dir = parent_dir or os.getcwd()
+
+    if run_id:
+        run_dir = os.path.join(parent_dir, run_id)
+        os.makedirs(run_dir, exist_ok=False)
+    else:
+        now = datetime.today()
+        run_id = now.strftime("%Y%m%d_%H%M%S") + "_" + workflow.name
+        try:
+            run_dir = os.path.join(parent_dir, run_id)
+            os.makedirs(run_dir, exist_ok=False)
+        except FileExistsError:
+            run_id = now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + workflow.name
+            run_dir = os.path.join(parent_dir, run_id)
+            os.makedirs(run_dir, exist_ok=False)
+
+    while True:
+        next_call = state.step()
+        if next_call:
+            if isinstance(next_call.callee, Tree.Task):
+                _, outputs = run_local_task(
+                    next_call.callee, next_call.inputs, run_id=next_call.id, parent_dir=run_dir
+                )
+                state.call_finished(next_call.id, outputs)
+            else:
+                raise NotImplementedError()
+        elif state.outputs:
+            return (run_dir, state.outputs)
 
 
 def _merge_environments(envs: Iterable[Env.Values]) -> Env.Values:

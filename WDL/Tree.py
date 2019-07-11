@@ -1499,6 +1499,7 @@ def _workflow_dependency_matrix(
         if isinstance(obj, WorkflowSection):
             for ch in itertools.chain(obj.body, obj.gathers.values()):
                 visit(ch)
+                # TODO: should body nodes explicitly report their section as a dependency?
                 adj.add_edge(oid, ch.workflow_node_id)
         for dep_id in obj.workflow_node_dependencies:
             adj.add_edge(dep_id, oid)
