@@ -202,6 +202,8 @@ class ENCODE_WGBS(unittest.TestCase):
     blacklist=[
         # String to Int/Float casts
         "cast",
+        # decl/call name collision (draft-2)
+        "conditionals2",
         # use dnanexus extensions
         "call_native", "call_native_app", "call_native_v1",
     ],
