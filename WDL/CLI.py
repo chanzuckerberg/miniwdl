@@ -174,7 +174,7 @@ def outline(obj, level, file=sys.stdout, show_called=True):
             ),
             file=file,
         )
-        for elt in (obj.inputs or []) + obj.elements + (obj.outputs or []):
+        for elt in (obj.inputs or []) + obj.body + (obj.outputs or []):
             descend(elt)
     # task
     elif isinstance(obj, Task):
@@ -195,12 +195,12 @@ def outline(obj, level, file=sys.stdout, show_called=True):
     # scatter
     elif isinstance(obj, Scatter):
         print("{}scatter {}".format(s, obj.variable), file=file)
-        for elt in obj.elements:
+        for elt in obj.body:
             descend(elt)
     # if
     elif isinstance(obj, Conditional):
         print("{}if".format(s), file=file)
-        for elt in obj.elements:
+        for elt in obj.body:
             descend(elt)
     # decl
     elif isinstance(obj, Decl):

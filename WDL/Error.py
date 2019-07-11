@@ -194,7 +194,10 @@ class StrayInputDeclaration(ValidationError):
 
 class CircularDependencies(ValidationError):
     def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "circular dependencies involving {}".format(getattr(node, "name")))
+        nm = getattr(node, "name", None)
+        if not nm:
+            nm = getattr(node, "workflow_node_id")
+        super().__init__(node, "circular dependencies involving " + nm)
 
 
 class MultipleValidationErrors(Exception):

@@ -442,7 +442,7 @@ class TestCalls(unittest.TestCase):
         """
         doc = WDL.parse_document(txt)
         doc.typecheck()
-        assert(doc.workflow.elements[0].type.nonempty and doc.workflow.elements[0].type.optional)
+        assert(doc.workflow.body[0].type.nonempty and doc.workflow.body[0].type.optional)
 
         txt = tsk + r"""
         workflow contrived {

@@ -185,7 +185,7 @@ class SetParents(Base):
     def workflow(self, obj: Tree.Workflow) -> None:
         super().workflow(obj)
         obj.parent = None
-        for elt in (obj.inputs or []) + obj.elements + (obj.outputs or []):
+        for elt in (obj.inputs or []) + obj.body + (obj.outputs or []):
             elt.parent = obj
 
     def call(self, obj: Tree.Call) -> None:
@@ -198,7 +198,7 @@ class SetParents(Base):
         super().scatter(obj)
         self._parent_stack.pop()
         obj.parent = None
-        for elt in obj.elements:
+        for elt in obj.body:
             elt.parent = obj
 
     def conditional(self, obj: Tree.Conditional) -> None:
@@ -206,7 +206,7 @@ class SetParents(Base):
         super().conditional(obj)
         self._parent_stack.pop()
         obj.parent = None
-        for elt in obj.elements:
+        for elt in obj.body:
             elt.parent = obj
 
     def task(self, obj: Tree.Task) -> None:
