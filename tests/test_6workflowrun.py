@@ -93,3 +93,33 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """, {"n": 10})
         self.assertEqual(outputs["sqs"], [0, 1, 4, 9, 16, 25, 36, 49, 64, 81])
+
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow hellowf {
+            input {
+                Int n
+            }
+            scatter (i in range(n)) {
+                call compute_sq {
+                    input:
+                        k = i
+                }
+            }
+            output {
+                Array[Int] sqs = compute_sq.k_sq
+            }
+        }
+
+        task compute_sq {
+            input {
+                Int k
+            }
+            command {}
+            output {
+                Int k_sq = k*k
+            }
+        }
+        """, {"n": 10})
+        self.assertEqual(outputs["sqs"], [0, 1, 4, 9, 16, 25, 36, 49, 64, 81])

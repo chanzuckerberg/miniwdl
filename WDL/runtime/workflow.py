@@ -365,9 +365,14 @@ class StateMachine(ABC):
             names = [leaf.name]
         elif isinstance(leaf, Tree.Call):
             names = []
-            for b in leaf.effective_outputs:
-                assert isinstance(b, Env.Binding)
-                names.append(b.name)
+            outp = leaf.effective_outputs
+            if outp:
+                assert len(outp) == 1
+                outp = outp[0]
+                assert isinstance(outp, Env.Namespace)
+                for b in outp.bindings:
+                    assert isinstance(b, Env.Binding)
+                    names.append(b.name)
         else:
             assert False
 
