@@ -48,6 +48,8 @@ class Base:
             ans = self.scatter(obj)
         elif isinstance(obj, Tree.Conditional):
             ans = self.conditional(obj)
+        elif isinstance(obj, Tree.Gather):
+            ans = self.gather(obj)
         elif isinstance(obj, Tree.Decl):
             ans = self.decl(obj)
         elif isinstance(obj, Tree.Task):
@@ -85,6 +87,9 @@ class Base:
         self._descend(obj)
 
     def conditional(self, obj: Tree.Conditional) -> Any:
+        self._descend(obj)
+
+    def gather(self, obj: Tree.Gather) -> Any:
         self._descend(obj)
 
     def decl(self, obj: Tree.Decl) -> Any:
@@ -134,6 +139,10 @@ class Multi(Base):
     def conditional(self, obj: Tree.Conditional) -> Any:
         for w in self._walkers:
             w.conditional(obj)
+
+    def gather(self, obj: Tree.Gather) -> Any:
+        for w in self._walkers:
+            w.gather(obj)
 
     def decl(self, obj: Tree.Decl) -> Any:
         for w in self._walkers:
@@ -198,7 +207,7 @@ class SetParents(Base):
         super().scatter(obj)
         self._parent_stack.pop()
         obj.parent = None
-        for elt in obj.body:
+        for elt in obj.children:
             elt.parent = obj
 
     def conditional(self, obj: Tree.Conditional) -> None:
@@ -206,7 +215,7 @@ class SetParents(Base):
         super().conditional(obj)
         self._parent_stack.pop()
         obj.parent = None
-        for elt in obj.body:
+        for elt in obj.children:
             elt.parent = obj
 
     def task(self, obj: Tree.Task) -> None:
