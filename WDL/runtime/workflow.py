@@ -23,9 +23,9 @@ jobs can be scheduled as well, with their dependencies multiplexed to the corres
 jobs. Nodes outside of the scatter section depend on the Gather nodes rather than reaching into the
 body subgraph directly.
 
-Conditional sections are treated similarly, but 0 and 1 are their only possible subgraph
-multiplicities. Scatter and Conditional sections may be nested, inducing a tree of the Gather nodes
-for each level.
+Conditional sections are treated similarly, but only zero or one instance of its body subgraph will
+be launched. Scatter and Conditional sections may be nested, inducing a multi-level tree of Gather
+operations.
 """
 
 import concurrent
@@ -78,8 +78,8 @@ class StateMachine(ABC):
     """
     On-line workflow state machine, suitable for use within a singleton driver process managing
     in-memory state. The state machine evaluates WDL expressions locally, while instructing the
-    driver when to call tasks/subworkflows. It's agnostic to how the driver actually executes each
-    call, just requiring asynchronous notification of call completion with the outputs.
+    driver when to call tasks/subworkflows. It's agnostic to how/where the driver actually executes
+    each call, just requiring asynchronous notification of call completion along with the outputs.
     """
 
     inputs: Env.Values
@@ -91,7 +91,7 @@ class StateMachine(ABC):
 
     def __init__(self, workflow: Tree.Workflow, inputs: Env.Values) -> None:
         """
-        Initialize the workflow state machine, given the plan and the workflow inputs
+        Initialize the workflow state machine from the workflow AST and inputs
         """
         self.inputs = inputs
         self.jobs = {}
@@ -111,11 +111,18 @@ class StateMachine(ABC):
         else:
             # TODO: instantiate WorkflowOutputs on all top-level Call nodes (and all top-level
             # Gather nodes whose ultimate referee is a Call)
-            pass
+            raise NotImplementedError()
 
         for node in workflow_nodes:
-            # TODO: disregard dependencies of any decl node whose value is supplied in inputs
-            self._schedule(node)
+            deps = node.workflow_node_dependencies
+            if isinstance(node, Tree.Decl):
+                # strike the dependencies of any decl node whose value is supplied in the inputs
+                try:
+                    Env.resolve(inputs, [], node.name)
+                    deps = set()
+                except KeyError:
+                    pass
+            self._schedule(node, dependencies=deps)
 
         # sanity check
         assert "outputs" in self.jobs
@@ -221,6 +228,9 @@ class StateMachine(ABC):
         self.jobs[job.id] = job
         self.waiting.add(job.id)
 
+    # TODO: how much of the following helper methods can be refactored out of StateMachine if we
+    # make them return Job(s) instead of calling self._schedule ?
+    # if we also factor out WorkflowState ?
     def _do_job(self, job: _Job) -> "Union[StateMachine.CallInstructions, Env.Values]":
         if isinstance(job.node, Tree.Gather):
             return self._gather(
@@ -236,7 +246,21 @@ class StateMachine(ABC):
             self._scatter(job.node, env, job.section_bindings, stdlib)
             # the section node itself has no outputs, so return an empty env
             return []
-        elif isinstance(job.node, Tree.Call):
+
+        if isinstance(job.node, Tree.Decl):
+            # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
+            # the expr
+            try:
+                v = Env.resolve(self.inputs, [], job.node.name)
+            except KeyError:
+                assert job.node.expr
+                v = job.node.expr.eval(env, stdlib=stdlib)
+            return Env.bind([], [], job.node.name, v)
+
+        if isinstance(job.node, WorkflowOutputs):
+            return env
+
+        if isinstance(job.node, Tree.Call):
             # evaluate input expressions
             call_inputs = []
             for name, expr in job.node.inputs.items():
@@ -254,19 +278,6 @@ class StateMachine(ABC):
             return StateMachine.CallInstructions(
                 id=job.id, callee=job.node.callee, inputs=call_inputs
             )
-
-        if isinstance(job.node, Tree.Decl):
-            # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
-            # the expr
-            try:
-                v = Env.resolve(self.inputs, [], job.node.name)
-            except KeyError:
-                assert job.node.expr
-                v = job.node.expr.eval(env, stdlib=stdlib)
-            return Env.bind([], [], job.node.name, v)
-
-        elif isinstance(job.node, WorkflowOutputs):
-            return env
 
         raise NotImplementedError()
 
