@@ -16,12 +16,12 @@ task on some inputs. Named WDL values (``WDL.Env.Values``) are transmitted along
 edge, and WDL expressions in each node are evaluated in the environment formed from the union of
 the node's incoming dependency edges.
 
-Scatter sections contain a body, which provides a prototype for the job subgraph to be scheduled
-for each element of the runtime-evaluated scatter array. They also contain prototype Gather nodes,
-each dependent on a body subgraph node. Once all the body subgraph jobs have been scheduled, the
-Gather jobs can be scheduled as well, with their dependencies multiplexed to the corresponding
-subgraph jobs. Nodes outside of the scatter section depend on the Gather nodes rather reaching into
-the body subgraph directly.
+Scatter sections contain a body, which provides a template for the job subgraph to be scheduled for
+each element of the runtime-evaluated scatter array. They also contain template Gather nodes, each
+dependent on a body subgraph node. Once all the body subgraph jobs have been scheduled, the Gather
+jobs can be scheduled as well, with their dependencies multiplexed to the corresponding subgraph
+jobs. Nodes outside of the scatter section depend on the Gather nodes rather than reaching into the
+body subgraph directly.
 
 Conditional sections are treated similarly, but 0 and 1 are their only possible subgraph
 multiplicities. Scatter and Conditional sections may be nested, inducing a tree of the Gather nodes
@@ -68,7 +68,7 @@ _Job = NamedTuple(
         ("id", str),
         ("node", Tree.WorkflowNode),
         ("dependencies", Set[str]),
-        ("binding", Optional[Tuple[str, Value.Base]]),
+        ("section_bindings", Env.Values),
     ],
 )
 
@@ -76,8 +76,8 @@ _Job = NamedTuple(
 class StateMachine(ABC):
     """
     On-line workflow state machine, suitable for use within a singleton driver process managing
-    in-memory state. The state machine evaluates WDL expressions locally, while informing the
-    driver when to launch tasks/subworkflows, agnostic to how it actually does so.
+    in-memory state. The state machine evaluates WDL expressions locally, while instructing the
+    driver when to launch tasks/subworkflows (agnostic to how it actually does so).
     """
 
     inputs: Env.Values
@@ -136,20 +136,20 @@ class StateMachine(ABC):
         assert ans is not None
         return ans
 
-    CallNow = NamedTuple(
-        "CallNow",
+    CallInstructions = NamedTuple(
+        "CallInstructions",
         [("id", str), ("callee", Union[Tree.Task, Tree.Workflow]), ("inputs", Env.Values)],
     )
     """
-    The state machine produces a ``CallNow`` object when it's time for the driver to launch a
-    task/subworkflow job.
+    The state machine produces a ``CallInstructions`` object when it's time for the driver to
+    launch a task/subworkflow job.
 
     :param id: call/job ID string, unique in the workflow
     :param callee: ``WDL.Call`` or ``WDL.Workflow`` to launch
     :param inputs: ``WDL.Env.Values`` of call inputs
     """
 
-    def step(self) -> "Optional[StateMachine.CallNow]":
+    def step(self) -> "Optional[StateMachine.CallInstructions]":
         """
         Advance the workflow state machine, returning the next call to initiate.
 
@@ -157,7 +157,7 @@ class StateMachine(ABC):
         completion, invoke ``call_finished()`` with its outputs. It is NOT necessary to await the
         call's completion before another ``step()`` for the next call; this allows the driver
         to orchestrate multiple calls at once. Indeed, the driver should launch as many calls as
-        it can support concurrently (by calling ``step()`` in a loop until getting back ``None``);
+        it can support concurrently, by calling ``step()`` in a loop until getting back ``None``;
         doing so after initialization and after each ``call_finished()`` invocation, until at last
         the workflow outputs are available.
         """
@@ -173,40 +173,11 @@ class StateMachine(ABC):
         self.running.add(job.id)
         self.waiting.remove(job.id)
 
-        if isinstance(job.node, Tree.Gather):
-            # special use of dependency outputs
-            raise NotImplementedError()
-
-        # compute job's environment by merging outputs of all dependencies
-        env = Env.merge(*(self.job_outputs[dep] for dep in job.dependencies))
-
-        if isinstance(job.node, Tree.Call):
-            # evaluate input expressions and issue CallNow
-            call_inputs = []
-            for name, expr in job.node.inputs.items():
-                call_inputs = Env.bind(call_inputs, [], name, expr.eval(env))
-            # TODO: check workflow inputs for optional call inputs
-            assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
-            return StateMachine.CallNow(id=job.id, callee=job.node.callee, inputs=call_inputs)
-
-        if isinstance(job.node, Tree.Decl):
-            # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
-            # the expr
-            try:
-                v = Env.resolve(self.inputs, [], job.node.name)
-            except KeyError:
-                assert job.node.expr
-                v = job.node.expr.eval(env)
-            self.job_outputs[job.id] = Env.bind([], [], job.node.name, v)
-
-        elif isinstance(job.node, WorkflowOutputs):
-            self.job_outputs[job.id] = env  # ez ;)
-
-        elif isinstance(job.node, Tree.WorkflowSection):
-            raise NotImplementedError()
-
+        res = self._do_job(job)
+        if isinstance(res, StateMachine.CallInstructions):
+            return res
         else:
-            assert False
+            self.job_outputs[job.id] = res
 
         self.finished.add(job.id)
         self.running.remove(job.id)
@@ -229,7 +200,7 @@ class StateMachine(ABC):
         self,
         node: Tree.WorkflowNode,
         index: Optional[int] = None,
-        binding: Optional[Tuple[str, Value.Base]] = None,
+        section_bindings: Optional[Env.Values] = None,
     ) -> None:
         if isinstance(node, Tree.WorkflowSection):
             raise NotImplementedError()
@@ -237,11 +208,52 @@ class StateMachine(ABC):
             id=node.workflow_node_id,
             node=node,
             dependencies=set(node.workflow_node_dependencies),
-            binding=binding,
+            section_bindings=(section_bindings or []),
         )
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
+
+    def _do_job(self, job: _Job) -> "Union[StateMachine.CallInstructions, Env.Values]":
+        if isinstance(job.node, Tree.Gather):
+            return self._gather(
+                job.node, dict((dep_id, self.job_outputs[dep_id]) for dep_id in job.dependencies)
+            )
+
+        # for all non-Gather nodes, derive the environment by merging the outputs of all the
+        # dependencies (+ section bindings)
+        env = Env.merge(job.section_bindings, *(self.job_outputs[dep] for dep in job.dependencies))
+
+        if isinstance(job.node, Tree.Call):
+            # evaluate input expressions and issue CallInstructions
+            call_inputs = []
+            for name, expr in job.node.inputs.items():
+                call_inputs = Env.bind(call_inputs, [], name, expr.eval(env))
+            # TODO: check workflow inputs for optional call inputs
+            assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
+            return StateMachine.CallInstructions(
+                id=job.id, callee=job.node.callee, inputs=call_inputs
+            )
+
+        if isinstance(job.node, Tree.Decl):
+            # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
+            # the expr
+            try:
+                v = Env.resolve(self.inputs, [], job.node.name)
+            except KeyError:
+                assert job.node.expr
+                v = job.node.expr.eval(env)
+            return Env.bind([], [], job.node.name, v)
+
+        elif isinstance(job.node, WorkflowOutputs):
+            return env  # ez ;)
+
+        raise NotImplementedError()
+
+    def _gather(self, gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Values:
+        # important: the dependency job IDs must sort lexicographically in the desired array order
+        dep_ids = sorted(dependencies.keys())
+        raise NotImplementedError()
 
 
 def run_local_workflow(
