@@ -129,10 +129,14 @@ class StateMachine(ABC):
         known_jobs = set(self.waiting)
         for node in workflow_nodes:
             if isinstance(node, Tree.WorkflowSection):
-                for g_id in node.gathers:
-                    known_jobs.add(g_id)
+                for gather in node.gathers.values():
+                    known_jobs.add(gather.workflow_node_id)
         for job in self.jobs.values():
-            assert not (job.dependencies - known_jobs)
+            assert not (job.dependencies - known_jobs), (
+                job.id,
+                (job.dependencies - known_jobs),
+                known_jobs,
+            )
 
     @property
     def outputs(self) -> Optional[Env.Values]:
@@ -214,8 +218,6 @@ class StateMachine(ABC):
         dependencies: Optional[Iterable[str]] = None,
         section_bindings: Optional[Env.Values] = None,
     ) -> None:
-        if isinstance(node, Tree.WorkflowSection):
-            raise NotImplementedError()
         job = _Job(
             id=(job_id or node.workflow_node_id),
             node=node,

@@ -75,3 +75,21 @@ class TestWorkflowRunner(unittest.TestCase):
         """, {"x": 41})
         self.assertEqual(outputs["messages"], ["Hello Alice", "Hello Bob", "Hello Alyssa", "Hello Ben"])
         self.assertEqual(outputs["meanings"], [42, 42])
+
+    def test_scatters(self):
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow hellowf {
+            input {
+                Int n
+            }
+            scatter (i in range(n)) {
+                Int sq = i*i
+            }
+            output {
+                Array[Int] sqs = sq
+            }
+        }
+        """, {"n": 10})
+        self.assertEqual(outputs["sqs"], [0, 1, 4, 9, 16, 25, 36, 49, 64, 81])
