@@ -31,6 +31,7 @@ operations.
 import concurrent
 import os
 import math
+import itertools
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
 from abc import ABC
 from datetime import datetime
@@ -69,7 +70,8 @@ _Job = NamedTuple(
         ("id", str),
         ("node", Tree.WorkflowNode),
         ("dependencies", Set[str]),
-        ("section_bindings", Env.Values),
+        ("scatter_indices", List[str]),
+        ("scatter_bindings", Env.Values),
     ],
 )
 
@@ -179,6 +181,10 @@ class StateMachine(ABC):
             (j for j in self.waiting if not (self.jobs[j].dependencies - self.finished)), None
         )
         if not job_id:
+            if self.waiting and not self.running:
+                deadlock = set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
+                deadlock -= self.waiting
+                assert False, "deadlocked on " + str(deadlock)
             return None
         job = self.jobs[job_id]
 
@@ -216,7 +222,8 @@ class StateMachine(ABC):
         node: Tree.WorkflowNode,
         job_id: Optional[str] = None,
         dependencies: Optional[Iterable[str]] = None,
-        section_bindings: Optional[Env.Values] = None,
+        scatter_indices: Optional[List[str]] = None,
+        scatter_bindings: Optional[Env.Values] = None,
     ) -> None:
         job = _Job(
             id=(job_id or node.workflow_node_id),
@@ -224,8 +231,10 @@ class StateMachine(ABC):
             dependencies=set(
                 dependencies if dependencies is not None else node.workflow_node_dependencies
             ),
-            section_bindings=list(section_bindings or []),
+            scatter_indices=list(scatter_indices or []),
+            scatter_bindings=list(scatter_bindings or []),
         )
+        assert len(job.scatter_indices) == len(job.scatter_bindings)
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
@@ -233,6 +242,8 @@ class StateMachine(ABC):
     # TODO: how much of the following helper methods can be refactored out of StateMachine if we
     # make them return Job(s) instead of calling self._schedule ?
     # if we also factor out WorkflowState ?
+    # TODO: replace scatter_bindings with explicit "ScatterIteration" jobs that emit the bindings
+    # naturally
     def _do_job(self, job: _Job) -> "Union[StateMachine.CallInstructions, Env.Values]":
         if isinstance(job.node, Tree.Gather):
             return self._gather(
@@ -241,11 +252,11 @@ class StateMachine(ABC):
 
         # for all non-Gather nodes, derive the environment by merging the outputs of all the
         # dependencies (+ section-specific bindings aka scatter variables)
-        env = Env.merge(job.section_bindings, *(self.job_outputs[dep] for dep in job.dependencies))
+        env = Env.merge(job.scatter_bindings, *(self.job_outputs[dep] for dep in job.dependencies))
         stdlib = StdLib.Base()
 
         if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
-            self._scatter(job.node, env, job.section_bindings, stdlib)
+            self._scatter(job.node, env, job.scatter_indices, job.scatter_bindings, stdlib)
             # the section node itself has no outputs, so return an empty env
             return []
 
@@ -287,11 +298,18 @@ class StateMachine(ABC):
         self,
         section: Union[Tree.Scatter, Tree.Conditional],
         env: Env.Values,
-        section_bindings: Env.Values,
+        scatter_indices: List[str],
+        scatter_bindings: Env.Values,
         stdlib: StdLib.Base,
     ) -> None:
+        assert len(scatter_indices) == len(scatter_bindings)
         # mapping from body node ID to the IDs of the corresponding jobs scheduled
-        multiplex = dict((body_node.workflow_node_id, set()) for body_node in section.body)
+        multiplex = {}
+        for body_node in section.body:
+            multiplex[body_node.workflow_node_id] = set()
+            if isinstance(body_node, Tree.WorkflowSection):
+                for subgather in body_node.gathers.values():
+                    multiplex[subgather.workflow_node_id] = set()
 
         # evaluate scatter array or boolean condition
         v = section.expr.eval(env, stdlib=stdlib)
@@ -316,22 +334,19 @@ class StateMachine(ABC):
 
         # for each array element, schedule an instance of the body subgraph
         for i, array_i in enumerate(array):
-            # For scatters, we'll be appending the array index to the id of each job we schedule.
-            # We use left-zero-padding to ensure the scattered job IDs sort lexicographically in
-            # the same order as the array.
-            job_id_suffix = (
-                ("-" + str(i).zfill(digits)) if isinstance(section, Tree.Scatter) else ""
-            )
             # add a binding for the scatter variable name to the array element, if applicable
+            scatter_indices_i = scatter_indices
+            scatter_bindings_i = scatter_bindings
             if isinstance(array_i, Value.Base):
                 assert isinstance(section, Tree.Scatter)
-                section_bindings = Env.bind(section_bindings, [], section.variable, array_i)
+                scatter_indices_i = scatter_indices_i + [str(i).zfill(digits)]
+                scatter_bindings_i = Env.bind(scatter_bindings, [], section.variable, array_i)
             # schedule each body node
             for body_node in section.body:
-                body_job_id = body_node.workflow_node_id + job_id_suffix
+                body_job_id = _append_scatter_indices(body_node.workflow_node_id, scatter_indices_i)
                 # add the index suffix to any dependencies on other body nodes
                 dependencies = set(
-                    ((dep_id + job_id_suffix) if dep_id in body_node_ids else dep_id)
+                    ("-".join([dep_id] + scatter_indices_i) if dep_id in body_node_ids else dep_id)
                     for dep_id in body_node.workflow_node_dependencies
                 )
 
@@ -339,9 +354,16 @@ class StateMachine(ABC):
                     body_node,
                     job_id=body_job_id,
                     dependencies=dependencies,
-                    section_bindings=section_bindings,
+                    scatter_indices=scatter_indices_i,
+                    scatter_bindings=scatter_bindings_i,
                 )
                 multiplex[body_node.workflow_node_id].add(body_job_id)
+
+                if isinstance(body_node, Tree.WorkflowSection):
+                    for subgather in body_node.gathers.values():
+                        multiplex[subgather.workflow_node_id].add(
+                            _append_scatter_indices(subgather.workflow_node_id, scatter_indices_i)
+                        )
 
         # schedule each gather op with dependencies multiplexed onto the set of jobs scheduled
         # from the corresponding body node.
@@ -349,7 +371,11 @@ class StateMachine(ABC):
         # empty, so these jobs will become runnable immediately to "gather" empty arrays or
         # Value.Null's as appropriate.
         for body_node_id, gather in section.gathers.items():
-            self._schedule(gather, dependencies=multiplex[body_node_id])
+            self._schedule(
+                gather,
+                job_id=_append_scatter_indices(gather.workflow_node_id, scatter_indices),
+                dependencies=multiplex[body_node_id],
+            )
 
     def _gather(self, gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Values:
         # important: the dependency job IDs must sort lexicographically in the desired array order!
@@ -444,3 +470,7 @@ def run_local_workflow(
                 raise NotImplementedError()
         elif state.outputs:
             return (run_dir, state.outputs)
+
+
+def _append_scatter_indices(id: str, scatter_indices: List[str]) -> str:
+    return "-".join([id] + scatter_indices)

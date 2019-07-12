@@ -123,3 +123,44 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """, {"n": 10})
         self.assertEqual(outputs["sqs"], [0, 1, 4, 9, 16, 25, 36, 49, 64, 81])
+
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow crossrange {
+            input {
+                Int m
+                Int n
+            }
+            scatter (i in range(m)) {
+                scatter (j in range(n)) {
+                    Pair[Int,Int] p = (i,j)
+                }
+            }
+            output {
+                Array[Pair[Int,Int]] pairs = flatten(p)
+            }
+        }
+        """, {"m": 4, "n": 2})
+        self.assertEqual(outputs["pairs"], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]])
+
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow crossrange {
+            input {
+                Int m
+                Int n
+            }
+            scatter (i in range(m)) {
+                Int k = i
+                scatter (j in range(n)) {
+                    Pair[Int,Int] p = (k,j)
+                }
+            }
+            output {
+                Array[Pair[Int,Int]] pairs = flatten(p)
+            }
+        }
+        """, {"m": 4, "n": 2})
+        self.assertEqual(outputs["pairs"], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]])

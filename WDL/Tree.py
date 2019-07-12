@@ -1453,12 +1453,14 @@ def _expr_workflow_node_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]
     # Expr.Ident subexpression. These referees can include
     #   - Decl: reference to a named value
     #   - Call: reference to a call output
-    #   - Scatter: reference to the scatter variable
     #   - Gather: reference to values(s) (array/optional) gathered from a scatter or conditional
     #             section
     if isinstance(expr, Expr.Ident):
         assert isinstance(expr.referee, WorkflowNode)
-        yield expr.referee.workflow_node_id
+        # omit dependence on containing scatter sections (when scatter variable is used), which we
+        # handle implicitly
+        if not isinstance(expr.referee, WorkflowSection):
+            yield expr.referee.workflow_node_id
     for ch in expr.children if expr else []:
         yield from _expr_workflow_node_dependencies(ch)
 
@@ -1644,11 +1646,3 @@ def _add_struct_instance_to_type_env(
         else:
             ans = Env.bind(ans, namespace, member_name, member_type, ctx=ctx)
     return ans
-
-
-def _expr_workflow_node_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]:
-    if isinstance(expr, Expr.Ident):
-        assert isinstance(expr.referee, WorkflowNode)
-        yield expr.referee.workflow_node_id
-    for ch in expr.children if expr else []:
-        yield from _expr_workflow_node_dependencies(ch)
