@@ -2,7 +2,7 @@
 import math
 import os
 import re
-from typing import List, Tuple, Callable, Any
+from typing import List, Tuple, Callable
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from . import Type, Value, Expr, Env, Error

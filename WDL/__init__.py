@@ -102,7 +102,7 @@ def values_from_json(
         missing = Env.subtract(required, ans)
         if missing:
             raise Error.InputError(
-                "missing required inputs/outputs: {}", ", ".join(values_to_json(missing))
+                "missing required inputs/outputs: " + ", ".join(values_to_json(missing))
             )
     return ans
 

@@ -491,7 +491,7 @@ class _StdLib(StdLib.Base):
 
             return _f
 
-        self._override_static("read_string", _read_something(lambda s: Value.String(s)))
+        self._override_static("read_string", _read_something(Value.String))
         self._override_static("read_int", _read_something(lambda s: Value.Int(int(s))))
         self._override_static("read_float", _read_something(lambda s: Value.Float(float(s))))
 

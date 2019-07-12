@@ -17,7 +17,6 @@ from typing import (
     List,
     Optional,
     Dict,
-    TypeVar,
     Tuple,
     Union,
     Iterable,
@@ -1276,7 +1275,7 @@ def _build_workflow_type_env(
     doc: Document,
     check_quant: bool,
     self: Optional[Union[Workflow, WorkflowSection]] = None,
-    outer_type_env: Env.Types = [],
+    outer_type_env: Env.Types = None,
 ) -> None:
     # Populate each Workflow, Scatter, and Conditional object with its
     # _type_env attribute containing the type environment available in the body
@@ -1308,7 +1307,7 @@ def _build_workflow_type_env(
     # When we've been called recursively on a scatter or conditional section,
     # the 'outer' type environment has everything available in the workflow
     # -except- the body of self.
-    type_env = outer_type_env
+    type_env = outer_type_env or []
 
     if isinstance(self, Workflow):
         # start with workflow inputs
