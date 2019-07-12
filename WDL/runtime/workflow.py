@@ -288,7 +288,7 @@ class StateMachine(ABC):
         section_bindings: Env.Values,
         stdlib: StdLib.Base,
     ) -> None:
-        # mapping from body node ID to the IDs of the corresponding jobs launched
+        # mapping from body node ID to the IDs of the corresponding jobs scheduled
         multiplex = dict((body_node.workflow_node_id, set()) for body_node in section.body)
 
         # evaluate scatter array or boolean condition
@@ -304,23 +304,44 @@ class StateMachine(ABC):
                 array = [None]
         digits = math.ceil(math.log10(len(array) + 1))
 
-        # for each array element, launch one instance of the body subgraph
+        # compile IDs of all body nodes and their gather nodes, which we'll need below
+        body_node_ids = set()
+        for body_node in section.body:
+            body_node_ids.add(body_node.workflow_node_id)
+            if isinstance(body_node, Tree.WorkflowSection):
+                for gather in body_node.gathers.values():
+                    body_node_ids.add(gather.workflow_node_id)
+
+        # for each array element, schedule an instance of the body subgraph
         for i, array_i in enumerate(array):
+            # For scatters, we'll be appending the array index to the id of each job we schedule.
+            # We use left-zero-padding to ensure the scattered job IDs sort lexicographically in
+            # the same order as the array.
+            job_id_suffix = (
+                ("-" + str(i).zfill(digits)) if isinstance(section, Tree.Scatter) else ""
+            )
             # add a binding for the scatter variable name to the array element, if applicable
             if isinstance(array_i, Value.Base):
                 assert isinstance(section, Tree.Scatter)
                 section_bindings = Env.bind(section_bindings, [], section.variable, array_i)
             # schedule each body node
             for body_node in section.body:
-                # For scatters, append array index to the job id, left-zero-padded so that the
-                # scattered job IDs sort lexicographically in the same order as the array.
-                body_job_id = body_node.workflow_node_id + (
-                    ("-" + str(i).zfill(digits)) if isinstance(section, Tree.Scatter) else ""
+                body_job_id = body_node.workflow_node_id + job_id_suffix
+                # add the index suffix to any dependencies on other body nodes
+                dependencies = set(
+                    ((dep_id + job_id_suffix) if dep_id in body_node_ids else dep_id)
+                    for dep_id in body_node.workflow_node_dependencies
                 )
-                self._schedule(body_node, job_id=body_job_id, section_bindings=section_bindings)
+
+                self._schedule(
+                    body_node,
+                    job_id=body_job_id,
+                    dependencies=dependencies,
+                    section_bindings=section_bindings,
+                )
                 multiplex[body_node.workflow_node_id].add(body_job_id)
 
-        # schedule each gather op with dependencies multiplexed onto the set of jobs launched
+        # schedule each gather op with dependencies multiplexed onto the set of jobs scheduled
         # from the corresponding body node.
         # if the scatter array was empty or the condition was false, these dependencies are
         # empty, so these jobs will become runnable immediately to "gather" empty arrays or
@@ -337,7 +358,7 @@ class StateMachine(ABC):
         while isinstance(leaf, Tree.Gather):
             leaf = leaf.referee
 
-        # figure out names of gathered values
+        # figure out names of the values to gather
         if isinstance(leaf, Tree.Decl):
             names = [leaf.name]
         elif isinstance(leaf, Tree.Call):
@@ -354,15 +375,15 @@ class StateMachine(ABC):
         for name in names:
             # gather the corresponding values
             values = [Env.resolve(dependencies[dep_id], ns, name) for dep_id in dep_ids]
-            # bind the array, individual value, or None as appropriate
+            v0 = values[0] if values else None
+            assert v0 is None or isinstance(v0, Value.Base)
+            # bind the array, singleton value, or None as appropriate
             if isinstance(gather.section, Tree.Scatter):
-                v0 = values[0] if values else None
-                assert v0 is None or isinstance(v0, Value.Base)
                 rhs = Value.Array(Type.Array(v0.type if v0 else Type.Any()), values)
             else:
                 assert isinstance(gather.section, Tree.Conditional)
                 assert len(values) <= 1
-                rhs = values[0] if values else Value.Null()
+                rhs = v0 if v0 is not None else Value.Null()
             ans = Env.bind(ans, ns, name, rhs)
 
         return ans
