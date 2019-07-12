@@ -884,6 +884,8 @@ class Workflow(SourceNode):
     all required inputs (and thus cannot be called from another workflow).
     """
 
+    _nodes_by_id: Dict[str, WorkflowNode]  # memoizer
+
     def __init__(
         self,
         pos: SourcePosition,
@@ -906,6 +908,7 @@ class Workflow(SourceNode):
         self.parameter_meta = parameter_meta
         self.meta = meta
         self.complete_calls = True
+        self._nodes_by_id = {}
 
         # Hack: modify workflow node IDs for output decls since, in draft-2, they could reuse names
         # of earlier decls
@@ -1103,6 +1106,19 @@ class Workflow(SourceNode):
         # put the synthetic declarations into self.outputs
         self.outputs = output_ident_decls + self.outputs  # pyre-fixme
         self._output_idents = []
+
+    def get_node(self, workflow_node_id: str) -> WorkflowNode:
+        if not self._nodes_by_id:
+
+            def visit(node: SourceNode) -> None:
+                if isinstance(node, WorkflowNode):
+                    self._nodes_by_id[node.workflow_node_id] = node
+                    for ch in node.children:
+                        visit(ch)
+
+            for ch in self.children:
+                visit(ch)
+        return self._nodes_by_id[workflow_node_id]
 
 
 DocImport = NamedTuple(

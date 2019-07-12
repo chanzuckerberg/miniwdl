@@ -63,6 +63,10 @@ class WorkflowOutputs(Tree.WorkflowNode):
     ) -> Env.Types:
         raise NotImplementedError()
 
+    @property
+    def children(self) -> Iterable[Tree.SourceNode]:
+        return []
+
 
 _Job = NamedTuple(
     "Job",
@@ -84,6 +88,7 @@ class StateMachine(ABC):
     each call, just requiring asynchronous notification of call completion along with the outputs.
     """
 
+    workflow: Tree.Workflow
     inputs: Env.Values
     jobs: Dict[str, _Job]
     job_outputs: Dict[str, Env.Values]
@@ -95,6 +100,7 @@ class StateMachine(ABC):
         """
         Initialize the workflow state machine from the workflow AST and inputs
         """
+        self.workflow = workflow
         self.inputs = inputs
         self.jobs = {}
         self.job_outputs = {}
@@ -344,11 +350,17 @@ class StateMachine(ABC):
             # schedule each body node
             for body_node in section.body:
                 body_job_id = _append_scatter_indices(body_node.workflow_node_id, scatter_indices_i)
-                # add the index suffix to any dependencies on other body nodes
-                dependencies = set(
-                    ("-".join([dep_id] + scatter_indices_i) if dep_id in body_node_ids else dep_id)
-                    for dep_id in body_node.workflow_node_dependencies
-                )
+
+                # rewrite dependencies on other within-scatter nodes to the actual jobs according
+                # to the current scatter indices. tricky especially because we might be two or more
+                # levels deep in nested scatters & using stuff at the intermediate levels
+                dependencies = set()
+                for dep_id in body_node.workflow_node_dependencies:
+                    dep = self.workflow.get_node(dep_id)
+                    assert dep.scatter_depth <= body_node.scatter_depth
+                    dep_id = _append_scatter_indices(dep_id, scatter_indices[: dep.scatter_depth])
+                    assert dep.scatter_depth == body_node.scatter_depth or dep_id in self.jobs
+                    dependencies.add(dep_id)
 
                 self._schedule(
                     body_node,
