@@ -74,8 +74,9 @@ represented as:
 
 ``[Binding("x",Float), Namespace("adder",[Binding("sum",Int)])]``
 
-Once constructed, environments should be considered immutable. There should be
-no name or namespace collisions.
+An environment and its bindings must not be mutated once there's any
+possibility it's shared between different entities. There should be no name or
+namespace collisions.
 
 ``WDL.Env.{Types,Values,StructTypeDefs,Decls}`` are type aliases for ``Tree``
 with the respective `Binding.rhs` type.

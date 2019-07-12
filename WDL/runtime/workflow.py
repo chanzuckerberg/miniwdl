@@ -30,10 +30,11 @@ for each level.
 
 import concurrent
 import os
-from typing import Optional, Set, Tuple, NamedTuple, Dict, Union, Iterable
+import math
+from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
 from abc import ABC
 from datetime import datetime
-from .. import Env, Value, Tree
+from .. import Env, Type, Value, Tree, StdLib
 from .task import run_local_task
 
 
@@ -77,7 +78,8 @@ class StateMachine(ABC):
     """
     On-line workflow state machine, suitable for use within a singleton driver process managing
     in-memory state. The state machine evaluates WDL expressions locally, while instructing the
-    driver when to launch tasks/subworkflows (agnostic to how it actually does so).
+    driver when to call tasks/subworkflows. It's agnostic to how the driver actually executes each
+    call, just requiring asynchronous notification of call completion with the outputs.
     """
 
     inputs: Env.Values
@@ -173,16 +175,18 @@ class StateMachine(ABC):
         self.running.add(job.id)
         self.waiting.remove(job.id)
 
+        # do the job
         res = self._do_job(job)
+
+        # if it's a call, return instructions to the driver
         if isinstance(res, StateMachine.CallInstructions):
             return res
-        else:
-            self.job_outputs[job.id] = res
 
-        self.finished.add(job.id)
+        # otherwise, record the outputs, mark the job finished, and move on to the next job
+        self.job_outputs[job.id] = res
         self.running.remove(job.id)
+        self.finished.add(job.id)
 
-        # continue stepping through simple jobs that just involve evaluating WDL expressions etc.
         return self.step()
 
     def call_finished(self, job_id: str, outputs: Env.Values) -> None:
@@ -199,16 +203,19 @@ class StateMachine(ABC):
     def _schedule(
         self,
         node: Tree.WorkflowNode,
-        index: Optional[int] = None,
+        job_id: Optional[str] = None,
+        dependencies: Optional[Iterable[str]] = None,
         section_bindings: Optional[Env.Values] = None,
     ) -> None:
         if isinstance(node, Tree.WorkflowSection):
             raise NotImplementedError()
         job = _Job(
-            id=node.workflow_node_id,
+            id=(job_id or node.workflow_node_id),
             node=node,
-            dependencies=set(node.workflow_node_dependencies),
-            section_bindings=(section_bindings or []),
+            dependencies=set(
+                dependencies if dependencies is not None else node.workflow_node_dependencies
+            ),
+            section_bindings=list(section_bindings or []),
         )
         assert job.id not in self.jobs
         self.jobs[job.id] = job
@@ -221,15 +228,28 @@ class StateMachine(ABC):
             )
 
         # for all non-Gather nodes, derive the environment by merging the outputs of all the
-        # dependencies (+ section bindings)
+        # dependencies (+ section-specific bindings aka scatter variables)
         env = Env.merge(job.section_bindings, *(self.job_outputs[dep] for dep in job.dependencies))
+        stdlib = StdLib.Base()
 
-        if isinstance(job.node, Tree.Call):
-            # evaluate input expressions and issue CallInstructions
+        if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
+            self._scatter(job.node, env, job.section_bindings, stdlib)
+            # the section node itself has no outputs, so return an empty env
+            return []
+        elif isinstance(job.node, Tree.Call):
+            # evaluate input expressions
             call_inputs = []
             for name, expr in job.node.inputs.items():
-                call_inputs = Env.bind(call_inputs, [], name, expr.eval(env))
-            # TODO: check workflow inputs for optional call inputs
+                call_inputs = Env.bind(call_inputs, [], name, expr.eval(env, stdlib=stdlib))
+            # check workflow inputs for additional inputs supplied to this call
+            try:
+                ns = Env.resolve_namespace(self.inputs, [job.node.name])
+                for b in ns:
+                    assert isinstance(b, Env.Binding)
+                    call_inputs = Env.bind(call_inputs, [], b.name, b.rhs)
+            except KeyError:
+                pass
+            # issue CallInstructions
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
             return StateMachine.CallInstructions(
                 id=job.id, callee=job.node.callee, inputs=call_inputs
@@ -242,18 +262,99 @@ class StateMachine(ABC):
                 v = Env.resolve(self.inputs, [], job.node.name)
             except KeyError:
                 assert job.node.expr
-                v = job.node.expr.eval(env)
+                v = job.node.expr.eval(env, stdlib=stdlib)
             return Env.bind([], [], job.node.name, v)
 
         elif isinstance(job.node, WorkflowOutputs):
-            return env  # ez ;)
+            return env
 
         raise NotImplementedError()
+
+    def _scatter(
+        self,
+        section: Union[Tree.Scatter, Tree.Conditional],
+        env: Env.Values,
+        section_bindings: Env.Values,
+        stdlib: StdLib.Base,
+    ) -> None:
+        # mapping from body node ID to the IDs of the corresponding jobs launched
+        multiplex = dict((body_node.workflow_node_id, set()) for body_node in section.body)
+
+        # evaluate scatter array or boolean condition
+        v = section.expr.eval(env, stdlib=stdlib)
+        array = []
+        if isinstance(section, Tree.Scatter):
+            assert isinstance(v, Value.Array)
+            array = v.value
+        else:
+            assert isinstance(v, Value.Boolean)
+            if v.value:
+                # condition is satisfied, so we'll "scatter" over a length-1 array
+                array = [None]
+        digits = math.ceil(math.log10(len(array) + 1))
+
+        # for each array element, launch one instance of the body subgraph
+        for i, array_i in enumerate(array):
+            # add a binding for the scatter variable name to the array element, if applicable
+            if isinstance(array_i, Value.Base):
+                assert isinstance(section, Tree.Scatter)
+                section_bindings = Env.bind(section_bindings, [], section.variable, array_i)
+            # schedule each body node
+            for body_node in section.body:
+                # For scatters, append array index to the job id, left-zero-padded so that the
+                # scattered job IDs sort lexicographically in the same order as the array.
+                body_job_id = body_node.workflow_node_id + (
+                    ("-" + str(i).zfill(digits)) if isinstance(section, Tree.Scatter) else ""
+                )
+                self._schedule(body_node, job_id=body_job_id, section_bindings=section_bindings)
+                multiplex[body_node.workflow_node_id].add(body_job_id)
+
+        # schedule each gather op with dependencies multiplexed onto the set of jobs launched
+        # from the corresponding body node.
+        # if the scatter array was empty or the condition was false, these dependencies are
+        # empty, so these jobs will become runnable immediately to "gather" empty arrays or
+        # Value.Null's as appropriate.
+        for body_node_id, gather in section.gathers.items():
+            self._schedule(gather, dependencies=multiplex[body_node_id])
 
     def _gather(self, gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Values:
-        # important: the dependency job IDs must sort lexicographically in the desired array order
+        # important: the dependency job IDs must sort lexicographically in the desired array order!
         dep_ids = sorted(dependencies.keys())
-        raise NotImplementedError()
+
+        # determine if we're ultimately (through nested ops) gathering from a value or a call
+        leaf = gather
+        while isinstance(leaf, Tree.Gather):
+            leaf = leaf.referee
+
+        # figure out names of gathered values
+        if isinstance(leaf, Tree.Decl):
+            names = [leaf.name]
+        elif isinstance(leaf, Tree.Call):
+            names = []
+            for b in leaf.effective_outputs:
+                assert isinstance(b, Env.Binding)
+                names.append(b.name)
+        else:
+            assert False
+
+        # for each such name,
+        ans = []
+        ns = [leaf.name] if isinstance(leaf, Tree.Call) else []
+        for name in names:
+            # gather the corresponding values
+            values = [Env.resolve(dependencies[dep_id], ns, name) for dep_id in dep_ids]
+            # bind the array, individual value, or None as appropriate
+            if isinstance(gather.section, Tree.Scatter):
+                v0 = values[0] if values else None
+                assert v0 is None or isinstance(v0, Value.Base)
+                rhs = Value.Array(Type.Array(v0.type if v0 else Type.Any()), values)
+            else:
+                assert isinstance(gather.section, Tree.Conditional)
+                assert len(values) <= 1
+                rhs = values[0] if values else Value.Null()
+            ans = Env.bind(ans, ns, name, rhs)
+
+        return ans
 
 
 def run_local_workflow(
