@@ -1,5 +1,4 @@
 # pyre-strict
-import os
 from typing import List, Optional, NamedTuple, Union, Iterable, TypeVar, Generator, Callable, Any
 from functools import total_ordering
 from contextlib import contextmanager

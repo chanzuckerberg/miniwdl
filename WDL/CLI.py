@@ -9,12 +9,12 @@ import tempfile
 import glob
 import json
 import math
-import pkg_resources
 import argcomplete
 import logging
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action
+import pkg_resources
 from . import *
 
 quant_warning = False

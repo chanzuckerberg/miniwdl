@@ -101,10 +101,10 @@ class _Collector(Walker.Base):
         super().__init__(auto_descend=True)
         self.lint = []
 
-    def __call__(self, obj):
+    def __call__(self, obj, descend: Optional[bool] = None):
         if hasattr(obj, "lint"):
             self.lint.extend(getattr(obj, "lint"))
-        super().__call__(obj)
+        super().__call__(obj, descend=descend)
 
 
 def collect(doc):

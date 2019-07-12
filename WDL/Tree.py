@@ -17,7 +17,6 @@ from typing import (
     List,
     Optional,
     Dict,
-    TypeVar,
     Tuple,
     Union,
     Iterable,
@@ -92,11 +91,21 @@ class WorkflowNode(SourceNode, ABC):
     Human-readable node ID unique within the current workflow
     """
 
+    scatter_depth: int
+    """
+    :type: int
+
+    How many nested scatter sections the node lies within. This information is useful for runtime
+    dependency analysis in workflows with scatters. When scatter sections are nested within
+    conditional sections or vice versa, this counts the scatters only.
+    """
+
     _memo_workflow_node_dependencies: Optional[Set[str]] = None
 
     def __init__(self, workflow_node_id: str, pos: SourcePosition):
         super().__init__(pos)
         self.workflow_node_id = workflow_node_id
+        self.scatter_depth = 0
 
     @property
     def workflow_node_dependencies(self) -> Set[str]:
@@ -124,6 +133,17 @@ class WorkflowNode(SourceNode, ABC):
         # typechecking helper -- add this node to the type environment; for sections, this includes
         # everything in the section body as visible outside of the section.
         raise NotImplementedError()
+
+    @property
+    @abstractmethod
+    def children(self) -> Iterable[SourceNode]:
+        raise NotImplementedError()
+
+    def _increment_scatter_depth(self) -> None:
+        for ch in self.children:
+            if isinstance(ch, WorkflowNode):
+                ch._increment_scatter_depth()
+        self.scatter_depth += 1
 
 
 class Decl(WorkflowNode):
@@ -593,6 +613,11 @@ class Gather(WorkflowNode):
     def _workflow_node_dependencies(self) -> Iterable[str]:
         yield self.referee.workflow_node_id
 
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        # section & referee are NOT 'children' of Gather
+        return []
+
 
 class WorkflowSection(WorkflowNode):
     """
@@ -640,6 +665,13 @@ class WorkflowSection(WorkflowNode):
                     self.gathers[subgather.workflow_node_id] = Gather(self, subgather)
 
     @property
+    def children(self) -> Iterable[SourceNode]:
+        for elt in self.body:
+            yield elt
+        for elt in self.gathers.values():
+            yield elt
+
+    @property
     @abstractmethod
     def effective_outputs(self) -> Env.Types:
         raise NotImplementedError()
@@ -666,11 +698,14 @@ class Scatter(WorkflowSection):
         self.variable = variable
         self.expr = expr
 
+        for body_node in self.body:
+            body_node._increment_scatter_depth()
+            # excluded our gather nodes, which are not "within" the section
+
     @property
     def children(self) -> Iterable[SourceNode]:
         yield self.expr
-        for elt in self.body:
-            yield elt
+        yield from super().children
 
     def add_to_type_env(
         self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
@@ -747,8 +782,7 @@ class Conditional(WorkflowSection):
     @property
     def children(self) -> Iterable[SourceNode]:
         yield self.expr
-        for elt in self.body:
-            yield elt
+        yield from super().children
 
     def add_to_type_env(
         self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
@@ -1276,7 +1310,7 @@ def _build_workflow_type_env(
     doc: Document,
     check_quant: bool,
     self: Optional[Union[Workflow, WorkflowSection]] = None,
-    outer_type_env: Env.Types = [],
+    outer_type_env: Env.Types = None,
 ) -> None:
     # Populate each Workflow, Scatter, and Conditional object with its
     # _type_env attribute containing the type environment available in the body
@@ -1308,7 +1342,7 @@ def _build_workflow_type_env(
     # When we've been called recursively on a scatter or conditional section,
     # the 'outer' type environment has everything available in the workflow
     # -except- the body of self.
-    type_env = outer_type_env
+    type_env = outer_type_env or []
 
     if isinstance(self, Workflow):
         # start with workflow inputs

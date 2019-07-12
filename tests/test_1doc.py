@@ -652,6 +652,18 @@ class TestDoc(unittest.TestCase):
         doc = WDL.parse_document(doc)
         doc.typecheck()
 
+        b = [False]
+        def check_scatter_depth(node, d=0):
+            self.assertEqual(node.scatter_depth, d)
+            if d>0:
+                b[0] = True
+            for ch in node.children:
+                if isinstance(ch, WDL.Tree.WorkflowNode):
+                    check_scatter_depth(ch, d=(d+1 if isinstance(node, WDL.Scatter) and not isinstance(ch, WDL.Tree.Gather) else d))
+        for node in doc.workflow.body:
+            check_scatter_depth(node)
+        assert b[0]
+
     def test_errors(self):
         doc = r"""
         version 1.0
