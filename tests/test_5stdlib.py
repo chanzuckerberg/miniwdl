@@ -350,6 +350,8 @@ class TestStdLib(unittest.TestCase):
                     glob("*/*"),
                     glob("bogus")
                 ]
+                File f1 = glob("stuff/foo")[0]
+                String s1 = read_string(f1)
             }
         }
         """)
@@ -363,9 +365,10 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(len(outputs["globs"][2]), 5)
         self.assertTrue(outputs["globs"][2][4].endswith("/stuff/foo"))
         self.assertEqual(len(outputs["globs"][3]), 0)
-        for g in outputs["globs"]:
+        for g in outputs["globs"] + [[outputs["f1"]]]:
             for fn in g:
-                self.assertTrue(os.path.isfile(fn))
+                assert os.path.isfile(fn), fn
+        self.assertTrue(outputs["f1"].endswith("/stuff/foo"))
 
         self._test_task(R"""
         version 1.0
@@ -512,6 +515,7 @@ class TestStdLib(unittest.TestCase):
                 File o_json = json
                 Array[Array[String]] o_tsv = read_tsv(tsv)
                 Map[String,String] o_map = read_map(map)
+                File whynot = write_lines(["foo","bar","baz"])
             }
         }
         """)
