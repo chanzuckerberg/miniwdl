@@ -1108,6 +1108,9 @@ class Workflow(SourceNode):
         self._output_idents = []
 
     def get_node(self, workflow_node_id: str) -> WorkflowNode:
+        """
+        Look up ``WorkflowNode`` by ``workflow_node_id``
+        """
         if not self._nodes_by_id:
 
             def visit(node: SourceNode) -> None:

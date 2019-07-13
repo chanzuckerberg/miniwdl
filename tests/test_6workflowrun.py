@@ -155,7 +155,8 @@ class TestWorkflowRunner(unittest.TestCase):
             scatter (i in range(m)) {
                 Int k = i
                 scatter (j in range(n)) {
-                    Pair[Int,Int] p = (k,j)
+                    Int l = k
+                    Pair[Int,Int] p = (l,j)
                 }
             }
             output {
