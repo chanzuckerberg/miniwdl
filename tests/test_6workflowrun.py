@@ -156,11 +156,26 @@ class TestWorkflowRunner(unittest.TestCase):
                 Int k = i
                 scatter (j in range(n)) {
                     Int l = k
-                    Pair[Int,Int] p = (l,j)
+                    call cons_pair as cons {
+                        input:
+                            lhs = l,
+                            rhs = j
+                    }
                 }
             }
             output {
-                Array[Pair[Int,Int]] pairs = flatten(p)
+                Array[Pair[Int,Int]] pairs = flatten(cons.pair)
+            }
+        }
+
+        task cons_pair {
+            input {
+                Int lhs
+                Int rhs
+            }
+            command {}
+            output {
+                Pair[Int,Int] pair = (lhs,rhs)
             }
         }
         """, {"m": 4, "n": 2})
