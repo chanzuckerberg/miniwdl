@@ -180,3 +180,115 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """, {"m": 4, "n": 2})
         self.assertEqual(outputs["pairs"], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]])
+
+    def test_ifs(self):
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow ifwf {
+            if (true) {
+                Int a = 1
+            }
+            if (false) {
+                Int b = 2
+            }
+            output {
+                Array[Int] s = select_all([a, b])
+            }
+        }
+        """)
+        self.assertEqual(outputs["s"], [1])
+
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow ifwf {
+            if (3 == 3) {
+                call sum {
+                    input:
+                        lhs = 1,
+                        rhs = select_first([sum2.ans, 1])
+                }
+            }
+            if (3 < 3) {
+                call sum as sum2 {
+                    input:
+                        lhs = 1,
+                        rhs = 1
+                }
+            }
+            output {
+                Int ans = select_first([sum.ans])
+            }
+        }
+
+        task sum {
+            input {
+                Int lhs
+                Int rhs
+            }
+            command {}
+            output {
+                Int ans = lhs + rhs
+            }
+        }
+        """)
+        self.assertEqual(outputs["ans"], 2)
+
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow ifwf {
+            if (true) {
+                if (true) {
+                    Int x = 1+1
+                }
+            }
+            if (true) {
+                if (false) {
+                    Int y = 42
+                }
+                Int z = select_first([x])+2
+            }
+            output {
+                Int? x_out = x
+                Int? y_out = y
+                Int? z_out = z
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"x_out": 2, "y_out": None, "z_out": 4})
+
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow ifwf {
+            scatter (i in range(3)) {
+                call sum {
+                    input:
+                        lhs = i,
+                        rhs = i
+                }
+                if (i != 1) {
+                    scatter (j in range(2)) {
+                        Int x = sum.ans + j
+                    }
+                }
+            }
+            output {
+                Array[Array[Int]?] out = x
+            }
+        }
+
+        task sum {
+            input {
+                Int lhs
+                Int rhs
+            }
+            command {}
+            output {
+                Int ans = lhs + rhs
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"out": [[0, 1], None, [4, 5]]})

@@ -11,10 +11,10 @@ Call, Scatter, Conditional, and (implicit) Gather operation has its own node whi
 dependencies on the other nodes.
 
 Abstractly, we plan to "visit" each node after visiting all of its dependencies. The node's type
-prescribes some job to do upon visitation, such as evaluating a Decl's WDL expression, or running a
-task on some inputs. Named WDL values (``WDL.Env.Values``) are transmitted along each dependency
-edge, and WDL expressions in each node are evaluated in the environment formed from the union of
-the node's incoming dependency edges.
+prescribes some job to do upon visitation, such as evaluating a Decl's WDL expression, running a
+task on some inputs, or scheduling additional jobs to scatter over an array. Named WDL values
+(``WDL.Env.Values``) are transmitted along each dependency edge, and WDL expressions in each node
+are evaluated in the environment formed from the union of the node's incoming dependency edges.
 
 Scatter sections contain a body, which provides a template for the job subgraph to be scheduled for
 each element of the runtime-evaluated scatter array. They also contain template Gather nodes, each
