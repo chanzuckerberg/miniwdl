@@ -355,8 +355,8 @@ def run_local_task(
         logger.debug(traceback.format_exc())
         wrapper = TaskFailure(task.name, run_id)
         msg = str(wrapper)
-        if isinstance(exn, Error.EvalError) and isinstance(getattr(exn, "node"), Tree.Decl):
-            msg += " evaluating " + getattr(exn, "node").name
+        if hasattr(exn, "job_id"):
+            msg += " evaluating " + getattr(exn, "job_id")
         msg += ": " + exn.__class__.__name__
         if str(exn):
             msg += ", " + str(exn)
@@ -427,10 +427,12 @@ def _eval_task_inputs(
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
             except Error.RuntimeError as exn:
-                exn.node = decl
+                setattr(exn, "job_id", decl.workflow_node_id)
                 raise exn
             except Exception as exn:
-                raise Error.EvalError(decl, str(exn)) from exn
+                exn2 = Error.EvalError(decl, str(exn))
+                setattr(exn2, "job_id", decl.workflow_node_id)
+                raise exn2 from exn
         else:
             assert decl.type.optional
         vj = json.dumps(v.json)
@@ -450,10 +452,13 @@ def _eval_task_outputs(
         assert decl.expr
         try:
             v = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
-        except Error.RuntimeError:
-            raise
+        except Error.RuntimeError as exn:
+            setattr(exn, "job_id", decl.workflow_node_id)
+            raise exn
         except Exception as exn:
-            raise Error.EvalError(decl, str(exn)) from exn
+            exn2 = Error.EvalError(decl, str(exn))
+            setattr(exn2, "job_id", decl.workflow_node_id)
+            raise exn2 from exn
         logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
         outputs = Env.bind(outputs, [], decl.name, v)
         env = Env.bind(env, [], decl.name, v)

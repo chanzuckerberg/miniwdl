@@ -294,10 +294,12 @@ class StateMachine:
         if isinstance(job.node, Tree.Decl):
             # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
             # the expr
+            v = None
             try:
                 v = Env.resolve(self.inputs, [], job.node.name)
             except KeyError:
                 assert job.node.expr
+            if v is None:
                 v = job.node.expr.eval(env, stdlib=stdlib)
             return Env.bind([], [], job.node.name, v)
 

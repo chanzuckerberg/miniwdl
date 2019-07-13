@@ -29,7 +29,7 @@ class TestWorkflowRunner(unittest.TestCase):
         except Exception as exn:
             if expected_exception:
                 self.assertIsInstance(exn, expected_exception)
-                return exn.__context__
+                return exn
             raise
         if expected_exception:
             self.assertFalse(str(expected_exception) + " not raised")
@@ -293,7 +293,7 @@ class TestWorkflowRunner(unittest.TestCase):
         """)
         self.assertEqual(outputs, {"out": [[0, 1], None, [4, 5]]})
 
-    def test_inputs(self):
+    def test_io(self):
         txt = """
         version 1.0
 
@@ -310,3 +310,108 @@ class TestWorkflowRunner(unittest.TestCase):
         """
         self.assertEqual(self._test_workflow(txt, {"x": 1}), {"out": [1, 2, 3]})
         self.assertEqual(self._test_workflow(txt, {"x": 1, "z": 42}), {"out": [1, 2, 42]})
+
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow inputs {
+            input {
+                Int x
+            }
+            call sum as y {
+                input:
+                    lhs = x,
+                    rhs = 1
+            }
+            scatter (i in range(x)) {
+                Int z = i+1
+                call sum {
+                    input:
+                        lhs = z,
+                        rhs = y.ans
+                }
+            }
+        }
+
+        task sum {
+            input {
+                Int lhs
+                Int rhs
+            }
+            command {}
+            output {
+                Int ans = lhs + rhs
+            }
+        }
+        """, {"x": 3})
+        self.assertEqual(outputs, { "y.ans": 4, "sum.ans": [ 5, 6, 7 ] })
+
+        # setting optional input of call inside scatter
+        txt = """
+        version 1.0
+
+        workflow inputs {
+            input {
+                Int x
+            }
+            scatter (i in range(x)) {
+                call sum {
+                    input:
+                        lhs = i,
+                        rhs = i
+                }
+            }
+            output {
+                Array[Int] ans = sum.ans
+            }
+        }
+
+        task sum {
+            input {
+                Int lhs
+                Int rhs
+                Int more = 0
+            }
+            command {}
+            output {
+                Int ans = lhs + rhs + more
+            }
+        }
+        """
+        self.assertEqual(self._test_workflow(txt, {"x":3}), { "ans": [ 0, 2, 4] })
+        self.assertEqual(self._test_workflow(txt, {"x":3, "sum.more": 1}), { "ans": [ 1, 3, 5] })
+
+    def test_errors(self):
+        exn = self._test_workflow("""
+        version 1.0
+
+        workflow bogus {
+            Int y = range(4)[99]
+        }
+        """, expected_exception=WDL.Error.EvalError)
+        self.assertEqual(exn.job_id, "decl-y")
+
+        exn = self._test_workflow("""
+        version 1.0
+
+        workflow inputs {
+            call sum {
+                input:
+                    lhs = 1,
+                    rhs = 1
+            }
+        }
+
+        task sum {
+            input {
+                Int lhs
+                Int rhs
+            }
+            command {}
+            output {
+                Int ans = lhs + rhs
+                Int y = range(4)[99]
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+        self.assertEqual(exn.job_id, "decl-y")
