@@ -33,7 +33,6 @@ import os
 import math
 import itertools
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
-from abc import ABC
 from datetime import datetime
 from .. import Env, Type, Value, Tree, StdLib
 from .task import run_local_task
@@ -79,7 +78,7 @@ _Job = NamedTuple(
 )
 
 
-class StateMachine(ABC):
+class StateMachine:
     """
     On-line workflow state machine, suitable for use within a singleton driver process managing
     in-memory state. The state machine evaluates WDL expressions locally, while instructing the
@@ -94,6 +93,7 @@ class StateMachine(ABC):
     finished: Set[str]
     running: Set[str]
     waiting: Set[str]
+    # TODO: factor out WorkflowState interface?
 
     def __init__(self, workflow: Tree.Workflow, inputs: Env.Values) -> None:
         """
@@ -118,8 +118,11 @@ class StateMachine(ABC):
         else:
             # TODO: instantiate WorkflowOutputs on all top-level Call nodes (and all top-level
             # Gather nodes whose ultimate referee is a Call)
-            raise NotImplementedError()
+            raise NotImplementedError("workflow with no output{} section")
 
+        # TODO: by topsorting all section bodies we can ensure that when we schedule an additional
+        # job, all its dependencies will already have been scheduled, increasing
+        # flexibility/compatibility with various backends.
         for node in workflow_nodes:
             deps = node.workflow_node_dependencies
             if isinstance(node, Tree.Decl):
@@ -129,7 +132,9 @@ class StateMachine(ABC):
                     deps = set()
                 except KeyError:
                     pass
-            self._schedule(node, dependencies=deps)
+            self._schedule(
+                _Job(id=node.workflow_node_id, node=node, dependencies=deps, scatter_stack=[])
+            )
 
         # sanity check
         assert "outputs" in self.jobs
@@ -184,7 +189,12 @@ class StateMachine(ABC):
         while True:
             # select a job whose dependencies are all finished
             job_id = next(
-                (j for j in self.waiting if not (self.jobs[j].dependencies - self.finished)), None
+                (
+                    j
+                    for j in sorted(self.waiting)
+                    if not (self.jobs[j].dependencies - self.finished)
+                ),
+                None,
             )
             if not job_id:
                 if self.waiting and not self.running:
@@ -223,34 +233,14 @@ class StateMachine(ABC):
         self.finished.add(job_id)
         self.running.remove(job_id)
 
-    # TODO: by topsorting all section bodies we can ensure that when we schedule an additional job,
-    # all its dependencies will already have been scheduled, increasing flexibility/compatibility
-    # with various backends.
-    def _schedule(
-        self,
-        node: Tree.WorkflowNode,
-        job_id: Optional[str] = None,
-        dependencies: Optional[Iterable[str]] = None,
-        scatter_stack: Optional[List[Tuple[str, Env.Binding]]] = None,
-    ) -> None:
-        job = _Job(
-            id=(job_id or node.workflow_node_id),
-            node=node,
-            dependencies=set(
-                dependencies if dependencies is not None else node.workflow_node_dependencies
-            ),
-            scatter_stack=list(scatter_stack or []),
-        )
+    def _schedule(self, job: _Job) -> None:
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
 
-    # TODO: how much of the following helper methods can be refactored out of StateMachine if we
-    # make them return Job(s) instead of calling self._schedule ?
-    # if we also factor out WorkflowState ?
     def _do_job(self, job: _Job) -> "Union[StateMachine.CallInstructions, Env.Values]":
         if isinstance(job.node, Tree.Gather):
-            return self._gather(
+            return _gather(
                 job.node, dict((dep_id, self.job_outputs[dep_id]) for dep_id in job.dependencies)
             )
 
@@ -262,7 +252,8 @@ class StateMachine(ABC):
         stdlib = StdLib.Base()
 
         if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
-            self._scatter(job.node, env, job.scatter_stack, stdlib)
+            for newjob in _scatter(self.workflow, job.node, env, job.scatter_stack, stdlib):
+                self._schedule(newjob)
             # the section node itself has no outputs, so return an empty env
             return []
 
@@ -300,147 +291,168 @@ class StateMachine(ABC):
 
         raise NotImplementedError()
 
-    def _scatter(
-        self,
-        section: Union[Tree.Scatter, Tree.Conditional],
-        env: Env.Values,
-        scatter_stack: List[Tuple[str, Env.Binding]],
-        stdlib: StdLib.Base,
-    ) -> None:
-        # we'll be tracking, for each body node ID, the IDs of the potentially multiple
-        # corresponding jobs scheduled
-        multiplex = {}
+
+def _scatter(
+    workflow: Tree.Workflow,
+    section: Union[Tree.Scatter, Tree.Conditional],
+    env: Env.Values,
+    scatter_stack: List[Tuple[str, Env.Binding]],
+    stdlib: StdLib.Base,
+) -> Iterable[_Job]:
+    # we'll be tracking, for each body node ID, the IDs of the potentially multiple corresponding
+    # jobs scheduled
+    multiplex = {}
+    for body_node in section.body:
+        multiplex[body_node.workflow_node_id] = set()
+        if isinstance(body_node, Tree.WorkflowSection):
+            for subgather in body_node.gathers.values():
+                multiplex[subgather.workflow_node_id] = set()
+
+    # evaluate scatter array or boolean condition
+    v = section.expr.eval(env, stdlib=stdlib)
+    array = []
+    if isinstance(section, Tree.Scatter):
+        assert isinstance(v, Value.Array)
+        array = v.value
+    else:
+        assert isinstance(v, Value.Boolean)
+        if v.value:
+            # condition is satisfied, so we'll "scatter" over a length-1 array
+            array = [None]
+    digits = math.ceil(math.log10(len(array) + 1))
+
+    # compile IDs of all body nodes and their gather nodes, which we'll need below
+    body_node_ids = set()
+    for body_node in section.body:
+        body_node_ids.add(body_node.workflow_node_id)
+        if isinstance(body_node, Tree.WorkflowSection):
+            for gather in body_node.gathers.values():
+                body_node_ids.add(gather.workflow_node_id)
+
+    # for each array element, schedule an instance of the body subgraph
+    last_scatter_indices = None
+    for i, array_i in enumerate(array):
+
+        # scatter bookkeeping: format the index as a left-zero-padded string so that it'll sort
+        # lexicographically in the desired order; bind the scatter variable name to the array value
+        scatter_stack_i = scatter_stack
+        if isinstance(array_i, Value.Base):
+            assert isinstance(section, Tree.Scatter)
+            scatter_stack_i = scatter_stack_i + [
+                (str(i).zfill(digits), Env.Binding(section.variable, array_i))
+            ]
+        scatter_indices_i = [p[0] for p in scatter_stack_i]
+        assert last_scatter_indices is None or last_scatter_indices < scatter_indices_i
+        last_scatter_indices = scatter_indices_i
+
+        # schedule each body (template) node
         for body_node in section.body:
-            multiplex[body_node.workflow_node_id] = set()
-            if isinstance(body_node, Tree.WorkflowSection):
-                for subgather in body_node.gathers.values():
-                    multiplex[subgather.workflow_node_id] = set()
+            # the job ID will be the template node ID with the current scatter index appended.
+            # if we're in nested scatters, then append *each* respective index!
+            assert len(scatter_indices_i) == body_node.scatter_depth
+            body_job_id = _append_scatter_indices(body_node.workflow_node_id, scatter_indices_i)
 
-        # evaluate scatter array or boolean condition
-        v = section.expr.eval(env, stdlib=stdlib)
-        array = []
-        if isinstance(section, Tree.Scatter):
-            assert isinstance(v, Value.Array)
-            array = v.value
-        else:
-            assert isinstance(v, Value.Boolean)
-            if v.value:
-                # condition is satisfied, so we'll "scatter" over a length-1 array
-                array = [None]
-        digits = math.ceil(math.log10(len(array) + 1))
-
-        # compile IDs of all body nodes and their gather nodes, which we'll need below
-        body_node_ids = set()
-        for body_node in section.body:
-            body_node_ids.add(body_node.workflow_node_id)
-            if isinstance(body_node, Tree.WorkflowSection):
-                for gather in body_node.gathers.values():
-                    body_node_ids.add(gather.workflow_node_id)
-
-        # for each array element, schedule an instance of the body subgraph
-        for i, array_i in enumerate(array):
-
-            # scatter bookkeeping: format the index as a left-zero-padded string so that it'll
-            # sort lexicographically in the desired order; bind the scatter variable name to the
-            # array value.
-            scatter_stack_i = scatter_stack
-            if isinstance(array_i, Value.Base):
-                assert isinstance(section, Tree.Scatter)
-                scatter_stack_i = scatter_stack_i + [
-                    (str(i).zfill(digits), Env.Binding(section.variable, array_i))
-                ]
-            scatter_indices_i = [p[0] for p in scatter_stack_i]
-
-            # schedule each body (template) node
-            for body_node in section.body:
-                # the job ID will be the template node ID with the current scatter index appended.
-                # if we're in nested scatters, then append *each* respective index!
-                body_job_id = _append_scatter_indices(body_node.workflow_node_id, scatter_indices_i)
-
-                # furthermore, rewrite the template node's dependencies on other within-scatter
-                # nodes to the corresponding jobs given the current scatter index.
-                # especially tricky: in a nested scatter we can depend on a node at a higher level,
-                # for which we need to append only the indices up to its level!
-                dependencies = set()
-                for dep_id in body_node.workflow_node_dependencies:
-                    dep = self.workflow.get_node(dep_id)
-                    assert dep.scatter_depth <= body_node.scatter_depth
-                    dep_id = _append_scatter_indices(dep_id, scatter_indices_i[: dep.scatter_depth])
-                    assert dep.scatter_depth == body_node.scatter_depth or dep_id in self.jobs
-                    dependencies.add(dep_id)
-
-                self._schedule(
-                    body_node,
-                    job_id=body_job_id,
-                    dependencies=dependencies,
-                    scatter_stack=scatter_stack_i,
+            # furthermore, rewrite the template node's dependencies on other within-scatter nodes
+            # to the corresponding jobs given the current scatter index.
+            # especially tricky: in a nested scatter we can depend on a node at a higher level, for
+            # which we need to append only the indices up to its level!
+            dependencies = set()
+            for dep_id in body_node.workflow_node_dependencies:
+                dep = workflow.get_node(dep_id)
+                assert dep.scatter_depth <= body_node.scatter_depth
+                dependencies.add(
+                    _append_scatter_indices(dep_id, scatter_indices_i[: dep.scatter_depth])
                 )
 
-                # record the newly scheduled job & its expected gathers in multiplex
-                multiplex[body_node.workflow_node_id].add(body_job_id)
-                if isinstance(body_node, Tree.WorkflowSection):
-                    for subgather in body_node.gathers.values():
-                        multiplex[subgather.workflow_node_id].add(
-                            _append_scatter_indices(subgather.workflow_node_id, scatter_indices_i)
-                        )
-
-        # schedule each gather op with dependencies multiplexed onto the set of jobs scheduled
-        # from the corresponding body node.
-        # if the scatter array was empty or the condition was false, these dependencies are
-        # empty, so these jobs will become runnable immediately to "gather" empty arrays or
-        # Value.Null's as appropriate.
-        for body_node_id, gather in section.gathers.items():
-            self._schedule(
-                gather,
-                job_id=_append_scatter_indices(
-                    gather.workflow_node_id, [p[0] for p in scatter_stack]
-                ),
-                dependencies=multiplex[body_node_id],
+            yield _Job(
+                id=body_job_id,
+                node=body_node,
+                dependencies=dependencies,
+                scatter_stack=scatter_stack_i,
             )
 
-    def _gather(self, gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Values:
-        # important: the dependency job IDs must sort lexicographically in the desired array order!
-        dep_ids = sorted(dependencies.keys())
+            # record the newly scheduled job & its expected gathers in multiplex
+            multiplex[body_node.workflow_node_id].add(body_job_id)
+            if isinstance(body_node, Tree.WorkflowSection):
+                for subgather in body_node.gathers.values():
+                    multiplex[subgather.workflow_node_id].add(
+                        _append_scatter_indices(subgather.workflow_node_id, scatter_indices_i)
+                    )
 
-        # determine if we're ultimately (through nested ops) gathering from a value or a call
-        leaf = gather
-        while isinstance(leaf, Tree.Gather):
-            leaf = leaf.referee
+    # schedule each gather op with dependencies multiplexed onto the set of jobs scheduled
+    # from the corresponding body node.
+    # if the scatter array was empty or the condition was false, these dependencies are
+    # empty, so these jobs will become runnable immediately to "gather" empty arrays or
+    # Value.Null's as appropriate.
+    for body_node_id, gather in section.gathers.items():
+        yield _Job(
+            id=_append_scatter_indices(gather.workflow_node_id, [p[0] for p in scatter_stack]),
+            node=gather,
+            dependencies=multiplex[body_node_id],
+            scatter_stack=scatter_stack,
+        )
 
-        # figure out names of the values to gather
-        if isinstance(leaf, Tree.Decl):
-            names = [leaf.name]
-        elif isinstance(leaf, Tree.Call):
-            names = []
-            outp = leaf.effective_outputs
-            if outp:
-                assert len(outp) == 1
-                outp = outp[0]
-                assert isinstance(outp, Env.Namespace)
-                for b in outp.bindings:
-                    assert isinstance(b, Env.Binding)
-                    names.append(b.name)
-        else:
-            assert False
 
-        # for each such name,
-        ans = []
-        ns = [leaf.name] if isinstance(leaf, Tree.Call) else []
-        for name in names:
-            # gather the corresponding values
-            values = [Env.resolve(dependencies[dep_id], ns, name) for dep_id in dep_ids]
-            v0 = values[0] if values else None
-            assert v0 is None or isinstance(v0, Value.Base)
-            # bind the array, singleton value, or None as appropriate
-            if isinstance(gather.section, Tree.Scatter):
-                rhs = Value.Array(Type.Array(v0.type if v0 else Type.Any()), values)
+def _append_scatter_indices(id: str, scatter_indices: List[str]) -> str:
+    return "-".join([id] + scatter_indices)
+
+
+def _gather(gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Values:
+    # important: the dependency job IDs must sort lexicographically in the desired array order!
+    dep_ids = sorted(dependencies.keys())
+
+    # since it would be so awful to permute the array silently, lets verify the ID order
+    if isinstance(gather.section, Tree.Scatter):
+        dep_id_prefix = None
+        dep_id_values = []
+        for dep_id in dep_ids:
+            dep_id_fields = dep_id.split("-")
+            if dep_id_prefix is not None:
+                assert dep_id_fields[:-1] == dep_id_prefix
             else:
-                assert isinstance(gather.section, Tree.Conditional)
-                assert len(values) <= 1
-                rhs = v0 if v0 is not None else Value.Null()
-            ans = Env.bind(ans, ns, name, rhs)
+                dep_id_prefix = dep_id_fields[:-1]
+            dep_id_values.append(int(dep_id_fields[-1]))
+        assert dep_id_values == list(range(len(dep_ids)))
 
-        return ans
+    # determine if we're ultimately (through nested ops) gathering from a value or a call
+    leaf = gather
+    while isinstance(leaf, Tree.Gather):
+        leaf = leaf.referee
+
+    # figure out names of the values to gather
+    if isinstance(leaf, Tree.Decl):
+        names = [leaf.name]
+    elif isinstance(leaf, Tree.Call):
+        names = []
+        outp = leaf.effective_outputs
+        if outp:
+            assert len(outp) == 1
+            outp = outp[0]
+            assert isinstance(outp, Env.Namespace)
+            for b in outp.bindings:
+                assert isinstance(b, Env.Binding)
+                names.append(b.name)
+    else:
+        assert False
+
+    # for each such name,
+    ans = []
+    ns = [leaf.name] if isinstance(leaf, Tree.Call) else []
+    for name in names:
+        # gather the corresponding values
+        values = [Env.resolve(dependencies[dep_id], ns, name) for dep_id in dep_ids]
+        v0 = values[0] if values else None
+        assert v0 is None or isinstance(v0, Value.Base)
+        # bind the array, singleton value, or None as appropriate
+        if isinstance(gather.section, Tree.Scatter):
+            rhs = Value.Array(Type.Array(v0.type if v0 else Type.Any()), values)
+        else:
+            assert isinstance(gather.section, Tree.Conditional)
+            assert len(values) <= 1
+            rhs = v0 if v0 is not None else Value.Null()
+        ans = Env.bind(ans, ns, name, rhs)
+
+    return ans
 
 
 def run_local_workflow(
@@ -491,7 +503,3 @@ def run_local_workflow(
                 raise NotImplementedError()
         elif state.outputs:
             return (run_dir, state.outputs)
-
-
-def _append_scatter_indices(id: str, scatter_indices: List[str]) -> str:
-    return "-".join([id] + scatter_indices)

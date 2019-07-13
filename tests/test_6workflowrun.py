@@ -292,3 +292,21 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """)
         self.assertEqual(outputs, {"out": [[0, 1], None, [4, 5]]})
+
+    def test_inputs(self):
+        txt = """
+        version 1.0
+
+        workflow inputs {
+            input {
+                Int x
+                Int z = y+1
+            }
+            Int y = x+1
+            output {
+                Array[Int] out = [x, y ,z]
+            }
+        }
+        """
+        self.assertEqual(self._test_workflow(txt, {"x": 1}), {"out": [1, 2, 3]})
+        self.assertEqual(self._test_workflow(txt, {"x": 1, "z": 42}), {"out": [1, 2, 42]})
