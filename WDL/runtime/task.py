@@ -271,7 +271,7 @@ class TaskDockerContainer(TaskContainer):
                     try:
                         container.remove(force=True)
                     except Exception as exn:
-                        logger.error("failed to remove docker container: " + str(exn))
+                        logger.exception("failed to remove docker container")
                     logger.info("force-removed docker container")
                 raise
 
@@ -286,7 +286,7 @@ class TaskDockerContainer(TaskContainer):
             try:
                 client.close()
             except:
-                logger.error("failed to close docker-py client")
+                logger.exception("failed to close docker-py client")
 
 
 def run_local_task(
@@ -321,9 +321,8 @@ def run_local_task(
             os.makedirs(run_dir, exist_ok=False)
 
     # provision logger
-    logger = logging.getLogger("miniwdl_task:" + run_id)
-    logger.info("starting task")
-    logger.debug("task run directory " + run_dir)
+    logger = logging.getLogger("miniwdl-task:" + run_id)
+    logger.info("starting task in %s", run_dir)
 
     try:
         # create appropriate TaskContainer

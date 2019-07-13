@@ -28,11 +28,12 @@ be launched. Scatter and Conditional sections may be nested, inducing a multi-le
 operations.
 """
 
-import concurrent
+import logging
 import os
 import math
 import itertools
-from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
+import json
+from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable
 from datetime import datetime
 from .. import Env, Type, Value, Tree, StdLib
 from .task import run_local_task
@@ -86,6 +87,8 @@ class StateMachine:
     each call, just requiring asynchronous notification of call completion along with the outputs.
     """
 
+    logger: logging.Logger
+    values_to_json: Callable[[Env.Values], Dict]
     workflow: Tree.Workflow
     inputs: Env.Values
     jobs: Dict[str, _Job]
@@ -95,10 +98,11 @@ class StateMachine:
     waiting: Set[str]
     # TODO: factor out WorkflowState interface?
 
-    def __init__(self, workflow: Tree.Workflow, inputs: Env.Values) -> None:
+    def __init__(self, logger: logging.Logger, workflow: Tree.Workflow, inputs: Env.Values) -> None:
         """
         Initialize the workflow state machine from the workflow AST and inputs
         """
+        self.logger = logger
         self.workflow = workflow
         self.inputs = inputs
         self.jobs = {}
@@ -106,6 +110,10 @@ class StateMachine:
         self.finished = set()
         self.running = set()
         self.waiting = set()
+
+        from .. import values_to_json
+
+        self.values_to_json = values_to_json
 
         workflow_nodes = [node for node in (workflow.inputs or []) + workflow.body]
         # tack on WorkflowOutputs
@@ -198,11 +206,12 @@ class StateMachine:
             )
             if not job_id:
                 if self.waiting and not self.running:
-                    deadlock = set(
-                        itertools.chain(*(self.jobs[j].dependencies for j in self.waiting))
+                    deadlock = (
+                        set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
+                        - self.waiting
                     )
-                    deadlock -= self.waiting
-                    assert False, "deadlocked on " + str(deadlock)
+                    self.logger.critical("detected deadlock on %s", str(deadlock))
+                    assert False
                 return None
             job = self.jobs[job_id]
 
@@ -217,6 +226,9 @@ class StateMachine:
             if isinstance(res, StateMachine.CallInstructions):
                 return res
 
+            envlog = json.dumps(self.values_to_json(res))
+            self.logger.info("visit %s -> %s", job.id, envlog if len(envlog) < 4096 else "(large)")
+
             # otherwise, record the outputs, mark the job finished, and move on to the next job
             self.job_outputs[job.id] = res
             self.running.remove(job.id)
@@ -227,6 +239,8 @@ class StateMachine:
         Deliver notice of a job's successful completion, along with its outputs
         """
         assert job_id in self.running
+        outlog = json.dumps(self.values_to_json(outputs))
+        self.logger.info("finish %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
         self.job_outputs[job_id] = [Env.Namespace(call_node.name, outputs)]
@@ -234,6 +248,7 @@ class StateMachine:
         self.running.remove(job_id)
 
     def _schedule(self, job: _Job) -> None:
+        self.logger.debug("schedule %s after {%s}", job.id, ", ".join(job.dependencies))
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
@@ -250,6 +265,8 @@ class StateMachine:
             [p[1] for p in job.scatter_stack], *(self.job_outputs[dep] for dep in job.dependencies)
         )
         stdlib = StdLib.Base()
+        envlog = json.dumps(self.values_to_json(env))
+        self.logger.debug("env %s <- %s", job.id, envlog if len(envlog) < 4096 else "(large)")
 
         if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
             for newjob in _scatter(self.workflow, job.node, env, job.scatter_stack, stdlib):
@@ -284,6 +301,10 @@ class StateMachine:
             except KeyError:
                 pass
             # issue CallInstructions
+            inplog = json.dumps(self.values_to_json(call_inputs))
+            self.logger.info(
+                "issue %s with %s", job.id, inplog if len(inplog) < 4096 else "(large)"
+            )
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
             return StateMachine.CallInstructions(
                 id=job.id, callee=job.node.callee, inputs=call_inputs
@@ -393,8 +414,8 @@ def _scatter(
         )
 
 
-def _append_scatter_indices(id: str, scatter_indices: List[str]) -> str:
-    return "-".join([id] + scatter_indices)
+def _append_scatter_indices(node_id: str, scatter_indices: List[str]) -> str:
+    return "-".join([node_id] + scatter_indices)
 
 
 def _gather(gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Values:
@@ -470,10 +491,7 @@ def run_local_workflow(
     """
     # TODO:
     # - error handling
-    # - logging
     # - concurrency
-
-    state = StateMachine(workflow, posix_inputs)
 
     parent_dir = parent_dir or os.getcwd()
 
@@ -491,15 +509,24 @@ def run_local_workflow(
             run_dir = os.path.join(parent_dir, run_id)
             os.makedirs(run_dir, exist_ok=False)
 
-    while True:
-        next_call = state.step()
-        if next_call:
-            if isinstance(next_call.callee, Tree.Task):
-                _, outputs = run_local_task(
-                    next_call.callee, next_call.inputs, run_id=next_call.id, parent_dir=run_dir
-                )
-                state.call_finished(next_call.id, outputs)
-            else:
-                raise NotImplementedError()
-        elif state.outputs:
-            return (run_dir, state.outputs)
+    logger = logging.getLogger("miniwdl-workflow:" + run_id)
+    logger.info("starting workflow in %s", run_dir)
+    state = StateMachine(logger, workflow, posix_inputs)
+
+    try:
+        while True:
+            next_call = state.step()
+            if next_call:
+                if isinstance(next_call.callee, Tree.Task):
+                    _, outputs = run_local_task(
+                        next_call.callee, next_call.inputs, run_id=next_call.id, parent_dir=run_dir
+                    )
+                    state.call_finished(next_call.id, outputs)
+                else:
+                    raise NotImplementedError("sub-workflow call")
+            elif state.outputs:
+                logger.info("done")
+                return (run_dir, state.outputs)
+    except Exception as exn:
+        logger.exception(exn.__class__.__name__)
+        raise
