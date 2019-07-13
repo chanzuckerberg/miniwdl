@@ -320,7 +320,7 @@ def runner(
         print(json.dumps(input_json, indent=2), file=outfile)
 
     # run task
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG if kwargs["debug"] else logging.INFO)
     try:
         runner = runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
         _, output_env = runner(target, input_env, run_id=target.name, parent_dir=rundir)
