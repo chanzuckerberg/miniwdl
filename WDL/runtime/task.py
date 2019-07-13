@@ -456,7 +456,7 @@ def _eval_task_outputs(
     def map_files(v: Value.Base) -> Value.Base:
         if isinstance(v, Value.File):
             host_file = container.host_file(v.value)
-            logger.debug("File {} -> {}".format(v.value, host_file))
+            logger.debug("container output file %s -> host %s", v.value, host_file)
             v.value = host_file
         for ch in v.children:
             map_files(ch)
@@ -670,11 +670,17 @@ class OutputStdLib(_StdLib):
                 raise OutputError("glob() pattern must not use .. uplevels")
             if pat.startswith("./"):
                 pat = pat[2:]
+            # glob the host directory
             pat = os.path.join(lib.container.host_dir, "work", pat)
-            return Value.Array(
-                Type.Array(Type.File()),
-                [Value.String(fn) for fn in sorted(glob.glob(pat)) if os.path.isfile(fn)],
-            )
+            host_files = sorted(fn for fn in glob.glob(pat) if os.path.isfile(fn))
+            # convert the host filenames to in-container filenames
+            container_files = []
+            for hf in host_files:
+                dstrip = lib.container.host_dir
+                dstrip += "" if dstrip.endswith("/") else "/"
+                assert hf.startswith(dstrip)
+                container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip) :]))
+            return Value.Array(Type.Array(Type.File()), [Value.File(fn) for fn in container_files])
 
         self._override_static("glob", _glob)
 
