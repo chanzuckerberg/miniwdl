@@ -126,9 +126,20 @@ class StateMachine:
                 WorkflowOutputs((n.workflow_node_id for n in output_nodes), workflow.pos)
             )
         else:
-            # TODO: instantiate WorkflowOutputs on all top-level Call nodes (and all top-level
-            # Gather nodes whose ultimate referee is a Call)
-            raise NotImplementedError("workflow with no output{} section")
+            # no output{} section -- use all top-level Calls and any top-level Gather whose
+            # ultimate referee is a Call
+            output_nodes = set()
+            for n in workflow.body:
+                if isinstance(n, Tree.Call):
+                    output_nodes.add(n.workflow_node_id)
+                if isinstance(n, Tree.WorkflowSection):
+                    for g in n.gathers.values():
+                        referee = g.referee
+                        while isinstance(referee, Tree.Gather):
+                            referee = referee.referee
+                        if isinstance(referee, Tree.Call):
+                            output_nodes.add(g.workflow_node_id)
+            workflow_nodes.append(WorkflowOutputs(output_nodes, workflow.pos))
 
         # TODO: by topsorting all section bodies we can ensure that when we schedule an additional
         # job, all its dependencies will already have been scheduled, increasing

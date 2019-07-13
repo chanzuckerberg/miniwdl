@@ -332,7 +332,7 @@ def runner(
             file=sys.stderr,
         )
         if kwargs["debug"]:
-            raise (exn.__cause__ or exn)
+            raise exn
         sys.exit(2)
     except runtime.task.TaskFailure as exn:
         if exn.__cause__ and isinstance(getattr(exn.__cause__, "pos", None), SourcePosition):
