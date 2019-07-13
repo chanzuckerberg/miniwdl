@@ -354,7 +354,10 @@ def run_local_task(
     except Exception as exn:
         logger.debug(traceback.format_exc())
         wrapper = TaskFailure(task.name, run_id)
-        msg = "{}: {}".format(str(wrapper), exn.__class__.__name__)
+        msg = str(wrapper)
+        if isinstance(exn, Error.EvalError) and isinstance(getattr(exn, "node"), Tree.Decl):
+            msg += " evaluating " + getattr(exn, "node").name
+        msg += ": " + exn.__class__.__name__
         if str(exn):
             msg += ", " + str(exn)
         logger.error(msg)
@@ -423,8 +426,9 @@ def _eval_task_inputs(
         if decl.expr:
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
-            except Error.RuntimeError:
-                raise
+            except Error.RuntimeError as exn:
+                exn.node = decl
+                raise exn
             except Exception as exn:
                 raise Error.EvalError(decl, str(exn)) from exn
         else:

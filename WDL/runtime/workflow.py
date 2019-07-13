@@ -33,10 +33,12 @@ import os
 import math
 import itertools
 import json
+import traceback
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable
 from datetime import datetime
 from .. import Env, Type, Value, Tree, StdLib
 from .task import run_local_task
+from .error import *
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -113,7 +115,7 @@ class StateMachine:
 
         from .. import values_to_json
 
-        self.values_to_json = values_to_json
+        self.values_to_json = values_to_json  # pyre-ignore
 
         workflow_nodes = [node for node in (workflow.inputs or []) + workflow.body]
         # tack on WorkflowOutputs
@@ -220,7 +222,11 @@ class StateMachine:
             self.waiting.remove(job.id)
 
             # do the job
-            res = self._do_job(job)
+            try:
+                res = self._do_job(job)
+            except Exception as exn:
+                setattr(exn, "job_id", job.id)
+                raise exn
 
             # if it's a call, return instructions to the driver
             if isinstance(res, StateMachine.CallInstructions):
@@ -489,9 +495,6 @@ def run_local_workflow(
 
     File inputs are presumed to be local POSIX file paths that can be mounted into containers
     """
-    # TODO:
-    # - error handling
-    # - concurrency
 
     parent_dir = parent_dir or os.getcwd()
 
@@ -513,7 +516,7 @@ def run_local_workflow(
     logger.info("starting workflow in %s", run_dir)
     state = StateMachine(logger, workflow, posix_inputs)
 
-    try:
+    try:  # pyre-ignore
         while True:
             next_call = state.step()
             if next_call:
@@ -528,5 +531,15 @@ def run_local_workflow(
                 logger.info("done")
                 return (run_dir, state.outputs)
     except Exception as exn:
-        logger.exception(exn.__class__.__name__)
-        raise
+        logger.debug(traceback.format_exc())
+        if isinstance(exn, TaskFailure):
+            logger.error("%s failed", getattr(exn, "task_id"))
+        else:
+            msg = ""
+            if hasattr(exn, "job_id"):
+                msg += getattr(exn, "job_id") + " "
+            msg += exn.__class__.__name__
+            if str(exn):
+                msg += ", " + str(exn)
+            logger.error(msg)
+        raise exn

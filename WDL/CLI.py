@@ -324,11 +324,27 @@ def runner(
     try:
         runner = runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
         _, output_env = runner(target, input_env, run_id=target.name, parent_dir=rundir)
+    except Error.EvalError as exn:
+        print(
+            "({} Ln {} Col {}) {}, {}".format(
+                exn.pos.filename, exn.pos.line, exn.pos.column, exn.__class__.__name__, str(exn)
+            ),
+            file=sys.stderr,
+        )
+        if kwargs["debug"]:
+            raise (exn.__cause__ or exn)
+        sys.exit(2)
     except runtime.task.TaskFailure as exn:
         if exn.__cause__ and isinstance(getattr(exn.__cause__, "pos", None), SourcePosition):
             pos = getattr(exn.__cause__, "pos")
             print(
-                "({} Ln {} Col {}) {}".format(pos.filename, pos.line, pos.column, str(exn)),
+                "({} Ln {} Col {}) {}, {}".format(
+                    pos.filename,
+                    pos.line,
+                    pos.column,
+                    exn.__cause__.__class__.__name__,
+                    str(exn.__cause__),
+                ),
                 file=sys.stderr,
             )
         else:
