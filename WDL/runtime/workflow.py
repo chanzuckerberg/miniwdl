@@ -524,15 +524,18 @@ def run_local_workflow(
             next_call = state.step()
             if next_call:
                 if isinstance(next_call.callee, Tree.Task):
-                    _, outputs = run_local_task(
-                        next_call.callee,
-                        next_call.inputs,
-                        run_id=next_call.id,
-                        run_dir=os.path.join(run_dir, next_call.id),
-                    )
-                    state.call_finished(next_call.id, outputs)
+                    run_callee = run_local_task
+                elif isinstance(next_call.callee, Tree.Workflow):
+                    run_callee = run_local_workflow
                 else:
-                    raise NotImplementedError("sub-workflow call")
+                    assert False
+                _, outputs = run_callee(
+                    next_call.callee,  # pyre-fixme
+                    next_call.inputs,
+                    run_id=next_call.id,
+                    run_dir=os.path.join(run_dir, next_call.id),
+                )
+                state.call_finished(next_call.id, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
         if isinstance(exn, TaskFailure):

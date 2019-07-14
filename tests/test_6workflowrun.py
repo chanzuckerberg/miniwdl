@@ -15,9 +15,10 @@ class TestWorkflowRunner(unittest.TestCase):
 
     def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None):
         try:
-            doc = WDL.parse_document(wdl)
-            assert doc.workflow
-            doc.typecheck()
+            with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:
+                outfile.write(wdl.encode("utf-8"))
+                wdlfn = outfile.name
+            doc = WDL.load(wdlfn)
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
             rundir, outputs = WDL.runtime.run_local_workflow(doc.workflow, (inputs or []), run_dir=self._dir)
@@ -26,6 +27,10 @@ class TestWorkflowRunner(unittest.TestCase):
                 self.assertIsInstance(exn.__context__, expected_exception)
                 return exn.__context__
             raise exn.__context__
+        except WDL.Error.MultipleValidationErrors as multi:
+            for exn in multi.exceptions:
+                logging.error("%s: %s", str(exn.pos), str(exn))
+            raise
         except Exception as exn:
             if expected_exception:
                 self.assertIsInstance(exn, expected_exception)
@@ -453,3 +458,65 @@ class TestWorkflowRunner(unittest.TestCase):
         """
         self.assertEqual(self._test_workflow(txt, {"b": True})["z_out"], [[1, None]])
         self.assertEqual(self._test_workflow(txt, {"b": False})["z_out"], [[None, 2], [None, 2]])
+
+    def test_subworkflow(self):
+        subwf = """
+        version 1.0
+
+        workflow sum_sq {
+            input {
+                Int n
+            }
+            scatter (i in range(n)) {
+                Int i_sq = (i+1)*(i+1)
+            }
+            call sum {
+                input:
+                    x = i_sq
+            }
+            output {
+                Int ans = sum.ans
+            }
+        }
+
+        task sum {
+            input {
+                Array[Int] x
+            }
+            command <<<
+                awk 'BEGIN { s = 0 } { s += $0 } END { print s }' ~{write_lines(x)}
+            >>>
+            output {
+                Int ans = read_int(stdout())
+            }
+        }
+        """
+        with open(os.path.join(self._dir, "sum_sq.wdl"), "w") as outfile:
+            outfile.write(subwf)
+
+        outputs = self._test_workflow("""
+        version 1.0
+        import "sum_sq.wdl" as lib
+
+        workflow sum_sq_tester {
+            input {
+                Int n
+            }
+            scatter (i in range(n)) {
+                call lib.sum_sq {
+                    input:
+                        n = i+1
+                }
+            }
+            call lib.sum as sum_all {
+                input:
+                    x = sum_sq.ans
+            }
+            output {
+                Array[Int] sums = sum_sq.ans
+                Int sum = sum_all.ans
+            }
+        }
+        """, {"n": 3})
+        self.assertEqual(outputs["sums"], [1, 5, 14])
+        self.assertEqual(outputs["sum"], 20)
