@@ -506,8 +506,9 @@ def run_local_workflow(
     paths that can be mounted into a container.
 
     :param run_id: unique ID for the run, defaults to workflow name
-    :param run_dir: directory to create for the run outputs and scratch, must not already exist;
-                    defaults to timestamp & run_id subdirectory of the current directory
+    :param run_dir: outputs and scratch will be stored in this directory if it doesn't already
+                    exist; if it does, a timestamp-based subdirectory is created and used (defaults
+                    to current working directory)
     """
 
     run_id = run_id or workflow.name

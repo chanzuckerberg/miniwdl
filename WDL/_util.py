@@ -153,18 +153,29 @@ def write_values_json(
 
 @export
 def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
-    if run_dir:
-        run_dir = os.path.abspath(run_dir)
+    run_dir = os.path.abspath(run_dir or os.getcwd())
+    try:
         os.makedirs(run_dir, exist_ok=False)
-    else:
-        now = datetime.today()
+        return run_dir
+    except FileExistsError:
+        if not os.path.isdir(run_dir):
+            raise
+
+    now = datetime.today()
+    run_dir2 = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
+    try:
+        os.makedirs(run_dir2, exist_ok=False)
+        return run_dir2
+    except FileExistsError:
+        pass
+
+    while True:
+        run_dir2 = os.path.join(
+            run_dir,
+            now.strftime("%Y%m%d_%H%M%S_") + str(int(now.microsecond / 1000)).zfill(3) + "_" + name,
+        )
         try:
-            run_dir = os.path.join(os.getcwd(), now.strftime("%Y%m%d_%H%M%S") + "_" + name)
-            os.makedirs(run_dir, exist_ok=False)
+            os.makedirs(run_dir2, exist_ok=False)
+            return run_dir2
         except FileExistsError:
-            run_dir = os.path.join(
-                os.getcwd(), now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + name
-            )
-            os.makedirs(run_dir, exist_ok=False)
-            sleep(1e-6)
-    return run_dir
+            sleep(1e-3)

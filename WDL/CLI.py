@@ -270,7 +270,7 @@ def fill_run_subparser(subparsers):
         "--dir",
         metavar="NEW_DIR",
         dest="rundir",
-        help="directory to be created for outputs and scratch (must not already exist; defaults to a timestamp-based subdirectory of the current directory)",
+        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
     )
     run_parser.add_argument(
         "-i",
@@ -309,6 +309,9 @@ def runner(
     if json_only:
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
+
+    if rundir and os.path.isfile(rundir):
+        die("--dir must be an existing directory or one that can be created")
 
     # run task
     logging.basicConfig(level=logging.DEBUG if kwargs["debug"] else logging.INFO)
@@ -637,7 +640,7 @@ def fill_cromwell_subparser(subparsers):
         "--dir",
         metavar="NEW_DIR",
         dest="rundir",
-        help="directory to be created for outputs and scratch (must not already exist; defaults to a timestamp-based subdirectory of the current directory)",
+        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
     )
     cromwell_parser.add_argument(
         "-i",
@@ -705,7 +708,10 @@ def cromwell(
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    rundir = provision_run_dir(target.name, rundir)
+    try:
+        rundir = provision_run_dir(target.name, rundir)
+    except FileExistsError:
+        die("--dir must be an existing directory or one that can be created")
     os.makedirs(os.path.join(rundir, "cromwell"))
 
     # write the JSON inputs file
