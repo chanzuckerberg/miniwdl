@@ -202,25 +202,26 @@ class StateMachine:
         doing so after initialization and after each ``call_finished()`` invocation, until at last
         the workflow outputs are available.
         """
+        runnable = []
         while True:
             # select a job whose dependencies are all finished
-            job_id = next(
-                (
-                    j
-                    for j in sorted(self.waiting)
-                    if not (self.jobs[j].dependencies - self.finished)
-                ),
-                None,
-            )
-            if not job_id:
+            if not runnable:
+                runnable = sorted(
+                    [j for j in self.waiting if not (self.jobs[j].dependencies - self.finished)],
+                    reverse=True,
+                )
+            if not runnable:
                 if self.waiting and not self.running:
-                    deadlock = (
-                        set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
-                        - self.waiting
+                    self.logger.critical(
+                        "deadlocked: %s",
+                        str(
+                            set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
+                            - self.finished
+                        ),
                     )
-                    self.logger.critical("detected deadlock on %s", str(deadlock))
                     assert False
                 return None
+            job_id = runnable.pop()
             job = self.jobs[job_id]
 
             # mark it 'running'
