@@ -53,9 +53,23 @@ class WorkflowOutputs(Tree.WorkflowNode):
 
     output_node_ids: Set[str]
 
-    def __init__(self, output_node_ids: Iterable[str], pos: Tree.SourcePosition) -> None:
-        super().__init__("outputs", pos)
-        self.output_node_ids = set(output_node_ids)
+    def __init__(self, workflow: Tree.Workflow) -> None:
+        super().__init__("outputs", workflow.pos)
+
+        self.output_node_ids = set()
+        if workflow.outputs is not None:
+            for node in workflow.outputs:
+                self.output_node_ids.add(node.workflow_node_id)
+        else:
+            # no output{} section -- use all top-level Calls and any top-level Gather whose
+            # ultimate referee is a Call
+            for n in workflow.body:
+                if isinstance(n, Tree.Call):
+                    self.output_node_ids.add(n.workflow_node_id)
+                if isinstance(n, Tree.WorkflowSection):
+                    for g in n.gathers.values():
+                        if isinstance(g.final_referee, Tree.Call):
+                            self.output_node_ids.add(g.workflow_node_id)
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
         yield from self.output_node_ids
@@ -117,29 +131,10 @@ class StateMachine:
 
         self.values_to_json = values_to_json  # pyre-ignore
 
-        workflow_nodes = [node for node in (workflow.inputs or []) + workflow.body]
-        # tack on WorkflowOutputs
-        if workflow.outputs is not None:
-            output_nodes = [node for node in workflow.outputs]
-            workflow_nodes.extend(output_nodes)
-            workflow_nodes.append(
-                WorkflowOutputs((n.workflow_node_id for n in output_nodes), workflow.pos)
-            )
-        else:
-            # no output{} section -- use all top-level Calls and any top-level Gather whose
-            # ultimate referee is a Call
-            output_nodes = set()
-            for n in workflow.body:
-                if isinstance(n, Tree.Call):
-                    output_nodes.add(n.workflow_node_id)
-                if isinstance(n, Tree.WorkflowSection):
-                    for g in n.gathers.values():
-                        referee = g.referee
-                        while isinstance(referee, Tree.Gather):
-                            referee = referee.referee
-                        if isinstance(referee, Tree.Call):
-                            output_nodes.add(g.workflow_node_id)
-            workflow_nodes.append(WorkflowOutputs(output_nodes, workflow.pos))
+        workflow_nodes = [
+            node for node in (workflow.inputs or []) + workflow.body + (workflow.outputs or [])
+        ]
+        workflow_nodes.append(WorkflowOutputs(workflow))
 
         # TODO: by topsorting all section bodies we can ensure that when we schedule an additional
         # job, all its dependencies will already have been scheduled, increasing
@@ -243,10 +238,9 @@ class StateMachine:
             if isinstance(res, StateMachine.CallInstructions):
                 return res
 
+            # otherwise, record the outputs, mark the job finished, and move on to the next job
             envlog = json.dumps(self.values_to_json(res))
             self.logger.info("visit %s -> %s", job.id, envlog if len(envlog) < 4096 else "(large)")
-
-            # otherwise, record the outputs, mark the job finished, and move on to the next job
             self.job_outputs[job.id] = res
             self.running.remove(job.id)
             self.finished.add(job.id)
@@ -257,7 +251,7 @@ class StateMachine:
         """
         assert job_id in self.running
         outlog = json.dumps(self.values_to_json(outputs))
-        self.logger.info("finish %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
+        self.logger.warn("finish %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
         self.job_outputs[job_id] = [Env.Namespace(call_node.name, outputs)]
@@ -321,7 +315,7 @@ class StateMachine:
                 pass
             # issue CallInstructions
             inplog = json.dumps(self.values_to_json(call_inputs))
-            self.logger.info(
+            self.logger.warn(
                 "issue %s with %s", job.id, inplog if len(inplog) < 4096 else "(large)"
             )
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
@@ -540,7 +534,7 @@ def run_local_workflow(
                     state.call_finished(next_call.id, outputs)
                 else:
                     raise NotImplementedError("sub-workflow call")
-            elif state.outputs:
+            elif state.outputs is not None:
                 logger.info("done")
                 return (run_dir, state.outputs)
     except Exception as exn:

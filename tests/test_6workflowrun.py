@@ -36,6 +36,13 @@ class TestWorkflowRunner(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
     def test_hello(self):
+        self.assertEqual(self._test_workflow("""
+        version 1.0
+
+        workflow nop {
+        }
+        """), {})
+
         outputs = self._test_workflow("""
         version 1.0
 
@@ -250,14 +257,20 @@ class TestWorkflowRunner(unittest.TestCase):
                 }
                 Int z = select_first([x])+2
             }
+            if (false) {
+                if (true) {
+                    Int w = 4
+                }
+            }
             output {
                 Int? x_out = x
                 Int? y_out = y
                 Int? z_out = z
+                Int? w_out = w
             }
         }
         """)
-        self.assertEqual(outputs, {"x_out": 2, "y_out": None, "z_out": 4})
+        self.assertEqual(outputs, {"x_out": 2, "y_out": None, "z_out": 4, "w_out": None})
 
         outputs = self._test_workflow("""
         version 1.0
@@ -415,3 +428,28 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
         self.assertEqual(exn.job_id, "decl-y")
+
+    def test_order(self):
+        txt = """
+        version 1.0
+
+        workflow ooo {
+            input {
+                Boolean b
+            }
+            scatter (i in range(select_first([a1, a2]))) {
+                Array[Int?] z =  [a1, a2]
+            }
+            if (b) {
+                Int a1 = 1
+            }
+            if (!b) {
+                Int a2 = 2
+            }
+            output {
+                Array[Array[Int?]] z_out = z
+            }
+        }
+        """
+        self.assertEqual(self._test_workflow(txt, {"b": True})["z_out"], [[1, None]])
+        self.assertEqual(self._test_workflow(txt, {"b": False})["z_out"], [[None, 2], [None, 2]])
