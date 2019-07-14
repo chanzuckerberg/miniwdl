@@ -35,10 +35,10 @@ import itertools
 import json
 import traceback
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable
-from datetime import datetime
 from .. import Env, Type, Value, Tree, StdLib
+from .._util import write_values_json, provision_run_dir
 from .task import run_local_task
-from .error import *
+from .error import TaskFailure
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -170,6 +170,9 @@ class StateMachine:
     def outputs(self) -> Optional[Env.Values]:
         """
         Workflow outputs, once the workflow is completely finished. ``None`` until then.
+
+        Warning: be sure to distinguish ``None``, the workflow isn't finished, from ``[]``, the
+        workflow finished with no outputs.
         """
         if len(self.finished) < len(self.jobs):
             return None
@@ -494,50 +497,41 @@ def run_local_workflow(
     workflow: Tree.Workflow,
     posix_inputs: Env.Values,
     run_id: Optional[str] = None,
-    parent_dir: Optional[str] = None,
+    run_dir: Optional[str] = None,
 ) -> Tuple[str, Env.Values]:
     """
     Run a workflow locally.
 
-    Inputs shall have been typechecked already.
+    Inputs shall have been typechecked already. File inputs are presumed to be local POSIX file
+    paths that can be mounted into a container.
 
-    File inputs are presumed to be local POSIX file paths that can be mounted into containers
+    :param run_id: unique ID for the run, defaults to workflow name
+    :param run_dir: directory to create for the run outputs and scratch, must not already exist;
+                    defaults to timestamp & run_id subdirectory of the current directory
     """
 
-    parent_dir = parent_dir or os.getcwd()
-
-    if run_id:
-        run_dir = os.path.join(parent_dir, run_id)
-        os.makedirs(run_dir, exist_ok=False)
-    else:
-        now = datetime.today()
-        run_id = now.strftime("%Y%m%d_%H%M%S") + "_" + workflow.name
-        try:
-            run_dir = os.path.join(parent_dir, run_id)
-            os.makedirs(run_dir, exist_ok=False)
-        except FileExistsError:
-            run_id = now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + workflow.name
-            run_dir = os.path.join(parent_dir, run_id)
-            os.makedirs(run_dir, exist_ok=False)
-
+    run_id = run_id or workflow.name
+    run_dir = provision_run_dir(workflow.name, run_dir)
     logger = logging.getLogger("miniwdl-workflow:" + run_id)
     logger.info("starting workflow in %s", run_dir)
+    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=[workflow.name])
+
     state = StateMachine(logger, workflow, posix_inputs)
 
-    try:  # pyre-ignore
-        while True:
+    try:
+        while state.outputs is None:
             next_call = state.step()
             if next_call:
                 if isinstance(next_call.callee, Tree.Task):
                     _, outputs = run_local_task(
-                        next_call.callee, next_call.inputs, run_id=next_call.id, parent_dir=run_dir
+                        next_call.callee,
+                        next_call.inputs,
+                        run_id=next_call.id,
+                        run_dir=os.path.join(run_dir, next_call.id),
                     )
                     state.call_finished(next_call.id, outputs)
                 else:
                     raise NotImplementedError("sub-workflow call")
-            elif state.outputs is not None:
-                logger.info("done")
-                return (run_dir, state.outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
         if isinstance(exn, TaskFailure):
@@ -551,3 +545,10 @@ def run_local_workflow(
                 msg += ", " + str(exn)
             logger.error(msg)
         raise exn
+
+    assert state.outputs is not None
+    write_values_json(
+        state.outputs, os.path.join(run_dir, "outputs.json"), namespace=[workflow.name]
+    )
+    logger.info("done")
+    return (run_dir, state.outputs)

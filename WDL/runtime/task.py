@@ -10,13 +10,13 @@ import copy
 import traceback
 import glob
 import signal
-from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
 from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
+from .._util import write_values_json, provision_run_dir
 from .error import *
 
 
@@ -293,36 +293,24 @@ def run_local_task(
     task: Tree.Task,
     posix_inputs: Env.Values,
     run_id: Optional[str] = None,
-    parent_dir: Optional[str] = None,
+    run_dir: Optional[str] = None,
 ) -> Tuple[str, Env.Values]:
     """
     Run a task locally.
 
-    Inputs shall have been typechecked already.
+    Inputs shall have been typechecked already. File inputs are presumed to be local POSIX file
+    paths that can be mounted into a container.
 
-    File inputs are presumed to be local POSIX file paths that can be mounted into a container
+    :param run_id: unique ID for the run, defaults to workflow name
+    :param run_dir: directory to create for the run outputs and scratch, must not already exist;
+                    defaults to timestamp & run_id subdirectory of the current directory
     """
 
-    parent_dir = parent_dir or os.getcwd()
-
-    # formulate task ID & provision local directory
-    if run_id:
-        run_dir = os.path.join(parent_dir, run_id)
-        os.makedirs(run_dir, exist_ok=False)
-    else:
-        now = datetime.today()
-        run_id = now.strftime("%Y%m%d_%H%M%S") + "_" + task.name
-        try:
-            run_dir = os.path.join(parent_dir, run_id)
-            os.makedirs(run_dir, exist_ok=False)
-        except FileExistsError:
-            run_id = now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + task.name
-            run_dir = os.path.join(parent_dir, run_id)
-            os.makedirs(run_dir, exist_ok=False)
-
-    # provision logger
+    run_id = run_id or task.name
+    run_dir = provision_run_dir(task.name, run_dir)
     logger = logging.getLogger("miniwdl-task:" + run_id)
     logger.info("starting task in %s", run_dir)
+    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
         # create appropriate TaskContainer
@@ -349,6 +337,7 @@ def run_local_task(
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
 
+        write_values_json(outputs, os.path.join(run_dir, "outputs.json"))
         logger.info("done")
         return (run_dir, outputs)
     except Exception as exn:
