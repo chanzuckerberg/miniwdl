@@ -34,7 +34,8 @@ import math
 import itertools
 import json
 import traceback
-from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable
+import pickle
+from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from .. import Env, Type, Value, Tree, StdLib
 from .._util import write_values_json, provision_run_dir
 from .task import run_local_task
@@ -85,7 +86,7 @@ class WorkflowOutputs(Tree.WorkflowNode):
 
 
 _Job = NamedTuple(
-    "Job",
+    "_Job",
     [
         ("id", str),
         ("node", Tree.WorkflowNode),
@@ -103,7 +104,8 @@ class StateMachine:
     each call, just requiring asynchronous notification of call completion along with the outputs.
     """
 
-    logger: logging.Logger
+    _logger: Optional[logging.Logger] = None
+    run_id: str
     values_to_json: Callable[[Env.Values], Dict]
     workflow: Tree.Workflow
     inputs: Env.Values
@@ -114,11 +116,11 @@ class StateMachine:
     waiting: Set[str]
     # TODO: factor out WorkflowState interface?
 
-    def __init__(self, logger: logging.Logger, workflow: Tree.Workflow, inputs: Env.Values) -> None:
+    def __init__(self, run_id: str, workflow: Tree.Workflow, inputs: Env.Values) -> None:
         """
         Initialize the workflow state machine from the workflow AST and inputs
         """
-        self.logger = logger
+        self.run_id = run_id
         self.workflow = workflow
         self.inputs = inputs
         self.jobs = {}
@@ -329,6 +331,17 @@ class StateMachine:
 
         raise NotImplementedError()
 
+    @property
+    def logger(self) -> logging.Logger:
+        if not self._logger:
+            self._logger = logging.getLogger("miniwdl-worfklow:" + self.run_id)
+        return self._logger
+
+    def __getstate__(self) -> Dict[str, Any]:
+        ans = dict(self.__dict__)
+        del ans["_logger"]  # for Python pre-3.7 loggers: https://bugs.python.org/issue30520
+        return ans
+
 
 def _scatter(
     workflow: Tree.Workflow,
@@ -498,6 +511,7 @@ def run_local_workflow(
     posix_inputs: Env.Values,
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
+    _test_pickle: bool = False,
 ) -> Tuple[str, Env.Values]:
     """
     Run a workflow locally.
@@ -517,10 +531,13 @@ def run_local_workflow(
     logger.info("starting workflow in %s", run_dir)
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=[workflow.name])
 
-    state = StateMachine(logger, workflow, posix_inputs)
+    state = StateMachine(run_id, workflow, posix_inputs)
 
     try:
         while state.outputs is None:
+            if _test_pickle:
+                state = pickle.loads(pickle.dumps(state))
+
             next_call = state.step()
             if next_call:
                 if isinstance(next_call.callee, Tree.Task):
