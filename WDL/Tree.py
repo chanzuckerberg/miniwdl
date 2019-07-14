@@ -134,11 +134,6 @@ class WorkflowNode(SourceNode, ABC):
         # everything in the section body as visible outside of the section.
         raise NotImplementedError()
 
-    @property
-    @abstractmethod
-    def children(self) -> Iterable[SourceNode]:
-        raise NotImplementedError()
-
     def _increment_scatter_depth(self) -> None:
         for ch in self.children:
             if isinstance(ch, WorkflowNode):
@@ -189,6 +184,7 @@ class Decl(WorkflowNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         if self.expr:
             yield self.expr
 
@@ -334,6 +330,7 @@ class Task(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         for d in self.inputs or []:
             yield d
         for d in self.postinputs:
@@ -443,6 +440,7 @@ class Call(WorkflowNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         for _, ex in self.inputs.items():
             yield ex
 
@@ -587,8 +585,8 @@ class Gather(WorkflowNode):
     """
     A ``Gather`` node symbolizes the operation to gather an array of declared values or call
     outputs in a scatter section, or optional values from a conditional section. These operations
-    are implicit in the WDL syntax, but represented explicitly in the AST to facilitate analysis of
-    the data types and dependency structure in the workflow.
+    are implicit in the WDL syntax, but explicating them in the AST facilitates analysis of the
+    workflow's data types and dependency structure.
 
     Each scatter/conditional section provides ``Gather`` nodes to expose the section body's
     products to the rest of the workflow. When a ``WDL.Expr.Ident`` elsewhere identifies a node
@@ -598,7 +596,18 @@ class Gather(WorkflowNode):
     """
 
     section: "WorkflowSection"
+    """
+    :type: WorkflowSection
+
+    The ``Scatter``/``Conditional`` section implying this Gather operation
+    """
+
     referee: "Union[Decl, Call, Gather]"
+    """
+    :type: Union[Decl, Call, Gather]
+
+    The ``Decl``, ``Call``, or sub-``Gather`` node from which this operation "gathers"
+    """
 
     def __init__(self, section: "WorkflowSection", referee: "Union[Decl, Call, Gather]") -> None:
         super().__init__("gather-" + referee.workflow_node_id, section.pos)
@@ -615,8 +624,21 @@ class Gather(WorkflowNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         # section & referee are NOT 'children' of Gather
         return []
+
+    @property
+    def final_referee(self) -> Union[Decl, Call]:
+        """
+        The ``Decl`` or ``Call`` node found at the end of the referee chain through any nested
+        ``Gather`` nodes
+        """
+        ans = self.referee
+        while isinstance(ans, Gather):
+            ans = ans.referee
+        assert isinstance(ans, (Decl, Call))
+        return ans
 
 
 class WorkflowSection(WorkflowNode):
@@ -628,15 +650,19 @@ class WorkflowSection(WorkflowNode):
     """
     :type: List[WorkflowNode]
 
-    Section body, potentially including nested sections
+    Section body, potentially including nested sections.
     """
     gathers: Dict[str, Gather]
     """
-    :type: Dict[WorkflowNode, Gather]
+    :type: Dict[str, Gather]
 
     ``Gather`` nodes exposing the section body's products to the rest of the workflow. The dict is
     keyed by ``workflow_node_id`` of the interior node, to expedite looking up the corresponding
     gather node.
+
+    The section's body and gather nodes do not explicitly include the section node among their
+    dependencies. Such dependence is implicit because the body subgraph can be "instantiated" only
+    upon visiting the section node at runtime.
     """
 
     _type_env: Optional[Env.Types] = None
@@ -666,6 +692,7 @@ class WorkflowSection(WorkflowNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         for elt in self.body:
             yield elt
         for elt in self.gathers.values():
@@ -704,6 +731,7 @@ class Scatter(WorkflowSection):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         yield self.expr
         yield from super().children
 
@@ -781,6 +809,7 @@ class Conditional(WorkflowSection):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         yield self.expr
         yield from super().children
 
@@ -884,6 +913,8 @@ class Workflow(SourceNode):
     all required inputs (and thus cannot be called from another workflow).
     """
 
+    _nodes_by_id: Dict[str, WorkflowNode]  # memoizer
+
     def __init__(
         self,
         pos: SourcePosition,
@@ -906,6 +937,7 @@ class Workflow(SourceNode):
         self.parameter_meta = parameter_meta
         self.meta = meta
         self.complete_calls = True
+        self._nodes_by_id = {}
 
         # Hack: modify workflow node IDs for output decls since, in draft-2, they could reuse names
         # of earlier decls
@@ -989,6 +1021,7 @@ class Workflow(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         for d in self.inputs or []:
             yield d
         for elt in self.body:
@@ -1104,6 +1137,22 @@ class Workflow(SourceNode):
         self.outputs = output_ident_decls + self.outputs  # pyre-fixme
         self._output_idents = []
 
+    def get_node(self, workflow_node_id: str) -> WorkflowNode:
+        """
+        Look up ``WorkflowNode`` by ``workflow_node_id``
+        """
+        if not self._nodes_by_id:
+
+            def visit(node: SourceNode) -> None:
+                if isinstance(node, WorkflowNode):
+                    self._nodes_by_id[node.workflow_node_id] = node
+                    for ch in node.children:
+                        visit(ch)
+
+            for ch in self.children:
+                visit(ch)
+        return self._nodes_by_id[workflow_node_id]
+
 
 DocImport = NamedTuple(
     "DocImport",
@@ -1158,6 +1207,7 @@ class Document(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        ""
         for imp in self.imports:
             if imp.doc:
                 yield imp.doc
@@ -1487,12 +1537,14 @@ def _expr_workflow_node_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]
     # Expr.Ident subexpression. These referees can include
     #   - Decl: reference to a named value
     #   - Call: reference to a call output
-    #   - Scatter: reference to the scatter variable
     #   - Gather: reference to values(s) (array/optional) gathered from a scatter or conditional
     #             section
     if isinstance(expr, Expr.Ident):
         assert isinstance(expr.referee, WorkflowNode)
-        yield expr.referee.workflow_node_id
+        # omit dependence on containing scatter sections (when scatter variable is used), which we
+        # handle implicitly
+        if not isinstance(expr.referee, WorkflowSection):
+            yield expr.referee.workflow_node_id
     for ch in expr.children if expr else []:
         yield from _expr_workflow_node_dependencies(ch)
 
@@ -1533,6 +1585,7 @@ def _workflow_dependency_matrix(
         if isinstance(obj, WorkflowSection):
             for ch in itertools.chain(obj.body, obj.gathers.values()):
                 visit(ch)
+                # TODO: should body nodes explicitly report their section as a dependency?
                 adj.add_edge(oid, ch.workflow_node_id)
         for dep_id in obj.workflow_node_dependencies:
             adj.add_edge(dep_id, oid)

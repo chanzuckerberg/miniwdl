@@ -18,7 +18,7 @@ class TestStdLib(unittest.TestCase):
             doc.typecheck()
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
+            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), run_dir=self._dir)
         except WDL.runtime.task.TaskFailure as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)

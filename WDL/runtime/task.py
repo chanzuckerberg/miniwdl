@@ -1,4 +1,7 @@
 # pyre-strict
+"""
+Local task runner
+"""
 import logging
 import os
 import tempfile
@@ -7,13 +10,13 @@ import copy
 import traceback
 import glob
 import signal
-from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
 from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
+from .._util import write_values_json, provision_run_dir
 from .error import *
 
 
@@ -23,7 +26,7 @@ class TaskContainer(ABC):
     implementations (e.g. Docker).
     """
 
-    task_id: str
+    run_id: str
 
     host_dir: str
     """
@@ -52,8 +55,8 @@ class TaskContainer(ABC):
     _running: bool
     _terminate: bool
 
-    def __init__(self, task_id: str, host_dir: str) -> None:
-        self.task_id = task_id
+    def __init__(self, run_id: str, host_dir: str) -> None:
+        self.run_id = run_id
         self.host_dir = host_dir
         self.container_dir = "/mnt/miniwdl_task_container"
         self.input_file_map = {}
@@ -268,7 +271,7 @@ class TaskDockerContainer(TaskContainer):
                     try:
                         container.remove(force=True)
                     except Exception as exn:
-                        logger.error("failed to remove docker container: " + str(exn))
+                        logger.exception("failed to remove docker container")
                     logger.info("force-removed docker container")
                 raise
 
@@ -283,48 +286,36 @@ class TaskDockerContainer(TaskContainer):
             try:
                 client.close()
             except:
-                logger.error("failed to close docker-py client")
+                logger.exception("failed to close docker-py client")
 
 
 def run_local_task(
     task: Tree.Task,
     posix_inputs: Env.Values,
-    task_id: Optional[str] = None,
-    parent_dir: Optional[str] = None,
+    run_id: Optional[str] = None,
+    run_dir: Optional[str] = None,
 ) -> Tuple[str, Env.Values]:
     """
     Run a task locally.
 
-    Inputs shall have been typechecked already.
+    Inputs shall have been typechecked already. File inputs are presumed to be local POSIX file
+    paths that can be mounted into a container.
 
-    File inputs are presumed to be local POSIX file paths that can be mounted into a container
+    :param run_id: unique ID for the run, defaults to workflow name
+    :param run_dir: outputs and scratch will be stored in this directory if it doesn't already
+                    exist; if it does, a timestamp-based subdirectory is created and used (defaults
+                    to current working directory)
     """
 
-    parent_dir = parent_dir or os.getcwd()
-
-    # formulate task ID & provision local directory
-    if task_id:
-        run_dir = os.path.join(parent_dir, task_id)
-        os.makedirs(run_dir, exist_ok=False)
-    else:
-        now = datetime.today()
-        task_id = now.strftime("%Y%m%d_%H%M%S") + "_" + task.name
-        try:
-            run_dir = os.path.join(parent_dir, task_id)
-            os.makedirs(run_dir, exist_ok=False)
-        except FileExistsError:
-            task_id = now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + task.name
-            run_dir = os.path.join(parent_dir, task_id)
-            os.makedirs(run_dir, exist_ok=False)
-
-    # provision logger
-    logger = logging.getLogger("miniwdl_task:" + task_id)
-    logger.info("starting task")
-    logger.debug("task run directory " + run_dir)
+    run_id = run_id or task.name
+    run_dir = provision_run_dir(task.name, run_dir)
+    logger = logging.getLogger("miniwdl-task:" + run_id)
+    logger.info("starting task in %s", run_dir)
+    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
         # create appropriate TaskContainer
-        container = TaskDockerContainer(task_id, run_dir)
+        container = TaskDockerContainer(run_id, run_dir)
 
         # evaluate input/postinput declarations, including mapping from host to
         # in-container file paths
@@ -347,12 +338,16 @@ def run_local_task(
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
 
+        write_values_json(outputs, os.path.join(run_dir, "outputs.json"))
         logger.info("done")
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
-        wrapper = TaskFailure(task.name, task_id)
-        msg = "{}: {}".format(str(wrapper), exn.__class__.__name__)
+        wrapper = TaskFailure(task.name, run_id)
+        msg = str(wrapper)
+        if hasattr(exn, "job_id"):
+            msg += " evaluating " + getattr(exn, "job_id")
+        msg += ": " + exn.__class__.__name__
         if str(exn):
             msg += ", " + str(exn)
         logger.error(msg)
@@ -421,10 +416,13 @@ def _eval_task_inputs(
         if decl.expr:
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
-            except Error.RuntimeError:
-                raise
+            except Error.RuntimeError as exn:
+                setattr(exn, "job_id", decl.workflow_node_id)
+                raise exn
             except Exception as exn:
-                raise Error.EvalError(decl, str(exn)) from exn
+                exn2 = Error.EvalError(decl, str(exn))
+                setattr(exn2, "job_id", decl.workflow_node_id)
+                raise exn2 from exn
         else:
             assert decl.type.optional
         vj = json.dumps(v.json)
@@ -444,10 +442,13 @@ def _eval_task_outputs(
         assert decl.expr
         try:
             v = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
-        except Error.RuntimeError:
-            raise
+        except Error.RuntimeError as exn:
+            setattr(exn, "job_id", decl.workflow_node_id)
+            raise exn
         except Exception as exn:
-            raise Error.EvalError(decl, str(exn)) from exn
+            exn2 = Error.EvalError(decl, str(exn))
+            setattr(exn2, "job_id", decl.workflow_node_id)
+            raise exn2 from exn
         logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
         outputs = Env.bind(outputs, [], decl.name, v)
         env = Env.bind(env, [], decl.name, v)

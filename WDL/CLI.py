@@ -16,6 +16,7 @@ from datetime import datetime
 from argparse import ArgumentParser, Action
 import pkg_resources
 from . import *
+from ._util import provision_run_dir, write_values_json
 
 quant_warning = False
 
@@ -269,7 +270,7 @@ def fill_run_subparser(subparsers):
         "--dir",
         metavar="NEW_DIR",
         dest="rundir",
-        help="directory to be created for the workflow products (must not already exist; defaults to a timestamp-based subdirectory of the current directory)",
+        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
     )
     run_parser.add_argument(
         "-i",
@@ -309,34 +310,37 @@ def runner(
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    if not isinstance(target, Task):
-        print(
-            "`miniwdl run` only supports individual tasks right now; try `miniwdl cromwell`",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    # provision a run directory
-    rundir = runner_provision_directory(target, rundir)
-
-    # write the JSON inputs file
-    input_json_filename = None
-    print("input JSON: " + json.dumps(input_json, indent=2), file=sys.stderr)
-    input_json_filename = os.path.join(rundir, "inputs.json")
-    with open(input_json_filename, "w") as outfile:
-        print(json.dumps(input_json, indent=2), file=outfile)
+    if rundir and os.path.isfile(rundir):
+        die("--dir must be an existing directory or one that can be created")
 
     # run task
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG if kwargs["debug"] else logging.INFO)
     try:
-        _, output_env = runtime.run_local_task(
-            target, input_env, task_id=target.name, parent_dir=rundir
+        entrypoint = (
+            runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
         )
+        rundir, output_env = entrypoint(target, input_env, run_dir=rundir)
+    except Error.EvalError as exn:
+        print(
+            "({} Ln {} Col {}) {}, {}".format(
+                exn.pos.filename, exn.pos.line, exn.pos.column, exn.__class__.__name__, str(exn)
+            ),
+            file=sys.stderr,
+        )
+        if kwargs["debug"]:
+            raise exn
+        sys.exit(2)
     except runtime.task.TaskFailure as exn:
         if exn.__cause__ and isinstance(getattr(exn.__cause__, "pos", None), SourcePosition):
             pos = getattr(exn.__cause__, "pos")
             print(
-                "({} Ln {} Col {}) {}".format(pos.filename, pos.line, pos.column, str(exn)),
+                "({} Ln {} Col {}) {}, {}".format(
+                    pos.filename,
+                    pos.line,
+                    pos.column,
+                    exn.__cause__.__class__.__name__,
+                    str(exn.__cause__),
+                ),
                 file=sys.stderr,
             )
         else:
@@ -575,27 +579,6 @@ def runner_input_value(s_value, ty):
     )
 
 
-def runner_provision_directory(target, rundir=None):
-    if rundir:
-        rundir = os.path.abspath(rundir)
-        try:
-            os.makedirs(rundir, exist_ok=False)
-        except FileExistsError:
-            die("workflow directory already exists: " + rundir)
-    else:
-        now = datetime.today()
-        try:
-            rundir = os.path.join(os.getcwd(), now.strftime("%Y%m%d_%H%M%S") + "_" + target.name)
-            os.makedirs(rundir, exist_ok=False)
-        except FileExistsError:
-            rundir = os.path.join(
-                os.getcwd(),
-                now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + target.name,
-            )
-            os.makedirs(rundir, exist_ok=False)
-    return rundir
-
-
 def runner_organize_outputs(target, outputs_json, rundir):
     """
     After a successful workflow run, the output files are typically sprayed
@@ -613,7 +596,7 @@ def runner_organize_outputs(target, outputs_json, rundir):
     with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
         print(json.dumps(outputs_json, indent=2), file=outfile)
 
-    os.makedirs(os.path.join(rundir, "outputs"), exist_ok=False)
+    os.makedirs(os.path.join(rundir, "output_links"), exist_ok=False)
 
     def link_output_files(dn, files):
         # dn: output directory which already exists
@@ -630,7 +613,7 @@ def runner_organize_outputs(target, outputs_json, rundir):
     def output_links(namespace, binding):
         fqon = ".".join([target.name] + namespace + [binding.name])
         if _is_files(binding.rhs) and fqon in outputs_json["outputs"]:
-            odn = os.path.join(rundir, "outputs", fqon)
+            odn = os.path.join(rundir, "output_links", fqon)
             os.makedirs(os.path.join(rundir, odn), exist_ok=False)
             link_output_files(odn, outputs_json["outputs"][fqon])
         return True
@@ -657,7 +640,7 @@ def fill_cromwell_subparser(subparsers):
         "--dir",
         metavar="NEW_DIR",
         dest="rundir",
-        help="directory to be created for the workflow products (must not already exist; defaults to a timestamp-based subdirectory of the current directory)",
+        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
     )
     cromwell_parser.add_argument(
         "-i",
@@ -725,8 +708,10 @@ def cromwell(
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    # provision a run directory
-    rundir = runner_provision_directory(target, rundir)
+    try:
+        rundir = provision_run_dir(target.name, rundir)
+    except FileExistsError:
+        die("--dir must be an existing directory or one that can be created")
     os.makedirs(os.path.join(rundir, "cromwell"))
 
     # write the JSON inputs file
