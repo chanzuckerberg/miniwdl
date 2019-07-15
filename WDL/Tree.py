@@ -12,6 +12,8 @@ can be abbreviated ``WDL.Document``.
 import os
 import errno
 import itertools
+import asyncio
+import concurrent
 from typing import (
     Any,
     List,
@@ -24,6 +26,7 @@ from typing import (
     Generator,
     Set,
     NamedTuple,
+    Awaitable,
 )
 from abc import ABC, abstractmethod
 from .Error import SourcePosition, SourceNode
@@ -1255,11 +1258,11 @@ class Document(SourceNode):
             self.workflow.typecheck(self, check_quant=check_quant)
 
 
-def load(
+async def load_async(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
-    import_uri: Optional[Callable[[str], str]] = None,
+    import_uri: Optional[Callable[[str], Awaitable[str]]] = None,
     import_max_depth: int = 10,
     source_text: Optional[str] = None,
 ) -> Document:
@@ -1268,7 +1271,7 @@ def load(
         if uri.startswith("file://"):
             uri = uri[7:]
         elif uri.find("://") > 0 and import_uri:
-            uri = import_uri(uri)
+            uri = await import_uri(uri)
         # search cwd and path for an extant file
         fn = next(
             (
@@ -1291,6 +1294,7 @@ def load(
     # documents into doc.imports
     # TODO: are we supposed to do something smart for relative imports
     #       within a document loaded by URI?
+    # TODO: concurrent imports
     for i in range(len(doc.imports)):
         imp = doc.imports[i]
         if import_max_depth <= 1:
@@ -1298,7 +1302,7 @@ def load(
                 imp.pos, imp.uri, "exceeded import_max_depth; circular imports?"
             )
         try:
-            subdoc = load(
+            subdoc = await load_async(
                 imp.uri,
                 path,
                 check_quant=check_quant,
@@ -1321,6 +1325,35 @@ def load(
                 exn.source_text = source_text
         raise multi
     return doc
+
+
+def load(
+    uri: str,
+    path: Optional[List[str]] = None,
+    check_quant: bool = True,
+    import_uri: Optional[Callable[[str], str]] = None,
+    import_max_depth: int = 10,
+    source_text: Optional[str] = None,
+) -> Document:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
+    loop = asyncio.get_event_loop()
+    asyncio.set_event_loop(loop)
+
+    if import_uri:
+        import_uri_async = lambda uri: loop.run_in_executor(executor, import_uri, uri)
+    else:
+        import_uri_async = None
+
+    return loop.run_until_complete(
+        load_async(
+            uri,
+            path=path,
+            check_quant=check_quant,
+            import_uri=import_uri_async,
+            import_max_depth=import_max_depth,
+            source_text=source_text,
+        )
+    )
 
 
 #
