@@ -24,12 +24,16 @@ class Lint(unittest.TestCase):
             }))
         self.assertEqual(len(lint), 1)
 
-def import_uri(uri):
-    # Note: we should permit use of import_uri only in corpi which are careful
-    # to pin imported WDLs to a specific and highly-available revision
-    dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
-    subprocess.check_call(["wget", "-nv", uri], cwd=dn)
-    return glob.glob(dn + "/*")[0]
+async def read_source(uri, path, importer_uri):
+    if uri.startswith("http:") or uri.startswith("https:"):
+        # Note: we should permit web imports only in corpi which are careful to pin a specific and
+        # highly-available revision
+        dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
+        subprocess.check_call(["wget", "-nv", uri], cwd=dn)
+        with open(glob.glob(dn + "/*")[0], "r") as infile:
+            return infile.read()
+    return await WDL.read_source_default(uri, path, importer_uri)
+
 
 def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
     def decorator(test_klass):
@@ -51,7 +55,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                 name = "test_" + prefix + "_" + name.replace('.', '_')
                 def t(self, fn=fn):
                     # load & lint the document to verify the lint count
-                    doc = WDL.load(fn, path=gpath, check_quant=check_quant, import_uri=import_uri)
+                    doc = WDL.load(fn, path=gpath, check_quant=check_quant, read_source=read_source)
                     WDL.Lint.lint(doc)
                     for _, linter, _ in WDL.Lint.collect(doc):
                         test_klass._lint_count[linter] = 1 + test_klass._lint_count.get(linter, 0)
@@ -64,7 +68,7 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     # also attempt load with the opposite value of check_quant,
                     # exercising additional code paths
                     try:
-                        doc = WDL.load(fn, path=gpath, check_quant=not check_quant, import_uri=import_uri)
+                        doc = WDL.load(fn, path=gpath, check_quant=not check_quant, read_source=read_source)
                     except (WDL.Error.ImportError, WDL.Error.ValidationError, WDL.Error.MultipleValidationErrors):
                         pass
                 setattr(test_klass, name, t)

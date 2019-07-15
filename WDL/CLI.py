@@ -117,7 +117,7 @@ def check(uri=None, path=None, check_quant=True, shellcheck=True, **kwargs):
         Lint._shellcheck_available = False
 
     for uri1 in uri or []:
-        doc = load(uri1, path or [], check_quant=check_quant, import_uri=import_uri)
+        doc = load(uri1, path or [], check_quant=check_quant, read_source=read_source)
 
         Lint.lint(doc)
 
@@ -249,10 +249,13 @@ def print_error(exn):
                 quant_warning = True
 
 
-def import_uri(uri):
-    dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
-    subprocess.check_call(["wget", "-nv", uri], cwd=dn)
-    return glob.glob(dn + "/*")[0]
+async def read_source(uri, path, importer_uri):
+    if uri.startswith("http:") or uri.startswith("https:"):
+        dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
+        subprocess.check_call(["wget", "-nv", uri], cwd=dn)
+        with open(glob.glob(dn + "/*")[0], "r") as infile:
+            return infile.read()
+    return await read_source_default(uri, path, importer_uri)
 
 
 def fill_run_subparser(subparsers):
@@ -301,7 +304,7 @@ def runner(
     uri, inputs, input_file, json_only, empty, check_quant, rundir=None, path=None, **kwargs
 ):
     # load WDL document
-    doc = load(uri, path or [], check_quant=check_quant, import_uri=import_uri)
+    doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
     # validate the provided inputs and prepare Cromwell-style JSON
     target, input_env, input_json = runner_input(doc, inputs, input_file, empty)
@@ -364,7 +367,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
             argcomplete.warn("file not found: " + uri)
             return []
         try:
-            doc = load(uri, parsed_args.path, parsed_args.check_quant, import_uri=import_uri)
+            doc = load(uri, parsed_args.path, parsed_args.check_quant, read_source=read_source)
         except Exception as exn:
             argcomplete.warn(
                 "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
@@ -699,7 +702,7 @@ def cromwell(
     path = path or []
 
     # load WDL document
-    doc = load(uri, path, check_quant=check_quant, import_uri=import_uri)
+    doc = load(uri, path, check_quant=check_quant, read_source=read_source)
 
     # validate the provided inputs and prepare Cromwell-style JSON
     target, _, input_json = runner_input(doc, inputs, input_file, empty)

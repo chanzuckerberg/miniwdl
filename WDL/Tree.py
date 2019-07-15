@@ -1258,35 +1258,46 @@ class Document(SourceNode):
             self.workflow.typecheck(self, check_quant=check_quant)
 
 
+async def read_source_default(uri: str, path: List[str], importer_uri: Optional[str]) -> str:
+    if uri.startswith("file://"):
+        uri = uri[7:]
+    if importer_uri:
+        if importer_uri.startswith("file://"):
+            importer_uri = importer_uri[7:]
+        importer_dir = os.path.dirname(importer_uri)
+        if importer_dir:
+            if not os.path.isabs(importer_dir):
+                morepaths = [os.path.join(p, importer_dir) for p in path]
+                path.extend(morepaths)
+            path.append(importer_dir)
+    # search cwd and path for an extant file
+    fn = next(
+        (
+            fn
+            for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)])
+            if os.path.exists(fn)
+        ),
+        None,
+    )
+    if not fn:
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+    # TODO: actual async I/O here
+    with open(fn, "r") as infile:
+        return infile.read()
+
+
 async def load_async(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
-    import_uri: Optional[Callable[[str], Awaitable[str]]] = None,
+    read_source: Optional[Callable[[str, List[str], Optional[str]], Awaitable[str]]] = None,
     import_max_depth: int = 10,
-    source_text: Optional[str] = None,
+    importer_uri: Optional[str] = None,
 ) -> Document:
-    path = path or []
-    if source_text is None:
-        if uri.startswith("file://"):
-            uri = uri[7:]
-        elif uri.find("://") > 0 and import_uri:
-            uri = await import_uri(uri)
-        # search cwd and path for an extant file
-        fn = next(
-            (
-                fn
-                for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)])
-                if os.path.exists(fn)
-            ),
-            None,
-        )
-        if not fn:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
-        # read the document source text
-        with open(fn, "r") as infile:
-            source_text = infile.read()
-        path = path + [os.path.dirname(fn)]
+    path = list(path) if path is not None else []
+    read_source = read_source or read_source_default
+    source_text = await read_source(uri, path, importer_uri)
+    assert isinstance(source_text, str)
     # parse the document
     doc = _parser.parse_document(source_text, uri=uri)
     assert isinstance(doc, Document)
@@ -1304,9 +1315,10 @@ async def load_async(
         try:
             subdoc = await load_async(
                 imp.uri,
-                path,
+                path=path,
+                importer_uri=uri,
                 check_quant=check_quant,
-                import_uri=import_uri,
+                read_source=read_source,
                 import_max_depth=(import_max_depth - 1),
             )
         except Exception as exn:
@@ -1331,27 +1343,18 @@ def load(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
-    import_uri: Optional[Callable[[str], str]] = None,
+    read_source: Optional[Callable[[str, List[str], Optional[str]], Awaitable[str]]] = None,
     import_max_depth: int = 10,
-    source_text: Optional[str] = None,
+    importer_uri: Optional[str] = None,
 ) -> Document:
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-    loop = asyncio.get_event_loop()
-    asyncio.set_event_loop(loop)
-
-    if import_uri:
-        import_uri_async = lambda uri: loop.run_in_executor(executor, import_uri, uri)
-    else:
-        import_uri_async = None
-
-    return loop.run_until_complete(
+    return asyncio.get_event_loop().run_until_complete(
         load_async(
             uri,
             path=path,
+            importer_uri=importer_uri,
             check_quant=check_quant,
-            import_uri=import_uri_async,
+            read_source=read_source,
             import_max_depth=import_max_depth,
-            source_text=source_text,
         )
     )
 
