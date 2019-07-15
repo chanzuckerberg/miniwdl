@@ -142,13 +142,13 @@ import WDL
 doc = WDL.load('skylab/pipelines/optimus/Optimus.wdl',
                path=['skylab/library/tasks/'])
 
-def show(elements):
-  for elt in elements:
+def show(body):
+  for elt in body:
     if isinstance(elt, WDL.Decl):
       print(str(elt.type) + ' ' + elt.name)
     elif isinstance(elt, WDL.Scatter) or isinstance(elt, WDL.Conditional):
-      show(elt.elements)
-show(doc.workflow.elements)
+      show(elt.body)
+show(doc.workflow.body)
 "
 
 String version

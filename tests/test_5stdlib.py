@@ -18,7 +18,7 @@ class TestStdLib(unittest.TestCase):
             doc.typecheck()
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
+            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), run_dir=self._dir)
         except WDL.runtime.task.TaskFailure as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
@@ -350,6 +350,8 @@ class TestStdLib(unittest.TestCase):
                     glob("*/*"),
                     glob("bogus")
                 ]
+                File f1 = glob("stuff/foo")[0]
+                String s1 = read_string(f1)
             }
         }
         """)
@@ -363,9 +365,10 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(len(outputs["globs"][2]), 5)
         self.assertTrue(outputs["globs"][2][4].endswith("/stuff/foo"))
         self.assertEqual(len(outputs["globs"][3]), 0)
-        for g in outputs["globs"]:
+        for g in outputs["globs"] + [[outputs["f1"]]]:
             for fn in g:
-                self.assertTrue(os.path.isfile(fn))
+                assert os.path.isfile(fn), fn
+        self.assertTrue(outputs["f1"].endswith("/stuff/foo"))
 
         self._test_task(R"""
         version 1.0
@@ -512,6 +515,7 @@ class TestStdLib(unittest.TestCase):
                 File o_json = json
                 Array[Array[String]] o_tsv = read_tsv(tsv)
                 Map[String,String] o_map = read_map(map)
+                File whynot = write_lines(["foo","bar","baz"])
             }
         }
         """)

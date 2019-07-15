@@ -1,5 +1,4 @@
 # pyre-strict
-import os
 from typing import List, Optional, NamedTuple, Union, Iterable, TypeVar, Generator, Callable, Any
 from functools import total_ordering
 from contextlib import contextmanager
@@ -194,7 +193,14 @@ class StrayInputDeclaration(ValidationError):
 
 class CircularDependencies(ValidationError):
     def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "circular dependencies involving {}".format(getattr(node, "name")))
+        msg = "circular dependencies"
+        nm = next(
+            (getattr(node, attr) for attr in ("name", "workflow_node_id") if hasattr(node, attr)),
+            None,
+        )
+        if nm:
+            nm += " involving " + nm
+        super().__init__(node, msg)
 
 
 class MultipleValidationErrors(Exception):

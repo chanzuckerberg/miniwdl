@@ -74,8 +74,9 @@ represented as:
 
 ``[Binding("x",Float), Namespace("adder",[Binding("sum",Int)])]``
 
-Once constructed, environments should be considered immutable. There should be
-no name or namespace collisions.
+An environment and its bindings must not be mutated once there's any
+possibility it's shared between different entities. There should be no name or
+namespace collisions.
 
 ``WDL.Env.{Types,Values,StructTypeDefs,Decls}`` are type aliases for ``Tree``
 with the respective `Binding.rhs` type.
@@ -208,6 +209,24 @@ def unbind(tree: Tree, namespace: List[str], name: str) -> Tree:
     return filter(
         tree, lambda a_namespace, binding: a_namespace != namespace or binding.name != name
     )
+
+
+def merge(*args) -> Tree:
+    """
+    Merge multiple evironments. If multiple environments have bindings for the same (namespaced)
+    name, the result includes one of these bindings chosen arbitrarily.
+    """
+    ans = [[]]
+
+    def visit(namespace: List[str], binding: Binding) -> None:
+        try:
+            resolve(ans[0], namespace, binding.name)
+        except KeyError:
+            ans[0] = bind(ans[0], namespace, binding.name, binding.rhs, binding.ctx)
+
+    for env in args:
+        map(env, visit)
+    return ans[0]
 
 
 def subtract(lhs: Tree, rhs: Tree) -> Tree:

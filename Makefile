@@ -12,11 +12,11 @@ qtest:
 	prove -v tests/check.t tests/runner.t
 
 check:
-	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
 	pyre \
 		--search-path stubs \
 		--typeshed ${PYTHON_PKG_BASE}/lib/pyre_check/typeshed \
 		--show-parse-errors check
+	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
 
 check_check:
 	# regression test against pyre doing nothing (issue #100)

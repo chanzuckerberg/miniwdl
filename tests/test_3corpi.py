@@ -66,6 +66,9 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     print("\n" + os.path.basename(fn))
                     WDL.CLI.outline(doc, 0, show_called=(doc.workflow is not None))
 
+                    if doc.workflow:
+                        validate_workflow_graph(doc.workflow)
+
                     # also attempt load with the opposite value of check_quant,
                     # exercising additional code paths
                     try:
@@ -83,6 +86,26 @@ def check_lint(cls):
         del cls._lint_count["CommandShellCheck"]
     if cls._lint_count != cls._expected_lint:
         raise Exception("Lint results changed for {}; expected: {} got: {}".format(cls.__name__, str(cls._expected_lint), str(cls._lint_count)))
+
+def validate_workflow_graph(workflow):
+
+    def visit_section(body, outside_nodes):
+        body_nodes = set()
+        body_gathers = set()
+        for node in body:
+            body_nodes.add(node.workflow_node_id)
+            if isinstance(node, WDL.WorkflowSection):
+                for g in node.gathers.values():
+                    body_gathers.add(g.workflow_node_id)
+        assert not (body_nodes & body_gathers)
+        assert not (outside_nodes & (body_nodes | body_gathers))
+        for node in body:
+            unk = node.workflow_node_dependencies - (outside_nodes | body_nodes | body_gathers)
+            assert not unk, str((node.workflow_node_id, unk))
+            if isinstance(node, WDL.WorkflowSection):
+                visit_section(node.body, (outside_nodes | body_nodes | body_gathers) - set(node.gathers))
+
+    visit_section(workflow.body, set(inp.workflow_node_id for inp in workflow.inputs or []))
 
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/library/tasks/**"],

@@ -12,7 +12,7 @@ given a suitable ``WDL.Env.Values``.
 .. inheritance-diagram:: WDL.Expr
 """
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, TypeVar, Tuple, Union, Any, Iterable
+from typing import List, Optional, Dict, Tuple, Union, Iterable
 from .Error import SourcePosition, SourceNode
 from . import Type, Value, Env, Error, StdLib
 
@@ -63,7 +63,7 @@ class Base(SourceNode, ABC):
         with Error.multi_context() as errors:
             for child in self.children:
                 assert isinstance(child, Base)
-                errors.try1(lambda: child.infer_type(type_env, stdlib, check_quant))
+                errors.try1(lambda child=child: child.infer_type(type_env, stdlib, check_quant))
         # invoke derived-class logic. we pass check_quant and stdlib hackily
         # through instance variables since only some subclasses use them.
         self._check_quant = check_quant
@@ -95,7 +95,7 @@ class Base(SourceNode, ABC):
     def eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         """
         Evaluate the expression in the given environment
-        
+
         :param stdlib: a context-specific standard function library implementation
         """
         try:

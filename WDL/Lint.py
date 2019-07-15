@@ -101,10 +101,10 @@ class _Collector(Walker.Base):
         super().__init__(auto_descend=True)
         self.lint = []
 
-    def __call__(self, obj):
+    def __call__(self, obj, descend: Optional[bool] = None):
         if hasattr(obj, "lint"):
             self.lint.extend(getattr(obj, "lint"))
-        super().__call__(obj)
+        super().__call__(obj, descend=descend)
 
 
 def collect(doc):
@@ -623,11 +623,10 @@ class ForwardReference(Linter):
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Ident):
             referee = obj.referee
-            while isinstance(referee, Tree.Gather):
-                referee = referee.referee
-            if isinstance(referee, (Tree.Decl, Tree.Call)) and (
-                referee.pos.line > obj.pos.line
-                or (referee.pos.line == obj.pos.line and referee.pos.column > obj.pos.column)
+            if isinstance(referee, Tree.Gather):
+                referee = referee.final_referee
+            if referee.pos.line > obj.pos.line or (
+                referee.pos.line == obj.pos.line and referee.pos.column > obj.pos.column
             ):
                 if isinstance(referee, Tree.Decl):
                     msg = "reference to {} precedes its declaration".format(obj.name)
