@@ -1265,29 +1265,17 @@ async def read_source_default(
 ) -> ReadSourceResult:
     if uri.startswith("file:///"):
         uri = uri[7:]
-    if importer:
-        path = path + [os.path.dirname(importer.pos.abspath)]
-        """
-        if importer_uri.startswith("file://"):
-            importer_uri = importer_uri[7:]
-        importer_dir = os.path.dirname(importer_uri)
-        if importer_dir:
-            if not os.path.isabs(importer_dir):
-                morepaths = [os.path.join(p, importer_dir) for p in path]
-                path.extend(morepaths)
-            path.append(importer_dir)
-        """
-    # search cwd and path for an extant file
-    fn = next(
-        (
-            fn
-            for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)])
-            if os.path.exists(fn)
-        ),
-        None,
-    )
-    if not fn:
-        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+    fn = uri
+    if not os.path.isabs(uri):
+        # add as the highest-priority path, either the directory of the importing document (if
+        # any), or the current working directory (otherwise)
+        path = path + [os.path.dirname(importer.pos.abspath) if importer else os.getcwd()]
+        fn = next(
+            (fn for fn in (os.path.join(dn, uri) for dn in reversed(path)) if os.path.exists(fn)),
+            None,
+        )
+        if not fn:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
     # TODO: actual async I/O here
     with open(fn, "r") as infile:
         return ReadSourceResult(source_text=infile.read(), abspath=os.path.abspath(fn))
