@@ -11,6 +11,7 @@ import json
 import math
 import argcomplete
 import logging
+import urllib
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action
@@ -249,9 +250,8 @@ def print_error(exn):
 
 async def read_source(uri, path, importer_uri):
     if uri.startswith("http:") or uri.startswith("https:"):
-        dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
-        subprocess.check_call(["wget", "-nv", uri], cwd=dn)
-        fn = glob.glob(dn + "/*")[0]
+        fn = os.path.join(tempfile.mkdtemp(prefix="miniwdl_import_uri_"), os.path.basename(uri))
+        urllib.request.urlretrieve(uri, filename=fn)
         with open(fn, "r") as infile:
             return ReadSourceResult(infile.read(), os.path.abspath(fn))
     return await read_source_default(uri, path, importer_uri)
@@ -801,7 +801,8 @@ def cromwell(
     sys.exit(proc.returncode)
 
 
-CROMWELL_VERSION = "42"
+CROMWELL_VERSION = "44"
+CROMWELL_JAR_SIZE = 195_329_784
 
 
 def ensure_cromwell_jar(jarfile=None):
@@ -816,7 +817,6 @@ def ensure_cromwell_jar(jarfile=None):
         CROMWELL_JAR_URL = "https://github.com/broadinstitute/cromwell/releases/download/{v}/cromwell-{v}.jar".format(
             v=CROMWELL_VERSION
         )
-        CROMWELL_JAR_SIZE = 185_212_769
         CROMWELL_JAR_NAME = os.path.basename(CROMWELL_JAR_URL)
 
         jarpath = os.path.join(tempfile.gettempdir(), CROMWELL_JAR_NAME)
@@ -825,7 +825,13 @@ def ensure_cromwell_jar(jarfile=None):
                 return jarpath
         except:
             pass
-        subprocess.check_call(["wget", "-nv", "-O", jarpath, CROMWELL_JAR_URL])
+        print(
+            "Downloading Cromwell to {}; it'll be reused there, or specify --jar with your own version".format(
+                jarpath
+            ),
+            file=sys.stderr,
+        )
+        urllib.request.urlretrieve(CROMWELL_JAR_URL, filename=jarpath)
         assert os.path.getsize(jarpath) == CROMWELL_JAR_SIZE, (
             "unexpected size of downloaded " + jarpath
         )

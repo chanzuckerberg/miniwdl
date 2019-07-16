@@ -1,4 +1,4 @@
-import unittest, inspect, subprocess, tempfile, os, glob, json
+import unittest, inspect, subprocess, tempfile, os, glob, json, urllib
 from .context import WDL
 
 class Lint(unittest.TestCase):
@@ -29,9 +29,8 @@ async def read_source(uri, path, importer_uri):
     if uri.startswith("http:") or uri.startswith("https:"):
         # Note: we should permit web imports only in corpi which are careful to pin a specific and
         # highly-available revision
-        dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
-        subprocess.check_call(["wget", "-nv", uri], cwd=dn)
-        fn = glob.glob(dn + "/*")[0]
+        fn = os.path.join(tempfile.mkdtemp(prefix="miniwdl_import_uri_"), os.path.basename(uri))
+        urllib.request.urlretrieve(uri, filename=fn)
         with open(fn, "r") as infile:
             return WDL.ReadSourceResult(infile.read(), os.path.abspath(fn))
     return await WDL.read_source_default(uri, path, importer_uri)
