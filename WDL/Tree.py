@@ -1257,28 +1257,43 @@ class Document(SourceNode):
             self.workflow.typecheck(self, check_quant=check_quant)
 
 
+async def resolve_file_import(uri: str, path: List[str], importer: Optional[Document]) -> str:
+    if uri.startswith("http://") or uri.startswith("https://"):
+        # for now we do nothing with web URIs
+        return uri
+    if uri.startswith("file:///"):
+        uri = uri[7:]
+    if os.path.isabs(uri):
+        # given an already-absolute filename, just normalize it
+        ans = os.path.abspath(uri)
+    else:
+        # resolving a relative import: before searching the user-provided path directories, try the
+        # directory of the importing document (if any), or the current working directory
+        # (otherwise)
+        path = path + [os.path.dirname(importer.pos.abspath) if importer else os.getcwd()]
+        ans = next(
+            (
+                fn
+                for fn in (os.path.abspath(os.path.join(dn, uri)) for dn in reversed(path))
+                if os.path.isfile(fn)
+            ),
+            None,
+        )
+    if ans and os.path.isfile(ans):
+        return ans
+    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+
+
 ReadSourceResult = NamedTuple("ReadSourceResult", [("source_text", str), ("abspath", str)])
 
 
 async def read_source_default(
     uri: str, path: List[str], importer: Optional[Document]
 ) -> ReadSourceResult:
-    if uri.startswith("file:///"):
-        uri = uri[7:]
-    fn = uri
-    if not os.path.isabs(uri):
-        # add as the highest-priority path, either the directory of the importing document (if
-        # any), or the current working directory (otherwise)
-        path = path + [os.path.dirname(importer.pos.abspath) if importer else os.getcwd()]
-        fn = next(
-            (fn for fn in (os.path.join(dn, uri) for dn in reversed(path)) if os.path.exists(fn)),
-            None,
-        )
-        if not fn:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
-    # TODO: actual async I/O here
-    with open(fn, "r") as infile:
-        return ReadSourceResult(source_text=infile.read(), abspath=os.path.abspath(fn))
+    abspath = await resolve_file_import(uri, path, importer)
+    # TODO: actual async read
+    with open(abspath, "r") as infile:
+        return ReadSourceResult(source_text=infile.read(), abspath=abspath)
 
 
 async def load_async(

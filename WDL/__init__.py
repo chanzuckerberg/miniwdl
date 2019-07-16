@@ -77,24 +77,17 @@ async def load_async(
     )
 
 
-class ReadSourceResult(Tree.ReadSourceResult):
-    """
-    The ``NamedTuple`` to be returned by the ``read_source`` routine. Its ``source_text: str`` field
-    provides the WDL source code, and the ``abspath: str`` field is the absolute filename/URI from
-    which the source was read (e.g. after resolving a relative path).
-    """
-
-
 async def read_source_default(
     uri: str, path: List[str], importer: Optional[Document]
-) -> ReadSourceResult:
+) -> "ReadSourceResult":
     """
     Default async routine for the ``read_source`` parameter to :func:`load` and :func:`load_async`,
     which they use to read the desired WDL document and its imports. This default routine handles
     local files only, supplying the search path logic to resolve relative filenames; it fails with
     network URIs.
 
-    :param uri: Filename/URI to read, which may be relative
+    :param uri: Filename/URI to read, as provided to :func:`load` or the WDL import statement; may
+                be relative
     :param path: Local directories to search for relative imports
     :param importer: The document importing the one here requested, if any; the
                      ``importer.pos.uri`` and ``importer.pos.abspath`` fields may be relevant to
@@ -108,6 +101,24 @@ async def read_source_default(
     ``asyncio.get_event_loop()`` and awaits the result.
     """
     return await Tree.read_source_default(uri, path, importer)
+
+
+class ReadSourceResult(Tree.ReadSourceResult):
+    """
+    The ``NamedTuple`` to be returned by the ``read_source`` routine. Its ``source_text: str`` field
+    provides the WDL source code, and the ``abspath: str`` field is the absolute filename/URI from
+    which the source was read (e.g. after resolving a relative path).
+    """
+
+
+async def resolve_file_import(uri: str, path: List[str], importer: Optional[Document]) -> str:
+    """
+    Exposes the logic by which :func:`read_source_default` resolves ``uri`` to the absolute path of
+    an extant file. If ``uri`` is already an absolute path, it's normalized and returned. A
+    relative ``uri`` is resolved by first joining it to either, the directory of the importer
+    document (if any), or the process current working directory (otherwise). Failing that, it's
+    searched in the ``path`` directories (in reverse order).
+    """
 
 
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:
