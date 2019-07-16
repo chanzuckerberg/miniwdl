@@ -366,7 +366,12 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
             argcomplete.warn("file not found: " + uri)
             return []
         try:
-            doc = load(uri, parsed_args.path, parsed_args.check_quant, read_source=read_source)
+            doc = load(
+                uri,
+                path=(parsed_args.path if hasattr(parsed_args, "path") else []),
+                check_quant=parsed_args.check_quant,
+                read_source=read_source,
+            )
         except Exception as exn:
             argcomplete.warn(
                 "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
