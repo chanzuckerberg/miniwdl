@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 61
+plan tests 63
 
 DN=$(mktemp -d --tmpdir miniwdl_cromwell_tests_XXXXXX)
 cd $DN
@@ -193,5 +193,22 @@ EOF
 $miniwdl cromwell importer1.wdl | tee stdout
 is "$?" "0" "relative importer"
 is "$(jq -r '.outputs["wf.message"]' stdout)" "Hello, world!" "relative importer output"
+
+cat << 'EOF' > cat_etc_issue.wdl
+version 1.0
+
+task cat_etc_issue {
+    command {
+        cat /etc/issue
+    }
+    output {
+        String issue = read_string(stdout())
+    }
+}
+EOF
+$miniwdl cromwell cat_etc_issue.wdl --options <(echo '{"default_runtime_attributes":{"docker":"ubuntu:18.10"}}') | tee stdout
+is "$?" "0" "workflow options JSON file"
+grep -qF 18.10 stdout
+is "$?" "0" "workflow options JSON file effective"
 
 rm -rf $DN

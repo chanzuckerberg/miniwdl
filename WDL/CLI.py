@@ -670,6 +670,13 @@ def fill_cromwell_subparser(subparsers):
         help="explicitly set an array input to the empty array (to override a default)",
     )
     cromwell_parser.add_argument(
+        "-o",
+        "--options",
+        metavar="OPTIONS.json",
+        dest="options_file",
+        help="file with Cromwell workflow options JSON",
+    )
+    cromwell_parser.add_argument(
         "-r",
         "--jar",
         metavar="jarfile",
@@ -698,6 +705,7 @@ def cromwell(
     empty,
     check_quant,
     rundir=None,
+    options_file=None,
     jarfile=None,
     config=None,
     path=None,
@@ -730,6 +738,14 @@ def cromwell(
 
     # write Cromwell options
     cromwell_options = {"final_workflow_log_dir": os.path.join(rundir, "cromwell")}
+
+    if options_file:
+        with open(options_file, "r") as infile:
+            more_options = json.load(infile)
+            for k in more_options:
+                if k not in ["final_workflow_log_dir", "use_relative_output_paths"]:
+                    cromwell_options[k] = more_options[k]
+
     cromwell_options_filename = os.path.join(rundir, "cromwell", "options.json")
     with open(cromwell_options_filename, "w") as options_json:
         print(json.dumps(cromwell_options, indent=2), file=options_json)
