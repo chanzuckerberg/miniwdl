@@ -122,6 +122,7 @@ async def resolve_file_import(uri: str, path: List[str], importer: Optional[Docu
 
 
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:
+    ""
     """
     Parse WDL document text into an abstract syntax tree. Doesn't descend into
     imported documents nor typecheck the AST.
@@ -134,6 +135,7 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Do
 
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
+    ""
     """
     Parse an isolated WDL expression text into an abstract syntax tree
     """
