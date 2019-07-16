@@ -5,11 +5,24 @@ from contextlib import contextmanager
 from . import Type
 
 
-SourcePosition = NamedTuple(
-    "SourcePosition",
-    [("filename", str), ("line", int), ("column", int), ("end_line", int), ("end_column", int)],
-)
-"""Source file, line, and column, attached to each AST node"""
+class SourcePosition(
+    NamedTuple(
+        "SourcePosition",
+        [
+            ("uri", str),
+            ("abspath", str),
+            ("line", int),
+            ("column", int),
+            ("end_line", int),
+            ("end_column", int),
+        ],
+    )
+):
+    """
+    Source position attached to AST nodes and exceptions; NamedTuple of ``uri`` the filename/URI
+    passed to :func:`WDL.load` or a WDL import statement, which may be relative; ``abspath`` the
+    absolute filename/URI; and int positions ``line`` ``end_line`` ``column`` ``end_column``
+    """
 
 
 class SyntaxError(Exception):
@@ -53,13 +66,13 @@ class SourceNode:
     def __lt__(self, rhs: TVSourceNode) -> bool:
         if isinstance(rhs, SourceNode):
             return (
-                self.pos.filename,
+                self.pos.abspath,
                 self.pos.line,
                 self.pos.column,
                 self.pos.end_line,
                 self.pos.end_column,
             ) < (
-                rhs.pos.filename,
+                rhs.pos.abspath,
                 rhs.pos.line,
                 rhs.pos.column,
                 rhs.pos.end_line,

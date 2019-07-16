@@ -218,9 +218,7 @@ def print_error(exn):
     else:
         if isinstance(getattr(exn, "pos", None), SourcePosition):
             print(
-                "({} Ln {} Col {}) {}".format(
-                    exn.pos.filename, exn.pos.line, exn.pos.column, str(exn)
-                ),
+                "({} Ln {} Col {}) {}".format(exn.pos.uri, exn.pos.line, exn.pos.column, str(exn)),
                 file=sys.stderr,
             )
         else:
@@ -253,8 +251,9 @@ async def read_source(uri, path, importer_uri):
     if uri.startswith("http:") or uri.startswith("https:"):
         dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
         subprocess.check_call(["wget", "-nv", uri], cwd=dn)
-        with open(glob.glob(dn + "/*")[0], "r") as infile:
-            return infile.read()
+        fn = glob.glob(dn + "/*")[0]
+        with open(fn, "r") as infile:
+            return ReadSourceResult(infile.read(), os.path.abspath(fn))
     return await read_source_default(uri, path, importer_uri)
 
 
@@ -326,7 +325,7 @@ def runner(
     except Error.EvalError as exn:
         print(
             "({} Ln {} Col {}) {}, {}".format(
-                exn.pos.filename, exn.pos.line, exn.pos.column, exn.__class__.__name__, str(exn)
+                exn.pos.uri, exn.pos.line, exn.pos.column, exn.__class__.__name__, str(exn)
             ),
             file=sys.stderr,
         )
@@ -338,7 +337,7 @@ def runner(
             pos = getattr(exn.__cause__, "pos")
             print(
                 "({} Ln {} Col {}) {}, {}".format(
-                    pos.filename,
+                    pos.uri,
                     pos.line,
                     pos.column,
                     exn.__cause__.__class__.__name__,

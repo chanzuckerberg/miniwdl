@@ -1257,10 +1257,17 @@ class Document(SourceNode):
             self.workflow.typecheck(self, check_quant=check_quant)
 
 
-async def read_source_default(uri: str, path: List[str], importer_uri: Optional[str]) -> str:
-    if uri.startswith("file://"):
+ReadSourceResult = NamedTuple("ReadSourceResult", [("source_text", str), ("abspath", str)])
+
+
+async def read_source_default(
+    uri: str, path: List[str], importer: Optional[Document]
+) -> ReadSourceResult:
+    if uri.startswith("file:///"):
         uri = uri[7:]
-    if importer_uri:
+    if importer:
+        path = path + [os.path.dirname(importer.pos.abspath)]
+        """
         if importer_uri.startswith("file://"):
             importer_uri = importer_uri[7:]
         importer_dir = os.path.dirname(importer_uri)
@@ -1269,6 +1276,7 @@ async def read_source_default(uri: str, path: List[str], importer_uri: Optional[
                 morepaths = [os.path.join(p, importer_dir) for p in path]
                 path.extend(morepaths)
             path.append(importer_dir)
+        """
     # search cwd and path for an extant file
     fn = next(
         (
@@ -1282,24 +1290,25 @@ async def read_source_default(uri: str, path: List[str], importer_uri: Optional[
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
     # TODO: actual async I/O here
     with open(fn, "r") as infile:
-        return infile.read()
+        return ReadSourceResult(source_text=infile.read(), abspath=os.path.abspath(fn))
 
 
 async def load_async(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
-    read_source: Optional[Callable[[str, List[str], Optional[str]], Awaitable[str]]] = None,
+    read_source: Optional[
+        Callable[[str, List[str], Optional[Document]], Awaitable[ReadSourceResult]]
+    ] = None,
     import_max_depth: int = 10,
-    importer_uri: Optional[str] = None,
+    importer: Optional[Document] = None,
 ) -> Document:
     path = list(path) if path is not None else []
     read_source = read_source or read_source_default
-    source_text = await read_source(uri, path, importer_uri)
-    assert isinstance(source_text, str)
+    read_rslt = await read_source(uri, path, importer)
     # parse the document
-    doc = _parser.parse_document(source_text, uri=uri)
-    assert isinstance(doc, Document)
+    doc = _parser.parse_document(read_rslt.source_text, uri=uri, abspath=read_rslt.abspath)
+    assert doc.pos.uri == uri and doc.pos.abspath.endswith(os.path.basename(doc.pos.uri))
     # recursively descend into document's imports, and store the imported
     # documents into doc.imports
     # TODO: are we supposed to do something smart for relative imports
@@ -1315,9 +1324,9 @@ async def load_async(
             subdoc = await load_async(
                 imp.uri,
                 path=path,
-                importer_uri=uri,
                 check_quant=check_quant,
                 read_source=read_source,
+                importer=doc,
                 import_max_depth=(import_max_depth - 1),
             )
         except Exception as exn:
@@ -1328,12 +1337,12 @@ async def load_async(
     try:
         doc.typecheck(check_quant=check_quant)
     except Error.ValidationError as exn:
-        exn.source_text = source_text
+        exn.source_text = read_rslt.source_text
         raise exn
     except Error.MultipleValidationErrors as multi:
         for exn in multi.exceptions:
             if not exn.source_text:
-                exn.source_text = source_text
+                exn.source_text = read_rslt.source_text
         raise multi
     return doc
 
@@ -1342,15 +1351,17 @@ def load(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
-    read_source: Optional[Callable[[str, List[str], Optional[str]], Awaitable[str]]] = None,
+    read_source: Optional[
+        Callable[[str, List[str], Optional[Document]], Awaitable[ReadSourceResult]]
+    ] = None,
     import_max_depth: int = 10,
-    importer_uri: Optional[str] = None,
+    importer: Optional[Document] = None,
 ) -> Document:
     return asyncio.get_event_loop().run_until_complete(
         load_async(
             uri,
             path=path,
-            importer_uri=importer_uri,
+            importer=importer,
             check_quant=check_quant,
             read_source=read_source,
             import_max_depth=import_max_depth,

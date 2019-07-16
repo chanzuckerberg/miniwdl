@@ -14,7 +14,8 @@ class Lint(unittest.TestCase):
             assert isinstance(pos, WDL.SourcePosition)
             assert isinstance(lint_class, str) and isinstance(message, str)
             print(json.dumps({
-                "filename"   : pos.filename,
+                "uri"        : pos.uri,
+                "abspath"    : pos.abspath,
                 "line"       : pos.line,
                 "end_line"   : pos.end_line,
                 "column"     : pos.column,
@@ -30,8 +31,9 @@ async def read_source(uri, path, importer_uri):
         # highly-available revision
         dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
         subprocess.check_call(["wget", "-nv", uri], cwd=dn)
-        with open(glob.glob(dn + "/*")[0], "r") as infile:
-            return infile.read()
+        fn = glob.glob(dn + "/*")[0]
+        with open(fn, "r") as infile:
+            return WDL.ReadSourceResult(infile.read(), os.path.abspath(fn))
     return await WDL.read_source_default(uri, path, importer_uri)
 
 

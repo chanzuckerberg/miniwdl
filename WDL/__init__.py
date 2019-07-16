@@ -26,7 +26,9 @@ def load(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
-    read_source: Optional[Callable[[str, List[str], Optional[str]], Awaitable[str]]] = None,
+    read_source: Optional[
+        Callable[[str, List[str], Optional[Document]], Awaitable["ReadSourceResult"]]
+    ] = None,
     import_max_depth: int = 10,
 ) -> Document:
     """
@@ -58,7 +60,9 @@ async def load_async(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
-    read_source: Optional[Callable[[str, List[str], Optional[str]], Awaitable[str]]] = None,
+    read_source: Optional[
+        Callable[[str, List[str], Optional[Document]], Awaitable["ReadSourceResult"]]
+    ] = None,
     import_max_depth: int = 10,
 ) -> Document:
     """
@@ -73,18 +77,29 @@ async def load_async(
     )
 
 
-async def read_source_default(uri: str, path: List[str], importer_uri: Optional[str]) -> str:
+class ReadSourceResult(Tree.ReadSourceResult):
+    """
+    The ``NamedTuple`` to be returned by the ``read_source`` routine. Its ``source_text: str`` field
+    provides the WDL source code, and the ``abspath: str`` field is the absolute filename/URI from
+    which the source was read (e.g. after resolving a relative path).
+    """
+
+
+async def read_source_default(
+    uri: str, path: List[str], importer: Optional[Document]
+) -> ReadSourceResult:
     """
     Default async routine for the ``read_source`` parameter to :func:`load` and :func:`load_async`,
     which they use to read the desired WDL document and its imports. This default routine handles
     local files only, supplying the search path logic to resolve relative filenames; it fails with
     network URIs.
 
-    :param uri: Filename/URI to read
-    :param path: Local directiores to search for relative filename imports. The routine may mutate
-                 this list to control the search path for documents imported from the current one.
-    :param importer_uri: Filename/URI of the importing document, if any
-    :returns: WDL source code string
+    :param uri: Filename/URI to read, which may be relative
+    :param path: Local directories to search for relative imports
+    :param importer: The document importing the one here requested, if any; the
+                     ``importer.pos.uri`` and ``importer.pos.abspath`` fields may be relevant to
+                     resolve relative imports.
+    :returns: ``ReadSourceResult(source_text="...", abspath="...")``
 
     Callers may wish to override ``read_source`` with logic to download source code from network
     URIs, and for local filenames fall back to ``return await WDL.read_source_default(...)``.
@@ -92,7 +107,7 @@ async def read_source_default(uri: str, path: List[str], importer_uri: Optional[
     Note: the synchronous :func:`load` merely calls :func:`load_async` on the current
     ``asyncio.get_event_loop()`` and awaits the result.
     """
-    return await Tree.read_source_default(uri, path, importer_uri)
+    return await Tree.read_source_default(uri, path, importer)
 
 
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:
