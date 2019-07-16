@@ -9,7 +9,8 @@ Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
         assert isinstance(pos, WDL.SourcePosition)
         assert isinstance(lint_class, str) and isinstance(message, str)
         print(json.dumps({
-            "filename"   : pos.filename,
+            "uri"        : pos.uri,
+            "abspath"    : pos.abspath,
             "line"       : pos.line,
             "end_line"   : pos.end_line,
             "column"     : pos.column,
@@ -816,7 +817,8 @@ class CommandShellCheck(Linter):
                         obj,
                         "SC{} {}".format(item["code"], item["message"]),
                         Error.SourcePosition(
-                            filename=obj.command.pos.filename,
+                            uri=obj.command.pos.uri,
+                            abspath=obj.command.pos.abspath,
                             line=line,
                             column=column,
                             end_line=line,
@@ -861,7 +863,8 @@ class MixedIndentation(Linter):
                     obj,
                     "command indented with both spaces & tabs",
                     Error.SourcePosition(
-                        filename=obj.command.pos.filename,
+                        uri=obj.command.pos.uri,
+                        abspath=obj.command.pos.abspath,
                         line=obj.command.pos.line + ofs,
                         column=1,
                         end_line=obj.command.pos.line + ofs,

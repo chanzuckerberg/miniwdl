@@ -2,7 +2,7 @@
 import os
 import errno
 import inspect
-from typing import List, Optional, Callable, Dict, Any
+from typing import List, Optional, Callable, Dict, Any, Awaitable
 from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker, Lint, StdLib
 from .Tree import (
     Decl,
@@ -26,9 +26,10 @@ def load(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
-    import_uri: Optional[Callable[[str], str]] = None,
+    read_source: Optional[
+        Callable[[str, List[str], Optional[Document]], Awaitable["ReadSourceResult"]]
+    ] = None,
     import_max_depth: int = 10,
-    source_text: Optional[str] = None,
 ) -> Document:
     """
     Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
@@ -37,11 +38,9 @@ def load(
 
     :param check_quant: set to ``False`` to relax static typechecking of the optional (?) and nonempty (+) type quantifiers. This is discouraged, but may be useful for older WDL workflows which assume less-rigorous static validation of these annotations.
 
-    :param import_uri: to support non-file URI import, supply a function that takes the URI and returns a local file path
+    :param read_source: async routine to read the WDL source code from filename/URI; see :func:`read_source_default` below for details
 
     :param import_max_depth: to prevent recursive import infinite loops, fail when there are too many import nesting levels (default 10)
-
-    :param source_text: use the given string as the WDL document source code, instead of reading from uri. The uri is still used to resolve relative imports, in error messages, etc.
 
     :raises WDL.Error.SyntaxError: when the document is syntactically invalid under the WDL grammar
     :raises WDL.Error.ValidationError: when the document is syntactically OK, but fails typechecking or other static validity checks
@@ -52,13 +51,78 @@ def load(
         uri,
         path=path,
         check_quant=check_quant,
-        import_uri=import_uri,
+        read_source=read_source,
         import_max_depth=import_max_depth,
-        source_text=source_text,
     )
 
 
+async def load_async(
+    uri: str,
+    path: Optional[List[str]] = None,
+    check_quant: bool = True,
+    read_source: Optional[
+        Callable[[str, List[str], Optional[Document]], Awaitable["ReadSourceResult"]]
+    ] = None,
+    import_max_depth: int = 10,
+) -> Document:
+    """
+    Async version of :func:`load`, with all the same arguments
+    """
+    return await Tree.load_async(
+        uri,
+        path=path,
+        check_quant=check_quant,
+        read_source=read_source,
+        import_max_depth=import_max_depth,
+    )
+
+
+async def read_source_default(
+    uri: str, path: List[str], importer: Optional[Document]
+) -> "ReadSourceResult":
+    """
+    Default async routine for the ``read_source`` parameter to :func:`load` and :func:`load_async`,
+    which they use to read the desired WDL document and its imports. This default routine handles
+    local files only, supplying the search path logic to resolve relative filenames; it fails with
+    network URIs.
+
+    :param uri: Filename/URI to read, as provided to :func:`load` or the WDL import statement; may
+                be relative
+    :param path: Local directories to search for relative imports
+    :param importer: The document importing the one here requested, if any; the
+                     ``importer.pos.uri`` and ``importer.pos.abspath`` fields may be relevant to
+                     resolve relative imports.
+    :returns: ``ReadSourceResult(source_text="...", abspath="...")``
+
+    Callers may wish to override ``read_source`` with logic to download source code from network
+    URIs, and for local filenames fall back to ``return await WDL.read_source_default(...)``.
+
+    Note: the synchronous :func:`load` merely calls :func:`load_async` on the current
+    ``asyncio.get_event_loop()`` and awaits the result.
+    """
+    return await Tree.read_source_default(uri, path, importer)
+
+
+class ReadSourceResult(Tree.ReadSourceResult):
+    """
+    The ``NamedTuple`` to be returned by the ``read_source`` routine. Its ``source_text: str`` field
+    provides the WDL source code, and the ``abspath: str`` field is the absolute filename/URI from
+    which the source was read (e.g. after resolving a relative path).
+    """
+
+
+async def resolve_file_import(uri: str, path: List[str], importer: Optional[Document]) -> str:
+    """
+    Exposes the logic by which :func:`read_source_default` resolves ``uri`` to the absolute path of
+    an extant file. If ``uri`` is already an absolute path, it's normalized and returned. A
+    relative ``uri`` is resolved by first joining it to either, the directory of the importer
+    document (if any), or the process current working directory (otherwise). Failing that, it's
+    searched in the ``path`` directories (in reverse order).
+    """
+
+
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:
+    ""
     """
     Parse WDL document text into an abstract syntax tree. Doesn't descend into
     imported documents nor typecheck the AST.
@@ -71,6 +135,7 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Do
 
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
+    ""
     """
     Parse an isolated WDL expression text into an abstract syntax tree
     """

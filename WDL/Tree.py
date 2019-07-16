@@ -12,6 +12,7 @@ can be abbreviated ``WDL.Document``.
 import os
 import errno
 import itertools
+import asyncio
 from typing import (
     Any,
     List,
@@ -24,6 +25,7 @@ from typing import (
     Generator,
     Set,
     NamedTuple,
+    Awaitable,
 )
 from abc import ABC, abstractmethod
 from .Error import SourcePosition, SourceNode
@@ -1255,42 +1257,66 @@ class Document(SourceNode):
             self.workflow.typecheck(self, check_quant=check_quant)
 
 
-def load(
-    uri: str,
-    path: Optional[List[str]] = None,
-    check_quant: bool = True,
-    import_uri: Optional[Callable[[str], str]] = None,
-    import_max_depth: int = 10,
-    source_text: Optional[str] = None,
-) -> Document:
-    path = path or []
-    if source_text is None:
-        if uri.startswith("file://"):
-            uri = uri[7:]
-        elif uri.find("://") > 0 and import_uri:
-            uri = import_uri(uri)
-        # search cwd and path for an extant file
-        fn = next(
+async def resolve_file_import(uri: str, path: List[str], importer: Optional[Document]) -> str:
+    if uri.startswith("http://") or uri.startswith("https://"):
+        # for now we do nothing with web URIs
+        return uri
+    if uri.startswith("file:///"):
+        uri = uri[7:]
+    if os.path.isabs(uri):
+        # given an already-absolute filename, just normalize it
+        ans = os.path.abspath(uri)
+    else:
+        # resolving a relative import: before searching the user-provided path directories, try the
+        # directory of the importing document (if any), or the current working directory
+        # (otherwise)
+        path = path + [os.path.dirname(importer.pos.abspath) if importer else os.getcwd()]
+        ans = next(
             (
                 fn
-                for fn in ([uri] + [os.path.join(dn, uri) for dn in reversed(path)])
-                if os.path.exists(fn)
+                for fn in (os.path.abspath(os.path.join(dn, uri)) for dn in reversed(path))
+                if os.path.isfile(fn)
             ),
             None,
         )
-        if not fn:
-            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
-        # read the document source text
-        with open(fn, "r") as infile:
-            source_text = infile.read()
-        path = path + [os.path.dirname(fn)]
+    if ans and os.path.isfile(ans):
+        return ans
+    raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
+
+
+ReadSourceResult = NamedTuple("ReadSourceResult", [("source_text", str), ("abspath", str)])
+
+
+async def read_source_default(
+    uri: str, path: List[str], importer: Optional[Document]
+) -> ReadSourceResult:
+    abspath = await resolve_file_import(uri, path, importer)
+    # TODO: actual async read
+    with open(abspath, "r") as infile:
+        return ReadSourceResult(source_text=infile.read(), abspath=abspath)
+
+
+async def load_async(
+    uri: str,
+    path: Optional[List[str]] = None,
+    check_quant: bool = True,
+    read_source: Optional[
+        Callable[[str, List[str], Optional[Document]], Awaitable[ReadSourceResult]]
+    ] = None,
+    import_max_depth: int = 10,
+    importer: Optional[Document] = None,
+) -> Document:
+    path = list(path) if path is not None else []
+    read_source = read_source or read_source_default
+    read_rslt = await read_source(uri, path, importer)
     # parse the document
-    doc = _parser.parse_document(source_text, uri=uri)
-    assert isinstance(doc, Document)
+    doc = _parser.parse_document(read_rslt.source_text, uri=uri, abspath=read_rslt.abspath)
+    assert doc.pos.uri == uri and doc.pos.abspath.endswith(os.path.basename(doc.pos.uri))
     # recursively descend into document's imports, and store the imported
     # documents into doc.imports
     # TODO: are we supposed to do something smart for relative imports
     #       within a document loaded by URI?
+    # TODO: concurrent imports
     for i in range(len(doc.imports)):
         imp = doc.imports[i]
         if import_max_depth <= 1:
@@ -1298,11 +1324,12 @@ def load(
                 imp.pos, imp.uri, "exceeded import_max_depth; circular imports?"
             )
         try:
-            subdoc = load(
+            subdoc = await load_async(
                 imp.uri,
-                path,
+                path=path,
                 check_quant=check_quant,
-                import_uri=import_uri,
+                read_source=read_source,
+                importer=doc,
                 import_max_depth=(import_max_depth - 1),
             )
         except Exception as exn:
@@ -1313,14 +1340,36 @@ def load(
     try:
         doc.typecheck(check_quant=check_quant)
     except Error.ValidationError as exn:
-        exn.source_text = source_text
+        exn.source_text = read_rslt.source_text
         raise exn
     except Error.MultipleValidationErrors as multi:
         for exn in multi.exceptions:
             if not exn.source_text:
-                exn.source_text = source_text
+                exn.source_text = read_rslt.source_text
         raise multi
     return doc
+
+
+def load(
+    uri: str,
+    path: Optional[List[str]] = None,
+    check_quant: bool = True,
+    read_source: Optional[
+        Callable[[str, List[str], Optional[Document]], Awaitable[ReadSourceResult]]
+    ] = None,
+    import_max_depth: int = 10,
+    importer: Optional[Document] = None,
+) -> Document:
+    return asyncio.get_event_loop().run_until_complete(
+        load_async(
+            uri,
+            path=path,
+            importer=importer,
+            check_quant=check_quant,
+            read_source=read_source,
+            import_max_depth=import_max_depth,
+        )
+    )
 
 
 #
