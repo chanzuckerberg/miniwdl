@@ -255,7 +255,7 @@ class TaskDockerContainer(TaskContainer):
                 while exit_info is None:
                     try:
                         for line in pygtail:
-                            logger.info(f"StdError: {line}")
+                            logger.info(f"StdError: {line.rstrip()}")
                         exit_info = container.wait(timeout=1)
                     except Exception as exn:
                         if self._terminate:
@@ -288,7 +288,7 @@ class TaskDockerContainer(TaskContainer):
         finally:
             try:
                 for line in pygtail:
-                    logger.info(f"StdError: {line}")
+                    logger.info(f"StdError: {line.rstrip()}")
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
