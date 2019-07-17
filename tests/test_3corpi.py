@@ -6,9 +6,10 @@ class Lint(unittest.TestCase):
     # this code should be kept in sync with the example shown in the WDL/Lint.py docstring.
     def test_api(self):
         doc = WDL.load(
-            "test_corpi/HumanCellAtlas/skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl",
+            "ZarrUtils.wdl",
             path=["test_corpi/HumanCellAtlas/skylab/library/tasks"]
         )
+        WDL.Lint._shellcheck_available = False
         lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
         for (pos, lint_class, message) in lint:
             assert isinstance(pos, WDL.SourcePosition)
@@ -114,7 +115,7 @@ def validate_workflow_graph(workflow):
 
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/library/tasks/**"],
-    expected_lint={'StringCoercion': 3, 'UnusedDeclaration': 1, 'UnknownRuntimeKey': 1}
+    expected_lint={'UnusedDeclaration': 2, 'UnknownRuntimeKey': 1}
 )
 class HCAskylab_task(unittest.TestCase):
     pass
@@ -122,7 +123,7 @@ class HCAskylab_task(unittest.TestCase):
 @test_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
-    expected_lint={'UnusedDeclaration': 10, 'NameCollision': 1, 'StringCoercion': 4, 'FileCoercion': 1, 'MixedIndentation': 1, 'UnknownRuntimeKey': 2}
+    expected_lint={'UnusedDeclaration': 12, 'NameCollision': 2, 'UnknownRuntimeKey': 3, 'StringCoercion': 5, 'MixedIndentation': 1, 'FileCoercion': 1}
 )
 class HCAskylab_workflow(unittest.TestCase):
     pass
