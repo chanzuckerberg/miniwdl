@@ -328,7 +328,7 @@ def run_local_task(
         image_tag_expr = task.runtime.get("docker", None)
         if image_tag_expr:
             assert isinstance(image_tag_expr, Expr.Base)
-            container.image_tag = image_tag_expr.eval(posix_inputs).value
+            container.image_tag = image_tag_expr.eval(container_env).value
 
         # interpolate command
         command = _util.strip_leading_whitespace(
