@@ -121,10 +121,10 @@ class TestTaskRunner(unittest.TestCase):
 
         std_error_msgs = [record for record in capture.records if "StdError:" in record.msg]
 
-        self.assertEqual(std_error_msgs.pop(0).msg, "StdError: Start logging\n")
-        self.assertEqual(std_error_msgs.pop().msg, "StdError: End logging\n")
+        self.assertEqual(std_error_msgs.pop(0).msg, "StdError: Start logging")
+        self.assertEqual(std_error_msgs.pop().msg, "StdError: End logging")
         for record in std_error_msgs:
-            line_written = int(record.msg.split('=')[1].strip('\n'))
+            line_written = int(record.msg.split('=')[1])
             self.assertGreater(record.created, line_written)
             # check line logged within 2 seconds of being written
             self.assertGreater(line_written+2, record.created)
@@ -155,7 +155,7 @@ class TestTaskRunner(unittest.TestCase):
         std_error_msgs = [record for record in capture.records if "StdError:" in record.msg]
 
         self.assertEqual(len(std_error_msgs), 6)
-        self.assertEqual(std_error_msgs[0].msg, "StdError: Part onePart two\n")
+        self.assertEqual(std_error_msgs[0].msg, "StdError: Part onePart two")
 
     def test_hello_blank(self):
         self._test_task(R"""
