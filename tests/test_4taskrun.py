@@ -227,7 +227,7 @@ class TestTaskRunner(unittest.TestCase):
         with open(outputs["issue"]) as infile:
             pass
 
-    def test_command_error(self):
+    def test_command_failure(self):
         self._test_task(R"""
         version 1.0
         task hello {
@@ -235,7 +235,7 @@ class TestTaskRunner(unittest.TestCase):
                 exit 1
             }
         }
-        """, expected_exception=WDL.runtime.CommandError)
+        """, expected_exception=WDL.runtime.CommandFailure)
 
     def test_write_lines(self):
         outputs = self._test_task(R"""

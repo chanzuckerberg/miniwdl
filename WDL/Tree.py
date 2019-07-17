@@ -1279,7 +1279,7 @@ async def resolve_file_import(uri: str, path: List[str], importer: Optional[Docu
             ),
             None,
         )
-    if ans and os.path.isfile(ans):
+    if ans and (os.path.isfile(ans) or ans.startswith("/dev/fd/")):
         return ans
     raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uri)
 

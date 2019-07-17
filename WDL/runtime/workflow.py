@@ -556,7 +556,7 @@ def run_local_workflow(
     except Exception as exn:
         logger.debug(traceback.format_exc())
         if isinstance(exn, TaskFailure):
-            logger.error("%s failed", getattr(exn, "task_id"))
+            logger.error("%s failed", getattr(exn, "run_id"))
         else:
             msg = ""
             if hasattr(exn, "job_id"):

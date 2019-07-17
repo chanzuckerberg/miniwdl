@@ -2,6 +2,7 @@
 """
 Local task runner
 """
+import sys
 import logging
 import os
 import tempfile
@@ -97,7 +98,7 @@ class TaskContainer(ABC):
         2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to {container_dir} inside the container)
         3. Standard output is written to ``{host_dir}/stdout.txt``
         4. Standard error is written to ``{host_dir}/stderr.txt`` and logged at INFO level
-        5. Raises CommandError for nonzero exit code, or any other error
+        5. Raises CommandFailure for nonzero exit code, or any other error
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
@@ -132,7 +133,7 @@ class TaskContainer(ABC):
             if self._terminate:
                 raise Terminated()
             if exit_status != 0:
-                raise CommandError("command exit status = " + str(exit_status))
+                raise CommandFailure(exit_status, os.path.join(self.host_dir, "stderr.txt"))
 
     @abstractmethod
     def _run(self, logger: logging.Logger, command: str) -> int:
@@ -278,8 +279,10 @@ class TaskDockerContainer(TaskContainer):
             # retrieve and check container exit status
             assert exit_info
             if "StatusCode" not in exit_info:
-                raise CommandError(
-                    "docker finished without reporting exit status in: " + str(exit_info)
+                raise CommandFailure(
+                    (-sys.maxsize - 1),
+                    os.path.join(self.host_dir, "stderr.txt"),
+                    "docker finished without reporting exit status in: " + str(exit_info),
                 )
             return exit_info["StatusCode"]
         finally:
@@ -331,6 +334,7 @@ def run_local_task(
         command = _util.strip_leading_whitespace(
             task.command.eval(container_env, stdlib=InputStdLib(container)).value
         )[1]
+        logger.debug("command:\n%s", command)
 
         # start container & run command
         container.run(logger, command)
@@ -343,7 +347,7 @@ def run_local_task(
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
-        wrapper = TaskFailure(task.name, run_id)
+        wrapper = TaskFailure(task.name, run_id, run_dir)
         msg = str(wrapper)
         if hasattr(exn, "job_id"):
             msg += " evaluating " + getattr(exn, "job_id")

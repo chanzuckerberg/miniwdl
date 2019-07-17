@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 40
+plan tests 42
 
 DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)
 cd $DN
@@ -153,3 +153,12 @@ is "$(ls scatterrun/output_links/echo.t.out_f/0/2)" "fox" "scatter product 0 fox
 is "$(ls scatterrun/output_links/echo.t.out_f/1/0)" "quick" "scatter product 1 quick link"
 is "$(ls scatterrun/output_links/echo.t.out_f/1/1)" "brown" "scatter product 1 brown link"
 is "$(ls scatterrun/output_links/echo.t.out_f/1/2)" "fox" "scatter product 1 fox link"
+
+$miniwdl run --dir failer2000 <(echo "
+version 1.0
+workflow failer2000 { call failer }
+task failer { command { echo >&2 this is the end, beautiful friend; exit 1 } }
+")
+is "$?" "2" "failer2000"
+grep -q beautiful failer2000/call-failer/stderr.txt
+is "$?" "0" "failer2000 stderr"
