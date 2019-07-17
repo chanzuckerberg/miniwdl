@@ -231,7 +231,7 @@ class TaskDockerContainer(TaskContainer):
         try:
             container = None
             exit_info = None
-            error_file = [x for x in list(volumes) if "stderr.txt" in x][0]
+            error_file = os.path.join(self.host_dir, "stderr.txt")
             pygtail = Pygtail(error_file, full_lines=True)
             try:
                 # run container
