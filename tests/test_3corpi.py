@@ -6,9 +6,10 @@ class Lint(unittest.TestCase):
     # this code should be kept in sync with the example shown in the WDL/Lint.py docstring.
     def test_api(self):
         doc = WDL.load(
-            "test_corpi/HumanCellAtlas/skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl",
+            "ZarrUtils.wdl",
             path=["test_corpi/HumanCellAtlas/skylab/library/tasks"]
         )
+        WDL.Lint._shellcheck_available = False
         lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
         for (pos, lint_class, message) in lint:
             assert isinstance(pos, WDL.SourcePosition)
