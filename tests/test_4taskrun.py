@@ -583,3 +583,22 @@ class TestTaskRunner(unittest.TestCase):
         """, expected_exception=WDL.runtime.Terminated)
         t1 = time.time()
         self.assertLess(t1 - t0, 15)
+
+    def test_orphan_background_process(self):
+        # TODO: https://github.com/chanzuckerberg/miniwdl/issues/211
+        output = self._test_task(R"""
+        version 1.0
+        task t {
+            input {
+                Int w
+            }
+            command {
+                touch log
+                echo -n wow | dd of=>(sleep ${w}; dd of=log)
+            }
+            output {
+                Float logsize = size("log")
+            }
+        }
+        """, {"w": 2})
+        self.assertAlmostEqual(output["logsize"], 0.0)
