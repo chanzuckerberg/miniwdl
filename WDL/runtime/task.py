@@ -144,8 +144,11 @@ class TaskContainer(ABC):
 
     def host_file(self, container_file: str, inputs_only: bool = False) -> str:
         """
-        Map an output file's in-container path under ``container_dir`` to a
-        host path.
+        Map an output file's in-container path under ``container_dir`` to a host path under
+        ``host_dir``
+
+        SECURITY: this method must only return host paths under ``host_dir`` and prevent any
+        reference to other host files (e.g. /etc/passwd), including via sneaky symlinks
         """
         if os.path.isabs(container_file):
             # handle output of std{out,err}.txt
@@ -167,24 +170,22 @@ class TaskContainer(ABC):
                     "task inputs attempted to use a non-input or non-existent file "
                     + container_file
                 )
-            # otherwise make sure the file is in/under the working directory
-            dpfx = os.path.join(self.container_dir, "work") + "/"
-            if not container_file.startswith(dpfx):
-                raise OutputError(
-                    "task outputs attempted to use a file outside its working directory: "
-                    + container_file
-                )
-            # turn it into relative path
-            container_file = container_file[len(dpfx) :]
-        if container_file.startswith("..") or "/.." in container_file:
-            raise OutputError(
-                "task outputs attempted to use file path with .. uplevels: " + container_file
+            # relativize the path to the provisioned working directory
+            container_file = os.path.relpath(
+                container_file, os.path.join(self.container_dir, "work")
             )
-        # join the relative path to the host working directory
-        ans = os.path.join(self.host_dir, "work", container_file)
-        if not os.path.isfile(ans) or os.path.islink(ans):
-            raise OutputError("task output file not found: " + container_file)
-        return ans
+
+        host_workdir = os.path.join(self.host_dir, "work")
+        ans = os.path.realpath(os.path.join(host_workdir, container_file))
+        assert os.path.isabs(ans) and "/../" not in ans
+        if os.path.isfile(ans):
+            if ans.startswith(host_workdir + "/"):
+                return ans
+            raise OutputError(
+                "task outputs attempted to use a file outside its working directory: "
+                + container_file
+            )
+        raise OutputError("task output file not found: " + container_file)
 
 
 class TaskDockerContainer(TaskContainer):

@@ -11,3 +11,4 @@ python-coveralls
 wheel
 pbr
 twine
+testfixtures

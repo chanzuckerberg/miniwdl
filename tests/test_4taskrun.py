@@ -33,7 +33,7 @@ class TestTaskRunner(unittest.TestCase):
                 return exn.__context__
             raise
         if expected_exception:
-            self.assertFalse(str(expected_exception) + " not raised")
+            self.assertTrue(False, str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
 
     def test_docker(self):
@@ -289,6 +289,43 @@ class TestTaskRunner(unittest.TestCase):
         """)
         with open(outputs["issue"]) as infile:
             pass
+
+        # attempt to output symlink to host /etc/passwd
+        outputs = self._test_task(R"""
+        version 1.0
+        task hacker {
+            command {
+                ln -s /etc/passwd host_passwords.txt
+            }
+            output {
+                File your_passwords = "host_passwords.txt"
+            }
+        }
+        """, expected_exception=WDL.runtime.OutputError)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task hacker {
+            command {
+                ln -s /etc/passwd host_passwords.txt
+            }
+            output {
+                String host_passwords = read_string("host_passwords.txt")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task hacker {
+            command {
+                ln -s /etc your_etc
+            }
+            output {
+                File your_passwords = "your_etc/passwd"
+            }
+        }
+        """, expected_exception=WDL.runtime.OutputError)
 
     def test_command_failure(self):
         self._test_task(R"""
