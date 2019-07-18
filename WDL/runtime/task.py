@@ -233,8 +233,9 @@ class TaskDockerContainer(TaskContainer):
         try:
             container = None
             exit_info = None
-            error_file = os.path.join(self.host_dir, "stderr.txt")
-            pygtail = Pygtail(error_file, full_lines=True)
+            stderr_file = os.path.join(self.host_dir, "stderr.txt")
+            pygtail = Pygtail(stderr_file, full_lines=True)
+            pygtail_exn = False
             try:
                 # run container
                 logger.info("docker starting image {}".format(self.image_tag))
@@ -256,8 +257,6 @@ class TaskDockerContainer(TaskContainer):
                 # long-poll for container exit
                 while exit_info is None:
                     try:
-                        for line in pygtail:
-                            logger.info(f"2| {line.rstrip()}")
                         exit_info = container.wait(timeout=1)
                     except Exception as exn:
                         if self._terminate:
@@ -267,6 +266,19 @@ class TaskDockerContainer(TaskContainer):
                         s_exn = str(exn)
                         if "timed out" not in s_exn and "Timeout" not in s_exn:
                             raise
+                    # stream stderr into log
+                    if not pygtail_exn:
+                        try:
+                            for line in pygtail:
+                                logger.info(f"2| {line.rstrip()}")
+                        except:
+                            pygtail_exn = True
+                            # cf. https://github.com/bgreenlee/pygtail/issues/48
+                            logger.info(
+                                "task standard error log is incomplete due to the following exception; see %s",
+                                stderr_file,
+                                exc_info=sys.exc_info(),
+                            )
                 logger.info("container exit info = " + str(exit_info))
             except:
                 # make sure to stop & clean up the container if we're stopping due
@@ -275,9 +287,9 @@ class TaskDockerContainer(TaskContainer):
                 if container:
                     try:
                         container.remove(force=True)
+                        logger.info("force-removed docker container")
                     except Exception as exn:
                         logger.exception("failed to remove docker container")
-                    logger.info("force-removed docker container")
                 raise
 
             # retrieve and check container exit status
@@ -291,14 +303,21 @@ class TaskDockerContainer(TaskContainer):
             return exit_info["StatusCode"]
         finally:
             try:
-                for line in pygtail:
-                    logger.info(f"2| {line.rstrip()}")
-            except:
-                pass
-            try:
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
+            # log the final stderr lines
+            if not pygtail_exn:
+                try:
+                    for line in Pygtail(stderr_file, full_lines=False):
+                        logger.info(f"2| {line.rstrip()}")
+                except:
+                    # cf. https://github.com/bgreenlee/pygtail/issues/48
+                    logger.info(
+                        "task standard error log is incomplete due to the following exception; see %s",
+                        stderr_file,
+                        exc_info=sys.exc_info(),
+                    )
 
 
 def run_local_task(
