@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 42
+plan tests 45
 
 DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)
 cd $DN
@@ -154,11 +154,42 @@ is "$(ls scatterrun/output_links/echo.t.out_f/1/0)" "quick" "scatter product 1 q
 is "$(ls scatterrun/output_links/echo.t.out_f/1/1)" "brown" "scatter product 1 brown link"
 is "$(ls scatterrun/output_links/echo.t.out_f/1/2)" "fox" "scatter product 1 fox link"
 
-$miniwdl run --dir failer2000 <(echo "
+$miniwdl run --dir failer2000 --verbose <(echo "
 version 1.0
 workflow failer2000 { call failer }
 task failer { command { echo >&2 this is the end, beautiful friend; exit 1 } }
-")
+") 2> failer2000.log.txt
 is "$?" "2" "failer2000"
 grep -q beautiful failer2000/call-failer/stderr.txt
 is "$?" "0" "failer2000 stderr"
+grep -q beautiful failer2000.log.txt
+is "$?" "0" "failer2000 stderr logged"
+
+cat << 'EOF' > multitask.wdl
+version 1.0
+workflow multi {
+    call first
+}
+
+task first {
+    command {
+        echo -n one
+    }
+    output {
+        String msg = read_string(stdout())
+    }
+}
+
+task second {
+    command {
+        echo -n two
+    }
+    output {
+        String msg = read_string(stdout())
+    }
+}
+EOF
+
+$miniwdl run multitask.wdl --task second | tee stdout
+is "$?" "0" "multitask"
+is "$(jq -r '.outputs["second.msg"]' stdout)" "two" "multitask stdout"

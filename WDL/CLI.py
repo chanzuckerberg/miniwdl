@@ -270,11 +270,10 @@ def fill_run_subparser(subparsers):
         help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
     ).completer = runner_input_completer
     run_parser.add_argument(
-        "-d",
-        "--dir",
-        metavar="NEW_DIR",
-        dest="rundir",
-        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
+        "--empty",
+        metavar="input_key",
+        action="append",
+        help="explicitly set an array input to the empty array (to override a default)",
     )
     run_parser.add_argument(
         "-i",
@@ -291,10 +290,17 @@ def fill_run_subparser(subparsers):
         help="just print Cromwell-style input JSON to standard output, then exit",
     )
     run_parser.add_argument(
-        "--empty",
-        metavar="input_key",
-        action="append",
-        help="explicitly set an array input to the empty array (to override a default)",
+        "-d",
+        "--dir",
+        metavar="NEW_DIR",
+        dest="rundir",
+        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
+    )
+    run_parser.add_argument(
+        "-t",
+        "--task",
+        metavar="TASK_NAME",
+        help="name of task to run (for WDL documents with multiple tasks & no workflow)",
     )
     run_parser.add_argument(
         "-v",
@@ -308,13 +314,22 @@ def fill_run_subparser(subparsers):
 
 
 def runner(
-    uri, inputs, input_file, json_only, empty, check_quant, rundir=None, path=None, **kwargs
+    uri,
+    inputs,
+    input_file,
+    json_only,
+    empty,
+    check_quant,
+    task=None,
+    rundir=None,
+    path=None,
+    **kwargs,
 ):
     # load WDL document
     doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
     # validate the provided inputs and prepare Cromwell-style JSON
-    target, input_env, input_json = runner_input(doc, inputs, input_file, empty)
+    target, input_env, input_json = runner_input(doc, inputs, input_file, empty, task=task)
 
     if json_only:
         print(json.dumps(input_json, indent=2))
@@ -337,12 +352,14 @@ def runner(
         rundir, output_env = entrypoint(target, input_env, run_dir=rundir)
     except Error.EvalError as exn:
         logger.error(
-            "({} Ln {} Col {}) {}, {}".format(
-                exn.pos.uri, exn.pos.line, exn.pos.column, exn.__class__.__name__, str(exn)
+            "({} Ln {} Col {}) {}{}".format(
+                exn.pos.uri,
+                exn.pos.line,
+                exn.pos.column,
+                exn.__class__.__name__,
+                (", " + str(exn) if str(exn) else ""),
             )
         )
-        if kwargs["debug"]:
-            raise exn
         sys.exit(2)
     except runtime.task.TaskFailure as exn:
         exn = exn.__cause__ or exn
@@ -354,14 +371,16 @@ def runner(
         if isinstance(getattr(exn, "pos", None), SourcePosition):
             pos = getattr(exn, "pos")
             logger.error(
-                "({} Ln {} Col {}) {}, {}".format(
-                    pos.uri, pos.line, pos.column, exn.__class__.__name__, str(exn)
+                "({} Ln {} Col {}) {}{}".format(
+                    pos.uri,
+                    pos.line,
+                    pos.column,
+                    exn.__class__.__name__,
+                    (", " + str(exn) if str(exn) else ""),
                 )
             )
         else:
             logger.error(f"{exn.__class__.__name__}, {str(exn)}")
-        if kwargs["debug"]:
-            raise (exn.__cause__ or exn)
         sys.exit(2)
 
     # link output files
@@ -413,7 +432,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         return available_input_names
 
 
-def runner_input(doc, inputs, input_file, empty):
+def runner_input(doc, inputs, input_file, empty, task=None):
     """
     - Determine the target workflow/task
     - Check types of supplied inputs
@@ -422,12 +441,17 @@ def runner_input(doc, inputs, input_file, empty):
     """
 
     # resolve target
-    if doc.workflow:
+    target = None
+    if task:
+        target = next((t for t in doc.tasks if t.name == task), None)
+        if not target:
+            die(f"no such task {task} in document")
+    elif doc.workflow:
         target = doc.workflow
     elif len(doc.tasks) == 1:
         target = doc.tasks[0]
     elif len(doc.tasks) > 1:
-        die("WDL document contains multiple tasks and no workflow")
+        die("specify --task for WDL document with multiple tasks and no workflow")
     else:
         die("Empty WDL document")
     assert target
