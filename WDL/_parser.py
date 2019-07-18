@@ -493,7 +493,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 parts.append(item)
             else:
                 parts.append(item.value)
-        return {"command": Expr.String(self._sp(meta), parts)}
+        return {"command": Expr.String(self._sp(meta), parts, command=True)}
 
     def output_decls(self, items, meta):
         return {"outputs": items}
