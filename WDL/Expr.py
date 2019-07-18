@@ -287,9 +287,21 @@ class String(Base):
     have NOT been decoded.
     """
 
-    def __init__(self, pos: SourcePosition, parts: List[Union[str, Placeholder]]) -> None:
+    command: bool
+    """
+    :type: bool
+
+    True if this expression is a task command template, as opposed to a string expression anywhere
+    else. Controls whether backslash escape sequences are evaluated or (for commands) passed
+    through for shell interpretation.
+    """
+
+    def __init__(
+        self, pos: SourcePosition, parts: List[Union[str, Placeholder]], command: bool = False
+    ) -> None:
         super().__init__(pos)
         self.parts = parts
+        self.command = command
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -312,8 +324,11 @@ class String(Base):
                 # evaluate interpolated expression & stringify
                 ans.append(part.eval(env, stdlib).value)
             elif isinstance(part, str):
-                # use python builtins to decode escape sequences
-                ans.append(str.encode(part).decode("unicode_escape"))
+                if self.command:
+                    ans.append(part)
+                else:
+                    # use python builtins to decode escape sequences
+                    ans.append(str.encode(part).decode("unicode_escape"))
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes

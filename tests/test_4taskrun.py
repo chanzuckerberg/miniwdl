@@ -229,6 +229,42 @@ class TestTaskRunner(unittest.TestCase):
         with open(outputs["message"]) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
 
+    def test_command_escaping(self):
+        # miniwdl evaluates escape sequences in WDL string constants, but in commands it should
+        # leave them for the shell to deal with
+        output = self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                echo '1\n2\n3' | wc -l > count1
+                echo '${"1\n2\n3"}' | wc -l > count2
+            }
+            output {
+                Int count1 = read_int("count1")
+                Int count2 = read_int("count2")
+            }
+        }
+        """)
+        self.assertEqual(output["count1"], 1)
+        self.assertEqual(output["count2"], 3)
+
+        output = self._test_task(R"""
+        version 1.0
+        task hello {
+            command <<<
+                echo '1\n2\n3' | wc -l > count1
+                echo '~{"1\n2\n3"}' | wc -l > count2
+            >>>
+            output {
+                Int count1 = read_int("count1")
+                Int count2 = read_int("count2")
+            }
+        }
+        """)
+        self.assertEqual(output["count1"], 1)
+        self.assertEqual(output["count2"], 3)
+
+
     def test_weird_output_files(self):
         # nonexistent output file
         self._test_task(R"""
