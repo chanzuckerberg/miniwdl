@@ -296,7 +296,9 @@ class String(Base):
     through for shell interpretation.
     """
 
-    def __init__(self, pos: SourcePosition, parts: List[Union[str, Placeholder]], command: bool = False) -> None:
+    def __init__(
+        self, pos: SourcePosition, parts: List[Union[str, Placeholder]], command: bool = False
+    ) -> None:
         super().__init__(pos)
         self.parts = parts
         self.command = command
