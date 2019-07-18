@@ -289,7 +289,7 @@ class TestStdLib(unittest.TestCase):
                 cat ~{sep=' ' files} > alyssa_ben.txt
             }
             output {
-                Array[Float] sizes = flatten([sizes_, [size(files, "GB"), size(files, "GiB")]])
+                Array[Float] sizes = flatten([sizes_, [size(files, "GB"), size(files, "Gi")]])
                 Float size2 = size("alyssa_ben.txt", "KiB")
             }
         }
