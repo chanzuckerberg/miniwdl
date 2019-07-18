@@ -345,7 +345,6 @@ def runner(
             raise exn
         sys.exit(2)
     except runtime.task.TaskFailure as exn:
-        logger.error("task %s failed in %s", exn.run_id, exn.run_dir)
         exn = exn.__cause__ or exn
         if isinstance(exn, runtime.task.CommandFailure) and not (
             kwargs["verbose"] or kwargs["debug"]

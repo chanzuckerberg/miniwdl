@@ -257,7 +257,8 @@ class StateMachine:
         """
         assert job_id in self.running
         outlog = json.dumps(self.values_to_json(outputs))
-        self.logger.warn("finish %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
+        self.logger.warn("finish %s", job_id)
+        self.logger.info("output %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
         self.job_outputs[job_id] = [Env.Namespace(call_node.name, outputs)]
@@ -320,11 +321,11 @@ class StateMachine:
             except KeyError:
                 pass
             # issue CallInstructions
-            inplog = json.dumps(self.values_to_json(call_inputs))
-            self.logger.warn(
-                "issue %s with %s", job.id, inplog if len(inplog) < 4096 else "(large)"
-            )
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
+            self.logger.warn("issue %s on %s", job.id, job.node.callee.name)
+            inplog = json.dumps(self.values_to_json(call_inputs))
+            self.logger.info("input %s <- %s", job.id, inplog if len(inplog) < 4096 else "(large)")
+
             return StateMachine.CallInstructions(
                 id=job.id, callee=job.node.callee, inputs=call_inputs
             )
@@ -334,7 +335,7 @@ class StateMachine:
     @property
     def logger(self) -> logging.Logger:
         if not self._logger:
-            self._logger = logging.getLogger("miniwdl-worfklow:" + self.run_id)
+            self._logger = logging.getLogger("wdl-worfklow:" + self.run_id)
         return self._logger
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -527,8 +528,15 @@ def run_local_workflow(
 
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
-    logger = logging.getLogger("miniwdl-workflow:" + run_id)
-    logger.info("starting workflow in %s", run_dir)
+    logger = logging.getLogger("wdl-workflow:" + run_id)
+    logger.warn(
+        "starting workflow %s (%s Ln %d Col %d) in %s",
+        workflow.name,
+        workflow.pos.uri,
+        workflow.pos.line,
+        workflow.pos.column,
+        run_dir,
+    )
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=[workflow.name])
 
     state = StateMachine(run_id, workflow, posix_inputs)
@@ -565,11 +573,12 @@ def run_local_workflow(
             if str(exn):
                 msg += ", " + str(exn)
             logger.error(msg)
+            logger.info("run directory: %s", run_dir)
         raise exn
 
     assert state.outputs is not None
     write_values_json(
         state.outputs, os.path.join(run_dir, "outputs.json"), namespace=[workflow.name]
     )
-    logger.info("done")
+    logger.warn("done")
     return (run_dir, state.outputs)

@@ -119,10 +119,10 @@ class TestTaskRunner(unittest.TestCase):
         }
         """)
 
-        std_error_msgs = [record for record in capture.records if "StdError:" in record.msg]
+        std_error_msgs = [record for record in capture.records if record.msg.startswith("2|")]
 
-        self.assertEqual(std_error_msgs.pop(0).msg, "StdError: Start logging")
-        self.assertEqual(std_error_msgs.pop().msg, "StdError: End logging")
+        self.assertEqual(std_error_msgs.pop(0).msg, "2| Start logging")
+        self.assertEqual(std_error_msgs.pop().msg, "2| End logging")
         for record in std_error_msgs:
             line_written = int(record.msg.split('=')[1])
             self.assertGreater(record.created, line_written)
@@ -152,10 +152,10 @@ class TestTaskRunner(unittest.TestCase):
 
                 }
                 """)
-        std_error_msgs = [record for record in capture.records if "StdError:" in record.msg]
+        std_error_msgs = [record for record in capture.records if record.msg.startswith("2|")]
 
         self.assertEqual(len(std_error_msgs), 6)
-        self.assertEqual(std_error_msgs[0].msg, "StdError: Part onePart two")
+        self.assertEqual(std_error_msgs[0].msg, "2| Part onePart two")
 
     def test_hello_blank(self):
         self._test_task(R"""

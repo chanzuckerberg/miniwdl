@@ -1,6 +1,6 @@
 # pyre-strict
-from typing import Optional
 from ..Error import RuntimeError as _RuntimeError
+from ..Tree import Task as _Task
 
 
 class CommandFailure(_RuntimeError):
@@ -45,12 +45,14 @@ class TaskFailure(_RuntimeError):
 
     """
 
-    task_name: str
+    task: _Task
     run_id: str
     run_dir: str
 
-    def __init__(self, task_name: str, run_id: str, run_dir: str) -> None:
-        super().__init__(f"task {run_id} failed")
-        self.task_name = task_name
+    def __init__(self, task: _Task, run_id: str, run_dir: str) -> None:
+        super().__init__(
+            f"task {task.name} ({task.pos.uri} Ln {task.pos.line} Col {task.pos.column}) failed"
+        )
+        self.task = task
         self.run_id = run_id
         self.run_dir = run_dir

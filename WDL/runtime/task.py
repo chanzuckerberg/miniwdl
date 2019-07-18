@@ -257,7 +257,7 @@ class TaskDockerContainer(TaskContainer):
                 while exit_info is None:
                     try:
                         for line in pygtail:
-                            logger.info(f"StdError: {line.rstrip()}")
+                            logger.info(f"2| {line.rstrip()}")
                         exit_info = container.wait(timeout=1)
                     except Exception as exn:
                         if self._terminate:
@@ -292,7 +292,10 @@ class TaskDockerContainer(TaskContainer):
         finally:
             try:
                 for line in pygtail:
-                    logger.info(f"StdError: {line.rstrip()}")
+                    logger.info(f"2| {line.rstrip()}")
+            except:
+                pass
+            try:
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
@@ -318,8 +321,15 @@ def run_local_task(
 
     run_id = run_id or task.name
     run_dir = provision_run_dir(task.name, run_dir)
-    logger = logging.getLogger("miniwdl-task:" + run_id)
-    logger.info("starting task in %s", run_dir)
+    logger = logging.getLogger("wdl-task:" + run_id)
+    logger.info(
+        "starting task %s (%s Ln %d Col %d) in %s",
+        task.name,
+        task.pos.uri,
+        task.pos.line,
+        task.pos.column,
+        run_dir,
+    )
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
@@ -340,7 +350,7 @@ def run_local_task(
         command = _util.strip_leading_whitespace(
             task.command.eval(container_env, stdlib=InputStdLib(container)).value
         )[1]
-        logger.debug("command:\n%s", command)
+        logger.debug("command:\n%s", command.rstrip())
 
         # start container & run command
         container.run(logger, command)
@@ -353,7 +363,7 @@ def run_local_task(
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
-        wrapper = TaskFailure(task.name, run_id, run_dir)
+        wrapper = TaskFailure(task, run_id, run_dir)
         msg = str(wrapper)
         if hasattr(exn, "job_id"):
             msg += " evaluating " + getattr(exn, "job_id")
@@ -361,6 +371,7 @@ def run_local_task(
         if str(exn):
             msg += ", " + str(exn)
         logger.error(msg)
+        logger.info("run directory: %s", run_dir)
         raise wrapper from exn
 
 
