@@ -399,6 +399,32 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(self._test_workflow(txt, {"x":3}), { "ans": [ 0, 2, 4] })
         self.assertEqual(self._test_workflow(txt, {"x":3, "sum.more": 1}), { "ans": [ 1, 3, 5] })
 
+        txt = """
+        version 1.0
+
+        workflow x {
+            input {
+                Int? optional
+            }
+            output {
+                Int ans = select_first([optional, 42])
+            }
+        }
+
+        task sum {
+            input {
+                Int lhs
+                Int rhs
+            }
+            command {}
+            output {
+                Int ans = lhs + rhs
+            }
+        }
+        """
+        self.assertEqual(self._test_workflow(txt)["ans"], 42)
+        self.assertEqual(self._test_workflow(txt, {"optional": 123})["ans"], 123)
+
     def test_errors(self):
         exn = self._test_workflow("""
         version 1.0

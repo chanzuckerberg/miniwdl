@@ -299,9 +299,13 @@ class StateMachine:
             try:
                 v = Env.resolve(self.inputs, [], job.node.name)
             except KeyError:
-                assert job.node.expr
+                pass
             if v is None:
-                v = job.node.expr.eval(env, stdlib=stdlib)
+                if job.node.expr:
+                    v = job.node.expr.eval(env, stdlib=stdlib)
+                else:
+                    assert job.node.type.optional
+                    v = Value.Null()
             return Env.bind([], [], job.node.name, v)
 
         if isinstance(job.node, WorkflowOutputs):
