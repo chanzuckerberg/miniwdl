@@ -1,23 +1,20 @@
 # miniwdl
-**[Workflow Description Language](http://openwdl.org/) static analysis toolkit for Python 3.6+**
+**[Workflow Description Language](http://openwdl.org/) toolkit for Python 3.6+**
 
 ![Project Status](https://img.shields.io/badge/status-alpha-red.svg)
-[![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/)
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/master/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
-*miniwdl* is a library for parsing WDL documents into a type-checked abstract syntax tree (AST), providing a foundation for new runtime systems, developer tooling, and language experimentation. It also includes command-line tools supporting the WDL development cycle, including a "linter" to statically analyze WDL documents for errors and oversights, and a [Cromwell](https://github.com/broadinstitute/cromwell) wrapper to make it more convenient to test a workflow locally.
-
-This project in alpha development; interfaces are liable to change somewhat. See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap.
+*miniwdl* provides WDL developer productivity tools, a local runtime implementation, and a foundation for language experimentation. See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap. This project in alpha development, and interfaces are still liable to change somewhat.
 
 <!-- TOC generator tool: https://magnetikonline.github.io/markdown-toc-generate/ -->
 - [Installation](#installation)
 - [Command-line tools](#command-line-tools)
   - [miniwdl check](#miniwdl-check)
   - [miniwdl cromwell](#miniwdl-cromwell)
+  - [miniwdl run](#miniwdl-run)
 - [WDL Python library](#wdl-python-library)
   - [API documentation](#api-documentation)
 - [Contributing](#contributing)
@@ -25,9 +22,9 @@ This project in alpha development; interfaces are liable to change somewhat. See
 
 ## Installation
 
-pip: `pip3 install miniwdl`
+[![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/) `pip3 install miniwdl`
 
-conda: [configure conda-forge](http://conda-forge.org/docs/user/introduction.html) and `conda install miniwdl`
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl)  [configure conda-forge](http://conda-forge.org/docs/user/introduction.html) and `conda install miniwdl` 
 
 locally: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) for an example of dependencies prior to running `setup.py`
 
@@ -126,10 +123,30 @@ $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 }
 ```
 
-By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. You can use the `-r/--jar` option if you already have a local copy of Cromwell; other Cromwell configuration options are available (see `--help`).
+By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it, and the invoking [user must have permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/). You can use the `-r/--jar` option if you already have a local copy of Cromwell; other Cromwell configuration options are available (see `--help`).
  The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
 
 The tool supports shell tab-completion for the workflow's available input names. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl cromwell hello.wdl ` and try double-tab.
+
+### `miniwdl run`
+
+miniwdl's built-in capability to execute workflows on the local host is in early testing. The [Releases](https://github.com/chanzuckerberg/miniwdl/releases) page documents current salient limitations. If you encounter an interoperability problem not mentioned there, we want to hear about it via [Issues](https://github.com/chanzuckerberg/miniwdl/issues)!
+
+Operation is nearly identical to `miniwdl cromwell`. The invoking [user must have permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/).
+
+```
+$ miniwdl run hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
+{
+  "outputs": {
+    "hello.messages": [
+      "Hello Alyssa",
+      "Hello Ben Bitdiddle"
+    ],
+    "hello.meaning_of_life": 42
+  },
+  "dir": "/home/user/20190718_213847_hello"
+}
+```
 
 ## WDL Python library
 
@@ -193,10 +210,12 @@ To set up your local development environment,
 
 The Makefile has a few typical scripted flows:
 
-- `make pretty` reformats the code with [black](https://github.com/python/black)
-- `make check` validates the code with [Pylint](https://www.pylint.org/) and [Pyre](https://pyre-check.org/)
 - `make` or `make test` runs the full test suite with code coverage report (takes several minutes)
 - `make qtest` runs most of the tests more quickly (by omitting some slower cases, and not tracking coverage)
+- `make pretty` reformats the code with [black](https://github.com/python/black)
+- `make check` validates the code with [Pylint](https://www.pylint.org/) and [Pyre](https://pyre-check.org/)
+
+As the test suite takes several minutes to run, you can e.g. `python3 -m unittest -f tests/test_5stdlib.py` to run relevant subsets.
 
 ## Security
 
