@@ -260,7 +260,9 @@ async def read_source(uri, path, importer_uri):
 
 
 def fill_run_subparser(subparsers):
-    run_parser = subparsers.add_parser("run", help="Run task locally [alpha test]")
+    run_parser = subparsers.add_parser(
+        "run", help="Run workflow/task locally with built-in runtime [alpha test]"
+    )
     run_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
     run_parser.add_argument(
         "inputs",

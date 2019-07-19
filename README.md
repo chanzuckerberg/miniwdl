@@ -123,8 +123,7 @@ $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 }
 ```
 
-By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it, and the invoking [user must have permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/). You can use the `-r/--jar` option if you already have a local copy of Cromwell; other Cromwell configuration options are available (see `--help`).
- The outputs and logs are written to a new date/time-named subdirectory of the current working directory (overridable; see `--help`).
+By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. You can use the `-r/--jar` option if you already have a local copy of Cromwell; other Cromwell configuration options are available (see `--help`). The invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user).
 
 The tool supports shell tab-completion for the workflow's available input names. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl cromwell hello.wdl ` and try double-tab.
 
@@ -132,7 +131,7 @@ The tool supports shell tab-completion for the workflow's available input names.
 
 miniwdl's built-in capability to execute workflows on the local host is in early testing. The [Releases](https://github.com/chanzuckerberg/miniwdl/releases) page documents current salient limitations. If you encounter an interoperability problem not mentioned there, we want to hear about it via [Issues](https://github.com/chanzuckerberg/miniwdl/issues)!
 
-Operation is nearly identical to `miniwdl cromwell`. The invoking [user must have permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/).
+Operation is nearly identical to `miniwdl cromwell`. The invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user).
 
 ```
 $ miniwdl run hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
@@ -206,7 +205,7 @@ To set up your local development environment,
 
 1. `git clone --recursive` this repository
 2. Install dependencies as illustrated in the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) (OS packages + PyPI packages listed in `requirements.txt` and `requirements.dev.txt`)
-3. Invoking user must be able to [access local Docker daemon](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user).
+3. Invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user).
 
 The Makefile has a few typical scripted flows:
 
@@ -215,7 +214,7 @@ The Makefile has a few typical scripted flows:
 - `make pretty` reformats the code with [black](https://github.com/python/black)
 - `make check` validates the code with [Pylint](https://www.pylint.org/) and [Pyre](https://pyre-check.org/)
 
-As the test suite takes several minutes to run, you can e.g. `python3 -m unittest -f tests/test_5stdlib.py` to run relevant subsets.
+To quickly run only a relevant subset of the tests, you can e.g. `python3 -m unittest -f tests/test_5stdlib.py`. To invoke the command-line interface (`miniwdl` command once installed), e.g. `python3 -m WDL check ...` or `python3 -m WDL run ...`.
 
 ## Security
 
