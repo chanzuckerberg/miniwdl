@@ -106,6 +106,7 @@ class StateMachine:
 
     _logger: Optional[logging.Logger] = None
     run_id: str
+    log_file: str
     values_to_json: Callable[[Env.Values], Dict]
     workflow: Tree.Workflow
     inputs: Env.Values
@@ -116,11 +117,14 @@ class StateMachine:
     waiting: Set[str]
     # TODO: factor out WorkflowState interface?
 
-    def __init__(self, run_id: str, workflow: Tree.Workflow, inputs: Env.Values) -> None:
+    def __init__(
+        self, run_id: str, workflow: Tree.Workflow, inputs: Env.Values, log_file: str = ""
+    ) -> None:
         """
         Initialize the workflow state machine from the workflow AST and inputs
         """
         self.run_id = run_id
+        self.log_file = log_file
         self.workflow = workflow
         self.inputs = inputs
         self.jobs = {}
@@ -340,6 +344,10 @@ class StateMachine:
     def logger(self) -> logging.Logger:
         if not self._logger:
             self._logger = logging.getLogger("wdl-worfklow:" + self.run_id)
+            if self.log_file:
+                fh = logging.FileHandler(self.log_file)
+                fh.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+                self._logger.addHandler(fh)
         return self._logger
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -533,6 +541,9 @@ def run_local_workflow(
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
     logger = logging.getLogger("wdl-workflow:" + run_id)
+    fh = logging.FileHandler(os.path.join(run_dir, "workflow.log"))
+    fh.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+    logger.addHandler(fh)
     logger.warn(
         "starting workflow %s (%s Ln %d Col %d) in %s",
         workflow.name,
@@ -543,7 +554,7 @@ def run_local_workflow(
     )
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=[workflow.name])
 
-    state = StateMachine(run_id, workflow, posix_inputs)
+    state = StateMachine(run_id, workflow, posix_inputs, os.path.join(run_dir, "workflow.log"))
 
     try:
         while state.outputs is None:

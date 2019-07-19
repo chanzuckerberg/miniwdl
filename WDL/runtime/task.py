@@ -341,6 +341,9 @@ def run_local_task(
     run_id = run_id or task.name
     run_dir = provision_run_dir(task.name, run_dir)
     logger = logging.getLogger("wdl-task:" + run_id)
+    fh = logging.FileHandler(os.path.join(run_dir, "task.log"))
+    fh.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+    logger.addHandler(fh)
     logger.info(
         "starting task %s (%s Ln %d Col %d) in %s",
         task.name,
