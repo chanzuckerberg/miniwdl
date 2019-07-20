@@ -385,14 +385,6 @@ def _scatter(
             array = [None]
     digits = math.ceil(math.log10(len(array) + 1))
 
-    # compile IDs of all body nodes and their gather nodes, which we'll need below
-    body_node_ids = set()
-    for body_node in section.body:
-        body_node_ids.add(body_node.workflow_node_id)
-        if isinstance(body_node, Tree.WorkflowSection):
-            for gather in body_node.gathers.values():
-                body_node_ids.add(gather.workflow_node_id)
-
     # for each array element, schedule an instance of the body subgraph
     last_scatter_indices = None
     for i, array_i in enumerate(array):
@@ -478,12 +470,9 @@ def _gather(gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Val
             dep_id_values.append(int(dep_id_fields[-1]))
         assert dep_id_values == list(range(len(dep_ids)))
 
-    # determine if we're ultimately (through nested ops) gathering from a value or a call
-    leaf = gather
-    while isinstance(leaf, Tree.Gather):
-        leaf = leaf.referee
-
-    # figure out names of the values to gather
+    # figure out names of the values to gather, either the name if the referenced decl,
+    # or each output of the referenced call.
+    leaf = gather.final_referee  # follow potential linked list of Gathers for nested sections
     if isinstance(leaf, Tree.Decl):
         names = [leaf.name]
     elif isinstance(leaf, Tree.Call):
