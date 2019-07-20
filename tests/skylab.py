@@ -38,6 +38,7 @@ if __name__ == "__main__":
         "test/bulk_rna_pipeline/pr/test_bulk_rna_pipeline_PR.wdl",
         "test/optimus/pr/test_optimus_PR.wdl",
         "test/smartseq2_single_sample/pr/test_smartseq2_single_sample_PR.wdl",
+        "test/smartseq2_single_sample_unpaired/pr/test_smartseq2_single_sample_unpaired_PR.wdl",
     ]
     for wdl in test_wdl:
         wdl = os.path.join(skylab_dir, wdl)
@@ -53,6 +54,7 @@ if __name__ == "__main__":
                 "-p", os.path.join(skylab_dir, "pipelines/bulk_rna_pipeline"),
                 "-p", os.path.join(skylab_dir, "pipelines/optimus"),
                 "-p", os.path.join(skylab_dir, "pipelines/smartseq2_single_sample"),
+                "-p", os.path.join(skylab_dir, "pipelines/smartseq2_single_sample_unpaired"),
                 "-p", os.path.join(skylab_dir, "pipelines/snap-atac"),
                 "-i", "staged_test_inputs.json",
                 "--verbose", "--no-quant-check"

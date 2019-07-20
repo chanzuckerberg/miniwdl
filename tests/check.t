@@ -22,8 +22,8 @@ $miniwdl check --no-shellcheck \
     "$SOURCE_DIR/test_corpi/HumanCellAtlas/skylab/pipelines/optimus/Optimus.wdl" > optimus.out
 is "$?" "0" "check Optimus.wdl"
 is "$(grep UnusedDeclaration optimus.out | wc -l)" "2" "Optimus.wdl UnusedDeclaration"
-is "$(grep NameCollision optimus.out | wc -l)" "2" "Optimus.wdl NameCollision"
-is "$(cat optimus.out | wc -l)" "73" "Optimus.wdl output"
+is "$(grep NameCollision optimus.out | wc -l)" "3" "Optimus.wdl NameCollision"
+is "$(cat optimus.out | wc -l)" "77" "Optimus.wdl output"
 
 $miniwdl check --no-shellcheck \
     --path "$SOURCE_DIR/test_corpi/HumanCellAtlas/skylab/library/tasks" \
@@ -32,7 +32,7 @@ $miniwdl check --no-shellcheck \
     > optimus_smartseq2.out
 is "$?" "0" "check Optimus.wdl and SmartSeq2SingleSample.wdl"
 is "$(grep UnusedDeclaration optimus_smartseq2.out | wc -l)" "3" "UnusedDeclaration in Optimus.wdl and SmartSeq2SingleSample.wdl"
-is "$(cat optimus_smartseq2.out | wc -l)" "105" "Optimus.wdl and SmartSeq2SingleSample.wdl output"
+is "$(cat optimus_smartseq2.out | wc -l)" "109" "Optimus.wdl and SmartSeq2SingleSample.wdl output"
 
 cat << EOF > lex_error.wdl
 # comment
