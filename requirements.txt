@@ -2,6 +2,6 @@
 # for miniwdl development are listed in requirements.dev.txt.
 setuptools
 lark-parser==0.7.1
-docker
+docker>=3.4.0
 argcomplete
 pygtail>=0.11.0
