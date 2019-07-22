@@ -124,6 +124,9 @@ class Boolean(Base):
         super().__init__(pos)
         self.value = literal
 
+    def __str__(self):
+        return str(self.value).lower()
+
     def _infer_type(self, type_env: Env.Types) -> Type.Base:
         return Type.Boolean()
 
@@ -147,6 +150,9 @@ class Int(Base):
     def __init__(self, pos: SourcePosition, literal: int) -> None:
         super().__init__(pos)
         self.value = literal
+
+    def __str__(self):
+        return str(self.value)
 
     def _infer_type(self, type_env: Env.Types) -> Type.Base:
         return Type.Int()
@@ -174,6 +180,9 @@ class Float(Base):
     def __init__(self, pos: SourcePosition, literal: float) -> None:
         super().__init__(pos)
         self.value = literal
+
+    def __str__(self):
+        return str(self.value)
 
     def _infer_type(self, type_env: Env.Types) -> Type.Base:
         return Type.Float()
@@ -203,6 +212,13 @@ class Placeholder(Base):
         super().__init__(pos)
         self.options = options
         self.expr = expr
+
+    def __str__(self):
+        options = []
+        for option in self.options:
+            options.append("{}=\"{}\"".format(option, self.options[option]))
+        options.append(str(self.expr))
+        return "~{{{}}}".format(" ".join(options))
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -303,6 +319,15 @@ class String(Base):
         self.parts = parts
         self.command = command
 
+    def __str__(self):
+        parts = []
+        for part in self.parts:
+            if isinstance(part, Placeholder):
+                parts.append(str(part))
+            else:
+                parts.append(part)
+        return "".join(parts)
+
     @property
     def children(self) -> Iterable[SourceNode]:
         for p in self.parts:
@@ -350,6 +375,12 @@ class Array(Base):
     def __init__(self, pos: SourcePosition, items: List[Base]) -> None:
         super(Array, self).__init__(pos)
         self.items = items
+
+    def __str__(self):
+        items = []
+        for item in self.items:
+            items.append(str(item))
+        return "[{}]".format(", ".join(items))
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -436,6 +467,10 @@ class Pair(Base):
         self.left = left
         self.right = right
 
+    def __str__(self):
+        return "({}, {})".format(str(self.left),
+                                 str(self.right))
+
     @property
     def children(self) -> Iterable[SourceNode]:
         yield self.left
@@ -467,6 +502,13 @@ class Map(Base):
     def __init__(self, pos: SourcePosition, items: List[Tuple[Base, Base]]) -> None:
         super().__init__(pos)
         self.items = items
+
+    def __str__(self):
+        items = []
+        for item in self.items:
+            items.append("{}: {}".format(str(item[0]),
+                                         str(item[1])))
+        return "{{{}}}".format(", ".join(items))
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -542,6 +584,12 @@ class Struct(Base):
                 raise Error.MultipleDefinitions(self.pos, "duplicate keys " + k)
             self.members[k] = v
 
+    def __str__(self):
+        members = []
+        for member in self.members:
+            members.append("{}: {}".format(member, str(self.members[member])))
+        return "({})".format(", ".join(members))
+
     @property
     def children(self) -> Iterable[SourceNode]:
         return self.members.values()
@@ -593,6 +641,12 @@ class IfThenElse(Base):
         self.condition = condition
         self.consequent = consequent
         self.alternative = alternative
+
+    def __str__(self):
+        return "(if {} then {} else {})".format(
+            str(self.condition),
+            str(self.consequent),
+            str(self.alternative))
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -676,6 +730,9 @@ class Ident(Base):
         self.name = parts[-1]
         self.namespace = parts[:-1]
         self.referee = None
+
+    def __str__(self):
+        return self.name
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -783,6 +840,11 @@ class Get(Base):
         self.expr = expr
         self.member = member
 
+    def __str__(self):
+        if self.member is not None:
+            return "{}.{}".format(str(self.expr), self.member)
+        return str(self.expr)
+
     @property
     def children(self) -> Iterable[SourceNode]:
         if self._type:
@@ -883,6 +945,33 @@ class Apply(Base):
         super().__init__(pos)
         self.function_name = function
         self.arguments = arguments
+
+    def __str__(self):
+        func = getattr(StdLib.Base(), self.function_name)
+        if isinstance(func, StdLib._ArithmeticOperator):
+            return "({} {} {})".format(str(self.arguments[0]),
+                                       func.name,
+                                       str(self.arguments[1]))
+        elif isinstance(func, StdLib._ComparisonOperator):
+            return "({} {} {})".format(str(self.arguments[0]),
+                                       func.name,
+                                       str(self.arguments[1]))
+        elif isinstance(func, StdLib._At):
+            return "{}[{}]".format(str(self.arguments[0]),
+                                   str(self.arguments[1]))
+        elif isinstance(func, StdLib._And):
+            return "({} && {})".format(str(self.arguments[0]),
+                                       str(self.arguments[1]))
+        elif isinstance(func, StdLib._Or):
+            return "({} || {})".format(str(self.arguments[0]),
+                                       str(self.arguments[1]))
+        elif func.name == "_negate":
+            return "!{}".format(str(self.arguments[0]))
+        else:
+            args = []
+            for arg in self.arguments:
+                args.append(str(arg))
+            return "{}({})".format(self.function_name, ",".join(args))
 
     @property
     def children(self) -> Iterable[SourceNode]:
