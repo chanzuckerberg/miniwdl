@@ -36,6 +36,7 @@ def main(args=None):
     fill_common(fill_check_subparser(subparsers))
     fill_common(fill_cromwell_subparser(subparsers), path=False)  # FIXME path issue #131
     fill_common(fill_run_subparser(subparsers))
+    fill_common(fill_run_self_test_subparser(subparsers))
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args(args if args is not None else sys.argv[1:])
@@ -45,6 +46,8 @@ def main(args=None):
             check(**vars(args))
         elif args.command == "run":
             runner(**vars(args))
+        elif args.command == "run_self_test":
+            run_self_test(**vars(args))
         elif args.command == "cromwell":
             cromwell(**vars(args))
         else:
@@ -317,11 +320,11 @@ def fill_run_subparser(subparsers):
 
 def runner(
     uri,
-    inputs,
-    input_file,
-    json_only,
-    empty,
-    check_quant,
+    inputs=[],
+    input_file=None,
+    json_only=False,
+    empty=[],
+    check_quant=True,
     task=None,
     rundir=None,
     path=None,
@@ -347,6 +350,14 @@ def runner(
         level = logging.DEBUG
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
+
+    try:
+        logger.debug(pkg_resources.get_distribution("miniwdl"))
+    except pkg_resources.DistributionNotFound as exc:
+        logger.debug("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
+    for pkg in ["docker", "lark-parser", "argcomplete", "pygtail"]:
+        logger.debug(pkg_resources.get_distribution(pkg))
+
     try:
         entrypoint = (
             runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
@@ -388,6 +399,8 @@ def runner(
     # link output files
     outputs_json = values_to_json(output_env, namespace=[target.name])
     runner_organize_outputs(target, {"outputs": outputs_json}, rundir)
+
+    return outputs_json
 
 
 def runner_input_completer(prefix, parsed_args, **kwargs):
@@ -667,6 +680,64 @@ def runner_organize_outputs(target, outputs_json, rundir):
     Env.filter(target.effective_outputs, output_links)
     # TODO: handle File's inside other compound types,
     # Pair[File,File], Map[String,File], Structs, etc.
+
+
+def fill_run_self_test_subparser(subparsers):
+    run_parser = subparsers.add_parser(
+        "run_self_test",
+        help="Run a trivial workflow to smoke-test installation, docker permission, etc.",
+    )
+    return run_parser
+
+
+def run_self_test(**kwargs):
+    dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
+    with open(os.path.join(dn, "test.wdl"), "w") as outfile:
+        outfile.write(
+            """
+            version 1.0
+            workflow hello_caller {
+                input {
+                    File who
+                }
+                call hello {
+                    input:
+                        who = who
+                }
+                output {
+                    File message = hello.message
+                }
+            }
+            task hello {
+                input {
+                    File who
+                }
+                command {
+                    echo -n "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                }
+                output {
+                    File message = glob("message.*")[0]
+                }
+            }
+            """
+        )
+    with open(os.path.join(dn, "alyssa.txt"), "w") as outfile:
+        outfile.write("Alyssa P. Hacker")
+
+    check(uri=[os.path.join(dn, "test.wdl")])
+
+    run_args = dict(kwargs)
+    run_args["uri"] = os.path.join(dn, "test.wdl")
+    run_args["inputs"] = ["who=" + os.path.join(dn, "alyssa.txt")]
+    run_args["rundir"] = dn
+    run_args["verbose"] = True
+    run_args["debug"] = True
+    outputs = runner(**run_args)
+
+    with open(outputs["hello_caller.message"], "r") as infile:
+        assert infile.read() == "Hello, Alyssa P. Hacker!"
+
+    print("miniwdl run_self_test OK")
 
 
 def fill_cromwell_subparser(subparsers):

@@ -1,5 +1,6 @@
 SHELL := /bin/bash
 PYTHON_PKG_BASE?=$(HOME)/.local
+export TMPDIR = /tmp
 
 test: check check_check
 	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v

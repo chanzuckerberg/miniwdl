@@ -11,7 +11,10 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 45
+plan tests 46
+
+$miniwdl run_self_test
+is "$?" "0" "run_self_test"
 
 DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)
 cd $DN
