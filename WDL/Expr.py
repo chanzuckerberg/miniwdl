@@ -216,7 +216,7 @@ class Placeholder(Base):
     def __str__(self):
         options = []
         for option in self.options:
-            options.append("{}=\"{}\"".format(option, self.options[option]))
+            options.append('{}="{}"'.format(option, self.options[option]))
         options.append(str(self.expr))
         return "~{{{}}}".format(" ".join(options))
 
@@ -468,8 +468,7 @@ class Pair(Base):
         self.right = right
 
     def __str__(self):
-        return "({}, {})".format(str(self.left),
-                                 str(self.right))
+        return "({}, {})".format(str(self.left), str(self.right))
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -506,8 +505,7 @@ class Map(Base):
     def __str__(self):
         items = []
         for item in self.items:
-            items.append("{}: {}".format(str(item[0]),
-                                         str(item[1])))
+            items.append("{}: {}".format(str(item[0]), str(item[1])))
         return "{{{}}}".format(", ".join(items))
 
     @property
@@ -587,8 +585,9 @@ class Struct(Base):
     def __str__(self):
         members = []
         for member in self.members:
-            members.append("{}: {}".format(member, str(self.members[member])))
-        return "({})".format(", ".join(members))
+            members.append('"{}": {}'.format(member, str(self.members[member])))
+        # Returns a Map literal instead of a struct literal as these are version dependant
+        return "{{{}}}".format(", ".join(members))
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -643,10 +642,9 @@ class IfThenElse(Base):
         self.alternative = alternative
 
     def __str__(self):
-        return "(if {} then {} else {})".format(
-            str(self.condition),
-            str(self.consequent),
-            str(self.alternative))
+        return "if {} then {} else {}".format(
+            str(self.condition), str(self.consequent), str(self.alternative)
+        )
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -779,6 +777,9 @@ class _LeftName(Base):
         super().__init__(pos)
         assert name
         self.name = name
+
+    def __str__(self):
+        return self.name
 
     def _infer_type(self, type_env: Env.Types) -> Type.Base:
         raise NotImplementedError()
@@ -924,7 +925,47 @@ class Get(Base):
         return []
 
 
-_base_stdlib = None  # memoized instance of the defalut WDL.StdLib.Base()
+_base_stdlib = None  # memorized instance of the default WDL.StdLib.Base()
+
+
+def _add_parentheses(arguments, parent_operator):
+    """
+    Add parentheses around arguments if necessary.
+
+    Adds parentheses around if-then-else clauses if on the left side of the
+    parent operator (otherwise it is ambiguous whether 'if true
+    then 1 else 100 + 1' should return 1 or 2).
+
+    Adds parentheses around expression with a lower precedence than the parent operator
+    """
+    arguments_out = []
+    precedence = {
+        "_mul": 7,
+        "_div": 7,
+        "_rem": 7,
+        "_add": 6,
+        "_sub": 6,
+        "_lt": 5,
+        "_lte": 5,
+        "_gt": 5,
+        "_gte": 5,
+        "_eqeq": 4,
+        "_neq": 4,
+        "_land": 3,
+        "_lor": 3,
+    }
+
+    for i, argument in enumerate(arguments):
+        if isinstance(argument, IfThenElse) and (parent_operator in precedence and i == 0):
+            arguments_out.append("({})".format(str(argument)))
+        elif isinstance(argument, Apply):
+            if precedence.get(parent_operator, 100) > precedence.get(argument.function_name, 100):
+                arguments_out.append("({})".format(str(argument)))
+            else:
+                arguments_out.append(str(argument))
+        else:
+            arguments_out.append(str(argument))
+    return arguments_out
 
 
 class Apply(Base):
@@ -948,30 +989,23 @@ class Apply(Base):
 
     def __str__(self):
         func = getattr(StdLib.Base(), self.function_name)
+        arguments = _add_parentheses(self.arguments, self.function_name)
         if isinstance(func, StdLib._ArithmeticOperator):
-            return "({} {} {})".format(str(self.arguments[0]),
-                                       func.name,
-                                       str(self.arguments[1]))
+            return "{} {} {}".format(arguments[0], func.name, arguments[1])
         elif isinstance(func, StdLib._ComparisonOperator):
-            return "({} {} {})".format(str(self.arguments[0]),
-                                       func.name,
-                                       str(self.arguments[1]))
+            return "{} {} {}".format(arguments[0], func.name, arguments[1])
         elif isinstance(func, StdLib._At):
-            return "{}[{}]".format(str(self.arguments[0]),
-                                   str(self.arguments[1]))
+            return "{}[{}]".format(arguments[0], arguments[1])
         elif isinstance(func, StdLib._And):
-            return "({} && {})".format(str(self.arguments[0]),
-                                       str(self.arguments[1]))
+            return "{} && {}".format(arguments[0], arguments[1])
         elif isinstance(func, StdLib._Or):
-            return "({} || {})".format(str(self.arguments[0]),
-                                       str(self.arguments[1]))
+            return "{} || {}".format(arguments[0], arguments[1])
+        elif func.name == "_rem":
+            return "{} % {}".format(arguments[0], arguments[1])
         elif func.name == "_negate":
-            return "!{}".format(str(self.arguments[0]))
+            return "!{}".format(arguments[0])
         else:
-            args = []
-            for arg in self.arguments:
-                args.append(str(arg))
-            return "{}({})".format(self.function_name, ",".join(args))
+            return "{}({})".format(self.function_name, ",".join(arguments))
 
     @property
     def children(self) -> Iterable[SourceNode]:

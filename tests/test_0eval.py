@@ -2,6 +2,60 @@ import unittest, inspect, json
 from .context import WDL
 
 class TestEval(unittest.TestCase):
+    def test_expr_render(self):
+        # types
+        self.assertEqual(str(WDL.parse_expr("false")), "false")
+        self.assertEqual(str(WDL.parse_expr("1")), "1")
+        self.assertEqual(str(WDL.parse_expr("1.1")), "1.1")
+        self.assertEqual(str(WDL.parse_expr('"Some text with a ~{placeholder}"')), '"Some text with a ~{placeholder}"')
+        self.assertEqual(str(WDL.parse_expr('["An", "Array"]')), '["An", "Array"]')
+        self.assertEqual(str(WDL.parse_expr('{"A": "Map"}')), '{"A": "Map"}')
+        self.assertEqual(str(WDL.parse_expr('("A", "Pair")')), '("A", "Pair")')
+        self.assertEqual(str(WDL.parse_expr('object {"A": "struct"}', "1.2")), '{"A": "struct"}')
+
+        # logic
+        self.assertEqual(str(WDL.parse_expr("true && false")), "true && false")
+        self.assertEqual(str(WDL.parse_expr("true || false")), "true || false")
+        self.assertEqual(str(WDL.parse_expr("true && false || true")), "true && false || true")
+        self.assertEqual(str(WDL.parse_expr("!true")), "!true")
+        self.assertEqual(str(WDL.parse_expr("if true then 1 else 2")), "if true then 1 else 2")
+
+        # comparisons
+        self.assertEqual(str(WDL.parse_expr("1 == 2")), "1 == 2")
+        self.assertEqual(str(WDL.parse_expr("1 != 2")), "1 != 2")
+        self.assertEqual(str(WDL.parse_expr("1 >= 2")), "1 >= 2")
+        self.assertEqual(str(WDL.parse_expr("1 <= 2")), "1 <= 2")
+        self.assertEqual(str(WDL.parse_expr("1 > 2")), "1 > 2")
+        self.assertEqual(str(WDL.parse_expr("1 < 2")), "1 < 2")
+
+        # arithmetics
+        self.assertEqual(str(WDL.parse_expr("1+1")), "1 + 1")
+        self.assertEqual(str(WDL.parse_expr("1-1")), "1 - 1")
+        self.assertEqual(str(WDL.parse_expr("1/1")), "1 / 1")
+        self.assertEqual(str(WDL.parse_expr("1*1")), "1 * 1")
+        self.assertEqual(str(WDL.parse_expr("1%1")), "1 % 1")
+        self.assertEqual(str(WDL.parse_expr("1*1")), "1 * 1")
+
+        # functions
+        self.assertEqual(str(WDL.parse_expr("defined(value)")), "defined(value)")
+
+        # access
+        self.assertEqual(str(WDL.parse_expr("[1,2][1]")), "[1, 2][1]")
+        self.assertEqual(str(WDL.parse_expr("{1:2}[1]")), "{1: 2}[1]")
+        self.assertEqual(str(WDL.parse_expr("a.b")), "a.b")
+
+        # if-then-else
+        self.assertEqual(str(WDL.parse_expr("if false then 1+1 else 2+2")), "if false then 1 + 1 else 2 + 2")
+
+        # combinations
+        combo = "[treu][1] || defined(var) && !(8 == 1 * (12 + if false then 2 else 3) / 6)"
+        self.assertEqual(str(WDL.parse_expr(combo)), combo)
+        combo2 = "(if true then 1 else 2 * 8) % a.b - 16"
+        self.assertEqual(str(WDL.parse_expr(combo2)), combo2)
+        combo3 = "defined(if true then hey else hello)"
+        self.assertEqual(str(WDL.parse_expr(combo3)), combo3)
+        ifthenelsechain = "!if true then if false then true else false else true"
+        self.assertEqual(str(WDL.parse_expr(ifthenelsechain)), ifthenelsechain)
 
     def test_boolean(self):
         expr = WDL.parse_expr("true")
