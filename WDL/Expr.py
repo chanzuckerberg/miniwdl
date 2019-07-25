@@ -730,7 +730,7 @@ class Ident(Base):
         self.referee = None
 
     def __str__(self):
-        return self.name
+        return ".".join(self.namespace + [self.name])
 
     @property
     def children(self) -> Iterable[SourceNode]:
