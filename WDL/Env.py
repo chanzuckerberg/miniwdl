@@ -40,7 +40,7 @@ class Binding(Generic[T]):
     def info(self) -> Any:  # pyre-ignore
         return self._info
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name + ": " + str(self.value)
 
 
@@ -108,9 +108,6 @@ class Bindings(Generic[T]):
             if isinstance(fb, Binding):
                 ans = Bindings(fb, ans)
         return _rev(ans)
-
-    def iter(self, f: Callable[[Binding[T]], None]) -> None:
-        self.map(f)
 
     def filter(self, pred: Callable[[Binding[T]], bool]) -> "Bindings[T]":
         return self.map(lambda b: b if pred(b) else None)
@@ -198,7 +195,7 @@ def _rev(env: Bindings[T]) -> Bindings[T]:
     return ans
 
 
-def merge(*args: List[Bindings[T]]) -> Bindings[T]:
+def merge(*args: Bindings[T]) -> Bindings[T]:
     """
     Merge evironments. If multiple environments have bindings for the same (namespaced) name, the
     result includes one of these bindings chosen arbitrarily.
@@ -210,6 +207,8 @@ def merge(*args: List[Bindings[T]]) -> Bindings[T]:
             ans[0] = Bindings(b, ans[0])
 
     for env in args:
-        env.iter(visit)
+        assert isinstance(env, Bindings)
+        for b in env:
+            visit(b)
     # TODO: add empty namespaces
     return ans[0]

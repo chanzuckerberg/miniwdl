@@ -448,7 +448,6 @@ class IncompleteCall(Linter):
     # Call without all required inputs (allowed for top-level workflow)
     def call(self, obj: Tree.Call) -> Any:
         assert obj.callee is not None
-        # pyre-fixme
         required_inputs = set(decl.name for decl in obj.callee.required_inputs)
         for name, _ in obj.inputs.items():
             if name in required_inputs:

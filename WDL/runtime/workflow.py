@@ -294,6 +294,7 @@ class StateMachine:
         scatter_vars = Env.Bindings()
         for p in job.scatter_stack:
             scatter_vars = Env.Bindings(p[1], scatter_vars)
+        # pyre-ignore
         env = Env.merge(scatter_vars, *(self.job_outputs[dep] for dep in job.dependencies))
         stdlib = StdLib.Base()
         envlog = json.dumps(self.values_to_json(env))
@@ -303,7 +304,7 @@ class StateMachine:
             for newjob in _scatter(self.workflow, job.node, env, job.scatter_stack, stdlib):
                 self._schedule(newjob)
             # the section node itself has no outputs, so return an empty env
-            return []
+            return Env.Bindings()
 
         if isinstance(job.node, Tree.Decl):
             # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
@@ -364,7 +365,7 @@ def _scatter(
     workflow: Tree.Workflow,
     section: Union[Tree.Scatter, Tree.Conditional],
     env: Env.Bindings[Value.Base],
-    scatter_stack: List[Tuple[str, Env.Binding]],
+    scatter_stack: List[Tuple[str, Env.Binding[Value.Base]]],
     stdlib: StdLib.Base,
 ) -> Iterable[_Job]:
     # we'll be tracking, for each body node ID, the IDs of the potentially multiple corresponding

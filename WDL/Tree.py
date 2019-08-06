@@ -348,7 +348,7 @@ class Task(SourceNode):
         struct_typedefs: Optional[Env.Bindings[StructTypeDef]] = None,
         check_quant: bool = True,
     ) -> None:
-        struct_typedefs = struct_typedefs or []
+        struct_typedefs = struct_typedefs or Env.Bindings()
         # warm-up check: if input{} section exists then all postinput decls
         # must be bound
         if self.inputs is not None:
@@ -501,7 +501,6 @@ class Call(WorkflowNode):
         assert self.callee
 
         # Make a set of the input names which are required for this call
-        # pyre-fixme
         required_inputs = set(decl.name for decl in self.callee.required_inputs)
 
         # typecheck call inputs against task/workflow input declarations
@@ -739,7 +738,7 @@ class Scatter(WorkflowSection):
 
         # array-ize each inner type binding and add gather nodes
         def arrayize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
-            return Env.Binding(
+            return Env.Binding(  # pyre-ignore
                 binding.name,
                 Type.Array(binding.value, nonempty=nonempty),
                 self.gathers[binding.info.workflow_node_id],
@@ -760,13 +759,13 @@ class Scatter(WorkflowSection):
                 inner_outputs = Env.merge(elt.effective_outputs, inner_outputs)
 
         def arrayize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
-            return Env.Binding(
+            return Env.Binding(  # pyre-ignore
                 binding.name,
                 Type.Array(binding.value, nonempty=nonempty),
                 self.gathers[binding.info.workflow_node_id],
             )
 
-        return inner_outputs.map(arrayize)
+        return inner_outputs.map(arrayize)  # pyre-ignore
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
         yield from _expr_workflow_node_dependencies(self.expr)
@@ -830,7 +829,7 @@ class Conditional(WorkflowSection):
                 self.gathers[binding.info.workflow_node_id],
             )
 
-        return inner_outputs.map(optionalize)
+        return inner_outputs.map(optionalize)  # pyre-ignore
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
         yield from _expr_workflow_node_dependencies(self.expr)
@@ -1376,7 +1375,7 @@ def _build_workflow_type_env(
     doc: Document,
     check_quant: bool,
     self: Optional[Union[Workflow, WorkflowSection]] = None,
-    outer_type_env: Env.Bindings[Type.Base] = None,
+    outer_type_env: Optional[Env.Bindings[Type.Base]] = None,
 ) -> None:
     # Populate each Workflow, Scatter, and Conditional object with its
     # _type_env attribute containing the type environment available in the body
