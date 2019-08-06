@@ -54,9 +54,6 @@ class Binding(Generic[T]):
         ":type: Any"
         return self._info
 
-    def __str__(self) -> str:
-        return self.name + ": " + str(self.value)
-
 
 class _EmptyNamespace:
     namespace: str
@@ -230,7 +227,7 @@ class Bindings(Generic[T]):
             if isinstance(pos._binding, _EmptyNamespace):
                 ans = Bindings(_EmptyNamespace(namespace + pos._binding.namespace), ans)
             pos = pos._next
-        return _rev(ans)
+        return _rev(ans.with_empty_namespace(namespace))
 
     def with_empty_namespace(self, namespace: str) -> "Bindings[T]":
         """
