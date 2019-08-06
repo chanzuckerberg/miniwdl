@@ -120,7 +120,7 @@ def collect(doc):
 
 def _find_input_decl(obj: Tree.Call, name: str) -> Tree.Decl:
     assert isinstance(obj.callee, (Tree.Task, Tree.Workflow))
-    return Env.resolve(obj.callee.available_inputs, [], name)
+    return obj.callee.available_inputs.resolve(name)
 
 
 def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
@@ -493,10 +493,10 @@ class NameCollision(Linter):
             msg = "call name '{}' collides with workflow name".format(obj.name)
             self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "call name '{}' colides with {}struct type".format(
-                    obj.name, "imported " if stb.rhs.imported else ""
+                    obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
@@ -519,10 +519,10 @@ class NameCollision(Linter):
                 msg = "declaration of '{}' collides with a task name".format(obj.name)
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "declaration of '{}' colides with {}struct type".format(
-                    obj.name, "imported " if stb.rhs.imported else ""
+                    obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
@@ -545,10 +545,10 @@ class NameCollision(Linter):
                 msg = "scatter variable '{}' collides with a task name".format(obj.variable)
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.variable:
                 msg = "scatter variable '{}' colides with {}struct type".format(
-                    obj.variable, "imported " if stb.rhs.imported else ""
+                    obj.variable, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
@@ -564,10 +564,10 @@ class NameCollision(Linter):
                 )
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "workflow name '{}' colides with {}struct type".format(
-                    obj.name, "imported " if stb.rhs.imported else ""
+                    obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
@@ -581,20 +581,20 @@ class NameCollision(Linter):
                 msg = "task name '{}' collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "task name '{}' colides with {}struct type".format(
-                    obj.name, "imported " if stb.rhs.imported else ""
+                    obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
     def document(self, obj: Tree.Document) -> Any:
         for imp in obj.imports:
             for stb in obj.struct_typedefs:
-                assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+                assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
                 if stb.name == imp.namespace:
                     msg = "imported document namespace '{}' collides with {}struct type".format(
-                        imp.namespace, "imported " if stb.rhs.imported else ""
+                        imp.namespace, "imported " if stb.value.imported else ""
                     )
                     self.add(obj, msg)
 
