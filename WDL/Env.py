@@ -199,16 +199,17 @@ def merge(*args: Bindings[T]) -> Bindings[T]:
     """
     Merge evironments. If multiple environments have bindings for the same (namespaced) name, the
     result includes one of these bindings chosen arbitrarily.
+
+    To maximize efficiency, the largest environment should be provided as the last argument.
     """
-    ans = [Bindings()]
+    ans = [args[-1] if args else Bindings()]
 
     def visit(b: Binding[T]) -> None:
-        if not ans[0].has_binding(b.name):
-            ans[0] = Bindings(b, ans[0])
+        ans[0] = Bindings(b, ans[0])
 
-    for env in args:
+    for env in reversed(args[:-1]):
         assert isinstance(env, Bindings)
-        for b in env:
+        for b in _rev(env):
             visit(b)
     # TODO: add empty namespaces
     return ans[0]
