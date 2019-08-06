@@ -90,7 +90,7 @@ class TestEval(unittest.TestCase):
             exn = None
             version = None
             for x in tuple[2:]:
-                if isinstance(x, list):
+                if isinstance(x, WDL.Env.Bindings):
                     env = x
                 elif isinstance(x, WDL.Type.Base):
                     expected_type = x
@@ -100,11 +100,10 @@ class TestEval(unittest.TestCase):
                     exn = x
                 else:
                     assert False
-            type_env = []
+            type_env = WDL.Env.Bindings()
             if env is not None:
-                for node in env:
-                    if isinstance(node, WDL.Env.Binding):
-                        type_env = WDL.Env.bind(type_env, [], node.name, node.rhs.type)
+                for binding in env:
+                    type_env = type_env.bind(binding.name, binding.value.type)
             if exn:
                 with self.assertRaises(exn, msg=expected):
                     x = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env)
@@ -345,7 +344,10 @@ class TestEval(unittest.TestCase):
         )
 
 def cons_env(*bindings):
-    return [WDL.Env.Binding(x,y) for (x,y) in bindings]
+    b = WDL.Env.Bindings()
+    for (x,y) in bindings:
+        b = WDL.Env.Bindings(WDL.Env.Binding(x,y), b)
+    return b
 
 class TestEnv(unittest.TestCase):
     """
@@ -353,77 +355,51 @@ class TestEnv(unittest.TestCase):
     """
 
     def test_bind(self):
-        e = WDL.Env.bind([], [], "foo", "bar")
-        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
-        e = WDL.Env.bind(e, ["fruit"], "orange", "a")
-        self.assertEqual(len(e), 2)
-        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
-        e = WDL.Env.bind(e, ["fruit"], "pear", "b")
-        self.assertEqual(len(e), 2)
-        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "pear"), "b")
-        e = WDL.Env.bind(e, ["fruit", "apple"], "honeycrisp", "c")
-        e = WDL.Env.bind(e, ["fruit", "apple"], "macintosh", "d")
-        self.assertEqual(len(e), 2)
-        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "pear"), "b")
-        self.assertEqual(len(WDL.Env.resolve_namespace(e, ["fruit", "apple"])), 2)
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp"), "c")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
-
-    def test_unbind(self):
-        e = WDL.Env.bind([], [], "foo", "bar")
-        e = WDL.Env.bind(e, ["fruit"], "orange", "a")
-        e = WDL.Env.bind(e, ["fruit"], "pear", "b")
-        e = WDL.Env.bind(e, ["fruit", "apple"], "honeycrisp", "c")
-        e = WDL.Env.bind(e, ["fruit", "apple"], "macintosh", "d")
-
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp"), "c")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
-        WDL.Env.unbind(e, [], "macintosh") # no KeyError
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
-        e = WDL.Env.unbind(e, ["fruit", "apple"], "macintosh")
-        with self.assertRaises(KeyError):
-            WDL.Env.resolve(e, ["fruit", "apple"], "macintosh")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp"), "c")
-
-        self.assertEqual(len(WDL.Env.resolve_namespace(e, ["fruit"])), 3)
-        e = WDL.Env.unbind(e, ["fruit", "apple"], "honeycrisp")
-        self.assertEqual(len(WDL.Env.resolve_namespace(e, ["fruit"])), 2)
+        e = WDL.Env.Bindings(WDL.Env.Binding("foo", "bar"))
+        self.assertEqual(e.resolve("foo"), "bar")
+        e = e.bind("fruit.orange", "a")
+        self.assertEqual(len(list(e)), 2)
+        self.assertEqual(e.resolve("foo"), "bar")
+        self.assertEqual(e.resolve("fruit.orange"), "a")
+        e = e.bind("fruit.pear", "b")
+        self.assertEqual(len(list(e)), 3)
+        self.assertEqual(e.resolve("foo"), "bar")
+        self.assertEqual(e.resolve("fruit.orange"), "a")
+        self.assertEqual(e.resolve("fruit.pear"), "b")
+        e = e.bind("fruit.apple.honeycrisp", "c").bind("fruit.apple.macintosh", "d")
+        self.assertEqual(len(list(e)), 5)
+        self.assertEqual(e.resolve("foo"), "bar")
+        self.assertEqual(e.resolve("fruit.orange"), "a")
+        self.assertEqual(e.resolve("fruit.pear"), "b")
+        self.assertEqual(len(list(e.enter_namespace("fruit.apple"))), 2)
+        self.assertEqual(e.resolve("fruit.apple.honeycrisp"), "c")
+        self.assertEqual(e.resolve("fruit.apple.macintosh"), "d")
 
     def test_subtract(self):
-        e = WDL.Env.bind([], [], "foo", "bar")
-        e = WDL.Env.bind(e, ["fruit"], "orange", "a")
-        e = WDL.Env.bind(e, ["fruit"], "pear", "b")
-        e = WDL.Env.bind(e, ["fruit", "apple"], "honeycrisp", "c")
-        e = WDL.Env.bind(e, ["fruit", "apple"], "macintosh", "d")
-        e = WDL.Env.bind(e, ["fruit", "grape"], "red", "e")
-        e = WDL.Env.bind(e, ["fruit", "grape"], "green", "f")
+        e = WDL.Env.Bindings()
+        e = e.bind("foo", "bar").bind("fruit.orange", "a").bind("fruit.pear", "b")
+        e = e.bind("fruit.apple.honeycrisp", "c").bind("fruit.apple.macintosh", "d")
+        e = e.bind("fruit.grape.red", "e").bind("fruit.grape.green", "f")
 
-        rhs = WDL.Env.bind([], ["fruit"], "pear", "b")
-        rhs = WDL.Env.bind(rhs, ["fruit", "apple"], "honeycrisp", "c")
+        rhs = WDL.Env.Bindings().bind("fruit.pear","b").bind("fruit.apple.honeycrisp","c")
 
-        e = WDL.Env.subtract(e, rhs)
+        e = e.subtract(rhs)
         with self.assertRaises(KeyError):
-            WDL.Env.resolve(e, ["fruit"], "pear")
+            e.resolve("fruit.pear")
         with self.assertRaises(KeyError):
-            WDL.Env.resolve(e, ["fruit", "apple"], "honeycrisp")
-        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "apple"], "macintosh"), "d")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "grape"], "green"), "f")
+            e.resolve("fruit.apple.honeycrisp")
+        self.assertEqual(e.resolve("foo"), "bar")
+        self.assertEqual(e.resolve("fruit.orange"), "a")
+        self.assertEqual(e.resolve("fruit.apple.macintosh"), "d")
+        self.assertEqual(e.resolve("fruit.grape.green"), "f")
 
-        e = WDL.Env.subtract(e, WDL.Env.bind([], ["fruit", "apple"], "macintosh", "d"))
+        e = e.subtract(WDL.Env.Bindings(WDL.Env.Binding("fruit.apple.macintosh", None)))
         with self.assertRaises(KeyError):
-            WDL.Env.resolve(e, ["fruit", "apple"], "macintosh")
-        with self.assertRaises(KeyError):
-            WDL.Env.resolve_namespace(e, ["fruit", "apple"])
-        self.assertEqual(WDL.Env.resolve(e, [], "foo"), "bar")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit"], "orange"), "a")
-        self.assertEqual(WDL.Env.resolve(e, ["fruit", "grape"], "green"), "f")
+            e.resolve("fruit.apple.macintosh")
+        self.assertFalse(e.has_namespace("fruit.apple"))
+        self.assertEqual(e.resolve("foo"), "bar")
+        self.assertEqual(e.resolve("fruit.orange"), "a")
+        self.assertEqual(e.resolve("fruit.grape.green"), "f")
 
 
 class TestValue(unittest.TestCase):
@@ -490,9 +466,9 @@ class TestValue(unittest.TestCase):
         doc.typecheck()
 
         def rt(exe, d):
-            namespace = None
+            namespace = ""
             if isinstance(exe, WDL.Workflow):
-                namespace = [exe.name]
+                namespace = exe.name
             self.assertEqual(WDL.values_to_json(WDL.values_from_json(d, exe.available_inputs, exe.required_inputs, namespace=namespace), namespace=namespace), d)
 
         rt(doc.tasks[0], {"who": "Alyssa"})
@@ -512,5 +488,5 @@ class TestValue(unittest.TestCase):
             rt(doc.workflow, {"w.s..who": "b"})
 
         # misc functionality
-        self.assertEqual(WDL.values_to_json(doc.workflow.required_inputs, ["w"]), {"w.s.who": "String"})
+        self.assertEqual(WDL.values_to_json(doc.workflow.required_inputs, "w"), {"w.s.who": "String"})
         self.assertEqual(WDL.values_to_json(doc.workflow._type_env), {"s.message": "String"})

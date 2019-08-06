@@ -322,10 +322,10 @@ class TaskDockerContainer(TaskContainer):
 
 def run_local_task(
     task: Tree.Task,
-    posix_inputs: Env.Values,
+    posix_inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
-) -> Tuple[str, Env.Values]:
+) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
 
@@ -398,8 +398,8 @@ def run_local_task(
 
 
 def _eval_task_inputs(
-    logger: logging.Logger, task: Tree.Task, posix_inputs: Env.Values, container: TaskContainer
-) -> Env.Values:
+    logger: logging.Logger, task: Tree.Task, posix_inputs: Env.Bindings[Value.Base], container: TaskContainer
+) -> Env.Bindings[Value.Base]:
     # Map all the provided input Files to in-container paths
     # First make a pass to collect all the host paths and pass them to the
     # container as a group (so that it can deal with any basename collisions)
@@ -476,8 +476,8 @@ def _eval_task_inputs(
 
 
 def _eval_task_outputs(
-    logger: logging.Logger, task: Tree.Task, env: Env.Values, container: TaskContainer
-) -> Env.Values:
+    logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
+) -> Env.Bindings[Value.Base]:
 
     stdlib = OutputStdLib(container)
     outputs = []

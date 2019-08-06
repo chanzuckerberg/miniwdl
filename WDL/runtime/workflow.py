@@ -13,8 +13,9 @@ dependencies on the other nodes.
 Abstractly, we plan to "visit" each node after visiting all of its dependencies. The node's type
 prescribes some job to do upon visitation, such as evaluating a Decl's WDL expression, running a
 task on some inputs, or scheduling additional jobs to scatter over an array. Named WDL values
-(``WDL.Env.Values``) are transmitted along each dependency edge, and WDL expressions in each node
-are evaluated in the environment formed from the union of the node's incoming dependency edges.
+(``WDL.Env.Bindings[WDL.Value.Base]``) are transmitted along each dependency edge, and WDL
+expressions in each node are evaluated in the environment formed from the union of the node's
+incoming dependency edges.
 
 Scatter sections contain a body, which provides a template for the job subgraph to be scheduled for
 each element of the runtime-evaluated scatter array. They also contain template Gather nodes, each
@@ -76,8 +77,8 @@ class WorkflowOutputs(Tree.WorkflowNode):
         yield from self.output_node_ids
 
     def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
-    ) -> Env.Types:
+        self, struct_typedefs: Env.Bindings[Tree.StructTypeDef], type_env: Env.Bindings[Type.Base]
+    ) -> Env.Bindings[Type.Base]:
         raise NotImplementedError()
 
     @property
@@ -107,18 +108,18 @@ class StateMachine:
     _logger: Optional[logging.Logger] = None
     run_id: str
     log_file: str
-    values_to_json: Callable[[Env.Values], Dict]
+    values_to_json: Callable[[Env.Bindings[Value.Base]], Dict]
     workflow: Tree.Workflow
-    inputs: Env.Values
+    inputs: Env.Bindings[Value.Base]
     jobs: Dict[str, _Job]
-    job_outputs: Dict[str, Env.Values]
+    job_outputs: Dict[str, Env.Bindings[Value.Base]]
     finished: Set[str]
     running: Set[str]
     waiting: Set[str]
     # TODO: factor out WorkflowState interface?
 
     def __init__(
-        self, run_id: str, workflow: Tree.Workflow, inputs: Env.Values, log_file: str = ""
+        self, run_id: str, workflow: Tree.Workflow, inputs: Env.Bindings[Value.Base], log_file: str = ""
     ) -> None:
         """
         Initialize the workflow state machine from the workflow AST and inputs
@@ -173,7 +174,7 @@ class StateMachine:
             )
 
     @property
-    def outputs(self) -> Optional[Env.Values]:
+    def outputs(self) -> Optional[Env.Bindings[Value.Base]]:
         """
         Workflow outputs, once the workflow is completely finished. ``None`` until then.
 
@@ -188,7 +189,7 @@ class StateMachine:
 
     CallInstructions = NamedTuple(
         "CallInstructions",
-        [("id", str), ("callee", Union[Tree.Task, Tree.Workflow]), ("inputs", Env.Values)],
+        [("id", str), ("callee", Union[Tree.Task, Tree.Workflow]), ("inputs", Env.Bindings[Value.Base])],
     )
     """
     The state machine produces a ``CallInstructions`` object when it's time for the driver to
@@ -196,7 +197,7 @@ class StateMachine:
 
     :param id: call/job ID string, unique in the workflow
     :param callee: ``WDL.Call`` or ``WDL.Workflow`` to launch
-    :param inputs: ``WDL.Env.Values`` of call inputs
+    :param inputs: ``WDL.Env.Bindings[Value.Base]`` of call inputs
     """
 
     def step(self) -> "Optional[StateMachine.CallInstructions]":
@@ -255,7 +256,7 @@ class StateMachine:
             self.running.remove(job.id)
             self.finished.add(job.id)
 
-    def call_finished(self, job_id: str, outputs: Env.Values) -> None:
+    def call_finished(self, job_id: str, outputs: Env.Bindings[Value.Base]) -> None:
         """
         Deliver notice of a job's successful completion, along with its outputs
         """
@@ -275,7 +276,7 @@ class StateMachine:
         self.jobs[job.id] = job
         self.waiting.add(job.id)
 
-    def _do_job(self, job: _Job) -> "Union[StateMachine.CallInstructions, Env.Values]":
+    def _do_job(self, job: _Job) -> "Union[StateMachine.CallInstructions, Env.Bindings[Value.Base]]":
         if isinstance(job.node, Tree.Gather):
             return _gather(
                 job.node, dict((dep_id, self.job_outputs[dep_id]) for dep_id in job.dependencies)
@@ -359,7 +360,7 @@ class StateMachine:
 def _scatter(
     workflow: Tree.Workflow,
     section: Union[Tree.Scatter, Tree.Conditional],
-    env: Env.Values,
+    env: Env.Bindings[Value.Base],
     scatter_stack: List[Tuple[str, Env.Binding]],
     stdlib: StdLib.Base,
 ) -> Iterable[_Job]:
@@ -453,7 +454,7 @@ def _append_scatter_indices(node_id: str, scatter_indices: List[str]) -> str:
     return "-".join([node_id] + scatter_indices)
 
 
-def _gather(gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Values:
+def _gather(gather: Tree.Gather, dependencies: Dict[str, Env.Bindings[Value.Base]]) -> Env.Bindings[Value.Base]:
     # important: the dependency job IDs must sort lexicographically in the desired array order!
     dep_ids = sorted(dependencies.keys())
 
@@ -510,11 +511,11 @@ def _gather(gather: Tree.Gather, dependencies: Dict[str, Env.Values]) -> Env.Val
 
 def run_local_workflow(
     workflow: Tree.Workflow,
-    posix_inputs: Env.Values,
+    posix_inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     _test_pickle: bool = False,
-) -> Tuple[str, Env.Values]:
+) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
 

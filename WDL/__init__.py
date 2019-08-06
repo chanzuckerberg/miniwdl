@@ -148,34 +148,34 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[Task]:
 
 def values_from_json(
     values_json: Dict[str, Any],
-    available: Env.Decls,
-    required: Optional[Env.Decls] = None,
-    namespace: Optional[List[str]] = None,
-) -> Env.Values:
+    available: Env.Bindings[Tree.Decl],
+    required: Optional[Env.Bindings[Tree.Decl]] = None,
+    namespace: str = "",
+) -> Env.Bindings[Value.Base]:
     """
     Given a dict parsed from Cromwell-style JSON and the available input (or
-    output) declarations of a task or workflow, create a ``WDL.Env.Values``.
+    output) declarations of a task or workflow, create a
+    ``WDL.Env.Bindings[Value.Base]``.
 
     :param required: raise an error if any of these required inputs aren't
                      present
     :param namespace: expect each key to start with this namespace prefixed to
                       the input/output names (e.g. the workflow name)
     """
-    ans = []
+    if namespace and not namespace.endswith("."):
+        namespace += "."
+    ans = Env.Bindings()
     for key in values_json:
-        fqn = key.split(".")
-        if not fqn or [name for name in fqn if not name]:
-            raise Error.InputError("invalid key in JSON: " + key)
-        if namespace and len(fqn) > len(namespace):
-            fqn = fqn[len(namespace) :]
+        key2 = key
+        if namespace and key.startswith(namespace):
+            key2 = key[len(namespace):]
         try:
-            ty = Env.resolve(available, fqn[:-1], fqn[-1]).type
+            ty = available.resolve(key2).type
         except KeyError:
             raise Error.InputError("unknown input/output: " + key) from None
-        v = Value.from_json(ty, values_json[key])
-        ans = Env.bind(ans, fqn[:-1], fqn[-1], v)
+        ans = ans.bind(key2, Value.from_json(ty, values_json[key]))
     if required:
-        missing = Env.subtract(required, ans)
+        missing = required.subtract(ans)
         if missing:
             raise Error.InputError(
                 "missing required inputs/outputs: " + ", ".join(values_to_json(missing))
@@ -183,33 +183,26 @@ def values_from_json(
     return ans
 
 
-def values_to_json(values_env: Env.Values, namespace: Optional[List[str]] = None) -> Dict[str, Any]:
+def values_to_json(values_env: Env.Bindings[Value.Base], namespace: str = "") -> Dict[str, Any]:
     """
-    Convert a ``WDL.Env.Values`` to a dict which ``json.dumps`` to
+    Convert a ``WDL.Env.Bindings[WDL.Value.Base]`` to a dict which ``json.dumps`` to
     Cromwell-style JSON.
 
     :param namespace: prefix this namespace to each key (e.g. workflow name)
     """
-    # also can be used on Env.Decls or Env.Types, then the right-hand side of
+    # also can be used on Env.Bindings[Tree.Decl] or Env.Types, then the right-hand side of
     # each entry will be the type string.
-    namespace = namespace or []
+    if namespace and not namespace.endswith("."):
+        namespace += "."
     ans = {}
-    for item in reversed(values_env):
-        if isinstance(item, Env.Binding):
-            v = item.rhs
-            if isinstance(v, Value.Base):
-                j = v.json
-            elif isinstance(item.rhs, Tree.Decl):
-                j = str(item.rhs.type)
-            else:
-                assert isinstance(item.rhs, Type.Base)
-                j = str(item.rhs)
-            ans[".".join(namespace + [item.name])] = j
-        elif isinstance(item, Env.Namespace):
-            for k, v in values_to_json(
-                item.bindings, namespace=(namespace + [item.namespace])
-            ).items():
-                ans[k] = v
+    for item in values_env:
+        v = item.value
+        if isinstance(v, Value.Base):
+            j = v.json
+        elif isinstance(item.value, Tree.Decl):
+            j = str(item.value.type)
         else:
-            assert False
+            assert isinstance(item.value, Type.Base)
+            j = str(item.value)
+        ans[namespace + item.name] = j
     return ans

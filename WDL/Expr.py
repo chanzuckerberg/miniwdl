@@ -7,7 +7,7 @@ task runtime sections, and workflow scatter and conditional sections.
 The abstract syntax tree (AST) for any expression is represented by an instance
 of a Python class deriving from ``WDL.Expr.Base``. Any such node may have other
 nodes attached "beneath" it. An expression can be evaluated to a ``Value``
-given a suitable ``WDL.Env.Values``.
+given a suitable ``WDL.Env.Bindings[Value.Base]``.
 
 .. inheritance-diagram:: WDL.Expr
 """
@@ -38,15 +38,15 @@ class Base(SourceNode, ABC):
         return self._type
 
     @abstractmethod
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         # Abstract protected method called by infer_type(): return the inferred
         # type with no side-effects, obeying self._check_quant.
         pass
 
     def infer_type(
-        self, type_env: Env.Types, stdlib: "Optional[StdLib.Base]" = None, check_quant: bool = True
+        self, type_env: Env.Bindings[Type.Base], stdlib: "Optional[StdLib.Base]" = None, check_quant: bool = True
     ) -> "Base":
-        """infer_type(self, type_env : Env.Types) -> WDL.Expr.Base
+        """infer_type(self, type_env : Env.Bindings[Type.Base]) -> WDL.Expr.Base
 
         Infer the expression's type within the given type environment. Must be
         invoked exactly once prior to use of other methods.
@@ -87,12 +87,12 @@ class Base(SourceNode, ABC):
         return self
 
     @abstractmethod
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         # to be overridden by subclasses. eval() calls this and deals with any
         # exceptions raised
         pass
 
-    def eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         """
         Evaluate the expression in the given environment
 
@@ -127,10 +127,10 @@ class Boolean(Base):
     def __str__(self):
         return str(self.value).lower()
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Boolean()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Boolean:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Boolean:
         ""
         return Value.Boolean(self.value)
 
@@ -154,10 +154,10 @@ class Int(Base):
     def __str__(self):
         return str(self.value)
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Int()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Int:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Int:
         ""
         return Value.Int(self.value)
 
@@ -184,10 +184,10 @@ class Float(Base):
     def __str__(self):
         return str(self.value)
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Float()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Float:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Float:
         ""
         return Value.Float(self.value)
 
@@ -225,7 +225,7 @@ class Placeholder(Base):
         yield self.expr
 
     def infer_type(
-        self, type_env: Env.Types, stdlib: "Optional[StdLib.Base]" = None, check_quant: bool = True
+        self, type_env: Env.Bindings[Type.Base], stdlib: "Optional[StdLib.Base]" = None, check_quant: bool = True
     ) -> Base:
         # override the + operator with the within-interpolation version which accepts String?
         # operands and produces a String? result
@@ -233,7 +233,7 @@ class Placeholder(Base):
         with stdlib._context_override("_add", StdLib.InterpolationAddOperator()):
             return super().infer_type(type_env, stdlib, check_quant)
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if isinstance(self.expr.type, Type.Array):
             if "sep" not in self.options:
                 raise Error.StaticTypeMismatch(
@@ -268,7 +268,7 @@ class Placeholder(Base):
                 )
         return Type.String()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.String:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.String:
         ""
         # override the + operator with the within-interpolation version which evaluates to None
         # if either operand is None
@@ -334,14 +334,14 @@ class String(Base):
             if isinstance(p, Base):
                 yield p
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.String()
 
     def typecheck(self, expected: Optional[Type.Base]) -> Base:
         ""
         return super().typecheck(expected)  # pyre-ignore
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.String:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.String:
         ""
         ans = []
         for part in self.parts:
@@ -387,7 +387,7 @@ class Array(Base):
         for it in self.items:
             yield it
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if not self.items:
             return Type.Array(Type.Any())
         # Start by assuming the type of the first item is the item type
@@ -436,7 +436,7 @@ class Array(Base):
             return self
         return super().typecheck(expected)  # pyre-ignore
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Array:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Array:
         ""
         assert isinstance(self.type, Type.Array)
         return Value.Array(
@@ -475,10 +475,10 @@ class Pair(Base):
         yield self.left
         yield self.right
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Pair(self.left.type, self.right.type)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         ""
         assert isinstance(self.type, Type.Pair)
         lv = self.left.eval(env, stdlib)
@@ -514,7 +514,7 @@ class Map(Base):
             yield k
             yield v
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         kty = None
         vty = None
         for k, v in self.items:
@@ -551,7 +551,7 @@ class Map(Base):
                     literal_keys = None
         return Type.Map((kty, vty), literal_keys=literal_keys)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         ""
         assert isinstance(self.type, Type.Map)
         eitems = []
@@ -593,13 +593,13 @@ class Struct(Base):
     def children(self) -> Iterable[SourceNode]:
         return self.members.values()
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         member_types = {}
         for k, v in self.members.items():
             member_types[k] = v.type
         return Type.Object(member_types)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
@@ -652,7 +652,7 @@ class IfThenElse(Base):
         yield self.consequent
         yield self.alternative
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         # check for Boolean condition
         if self.condition.type != Type.Boolean():
             raise Error.StaticTypeMismatch(
@@ -689,7 +689,7 @@ class IfThenElse(Base):
             ) from None
         return self_type
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         ""
         if self.condition.eval(env, stdlib).expect(Type.Boolean()).value:
             ans = self.consequent.eval(env, stdlib)
@@ -736,12 +736,12 @@ class Ident(Base):
     def children(self) -> Iterable[SourceNode]:
         return []
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         # The following Env.resolve will never fail, as Get._infer_type does
         # the heavy lifting for us.
-        ans: Type.Base = Env.resolve(type_env, self.namespace, self.name)
-        # referee comes from the type environment's context values
-        referee = Env.resolve_ctx(type_env, self.namespace, self.name)
+        ans: Type.Base = type_env.resolve(".".join(self.namespace + [self.name]))
+        # referee comes from the type environment's info value
+        referee = type_env.resolve_binding(".".join(self.namespace + [self.name])).info
         if referee:
             assert referee.__class__.__name__ in [
                 "Decl",
@@ -752,10 +752,9 @@ class Ident(Base):
             self.referee = referee
         return ans
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         ""
-        ans: Value.Base = Env.resolve(env, self.namespace, self.name)
-        return ans
+        return env.resolve(".".join(self.namespace + [self.name]))
 
     @property
     def _ident(self) -> List[str]:
@@ -781,10 +780,10 @@ class _LeftName(Base):
     def __str__(self):
         return self.name
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         raise NotImplementedError()
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         raise NotImplementedError()
 
     @property
@@ -852,12 +851,12 @@ class Get(Base):
             # suppress children until resolution/typechecking is complete
             yield self.expr
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if isinstance(self.expr, _LeftName):
             # expr is a lone "name" -- try to resolve it as an identifier,
             # and if that works, transform it to Ident("name")
             try:
-                Env.resolve(type_env, [], self.expr.name)
+                type_env.resolve(self.expr.name)
                 self.expr = Ident(self.expr.pos, [self.expr.name])
             except KeyError:
                 if not self.member:
@@ -876,7 +875,7 @@ class Get(Base):
             # attempt to resolve "expr.member" and if that works, transform
             # expr to Ident("expr.member")
             try:
-                Env.resolve(type_env, self.expr._ident, self.member)
+                type_env.resolve(".".join(self.expr._ident + [self.member]))
             except KeyError:
                 raise Error.UnknownIdentifier(self) from None
             self.expr = Ident(self.pos, self._ident)
@@ -907,7 +906,7 @@ class Get(Base):
                 pass
         raise Error.NoSuchMember(self, self.member)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         innard_value = self.expr.eval(env, stdlib)
         if not self.member:
             return innard_value
@@ -1012,7 +1011,7 @@ class Apply(Base):
         for arg in self.arguments:
             yield arg
 
-    def _infer_type(self, type_env: Env.Types) -> Type.Base:
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
 
         global _base_stdlib
         if not _base_stdlib:
@@ -1023,7 +1022,7 @@ class Apply(Base):
         assert isinstance(f, StdLib.Function)
         return f.infer_type(self)
 
-    def _eval(self, env: Env.Values, stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None) -> Value.Base:
         ""
 
         global _base_stdlib
