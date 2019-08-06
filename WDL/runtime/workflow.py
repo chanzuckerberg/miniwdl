@@ -119,7 +119,11 @@ class StateMachine:
     # TODO: factor out WorkflowState interface?
 
     def __init__(
-        self, run_id: str, workflow: Tree.Workflow, inputs: Env.Bindings[Value.Base], log_file: str = ""
+        self,
+        run_id: str,
+        workflow: Tree.Workflow,
+        inputs: Env.Bindings[Value.Base],
+        log_file: str = "",
     ) -> None:
         """
         Initialize the workflow state machine from the workflow AST and inputs
@@ -189,7 +193,11 @@ class StateMachine:
 
     CallInstructions = NamedTuple(
         "CallInstructions",
-        [("id", str), ("callee", Union[Tree.Task, Tree.Workflow]), ("inputs", Env.Bindings[Value.Base])],
+        [
+            ("id", str),
+            ("callee", Union[Tree.Task, Tree.Workflow]),
+            ("inputs", Env.Bindings[Value.Base]),
+        ],
     )
     """
     The state machine produces a ``CallInstructions`` object when it's time for the driver to
@@ -276,7 +284,9 @@ class StateMachine:
         self.jobs[job.id] = job
         self.waiting.add(job.id)
 
-    def _do_job(self, job: _Job) -> "Union[StateMachine.CallInstructions, Env.Bindings[Value.Base]]":
+    def _do_job(
+        self, job: _Job
+    ) -> "Union[StateMachine.CallInstructions, Env.Bindings[Value.Base]]":
         if isinstance(job.node, Tree.Gather):
             return _gather(
                 job.node, dict((dep_id, self.job_outputs[dep_id]) for dep_id in job.dependencies)
@@ -454,7 +464,9 @@ def _append_scatter_indices(node_id: str, scatter_indices: List[str]) -> str:
     return "-".join([node_id] + scatter_indices)
 
 
-def _gather(gather: Tree.Gather, dependencies: Dict[str, Env.Bindings[Value.Base]]) -> Env.Bindings[Value.Base]:
+def _gather(
+    gather: Tree.Gather, dependencies: Dict[str, Env.Bindings[Value.Base]]
+) -> Env.Bindings[Value.Base]:
     # important: the dependency job IDs must sort lexicographically in the desired array order!
     dep_ids = sorted(dependencies.keys())
 

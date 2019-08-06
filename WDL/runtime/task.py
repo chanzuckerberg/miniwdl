@@ -398,7 +398,10 @@ def run_local_task(
 
 
 def _eval_task_inputs(
-    logger: logging.Logger, task: Tree.Task, posix_inputs: Env.Bindings[Value.Base], container: TaskContainer
+    logger: logging.Logger,
+    task: Tree.Task,
+    posix_inputs: Env.Bindings[Value.Base],
+    container: TaskContainer,
 ) -> Env.Bindings[Value.Base]:
     # Map all the provided input Files to in-container paths
     # First make a pass to collect all the host paths and pass them to the

@@ -1,8 +1,22 @@
 # pyre-strict
-from typing import NamedTuple, Optional, TypeVar, Generic, Any, List, Dict, Callable, Iterable, Union, Set, Iterator
+from typing import (
+    NamedTuple,
+    Optional,
+    TypeVar,
+    Generic,
+    Any,
+    List,
+    Dict,
+    Callable,
+    Iterable,
+    Union,
+    Set,
+    Iterator,
+)
 
 T = TypeVar("T")
 S = TypeVar("S")
+
 
 class Binding(Generic[T]):
     _name: str
@@ -26,6 +40,10 @@ class Binding(Generic[T]):
     def info(self) -> Any:  # pyre-ignore
         return self._info
 
+    def __str__(self):
+        return self.name + ": " + str(self.value)
+
+
 class _EmptyNamespace:
     namespace: str
 
@@ -33,12 +51,17 @@ class _EmptyNamespace:
         assert namespace.endswith(".")
         self.namespace = namespace
 
+
 class Bindings(Generic[T]):
     _binding: Union[None, Binding[T], _EmptyNamespace]
     _next: "Optional[Bindings[T]]"
     _namespaces: Optional[Set[str]] = None
 
-    def __init__(self, binding: Union[None, Binding[T], _EmptyNamespace] = None, next: "Optional[Bindings[T]]" = None) -> None:
+    def __init__(
+        self,
+        binding: Union[None, Binding[T], _EmptyNamespace] = None,
+        next: "Optional[Bindings[T]]" = None,
+    ) -> None:
         assert binding or not next
         self._binding = binding
         self._next = next
@@ -53,8 +76,11 @@ class Bindings(Generic[T]):
                 yield pos._binding
             pos = pos._next
 
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
     def bind(self, name: str, value: T, info: Any = None) -> "Bindings[T]":  # pyre-ignore
-        assert name and not (name.startswith(".") or name.endswith(".")) and not self.has_namespace(name)
+        assert name and not (name.startswith(".") or name.endswith("."))
         return Bindings(Binding(name, value, info), self)
 
     def resolve_binding(self, name: str) -> Binding[T]:
@@ -81,10 +107,10 @@ class Bindings(Generic[T]):
                 ans = Bindings(fb, ans)
         return _rev(ans)
 
-    def iter(self, f: Callable[[Binding[T]],None]) -> None:
+    def iter(self, f: Callable[[Binding[T]], None]) -> None:
         self.map(f)
 
-    def filter(self, pred: Callable[[Binding[T]],bool]) -> "Bindings[T]":
+    def filter(self, pred: Callable[[Binding[T]], bool]) -> "Bindings[T]":
         return self.map(lambda b: b if pred(b) else None)
 
     def subtract(self, rhs: "Bindings[S]") -> "Bindings[T]":
@@ -94,6 +120,7 @@ class Bindings(Generic[T]):
                 return False
             except KeyError:
                 return True
+
         return self.filter(flt)
 
     def with_empty_namespace(self, namespace: str) -> "Bindings[T]":
@@ -117,7 +144,7 @@ class Bindings(Generic[T]):
                 pi = self._binding.name.rfind(".")
                 if pi >= 0:
                     assert pi > 0 and pi < len(self._binding.name) - 1
-                    ns = self._binding.name[:pi+1]
+                    ns = self._binding.name[: pi + 1]
                     assert ns.endswith(".")
                     self._namespaces.add(ns)
         return self._namespaces.copy()
@@ -132,11 +159,13 @@ class Bindings(Generic[T]):
         assert namespace
         if not namespace.endswith("."):
             namespace += "."
+
         def enter(b: Binding[T]) -> Optional[Binding[T]]:
             if b.name.startswith(namespace):
-                return Binding(b.name[len(namespace):], b.value, b.info)
+                return Binding(b.name[len(namespace) :], b.value, b.info)
             else:
                 return None
+
         return self.map(enter)
 
     def wrap_namespace(self, namespace: str) -> "Bindings[T]":
@@ -147,11 +176,15 @@ class Bindings(Generic[T]):
         pos = self
         while pos:
             if isinstance(pos._binding, Binding):
-                ans = Bindings(Binding(namespace + pos._binding.name, pos._binding.value, pos._binding.info), ans)
+                ans = Bindings(
+                    Binding(namespace + pos._binding.name, pos._binding.value, pos._binding.info),
+                    ans,
+                )
             if isinstance(pos._binding, _EmptyNamespace):
                 ans = Bindings(_EmptyNamespace(namespace + pos._binding.namespace), ans)
             pos = pos._next
         return _rev(ans)
+
 
 def _rev(env: Bindings[T]) -> Bindings[T]:
     ans = Bindings()
@@ -162,6 +195,7 @@ def _rev(env: Bindings[T]) -> Bindings[T]:
         pos = pos._next
     return ans
 
+
 def merge(*args: List[Bindings[T]]) -> Bindings[T]:
     """
     Merge evironments. If multiple environments have bindings for the same (namespaced) name, the
@@ -170,13 +204,10 @@ def merge(*args: List[Bindings[T]]) -> Bindings[T]:
     ans = [Bindings()]
 
     def visit(b: Binding[T]) -> None:
-        try:
-            ans[0].resolve(b.name)
-        except KeyError:
+        if not ans[0].has_binding(b.name):
             ans[0] = Bindings(b, ans[0])
 
     for env in args:
-        assert isinstance(env, Bindings)
         env.iter(visit)
     # TODO: add empty namespaces
     return ans[0]

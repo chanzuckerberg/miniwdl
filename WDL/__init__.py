@@ -168,7 +168,7 @@ def values_from_json(
     for key in values_json:
         key2 = key
         if namespace and key.startswith(namespace):
-            key2 = key[len(namespace):]
+            key2 = key[len(namespace) :]
         try:
             ty = available.resolve(key2).type
         except KeyError:
