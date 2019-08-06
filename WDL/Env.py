@@ -84,12 +84,12 @@ class Bindings(Generic[T]):
         self._next = next
 
     def __bool__(self) -> bool:
-        return self._binding is not None
+        return next(self.__iter__(), None) is not None
 
     def __iter__(self) -> Iterator[Binding[T]]:
         mask = set()
         pos = self
-        while pos:
+        while pos is not None:
             if isinstance(pos._binding, Binding) and pos._binding.name not in mask:
                 mask.add(pos._binding.name)
                 yield pos._binding
@@ -98,7 +98,7 @@ class Bindings(Generic[T]):
     @property
     def _empty_namespaces(self) -> Iterator[str]:
         pos = self
-        while pos:
+        while pos is not None:
             if isinstance(pos._binding, _EmptyNamespace):
                 yield pos._binding.namespace
             pos = pos._next
@@ -176,7 +176,7 @@ class Bindings(Generic[T]):
         names. Each element ends with a dot.
         """
         if self._namespaces is None:
-            self._namespaces = self._next.namespaces if self._next else set()
+            self._namespaces = self._next.namespaces if self._next is not None else set()
             if isinstance(self._binding, _EmptyNamespace):
                 self._namespaces.add(self._binding.namespace)
             if isinstance(self._binding, Binding):
@@ -218,7 +218,7 @@ class Bindings(Generic[T]):
             namespace += "."
         ans = Bindings()
         pos = self
-        while pos:
+        while pos is not None:
             if isinstance(pos._binding, Binding):
                 ans = Bindings(
                     Binding(namespace + pos._binding.name, pos._binding.value, pos._binding.info),
@@ -249,7 +249,7 @@ class Bindings(Generic[T]):
 def _rev(env: Bindings[T]) -> Bindings[T]:
     ans = Bindings()
     pos = env
-    while pos:
+    while pos is not None:
         if pos._binding:
             ans = Bindings(pos._binding, ans)
         pos = pos._next
