@@ -98,6 +98,14 @@ class Bindings(Generic[T]):
                 yield pos._binding
             pos = pos._next
 
+    @property
+    def _empty_namespaces(self) -> Iterator[str]:
+        pos = self
+        while pos:
+            if isinstance(pos._binding, _EmptyNamespace):
+                yield pos._binding.namespace
+            pos = pos._next
+
     def __len__(self) -> int:
         return sum(1 for _ in self)
 
@@ -257,6 +265,7 @@ def merge(*args: Bindings[T]) -> Bindings[T]:
     should be supplied as the last argument.
     """
     ans = [args[-1] if args else Bindings()]
+    empty_namespaces = set()
 
     def visit(b: Binding[T]) -> None:
         ans[0] = Bindings(b, ans[0])
@@ -265,5 +274,7 @@ def merge(*args: Bindings[T]) -> Bindings[T]:
         assert isinstance(env, Bindings)
         for b in _rev(env):
             visit(b)
-    # TODO: add empty namespaces
+        empty_namespaces |= set(env._empty_namespaces)
+    for ns in empty_namespaces:
+        ans[0] = Bindings(_EmptyNamespace(ns), ans[0])
     return ans[0]

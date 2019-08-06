@@ -412,6 +412,12 @@ class TestEnv(unittest.TestCase):
         self.assertTrue(e.has_namespace("fruit."))
         self.assertFalse(e.has_namespace("fruit.apple.honeycrisp"))
 
+        e = WDL.Env.merge(WDL.Env.Bindings().with_empty_namespace("fruit.apple"),
+                          WDL.Env.Bindings().with_empty_namespace("fruit.orange"))
+        self.assertTrue(e.has_namespace("fruit.apple"))
+        self.assertTrue(e.has_namespace("fruit.orange"))
+        self.assertTrue(e.has_namespace("fruit."))
+
 
 class TestValue(unittest.TestCase):
     def test_json(self):
