@@ -401,6 +401,17 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(e.resolve("fruit.orange"), "a")
         self.assertEqual(e.resolve("fruit.grape.green"), "f")
 
+    def test_namespaces(self):
+        e = WDL.Env.Bindings().bind("fruit.apple.honeycrisp", 42)
+        self.assertTrue(e.has_namespace("fruit.apple"))
+        self.assertTrue(e.has_namespace("fruit."))
+        self.assertFalse(e.has_namespace("fruit.apple.honeycrisp"))
+
+        e = WDL.Env.Bindings().with_empty_namespace("fruit.apple")
+        self.assertTrue(e.has_namespace("fruit.apple"))
+        self.assertTrue(e.has_namespace("fruit."))
+        self.assertFalse(e.has_namespace("fruit.apple.honeycrisp"))
+
 
 class TestValue(unittest.TestCase):
     def test_json(self):
