@@ -70,9 +70,11 @@ class Bindings(Generic[T]):
         return self._binding is not None
 
     def __iter__(self) -> Iterator[Binding[T]]:
+        mask = set()
         pos = self
         while pos:
-            if isinstance(pos._binding, Binding):
+            if isinstance(pos._binding, Binding) and pos._binding.name not in mask:
+                mask.add(pos._binding.name)
                 yield pos._binding
             pos = pos._next
 

@@ -92,7 +92,7 @@ _Job = NamedTuple(
         ("id", str),
         ("node", Tree.WorkflowNode),
         ("dependencies", Set[str]),
-        ("scatter_stack", List[Tuple[str, Env.Binding]]),
+        ("scatter_stack", List[Tuple[str, Env.Binding[Value.Base]]]),
     ],
 )
 
@@ -154,11 +154,8 @@ class StateMachine:
             deps = node.workflow_node_dependencies
             if isinstance(node, Tree.Decl):
                 # strike the dependencies of any decl node whose value is supplied in the inputs
-                try:
-                    Env.resolve(inputs, [], node.name)
+                if inputs.has_binding(node.name):
                     deps = set()
-                except KeyError:
-                    pass
             self._schedule(
                 _Job(id=node.workflow_node_id, node=node, dependencies=deps, scatter_stack=[])
             )
@@ -274,7 +271,7 @@ class StateMachine:
         self.logger.info("output %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
-        self.job_outputs[job_id] = [Env.Namespace(call_node.name, outputs)]
+        self.job_outputs[job_id] = outputs.wrap_namespace(call_node.name)
         self.finished.add(job_id)
         self.running.remove(job_id)
 
@@ -294,9 +291,10 @@ class StateMachine:
 
         # for all non-Gather nodes, derive the environment by merging the outputs of all the
         # dependencies (+ any current scatter variable bindings)
-        env = Env.merge(
-            [p[1] for p in job.scatter_stack], *(self.job_outputs[dep] for dep in job.dependencies)
-        )
+        scatter_vars = Env.Bindings()
+        for p in job.scatter_stack:
+            scatter_vars = Env.Bindings(p[1], scatter_vars)
+        env = Env.merge(scatter_vars, *(self.job_outputs[dep] for dep in job.dependencies))
         stdlib = StdLib.Base()
         envlog = json.dumps(self.values_to_json(env))
         self.logger.debug("env %s <- %s", job.id, envlog if len(envlog) < 4096 else "(large)")
@@ -312,7 +310,7 @@ class StateMachine:
             # the expr
             v = None
             try:
-                v = Env.resolve(self.inputs, [], job.node.name)
+                v = self.inputs.resolve(job.node.name)
             except KeyError:
                 pass
             if v is None:
@@ -321,24 +319,19 @@ class StateMachine:
                 else:
                     assert job.node.type.optional
                     v = Value.Null()
-            return Env.bind([], [], job.node.name, v)
+            return Env.Bindings(Env.Binding(job.node.name, v))
 
         if isinstance(job.node, WorkflowOutputs):
             return env
 
         if isinstance(job.node, Tree.Call):
             # evaluate input expressions
-            call_inputs = []
+            call_inputs = Env.Bindings()
             for name, expr in job.node.inputs.items():
-                call_inputs = Env.bind(call_inputs, [], name, expr.eval(env, stdlib=stdlib))
+                call_inputs = call_inputs.bind(name, expr.eval(env, stdlib=stdlib))
             # check workflow inputs for additional inputs supplied to this call
-            try:
-                ns = Env.resolve_namespace(self.inputs, [job.node.name])
-                for b in ns:
-                    assert isinstance(b, Env.Binding)
-                    call_inputs = Env.bind(call_inputs, [], b.name, b.rhs)
-            except KeyError:
-                pass
+            for b in self.inputs.enter_namespace(job.node.name):
+                call_inputs = call_inputs.bind(b.name, b.value)
             # issue CallInstructions
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
             self.logger.warn("issue %s on %s", job.id, job.node.callee.name)
@@ -490,23 +483,19 @@ def _gather(
         names = [leaf.name]
     elif isinstance(leaf, Tree.Call):
         names = []
-        outp = leaf.effective_outputs
-        if outp:
-            assert len(outp) == 1
-            outp = outp[0]
-            assert isinstance(outp, Env.Namespace)
-            for b in outp.bindings:
-                assert isinstance(b, Env.Binding)
-                names.append(b.name)
+        outp = leaf.effective_outputs.enter_namespace(leaf.name)
+        assert len(outp) == len(leaf.effective_outputs)
+        for b in outp:
+            names.append(b.name)
     else:
         assert False
 
     # for each such name,
-    ans = []
+    ans = Env.Bindings()
     ns = [leaf.name] if isinstance(leaf, Tree.Call) else []
     for name in names:
         # gather the corresponding values
-        values = [Env.resolve(dependencies[dep_id], ns, name) for dep_id in dep_ids]
+        values = [dependencies[dep_id].resolve(".".join(ns + [name])) for dep_id in dep_ids]
         v0 = values[0] if values else None
         assert v0 is None or isinstance(v0, Value.Base)
         # bind the array, singleton value, or None as appropriate
@@ -516,7 +505,7 @@ def _gather(
             assert isinstance(gather.section, Tree.Conditional)
             assert len(values) <= 1
             rhs = v0 if v0 is not None else Value.Null()
-        ans = Env.bind(ans, ns, name, rhs)
+        ans = ans.bind(".".join(ns + [name]), rhs)
 
     return ans
 
@@ -554,7 +543,7 @@ def run_local_workflow(
         workflow.pos.column,
         run_dir,
     )
-    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=[workflow.name])
+    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
     state = StateMachine(run_id, workflow, posix_inputs, os.path.join(run_dir, "workflow.log"))
 
@@ -591,11 +580,9 @@ def run_local_workflow(
                 msg += ", " + str(exn)
             logger.error(msg)
             logger.info("run directory: %s", run_dir)
-        raise exn
+        raise
 
     assert state.outputs is not None
-    write_values_json(
-        state.outputs, os.path.join(run_dir, "outputs.json"), namespace=[workflow.name]
-    )
+    write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
     logger.warn("done")
     return (run_dir, state.outputs)

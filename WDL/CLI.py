@@ -397,7 +397,7 @@ def runner(
         sys.exit(2)
 
     # link output files
-    outputs_json = values_to_json(output_env, namespace=[target.name])
+    outputs_json = values_to_json(output_env, namespace=target.name)
     runner_organize_outputs(target, {"outputs": outputs_json}, rundir)
 
     return outputs_json
@@ -452,7 +452,7 @@ def runner_input(doc, inputs, input_file, empty, task=None):
     - Determine the target workflow/task
     - Check types of supplied inputs
     - Check all required inputs are supplied
-    - Return inputs as Env.Values
+    - Return inputs as Env.Bindings[Value.Base]
     """
 
     # resolve target
@@ -471,9 +471,9 @@ def runner_input(doc, inputs, input_file, empty, task=None):
         die("Empty WDL document")
     assert target
 
-    # build up an Env.Values of the provided inputs
+    # build up an values env of the provided inputs
     available_inputs = target.available_inputs
-    input_env = []
+    input_env = Env.Bindings()
 
     # first load input JSON file if any
     if input_file:
@@ -481,27 +481,22 @@ def runner_input(doc, inputs, input_file, empty, task=None):
             input_env = values_from_json(
                 json.loads(infile.read()),
                 available_inputs,
-                namespace=([target.name] if isinstance(target, Workflow) else []),
+                namespace=(target.name if isinstance(target, Workflow) else ""),
             )
 
     # set explicitly empty arrays
     for empty_name in empty or []:
-        empty_name = empty_name.split(".")
-        if not empty_name or ([True for s in empty_name if not s]):
-            die("Invalid input name: " + empty_name)
-        namespace = empty_name[:-1]
-        name = empty_name[-1]
         try:
-            decl = Env.resolve(available_inputs, namespace, name)
+            decl = available_inputs.resolve(empty_name)
         except KeyError:
             die(
                 "No such input to {}: {}\n{}".format(
-                    target.name, ".".join(empty_name), runner_input_help(target)
+                    target.name, empty_name, runner_input_help(target)
                 )
             )
         if not isinstance(decl.type, Type.Array) or decl.type.nonempty:
             die("Cannot set input {} {} to empty array".format(str(decl.type), decl.name))
-        input_env = Env.bind(input_env, namespace, name, Value.Array(decl.type, []), ctx=decl)
+        input_env = input_env.bind(empty_name, Value.Array(decl.type, []), decl)
 
     # add in command-line inputs
     for one_input in inputs:
@@ -510,15 +505,10 @@ def runner_input(doc, inputs, input_file, empty, task=None):
         if len(buf) != 2 or not buf[0]:
             die("Invalid input name=value pair: " + one_input)
         name, s_value = buf
-        name = name.split(".")
-        if not name or ([True for s in name if not s]):
-            die("Invalid input name=value pair: " + one_input)
-        namespace = name[:-1]
-        name = name[-1]
 
         # find corresponding input declaration
         try:
-            decl = Env.resolve(available_inputs, namespace, name)
+            decl = available_inputs.resolve(name)
         except KeyError:
             die(
                 "No such input to {}: {}\n{}".format(target.name, buf[0], runner_input_help(target))
@@ -529,7 +519,7 @@ def runner_input(doc, inputs, input_file, empty, task=None):
 
         # insert value into input_env
         try:
-            existing = Env.resolve(input_env, namespace, name)
+            existing = input_env.resolve(name)
         except KeyError:
             existing = None
         if existing:
@@ -543,10 +533,10 @@ def runner_input(doc, inputs, input_file, empty, task=None):
                     )
                 )
         else:
-            input_env = Env.bind(input_env, namespace, name, v, ctx=decl)
+            input_env = input_env.bind(name, v, decl)
 
     # check for missing inputs
-    missing_inputs = values_to_json(Env.subtract(target.required_inputs, input_env))
+    missing_inputs = values_to_json(target.required_inputs.subtract(input_env))
     if missing_inputs:
         die(
             "missing required inputs for {}: {}\n{}".format(
@@ -558,9 +548,7 @@ def runner_input(doc, inputs, input_file, empty, task=None):
     return (
         target,
         input_env,
-        values_to_json(
-            input_env, namespace=([target.name] if isinstance(target, Workflow) else [])
-        ),
+        values_to_json(input_env, namespace=(target.name if isinstance(target, Workflow) else "")),
     )
 
 
@@ -572,12 +560,12 @@ def runner_input_help(target):
     ans.append("\nrequired inputs:")
     for name, ty in values_to_json(required_inputs).items():
         ans.append("  {} {}".format(ty, name))
-    optional_inputs = Env.subtract(target.available_inputs, target.required_inputs)
+    optional_inputs = target.available_inputs.subtract(target.required_inputs)
     if target.inputs is None:
         # if the target doesn't have an input{} section (pre WDL 1.0), exclude
         # declarations bound to a non-constant expression (heuristic)
-        optional_inputs = Env.filter(
-            optional_inputs, lambda _, b: b.rhs.expr is None or is_constant_expr(b.rhs.expr)
+        optional_inputs = optional_inputs.filter(
+            lambda b: b.value.expr is None or is_constant_expr(b.value.expr)
         )
     if optional_inputs:
         ans.append("\noptional inputs:")
@@ -669,15 +657,16 @@ def runner_organize_outputs(target, outputs_json, rundir):
                 os.makedirs(subdn, exist_ok=False)
                 link_output_files(subdn, elt)
 
-    def output_links(namespace, binding):
-        fqon = ".".join([target.name] + namespace + [binding.name])
-        if _is_files(binding.rhs) and fqon in outputs_json["outputs"]:
+    def output_links(binding):
+        fqon = ".".join([target.name, binding.name])
+        if _is_files(binding.value) and fqon in outputs_json["outputs"]:
             odn = os.path.join(rundir, "output_links", fqon)
             os.makedirs(os.path.join(rundir, odn), exist_ok=False)
             link_output_files(odn, outputs_json["outputs"][fqon])
         return True
 
-    Env.filter(target.effective_outputs, output_links)
+    for binding in target.effective_outputs:
+        output_links(binding)
     # TODO: handle File's inside other compound types,
     # Pair[File,File], Map[String,File], Structs, etc.
 
