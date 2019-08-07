@@ -448,7 +448,7 @@ class Call(WorkflowNode):
         for _, ex in self.inputs.items():
             yield ex
 
-    def resolve(self, doc: "Document", call_names: Optional[Set[str]] = None) -> None:
+    def resolve(self, doc: "Document") -> None:
         # Set self.callee to the Task/Workflow being called. Use exactly once
         # prior to add_to_type_env() or typecheck_input()
         if self.callee:
@@ -474,16 +474,6 @@ class Call(WorkflowNode):
         if self.callee is None:
             raise Error.NoSuchTask(self, ".".join(self.callee_id))
         assert isinstance(self.callee, (Task, Workflow))
-        # If given call_names, check for name collisions
-        if call_names is not None:
-            if self.name in call_names:
-                raise Error.MultipleDefinitions(
-                    self,
-                    "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
-                        self.name, self.callee.name
-                    ),
-                )
-            call_names.add(self.name)
 
     def add_to_type_env(
         self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
@@ -493,7 +483,15 @@ class Call(WorkflowNode):
         assert self.callee
         if type_env.has_binding(self.name):
             raise Error.MultipleDefinitions(self, "Value/call name collision on " + self.name)
-        return Env.merge(self.effective_outputs, type_env)
+        if type_env.has_namespace(self.name):
+            raise Error.MultipleDefinitions(
+                self,
+                "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
+                    self.name, self.callee.name
+                ),
+            )
+        # add empty namespace in case self.effective_outputs is empty
+        return Env.merge(self.effective_outputs, type_env.with_empty_namespace(self.name))
 
     def typecheck_input(self, type_env: Env.Bindings[Type.Base], check_quant: bool) -> bool:
         # Check the input expressions against the callee's inputs. One-time use.
@@ -1362,13 +1360,12 @@ def _decls_and_calls(
 
 def _resolve_calls(doc: Document) -> None:
     # Resolve all calls in the workflow (descending into scatter & conditional
-    # sections). Also check for call name collisions
+    # sections).
     if doc.workflow:
         with Error.multi_context() as errors:
-            call_names = set()
             for c in _decls_and_calls(doc.workflow):
                 if isinstance(c, Call):
-                    errors.try1(lambda c=c: c.resolve(doc, call_names))
+                    errors.try1(lambda c=c: c.resolve(doc))
 
 
 def _build_workflow_type_env(

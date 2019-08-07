@@ -56,6 +56,8 @@ class Binding(Generic[T]):
 
 
 class _EmptyNamespace:
+    # internal representation of a namespace which exists in an environment even if there are no
+    # actual bindings in it (e.g. a Call with no output values)
     namespace: str
 
     def __init__(self, namespace: str) -> None:
