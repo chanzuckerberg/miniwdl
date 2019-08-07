@@ -2,20 +2,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import (
-    NamedTuple,
-    Optional,
-    TypeVar,
-    Generic,
-    Any,
-    List,
-    Dict,
-    Callable,
-    Iterable,
-    Union,
-    Set,
-    Iterator,
-)
+from typing import Optional, TypeVar, Generic, Any, Callable, Union, Set, Iterator
 
 T = TypeVar("T")
 S = TypeVar("S")
@@ -24,7 +11,9 @@ S = TypeVar("S")
 class Binding(Generic[T]):
     """
     An individual, immutable binding of a possibly-namespaced name to a right-hand-side value of
-    type ``T``. May also reference an additional informational value of arbitrary type.
+    type ``T``. ``T`` is typically ``Value.Base`` (value environments) or ``Type.Base`` (type
+    environments). The binding may also reference an additional informational value of arbitrary
+    type.
     """
 
     _name: str
@@ -208,8 +197,7 @@ class Bindings(Generic[T]):
         def enter(b: Binding[T]) -> Optional[Binding[T]]:
             if b.name.startswith(namespace):
                 return Binding(b.name[len(namespace) :], b.value, b.info)
-            else:
-                return None
+            return None
 
         return self.map(enter)
 
