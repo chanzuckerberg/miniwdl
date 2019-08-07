@@ -1077,24 +1077,24 @@ class Workflow(SourceNode):
                     output_idents.append(wildcard_namespace + [binding_name])
 
             for output_ident in output_idents:
-                try:
-                    ty = self._type_env.resolve(".".join(output_ident))
-                except KeyError:
-                    raise Error.UnknownIdentifier(
-                        Expr.Ident(self._output_idents_pos, output_ident)
-                    ) from None
-                assert isinstance(ty, Type.Base)
                 # the output name is supposed to be 'fully qualified'
                 # including the call namespace. we're going to stick it
                 # into the decl name with a ., which is a weird corner
                 # case!
                 synthetic_output_name = ".".join(output_ident)
+                try:
+                    ty = self._type_env.resolve(synthetic_output_name)
+                except KeyError:
+                    raise Error.UnknownIdentifier(
+                        Expr.Ident(self._output_idents_pos, synthetic_output_name)
+                    ) from None
+                assert isinstance(ty, Type.Base)
                 output_ident_decls.append(
                     Decl(
                         self.pos,
                         ty,
                         synthetic_output_name,
-                        Expr.Ident(self._output_idents_pos, output_ident),
+                        Expr.Ident(self._output_idents_pos, synthetic_output_name),
                         id_prefix="output",
                     )
                 )

@@ -631,9 +631,7 @@ class ForwardReference(Linter):
                 if isinstance(referee, Tree.Decl):
                     msg = "reference to {} precedes its declaration".format(obj.name)
                 elif isinstance(referee, Tree.Call):
-                    msg = "reference to output of {} precedes the call".format(
-                        ".".join(obj.namespace)
-                    )
+                    msg = "reference to output {} precedes the call".format(obj.name)
                 else:
                     assert False
                 self.add(getattr(obj, "parent"), msg, obj.pos)

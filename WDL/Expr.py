@@ -735,14 +735,11 @@ class Ident(Base):
     ``Ident`` nodes are wrapped in ``Get`` nodes, as discussed below.
     """
 
-    namespace: List[str]
-    """
-    :type: List[str]
-
-    Namespace (empty for an unqualified name)
-    """
     name: str
-    ":type: str"
+    """:type: str
+
+    Name, possibly including a dot-separated namespace
+    """
 
     referee: "Union[None, WDL.Tree.Decl, WDL.Tree.Call, WDL.Tree.Scatter, WDL.Tree.Gather]"
     """
@@ -752,15 +749,14 @@ class Ident(Base):
     value or call output that resides within a scatter or conditional section.
     """
 
-    def __init__(self, pos: SourcePosition, parts: List[str]) -> None:
+    def __init__(self, pos: SourcePosition, name: str) -> None:
         super().__init__(pos)
-        assert parts
-        self.name = parts[-1]
-        self.namespace = parts[:-1]
+        assert name and not name.endswith(".") and not name.startswith(".") and ".." not in name
+        self.name = name
         self.referee = None
 
     def __str__(self):
-        return ".".join(self.namespace + [self.name])
+        return self.name
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -769,9 +765,10 @@ class Ident(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         # The following Env.resolve will never fail, as Get._infer_type does
         # the heavy lifting for us.
-        ans: Type.Base = type_env.resolve(".".join(self.namespace + [self.name]))
+        b = type_env.resolve_binding(self.name)
+        ans = b.value
         # referee comes from the type environment's info value
-        referee = type_env.resolve_binding(".".join(self.namespace + [self.name])).info
+        referee = b.info
         if referee:
             assert referee.__class__.__name__ in [
                 "Decl",
@@ -786,11 +783,11 @@ class Ident(Base):
         self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
     ) -> Value.Base:
         ""
-        return env.resolve(".".join(self.namespace + [self.name]))
+        return env.resolve(self.name)
 
     @property
     def _ident(self) -> List[str]:
-        return self.namespace + [self.name]
+        return self.name.split(".")
 
 
 class _LeftName(Base):
@@ -889,12 +886,10 @@ class Get(Base):
         if isinstance(self.expr, _LeftName):
             # expr is a lone "name" -- try to resolve it as an identifier,
             # and if that works, transform it to Ident("name")
-            try:
-                type_env.resolve(self.expr.name)
-                self.expr = Ident(self.expr.pos, [self.expr.name])
-            except KeyError:
-                if not self.member:
-                    raise Error.UnknownIdentifier(self) from None
+            if type_env.has_binding(self.expr.name):
+                self.expr = Ident(self.expr.pos, self.expr.name)
+            elif not self.member:
+                raise Error.UnknownIdentifier(self)
         # attempt to typecheck expr, disambiguating whether it's an
         # intermediate value, a resolvable identifier, or neither
         try:
@@ -908,11 +903,9 @@ class Get(Base):
                 raise
             # attempt to resolve "expr.member" and if that works, transform
             # expr to Ident("expr.member")
-            try:
-                type_env.resolve(".".join(self.expr._ident + [self.member]))
-            except KeyError:
+            if not type_env.has_binding(".".join(self.expr._ident + [self.member])):
                 raise Error.UnknownIdentifier(self) from None
-            self.expr = Ident(self.pos, self._ident)
+            self.expr = Ident(self.pos, ".".join(self._ident))
             self.expr.infer_type(type_env, self._stdlib, self._check_quant)
             self.member = None
         # now we've typechecked expr
