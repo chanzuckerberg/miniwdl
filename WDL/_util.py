@@ -138,15 +138,13 @@ def topsort(adj: AdjM[T]) -> List[T]:
 
 @export
 def write_values_json(
-    values_env: List, filename: str, namespace: Optional[List[str]] = None  # pyre-ignore
+    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""
 ) -> None:
     from . import values_to_json
 
     with open(filename, "w") as outfile:
         print(
-            json.dumps(
-                values_to_json(values_env, namespace=(namespace or [])), indent=2  # pyre-ignore
-            ),
+            json.dumps(values_to_json(values_env, namespace=namespace), indent=2),  # pyre-ignore
             file=outfile,
         )
 

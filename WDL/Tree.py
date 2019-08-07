@@ -130,8 +130,8 @@ class WorkflowNode(SourceNode, ABC):
 
     @abstractmethod
     def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
-    ) -> Env.Types:
+        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+    ) -> Env.Bindings[Type.Base]:
         # typechecking helper -- add this node to the type environment; for sections, this includes
         # everything in the section body as visible outside of the section.
         raise NotImplementedError()
@@ -191,28 +191,28 @@ class Decl(WorkflowNode):
             yield self.expr
 
     def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types, collision_ok: bool = False
-    ) -> Env.Types:
+        self,
+        struct_typedefs: Env.Bindings[StructTypeDef],
+        type_env: Env.Bindings[Type.Base],
+        collision_ok: bool = False,
+    ) -> Env.Bindings[Type.Base]:
         # Add an appropriate binding in the type env, after checking for name
         # collision.
         if not collision_ok:
-            try:
-                Env.resolve(type_env, [], self.name)
+            if self.name in type_env:
                 raise Error.MultipleDefinitions(self, "Multiple declarations of " + self.name)
-            except KeyError:
-                pass
-            try:
-                Env.resolve_namespace(type_env, [self.name])
+            if type_env.has_namespace(self.name):
                 raise Error.MultipleDefinitions(self, "Value/call name collision on " + self.name)
-            except KeyError:
-                pass
         _resolve_struct_typedefs(self.pos, self.type, struct_typedefs)
         if isinstance(self.type, Type.StructInstance):
-            return _add_struct_instance_to_type_env([self.name], self.type, type_env, ctx=self)
-        return Env.bind(type_env, [], self.name, self.type, ctx=self)
+            return _add_struct_instance_to_type_env(self.name, self.type, type_env, ctx=self)
+        return type_env.bind(self.name, self.type, self)
 
     def typecheck(
-        self, type_env: Env.Types, stdlib: Optional[StdLib.Base] = None, check_quant: bool = True
+        self,
+        type_env: Env.Bindings[Type.Base],
+        stdlib: Optional[StdLib.Base] = None,
+        check_quant: bool = True,
     ) -> None:
         # Infer the expression's type and ensure it checks against the declared
         # type. One time use!
@@ -285,8 +285,8 @@ class Task(SourceNode):
         #       bound
 
     @property
-    def available_inputs(self) -> Env.Decls:
-        """:type: WDL.Env.Decls
+    def available_inputs(self) -> Env.Bindings[Decl]:
+        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
 
         Yields the task's input declarations. This is all declarations in the
         task's ``input{}`` section, if it's present. Otherwise, it's all
@@ -295,39 +295,39 @@ class Task(SourceNode):
 
         Each input is at the top level of the Env, with no namespace.
         """
-        ans = []
+        ans = Env.Bindings()
         for decl in self.inputs if self.inputs is not None else self.postinputs:
-            ans = Env.bind(ans, [], decl.name, decl)
+            ans = ans.bind(decl.name, decl)
         return ans
 
     @property
-    def required_inputs(self) -> Env.Decls:
-        """:type: WDL.Env.Decls
+    def required_inputs(self) -> Env.Bindings[Decl]:
+        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
 
         Yields the input declarations which are required to call the task
         (available inputs that are unbound and non-optional).
 
         Each input is at the top level of the Env, with no namespace.
         """
-        ans: Env.Decls = []
+        ans = Env.Bindings()
         for b in self.available_inputs:
             assert isinstance(b, Env.Binding)
-            d: Decl = b.rhs
+            d: Decl = b.value
             if d.expr is None and d.type.optional is False:
-                ans.append(b)
+                ans = Env.Bindings(b, ans)
         return ans
 
     @property
-    def effective_outputs(self) -> Env.Types:
-        """:type: WDL.Env.Types
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        """:type: WDL.Env.Bindings[Type.Base]
 
         Yields each task output with its type, at the top level of the Env with
         no namespace. (Present for isomorphism with
         ``Workflow.effective_outputs``)
         """
-        ans = []
+        ans = Env.Bindings()
         for decl in self.outputs:
-            ans = Env.bind(ans, [], decl.name, decl.type, ctx=decl)
+            ans = ans.bind(decl.name, decl.type, decl)
         return ans
 
     @property
@@ -344,9 +344,11 @@ class Task(SourceNode):
             yield ex
 
     def typecheck(
-        self, struct_typedefs: Optional[Env.StructTypeDefs] = None, check_quant: bool = True
+        self,
+        struct_typedefs: Optional[Env.Bindings[StructTypeDef]] = None,
+        check_quant: bool = True,
     ) -> None:
-        struct_typedefs = struct_typedefs or []
+        struct_typedefs = struct_typedefs or Env.Bindings()
         # warm-up check: if input{} section exists then all postinput decls
         # must be bound
         if self.inputs is not None:
@@ -361,7 +363,7 @@ class Task(SourceNode):
         # First collect a type environment for all the input & postinput
         # declarations, so that we're prepared for possible forward-references
         # in their right-hand side expressions.
-        type_env = []
+        type_env = Env.Bindings()
         for decl in (self.inputs or []) + self.postinputs:
             type_env = decl.add_to_type_env(struct_typedefs, type_env)
 
@@ -409,7 +411,9 @@ class Call(WorkflowNode):
     """
     :type: List[str]
 
-    WDL namespaced identifier of the desired task/workflow"""
+    The called task; either one string naming a task in the current document, or an import
+    namespace and task name.
+    """
     name: str
     """:type: string
 
@@ -446,7 +450,7 @@ class Call(WorkflowNode):
         for _, ex in self.inputs.items():
             yield ex
 
-    def resolve(self, doc: "Document", call_names: Optional[Set[str]] = None) -> None:
+    def resolve(self, doc: "Document") -> None:
         # Set self.callee to the Task/Workflow being called. Use exactly once
         # prior to add_to_type_env() or typecheck_input()
         if self.callee:
@@ -472,44 +476,38 @@ class Call(WorkflowNode):
         if self.callee is None:
             raise Error.NoSuchTask(self, ".".join(self.callee_id))
         assert isinstance(self.callee, (Task, Workflow))
-        # If given call_names, check for name collisions
-        if call_names is not None:
-            if self.name in call_names:
-                raise Error.MultipleDefinitions(
-                    self,
-                    "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
-                        self.name, self.callee.name
-                    ),
-                )
-            call_names.add(self.name)
 
     def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
-    ) -> Env.Types:
+        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+    ) -> Env.Bindings[Type.Base]:
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
-        try:
-            Env.resolve(type_env, [], self.name)
+        if self.name in type_env:
             raise Error.MultipleDefinitions(self, "Value/call name collision on " + self.name)
-        except KeyError:
-            pass
-        return self.effective_outputs + type_env
+        if type_env.has_namespace(self.name):
+            raise Error.MultipleDefinitions(
+                self,
+                "Workflow has multiple calls named {}; give calls distinct names using `call {} as NAME ...`".format(
+                    self.name, self.callee.name
+                ),
+            )
+        # add empty namespace in case self.effective_outputs is empty
+        return Env.merge(self.effective_outputs, type_env.with_empty_namespace(self.name))
 
-    def typecheck_input(self, type_env: Env.Types, check_quant: bool) -> bool:
+    def typecheck_input(self, type_env: Env.Bindings[Type.Base], check_quant: bool) -> bool:
         # Check the input expressions against the callee's inputs. One-time use.
         # Returns True if the call supplies all required inputs, False otherwise.
         assert self.callee
 
         # Make a set of the input names which are required for this call
-        # pyre-fixme
         required_inputs = set(decl.name for decl in self.callee.required_inputs)
 
         # typecheck call inputs against task/workflow input declarations
         with Error.multi_context() as errors:
             for name, expr in self.inputs.items():
                 try:
-                    decl = Env.resolve(self.callee.available_inputs, [], name)
+                    decl = self.callee.available_inputs[name]
                     errors.try1(
                         lambda expr=expr, decl=decl: expr.infer_type(
                             type_env, check_quant=check_quant
@@ -523,8 +521,8 @@ class Call(WorkflowNode):
         return not required_inputs
 
     @property
-    def available_inputs(self) -> Env.Decls:
-        """:type: WDL.Env.Decls
+    def available_inputs(self) -> Env.Bindings[Decl]:
+        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
 
         Yields the task/workflow inputs which are *not* supplied in the call
         ``inputs:``, and thus may be supplied at workflow launch; in namespaces
@@ -533,19 +531,13 @@ class Call(WorkflowNode):
         assert self.callee
 
         supplied_inputs = set(self.inputs.keys())
-        ans: Env.Decls = []
-        for b in self.callee.available_inputs:
-            if (isinstance(b, Env.Binding) and b.name not in supplied_inputs) or isinstance(
-                b, Env.Namespace
-            ):
-                ans.append(b)
-        if ans:
-            ans = [Env.Namespace(self.name, ans)]
-        return ans
+        return self.callee.available_inputs.filter(
+            lambda b: b.name not in supplied_inputs
+        ).wrap_namespace(self.name)
 
     @property
-    def required_inputs(self) -> Env.Decls:
-        """:type: WDL.Env.Decls
+    def required_inputs(self) -> Env.Bindings[Decl]:
+        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
 
         Yields the required task/workflow inputs which are *not* supplied in
         the call ``inputs:`` (incomplete calls), and thus must be supplied at
@@ -554,28 +546,21 @@ class Call(WorkflowNode):
         assert self.callee
 
         supplied_inputs = set(self.inputs.keys())
-        ans: Env.Decls = []
-        for b in self.callee.required_inputs:
-            if (isinstance(b, Env.Binding) and b.name not in supplied_inputs) or isinstance(
-                b, Env.Namespace
-            ):
-                ans.append(b)
-        if ans:
-            ans = [Env.Namespace(self.name, ans)]
-        return ans
+        return self.callee.required_inputs.filter(
+            lambda b: b.name not in supplied_inputs
+        ).wrap_namespace(self.name)
 
     @property
-    def effective_outputs(self) -> Env.Types:
-        """:type: WDL.Env.Decls
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
 
         Yields the effective outputs of the callee Task or Workflow, in a
         namespace according to the call name.
         """
-        ans: Env.Types = []
+        ans = Env.Bindings()
         assert self.callee
         for outp in self.callee.effective_outputs:
-            if isinstance(outp, Env.Binding):
-                ans = Env.bind(ans, [self.name], outp.name, outp.rhs, ctx=self)
+            ans = ans.bind(self.name + "." + outp.name, outp.value, self)
         return ans
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
@@ -617,8 +602,8 @@ class Gather(WorkflowNode):
         self.referee = referee
 
     def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
-    ) -> Env.Types:
+        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+    ) -> Env.Bindings[Type.Base]:
         raise NotImplementedError()
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
@@ -667,7 +652,7 @@ class WorkflowSection(WorkflowNode):
     upon visiting the section node at runtime.
     """
 
-    _type_env: Optional[Env.Types] = None
+    _type_env: Optional[Env.Bindings[Type.Base]] = None
     """
     After typechecking: the type environment, INSIDE the section, consisting of
     - everything available outside of the section
@@ -702,7 +687,7 @@ class WorkflowSection(WorkflowNode):
 
     @property
     @abstractmethod
-    def effective_outputs(self) -> Env.Types:
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
         raise NotImplementedError()
 
 
@@ -738,58 +723,49 @@ class Scatter(WorkflowSection):
         yield from super().children
 
     def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
-    ) -> Env.Types:
+        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+    ) -> Env.Bindings[Type.Base]:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as Array[T] outside)
 
-        inner_type_env: Env.Types = []
+        inner_type_env = Env.Bindings()
         for elt in self.body:
             inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
         # Subtlety: if the scatter array is statically nonempty, then so too
         # are the arrayized values.
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
 
-        box = [type_env]
         # array-ize each inner type binding and add gather nodes
-        def visit(namespace: List[str], binding: Env.Binding) -> None:
-            box[0] = Env.bind(
-                box[0],
-                namespace,
+        def arrayize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            return Env.Binding(  # pyre-ignore
                 binding.name,
-                Type.Array(binding.rhs, nonempty=nonempty),
-                ctx=self.gathers[binding.ctx.workflow_node_id],
+                Type.Array(binding.value, nonempty=nonempty),
+                self.gathers[binding.info.workflow_node_id],
             )
 
-        Env.map(inner_type_env, visit)
-        return box[0]
+        return Env.merge(inner_type_env.map(arrayize), type_env)
 
     @property
-    def effective_outputs(self) -> Env.Types:
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
         # Yield the outputs of calls in this section and subsections, typed
         # and namespaced appropriately, as they'll be propagated if the
         # workflow lacks an explicit output{} section
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
-        inner_outputs: Env.Types = []
+        inner_outputs = Env.Bindings()
         for elt in self.body:
             if not isinstance(elt, Decl):
                 assert isinstance(elt, (Call, Scatter, Conditional))
-                inner_outputs = elt.effective_outputs + inner_outputs
+                inner_outputs = Env.merge(elt.effective_outputs, inner_outputs)
 
-        box = [[]]
-
-        def visit(namespace: List[str], binding: Env.Binding) -> None:
-            box[0] = Env.bind(
-                box[0],
-                namespace,
+        def arrayize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            return Env.Binding(  # pyre-ignore
                 binding.name,
-                Type.Array(binding.rhs, nonempty=nonempty),
-                ctx=self.gathers[binding.ctx.workflow_node_id],
+                Type.Array(binding.value, nonempty=nonempty),
+                self.gathers[binding.info.workflow_node_id],
             )
 
-        Env.map(inner_outputs, visit)  # pyre-ignore
-        return box[0]
+        return inner_outputs.map(arrayize)  # pyre-ignore
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
         yield from _expr_workflow_node_dependencies(self.expr)
@@ -816,53 +792,44 @@ class Conditional(WorkflowSection):
         yield from super().children
 
     def add_to_type_env(
-        self, struct_typedefs: Env.StructTypeDefs, type_env: Env.Types
-    ) -> Env.Types:
+        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+    ) -> Env.Bindings[Type.Base]:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as T? outside)
 
-        inner_type_env = []
+        inner_type_env = Env.Bindings()
         for elt in self.body:
             inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
 
-        box = [type_env]
         # optional-ize each inner type binding and add gather nodes
-        def visit(namespace: List[str], binding: Env.Binding) -> None:
-            box[0] = Env.bind(
-                box[0],
-                namespace,
+        def optionalize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            return Env.Binding(
                 binding.name,
-                binding.rhs.copy(optional=True),
-                ctx=self.gathers[binding.ctx.workflow_node_id],
+                binding.value.copy(optional=True),
+                self.gathers[binding.info.workflow_node_id],
             )
 
-        Env.map(inner_type_env, visit)
-        return box[0]
+        return Env.merge(inner_type_env.map(optionalize), type_env)
 
     @property
-    def effective_outputs(self) -> Env.Types:
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
         # Yield the outputs of calls in this section and subsections, typed
         # and namespaced appropriately, as they'll be propagated if the
         # workflow lacks an explicit output{} section
-        inner_outputs = []
+        inner_outputs = Env.Bindings()
         for elt in self.body:
             if isinstance(elt, (Call, WorkflowSection)):
-                inner_outputs = elt.effective_outputs + inner_outputs
+                inner_outputs = Env.merge(elt.effective_outputs, inner_outputs)
 
-        box = [[]]
-
-        def visit(namespace: List[str], binding: Env.Binding) -> None:
-            box[0] = Env.bind(
-                box[0],
-                namespace,
+        def optionalize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            return Env.Binding(
                 binding.name,
-                binding.rhs.copy(optional=True),
-                ctx=self.gathers[binding.ctx.workflow_node_id],
+                binding.value.copy(optional=True),
+                self.gathers[binding.info.workflow_node_id],
             )
 
-        Env.map(inner_outputs, visit)  # pyre-ignore
-        return box[0]
+        return inner_outputs.map(optionalize)  # pyre-ignore
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
         yield from _expr_workflow_node_dependencies(self.expr)
@@ -900,7 +867,7 @@ class Workflow(SourceNode):
 
     ``meta{}`` section as a JSON-like dict"""
 
-    _type_env: Optional[Env.Types] = None
+    _type_env: Optional[Env.Bindings[Type.Base]] = None
     """
     After typechecking: the type environment in the main workflow body,
     - declarations at the top level of the workflow body
@@ -947,8 +914,8 @@ class Workflow(SourceNode):
             output_decl.workflow_node_id = output_decl.workflow_node_id.replace("decl-", "output-")
 
     @property
-    def available_inputs(self) -> Env.Decls:
-        """:type: WDL.Env.Decls
+    def available_inputs(self) -> Env.Bindings[Decl]:
+        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
 
         Yields the workflow's input declarations. This includes:
 
@@ -960,64 +927,64 @@ class Workflow(SourceNode):
         2. Available inputs of all calls in the workflow, namespaced by the
         call names.
         """
-        ans = []
+        ans = Env.Bindings()
 
         if self.inputs is not None:
             for decl in self.inputs:
-                ans = Env.bind(ans, [], decl.name, decl)
+                ans = ans.bind(decl.name, decl)
 
         for elt in _decls_and_calls(self, exclude_outputs=True):
             if isinstance(elt, Decl):
                 if self.inputs is None:
-                    ans = Env.bind(ans, [], elt.name, elt)
+                    ans = ans.bind(elt.name, elt)
             elif isinstance(elt, Call):
-                ans = elt.available_inputs + ans
+                ans = Env.merge(elt.available_inputs, ans)
             else:
                 assert False
 
         return ans
 
     @property
-    def required_inputs(self) -> Env.Decls:
-        """:type: WDL.Env.Decls
+    def required_inputs(self) -> Env.Bindings[Decl]:
+        """:type: WDL.Env.Bindings[Decl]
 
         Yields the subset of available inputs which are required to start the
         workflow."""
-        ans = []
+        ans = Env.Bindings()
 
         if self.inputs is not None:
             for decl in self.inputs:
                 if decl.expr is None and decl.type.optional is False:
-                    ans = Env.bind(ans, [], decl.name, decl)
+                    ans = ans.bind(decl.name, decl)
 
         for elt in _decls_and_calls(self, exclude_outputs=True):
             if isinstance(elt, Decl):
                 if self.inputs is None and elt.expr is None and elt.type.optional is False:
-                    ans = Env.bind(ans, [], elt.name, elt)
+                    ans = ans.bind(elt.name, elt)
             elif isinstance(elt, Call):
-                ans = elt.required_inputs + ans
+                ans = Env.merge(elt.required_inputs, ans)
             else:
                 assert False
 
         return ans
 
     @property
-    def effective_outputs(self) -> Env.Types:
-        """:type: WDL.Env.Decls
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        """:type: WDL.Env.Bindings[Decl]
 
         If the ``output{}`` workflow section is present, yields the names and
         types therein, at the top level of the Env. Otherwise, yield all the
         call outputs, namespaced and typed appropriately.
         """
-        ans = []
+        ans = Env.Bindings()
 
         if self.outputs is not None:
             for decl in self.outputs:
-                ans = Env.bind(ans, [], decl.name, decl.type, ctx=decl)
+                ans = ans.bind(decl.name, decl.type, decl)
         else:
             for elt in self.body:
                 if isinstance(elt, (Call, WorkflowSection)):
-                    ans = elt.effective_outputs + ans
+                    ans = Env.merge(elt.effective_outputs, ans)
 
         return ans
 
@@ -1099,38 +1066,36 @@ class Workflow(SourceNode):
 
             if output_idents[0][-1] == "*":
                 # wildcard: expand to each call output
-                wildcard_namespace = output_idents[0][:-1]
+                wildcard_namespace_parts = output_idents[0][:-1]
+                wildcard_namespace = ".".join(wildcard_namespace_parts)
                 output_idents = []
-                try:
-                    for binding in Env.resolve_namespace(self._type_env, wildcard_namespace):
-                        assert isinstance(binding, Env.Binding)
-                        binding_name = binding.name
-                        assert isinstance(binding_name, str)
-                        output_idents.append(wildcard_namespace + [binding_name])
-                except KeyError:
-                    raise Error.NoSuchTask(
-                        self._output_idents_pos, ".".join(wildcard_namespace)
-                    ) from None
+                if not self._type_env.has_namespace(wildcard_namespace):
+                    raise Error.NoSuchTask(self._output_idents_pos, wildcard_namespace) from None
+                for binding in self._type_env.enter_namespace(wildcard_namespace):
+                    assert isinstance(binding, Env.Binding)
+                    binding_name = binding.name
+                    assert isinstance(binding_name, str)
+                    output_idents.append(wildcard_namespace_parts + [binding_name])
 
             for output_ident in output_idents:
-                try:
-                    ty = Env.resolve(self._type_env, output_ident[:-1], output_ident[-1])
-                except KeyError:
-                    raise Error.UnknownIdentifier(
-                        Expr.Ident(self._output_idents_pos, output_ident)
-                    ) from None
-                assert isinstance(ty, Type.Base)
                 # the output name is supposed to be 'fully qualified'
                 # including the call namespace. we're going to stick it
                 # into the decl name with a ., which is a weird corner
                 # case!
                 synthetic_output_name = ".".join(output_ident)
+                try:
+                    ty = self._type_env.resolve(synthetic_output_name)
+                except KeyError:
+                    raise Error.UnknownIdentifier(
+                        Expr.Ident(self._output_idents_pos, synthetic_output_name)
+                    ) from None
+                assert isinstance(ty, Type.Base)
                 output_ident_decls.append(
                     Decl(
                         self.pos,
                         ty,
                         synthetic_output_name,
-                        Expr.Ident(self._output_idents_pos, output_ident),
+                        Expr.Ident(self._output_idents_pos, synthetic_output_name),
                         id_prefix="output",
                     )
                 )
@@ -1184,7 +1149,7 @@ class Document(SourceNode):
     :type: List[DocImport]
 
     Imported documents"""
-    struct_typedefs: Env.StructTypeDefs
+    struct_typedefs: Env.Bindings[StructTypeDef]
     """:type: Dict[str, Dict[str, WDL.Type.Base]]"""
     tasks: List[Task]
     """:type: List[WDL.Tree.Task]"""
@@ -1201,9 +1166,9 @@ class Document(SourceNode):
     ) -> None:
         super().__init__(pos)
         self.imports = imports
-        self.struct_typedefs = []
+        self.struct_typedefs = Env.Bindings()
         for name, struct_typedef in struct_typedefs.items():
-            self.struct_typedefs = Env.bind(self.struct_typedefs, [], name, struct_typedef)
+            self.struct_typedefs = self.struct_typedefs.bind(name, struct_typedef)
         self.tasks = tasks
         self.workflow = workflow
 
@@ -1215,8 +1180,8 @@ class Document(SourceNode):
                 yield imp.doc
         for stb in self.struct_typedefs:
             # pylint: disable=no-member
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructTypeDef)
-            yield stb.rhs
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, StructTypeDef)
+            yield stb.value
         for task in self.tasks:
             yield task
         if self.workflow:
@@ -1396,20 +1361,19 @@ def _decls_and_calls(
 
 def _resolve_calls(doc: Document) -> None:
     # Resolve all calls in the workflow (descending into scatter & conditional
-    # sections). Also check for call name collisions
+    # sections).
     if doc.workflow:
         with Error.multi_context() as errors:
-            call_names = set()
             for c in _decls_and_calls(doc.workflow):
                 if isinstance(c, Call):
-                    errors.try1(lambda c=c: c.resolve(doc, call_names))
+                    errors.try1(lambda c=c: c.resolve(doc))
 
 
 def _build_workflow_type_env(
     doc: Document,
     check_quant: bool,
     self: Optional[Union[Workflow, WorkflowSection]] = None,
-    outer_type_env: Env.Types = None,
+    outer_type_env: Optional[Env.Bindings[Type.Base]] = None,
 ) -> None:
     # Populate each Workflow, Scatter, and Conditional object with its
     # _type_env attribute containing the type environment available in the body
@@ -1441,7 +1405,7 @@ def _build_workflow_type_env(
     # When we've been called recursively on a scatter or conditional section,
     # the 'outer' type environment has everything available in the workflow
     # -except- the body of self.
-    type_env = outer_type_env or []
+    type_env = outer_type_env or Env.Bindings()
 
     if isinstance(self, Workflow):
         # start with workflow inputs
@@ -1455,21 +1419,15 @@ def _build_workflow_type_env(
         if isinstance(self.expr.type.item_type, Type.Any):
             raise Error.IndeterminateType(self.expr, "can't infer item type of empty array")
         # bind the scatter variable to the array item type within the body
-        try:
-            Env.resolve(type_env, [], self.variable)
+        if self.variable in type_env:
             raise Error.MultipleDefinitions(
                 self, "Name collision for scatter variable " + self.variable
             )
-        except KeyError:
-            pass
-        try:
-            Env.resolve_namespace(type_env, [self.variable])
+        if type_env.has_namespace(self.variable):
             raise Error.MultipleDefinitions(
                 self, "Call name collision for scatter variable " + self.variable
             )
-        except KeyError:
-            pass
-        type_env = Env.bind(type_env, [], self.variable, self.expr.type.item_type, ctx=self)
+        type_env = type_env.bind(self.variable, self.expr.type.item_type, self)
     elif isinstance(self, Conditional):
         # typecheck the condition
         self.expr.infer_type(type_env, check_quant=check_quant)
@@ -1565,17 +1523,17 @@ def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callab
             expected = exc.expected
             if isinstance(expected, Type.StructInstance):
                 for stb in doc.struct_typedefs:
-                    assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructTypeDef)
-                    if id(stb.rhs.members) == id(expected.members):
+                    assert isinstance(stb, Env.Binding) and isinstance(stb.value, StructTypeDef)
+                    if id(stb.value.members) == id(expected.members):
                         expected = Type.StructInstance(stb.name, optional=expected.optional)
-                        expected.members = stb.rhs.members
+                        expected.members = stb.value.members
             actual = exc.actual
             if isinstance(actual, Type.StructInstance):
                 for stb in doc.struct_typedefs:
-                    assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructTypeDef)
-                    if id(stb.rhs.members) == id(actual.members):
+                    assert isinstance(stb, Env.Binding) and isinstance(stb.value, StructTypeDef)
+                    if id(stb.value.members) == id(actual.members):
                         actual = Type.StructInstance(stb.name, optional=actual.optional)
-                        actual.members = stb.rhs.members
+                        actual.members = stb.value.members
             raise Error.StaticTypeMismatch(exc.node or exc.pos, expected, actual, exc.args[0])
 
     return f
@@ -1668,8 +1626,8 @@ def _import_structs(doc: Document):
     ]:  # imp.doc should be None only for certain legacy unit tests
         imported_structs = {}
         for stb in imp.doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, StructTypeDef)
-            imported_structs[stb.name] = stb.rhs
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, StructTypeDef)
+            imported_structs[stb.name] = stb.value
         for (name, alias) in imp.aliases:
             if name not in imported_structs:
                 raise Error.NoSuchMember(imp.pos, name)
@@ -1681,7 +1639,7 @@ def _import_structs(doc: Document):
                     ),
                 )
             try:
-                existing = Env.resolve(doc.struct_typedefs, [], alias)
+                existing = doc.struct_typedefs[alias]
                 raise Error.MultipleDefinitions(
                     imp.pos,
                     "struct type alias {} collides with a struct {} document".format(
@@ -1701,7 +1659,7 @@ def _import_structs(doc: Document):
         for (name, st) in imported_structs.items():
             existing = None
             try:
-                existing = Env.resolve(doc.struct_typedefs, [], name)
+                existing = doc.struct_typedefs[name]
                 if existing.type_id != st.type_id:
                     raise Error.MultipleDefinitions(
                         imp.pos,
@@ -1718,18 +1676,18 @@ def _import_structs(doc: Document):
                 pass
             if not existing:
                 st2 = StructTypeDef(imp.pos, name, st.members, imported=True)
-                doc.struct_typedefs = Env.bind(doc.struct_typedefs, [], name, st2)
+                doc.struct_typedefs = doc.struct_typedefs.bind(name, st2)
 
 
 def _resolve_struct_typedef(
-    pos: Error.SourcePosition, ty: Type.StructInstance, struct_typedefs: Env.StructTypeDefs
+    pos: Error.SourcePosition, ty: Type.StructInstance, struct_typedefs: Env.Bindings[StructTypeDef]
 ):
     # On construction, WDL.Type.StructInstance is not yet resolved to the
-    # struct type definition. Here, given the Env.StructTypeDefs computed
+    # struct type definition. Here, given the Env.Bindings[StructTypeDef] computed
     # on document construction, we populate 'members' with the dict of member
     # types and names.
     try:
-        struct_typedef = Env.resolve(struct_typedefs, [], ty.type_name)
+        struct_typedef = struct_typedefs[ty.type_name]
     except KeyError:
         raise Error.InvalidType(pos, "Unknown type " + ty.type_name) from None
     ty.members = struct_typedef.members
@@ -1738,7 +1696,7 @@ def _resolve_struct_typedef(
 def _resolve_struct_typedefs(
     pos: Error.SourcePosition,
     ty: Type.Base,
-    struct_typedefs: Env.StructTypeDefs,
+    struct_typedefs: Env.Bindings[StructTypeDef],
     members_dict_ids: Optional[List[int]] = None,
 ):
     members_dict_ids = members_dict_ids or []
@@ -1753,29 +1711,31 @@ def _resolve_struct_typedefs(
         _resolve_struct_typedefs(pos, p, struct_typedefs, members_dict_ids=members_dict_ids)
 
 
-def _initialize_struct_typedefs(struct_typedefs: Env.StructTypeDefs):
+def _initialize_struct_typedefs(struct_typedefs: Env.Bindings[StructTypeDef]):
     # bootstrap struct typechecking: resolve all StructInstance members of the
     # struct types; also detect & error circular struct definitions
     for b in struct_typedefs:
         assert isinstance(b, Env.Binding)
-        for member_ty in b.rhs.members.values():
+        for member_ty in b.value.members.values():
             try:
-                _resolve_struct_typedefs(b.rhs.pos, member_ty, struct_typedefs)
+                _resolve_struct_typedefs(b.value.pos, member_ty, struct_typedefs)
             except StopIteration:
-                raise Error.CircularDependencies(b.rhs) from None
+                raise Error.CircularDependencies(b.value) from None
 
 
 def _add_struct_instance_to_type_env(
-    namespace: List[str], ty: Type.StructInstance, type_env: Env.Types, ctx: Any
+    namespace: str, ty: Type.StructInstance, type_env: Env.Bindings[Type.Base], ctx: Any
 ):
     # populate the type env with a binding for the struct instance and a
     # namespace containing its members (recursing if any members are themselves
     # struct instances)
     assert isinstance(ty.members, dict)
-    ans = Env.bind(type_env, namespace[:-1], namespace[-1], ty, ctx)
+    ans = type_env.bind(namespace, ty, ctx)
     for member_name, member_type in ty.members.items():
         if isinstance(member_type, Type.StructInstance):
-            ans = _add_struct_instance_to_type_env(namespace + [member_name], member_type, ans, ctx)
+            ans = _add_struct_instance_to_type_env(
+                namespace + "." + member_name, member_type, ans, ctx
+            )
         else:
-            ans = Env.bind(ans, namespace, member_name, member_type, ctx=ctx)
+            ans = ans.bind(namespace + "." + member_name, member_type, ctx)
     return ans

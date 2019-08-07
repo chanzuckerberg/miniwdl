@@ -59,7 +59,7 @@ class TestTasks(unittest.TestCase):
             self.assertEqual(str(task.inputs[0]), "String in")
 
             self.assertEqual(len(task.command.parts), 3)
-            self.assertEqual(task.command.parts[1].expr._ident, ["in"])
+            self.assertEqual(task.command.parts[1].expr._ident, "in")
 
             self.assertEqual(len(task.outputs), 1)
             self.assertEqual(str(task.outputs[0].type), "String")
@@ -68,7 +68,7 @@ class TestTasks(unittest.TestCase):
 
             task.typecheck()
 
-            self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'in', WDL.Value.String("hello"))).value, 'hello')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings(WDL.Env.Binding('in', WDL.Value.String("hello")))).value, 'hello')
 
             self.assertFalse(task.command.parts[0].strip().startswith("{"))
             self.assertFalse(task.command.parts[0].strip().startswith("<<<"))
@@ -124,9 +124,9 @@ class TestTasks(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(True))).value, 'yes')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(False))).value, 'no')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Null())).value, '')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'yes')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, '')
 
         task = WDL.parse_tasks("""
             task wc {
@@ -140,10 +140,10 @@ class TestTasks(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(True))).value, 'yes')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(False))).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'yes')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'no')
         with self.assertRaises(WDL.Error.NullValue):
-            self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Null())).value, '')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, '')
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
@@ -190,9 +190,9 @@ class TestTasks(unittest.TestCase):
             """)[0]
         task.typecheck()
         foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [WDL.Value.String("foo"), WDL.Value.String("bar")])
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 's', foobar)).value, 'foo, bar')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar)).value, 'foo, bar')
         foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [])
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 's', foobar)).value, '')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar)).value, '')
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             task = WDL.parse_tasks("""
             task wc {
@@ -228,9 +228,9 @@ class TestTasks(unittest.TestCase):
             """)[0]
         task.typecheck()
         self.assertTrue(task.inputs[0].type.optional)
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(True))).value, 'true')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Boolean(False))).value, 'false')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.bind([], [], 'b', WDL.Value.Null())).value, 'foo')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'true')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'false')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, 'foo')
 
         task = WDL.parse_tasks("""
             task wc {
@@ -441,7 +441,7 @@ class TestTypes(unittest.TestCase):
             doc = WDL.parse_document(doc_txt, v)
             self.assertEqual(str(doc.workflow.body[0].type), t)
             self.assertEqual(doc.workflow.body[0].type.optional, t.endswith("?"))
-            self.assertEqual(str(doc.workflow.effective_outputs[0].rhs), t)
+            self.assertEqual(str(list(doc.workflow.effective_outputs)[0].value), t)
         for t in ["Int", "Int?",
                   "Array[Int]", "Array[Int]?", "Array[Int]+?", "Array[Int?]+?",
                   "Map[String,Int]", "Map[String,Array[Float?]+]?",
@@ -1321,7 +1321,7 @@ class TestDoc(unittest.TestCase):
         doc = WDL.parse_document(doc)
         doc.typecheck()
         self.assertEqual(len(doc.workflow.available_inputs), 1)
-        self.assertEqual(doc.workflow.available_inputs[0].name, "in")
+        self.assertEqual(list(doc.workflow.available_inputs)[0].name, "in")
 
     def test_issue173_workflow_section_order(self):
         doc = r"""
@@ -1508,8 +1508,8 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
-        self.assertEqual(str(WDL.Env.resolve(doc.struct_typedefs, [], "Person").members["age"]), "Int")
-        self.assertEqual(str(WDL.Env.resolve(doc.struct_typedefs, [], "Name").members["myFiles"]), "Array[File]+")
+        self.assertEqual(str(doc.struct_typedefs.resolve("Person").members["age"]), "Int")
+        self.assertEqual(str(doc.struct_typedefs.resolve("Name").members["myFiles"]), "Array[File]+")
 
         doc = r"""
         version 1.0

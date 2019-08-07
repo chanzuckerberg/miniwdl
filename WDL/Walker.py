@@ -185,7 +185,7 @@ class SetParents(Base):
         for imp in obj.imports:
             imp.doc.parent = obj
         for stb in obj.struct_typedefs:
-            stb.rhs.parent = obj
+            stb.value.parent = obj
         for task in obj.tasks:
             task.parent = obj
         if obj.workflow:

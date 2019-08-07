@@ -21,7 +21,7 @@ class TestWorkflowRunner(unittest.TestCase):
             doc = WDL.load(wdlfn)
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
-            rundir, outputs = WDL.runtime.run_local_workflow(doc.workflow, (inputs or []), run_dir=self._dir, _test_pickle=True)
+            rundir, outputs = WDL.runtime.run_local_workflow(doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
         except WDL.runtime.TaskFailure as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)

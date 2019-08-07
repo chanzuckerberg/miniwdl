@@ -322,10 +322,10 @@ class TaskDockerContainer(TaskContainer):
 
 def run_local_task(
     task: Tree.Task,
-    posix_inputs: Env.Values,
+    posix_inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
-) -> Tuple[str, Env.Values]:
+) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
 
@@ -398,8 +398,11 @@ def run_local_task(
 
 
 def _eval_task_inputs(
-    logger: logging.Logger, task: Tree.Task, posix_inputs: Env.Values, container: TaskContainer
-) -> Env.Values:
+    logger: logging.Logger,
+    task: Tree.Task,
+    posix_inputs: Env.Bindings[Value.Base],
+    container: TaskContainer,
+) -> Env.Bindings[Value.Base]:
     # Map all the provided input Files to in-container paths
     # First make a pass to collect all the host paths and pass them to the
     # container as a group (so that it can deal with any basename collisions)
@@ -411,7 +414,8 @@ def _eval_task_inputs(
         for ch in v.children:
             collect_host_files(ch)
 
-    Env.map(posix_inputs, lambda namespace, binding: collect_host_files(binding.rhs))
+    for binding in posix_inputs:
+        collect_host_files(binding.value)
     container.add_files(host_files)
 
     # copy posix_inputs with all Files mapped to their in-container paths
@@ -422,26 +426,24 @@ def _eval_task_inputs(
             map_files(ch)
         return v
 
-    container_inputs = Env.map(
-        posix_inputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs))
+    container_inputs = posix_inputs.map(
+        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
     )
 
     # initialize value environment with the inputs
-    container_env = []
+    container_env = Env.Bindings()
     for b in container_inputs:
         assert isinstance(b, Env.Binding)
-        v = b.rhs
+        v = b.value
         assert isinstance(v, Value.Base)
-        container_env = Env.bind(container_env, [], b.name, v)
+        container_env = container_env.bind(b.name, v)
         vj = json.dumps(v.json)
         logger.info("input {} -> {}".format(b.name, vj if len(vj) < 4096 else "(large)"))
 
     # collect remaining declarations requiring evaluation.
     decls_to_eval = []
     for decl in (task.inputs or []) + (task.postinputs or []):
-        try:
-            Env.resolve(container_env, [], decl.name)
-        except KeyError:
+        if not container_env.has_binding(decl.name):
             decls_to_eval.append(decl)
 
     # topsort them according to internal dependencies. prior static validation
@@ -470,17 +472,17 @@ def _eval_task_inputs(
             assert decl.type.optional
         vj = json.dumps(v.json)
         logger.info("eval {} -> {}".format(decl.name, vj if len(vj) < 4096 else "(large)"))
-        container_env = Env.bind(container_env, [], decl.name, v)
+        container_env = container_env.bind(decl.name, v)
 
     return container_env
 
 
 def _eval_task_outputs(
-    logger: logging.Logger, task: Tree.Task, env: Env.Values, container: TaskContainer
-) -> Env.Values:
+    logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
+) -> Env.Bindings[Value.Base]:
 
     stdlib = OutputStdLib(container)
-    outputs = []
+    outputs = Env.Bindings()
     for decl in task.outputs:
         assert decl.expr
         try:
@@ -493,8 +495,8 @@ def _eval_task_outputs(
             setattr(exn2, "job_id", decl.workflow_node_id)
             raise exn2 from exn
         logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
-        outputs = Env.bind(outputs, [], decl.name, v)
-        env = Env.bind(env, [], decl.name, v)
+        outputs = outputs.bind(decl.name, v)
+        env = env.bind(decl.name, v)
 
     # map Files from in-container paths to host paths
     def map_files(v: Value.Base) -> Value.Base:
@@ -506,7 +508,9 @@ def _eval_task_outputs(
             map_files(ch)
         return v
 
-    return Env.map(outputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs)))
+    return outputs.map(
+        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
+    )
 
 
 class _StdLib(StdLib.Base):
