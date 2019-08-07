@@ -199,7 +199,7 @@ class Decl(WorkflowNode):
         # Add an appropriate binding in the type env, after checking for name
         # collision.
         if not collision_ok:
-            if type_env.has_binding(self.name):
+            if self.name in type_env:
                 raise Error.MultipleDefinitions(self, "Multiple declarations of " + self.name)
             if type_env.has_namespace(self.name):
                 raise Error.MultipleDefinitions(self, "Value/call name collision on " + self.name)
@@ -483,7 +483,7 @@ class Call(WorkflowNode):
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
-        if type_env.has_binding(self.name):
+        if self.name in type_env:
             raise Error.MultipleDefinitions(self, "Value/call name collision on " + self.name)
         if type_env.has_namespace(self.name):
             raise Error.MultipleDefinitions(
@@ -507,7 +507,7 @@ class Call(WorkflowNode):
         with Error.multi_context() as errors:
             for name, expr in self.inputs.items():
                 try:
-                    decl = self.callee.available_inputs.resolve(name)
+                    decl = self.callee.available_inputs[name]
                     errors.try1(
                         lambda expr=expr, decl=decl: expr.infer_type(
                             type_env, check_quant=check_quant
@@ -1419,7 +1419,7 @@ def _build_workflow_type_env(
         if isinstance(self.expr.type.item_type, Type.Any):
             raise Error.IndeterminateType(self.expr, "can't infer item type of empty array")
         # bind the scatter variable to the array item type within the body
-        if type_env.has_binding(self.variable):
+        if self.variable in type_env:
             raise Error.MultipleDefinitions(
                 self, "Name collision for scatter variable " + self.variable
             )
@@ -1639,7 +1639,7 @@ def _import_structs(doc: Document):
                     ),
                 )
             try:
-                existing = doc.struct_typedefs.resolve(alias)
+                existing = doc.struct_typedefs[alias]
                 raise Error.MultipleDefinitions(
                     imp.pos,
                     "struct type alias {} collides with a struct {} document".format(
@@ -1659,7 +1659,7 @@ def _import_structs(doc: Document):
         for (name, st) in imported_structs.items():
             existing = None
             try:
-                existing = doc.struct_typedefs.resolve(name)
+                existing = doc.struct_typedefs[name]
                 if existing.type_id != st.type_id:
                     raise Error.MultipleDefinitions(
                         imp.pos,
@@ -1687,7 +1687,7 @@ def _resolve_struct_typedef(
     # on document construction, we populate 'members' with the dict of member
     # types and names.
     try:
-        struct_typedef = struct_typedefs.resolve(ty.type_name)
+        struct_typedef = struct_typedefs[ty.type_name]
     except KeyError:
         raise Error.InvalidType(pos, "Unknown type " + ty.type_name) from None
     ty.members = struct_typedef.members

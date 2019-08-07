@@ -120,7 +120,7 @@ def collect(doc):
 
 def _find_input_decl(obj: Tree.Call, name: str) -> Tree.Decl:
     assert isinstance(obj.callee, (Tree.Task, Tree.Workflow))
-    return obj.callee.available_inputs.resolve(name)
+    return obj.callee.available_inputs[name]
 
 
 def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):

@@ -783,7 +783,7 @@ class Ident(Base):
         self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
     ) -> Value.Base:
         ""
-        return env.resolve(self.name)
+        return env[self.name]
 
     @property
     def _ident(self) -> str:
@@ -886,7 +886,7 @@ class Get(Base):
         if isinstance(self.expr, _LeftName):
             # expr is a lone "name" -- try to resolve it as an identifier,
             # and if that works, transform it to Ident("name")
-            if type_env.has_binding(self.expr.name):
+            if self.expr.name in type_env:
                 self.expr = Ident(self.expr.pos, self.expr.name)
             elif not self.member:
                 raise Error.UnknownIdentifier(self)
@@ -903,7 +903,7 @@ class Get(Base):
                 raise
             # attempt to resolve "expr.member" and if that works, transform
             # expr to Ident("expr.member")
-            if not type_env.has_binding(self.expr._ident + "." + self.member):
+            if self.expr._ident + "." + self.member not in type_env:
                 raise Error.UnknownIdentifier(self) from None
             self.expr = Ident(self.pos, self._ident)
             self.expr.infer_type(type_env, self._stdlib, self._check_quant)

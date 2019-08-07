@@ -117,19 +117,30 @@ class Bindings(Generic[T]):
         raise KeyError()
 
     def resolve(self, name: str) -> T:
-        """Look up a bound value by name
+        """
+        Look up a bound value by name. Equivalently, ``env[name]``
 
         :raise KeyError: no such binding
         """
         return self.resolve_binding(name).value
 
+    def __getitem__(self, name: str) -> T:
+        return self.resolve(name)
+
     def has_binding(self, name: str) -> bool:
-        """Determine existence of a binding for the name"""
+        """
+        Determine existence of a binding for the name. Equivalently, ``name in env``
+        """
         try:
             self.resolve(name)
             return True
         except KeyError:
             return False
+
+    def __contains__(self, name: str) -> bool:
+        if isinstance(name, str):
+            return self.has_binding(name)
+        return False
 
     def map(self, f: Callable[[Binding[T]], Optional[Binding[S]]]) -> "Bindings[S]":
         """

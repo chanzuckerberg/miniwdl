@@ -170,7 +170,7 @@ def values_from_json(
         if namespace and key.startswith(namespace):
             key2 = key[len(namespace) :]
         try:
-            ty = available.resolve(key2).type
+            ty = available[key2].type
         except KeyError:
             raise Error.InputError("unknown input/output: " + key) from None
         ans = ans.bind(key2, Value.from_json(ty, values_json[key]))

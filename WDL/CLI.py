@@ -487,7 +487,7 @@ def runner_input(doc, inputs, input_file, empty, task=None):
     # set explicitly empty arrays
     for empty_name in empty or []:
         try:
-            decl = available_inputs.resolve(empty_name)
+            decl = available_inputs[empty_name]
         except KeyError:
             die(
                 "No such input to {}: {}\n{}".format(
@@ -508,7 +508,7 @@ def runner_input(doc, inputs, input_file, empty, task=None):
 
         # find corresponding input declaration
         try:
-            decl = available_inputs.resolve(name)
+            decl = available_inputs[name]
         except KeyError:
             die(
                 "No such input to {}: {}\n{}".format(target.name, buf[0], runner_input_help(target))
@@ -519,7 +519,7 @@ def runner_input(doc, inputs, input_file, empty, task=None):
 
         # insert value into input_env
         try:
-            existing = input_env.resolve(name)
+            existing = input_env[name]
         except KeyError:
             existing = None
         if existing:
