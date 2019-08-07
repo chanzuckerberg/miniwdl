@@ -205,7 +205,7 @@ class Decl(WorkflowNode):
                 raise Error.MultipleDefinitions(self, "Value/call name collision on " + self.name)
         _resolve_struct_typedefs(self.pos, self.type, struct_typedefs)
         if isinstance(self.type, Type.StructInstance):
-            return _add_struct_instance_to_type_env([self.name], self.type, type_env, ctx=self)
+            return _add_struct_instance_to_type_env(self.name, self.type, type_env, ctx=self)
         return type_env.bind(self.name, self.type, self)
 
     def typecheck(
@@ -411,7 +411,9 @@ class Call(WorkflowNode):
     """
     :type: List[str]
 
-    WDL namespaced identifier of the desired task/workflow"""
+    The called task; either one string naming a task in the current document, or an import
+    namespace and task name.
+    """
     name: str
     """:type: string
 
@@ -1064,17 +1066,16 @@ class Workflow(SourceNode):
 
             if output_idents[0][-1] == "*":
                 # wildcard: expand to each call output
-                wildcard_namespace = output_idents[0][:-1]
+                wildcard_namespace_parts = output_idents[0][:-1]
+                wildcard_namespace = ".".join(wildcard_namespace_parts)
                 output_idents = []
-                if not self._type_env.has_namespace(".".join(wildcard_namespace)):
-                    raise Error.NoSuchTask(
-                        self._output_idents_pos, ".".join(wildcard_namespace)
-                    ) from None
-                for binding in self._type_env.enter_namespace(".".join(wildcard_namespace)):
+                if not self._type_env.has_namespace(wildcard_namespace):
+                    raise Error.NoSuchTask(self._output_idents_pos, wildcard_namespace) from None
+                for binding in self._type_env.enter_namespace(wildcard_namespace):
                     assert isinstance(binding, Env.Binding)
                     binding_name = binding.name
                     assert isinstance(binding_name, str)
-                    output_idents.append(wildcard_namespace + [binding_name])
+                    output_idents.append(wildcard_namespace_parts + [binding_name])
 
             for output_ident in output_idents:
                 # the output name is supposed to be 'fully qualified'
@@ -1723,16 +1724,18 @@ def _initialize_struct_typedefs(struct_typedefs: Env.Bindings[StructTypeDef]):
 
 
 def _add_struct_instance_to_type_env(
-    namespace: List[str], ty: Type.StructInstance, type_env: Env.Bindings[Type.Base], ctx: Any
+    namespace: str, ty: Type.StructInstance, type_env: Env.Bindings[Type.Base], ctx: Any
 ):
     # populate the type env with a binding for the struct instance and a
     # namespace containing its members (recursing if any members are themselves
     # struct instances)
     assert isinstance(ty.members, dict)
-    ans = type_env.bind(".".join(namespace), ty, ctx)
+    ans = type_env.bind(namespace, ty, ctx)
     for member_name, member_type in ty.members.items():
         if isinstance(member_type, Type.StructInstance):
-            ans = _add_struct_instance_to_type_env(namespace + [member_name], member_type, ans, ctx)
+            ans = _add_struct_instance_to_type_env(
+                namespace + "." + member_name, member_type, ans, ctx
+            )
         else:
-            ans = ans.bind(".".join(namespace + [member_name]), member_type, ctx)
+            ans = ans.bind(namespace + "." + member_name, member_type, ctx)
     return ans

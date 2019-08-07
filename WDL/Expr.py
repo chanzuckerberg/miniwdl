@@ -786,8 +786,8 @@ class Ident(Base):
         return env.resolve(self.name)
 
     @property
-    def _ident(self) -> List[str]:
-        return self.name.split(".")
+    def _ident(self) -> str:
+        return self.name
 
 
 class _LeftName(Base):
@@ -818,8 +818,8 @@ class _LeftName(Base):
         raise NotImplementedError()
 
     @property
-    def _ident(self) -> List[str]:
-        return [self.name]
+    def _ident(self) -> str:
+        return self.name
 
 
 class Get(Base):
@@ -903,9 +903,9 @@ class Get(Base):
                 raise
             # attempt to resolve "expr.member" and if that works, transform
             # expr to Ident("expr.member")
-            if not type_env.has_binding(".".join(self.expr._ident + [self.member])):
+            if not type_env.has_binding(self.expr._ident + "." + self.member):
                 raise Error.UnknownIdentifier(self) from None
-            self.expr = Ident(self.pos, ".".join(self._ident))
+            self.expr = Ident(self.pos, self._ident)
             self.expr.infer_type(type_env, self._stdlib, self._check_quant)
             self.member = None
         # now we've typechecked expr
@@ -945,12 +945,12 @@ class Get(Base):
         raise NotImplementedError()
 
     @property
-    def _ident(self) -> List[str]:
+    def _ident(self) -> str:
         # helper for the resolution logic above -- get the partial identifier
         # recursing into nested Gets, if there's a _LeftName at the bottom.
         if isinstance(self.expr, (_LeftName, Get)) and self.expr._ident:
-            return self.expr._ident + ([self.member] if self.member else [])
-        return []
+            return self.expr._ident + (("." + self.member) if self.member else "")
+        return ""
 
 
 _base_stdlib = None  # memorized instance of the default WDL.StdLib.Base()

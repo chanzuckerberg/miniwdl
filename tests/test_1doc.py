@@ -59,7 +59,7 @@ class TestTasks(unittest.TestCase):
             self.assertEqual(str(task.inputs[0]), "String in")
 
             self.assertEqual(len(task.command.parts), 3)
-            self.assertEqual(task.command.parts[1].expr._ident, ["in"])
+            self.assertEqual(task.command.parts[1].expr._ident, "in")
 
             self.assertEqual(len(task.outputs), 1)
             self.assertEqual(str(task.outputs[0].type), "String")
