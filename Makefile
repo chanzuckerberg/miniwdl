@@ -3,8 +3,7 @@ PYTHON_PKG_BASE?=$(HOME)/.local
 export TMPDIR = /tmp
 
 test: check check_check
-	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
-	coverage report -m
+	pytest -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
 	prove -v tests/*.t
 
 # fail fast

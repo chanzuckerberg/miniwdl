@@ -55,6 +55,8 @@ def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
             name = name[:-4]
             if name not in blacklist:
                 name = "test_" + prefix + "_" + name.replace('.', '_')
+                while hasattr(test_klass, name):
+                    name += '_'
                 def t(self, fn=fn):
                     # load & lint the document to verify the lint count
                     try:
