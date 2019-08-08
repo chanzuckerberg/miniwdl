@@ -267,7 +267,7 @@ class StateMachine:
         """
         assert job_id in self.running
         outlog = json.dumps(self.values_to_json(outputs))
-        self.logger.warn("finish %s", job_id)
+        self.logger.warning("finish %s", job_id)
         self.logger.info("output %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
@@ -335,7 +335,7 @@ class StateMachine:
                 call_inputs = call_inputs.bind(b.name, b.value)
             # issue CallInstructions
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
-            self.logger.warn("issue %s on %s", job.id, job.node.callee.name)
+            self.logger.warning("issue %s on %s", job.id, job.node.callee.name)
             inplog = json.dumps(self.values_to_json(call_inputs))
             self.logger.info("input %s <- %s", job.id, inplog if len(inplog) < 4096 else "(large)")
 
@@ -536,7 +536,7 @@ def run_local_workflow(
     fh = logging.FileHandler(os.path.join(run_dir, "workflow.log"))
     fh.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
     logger.addHandler(fh)
-    logger.warn(
+    logger.warning(
         "starting workflow %s (%s Ln %d Col %d) in %s",
         workflow.name,
         workflow.pos.uri,
@@ -585,5 +585,5 @@ def run_local_workflow(
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
-    logger.warn("done")
+    logger.warning("done")
     return (run_dir, state.outputs)
