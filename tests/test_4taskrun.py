@@ -126,8 +126,8 @@ class TestTaskRunner(unittest.TestCase):
         for record in std_error_msgs:
             line_written = int(record.msg.split('=')[1])
             self.assertGreater(record.created, line_written)
-            # check line logged within 2 seconds of being written
-            self.assertGreater(line_written+2, record.created)
+            # check line logged within 3 seconds of being written
+            self.assertGreater(line_written+3, record.created)
 
     @log_capture()
     def test_logging_std_err_captures_full_line(self, capture):
