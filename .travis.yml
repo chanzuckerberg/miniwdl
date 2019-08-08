@@ -1,6 +1,5 @@
 language: cpp
-sudo: yes
-dist: trusty
+dist: bionic
 
 script:
   - |
