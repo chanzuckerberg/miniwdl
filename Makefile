@@ -3,7 +3,7 @@ PYTHON_PKG_BASE?=$(HOME)/.local
 export TMPDIR = /tmp
 
 test: check check_check
-	pytest -x --cov=WDL tests
+	pytest --cov=WDL tests
 	prove -v tests/*.t
 
 # fail fast
