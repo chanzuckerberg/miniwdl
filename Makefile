@@ -3,7 +3,7 @@ PYTHON_PKG_BASE?=$(HOME)/.local
 export TMPDIR = /tmp
 
 test: check check_check
-	pytest --cov=WDL tests
+	pytest -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
 	prove -v tests/*.t
 
 # fail fast
