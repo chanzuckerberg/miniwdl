@@ -37,7 +37,7 @@ async def read_source(uri, path, importer_uri):
     return await WDL.read_source_default(uri, path, importer_uri)
 
 
-def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
+def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
     def decorator(test_klass):
 
         test_klass._lint_count = {}
@@ -113,14 +113,14 @@ def validate_workflow_graph(workflow):
 
     visit_section(workflow.body, set(inp.workflow_node_id for inp in workflow.inputs or []))
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/HumanCellAtlas/skylab/library/tasks/**"],
     expected_lint={'UnusedDeclaration': 2, 'UnknownRuntimeKey': 1}
 )
 class HCAskylab_task(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
     expected_lint={'UnusedDeclaration': 12, 'NameCollision': 3, 'UnknownRuntimeKey': 3, 'StringCoercion': 5, 'MixedIndentation': 1, 'FileCoercion': 1}
@@ -128,21 +128,21 @@ class HCAskylab_task(unittest.TestCase):
 class HCAskylab_workflow(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
     expected_lint={'UnusedDeclaration': 5, 'NameCollision': 2, 'UnusedImport': 2},
 )
 class GATK_five_dollar(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
     expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 20, 'FileCoercion': 1, 'UnknownRuntimeKey': 1}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
     expected_lint={'OptionalCoercion': 50, 'NonemptyCoercion': 4, 'UnusedDeclaration': 29, 'ForwardReference': 6, 'StringCoercion': 20, 'MixedIndentation': 6},
     check_quant=False,
@@ -150,7 +150,7 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/gatk4-cnn-variant-filter/**"],
     expected_lint={'UnusedDeclaration': 21, 'OptionalCoercion': 23, 'StringCoercion': 4, 'FileCoercion': 2, 'UnusedCall': 1},
     check_quant=False,
@@ -159,7 +159,7 @@ class gatk4_cnn_variant_filter(unittest.TestCase):
     pass
 
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
     blacklist=['JointGenotypingWf'],
     expected_lint={'StringCoercion': 50, 'UnusedDeclaration': 10, 'ArrayCoercion': 4},
@@ -168,7 +168,7 @@ class gatk4_cnn_variant_filter(unittest.TestCase):
 class broad_prod_wgs(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/broadinstitute/gtex-pipeline/**"],
     # need URI import
     blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq"],
@@ -177,7 +177,7 @@ class broad_prod_wgs(unittest.TestCase):
 class GTEx(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/DataBiosphere/topmed-workflows/**"],
     # need URI import
     blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
@@ -188,7 +188,7 @@ class GTEx(unittest.TestCase):
 class TOPMed(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows"],
     path=[["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"]],
     expected_lint={'UnusedDeclaration': 23, 'NameCollision': 9, 'IncompleteCall': 44, 'UnusedImport': 1, 'SelectArray': 4},
@@ -196,7 +196,7 @@ class TOPMed(unittest.TestCase):
 class ViralNGS(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
     expected_lint={'StringCoercion': 224,  'FileCoercion': 154, 'NameCollision': 16, 'OptionalCoercion': 64, 'MixedIndentation': 32},
     check_quant=False,
@@ -204,7 +204,7 @@ class ViralNGS(unittest.TestCase):
 class ENCODE_ChIPseq(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"],
     expected_lint={'StringCoercion': 195, 'FileCoercion': 204, 'OptionalCoercion': 26, 'UnusedCall': 13, 'MixedIndentation': 13},
     check_quant=False,
@@ -212,21 +212,21 @@ class ENCODE_ChIPseq(unittest.TestCase):
 class ENCODE_ATACseq(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/ENCODE-DCC/rna-seq-pipeline/**"],
     expected_lint={'StringCoercion': 6, 'UnusedDeclaration': 3, 'IncompleteCall': 3}
 )
 class ENCODE_RNAseq(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/ENCODE-DCC/wgbs-pipeline/**"],
     expected_lint={'StringCoercion': 9, 'UnusedDeclaration': 1, 'MixedIndentation': 1}
 )
 class ENCODE_WGBS(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/dnanexus/dxWDL/test/**"],
     blacklist=[
         # String to Int/Float casts
@@ -241,7 +241,7 @@ class ENCODE_WGBS(unittest.TestCase):
 class dxWDL(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/contrived/**"],
     expected_lint={'UnusedImport': 4, 'NameCollision': 30, 'StringCoercion': 5, 'FileCoercion': 2, 'OptionalCoercion': 2, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2, 'SelectArray': 1},
     blacklist=["check_quant", "incomplete_call"],
@@ -249,7 +249,7 @@ class dxWDL(unittest.TestCase):
 class Contrived(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/contrived/**"],
     expected_lint={'UnusedImport': 6, 'NameCollision': 49, 'StringCoercion': 11, 'FileCoercion': 4, 'OptionalCoercion': 7, 'NonemptyCoercion': 2, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, 'ArrayCoercion': 2, 'SelectArray': 4},
     check_quant=False,
@@ -258,7 +258,7 @@ class Contrived(unittest.TestCase):
 class Contrived2(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/biowdl/tasks/**"],
     expected_lint={'UnusedImport': 10, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
     check_quant=False,
@@ -266,7 +266,7 @@ class Contrived2(unittest.TestCase):
 class BioWDLTasks(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/biowdl/aligning/**"],
     expected_lint={'UnusedImport': 12, 'OptionalCoercion': 12, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
     check_quant=False,
@@ -274,7 +274,7 @@ class BioWDLTasks(unittest.TestCase):
 class BioWDLAligning(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/biowdl/expression-quantification/**"],
     expected_lint={'UnusedImport': 12, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 3, 'NameCollision': 1},
     check_quant=False,
