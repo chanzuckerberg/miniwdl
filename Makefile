@@ -3,12 +3,12 @@ PYTHON_PKG_BASE?=$(HOME)/.local
 export TMPDIR = /tmp
 
 test: check check_check
-	pytest -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
+	pytest -v -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
 	prove -v tests/*.t
 
 # fail fast
 qtest:
-	pytest -x -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
+	pytest -vx -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
 	prove -v tests/check.t tests/runner.t
 
 check:
