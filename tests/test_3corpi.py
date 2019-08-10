@@ -233,13 +233,15 @@ class ENCODE_WGBS(unittest.TestCase):
     blacklist=[
         # String to Int/Float casts
         "cast",
-        # decl/call name collision (draft-2)
+        # output/call name collision (draft-2)
         "conditionals2",
+        # decl/output name collision
+        "two_levels",
         # use dnanexus extensions
         "call_native", "call_native_app", "call_native_v1",
     ],
     path=[["test_corpi/dnanexus/dxWDL/test/imports/lib"]],
-    expected_lint={'UnusedDeclaration': 32, 'UnusedCall': 16, 'NameCollision': 2, 'OptionalCoercion': 3, 'FileCoercion': 3, 'StringCoercion': 2, 'UnnecessaryQuantifier': 1},
+    expected_lint={'UnusedDeclaration': 32, 'UnusedCall': 15, 'NameCollision': 2, 'OptionalCoercion': 3, 'FileCoercion': 3, 'StringCoercion': 2, 'UnnecessaryQuantifier': 1},
     check_quant=False,
 )
 class dxWDL(unittest.TestCase):
