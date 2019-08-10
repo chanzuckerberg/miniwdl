@@ -2,7 +2,7 @@
 import math
 import os
 import re
-from typing import List, Tuple, Callable, Any
+from typing import List, Tuple, Callable
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from . import Type, Value, Expr, Env, Error
@@ -120,7 +120,9 @@ class Function(ABC):
         pass
 
     @abstractmethod
-    def __call__(self, expr: "Expr.Apply", env: Env.Values, stdlib: Base) -> Value.Base:
+    def __call__(
+        self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
+    ) -> Value.Base:
         # Invoke the function, evaluating the arguments as needed
         pass
 
@@ -134,7 +136,9 @@ class EagerFunction(Function):
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         pass
 
-    def __call__(self, expr: "Expr.Apply", env: Env.Values, stdlib: Base) -> Value.Base:
+    def __call__(
+        self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
+    ) -> Value.Base:
         return self._call_eager(expr, [arg.eval(env, stdlib=stdlib) for arg in expr.arguments])
 
 
@@ -271,7 +275,9 @@ class _And(Function):
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to &&")
         return Type.Boolean()
 
-    def __call__(self, expr: "Expr.Apply", env: Env.Values, stdlib: Base) -> Value.Base:
+    def __call__(
+        self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
+    ) -> Value.Base:
         lhs = expr.arguments[0].eval(env, stdlib=stdlib).expect(Type.Boolean()).value
         if not lhs:
             return Value.Boolean(False)
@@ -289,7 +295,9 @@ class _Or(Function):
                 raise Error.IncompatibleOperand(arg, "optional Boolean? operand to ||")
         return Type.Boolean()
 
-    def __call__(self, expr: "Expr.Apply", env: Env.Values, stdlib: Base) -> Value.Base:
+    def __call__(
+        self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
+    ) -> Value.Base:
         lhs = expr.arguments[0].eval(env, stdlib=stdlib).expect(Type.Boolean()).value
         if lhs:
             return Value.Boolean(True)
@@ -483,15 +491,19 @@ class _Size(EagerFunction):
     unit_divisors = {
         "K": 1000,
         "KB": 1000,
+        "Ki": 1024,
         "KiB": 1024,
         "M": 1000000,
         "MB": 1000000,
+        "Mi": 1048576,
         "MiB": 1048576,
         "G": 1000000000,
         "GB": 1000000000,
+        "Gi": 1073741824,
         "GiB": 1073741824,
         "T": 1000000000000,
         "TB": 1000000000000,
+        "Ti": 1099511627776,
         "TiB": 1099511627776,
     }
 

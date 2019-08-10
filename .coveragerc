@@ -1,0 +1,4 @@
+[run]
+omit =
+    WDL/__main__.py
+    WDL/CLI.py

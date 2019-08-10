@@ -1,9 +1,21 @@
 # pyre-strict
 # misc utility functions...
 
-from typing import Tuple, Dict, Set, Iterable, List, TypeVar, Generic
+import os
+import json
+from time import sleep
+from datetime import datetime
+from typing import Tuple, Dict, Set, Iterable, List, TypeVar, Generic, Optional
+
+__all__: List[str] = []
 
 
+def export(obj) -> str:  # pyre-ignore
+    __all__.append(obj.__name__)
+    return obj
+
+
+@export
 def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
     # Given a multi-line string, determine the largest w such that each line
     # begins with at least w whitespace characters. Return w and the string
@@ -33,6 +45,7 @@ def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
 T = TypeVar("T")
 
 
+@export
 class AdjM(Generic[T]):
     # A sparse adjacency matrix for topological sorting
     # which we should not have implemented ourselves
@@ -104,6 +117,7 @@ class AdjM(Generic[T]):
         self._unconstrained.remove(node)
 
 
+@export
 def topsort(adj: AdjM[T]) -> List[T]:
     # topsort node IDs in adj (destroys adj)
     # if there's a cycle, raises err: StopIteration with err.node = ID of a
@@ -120,3 +134,46 @@ def topsort(adj: AdjM[T]) -> List[T]:
         setattr(err, "node", node)
         raise err
     return ans
+
+
+@export
+def write_values_json(
+    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""
+) -> None:
+    from . import values_to_json
+
+    with open(filename, "w") as outfile:
+        print(
+            json.dumps(values_to_json(values_env, namespace=namespace), indent=2),  # pyre-ignore
+            file=outfile,
+        )
+
+
+@export
+def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
+    run_dir = os.path.abspath(run_dir or os.getcwd())
+    try:
+        os.makedirs(run_dir, exist_ok=False)
+        return run_dir
+    except FileExistsError:
+        if not os.path.isdir(run_dir):
+            raise
+
+    now = datetime.today()
+    run_dir2 = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
+    try:
+        os.makedirs(run_dir2, exist_ok=False)
+        return run_dir2
+    except FileExistsError:
+        pass
+
+    while True:
+        run_dir2 = os.path.join(
+            run_dir,
+            now.strftime("%Y%m%d_%H%M%S_") + str(int(now.microsecond / 1000)).zfill(3) + "_" + name,
+        )
+        try:
+            os.makedirs(run_dir2, exist_ok=False)
+            return run_dir2
+        except FileExistsError:
+            sleep(1e-3)

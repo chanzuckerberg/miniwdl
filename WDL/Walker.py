@@ -48,6 +48,8 @@ class Base:
             ans = self.scatter(obj)
         elif isinstance(obj, Tree.Conditional):
             ans = self.conditional(obj)
+        elif isinstance(obj, Tree.Gather):
+            ans = self.gather(obj)
         elif isinstance(obj, Tree.Decl):
             ans = self.decl(obj)
         elif isinstance(obj, Tree.Task):
@@ -85,6 +87,9 @@ class Base:
         self._descend(obj)
 
     def conditional(self, obj: Tree.Conditional) -> Any:
+        self._descend(obj)
+
+    def gather(self, obj: Tree.Gather) -> Any:
         self._descend(obj)
 
     def decl(self, obj: Tree.Decl) -> Any:
@@ -135,6 +140,10 @@ class Multi(Base):
         for w in self._walkers:
             w.conditional(obj)
 
+    def gather(self, obj: Tree.Gather) -> Any:
+        for w in self._walkers:
+            w.gather(obj)
+
     def decl(self, obj: Tree.Decl) -> Any:
         for w in self._walkers:
             w.decl(obj)
@@ -176,7 +185,7 @@ class SetParents(Base):
         for imp in obj.imports:
             imp.doc.parent = obj
         for stb in obj.struct_typedefs:
-            stb.rhs.parent = obj
+            stb.value.parent = obj
         for task in obj.tasks:
             task.parent = obj
         if obj.workflow:
@@ -185,7 +194,7 @@ class SetParents(Base):
     def workflow(self, obj: Tree.Workflow) -> None:
         super().workflow(obj)
         obj.parent = None
-        for elt in (obj.inputs or []) + obj.elements + (obj.outputs or []):
+        for elt in (obj.inputs or []) + obj.body + (obj.outputs or []):
             elt.parent = obj
 
     def call(self, obj: Tree.Call) -> None:
@@ -198,7 +207,7 @@ class SetParents(Base):
         super().scatter(obj)
         self._parent_stack.pop()
         obj.parent = None
-        for elt in obj.elements:
+        for elt in obj.children:
             elt.parent = obj
 
     def conditional(self, obj: Tree.Conditional) -> None:
@@ -206,7 +215,7 @@ class SetParents(Base):
         super().conditional(obj)
         self._parent_stack.pop()
         obj.parent = None
-        for elt in obj.elements:
+        for elt in obj.children:
             elt.parent = obj
 
     def task(self, obj: Tree.Task) -> None:
@@ -274,7 +283,7 @@ class SetReferrers(Base):
     def expr(self, obj: Expr.Base) -> None:
         if isinstance(obj, Expr.Ident):
             referee = obj.referee
-            while isinstance(referee, Tree.Gather):
-                referee = referee.referee
+            if isinstance(referee, Tree.Gather):
+                referee = referee.final_referee
             if isinstance(referee, (Tree.Decl, Tree.Call)):
                 setattr(referee, "referrers", getattr(referee, "referrers", []) + [obj])

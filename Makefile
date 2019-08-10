@@ -1,22 +1,22 @@
 SHELL := /bin/bash
 PYTHON_PKG_BASE?=$(HOME)/.local
+export TMPDIR = /tmp
 
 test: check check_check
-	coverage run --include "WDL/*" --omit WDL/CLI.py -m unittest -v
-	coverage report -m
+	pytest -v -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
 	prove -v tests/*.t
 
 # fail fast
 qtest:
-	python3 -m unittest -v -f
+	pytest -vx -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
 	prove -v tests/check.t tests/runner.t
 
 check:
-	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
 	pyre \
 		--search-path stubs \
 		--typeshed ${PYTHON_PKG_BASE}/lib/pyre_check/typeshed \
 		--show-parse-errors check
+	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
 
 check_check:
 	# regression test against pyre doing nothing (issue #100)

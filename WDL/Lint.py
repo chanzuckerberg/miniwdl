@@ -9,7 +9,8 @@ Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
         assert isinstance(pos, WDL.SourcePosition)
         assert isinstance(lint_class, str) and isinstance(message, str)
         print(json.dumps({
-            "filename"   : pos.filename,
+            "uri"        : pos.uri,
+            "abspath"    : pos.abspath,
             "line"       : pos.line,
             "end_line"   : pos.end_line,
             "column"     : pos.column,
@@ -101,10 +102,10 @@ class _Collector(Walker.Base):
         super().__init__(auto_descend=True)
         self.lint = []
 
-    def __call__(self, obj):
+    def __call__(self, obj, descend: Optional[bool] = None):
         if hasattr(obj, "lint"):
             self.lint.extend(getattr(obj, "lint"))
-        super().__call__(obj)
+        super().__call__(obj, descend=descend)
 
 
 def collect(doc):
@@ -119,7 +120,7 @@ def collect(doc):
 
 def _find_input_decl(obj: Tree.Call, name: str) -> Tree.Decl:
     assert isinstance(obj.callee, (Tree.Task, Tree.Workflow))
-    return Env.resolve(obj.callee.available_inputs, [], name)
+    return obj.callee.available_inputs[name]
 
 
 def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
@@ -447,7 +448,6 @@ class IncompleteCall(Linter):
     # Call without all required inputs (allowed for top-level workflow)
     def call(self, obj: Tree.Call) -> Any:
         assert obj.callee is not None
-        # pyre-fixme
         required_inputs = set(decl.name for decl in obj.callee.required_inputs)
         for name, _ in obj.inputs.items():
             if name in required_inputs:
@@ -492,10 +492,10 @@ class NameCollision(Linter):
             msg = "call name '{}' collides with workflow name".format(obj.name)
             self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "call name '{}' colides with {}struct type".format(
-                    obj.name, "imported " if stb.rhs.imported else ""
+                    obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
@@ -518,10 +518,10 @@ class NameCollision(Linter):
                 msg = "declaration of '{}' collides with a task name".format(obj.name)
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "declaration of '{}' colides with {}struct type".format(
-                    obj.name, "imported " if stb.rhs.imported else ""
+                    obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
@@ -544,10 +544,10 @@ class NameCollision(Linter):
                 msg = "scatter variable '{}' collides with a task name".format(obj.variable)
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.variable:
                 msg = "scatter variable '{}' colides with {}struct type".format(
-                    obj.variable, "imported " if stb.rhs.imported else ""
+                    obj.variable, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
@@ -563,10 +563,10 @@ class NameCollision(Linter):
                 )
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "workflow name '{}' colides with {}struct type".format(
-                    obj.name, "imported " if stb.rhs.imported else ""
+                    obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
@@ -580,20 +580,20 @@ class NameCollision(Linter):
                 msg = "task name '{}' collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
-            assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+            assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
                 msg = "task name '{}' colides with {}struct type".format(
-                    obj.name, "imported " if stb.rhs.imported else ""
+                    obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)
 
     def document(self, obj: Tree.Document) -> Any:
         for imp in obj.imports:
             for stb in obj.struct_typedefs:
-                assert isinstance(stb, Env.Binding) and isinstance(stb.rhs, Tree.StructTypeDef)
+                assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
                 if stb.name == imp.namespace:
                     msg = "imported document namespace '{}' collides with {}struct type".format(
-                        imp.namespace, "imported " if stb.rhs.imported else ""
+                        imp.namespace, "imported " if stb.value.imported else ""
                     )
                     self.add(obj, msg)
 
@@ -623,18 +623,15 @@ class ForwardReference(Linter):
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Ident):
             referee = obj.referee
-            while isinstance(referee, Tree.Gather):
-                referee = referee.referee
-            if isinstance(referee, (Tree.Decl, Tree.Call)) and (
-                referee.pos.line > obj.pos.line
-                or (referee.pos.line == obj.pos.line and referee.pos.column > obj.pos.column)
+            if isinstance(referee, Tree.Gather):
+                referee = referee.final_referee
+            if referee.pos.line > obj.pos.line or (
+                referee.pos.line == obj.pos.line and referee.pos.column > obj.pos.column
             ):
                 if isinstance(referee, Tree.Decl):
                     msg = "reference to {} precedes its declaration".format(obj.name)
                 elif isinstance(referee, Tree.Call):
-                    msg = "reference to output of {} precedes the call".format(
-                        ".".join(obj.namespace)
-                    )
+                    msg = "reference to output {} precedes the call".format(obj.name)
                 else:
                     assert False
                 self.add(getattr(obj, "parent"), msg, obj.pos)
@@ -817,7 +814,8 @@ class CommandShellCheck(Linter):
                         obj,
                         "SC{} {}".format(item["code"], item["message"]),
                         Error.SourcePosition(
-                            filename=obj.command.pos.filename,
+                            uri=obj.command.pos.uri,
+                            abspath=obj.command.pos.abspath,
                             line=line,
                             column=column,
                             end_line=line,
@@ -862,7 +860,8 @@ class MixedIndentation(Linter):
                     obj,
                     "command indented with both spaces & tabs",
                     Error.SourcePosition(
-                        filename=obj.command.pos.filename,
+                        uri=obj.command.pos.uri,
+                        abspath=obj.command.pos.abspath,
                         line=obj.command.pos.line + ofs,
                         column=1,
                         end_line=obj.command.pos.line + ofs,

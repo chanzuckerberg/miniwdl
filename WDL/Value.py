@@ -114,7 +114,7 @@ class String(Base):
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        if isinstance(desired_type, Type.File):
+        if isinstance(desired_type, Type.File) and not isinstance(self, File):
             return File(self.value)
         return super().coerce(desired_type)
 

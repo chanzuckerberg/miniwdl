@@ -1,226 +1,278 @@
+# pyre-strict
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import List, Any, Callable, Optional, Union
+from typing import Optional, TypeVar, Generic, Any, Callable, Union, Set, Iterator
 
-"""
-FIXME: we haven't found exactly the right way to write the type annotations for
-       a recursive, polymorphic data structure. We are trying to do this:
-
-type 'a node =
-    | Binding of string*'a
-    | Namespace of string*('a tree)
-and 'a tree = 'a node list
-type types = Type.Base tree
-type values = Value.Base tree
-
-It is a recursive tree to handle namespaces, and polymorphic because we're trying
-to share code for both type and value environments.
-"""
+T = TypeVar("T")
+S = TypeVar("S")
 
 
-class Binding:
-    """A single binding"""
+class Binding(Generic[T]):
+    """
+    An individual, immutable binding of a possibly-namespaced name to a right-hand-side value of
+    type ``T``. ``T`` is typically ``Value.Base`` (value environments) or ``Type.Base`` (type
+    environments). The binding may also reference an additional informational value of arbitrary
+    type.
+    """
 
-    name: str
-    ":type: str"
-    rhs: Any
-    """:type: Union[WDL.Type.Base,WDL.Value.Base,WDL.StructTypeDef,WDL.Decl.Base]
-    
-    "Right-hand side" of the binding"""
+    _name: str
+    _value: T
+    _info: Any  # pyre-ignore
 
-    ctx: Optional[Any]
-    "Arbitrary, secondary context also associated with name"
+    def __init__(self, name: str, value: T, info: Any = None) -> None:  # pyre-ignore
+        self._name = name
+        self._value = value
+        self._info = info
 
-    def __init__(self, name: str, rhs: Any, ctx: Optional[Any] = None) -> None:
-        self.name = name
-        self.rhs = rhs
-        self.ctx = ctx
+    @property
+    def name(self) -> str:
+        """:type: str
 
-    def __repr__(self) -> str:
-        return "{}: {}".format(self.name, str(self.rhs))
+        Namedspaced names are flat, dot-separated strings.
+        """
+        return self._name
+
+    @property
+    def value(self) -> T:
+        ":type: T"
+        return self._value
+
+    @property
+    def info(self) -> Any:  # pyre-ignore
+        ":type: Any"
+        return self._info
 
 
-class Namespace:
-    """Encapsulates binding(s) under a namespace"""
-
+class _EmptyNamespace:
+    # internal representation of a namespace which exists in an environment even if there are no
+    # actual bindings in it (e.g. a Call with no output values)
     namespace: str
-    """:type: str"""
-    bindings: List[Union[Binding, "Namespace"]]
-    """
-    :type: List[Union[WDL.Env.Binding,WDL.Env.Namespace]]
 
-    a list of bindings and/or sub-namespaces"""
-
-    def __init__(self, namespace: str, bindings: List[Union[Binding, "Namespace"]]) -> None:
+    def __init__(self, namespace: str) -> None:
+        assert namespace.endswith(".")
         self.namespace = namespace
-        self.bindings = bindings
-
-    def __repr__(self):
-        return "{}. {}".format(self.namespace, str(self.bindings))
 
 
-Node = Union[Binding, Namespace]
-""":type: Union[WDL.Env.Binding,WDL.Env.Namespace]
+class Bindings(Generic[T]):
+    """WDL.Env.Bindings(binding: Optional[WDL.Env.Binding[T]] = None, next: Optional[WDL.Env.Bindings[T]] = None)
 
-``WDL.Env.Tree = List[WDL.Env.Node]`` is the polymorphic data structure for an
-environment mapping names onto some associated values (nicknamed ``rhs`` for
-right-hand side of bindings). It consists of a Python list of
-``WDL.Env.Binding`` and/or ``WDL.Env.Namespace`` objects, where the latter has
-a nested ``WDL.Env.Tree``.
-
-For example, type bindings for ``x : Float`` and ``adder.sum : Int`` would be
-represented as:
-
-``[Binding("x",Float), Namespace("adder",[Binding("sum",Int)])]``
-
-Once constructed, environments should be considered immutable. There should be
-no name or namespace collisions.
-
-``WDL.Env.{Types,Values,StructTypeDefs,Decls}`` are type aliases for ``Tree``
-with the respective `Binding.rhs` type.
-"""
-
-Tree = List[Node]
-""":type: List[Node]"""
-
-Types = Tree
-""":type: WDL.Env.Tree[WDL.Type.Base]
-Type nickname for environment tree of names to WDL types (``WDL.Type.Base`` instances)"""
-
-Values = Tree
-""":type: WDL.Env.Tree[WDL.Value.Base]"""
-
-StructTypeDefs = Tree
-""":type: WDL.Env.Tree[WDL.Tree.StructTypeDef]"""
-
-Decls = Tree
-""":type: WDL.Env.Tree[WDL.Tree.Decl]"""
-
-
-def resolve_namespace(tree: Tree, namespace: List[str]) -> Tree:
-    if not namespace:
-        return tree
-    for node in tree:
-        if isinstance(node, Namespace):
-            if namespace[0] == node.namespace:
-                return resolve_namespace(node.bindings, namespace[1:])
-    raise KeyError()
-
-
-def resolve_binding(tree: Tree, namespace: List[str], name: str) -> Binding:
-    """
-    Resolve a name within an environment to the corresponding ``Binding``
-    object
-    """
-    ns = resolve_namespace(tree, namespace)
-    for node in ns:
-        if isinstance(node, Binding) and node.name == name:
-            return node
-    raise KeyError()
-
-
-def resolve(tree: Tree, namespace: List[str], name: str) -> Any:
-    """Resolve a name within an environment to its ``Binding.rhs``"""
-    return resolve_binding(tree, namespace, name).rhs
-
-
-def resolve_ctx(tree: Tree, namespace: List[str], name: str) -> Any:
-    """Resolve a name to its secondary context value"""
-    return resolve_binding(tree, namespace, name).ctx
-
-
-def bind(tree: Tree, namespace: List[str], name: str, rhs: Any, ctx: Any = None) -> Tree:
-    """
-    Return a copy of ``tree`` with a new binding prepended. (Does not check for
-    name collision!)
-
-    :param namespace: the binding is added to any existing bindings under a matching ``Namespace`` node, with any new nodes added as needed.
-    """
-    assert name
-    if not namespace:
-        return [Binding(name, rhs, ctx)] + tree  # pyre-ignore
-    assert namespace[0]
-    ans: Tree = []
-    new_namespace = True
-    for node in tree:
-        if isinstance(node, Namespace) and node.namespace == namespace[0]:
-            ans.append(
-                Namespace(node.namespace, bind(node.bindings, namespace[1:], name, rhs, ctx=ctx))
-            )
-            new_namespace = False
-        else:
-            ans.append(node)
-    if new_namespace:
-        # pyre-ignore
-        ans = [Namespace(namespace[0], bind([], namespace[1:], name, rhs, ctx=ctx))] + ans
-    return ans
-
-
-def map(
-    tree: Tree, fn: Callable[[List[str], Binding], Any], namespace: Optional[List[str]] = None
-) -> Tree:
-    """
-    Copy ``tree`` with the ``rhs`` of each binding replaced by
-    ``fn(namespace, binding)``
-    """
-    namespace = namespace or []
-    ans = []
-    for node in tree:
-        if isinstance(node, Binding):
-            ans.append(Binding(node.name, fn(namespace, node), ctx=node.ctx))
-        else:
-            assert isinstance(node, Namespace)
-            ans.append(
-                Namespace(node.namespace, map(node.bindings, fn, namespace + [node.namespace]))
-            )
-    return ans
-
-
-def filter(
-    tree: Tree, keep: Callable[[List[str], Binding], bool], namespace: Optional[List[str]] = None
-) -> Tree:
-    """
-    Copy ``tree`` with only those bindings satisfying the predicate
-    ``keep(namespace, binding)``. Any ``Namespace`` nodes which become empty
-    are also removed.
-    """
-    namespace = namespace or []
-    ans: Tree = []
-    for node in tree:
-        if isinstance(node, Binding) and keep(namespace, node):
-            ans.append(node)
-        elif isinstance(node, Namespace):
-            children = filter(node.bindings, keep, namespace + [node.namespace])
-            if children:
-                ans.append(Namespace(node.namespace, children))
-    return ans
-
-
-def unbind(tree: Tree, namespace: List[str], name: str) -> Tree:
-    """
-    Return a copy of ``tree`` without the specified binding. No error is raised
-    if there is no such binding.
-
-    :param namespace: any ``Namespace`` nodes which become empty as a result of the binding's removal, are also removed.
-    """
-    assert name
-    return filter(
-        tree, lambda a_namespace, binding: a_namespace != namespace or binding.name != name
-    )
-
-
-def subtract(lhs: Tree, rhs: Tree) -> Tree:
-    """
-    Return a copy of ``lhs`` without any binding matching one in ``rhs`` (by
-    name+namespace). Bindings in ``rhs`` but not ``lhs`` are ignored.
+    An environment consisting of an immutable linked-list of bindings. ``WDL.Env.Bindings()`` is
+    the empty environment. ``Bindings[T]`` is iterable for the individual ``Binding[T]`` objects.
     """
 
-    def flt(namespace: List[str], binding: Binding):
+    _binding: Union[None, Binding[T], _EmptyNamespace]
+    _next: "Optional[Bindings[T]]"
+    _namespaces: Optional[Set[str]] = None
+
+    def __init__(
+        self,
+        binding: Union[None, Binding[T], _EmptyNamespace] = None,
+        next: "Optional[Bindings[T]]" = None,
+    ) -> None:
+        assert binding or not next
+        self._binding = binding
+        self._next = next
+
+    def __bool__(self) -> bool:
+        return next(self.__iter__(), None) is not None
+
+    def __iter__(self) -> Iterator[Binding[T]]:
+        mask = set()
+        pos = self
+        while pos is not None:
+            if isinstance(pos._binding, Binding) and pos._binding.name not in mask:
+                mask.add(pos._binding.name)
+                yield pos._binding
+            pos = pos._next
+
+    @property
+    def _empty_namespaces(self) -> Iterator[str]:
+        pos = self
+        while pos is not None:
+            if isinstance(pos._binding, _EmptyNamespace):
+                yield pos._binding.namespace
+            pos = pos._next
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def bind(self, name: str, value: T, info: Any = None) -> "Bindings[T]":  # pyre-ignore
+        """
+        Return an environment with a new binding prepended. Any existing binding for the same name
+        is shadowed by the new one. (This should not usually arise in view of the immutability of
+        WDL values.)
+        """
+        assert name and not (name.startswith(".") or name.endswith("."))
+        return Bindings(Binding(name, value, info), self)
+
+    def resolve_binding(self, name: str) -> Binding[T]:
+        """Look up a ``Binding[T]`` object by name
+
+        :raise KeyError: no such binding
+        """
+        for b in self:
+            if b.name == name:
+                return b
+        raise KeyError()
+
+    def resolve(self, name: str) -> T:
+        """
+        Look up a bound value by name. Equivalently, ``env[name]``
+
+        :raise KeyError: no such binding
+        """
+        return self.resolve_binding(name).value
+
+    def __getitem__(self, name: str) -> T:
+        return self.resolve(name)
+
+    def has_binding(self, name: str) -> bool:
+        """
+        Determine existence of a binding for the name. Equivalently, ``name in env``
+        """
         try:
-            resolve(rhs, namespace, binding.name)
-            return False
-        except KeyError:
+            self.resolve(name)
             return True
+        except KeyError:
+            return False
 
-    return filter(lhs, flt)
+    def __contains__(self, name: str) -> bool:
+        if isinstance(name, str):
+            return self.has_binding(name)
+        return False
+
+    def map(self, f: Callable[[Binding[T]], Optional[Binding[S]]]) -> "Bindings[S]":
+        """
+        Copy the environment with each binding transformed by the given function. If the function
+        returns ``None`` then the binding is excluded.
+        """
+        ans = Bindings()
+        for b in self:
+            fb = f(b)
+            if isinstance(fb, Binding):
+                ans = Bindings(fb, ans)
+        return _rev(ans)
+
+    def filter(self, pred: Callable[[Binding[T]], bool]) -> "Bindings[T]":
+        "Copy the environment with only those bindings for which ``pred`` returns True"
+        return self.map(lambda b: b if pred(b) else None)
+
+    def subtract(self, rhs: "Bindings[S]") -> "Bindings[T]":
+        "Copy the environment excluding any binding for which ``rhs`` has a binding with the same name"
+
+        def flt(b: Binding[T]) -> bool:
+            try:
+                rhs.resolve(b.name)
+                return False
+            except KeyError:
+                return True
+
+        return self.filter(flt)
+
+    @property
+    def namespaces(self) -> Set[str]:
+        """:type: Set[str]
+
+        Return the environment's namespaces, all the distinct dot-separated prefixes of the binding
+        names. Each element ends with a dot.
+        """
+        if self._namespaces is None:
+            self._namespaces = self._next.namespaces if self._next is not None else set()
+            if isinstance(self._binding, _EmptyNamespace):
+                self._namespaces.add(self._binding.namespace)
+            if isinstance(self._binding, Binding):
+                names = self._binding.name.split(".")
+                if len(names) > 1:
+                    for i in range(len(names) - 1):
+                        ns = ".".join(names[: i + 1]) + "."
+                        self._namespaces.add(ns)
+        return self._namespaces.copy()
+
+    def has_namespace(self, namespace: str) -> bool:
+        "Determine existence of a namespace in the environment"
+        assert namespace
+        if not namespace.endswith("."):
+            namespace += "."
+        return namespace in (self._namespaces if self._namespaces else self.namespaces)
+
+    def enter_namespace(self, namespace: str) -> "Bindings[T]":
+        """
+        Generate an environment with only those bindings in the given namespace, with the namespace
+        prefix removed from each binding's name.
+        """
+        assert namespace
+        if not namespace.endswith("."):
+            namespace += "."
+
+        def enter(b: Binding[T]) -> Optional[Binding[T]]:
+            if b.name.startswith(namespace):
+                return Binding(b.name[len(namespace) :], b.value, b.info)
+            return None
+
+        return self.map(enter)
+
+    def wrap_namespace(self, namespace: str) -> "Bindings[T]":
+        "Copy the environment with the given namespace prefixed to each binding name"
+        assert namespace
+        if not namespace.endswith("."):
+            namespace += "."
+        ans = Bindings()
+        pos = self
+        while pos is not None:
+            if isinstance(pos._binding, Binding):
+                ans = Bindings(
+                    Binding(namespace + pos._binding.name, pos._binding.value, pos._binding.info),
+                    ans,
+                )
+            if isinstance(pos._binding, _EmptyNamespace):
+                ans = Bindings(_EmptyNamespace(namespace + pos._binding.namespace), ans)
+            pos = pos._next
+        return _rev(ans.with_empty_namespace(namespace))
+
+    def with_empty_namespace(self, namespace: str) -> "Bindings[T]":
+        """
+        Return an environment with an empty namespace registered, which will appear in
+        ``namespaces`` and ``has_namespace()`` even if there are no actual bindings with the
+        namespace prefix.
+        """
+        if namespace.endswith("."):
+            namespace = namespace[:-1]
+        assert namespace
+        names = namespace.split(".")
+        ans = self
+        for i in range(len(names)):
+            ns = ".".join(names[: i + 1]) + "."
+            ans = Bindings(_EmptyNamespace(ns), ans)
+        return ans
+
+
+def _rev(env: Bindings[T]) -> Bindings[T]:
+    ans = Bindings()
+    pos = env
+    while pos is not None:
+        if pos._binding:
+            ans = Bindings(pos._binding, ans)
+        pos = pos._next
+    return ans
+
+
+def merge(*args: Bindings[T]) -> Bindings[T]:
+    """
+    Merge several ``Bindings[T]`` environments into one. For efficiency, the largest environment
+    should be supplied as the last argument.
+    """
+    ans = [args[-1] if args else Bindings()]
+    empty_namespaces = set()
+
+    def visit(b: Binding[T]) -> None:
+        ans[0] = Bindings(b, ans[0])
+
+    for env in reversed(args[:-1]):
+        assert isinstance(env, Bindings)
+        for b in _rev(env):
+            visit(b)
+        empty_namespaces |= set(env._empty_namespaces)
+    for ns in empty_namespaces:
+        ans[0] = Bindings(_EmptyNamespace(ns), ans[0])
+    return ans[0]

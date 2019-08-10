@@ -11,3 +11,7 @@ python-coveralls
 wheel
 pbr
 twine
+testfixtures
+pytest
+pytest-cov
+pytest-xdist

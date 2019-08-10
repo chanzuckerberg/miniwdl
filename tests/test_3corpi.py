@@ -1,4 +1,4 @@
-import unittest, inspect, subprocess, tempfile, os, glob, json
+import unittest, inspect, subprocess, tempfile, os, glob, json, urllib
 from .context import WDL
 
 class Lint(unittest.TestCase):
@@ -6,15 +6,17 @@ class Lint(unittest.TestCase):
     # this code should be kept in sync with the example shown in the WDL/Lint.py docstring.
     def test_api(self):
         doc = WDL.load(
-            "test_corpi/HumanCellAtlas/skylab/pipelines/smartseq2_single_sample/SmartSeq2SingleSample.wdl",
+            "ZarrUtils.wdl",
             path=["test_corpi/HumanCellAtlas/skylab/library/tasks"]
         )
+        WDL.Lint._shellcheck_available = False
         lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
         for (pos, lint_class, message) in lint:
             assert isinstance(pos, WDL.SourcePosition)
             assert isinstance(lint_class, str) and isinstance(message, str)
             print(json.dumps({
-                "filename"   : pos.filename,
+                "uri"        : pos.uri,
+                "abspath"    : pos.abspath,
                 "line"       : pos.line,
                 "end_line"   : pos.end_line,
                 "column"     : pos.column,
@@ -24,14 +26,18 @@ class Lint(unittest.TestCase):
             }))
         self.assertEqual(len(lint), 1)
 
-def import_uri(uri):
-    # Note: we should permit use of import_uri only in corpi which are careful
-    # to pin imported WDLs to a specific and highly-available revision
-    dn = tempfile.mkdtemp(prefix="miniwdl_import_uri_")
-    subprocess.check_call(["wget", "-nv", uri], cwd=dn)
-    return glob.glob(dn + "/*")[0]
+async def read_source(uri, path, importer_uri):
+    if uri.startswith("http:") or uri.startswith("https:"):
+        # Note: we should permit web imports only in corpi which are careful to pin a specific and
+        # highly-available revision
+        fn = os.path.join(tempfile.mkdtemp(prefix="miniwdl_import_uri_"), os.path.basename(uri))
+        urllib.request.urlretrieve(uri, filename=fn)
+        with open(fn, "r") as infile:
+            return WDL.ReadSourceResult(infile.read(), os.path.abspath(fn))
+    return await WDL.read_source_default(uri, path, importer_uri)
 
-def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
+
+def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
     def decorator(test_klass):
 
         test_klass._lint_count = {}
@@ -49,10 +55,12 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
             name = name[:-4]
             if name not in blacklist:
                 name = "test_" + prefix + "_" + name.replace('.', '_')
+                while hasattr(test_klass, name):
+                    name += '_'
                 def t(self, fn=fn):
                     # load & lint the document to verify the lint count
                     try:
-                        doc = WDL.load(fn, path=gpath, check_quant=check_quant, import_uri=import_uri)
+                        doc = WDL.load(fn, path=gpath, check_quant=check_quant, read_source=read_source)
                     except Exception as exn:
                         if isinstance(exn, WDL.Error.MultipleValidationErrors):
                             for subexn in exn.exceptions:
@@ -66,10 +74,13 @@ def test_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     print("\n" + os.path.basename(fn))
                     WDL.CLI.outline(doc, 0, show_called=(doc.workflow is not None))
 
+                    if doc.workflow:
+                        validate_workflow_graph(doc.workflow)
+
                     # also attempt load with the opposite value of check_quant,
                     # exercising additional code paths
                     try:
-                        doc = WDL.load(fn, path=gpath, check_quant=not check_quant, import_uri=import_uri)
+                        doc = WDL.load(fn, path=gpath, check_quant=not check_quant, read_source=read_source)
                     except (WDL.Error.ImportError, WDL.Error.ValidationError, WDL.Error.MultipleValidationErrors):
                         pass
                 setattr(test_klass, name, t)
@@ -84,36 +95,56 @@ def check_lint(cls):
     if cls._lint_count != cls._expected_lint:
         raise Exception("Lint results changed for {}; expected: {} got: {}".format(cls.__name__, str(cls._expected_lint), str(cls._lint_count)))
 
-@test_corpus(
+def validate_workflow_graph(workflow):
+
+    def visit_section(body, outside_nodes):
+        body_nodes = set()
+        body_gathers = set()
+        for node in body:
+            body_nodes.add(node.workflow_node_id)
+            if isinstance(node, WDL.WorkflowSection):
+                for g in node.gathers.values():
+                    body_gathers.add(g.workflow_node_id)
+        assert not (body_nodes & body_gathers)
+        assert not (outside_nodes & (body_nodes | body_gathers))
+        for node in body:
+            unk = node.workflow_node_dependencies - (outside_nodes | body_nodes | body_gathers)
+            assert not unk, str((node.workflow_node_id, unk))
+            if isinstance(node, WDL.WorkflowSection):
+                visit_section(node.body, (outside_nodes | body_nodes | body_gathers) - set(node.gathers))
+
+    visit_section(workflow.body, set(inp.workflow_node_id for inp in workflow.inputs or []))
+
+@wdl_corpus(
     ["test_corpi/HumanCellAtlas/skylab/library/tasks/**"],
-    expected_lint={'StringCoercion': 3, 'UnusedDeclaration': 1, 'UnknownRuntimeKey': 1}
+    expected_lint={'UnusedDeclaration': 2, 'UnknownRuntimeKey': 1}
 )
 class HCAskylab_task(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/HumanCellAtlas/skylab/pipelines/**"],
     path=[["test_corpi/HumanCellAtlas/skylab/library/tasks"]],
-    expected_lint={'UnusedDeclaration': 10, 'NameCollision': 1, 'StringCoercion': 4, 'FileCoercion': 1, 'MixedIndentation': 1, 'UnknownRuntimeKey': 2}
+    expected_lint={'UnusedDeclaration': 12, 'NameCollision': 3, 'UnknownRuntimeKey': 3, 'StringCoercion': 5, 'MixedIndentation': 1, 'FileCoercion': 1}
 )
 class HCAskylab_workflow(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
     expected_lint={'UnusedDeclaration': 5, 'NameCollision': 2, 'UnusedImport': 2},
 )
 class GATK_five_dollar(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
     expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 20, 'FileCoercion': 1, 'UnknownRuntimeKey': 1}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/gatk4-somatic-snvs-indels/**"],
     expected_lint={'OptionalCoercion': 50, 'NonemptyCoercion': 4, 'UnusedDeclaration': 29, 'ForwardReference': 6, 'StringCoercion': 20, 'MixedIndentation': 6},
     check_quant=False,
@@ -121,7 +152,7 @@ class gatk4_germline_snps_indels(unittest.TestCase):
 class gatk4_somatic_snvs_indels(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/gatk4-cnn-variant-filter/**"],
     expected_lint={'UnusedDeclaration': 21, 'OptionalCoercion': 23, 'StringCoercion': 4, 'FileCoercion': 2, 'UnusedCall': 1},
     check_quant=False,
@@ -130,7 +161,7 @@ class gatk4_cnn_variant_filter(unittest.TestCase):
     pass
 
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
     blacklist=['JointGenotypingWf'],
     expected_lint={'StringCoercion': 50, 'UnusedDeclaration': 10, 'ArrayCoercion': 4},
@@ -139,7 +170,7 @@ class gatk4_cnn_variant_filter(unittest.TestCase):
 class broad_prod_wgs(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/broadinstitute/gtex-pipeline/**"],
     # need URI import
     blacklist=["rnaseq_pipeline_bam","rnaseq_pipeline_fastq"],
@@ -148,7 +179,7 @@ class broad_prod_wgs(unittest.TestCase):
 class GTEx(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/DataBiosphere/topmed-workflows/**"],
     # need URI import
     blacklist=['CRAM_md5sum_checker_wrapper', 'checker-workflow-wrapping-alignment-workflow',
@@ -159,7 +190,7 @@ class GTEx(unittest.TestCase):
 class TOPMed(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows"],
     path=[["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"]],
     expected_lint={'UnusedDeclaration': 23, 'NameCollision': 9, 'IncompleteCall': 44, 'UnusedImport': 1, 'SelectArray': 4},
@@ -167,7 +198,7 @@ class TOPMed(unittest.TestCase):
 class ViralNGS(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
     expected_lint={'StringCoercion': 224,  'FileCoercion': 154, 'NameCollision': 16, 'OptionalCoercion': 64, 'MixedIndentation': 32},
     check_quant=False,
@@ -175,7 +206,7 @@ class ViralNGS(unittest.TestCase):
 class ENCODE_ChIPseq(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"],
     expected_lint={'StringCoercion': 195, 'FileCoercion': 204, 'OptionalCoercion': 26, 'UnusedCall': 13, 'MixedIndentation': 13},
     check_quant=False,
@@ -183,21 +214,21 @@ class ENCODE_ChIPseq(unittest.TestCase):
 class ENCODE_ATACseq(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/ENCODE-DCC/rna-seq-pipeline/**"],
     expected_lint={'StringCoercion': 6, 'UnusedDeclaration': 3, 'IncompleteCall': 3}
 )
 class ENCODE_RNAseq(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/ENCODE-DCC/wgbs-pipeline/**"],
     expected_lint={'StringCoercion': 9, 'UnusedDeclaration': 1, 'MixedIndentation': 1}
 )
 class ENCODE_WGBS(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/dnanexus/dxWDL/test/**"],
     blacklist=[
         # String to Int/Float casts
@@ -208,13 +239,13 @@ class ENCODE_WGBS(unittest.TestCase):
         "call_native", "call_native_app", "call_native_v1",
     ],
     path=[["test_corpi/dnanexus/dxWDL/test/imports/lib"]],
-    expected_lint={'UnusedDeclaration': 29, 'UnusedCall': 16, 'NameCollision': 2, 'OptionalCoercion': 2, 'FileCoercion': 3, 'StringCoercion': 2, 'UnnecessaryQuantifier': 1},
+    expected_lint={'UnusedDeclaration': 32, 'UnusedCall': 16, 'NameCollision': 2, 'OptionalCoercion': 3, 'FileCoercion': 3, 'StringCoercion': 2, 'UnnecessaryQuantifier': 1},
     check_quant=False,
 )
 class dxWDL(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/contrived/**"],
     expected_lint={'UnusedImport': 4, 'NameCollision': 30, 'StringCoercion': 5, 'FileCoercion': 2, 'OptionalCoercion': 2, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2, 'SelectArray': 1},
     blacklist=["check_quant", "incomplete_call"],
@@ -222,7 +253,7 @@ class dxWDL(unittest.TestCase):
 class Contrived(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/contrived/**"],
     expected_lint={'UnusedImport': 6, 'NameCollision': 49, 'StringCoercion': 11, 'FileCoercion': 4, 'OptionalCoercion': 7, 'NonemptyCoercion': 2, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, 'ArrayCoercion': 2, 'SelectArray': 4},
     check_quant=False,
@@ -231,7 +262,7 @@ class Contrived(unittest.TestCase):
 class Contrived2(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/biowdl/tasks/**"],
     expected_lint={'UnusedImport': 10, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
     check_quant=False,
@@ -239,7 +270,7 @@ class Contrived2(unittest.TestCase):
 class BioWDLTasks(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/biowdl/aligning/**"],
     expected_lint={'UnusedImport': 12, 'OptionalCoercion': 12, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
     check_quant=False,
@@ -247,7 +278,7 @@ class BioWDLTasks(unittest.TestCase):
 class BioWDLAligning(unittest.TestCase):
     pass
 
-@test_corpus(
+@wdl_corpus(
     ["test_corpi/biowdl/expression-quantification/**"],
     expected_lint={'UnusedImport': 12, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 3, 'NameCollision': 1},
     check_quant=False,

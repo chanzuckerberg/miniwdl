@@ -6,6 +6,7 @@ import docker
 import signal
 import time
 from .context import WDL
+from testfixtures import log_capture
 
 class TestTaskRunner(unittest.TestCase):
 
@@ -20,7 +21,7 @@ class TestTaskRunner(unittest.TestCase):
             doc.typecheck()
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or []), parent_dir=self._dir)
+            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir)
         except WDL.runtime.TaskFailure as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
@@ -32,7 +33,7 @@ class TestTaskRunner(unittest.TestCase):
                 return exn.__context__
             raise
         if expected_exception:
-            self.assertFalse(str(expected_exception) + " not raised")
+            self.assertTrue(False, str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
 
     def test_docker(self):
@@ -93,6 +94,68 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """, expected_exception=docker.errors.ImageNotFound)
+
+    @log_capture()
+    def test_logging_std_err(self, capture):
+        self._test_task(R"""
+        version 1.0
+        task std_err_log_check {
+            input {}
+            command <<<
+                >&2 echo "Start logging"
+                >&2 echo "0="$(date +"%s")
+                sleep 1
+                >&2 echo "1="$(date +"%s")
+                sleep 1
+                >&2 echo "2="$(date +"%s")
+                sleep 1
+                >&2 echo "3="$(date +"%s")
+                sleep 1
+                >&2 echo "4="$(date +"%s")
+                sleep 1
+                >&2 echo "End logging"
+            >>>
+            
+        }
+        """)
+
+        std_error_msgs = [record for record in capture.records if record.msg.startswith("2|")]
+
+        self.assertEqual(std_error_msgs.pop(0).msg, "2| Start logging")
+        self.assertEqual(std_error_msgs.pop().msg, "2| End logging")
+        for record in std_error_msgs:
+            line_written = int(record.msg.split('=')[1])
+            self.assertGreater(record.created, line_written)
+            # check line logged within 3 seconds of being written
+            self.assertGreater(line_written+3, record.created)
+
+    @log_capture()
+    def test_logging_std_err_captures_full_line(self, capture):
+        self._test_task(R"""
+                version 1.0
+                task std_err_log_check {
+                    input {}
+                    command <<<
+                        >&2 printf "Part one"
+                        sleep 2
+                        >&2 echo "Part two"
+                        >&2 echo "1="$(date +"%s")
+                        sleep 1
+                        >&2 echo "2="$(date +"%s")
+                        sleep 1
+                        >&2 echo "3="$(date +"%s")
+                        sleep 1
+                        >&2 echo "4="$(date +"%s")
+                        sleep 1
+                        >&2 echo "End logging"
+                    >>>
+
+                }
+                """)
+        std_error_msgs = [record for record in capture.records if record.msg.startswith("2|")]
+
+        self.assertEqual(len(std_error_msgs), 6)
+        self.assertEqual(std_error_msgs[0].msg, "2| Part onePart two")
 
     def test_hello_blank(self):
         self._test_task(R"""
@@ -166,6 +229,42 @@ class TestTaskRunner(unittest.TestCase):
         with open(outputs["message"]) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
 
+    def test_command_escaping(self):
+        # miniwdl evaluates escape sequences in WDL string constants, but in commands it should
+        # leave them for the shell to deal with
+        output = self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                echo '1\n2\n3' | wc -l > count1
+                echo '${"1\n2\n3"}' | wc -l > count2
+            }
+            output {
+                Int count1 = read_int("count1")
+                Int count2 = read_int("count2")
+            }
+        }
+        """)
+        self.assertEqual(output["count1"], 1)
+        self.assertEqual(output["count2"], 3)
+
+        output = self._test_task(R"""
+        version 1.0
+        task hello {
+            command <<<
+                echo '1\n2\n3' | wc -l > count1
+                echo '~{"1\n2\n3"}' | wc -l > count2
+            >>>
+            output {
+                Int count1 = read_int("count1")
+                Int count2 = read_int("count2")
+            }
+        }
+        """)
+        self.assertEqual(output["count1"], 1)
+        self.assertEqual(output["count2"], 3)
+
+
     def test_weird_output_files(self):
         # nonexistent output file
         self._test_task(R"""
@@ -227,7 +326,44 @@ class TestTaskRunner(unittest.TestCase):
         with open(outputs["issue"]) as infile:
             pass
 
-    def test_command_error(self):
+        # attempt to output symlink to host /etc/passwd
+        outputs = self._test_task(R"""
+        version 1.0
+        task hacker {
+            command {
+                ln -s /etc/passwd host_passwords.txt
+            }
+            output {
+                File your_passwords = "host_passwords.txt"
+            }
+        }
+        """, expected_exception=WDL.runtime.OutputError)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task hacker {
+            command {
+                ln -s /etc/passwd host_passwords.txt
+            }
+            output {
+                String host_passwords = read_string("host_passwords.txt")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task hacker {
+            command {
+                ln -s /etc your_etc
+            }
+            output {
+                File your_passwords = "your_etc/passwd"
+            }
+        }
+        """, expected_exception=WDL.runtime.OutputError)
+
+    def test_command_failure(self):
         self._test_task(R"""
         version 1.0
         task hello {
@@ -235,7 +371,7 @@ class TestTaskRunner(unittest.TestCase):
                 exit 1
             }
         }
-        """, expected_exception=WDL.runtime.CommandError)
+        """, expected_exception=WDL.runtime.CommandFailure)
 
     def test_write_lines(self):
         outputs = self._test_task(R"""
@@ -483,3 +619,22 @@ class TestTaskRunner(unittest.TestCase):
         """, expected_exception=WDL.runtime.Terminated)
         t1 = time.time()
         self.assertLess(t1 - t0, 15)
+
+    def test_orphan_background_process(self):
+        # TODO: https://github.com/chanzuckerberg/miniwdl/issues/211
+        output = self._test_task(R"""
+        version 1.0
+        task t {
+            input {
+                Int w
+            }
+            command {
+                touch log
+                echo -n wow | dd of=>(sleep ${w}; dd of=log)
+            }
+            output {
+                Float logsize = size("log")
+            }
+        }
+        """, {"w": 2})
+        self.assertAlmostEqual(output["logsize"], 0.0)

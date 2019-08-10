@@ -1,4 +1,8 @@
 # pyre-strict
+"""
+Local task runner
+"""
+import sys
 import logging
 import os
 import tempfile
@@ -7,13 +11,15 @@ import copy
 import traceback
 import glob
 import signal
-from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
 from types import FrameType
+
+from pygtail import Pygtail
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
+from .._util import write_values_json, provision_run_dir
 from .error import *
 
 
@@ -23,7 +29,7 @@ class TaskContainer(ABC):
     implementations (e.g. Docker).
     """
 
-    task_id: str
+    run_id: str
 
     host_dir: str
     """
@@ -52,8 +58,8 @@ class TaskContainer(ABC):
     _running: bool
     _terminate: bool
 
-    def __init__(self, task_id: str, host_dir: str) -> None:
-        self.task_id = task_id
+    def __init__(self, run_id: str, host_dir: str) -> None:
+        self.run_id = run_id
         self.host_dir = host_dir
         self.container_dir = "/mnt/miniwdl_task_container"
         self.input_file_map = {}
@@ -94,7 +100,7 @@ class TaskContainer(ABC):
         2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to {container_dir} inside the container)
         3. Standard output is written to ``{host_dir}/stdout.txt``
         4. Standard error is written to ``{host_dir}/stderr.txt`` and logged at INFO level
-        5. Raises CommandError for nonzero exit code, or any other error
+        5. Raises CommandFailure for nonzero exit code, or any other error
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
@@ -129,7 +135,7 @@ class TaskContainer(ABC):
             if self._terminate:
                 raise Terminated()
             if exit_status != 0:
-                raise CommandError("command exit status = " + str(exit_status))
+                raise CommandFailure(exit_status, os.path.join(self.host_dir, "stderr.txt"))
 
     @abstractmethod
     def _run(self, logger: logging.Logger, command: str) -> int:
@@ -138,8 +144,11 @@ class TaskContainer(ABC):
 
     def host_file(self, container_file: str, inputs_only: bool = False) -> str:
         """
-        Map an output file's in-container path under ``container_dir`` to a
-        host path.
+        Map an output file's in-container path under ``container_dir`` to a host path under
+        ``host_dir``
+
+        SECURITY: this method must only return host paths under ``host_dir`` and prevent any
+        reference to other host files (e.g. /etc/passwd), including via sneaky symlinks
         """
         if os.path.isabs(container_file):
             # handle output of std{out,err}.txt
@@ -161,24 +170,22 @@ class TaskContainer(ABC):
                     "task inputs attempted to use a non-input or non-existent file "
                     + container_file
                 )
-            # otherwise make sure the file is in/under the working directory
-            dpfx = os.path.join(self.container_dir, "work") + "/"
-            if not container_file.startswith(dpfx):
-                raise OutputError(
-                    "task outputs attempted to use a file outside its working directory: "
-                    + container_file
-                )
-            # turn it into relative path
-            container_file = container_file[len(dpfx) :]
-        if container_file.startswith("..") or "/.." in container_file:
-            raise OutputError(
-                "task outputs attempted to use file path with .. uplevels: " + container_file
+            # relativize the path to the provisioned working directory
+            container_file = os.path.relpath(
+                container_file, os.path.join(self.container_dir, "work")
             )
-        # join the relative path to the host working directory
-        ans = os.path.join(self.host_dir, "work", container_file)
-        if not os.path.isfile(ans) or os.path.islink(ans):
-            raise OutputError("task output file not found: " + container_file)
-        return ans
+
+        host_workdir = os.path.join(self.host_dir, "work")
+        ans = os.path.realpath(os.path.join(host_workdir, container_file))
+        assert os.path.isabs(ans) and "/../" not in ans
+        if os.path.isfile(ans):
+            if ans.startswith(host_workdir + "/"):
+                return ans
+            raise OutputError(
+                "task outputs attempted to use a file outside its working directory: "
+                + container_file
+            )
+        raise OutputError("task output file not found: " + container_file)
 
 
 class TaskDockerContainer(TaskContainer):
@@ -226,7 +233,9 @@ class TaskDockerContainer(TaskContainer):
         try:
             container = None
             exit_info = None
-
+            stderr_file = os.path.join(self.host_dir, "stderr.txt")
+            pygtail = Pygtail(stderr_file, full_lines=True)
+            pygtail_exn = False
             try:
                 # run container
                 logger.info("docker starting image {}".format(self.image_tag))
@@ -245,13 +254,11 @@ class TaskDockerContainer(TaskContainer):
                 logger.debug(
                     "docker container name = {}, id = {}".format(container.name, container.id)
                 )
-
                 # long-poll for container exit
                 while exit_info is None:
                     try:
                         exit_info = container.wait(timeout=1)
                     except Exception as exn:
-                        # TODO: tail stderr.txt into logger
                         if self._terminate:
                             raise Terminated() from None
                         # workaround for docker-py not throwing the exception class
@@ -259,6 +266,19 @@ class TaskDockerContainer(TaskContainer):
                         s_exn = str(exn)
                         if "timed out" not in s_exn and "Timeout" not in s_exn:
                             raise
+                    # stream stderr into log
+                    if not pygtail_exn:
+                        try:
+                            for line in pygtail:
+                                logger.info(f"2| {line.rstrip()}")
+                        except:
+                            pygtail_exn = True
+                            # cf. https://github.com/bgreenlee/pygtail/issues/48
+                            logger.info(
+                                "task standard error log is incomplete due to the following exception; see %s",
+                                stderr_file,
+                                exc_info=sys.exc_info(),
+                            )
                 logger.info("container exit info = " + str(exit_info))
             except:
                 # make sure to stop & clean up the container if we're stopping due
@@ -267,64 +287,76 @@ class TaskDockerContainer(TaskContainer):
                 if container:
                     try:
                         container.remove(force=True)
+                        logger.info("force-removed docker container")
                     except Exception as exn:
-                        logger.error("failed to remove docker container: " + str(exn))
-                    logger.info("force-removed docker container")
+                        logger.exception("failed to remove docker container")
                 raise
 
             # retrieve and check container exit status
             assert exit_info
             if "StatusCode" not in exit_info:
-                raise CommandError(
-                    "docker finished without reporting exit status in: " + str(exit_info)
+                raise CommandFailure(
+                    (-sys.maxsize - 1),
+                    os.path.join(self.host_dir, "stderr.txt"),
+                    "docker finished without reporting exit status in: " + str(exit_info),
                 )
             return exit_info["StatusCode"]
         finally:
             try:
                 client.close()
             except:
-                logger.error("failed to close docker-py client")
+                logger.exception("failed to close docker-py client")
+            # log the final stderr lines
+            if not pygtail_exn:
+                try:
+                    for line in Pygtail(stderr_file, full_lines=False):
+                        logger.info(f"2| {line.rstrip()}")
+                except:
+                    # cf. https://github.com/bgreenlee/pygtail/issues/48
+                    logger.info(
+                        "task standard error log is incomplete due to the following exception; see %s",
+                        stderr_file,
+                        exc_info=sys.exc_info(),
+                    )
 
 
 def run_local_task(
     task: Tree.Task,
-    posix_inputs: Env.Values,
-    task_id: Optional[str] = None,
-    parent_dir: Optional[str] = None,
-) -> Tuple[str, Env.Values]:
+    posix_inputs: Env.Bindings[Value.Base],
+    run_id: Optional[str] = None,
+    run_dir: Optional[str] = None,
+) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
 
-    Inputs shall have been typechecked already.
+    Inputs shall have been typechecked already. File inputs are presumed to be local POSIX file
+    paths that can be mounted into a container.
 
-    File inputs are presumed to be local POSIX file paths that can be mounted into a container
+    :param run_id: unique ID for the run, defaults to workflow name
+    :param run_dir: outputs and scratch will be stored in this directory if it doesn't already
+                    exist; if it does, a timestamp-based subdirectory is created and used (defaults
+                    to current working directory)
     """
 
-    parent_dir = parent_dir or os.getcwd()
-
-    # formulate task ID & provision local directory
-    if task_id:
-        run_dir = os.path.join(parent_dir, task_id)
-        os.makedirs(run_dir, exist_ok=False)
-    else:
-        now = datetime.today()
-        task_id = now.strftime("%Y%m%d_%H%M%S") + "_" + task.name
-        try:
-            run_dir = os.path.join(parent_dir, task_id)
-            os.makedirs(run_dir, exist_ok=False)
-        except FileExistsError:
-            task_id = now.strftime("%Y%m%d_%H%M%S_") + str(now.microsecond) + "_" + task.name
-            run_dir = os.path.join(parent_dir, task_id)
-            os.makedirs(run_dir, exist_ok=False)
-
-    # provision logger
-    logger = logging.getLogger("miniwdl_task:" + task_id)
-    logger.info("starting task")
-    logger.debug("task run directory " + run_dir)
+    run_id = run_id or task.name
+    run_dir = provision_run_dir(task.name, run_dir)
+    logger = logging.getLogger("wdl-task:" + run_id)
+    fh = logging.FileHandler(os.path.join(run_dir, "task.log"))
+    fh.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+    logger.addHandler(fh)
+    logger.info(
+        "starting task %s (%s Ln %d Col %d) in %s",
+        task.name,
+        task.pos.uri,
+        task.pos.line,
+        task.pos.column,
+        run_dir,
+    )
+    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
         # create appropriate TaskContainer
-        container = TaskDockerContainer(task_id, run_dir)
+        container = TaskDockerContainer(run_id, run_dir)
 
         # evaluate input/postinput declarations, including mapping from host to
         # in-container file paths
@@ -334,12 +366,13 @@ def run_local_task(
         image_tag_expr = task.runtime.get("docker", None)
         if image_tag_expr:
             assert isinstance(image_tag_expr, Expr.Base)
-            container.image_tag = image_tag_expr.eval(posix_inputs).value
+            container.image_tag = image_tag_expr.eval(container_env).value
 
         # interpolate command
         command = _util.strip_leading_whitespace(
             task.command.eval(container_env, stdlib=InputStdLib(container)).value
         )[1]
+        logger.debug("command:\n%s", command.rstrip())
 
         # start container & run command
         container.run(logger, command)
@@ -347,21 +380,29 @@ def run_local_task(
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
 
+        write_values_json(outputs, os.path.join(run_dir, "outputs.json"))
         logger.info("done")
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
-        wrapper = TaskFailure(task.name, task_id)
-        msg = "{}: {}".format(str(wrapper), exn.__class__.__name__)
+        wrapper = TaskFailure(task, run_id, run_dir)
+        msg = str(wrapper)
+        if hasattr(exn, "job_id"):
+            msg += " evaluating " + getattr(exn, "job_id")
+        msg += ": " + exn.__class__.__name__
         if str(exn):
             msg += ", " + str(exn)
         logger.error(msg)
+        logger.info("run directory: %s", run_dir)
         raise wrapper from exn
 
 
 def _eval_task_inputs(
-    logger: logging.Logger, task: Tree.Task, posix_inputs: Env.Values, container: TaskContainer
-) -> Env.Values:
+    logger: logging.Logger,
+    task: Tree.Task,
+    posix_inputs: Env.Bindings[Value.Base],
+    container: TaskContainer,
+) -> Env.Bindings[Value.Base]:
     # Map all the provided input Files to in-container paths
     # First make a pass to collect all the host paths and pass them to the
     # container as a group (so that it can deal with any basename collisions)
@@ -373,7 +414,8 @@ def _eval_task_inputs(
         for ch in v.children:
             collect_host_files(ch)
 
-    Env.map(posix_inputs, lambda namespace, binding: collect_host_files(binding.rhs))
+    for binding in posix_inputs:
+        collect_host_files(binding.value)
     container.add_files(host_files)
 
     # copy posix_inputs with all Files mapped to their in-container paths
@@ -384,26 +426,24 @@ def _eval_task_inputs(
             map_files(ch)
         return v
 
-    container_inputs = Env.map(
-        posix_inputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs))
+    container_inputs = posix_inputs.map(
+        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
     )
 
     # initialize value environment with the inputs
-    container_env = []
+    container_env = Env.Bindings()
     for b in container_inputs:
         assert isinstance(b, Env.Binding)
-        v = b.rhs
+        v = b.value
         assert isinstance(v, Value.Base)
-        container_env = Env.bind(container_env, [], b.name, v)
+        container_env = container_env.bind(b.name, v)
         vj = json.dumps(v.json)
         logger.info("input {} -> {}".format(b.name, vj if len(vj) < 4096 else "(large)"))
 
     # collect remaining declarations requiring evaluation.
     decls_to_eval = []
     for decl in (task.inputs or []) + (task.postinputs or []):
-        try:
-            Env.resolve(container_env, [], decl.name)
-        except KeyError:
+        if not container_env.has_binding(decl.name):
             decls_to_eval.append(decl)
 
     # topsort them according to internal dependencies. prior static validation
@@ -421,48 +461,56 @@ def _eval_task_inputs(
         if decl.expr:
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
-            except Error.RuntimeError:
-                raise
+            except Error.RuntimeError as exn:
+                setattr(exn, "job_id", decl.workflow_node_id)
+                raise exn
             except Exception as exn:
-                raise Error.EvalError(decl, str(exn)) from exn
+                exn2 = Error.EvalError(decl, str(exn))
+                setattr(exn2, "job_id", decl.workflow_node_id)
+                raise exn2 from exn
         else:
             assert decl.type.optional
         vj = json.dumps(v.json)
         logger.info("eval {} -> {}".format(decl.name, vj if len(vj) < 4096 else "(large)"))
-        container_env = Env.bind(container_env, [], decl.name, v)
+        container_env = container_env.bind(decl.name, v)
 
     return container_env
 
 
 def _eval_task_outputs(
-    logger: logging.Logger, task: Tree.Task, env: Env.Values, container: TaskContainer
-) -> Env.Values:
+    logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
+) -> Env.Bindings[Value.Base]:
 
     stdlib = OutputStdLib(container)
-    outputs = []
+    outputs = Env.Bindings()
     for decl in task.outputs:
         assert decl.expr
         try:
             v = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
-        except Error.RuntimeError:
-            raise
+        except Error.RuntimeError as exn:
+            setattr(exn, "job_id", decl.workflow_node_id)
+            raise exn
         except Exception as exn:
-            raise Error.EvalError(decl, str(exn)) from exn
+            exn2 = Error.EvalError(decl, str(exn))
+            setattr(exn2, "job_id", decl.workflow_node_id)
+            raise exn2 from exn
         logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
-        outputs = Env.bind(outputs, [], decl.name, v)
-        env = Env.bind(env, [], decl.name, v)
+        outputs = outputs.bind(decl.name, v)
+        env = env.bind(decl.name, v)
 
     # map Files from in-container paths to host paths
     def map_files(v: Value.Base) -> Value.Base:
         if isinstance(v, Value.File):
             host_file = container.host_file(v.value)
-            logger.debug("File {} -> {}".format(v.value, host_file))
+            logger.debug("container output file %s -> host %s", v.value, host_file)
             v.value = host_file
         for ch in v.children:
             map_files(ch)
         return v
 
-    return Env.map(outputs, lambda namespace, binding: map_files(copy.deepcopy(binding.rhs)))
+    return outputs.map(
+        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
+    )
 
 
 class _StdLib(StdLib.Base):
@@ -491,7 +539,7 @@ class _StdLib(StdLib.Base):
 
             return _f
 
-        self._override_static("read_string", _read_something(lambda s: Value.String(s)))
+        self._override_static("read_string", _read_something(Value.String))
         self._override_static("read_int", _read_something(lambda s: Value.Int(int(s))))
         self._override_static("read_float", _read_something(lambda s: Value.Float(float(s))))
 
@@ -670,11 +718,17 @@ class OutputStdLib(_StdLib):
                 raise OutputError("glob() pattern must not use .. uplevels")
             if pat.startswith("./"):
                 pat = pat[2:]
+            # glob the host directory
             pat = os.path.join(lib.container.host_dir, "work", pat)
-            return Value.Array(
-                Type.Array(Type.File()),
-                [Value.String(fn) for fn in sorted(glob.glob(pat)) if os.path.isfile(fn)],
-            )
+            host_files = sorted(fn for fn in glob.glob(pat) if os.path.isfile(fn))
+            # convert the host filenames to in-container filenames
+            container_files = []
+            for hf in host_files:
+                dstrip = lib.container.host_dir
+                dstrip += "" if dstrip.endswith("/") else "/"
+                assert hf.startswith(dstrip)
+                container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip) :]))
+            return Value.Array(Type.Array(Type.File()), [Value.File(fn) for fn in container_files])
 
         self._override_static("glob", _glob)
 
