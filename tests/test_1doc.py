@@ -843,6 +843,18 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = r"""
+        workflow contrived {
+            Int x
+            output {
+                Int x = 1
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
+        doc = r"""
         import "x.wdl"
         import "x.wdl"
         """
@@ -1113,7 +1125,7 @@ class TestDoc(unittest.TestCase):
                     sum.*
                     adder.*
                     k
-                    Int j = j
+                    Int j2 = j
                 }
             }
         """)
@@ -1209,7 +1221,7 @@ class TestDoc(unittest.TestCase):
                 y = y
             }
             output {
-                Int z = z+1
+                Int z2 = z+1
                 Int w = x+y
                 Array[Int] outs = [z,w]
             }
