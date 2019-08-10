@@ -266,8 +266,11 @@ class Contrived2(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/biowdl/tasks/**"],
-    expected_lint={'UnusedImport': 10, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
-    check_quant=False,
+    blacklist=[
+        # these use the pattern 'input { Type? x = default }' and need check_quant=False
+        "mergecounts","somaticseq"
+    ],
+    expected_lint={'UnusedImport': 8, 'OptionalCoercion': 9, 'StringCoercion': 14, 'UnusedDeclaration': 18, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1, 'SelectArray': 1},
 )
 class BioWDLTasks(unittest.TestCase):
     pass
@@ -286,4 +289,20 @@ class BioWDLAligning(unittest.TestCase):
     check_quant=False,
 )
 class BioWDLExpressionQuantification(unittest.TestCase):
+    pass
+
+@wdl_corpus(
+    ["test_corpi/biowdl/somatic-variantcalling"],
+    expected_lint={'UnusedImport': 12, 'OptionalCoercion': 11, 'StringCoercion': 16, 'UnusedDeclaration': 11, 'UnnecessaryQuantifier': 166, 'NonemptyCoercion': 37, 'SelectArray': 5},
+    check_quant=False,
+)
+class BioWDLSomaticVariantCalling(unittest.TestCase):
+    pass
+
+@wdl_corpus(
+    ["test_corpi/biowdl/small-rna"],
+    expected_lint={'UnusedDeclaration': 8, 'SelectArray': 2, 'OptionalCoercion': 2, 'NonemptyCoercion': 3, 'UnusedCall': 1},
+    check_quant=False,
+)
+class BioWDLSmallRNA(unittest.TestCase):
     pass
