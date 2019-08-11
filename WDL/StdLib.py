@@ -592,7 +592,12 @@ class _Zip(_ZipOrCross):
             raise Error.EvalError(expr, "zip(): input arrays must have equal length")
         return Value.Array(
             ty.item_type,
-            [Value.Pair(ty.item_type, (lhs.value[i], rhs.value[i])) for i in range(len(lhs.value))],
+            [
+                Value.Pair(
+                    ty.item_type.left_type, ty.item_type.right_type, (lhs.value[i], rhs.value[i])
+                )
+                for i in range(len(lhs.value))
+            ],
         )
 
 
@@ -603,7 +608,7 @@ class _Cross(_ZipOrCross):
         return Value.Array(
             ty.item_type,
             [
-                Value.Pair(ty.item_type, (lhs_item, rhs_item))
+                Value.Pair(ty.item_type.left_type, ty.item_type.right_type, (lhs_item, rhs_item))
                 for lhs_item in lhs.value
                 for rhs_item in rhs.value
             ],

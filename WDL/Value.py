@@ -209,10 +209,12 @@ class Pair(Base):
     value: Tuple[Base, Base]
     type: Type.Pair
 
-    def __init__(self, type: Type.Pair, value: Tuple[Base, Base]) -> None:
+    def __init__(
+        self, left_type: Type.Base, right_type: Type.Base, value: Tuple[Base, Base]
+    ) -> None:
         self.value = value
-        self.type = type
-        super().__init__(type, value)
+        self.type = Type.Pair(left_type, right_type)
+        super().__init__(self.type, value)
 
     def __str__(self) -> str:
         assert isinstance(self.value, tuple)
@@ -231,7 +233,8 @@ class Pair(Base):
         ""
         if isinstance(desired_type, Type.Pair) and desired_type != self.type:
             return Pair(
-                desired_type,
+                desired_type.left_type,
+                desired_type.right_type,
                 (
                     self.value[0].coerce(desired_type.left_type),
                     self.value[1].coerce(desired_type.right_type),

@@ -508,7 +508,7 @@ class Pair(Base):
         assert isinstance(self.type, Type.Pair)
         lv = self.left.eval(env, stdlib)
         rv = self.right.eval(env, stdlib)
-        return Value.Pair(self.type, (lv, rv))
+        return Value.Pair(self.left.type, self.right.type, (lv, rv))
 
 
 class Map(Base):
