@@ -524,7 +524,7 @@ def runner_input(doc, inputs, input_file, empty, task=None):
             existing = None
         if existing:
             if isinstance(v, Value.Array):
-                assert isinstance(existing, Value.Array) and existing.type == v.type
+                assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
                 existing.value.extend(v.value)
             else:
                 die(
