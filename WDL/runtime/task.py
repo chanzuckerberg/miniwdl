@@ -19,7 +19,7 @@ from pygtail import Pygtail
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
-from .._util import write_values_json, provision_run_dir
+from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT
 from .error import *
 
 
@@ -270,7 +270,7 @@ class TaskDockerContainer(TaskContainer):
                     if not pygtail_exn:
                         try:
                             for line in pygtail:
-                                logger.info(f"2| {line.rstrip()}")
+                                logger.verbose(f"2| {line.rstrip()}")
                         except:
                             pygtail_exn = True
                             # cf. https://github.com/bgreenlee/pygtail/issues/48
@@ -310,7 +310,7 @@ class TaskDockerContainer(TaskContainer):
             if not pygtail_exn:
                 try:
                     for line in Pygtail(stderr_file, full_lines=False):
-                        logger.info(f"2| {line.rstrip()}")
+                        logger.verbose(f"2| {line.rstrip()}")
                 except:
                     # cf. https://github.com/bgreenlee/pygtail/issues/48
                     logger.info(
@@ -342,9 +342,10 @@ def run_local_task(
     run_dir = provision_run_dir(task.name, run_dir)
     logger = logging.getLogger("wdl-task:" + run_id)
     fh = logging.FileHandler(os.path.join(run_dir, "task.log"))
-    fh.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
-    logger.info(
+    _util.install_coloredlogs(logger)
+    logger.notice(  # pyre-fixme
         "starting task %s (%s Ln %d Col %d) in %s",
         task.name,
         task.pos.uri,
@@ -381,7 +382,7 @@ def run_local_task(
         outputs = _eval_task_outputs(logger, task, container_env, container)
 
         write_values_json(outputs, os.path.join(run_dir, "outputs.json"))
-        logger.info("done")
+        logger.notice("done")  # pyre-fixme
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())

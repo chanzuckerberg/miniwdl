@@ -39,7 +39,7 @@ import pickle
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .._util import write_values_json, provision_run_dir
+from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, install_coloredlogs
 from .task import run_local_task
 from .error import TaskFailure
 
@@ -268,7 +268,7 @@ class StateMachine:
         """
         assert job_id in self.running
         outlog = json.dumps(self.values_to_json(outputs))
-        self.logger.warning("finish %s", job_id)
+        self.logger.notice("finish %s", job_id)  # pyre-fixme
         self.logger.info("output %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
@@ -342,7 +342,7 @@ class StateMachine:
             )
             _check_call_input_files(self, job.node.name, env, call_inputs)
             # issue CallInstructions
-            self.logger.warning("issue %s on %s", job.id, job.node.callee.name)
+            self.logger.notice("issue %s on %s", job.id, job.node.callee.name)  # pyre-fixme
             inplog = json.dumps(self.values_to_json(call_inputs))
             self.logger.info("input %s <- %s", job.id, inplog if len(inplog) < 4096 else "(large)")
 
@@ -358,8 +358,9 @@ class StateMachine:
             self._logger = logging.getLogger("wdl-worfklow:" + self.run_id)
             if self.log_file:
                 fh = logging.FileHandler(self.log_file)
-                fh.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+                fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
                 self._logger.addHandler(fh)
+            install_coloredlogs(self._logger)
         return self._logger
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -580,9 +581,10 @@ def run_local_workflow(
     run_dir = provision_run_dir(workflow.name, run_dir)
     logger = logging.getLogger("wdl-workflow:" + run_id)
     fh = logging.FileHandler(os.path.join(run_dir, "workflow.log"))
-    fh.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
-    logger.warning(
+    install_coloredlogs(logger)
+    logger.notice(  # pyre-fixme
         "starting workflow %s (%s Ln %d Col %d) in %s",
         workflow.name,
         workflow.pos.uri,
@@ -631,5 +633,5 @@ def run_local_workflow(
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
-    logger.warning("done")
+    logger.notice("done")  # pyre-fixme
     return (run_dir, state.outputs)

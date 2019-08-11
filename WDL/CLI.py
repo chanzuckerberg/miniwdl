@@ -17,7 +17,13 @@ from datetime import datetime
 from argparse import ArgumentParser, Action
 import pkg_resources
 from . import *
-from ._util import provision_run_dir, write_values_json
+from ._util import (
+    provision_run_dir,
+    write_values_json,
+    VERBOSE_LEVEL,
+    NOTICE_LEVEL,
+    install_coloredlogs,
+)
 
 quant_warning = False
 
@@ -343,13 +349,14 @@ def runner(
     if rundir and os.path.isfile(rundir):
         die("--dir must be an existing directory or one that can be created")
 
-    level = logging.WARN
+    level = NOTICE_LEVEL
     if kwargs["verbose"]:
-        level = logging.INFO
+        level = VERBOSE_LEVEL
     if kwargs["debug"]:
         level = logging.DEBUG
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
+    install_coloredlogs(logger)
 
     try:
         logger.debug(pkg_resources.get_distribution("miniwdl"))
