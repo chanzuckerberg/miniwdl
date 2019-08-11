@@ -548,7 +548,7 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["sum"], 20)
 
     def test_host_file_access(self):
-        self._test_workflow("""
+        exn = self._test_workflow("""
         version 1.0
         workflow hacker9000 {
             input {
@@ -565,8 +565,9 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.InputError)
+        self.assertTrue("inputs use unknown file" in str(exn))
 
-        self._test_workflow("""
+        exn = self._test_workflow("""
         version 1.0
         struct Box {
             Array[String] str
@@ -598,6 +599,7 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.InputError)
+        self.assertTrue("inputs use unknown file" in str(exn))
 
         # positive control
         with open(os.path.join(self._dir, "allowed.txt"), "w") as outfile:
