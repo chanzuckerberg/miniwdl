@@ -585,7 +585,7 @@ class Map(Base):
         for k, v in self.items:
             eitems.append((k.eval(env, stdlib), v.eval(env, stdlib)))
         # TODO: complain of duplicate keys
-        return Value.Map(self.type, eitems)
+        return Value.Map(self.type.item_type, eitems)
 
 
 class Struct(Base):

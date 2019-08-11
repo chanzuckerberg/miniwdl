@@ -165,10 +165,12 @@ class Map(Base):
     value: List[Tuple[Base, Base]]
     type: Type.Map
 
-    def __init__(self, type: Type.Map, value: List[Tuple[Base, Base]]) -> None:
+    def __init__(
+        self, item_type: Tuple[Type.Base, Type.Base], value: List[Tuple[Base, Base]]
+    ) -> None:
         self.value = []
-        self.type = type
-        super().__init__(type, value)
+        self.type = Type.Map(item_type)
+        super().__init__(self.type, value)
 
     @property
     def json(self) -> Any:
@@ -188,7 +190,7 @@ class Map(Base):
         ""
         if isinstance(desired_type, Type.Map) and desired_type != self.type:
             return Map(
-                desired_type,
+                desired_type.item_type,
                 [
                     (k.coerce(desired_type.item_type[0]), v.coerce(desired_type.item_type[1]))
                     for (k, v) in self.value
@@ -331,7 +333,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
         for k, v in value.items():
             assert isinstance(k, str)
             items.append((from_json(type.item_type[0], k), from_json(type.item_type[1], v)))
-        return Map(type, items)
+        return Map(type.item_type, items)
     if (
         isinstance(type, Type.StructInstance)
         and isinstance(value, dict)

@@ -588,7 +588,7 @@ class _StdLib(StdLib.Base):
                     raise Error.InputError("read_map(): duplicate key")
                 keys.add(line.value[0].value)
                 ans.append((line.value[0], line.value[1]))
-            return Value.Map(Type.Map((Type.String(), Type.String())), ans)
+            return Value.Map((Type.String(), Type.String()), ans)
 
         self._override_static("read_map", _read_something(parse_map))
 
@@ -599,7 +599,7 @@ class _StdLib(StdLib.Base):
                 ans = []
                 for k in j:
                     ans.append((Value.String(str(k)), Value.String(str(j[k]))))
-                return Value.Map(Type.Map((Type.String(), Type.String())), ans)
+                return Value.Map((Type.String(), Type.String()), ans)
             if isinstance(j, list):
                 return Value.Array(Type.String(), [Value.String(str(v)) for v in j])
             if isinstance(j, bool):
