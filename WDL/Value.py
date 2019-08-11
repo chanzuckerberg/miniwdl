@@ -138,6 +138,7 @@ class Array(Base):
 
     @property
     def json(self) -> Any:
+        ""
         return [item.json for item in self.value]
 
     @property
@@ -174,6 +175,7 @@ class Map(Base):
 
     @property
     def json(self) -> Any:
+        ""
         ans = {}
         for k, v in self.value:
             assert isinstance(k, String)  # TODO
@@ -224,6 +226,7 @@ class Pair(Base):
 
     @property
     def json(self) -> Any:
+        ""
         return [self.value[0].json, self.value[1].json]
 
     @property
@@ -265,6 +268,7 @@ class Null(Base):
 
     @property
     def json(self) -> Any:
+        ""
         return None
 
 
@@ -296,6 +300,7 @@ class Struct(Base):
 
     @property
     def json(self) -> Any:
+        ""
         ans = {}
         for k, v in self.value.items():
             ans[k] = v.json
