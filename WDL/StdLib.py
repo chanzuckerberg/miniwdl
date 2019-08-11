@@ -548,7 +548,9 @@ class _SelectAll(EagerFunction):
         assert isinstance(arr, Value.Array)
         arrty = arr.type
         assert isinstance(arrty, Type.Array)
-        return Value.Array(arrty, [arg for arg in arr.value if not isinstance(arg, Value.Null)])
+        return Value.Array(
+            arrty.item_type, [arg for arg in arr.value if not isinstance(arg, Value.Null)]
+        )
 
 
 class _ZipOrCross(EagerFunction):
@@ -589,7 +591,7 @@ class _Zip(_ZipOrCross):
         if len(lhs.value) != len(rhs.value):
             raise Error.EvalError(expr, "zip(): input arrays must have equal length")
         return Value.Array(
-            ty,
+            ty.item_type,
             [Value.Pair(ty.item_type, (lhs.value[i], rhs.value[i])) for i in range(len(lhs.value))],
         )
 
@@ -599,7 +601,7 @@ class _Cross(_ZipOrCross):
         ty, lhs, rhs = self._coerce_args(expr, arguments)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         return Value.Array(
-            ty,
+            ty.item_type,
             [
                 Value.Pair(ty.item_type, (lhs_item, rhs_item))
                 for lhs_item in lhs.value
@@ -634,7 +636,7 @@ class _Flatten(EagerFunction):
         ans = []
         for row in arguments[0].coerce(Type.Array(ty)).value:
             ans.extend(row.value)
-        return Value.Array(ty, ans)
+        return Value.Array(ty.item_type, ans)
 
 
 class _Transpose(EagerFunction):
@@ -673,7 +675,7 @@ class _Transpose(EagerFunction):
                 raise Error.EvalError(expr, "transpose(): ragged input matrix")
             for i in range(len(row.value)):
                 ans[i].value.append(row.value[i])
-        return Value.Array(ty, ans)
+        return Value.Array(ty.item_type, ans)
 
 
 class _Range(EagerFunction):
@@ -700,7 +702,7 @@ class _Range(EagerFunction):
         assert isinstance(arg0, Value.Int)
         if arg0.value < 0:
             raise Error.EvalError(expr, "range() got negative argument")
-        return Value.Array(Type.Array(Type.Int()), [Value.Int(x) for x in range(arg0.value)])
+        return Value.Array(Type.Int(), [Value.Int(x) for x in range(arg0.value)])
 
 
 class _Prefix(EagerFunction):
@@ -720,6 +722,6 @@ class _Prefix(EagerFunction):
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         pfx = arguments[0].coerce(Type.String()).value
         return Value.Array(
-            Type.Array(Type.String()),
+            Type.String(),
             [Value.String(pfx + s.coerce(Type.String()).value) for s in arguments[1].value],
         )

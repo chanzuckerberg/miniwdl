@@ -496,7 +496,7 @@ def runner_input(doc, inputs, input_file, empty, task=None):
             )
         if not isinstance(decl.type, Type.Array) or decl.type.nonempty:
             die("Cannot set input {} {} to empty array".format(str(decl.type), decl.name))
-        input_env = input_env.bind(empty_name, Value.Array(decl.type, []), decl)
+        input_env = input_env.bind(empty_name, Value.Array(decl.type.item_type, []), decl)
 
     # add in command-line inputs
     for one_input in inputs:
@@ -618,7 +618,7 @@ def runner_input_value(s_value, ty):
         ty.item_type, (Type.String, Type.File, Type.Int, Type.Float)
     ):
         # just produce a length-1 array, to be combined ex post facto
-        return Value.Array(ty, [runner_input_value(s_value, ty.item_type)])
+        return Value.Array(ty.item_type, [runner_input_value(s_value, ty.item_type)])
     return die(
         "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
             str(ty)

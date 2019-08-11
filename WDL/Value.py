@@ -131,10 +131,10 @@ class Array(Base):
     value: List[Base]
     type: Type.Array
 
-    def __init__(self, type: Type.Array, value: List[Base]) -> None:
+    def __init__(self, item_type: Type.Base, value: List[Base]) -> None:
         self.value = []
-        self.type = type
-        super().__init__(type, value)
+        self.type = Type.Array(item_type, nonempty=(len(value) > 0))
+        super().__init__(self.type, value)
 
     @property
     def json(self) -> Any:

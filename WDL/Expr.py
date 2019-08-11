@@ -462,7 +462,8 @@ class Array(Base):
         ""
         assert isinstance(self.type, Type.Array)
         return Value.Array(
-            self.type, [item.eval(env, stdlib).coerce(self.type.item_type) for item in self.items]
+            self.type.item_type,
+            [item.eval(env, stdlib).coerce(self.type.item_type) for item in self.items],
         )
 
 
