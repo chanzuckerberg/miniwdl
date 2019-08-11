@@ -517,17 +517,21 @@ def _gather(
 
     return ans
 
+
 def _host_filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
     "Get the host filenames of all File values in the environment"
     ans = set()
+
     def collector(v: Value.Base) -> None:
         if isinstance(v, Value.File):
             ans.add(v.value)
         for ch in v.children:
             collector(ch)
+
     for b in env:
         collector(b.value)
     return ans
+
 
 def _check_call_input_files(
     self: StateMachine,
