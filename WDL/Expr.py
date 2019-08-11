@@ -462,7 +462,8 @@ class Array(Base):
         ""
         assert isinstance(self.type, Type.Array)
         return Value.Array(
-            self.type, [item.eval(env, stdlib).coerce(self.type.item_type) for item in self.items]
+            self.type.item_type,
+            [item.eval(env, stdlib).coerce(self.type.item_type) for item in self.items],
         )
 
 
@@ -507,7 +508,7 @@ class Pair(Base):
         assert isinstance(self.type, Type.Pair)
         lv = self.left.eval(env, stdlib)
         rv = self.right.eval(env, stdlib)
-        return Value.Pair(self.type, (lv, rv))
+        return Value.Pair(self.left.type, self.right.type, (lv, rv))
 
 
 class Map(Base):
@@ -584,7 +585,7 @@ class Map(Base):
         for k, v in self.items:
             eitems.append((k.eval(env, stdlib), v.eval(env, stdlib)))
         # TODO: complain of duplicate keys
-        return Value.Map(self.type, eitems)
+        return Value.Map(self.type.item_type, eitems)
 
 
 class Struct(Base):

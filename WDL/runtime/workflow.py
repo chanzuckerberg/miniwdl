@@ -508,7 +508,7 @@ def _gather(
         assert v0 is None or isinstance(v0, Value.Base)
         # bind the array, singleton value, or None as appropriate
         if isinstance(gather.section, Tree.Scatter):
-            rhs = Value.Array(Type.Array(v0.type if v0 else Type.Any()), values)
+            rhs = Value.Array((v0.type if v0 else Type.Any()), values)
         else:
             assert isinstance(gather.section, Tree.Conditional)
             assert len(values) <= 1

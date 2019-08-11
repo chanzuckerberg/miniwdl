@@ -559,7 +559,7 @@ class _StdLib(StdLib.Base):
                 ans = [
                     Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")
                 ]
-            return Value.Array(Type.Array(Type.String()), ans)
+            return Value.Array(Type.String(), ans)
 
         self._override_static("read_lines", _read_something(parse_lines))
 
@@ -573,7 +573,7 @@ class _StdLib(StdLib.Base):
                 for line in parse_lines(s).value
             ]
             # pyre-ignore
-            return Value.Array(Type.Array(Type.Array(Type.String())), ans)
+            return Value.Array(Type.Array(Type.String()), ans)
 
         self._override_static("read_tsv", _read_something(parse_tsv))
 
@@ -588,7 +588,7 @@ class _StdLib(StdLib.Base):
                     raise Error.InputError("read_map(): duplicate key")
                 keys.add(line.value[0].value)
                 ans.append((line.value[0], line.value[1]))
-            return Value.Map(Type.Map((Type.String(), Type.String())), ans)
+            return Value.Map((Type.String(), Type.String()), ans)
 
         self._override_static("read_map", _read_something(parse_map))
 
@@ -599,9 +599,9 @@ class _StdLib(StdLib.Base):
                 ans = []
                 for k in j:
                     ans.append((Value.String(str(k)), Value.String(str(j[k]))))
-                return Value.Map(Type.Map((Type.String(), Type.String())), ans)
+                return Value.Map((Type.String(), Type.String()), ans)
             if isinstance(j, list):
-                return Value.Array(Type.Array(Type.String()), [Value.String(str(v)) for v in j])
+                return Value.Array(Type.String(), [Value.String(str(v)) for v in j])
             if isinstance(j, bool):
                 return Value.Boolean(j)
             if isinstance(j, int):
@@ -653,7 +653,7 @@ class _StdLib(StdLib.Base):
             _write_something(
                 lambda v, outfile: _serialize_lines(
                     Value.Array(
-                        Type.Array(Type.String()),
+                        Type.String(),
                         [
                             Value.String(
                                 "\t".join(
@@ -678,7 +678,7 @@ class _StdLib(StdLib.Base):
                         "write_map(): keys & values must not contain tab or newline characters"
                     )
                 lines.append(Value.String(k + "\t" + v))
-            _serialize_lines(Value.Array(Type.Array(Type.String()), lines), outfile)
+            _serialize_lines(Value.Array(Type.String(), lines), outfile)
 
         self._override_static("write_map", _write_something(_serialize_map))  # pyre-ignore
 
@@ -728,7 +728,7 @@ class OutputStdLib(_StdLib):
                 dstrip += "" if dstrip.endswith("/") else "/"
                 assert hf.startswith(dstrip)
                 container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip) :]))
-            return Value.Array(Type.Array(Type.File()), [Value.File(fn) for fn in container_files])
+            return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
 
         self._override_static("glob", _glob)
 
@@ -749,5 +749,5 @@ class _Size(StdLib._Size):
             for fn_c in files.value
         ]
         # pyre-ignore
-        arguments = [Value.Array(files.type, host_files)] + arguments[1:]
+        arguments = [Value.Array(files.type.item_type, host_files)] + arguments[1:]
         return super()._call_eager(expr, arguments)

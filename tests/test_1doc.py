@@ -189,9 +189,9 @@ class TestTasks(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [WDL.Value.String("foo"), WDL.Value.String("bar")])
+        foobar = WDL.Value.Array(WDL.Type.String(), [WDL.Value.String("foo"), WDL.Value.String("bar")])
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar)).value, 'foo, bar')
-        foobar = WDL.Value.Array(WDL.Type.Array(WDL.Type.String()), [])
+        foobar = WDL.Value.Array(WDL.Type.String(), [])
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar)).value, '')
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             task = WDL.parse_tasks("""

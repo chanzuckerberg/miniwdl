@@ -131,13 +131,14 @@ class Array(Base):
     value: List[Base]
     type: Type.Array
 
-    def __init__(self, type: Type.Array, value: List[Base]) -> None:
+    def __init__(self, item_type: Type.Base, value: List[Base]) -> None:
         self.value = []
-        self.type = type
-        super().__init__(type, value)
+        self.type = Type.Array(item_type, nonempty=(len(value) > 0))
+        super().__init__(self.type, value)
 
     @property
     def json(self) -> Any:
+        ""
         return [item.json for item in self.value]
 
     @property
@@ -165,13 +166,16 @@ class Map(Base):
     value: List[Tuple[Base, Base]]
     type: Type.Map
 
-    def __init__(self, type: Type.Map, value: List[Tuple[Base, Base]]) -> None:
+    def __init__(
+        self, item_type: Tuple[Type.Base, Type.Base], value: List[Tuple[Base, Base]]
+    ) -> None:
         self.value = []
-        self.type = type
-        super().__init__(type, value)
+        self.type = Type.Map(item_type)
+        super().__init__(self.type, value)
 
     @property
     def json(self) -> Any:
+        ""
         ans = {}
         for k, v in self.value:
             assert isinstance(k, String)  # TODO
@@ -188,7 +192,7 @@ class Map(Base):
         ""
         if isinstance(desired_type, Type.Map) and desired_type != self.type:
             return Map(
-                desired_type,
+                desired_type.item_type,
                 [
                     (k.coerce(desired_type.item_type[0]), v.coerce(desired_type.item_type[1]))
                     for (k, v) in self.value
@@ -209,10 +213,12 @@ class Pair(Base):
     value: Tuple[Base, Base]
     type: Type.Pair
 
-    def __init__(self, type: Type.Pair, value: Tuple[Base, Base]) -> None:
+    def __init__(
+        self, left_type: Type.Base, right_type: Type.Base, value: Tuple[Base, Base]
+    ) -> None:
         self.value = value
-        self.type = type
-        super().__init__(type, value)
+        self.type = Type.Pair(left_type, right_type)
+        super().__init__(self.type, value)
 
     def __str__(self) -> str:
         assert isinstance(self.value, tuple)
@@ -220,6 +226,7 @@ class Pair(Base):
 
     @property
     def json(self) -> Any:
+        ""
         return [self.value[0].json, self.value[1].json]
 
     @property
@@ -231,7 +238,8 @@ class Pair(Base):
         ""
         if isinstance(desired_type, Type.Pair) and desired_type != self.type:
             return Pair(
-                desired_type,
+                desired_type.left_type,
+                desired_type.right_type,
                 (
                     self.value[0].coerce(desired_type.left_type),
                     self.value[1].coerce(desired_type.right_type),
@@ -260,6 +268,7 @@ class Null(Base):
 
     @property
     def json(self) -> Any:
+        ""
         return None
 
 
@@ -291,6 +300,7 @@ class Struct(Base):
 
     @property
     def json(self) -> Any:
+        ""
         ans = {}
         for k, v in self.value.items():
             ans[k] = v.json
@@ -328,7 +338,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
         for k, v in value.items():
             assert isinstance(k, str)
             items.append((from_json(type.item_type[0], k), from_json(type.item_type[1], v)))
-        return Map(type, items)
+        return Map(type.item_type, items)
     if (
         isinstance(type, Type.StructInstance)
         and isinstance(value, dict)
