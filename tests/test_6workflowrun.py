@@ -546,3 +546,102 @@ class TestWorkflowRunner(unittest.TestCase):
         """, {"n": 3})
         self.assertEqual(outputs["sums"], [1, 5, 14])
         self.assertEqual(outputs["sum"], 20)
+
+    def test_host_file_access(self):
+        self._test_workflow("""
+        version 1.0
+        workflow hacker9000 {
+            input {
+            }
+            File your_passwords = "/etc/passwd"
+            call tweet_file { input: file = your_passwords }
+        }
+        task tweet_file {
+            input {
+                File file
+            }
+            command {
+                cat ~{file}
+            }
+        }
+        """, expected_exception=WDL.Error.InputError)
+
+        self._test_workflow("""
+        version 1.0
+        struct Box {
+            Array[String] str
+        }
+        workflow hacker9000 {
+            input {
+            }
+            call sneaky
+            scatter (s in sneaky.box.str) {
+                call tweet_file { input: file = s }
+            }
+        }
+        task sneaky {
+            command {
+                echo "/etc/passwd"
+            }
+            output {
+                Box box = object {
+                    str: read_lines(stdout())
+                }
+            }
+        }
+        task tweet_file {
+            input {
+                File file
+            }
+            command {
+                cat ~{file}
+            }
+        }
+        """, expected_exception=WDL.Error.InputError)
+
+        # positive control
+        with open(os.path.join(self._dir, "allowed.txt"), "w") as outfile:
+            outfile.write("yo")
+        outputs = self._test_workflow("""
+        version 1.0
+        struct Box {
+            Array[File] str
+        }
+        workflow hacker8999 {
+            input {
+                Box box
+            }
+            call hello
+            scatter (b in [box, hello.box]) {
+                Array[File] str = b.str
+            }
+            scatter (f in flatten(str)) {
+                call tweet_file { input: file = f }
+            }
+            output {
+                Array[String] tweets = tweet_file.tweet
+            }
+        }
+        task hello {
+            command {
+                echo "Hello, world!"
+            }
+            output {
+                Box box = object {
+                    str: [stdout()]
+                }
+            }
+        }
+        task tweet_file {
+            input {
+                File file
+            }
+            command {
+                cat ~{file}
+            }
+            output {
+                String tweet = read_string(stdout())
+            }
+        }
+        """, inputs={"box": { "str": [os.path.join(self._dir, "allowed.txt")] }})
+        self.assertEqual(outputs["tweets"], ["yo", "Hello, world!\n"])

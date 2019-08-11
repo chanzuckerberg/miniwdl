@@ -38,6 +38,7 @@ import traceback
 import pickle
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from .. import Env, Type, Value, Tree, StdLib
+from ..Error import InputError
 from .._util import write_values_json, provision_run_dir
 from .task import run_local_task
 from .error import TaskFailure
@@ -316,7 +317,7 @@ class StateMachine:
                 pass
             if v is None:
                 if job.node.expr:
-                    v = job.node.expr.eval(env, stdlib=stdlib)
+                    v = job.node.expr.eval(env, stdlib=stdlib).coerce(job.node.type)
                 else:
                     assert job.node.type.optional
                     v = Value.Null()
@@ -333,8 +334,14 @@ class StateMachine:
             # check workflow inputs for additional inputs supplied to this call
             for b in self.inputs.enter_namespace(job.node.name):
                 call_inputs = call_inputs.bind(b.name, b.value)
-            # issue CallInstructions
+            # coerce inputs to required types
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
+            callee_inputs = job.node.callee.available_inputs
+            call_inputs = call_inputs.map(
+                lambda b: Env.Binding(b.name, b.value.coerce(callee_inputs[b.name].type))
+            )
+            _check_call_input_files(self, job.node.name, env, call_inputs)
+            # issue CallInstructions
             self.logger.warning("issue %s on %s", job.id, job.node.callee.name)
             inplog = json.dumps(self.values_to_json(call_inputs))
             self.logger.info("input %s <- %s", job.id, inplog if len(inplog) < 4096 else "(large)")
@@ -509,6 +516,41 @@ def _gather(
         ans = ans.bind(".".join(ns + [name]), rhs)
 
     return ans
+
+def _host_filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
+    "Get the host filenames of all File values in the environment"
+    ans = set()
+    def collector(v: Value.Base) -> None:
+        if isinstance(v, Value.File):
+            ans.add(v.value)
+        for ch in v.children:
+            collector(ch)
+    for b in env:
+        collector(b.value)
+    return ans
+
+def _check_call_input_files(
+    self: StateMachine,
+    call_name: str,
+    env: Env.Bindings[Value.Base],
+    inputs: Env.Bindings[Value.Base],
+) -> None:
+    """
+    Security check that all input Files in a call's inputs are either in the workflow inputs
+    or a previous call's outputs; impedes access to arbitrary host files not supplied as inputs
+    nor newly generated.
+    """
+
+    allowed_filenames = _host_filenames(self.inputs)
+    for job in self.finished:
+        if isinstance(self.jobs[job].node, Tree.Call):
+            allowed_filenames |= _host_filenames(self.job_outputs[job])
+
+    disallowed_filenames = _host_filenames(inputs) - allowed_filenames
+    if disallowed_filenames:
+        raise InputError(
+            f"call {call_name} inputs use unknown file(s): {', '.join(list(disallowed_filenames)[:10])}"
+        )
 
 
 def run_local_workflow(

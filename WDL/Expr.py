@@ -942,6 +942,8 @@ class Get(Base):
         if isinstance(innard_value, Value.Pair):
             assert self.member in ["left", "right"]
             return innard_value.value[0 if self.member == "left" else 1]
+        if isinstance(innard_value, Value.Struct):
+            return innard_value.value[self.member]
         raise NotImplementedError()
 
     @property
