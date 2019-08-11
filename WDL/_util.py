@@ -3,6 +3,8 @@
 
 import os
 import json
+import logging
+import coloredlogs
 from time import sleep
 from datetime import datetime
 from typing import Tuple, Dict, Set, Iterable, List, TypeVar, Generic, Optional
@@ -177,3 +179,42 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
             return run_dir2
         except FileExistsError:
             sleep(1e-3)
+
+
+VERBOSE_LEVEL = 15
+__all__.append("VERBOSE_LEVEL")
+logging.addLevelName(VERBOSE_LEVEL, "VERBOSE")
+
+
+def verbose(self, message, *args, **kws):
+    if self.isEnabledFor(VERBOSE_LEVEL):
+        self._log(VERBOSE_LEVEL, message, args, **kws)
+
+
+logging.Logger.verbose = verbose
+NOTICE_LEVEL = 25
+__all__.append("NOTICE_LEVEL")
+logging.addLevelName(NOTICE_LEVEL, "NOTICE")
+
+
+def notice(self, message, *args, **kws):
+    if self.isEnabledFor(NOTICE_LEVEL):
+        self._log(NOTICE_LEVEL, message, args, **kws)
+
+
+logging.Logger.notice = notice
+
+LOGGING_FORMAT = "%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s"
+__all__.append("LOGGING_FORMAT")
+
+
+@export
+def install_coloredlogs(logger: logging.Logger) -> None:
+    level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
+    level_styles["debug"]["color"] = 242
+    coloredlogs.install(
+        level=logger.getEffectiveLevel(),
+        logger=logger,
+        level_styles=level_styles,
+        fmt=LOGGING_FORMAT,
+    )
