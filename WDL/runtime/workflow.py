@@ -268,7 +268,7 @@ class StateMachine:
         """
         assert job_id in self.running
         outlog = json.dumps(self.values_to_json(outputs))
-        self.logger.notice("finish %s", job_id)
+        self.logger.notice("finish %s", job_id)  # pyre-fixme
         self.logger.info("output %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
@@ -342,7 +342,7 @@ class StateMachine:
             )
             _check_call_input_files(self, job.node.name, env, call_inputs)
             # issue CallInstructions
-            self.logger.notice("issue %s on %s", job.id, job.node.callee.name)
+            self.logger.notice("issue %s on %s", job.id, job.node.callee.name)  # pyre-fixme
             inplog = json.dumps(self.values_to_json(call_inputs))
             self.logger.info("input %s <- %s", job.id, inplog if len(inplog) < 4096 else "(large)")
 
@@ -584,7 +584,7 @@ def run_local_workflow(
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     install_coloredlogs(logger)
-    logger.notice(
+    logger.notice(  # pyre-fixme
         "starting workflow %s (%s Ln %d Col %d) in %s",
         workflow.name,
         workflow.pos.uri,
@@ -633,5 +633,5 @@ def run_local_workflow(
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
-    logger.notice("done")
+    logger.notice("done")  # pyre-fixme
     return (run_dir, state.outputs)

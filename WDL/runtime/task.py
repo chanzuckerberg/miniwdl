@@ -345,7 +345,7 @@ def run_local_task(
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     _util.install_coloredlogs(logger)
-    logger.notice(
+    logger.notice(  # pyre-fixme
         "starting task %s (%s Ln %d Col %d) in %s",
         task.name,
         task.pos.uri,
@@ -382,7 +382,7 @@ def run_local_task(
         outputs = _eval_task_outputs(logger, task, container_env, container)
 
         write_values_json(outputs, os.path.join(run_dir, "outputs.json"))
-        logger.notice("done")
+        logger.notice("done")  # pyre-fixme
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())

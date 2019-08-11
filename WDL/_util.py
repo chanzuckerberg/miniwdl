@@ -4,10 +4,10 @@
 import os
 import json
 import logging
-import coloredlogs
 from time import sleep
 from datetime import datetime
 from typing import Tuple, Dict, Set, Iterable, List, TypeVar, Generic, Optional
+import coloredlogs
 
 __all__: List[str] = []
 
@@ -186,7 +186,7 @@ __all__.append("VERBOSE_LEVEL")
 logging.addLevelName(VERBOSE_LEVEL, "VERBOSE")
 
 
-def verbose(self, message, *args, **kws):
+def verbose(self, message, *args, **kws):  # pyre-fixme
     if self.isEnabledFor(VERBOSE_LEVEL):
         self._log(VERBOSE_LEVEL, message, args, **kws)
 
@@ -197,7 +197,7 @@ __all__.append("NOTICE_LEVEL")
 logging.addLevelName(NOTICE_LEVEL, "NOTICE")
 
 
-def notice(self, message, *args, **kws):
+def notice(self, message, *args, **kws):  # pyre-fixme
     if self.isEnabledFor(NOTICE_LEVEL):
         self._log(NOTICE_LEVEL, message, args, **kws)
 
