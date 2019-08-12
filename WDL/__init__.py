@@ -119,6 +119,7 @@ async def resolve_file_import(uri: str, path: List[str], importer: Optional[Docu
     document (if any), or the process current working directory (otherwise). Failing that, it's
     searched in the ``path`` directories (in reverse order).
     """
+    return await Tree.resolve_file_import(uri, path, importer)
 
 
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:
