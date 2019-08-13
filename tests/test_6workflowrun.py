@@ -647,3 +647,68 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """, inputs={"box": { "str": [os.path.join(self._dir, "allowed.txt")] }})
         self.assertEqual(outputs["tweets"], ["yo", "Hello, world!\n"])
+
+    def test_stdlib_io(self):
+        with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
+            outfile.write("Alyssa\n")
+            outfile.write("Ben\n")
+
+        outputs = self._test_workflow("""
+            version 1.0
+            workflow hello {
+                input {
+                    File who
+                }
+                Array[String] who_lines = read_lines(who)
+                scatter (person in who_lines) {
+                    String message = "Hello, ${person}!"
+                }
+                output {
+                    Array[String] messages = message
+                }
+            }
+            """, {"who": os.path.join(self._dir, "who.txt")})
+        self.assertEqual(outputs["messages"], ["Hello, Alyssa!", "Hello, Ben!"])
+
+        exn = self._test_workflow("""
+        version 1.0
+        workflow hacker9000 {
+            input {
+            }
+            Array[String] your_passwords = read_lines("/etc/passwd")
+        }
+        """, expected_exception=WDL.Error.InputError)
+        self.assertTrue("inputs use unknown file" in str(exn))
+
+        outputs = self._test_workflow("""
+            version 1.0
+            workflow hello {
+                input {
+                    Array[String] who
+                }
+                File whofile = write_lines(who)
+                scatter (w in read_lines(whofile)) {
+                    call say_hello {
+                        input:
+                            who = w
+                    }
+                }
+                output {
+                    Array[String] messages = say_hello.message
+                    Array[String] who2 = read_lines(whofile)
+                }
+            }
+            task say_hello {
+                File who
+
+                command {
+                    echo "Hello, ~{read_string(who)}!"
+                }
+
+                output {
+                    String message = read_string(stdout())
+                }
+            }
+        """)
+        self.assertEqual(outputs["messages"], ["Hello, Alyssa!", "Hello, Ben!"])
+        self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
