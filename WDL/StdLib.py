@@ -2,7 +2,8 @@
 import math
 import os
 import re
-from typing import List, Tuple, Callable
+import tempfile
+from typing import List, Tuple, Callable, Set, Iterable, Optional, BinaryIO
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from . import Type, Value, Expr, Env, Error
@@ -19,7 +20,15 @@ class Base:
     output sections.
     """
 
-    def __init__(self):
+    _write_dir: str
+    _filename_whitelist: Set[str]
+    _filenames_created: Set[str]
+
+    def __init__(self, write_dir: str = "", filename_whitelist: Optional[Iterable[str]] = None):
+        self._write_dir = write_dir if write_dir else tempfile.gettempdir()
+        self._filename_whitelist = set(filename_whitelist) if filename_whitelist else set()
+        self._filenames_created = set()
+
         # language built-ins
         self._at = _At()
         self._land = _And()
@@ -56,7 +65,7 @@ class Base:
                 lambda v: Value.Boolean(not isinstance(v, Value.Null)),
             ),
             # context-dependent:
-            ("write_lines", [Type.Array(Type.String())], Type.File(), _notimpl),
+            ("write_lines", [Type.Array(Type.String())], Type.File(), self._write(_serialize_lines)),
             ("write_tsv", [Type.Array(Type.Array(Type.String()))], Type.File(), _notimpl),
             ("write_map", [Type.Map((Type.Any(), Type.Any()))], Type.File(), _notimpl),
             ("write_json", [Type.Any()], Type.File(), _notimpl),
@@ -68,7 +77,7 @@ class Base:
             ("read_string", [Type.File()], Type.String(), _notimpl),
             ("read_float", [Type.File()], Type.Float(), _notimpl),
             ("read_map", [Type.File()], Type.Map((Type.String(), Type.String())), _notimpl),
-            ("read_lines", [Type.File()], Type.Array(Type.Any()), _notimpl),
+            ("read_lines", [Type.File()], Type.Array(Type.String()), self._read(_parse_lines)),
             ("read_tsv", [Type.File()], Type.Array(Type.Array(Type.String())), _notimpl),
             ("read_json", [Type.File()], Type.Any(), _notimpl),
         ]:
@@ -85,6 +94,36 @@ class Base:
         self.cross = _Cross()
         self.flatten = _Flatten()
         self.transpose = _Transpose()
+
+    def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[str], Value.Base]:
+        def f(file: Value.File) -> Value.Base:
+            if file.value not in self._filename_whitelist and file.value not in self._filenames_created:
+                raise Error.InputError("attempted read from unknown or inaccessible file " + file.value)
+            with open(file.value, "r") as infile:
+                return parse(infile.read())
+        return f
+
+    def _write(self,
+            serialize: Callable[[Value.Base, BinaryIO], None]
+        ) -> Callable[[Value.Base], Value.File]:
+        def _f(
+            v: Value.Base,
+        ) -> Value.File:
+            os.makedirs(self._write_dir, exist_ok=True)
+            with tempfile.NamedTemporaryFile(
+                dir=self._write_dir, delete=False
+            ) as outfile:
+                outfile: BinaryIO = outfile  # pyre-ignore
+                serialize(v, outfile)
+                filename = outfile.name
+            self._filenames_created.add(filename)
+            return Value.File(filename)
+
+        return _f
+
+    @property
+    def filenames_created(self) -> Iterable[str]:
+        yield from self._filenames_created
 
     def _override(self, name: str, fn: "Function") -> None:
         # replace a Function
@@ -730,3 +769,16 @@ class _Prefix(EagerFunction):
             Type.String(),
             [Value.String(pfx + s.coerce(Type.String()).value) for s in arguments[1].value],
         )
+
+def _parse_lines(s: str) -> Value.Array:
+    ans = []
+    if s:
+        ans = [
+            Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")
+        ]
+    return Value.Array(Type.String(), ans)
+
+def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
+    for item in array.value:
+        outfile.write(item.coerce(Type.String()).value.encode("utf-8"))
+        outfile.write(b"\n")

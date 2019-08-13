@@ -108,7 +108,7 @@ class StateMachine:
 
     _logger: Optional[logging.Logger] = None
     run_id: str
-    log_file: str
+    run_dir: str
     values_to_json: Callable[[Env.Bindings[Value.Base]], Dict]
     workflow: Tree.Workflow
     inputs: Env.Bindings[Value.Base]
@@ -117,20 +117,21 @@ class StateMachine:
     finished: Set[str]
     running: Set[str]
     waiting: Set[str]
+    filenames_created: Set[str]
     # TODO: factor out WorkflowState interface?
 
     def __init__(
         self,
         run_id: str,
+        run_dir: str,
         workflow: Tree.Workflow,
         inputs: Env.Bindings[Value.Base],
-        log_file: str = "",
     ) -> None:
         """
         Initialize the workflow state machine from the workflow AST and inputs
         """
         self.run_id = run_id
-        self.log_file = log_file
+        self.run_dir = run_dir
         self.workflow = workflow
         self.inputs = inputs
         self.jobs = {}
@@ -138,6 +139,7 @@ class StateMachine:
         self.finished = set()
         self.running = set()
         self.waiting = set()
+        self.filenames_created = set()
 
         from .. import values_to_json
 
@@ -245,8 +247,12 @@ class StateMachine:
             self.waiting.remove(job.id)
 
             # do the job
+            stdlib = StdLib.Base(write_dir=os.path.join(self.run_dir, "write_"), filename_whitelist=self.filename_whitelist)
             try:
-                res = self._do_job(job)
+                res = self._do_job(job, stdlib)
+                for fn in stdlib.filenames_created:
+                    self.filenames_created.add(fn)
+                    self.logger.debug("wrote %s", fn)
             except Exception as exn:
                 setattr(exn, "job_id", job.id)
                 raise exn
@@ -283,7 +289,7 @@ class StateMachine:
         self.waiting.add(job.id)
 
     def _do_job(
-        self, job: _Job
+        self, job: _Job, stdlib: StdLib.Base
     ) -> "Union[StateMachine.CallInstructions, Env.Bindings[Value.Base]]":
         if isinstance(job.node, Tree.Gather):
             return _gather(
@@ -297,7 +303,6 @@ class StateMachine:
             scatter_vars = Env.Bindings(p[1], scatter_vars)
         # pyre-ignore
         env = Env.merge(scatter_vars, *(self.job_outputs[dep] for dep in job.dependencies))
-        stdlib = StdLib.Base()
         envlog = json.dumps(self.values_to_json(env))
         self.logger.debug("env %s <- %s", job.id, envlog if len(envlog) < 4096 else "(large)")
 
@@ -340,6 +345,8 @@ class StateMachine:
             call_inputs = call_inputs.map(
                 lambda b: Env.Binding(b.name, b.value.coerce(callee_inputs[b.name].type))
             )
+            for fn in stdlib.filenames_created:
+                self.filenames_created.add(fn)
             _check_call_input_files(self, job.node.name, env, call_inputs)
             # issue CallInstructions
             self.logger.notice("issue %s on %s", job.id, job.node.callee.name)  # pyre-fixme
@@ -356,8 +363,8 @@ class StateMachine:
     def logger(self) -> logging.Logger:
         if not self._logger:
             self._logger = logging.getLogger("wdl-worfklow:" + self.run_id)
-            if self.log_file:
-                fh = logging.FileHandler(self.log_file)
+            if self.run_dir:
+                fh = logging.FileHandler(os.path.join(self.run_dir, "workflow.log"))
                 fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
                 self._logger.addHandler(fh)
             install_coloredlogs(self._logger)
@@ -368,6 +375,13 @@ class StateMachine:
         del ans["_logger"]  # for Python pre-3.7 loggers: https://bugs.python.org/issue30520
         return ans
 
+    @property
+    def filename_whitelist(self) -> Iterable[str]:
+        yield from _host_filenames(self.inputs)
+        for job in self.finished:
+            if isinstance(self.jobs[job].node, Tree.Call):
+                yield from _host_filenames(self.job_outputs[job])
+        yield from self.filenames_created
 
 def _scatter(
     workflow: Tree.Workflow,
@@ -546,13 +560,9 @@ def _check_call_input_files(
     nor newly generated.
     """
 
-    allowed_filenames = _host_filenames(self.inputs)
-    for job in self.finished:
-        if isinstance(self.jobs[job].node, Tree.Call):
-            allowed_filenames |= _host_filenames(self.job_outputs[job])
-
-    disallowed_filenames = _host_filenames(inputs) - allowed_filenames
+    disallowed_filenames = _host_filenames(inputs) - set(self.filename_whitelist)
     if disallowed_filenames:
+        self.logger.debug("allowed filenames: %s", ":".join(list(self.filename_whitelist)))
         raise InputError(
             f"call {call_name} inputs use unknown file(s): {', '.join(list(disallowed_filenames)[:10])}"
         )
@@ -594,7 +604,7 @@ def run_local_workflow(
     )
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
-    state = StateMachine(run_id, workflow, posix_inputs, os.path.join(run_dir, "workflow.log"))
+    state = StateMachine(run_id, run_dir, workflow, posix_inputs)
 
     try:
         while state.outputs is None:

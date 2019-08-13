@@ -677,8 +677,8 @@ class TestWorkflowRunner(unittest.TestCase):
             }
             Array[String] your_passwords = read_lines("/etc/passwd")
         }
-        """, expected_exception=WDL.Error.InputError)
-        self.assertTrue("inputs use unknown file" in str(exn))
+        """, expected_exception=WDL.Error.EvalError)
+        self.assertTrue("attempted read from" in str(exn))
 
         outputs = self._test_workflow("""
             version 1.0
@@ -690,7 +690,7 @@ class TestWorkflowRunner(unittest.TestCase):
                 scatter (w in read_lines(whofile)) {
                     call say_hello {
                         input:
-                            who = w
+                            who = write_lines([w])
                     }
                 }
                 output {
@@ -709,6 +709,6 @@ class TestWorkflowRunner(unittest.TestCase):
                     String message = read_string(stdout())
                 }
             }
-        """)
+        """, {"who": ["Alyssa", "Ben"]})
         self.assertEqual(outputs["messages"], ["Hello, Alyssa!", "Hello, Ben!"])
         self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
