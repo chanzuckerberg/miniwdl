@@ -515,7 +515,6 @@ def _eval_task_outputs(
 
 
 class _StdLib(StdLib.Base):
-    # implements the various task-specific standard library functions
     container: TaskContainer
     inputs_only: bool  # if True then only permit access to input files
 
@@ -525,9 +524,11 @@ class _StdLib(StdLib.Base):
         self.inputs_only = inputs_only
 
     def _devirtualize_filename(self, filename: str) -> str:
+        # check allowability of reading this file, & map from in-container to host
         return self.container.host_file(filename, inputs_only=self.inputs_only)
 
     def _virtualize_filename(self, filename: str) -> str:
+        # register new file with container input_file_map
         self.container.add_files([filename])
         return self.container.input_file_map[filename]
 
@@ -580,9 +581,3 @@ class OutputStdLib(_StdLib):
             return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
 
         self._override_static("glob", _glob)
-
-    def _devirtualize_filename(self, filename: str) -> str:
-        # permit reading any file in the working directory
-        if (not os.path.isabs(filename)) or filename.startswith(self.container.container_dir + "/"):
-            return self.container.host_file(filename)
-        return super()._devirtualize_filename(filename)

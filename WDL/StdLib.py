@@ -21,7 +21,7 @@ class Base:
     output sections.
     """
 
-    _write_dir: str
+    _write_dir: str  # directory in which write_* functions create
 
     def __init__(self, write_dir: str = ""):
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()
@@ -148,6 +148,8 @@ class Base:
         self.transpose = _Transpose()
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
+        "generate read_* function implementation based on parse"
+
         def f(file: Value.File) -> Value.Base:
             with open(self._devirtualize_filename(file.value), "r") as infile:
                 return parse(infile.read())
@@ -155,11 +157,17 @@ class Base:
         return f
 
     def _devirtualize_filename(self, filename: str) -> str:
+        """
+        'devirtualize' filename passed to a read_* function: return a filename that can be open()ed
+        on the local host
+        """
         return filename
 
     def _write(
         self, serialize: Callable[[Value.Base, BinaryIO], None]
     ) -> Callable[[Value.Base], Value.File]:
+        "generate write_* function implementation based on serialize"
+
         def _f(v: Value.Base,) -> Value.File:
             os.makedirs(self._write_dir, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=self._write_dir, delete=False) as outfile:
@@ -172,12 +180,11 @@ class Base:
         return _f
 
     def _virtualize_filename(self, filename: str) -> str:
+        """
+        from a local path in write_dir, 'virtualize' into the filename as it should present in a
+        File value
+        """
         return filename
-
-    def _override(self, name: str, fn: "Function") -> None:
-        # replace a Function
-        assert isinstance(getattr(self, name), Function)
-        setattr(self, name, fn)
 
     def _override_static(self, name: str, f: Callable) -> None:
         # replace the implementation lambda of a StaticFunction (keeping its
@@ -185,16 +192,6 @@ class Base:
         sf = getattr(self, name)
         assert isinstance(sf, StaticFunction)
         setattr(sf, "F", f)
-
-    @contextmanager
-    def _context_override(self, name: str, fn: "Function"):
-        # replace a Function only for the life of the contextmanager.
-        orig = getattr(self, name)
-        self._override(name, fn)
-        try:
-            yield self
-        finally:
-            self._override(name, orig)
 
 
 class Function(ABC):

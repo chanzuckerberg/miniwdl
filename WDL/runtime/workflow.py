@@ -524,6 +524,7 @@ def _gather(
 
 
 class _StdLib(StdLib.Base):
+    "checks against & updates the filename whitelist for the read_* and write_* functions"
     state: StateMachine
 
     def __init__(self, state: StateMachine) -> None:
