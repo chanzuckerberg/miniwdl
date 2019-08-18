@@ -117,15 +117,11 @@ class StateMachine:
     finished: Set[str]
     running: Set[str]
     waiting: Set[str]
-    filenames_created: Set[str]
+    filename_whitelist: Set[str]
     # TODO: factor out WorkflowState interface?
 
     def __init__(
-        self,
-        run_id: str,
-        run_dir: str,
-        workflow: Tree.Workflow,
-        inputs: Env.Bindings[Value.Base],
+        self, run_id: str, run_dir: str, workflow: Tree.Workflow, inputs: Env.Bindings[Value.Base]
     ) -> None:
         """
         Initialize the workflow state machine from the workflow AST and inputs
@@ -139,7 +135,7 @@ class StateMachine:
         self.finished = set()
         self.running = set()
         self.waiting = set()
-        self.filenames_created = set()
+        self.filename_whitelist = _filenames(inputs)
 
         from .. import values_to_json
 
@@ -247,12 +243,9 @@ class StateMachine:
             self.waiting.remove(job.id)
 
             # do the job
-            stdlib = StdLib.Base(write_dir=os.path.join(self.run_dir, "write_"), filename_whitelist=self.filename_whitelist)
+            stdlib = _StdLib(self)
             try:
                 res = self._do_job(job, stdlib)
-                for fn in stdlib.filenames_created:
-                    self.filenames_created.add(fn)
-                    self.logger.debug("wrote %s", fn)
             except Exception as exn:
                 setattr(exn, "job_id", job.id)
                 raise exn
@@ -279,6 +272,7 @@ class StateMachine:
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
         self.job_outputs[job_id] = outputs.wrap_namespace(call_node.name)
+        self.filename_whitelist |= _filenames(outputs)
         self.finished.add(job_id)
         self.running.remove(job_id)
 
@@ -345,9 +339,12 @@ class StateMachine:
             call_inputs = call_inputs.map(
                 lambda b: Env.Binding(b.name, b.value.coerce(callee_inputs[b.name].type))
             )
-            for fn in stdlib.filenames_created:
-                self.filenames_created.add(fn)
-            _check_call_input_files(self, job.node.name, env, call_inputs)
+            # check input files against whitelist
+            disallowed_filenames = _filenames(call_inputs) - self.filename_whitelist
+            if disallowed_filenames:
+                raise InputError(
+                    f"call {job.node.name} inputs use unknown file: {next(iter(disallowed_filenames))}"
+                )
             # issue CallInstructions
             self.logger.notice("issue %s on %s", job.id, job.node.callee.name)  # pyre-fixme
             inplog = json.dumps(self.values_to_json(call_inputs))
@@ -375,13 +372,6 @@ class StateMachine:
         del ans["_logger"]  # for Python pre-3.7 loggers: https://bugs.python.org/issue30520
         return ans
 
-    @property
-    def filename_whitelist(self) -> Iterable[str]:
-        yield from _host_filenames(self.inputs)
-        for job in self.finished:
-            if isinstance(self.jobs[job].node, Tree.Call):
-                yield from _host_filenames(self.job_outputs[job])
-        yield from self.filenames_created
 
 def _scatter(
     workflow: Tree.Workflow,
@@ -533,7 +523,24 @@ def _gather(
     return ans
 
 
-def _host_filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
+class _StdLib(StdLib.Base):
+    state: StateMachine
+
+    def __init__(self, state: StateMachine) -> None:
+        super().__init__(write_dir=os.path.join(state.run_dir, "write_"))
+        self.state = state
+
+    def _devirtualize_filename(self, filename: str) -> str:
+        if filename in self.state.filename_whitelist:
+            return filename
+        raise InputError("attempted read from unknown or inaccessible file " + filename)
+
+    def _virtualize_filename(self, filename: str) -> str:
+        self.state.filename_whitelist.add(filename)
+        return filename
+
+
+def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
     "Get the host filenames of all File values in the environment"
     ans = set()
 
@@ -546,26 +553,6 @@ def _host_filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
     for b in env:
         collector(b.value)
     return ans
-
-
-def _check_call_input_files(
-    self: StateMachine,
-    call_name: str,
-    env: Env.Bindings[Value.Base],
-    inputs: Env.Bindings[Value.Base],
-) -> None:
-    """
-    Security check that all input Files in a call's inputs are either in the workflow inputs
-    or a previous call's outputs; impedes access to arbitrary host files not supplied as inputs
-    nor newly generated.
-    """
-
-    disallowed_filenames = _host_filenames(inputs) - set(self.filename_whitelist)
-    if disallowed_filenames:
-        self.logger.debug("allowed filenames: %s", ":".join(list(self.filename_whitelist)))
-        raise InputError(
-            f"call {call_name} inputs use unknown file(s): {', '.join(list(disallowed_filenames)[:10])}"
-        )
 
 
 def run_local_workflow(

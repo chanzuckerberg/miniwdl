@@ -2,6 +2,7 @@
 import math
 import os
 import re
+import json
 import tempfile
 from typing import List, Tuple, Callable, Set, Iterable, Optional, BinaryIO
 from abc import ABC, abstractmethod
@@ -21,13 +22,9 @@ class Base:
     """
 
     _write_dir: str
-    _filename_whitelist: Set[str]
-    _filenames_created: Set[str]
 
-    def __init__(self, write_dir: str = "", filename_whitelist: Optional[Iterable[str]] = None):
+    def __init__(self, write_dir: str = ""):
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()
-        self._filename_whitelist = set(filename_whitelist) if filename_whitelist else set()
-        self._filenames_created = set()
 
         # language built-ins
         self._at = _At()
@@ -64,22 +61,77 @@ class Base:
                 Type.Boolean(),
                 lambda v: Value.Boolean(not isinstance(v, Value.Null)),
             ),
+            (
+                "write_lines",
+                [Type.Array(Type.String())],
+                Type.File(),
+                self._write(_serialize_lines),
+            ),
+            (
+                "write_tsv",
+                [Type.Array(Type.Array(Type.String()))],
+                Type.File(),
+                self._write(
+                    lambda v, outfile: _serialize_lines(
+                        Value.Array(
+                            Type.String(),
+                            [
+                                Value.String(
+                                    "\t".join(
+                                        [part.coerce(Type.String()).value for part in parts.value]
+                                    )
+                                )
+                                for parts in v.value
+                            ],
+                        ),
+                        outfile,
+                    )
+                ),
+            ),
+            (
+                "write_map",
+                [Type.Map((Type.Any(), Type.Any()))],
+                Type.File(),
+                self._write(_serialize_map),
+            ),
+            (
+                "write_json",
+                [Type.Any()],
+                Type.File(),
+                self._write(lambda v, outfile: outfile.write(json.dumps(v.json).encode("utf-8"))),
+            ),
+            ("read_int", [Type.File()], Type.Int(), self._read(lambda s: Value.Int(int(s)))),
+            ("read_boolean", [Type.File()], Type.Boolean(), self._read(_parse_boolean)),
+            (
+                "read_string",
+                [Type.File()],
+                Type.String(),
+                self._read(lambda s: Value.String(s[:-1] if s.endswith("\n") else s)),
+            ),
+            (
+                "read_float",
+                [Type.File()],
+                Type.Float(),
+                self._read(lambda s: Value.Float(float(s))),
+            ),
+            (
+                "read_map",
+                [Type.File()],
+                Type.Map((Type.String(), Type.String())),
+                self._read(_parse_map),
+            ),
+            ("read_lines", [Type.File()], Type.Array(Type.String()), self._read(_parse_lines)),
+            (
+                "read_tsv",
+                [Type.File()],
+                Type.Array(Type.Array(Type.String())),
+                self._read(_parse_tsv),
+            ),
+            ("read_json", [Type.File()], Type.Any(), self._read(_parse_json)),
             # context-dependent:
-            ("write_lines", [Type.Array(Type.String())], Type.File(), self._write(_serialize_lines)),
-            ("write_tsv", [Type.Array(Type.Array(Type.String()))], Type.File(), _notimpl),
-            ("write_map", [Type.Map((Type.Any(), Type.Any()))], Type.File(), _notimpl),
-            ("write_json", [Type.Any()], Type.File(), _notimpl),
             ("stdout", [], Type.File(), _notimpl),
             ("stderr", [], Type.File(), _notimpl),
             ("glob", [Type.String()], Type.Array(Type.File()), _notimpl),
-            ("read_int", [Type.File()], Type.Int(), _notimpl),
-            ("read_boolean", [Type.File()], Type.Boolean(), _notimpl),
-            ("read_string", [Type.File()], Type.String(), _notimpl),
-            ("read_float", [Type.File()], Type.Float(), _notimpl),
-            ("read_map", [Type.File()], Type.Map((Type.String(), Type.String())), _notimpl),
-            ("read_lines", [Type.File()], Type.Array(Type.String()), self._read(_parse_lines)),
-            ("read_tsv", [Type.File()], Type.Array(Type.Array(Type.String())), _notimpl),
-            ("read_json", [Type.File()], Type.Any(), _notimpl),
         ]:
             setattr(self, name, StaticFunction(name, argument_types, return_type, F))
 
@@ -87,7 +139,7 @@ class Base:
         # infer_type logic
         self.range = _Range()
         self.prefix = _Prefix()
-        self.size = _Size()
+        self.size = _Size(self)
         self.select_first = _SelectFirst()
         self.select_all = _SelectAll()
         self.zip = _Zip()
@@ -95,35 +147,32 @@ class Base:
         self.flatten = _Flatten()
         self.transpose = _Transpose()
 
-    def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[str], Value.Base]:
+    def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         def f(file: Value.File) -> Value.Base:
-            if file.value not in self._filename_whitelist and file.value not in self._filenames_created:
-                raise Error.InputError("attempted read from unknown or inaccessible file " + file.value)
-            with open(file.value, "r") as infile:
+            with open(self._devirtualize_filename(file.value), "r") as infile:
                 return parse(infile.read())
+
         return f
 
-    def _write(self,
-            serialize: Callable[[Value.Base, BinaryIO], None]
-        ) -> Callable[[Value.Base], Value.File]:
-        def _f(
-            v: Value.Base,
-        ) -> Value.File:
+    def _devirtualize_filename(self, filename: str) -> str:
+        return filename
+
+    def _write(
+        self, serialize: Callable[[Value.Base, BinaryIO], None]
+    ) -> Callable[[Value.Base], Value.File]:
+        def _f(v: Value.Base,) -> Value.File:
             os.makedirs(self._write_dir, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                dir=self._write_dir, delete=False
-            ) as outfile:
+            with tempfile.NamedTemporaryFile(dir=self._write_dir, delete=False) as outfile:
                 outfile: BinaryIO = outfile  # pyre-ignore
                 serialize(v, outfile)
                 filename = outfile.name
-            self._filenames_created.add(filename)
-            return Value.File(filename)
+            vfn = self._virtualize_filename(filename)
+            return Value.File(vfn)
 
         return _f
 
-    @property
-    def filenames_created(self) -> Iterable[str]:
-        yield from self._filenames_created
+    def _virtualize_filename(self, filename: str) -> str:
+        return filename
 
     def _override(self, name: str, fn: "Function") -> None:
         # replace a Function
@@ -233,6 +282,88 @@ class StaticFunction(EagerFunction):
 
 def _notimpl(*args, **kwargs) -> None:
     exec("raise NotImplementedError('function not available in this context')")
+
+
+def _parse_lines(s: str) -> Value.Array:
+    ans = []
+    if s:
+        ans = [Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")]
+    return Value.Array(Type.String(), ans)
+
+
+def _parse_boolean(s: str) -> Value.Boolean:
+    s = s.rstrip()
+    if s == "true":
+        return Value.Boolean(True)
+    if s == "false":
+        return Value.Boolean(False)
+    raise Error.InputError('read_boolean(): file content is not "true" or "false"')
+
+
+def _parse_tsv(s: str) -> Value.Array:
+    # TODO: should a blank line parse as [] or ['']?
+    ans = [
+        Value.Array(
+            Type.Array(Type.String()), [Value.String(field) for field in line.value.split("\t")]
+        )
+        for line in _parse_lines(s).value
+    ]
+    # pyre-ignore
+    return Value.Array(Type.Array(Type.String()), ans)
+
+
+def _parse_map(s: str) -> Value.Map:
+    keys = set()
+    ans = []
+    for line in _parse_tsv(s).value:
+        assert isinstance(line, Value.Array)
+        if len(line.value) != 2:
+            raise Error.InputError("read_map(): each line must have two fields")
+        if line.value[0].value in keys:
+            raise Error.InputError("read_map(): duplicate key")
+        keys.add(line.value[0].value)
+        ans.append((line.value[0], line.value[1]))
+    return Value.Map((Type.String(), Type.String()), ans)
+
+
+def _parse_json(s: str) -> Value.Base:
+    # TODO: parse int/float/boolean inside map or list as such
+    j = json.loads(s)
+    if isinstance(j, dict):
+        ans = []
+        for k in j:
+            ans.append((Value.String(str(k)), Value.String(str(j[k]))))
+        return Value.Map((Type.String(), Type.String()), ans)
+    if isinstance(j, list):
+        return Value.Array(Type.String(), [Value.String(str(v)) for v in j])
+    if isinstance(j, bool):
+        return Value.Boolean(j)
+    if isinstance(j, int):
+        return Value.Int(j)
+    if isinstance(j, float):
+        return Value.Float(j)
+    if j is None:
+        return Value.Null()
+    raise Error.InputError("parse_json()")
+
+
+def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
+    for item in array.value:
+        outfile.write(item.coerce(Type.String()).value.encode("utf-8"))
+        outfile.write(b"\n")
+
+
+def _serialize_map(map: Value.Map, outfile: BinaryIO) -> None:
+    lines = []
+    for (k, v) in map.value:
+        k = k.coerce(Type.String()).value
+        v = v.coerce(Type.String()).value
+        if "\n" in k or "\t" in k or "\n" in v or "\t" in v:
+            raise ValueError(
+                "write_map(): keys & values must not contain tab or newline characters"
+            )
+        lines.append(Value.String(k + "\t" + v))
+    _serialize_lines(Value.Array(Type.String(), lines), outfile)
 
 
 def _basename(*args) -> Value.String:
@@ -491,6 +622,10 @@ class _ComparisonOperator(EagerFunction):
 
 class _Size(EagerFunction):
     # size(): first argument can be File? or Array[File?]
+    stdlib: Base
+
+    def __init__(self, stdlib: Base) -> None:
+        self.stdlib = stdlib
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if not expr.arguments:
@@ -518,7 +653,10 @@ class _Size(EagerFunction):
         files = arguments[0].coerce(Type.Array(Type.File()))
         unit = arguments[1].coerce(Type.String()) if len(arguments) > 1 else None
 
-        ans = sum(float(os.path.getsize(fn.value)) for fn in files.value)
+        ans = []
+        for file in files.value:
+            ans.append(os.path.getsize(self.stdlib._devirtualize_filename(file.value)))
+        ans = float(sum(ans))
 
         if unit:
             try:
@@ -769,16 +907,3 @@ class _Prefix(EagerFunction):
             Type.String(),
             [Value.String(pfx + s.coerce(Type.String()).value) for s in arguments[1].value],
         )
-
-def _parse_lines(s: str) -> Value.Array:
-    ans = []
-    if s:
-        ans = [
-            Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")
-        ]
-    return Value.Array(Type.String(), ans)
-
-def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
-    for item in array.value:
-        outfile.write(item.coerce(Type.String()).value.encode("utf-8"))
-        outfile.write(b"\n")

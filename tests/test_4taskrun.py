@@ -363,6 +363,26 @@ class TestTaskRunner(unittest.TestCase):
         }
         """, expected_exception=WDL.runtime.OutputError)
 
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            input {
+                Array[String] who
+            }
+            File who_file = write_lines(who)
+            Array[String] who0 = read_lines(who_file)
+            command {
+                echo ~{who_file}
+            }
+            output {
+                Array[String] who1 = who0
+                Array[String] who2 = read_lines(read_string(stdout()))
+            }
+        }
+        """, {"who": ["Alyssa", "Ben"]})
+        self.assertEqual(outputs["who1"], ["Alyssa", "Ben"])
+        self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
+
     def test_command_failure(self):
         self._test_task(R"""
         version 1.0
@@ -464,13 +484,13 @@ class TestTaskRunner(unittest.TestCase):
         }
         """
         outputs = self._test_task(code, {"s0": "alyssa"})
-        self.assertEqual(outputs["out"], "alyssa\nben\nNone\n")
+        self.assertEqual(outputs["out"], "alyssa\nben\nNone")
 
         outputs = self._test_task(code, {"s0": "alyssa", "s1": "cy"})
-        self.assertEqual(outputs["out"], "alyssa\ncy\nNone\n")
+        self.assertEqual(outputs["out"], "alyssa\ncy\nNone")
 
         outputs = self._test_task(code, {"s0": "alyssa", "s2": "mallory"})
-        self.assertEqual(outputs["out"], "alyssa\nben\nmallory\n")
+        self.assertEqual(outputs["out"], "alyssa\nben\nmallory")
 
         # FIXME: need some restrictions on what File inputs can default to
         self._test_task(R"""

@@ -646,7 +646,7 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, inputs={"box": { "str": [os.path.join(self._dir, "allowed.txt")] }})
-        self.assertEqual(outputs["tweets"], ["yo", "Hello, world!\n"])
+        self.assertEqual(outputs["tweets"], ["yo", "Hello, world!"])
 
     def test_stdlib_io(self):
         with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
