@@ -243,9 +243,8 @@ class StateMachine:
             self.waiting.remove(job.id)
 
             # do the job
-            stdlib = _StdLib(self)
             try:
-                res = self._do_job(job, stdlib)
+                res = self._do_job(job)
             except Exception as exn:
                 setattr(exn, "job_id", job.id)
                 raise exn
@@ -283,7 +282,7 @@ class StateMachine:
         self.waiting.add(job.id)
 
     def _do_job(
-        self, job: _Job, stdlib: StdLib.Base
+        self, job: _Job
     ) -> "Union[StateMachine.CallInstructions, Env.Bindings[Value.Base]]":
         if isinstance(job.node, Tree.Gather):
             return _gather(
@@ -299,6 +298,8 @@ class StateMachine:
         env = Env.merge(scatter_vars, *(self.job_outputs[dep] for dep in job.dependencies))
         envlog = json.dumps(self.values_to_json(env))
         self.logger.debug("env %s <- %s", job.id, envlog if len(envlog) < 4096 else "(large)")
+
+        stdlib = _StdLib(self)
 
         if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
             for newjob in _scatter(self.workflow, job.node, env, job.scatter_stack, stdlib):
