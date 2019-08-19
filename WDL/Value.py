@@ -116,10 +116,15 @@ class String(Base):
         ""
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
             return File(self.value)
-        if isinstance(desired_type, Type.Int):
-            return Int(int(self.value))
-        if isinstance(desired_type, Type.Float):
-            return Float(float(self.value))
+        try:
+            if isinstance(desired_type, Type.Int):
+                return Int(int(self.value))
+            if isinstance(desired_type, Type.Float):
+                return Float(float(self.value))
+        except ValueError as exn:
+            if self.expr:
+                raise Error.EvalError(self.expr, "coercing String to number: " + str(exn)) from exn
+            raise
         return super().coerce(desired_type)
 
 
