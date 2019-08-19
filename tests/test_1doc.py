@@ -111,6 +111,21 @@ class TestTasks(unittest.TestCase):
                 }
             }
             """)[0].typecheck()
+        with self.assertRaises(WDL.Error.MultipleValidationErrors):
+            WDL.parse_tasks("""
+            task wc {
+                input {
+                    String in
+                    File out = stdout()
+                    Array[File] files = glob("*.txt")
+                }
+                command {
+                    echo "~{in}" | wc
+                }
+                output {
+                }
+            }
+            """)[0].typecheck()
 
     def test_placeholders(self):
         task = WDL.parse_tasks("""

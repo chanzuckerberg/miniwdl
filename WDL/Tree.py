@@ -395,7 +395,10 @@ class Task(SourceNode):
             errors.maybe_raise()
             # Typecheck the output expressions
             for decl in self.outputs:
-                errors.try1(lambda: decl.typecheck(type_env, check_quant=check_quant))
+                stdlib = StdLib.TaskOutputs()
+                errors.try1(
+                    lambda: decl.typecheck(type_env, stdlib=stdlib, check_quant=check_quant)
+                )
 
         # check for cyclic dependencies among decls
         _detect_cycles(

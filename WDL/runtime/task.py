@@ -543,16 +543,24 @@ class OutputStdLib(_StdLib):
     def __init__(self, container: TaskContainer) -> None:
         super().__init__(container, False)
 
-        self._override_static(
+        setattr(
+            self,
             "stdout",
-            lambda container_dir=self.container.container_dir: Value.File(
-                os.path.join(container_dir, "stdout.txt")
+            StdLib.StaticFunction(
+                "stdout",
+                [],
+                Type.File(),
+                lambda: Value.File(os.path.join(self.container.container_dir, "stdout.txt")),
             ),
         )
-        self._override_static(
+        setattr(
+            self,
             "stderr",
-            lambda container_dir=self.container.container_dir: Value.File(
-                os.path.join(container_dir, "stderr.txt")
+            StdLib.StaticFunction(
+                "stderr",
+                [],
+                Type.File(),
+                lambda: Value.File(os.path.join(self.container.container_dir, "stderr.txt")),
             ),
         )
 
@@ -579,4 +587,8 @@ class OutputStdLib(_StdLib):
                 container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip) :]))
             return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
 
-        self._override_static("glob", _glob)
+        setattr(
+            self,
+            "glob",
+            StdLib.StaticFunction("glob", [Type.String()], Type.Array(Type.File()), _glob),
+        )

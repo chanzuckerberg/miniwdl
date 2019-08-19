@@ -127,10 +127,6 @@ class Base:
                 self._read(_parse_tsv),
             ),
             ("read_json", [Type.File()], Type.Any(), self._read(_parse_json)),
-            # context-dependent:
-            ("stdout", [], Type.File(), _notimpl),
-            ("stderr", [], Type.File(), _notimpl),
-            ("glob", [Type.String()], Type.Array(Type.File()), _notimpl),
         ]:
             setattr(self, name, StaticFunction(name, argument_types, return_type, F))
 
@@ -279,6 +275,17 @@ class StaticFunction(EagerFunction):
 
 def _notimpl(*args, **kwargs) -> None:
     exec("raise NotImplementedError('function not available in this context')")
+
+
+class TaskOutputs(Base):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        for (name, argument_types, return_type, F) in [
+            ("stdout", [], Type.File(), _notimpl),
+            ("stderr", [], Type.File(), _notimpl),
+            ("glob", [Type.String()], Type.Array(Type.File()), _notimpl),
+        ]:
+            setattr(self, name, StaticFunction(name, argument_types, return_type, F))
 
 
 def _parse_lines(s: str) -> Value.Array:
