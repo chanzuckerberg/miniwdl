@@ -519,7 +519,7 @@ class _StdLib(StdLib.Base):
     inputs_only: bool  # if True then only permit access to input files
 
     def __init__(self, container: TaskContainer, inputs_only: bool) -> None:
-        super().__init__(write_dir=os.path.join(container.host_dir, "write"))
+        super().__init__(write_dir=os.path.join(container.host_dir, "write_"))
         self.container = container
         self.inputs_only = inputs_only
 

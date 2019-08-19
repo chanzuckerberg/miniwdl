@@ -139,7 +139,7 @@ class GATK_five_dollar(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
-    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 20, 'FileCoercion': 1, 'UnknownRuntimeKey': 1}
+    expected_lint={'UnusedDeclaration': 3, 'StringCoercion': 20, 'FileCoercion': 3, 'UnknownRuntimeKey': 1}
 )
 class gatk4_germline_snps_indels(unittest.TestCase):
     pass
@@ -154,7 +154,7 @@ class gatk4_somatic_snvs_indels(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/gatk-workflows/gatk4-cnn-variant-filter/**"],
-    expected_lint={'UnusedDeclaration': 21, 'OptionalCoercion': 23, 'StringCoercion': 4, 'FileCoercion': 2, 'UnusedCall': 1},
+    expected_lint={'UnusedDeclaration': 21, 'OptionalCoercion': 23, 'StringCoercion': 4, 'FileCoercion': 8, 'UnusedCall': 1},
     check_quant=False,
 )
 class gatk4_cnn_variant_filter(unittest.TestCase):

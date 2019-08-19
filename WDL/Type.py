@@ -26,7 +26,7 @@ coerced to some other desired type, according to the following rules:
 
 1. ``Int`` coerces to ``Float``
 2. ``Boolean``, ``Int``, ``Float``, and ``File`` coerce to ``String``
-3. ``String`` coerces to ``File``
+3. ``String`` coerces to ``File``, ``Int``, and ``Float``
 4. ``Array[T]`` coerces to ``String`` provided ``T`` does as well
 5. ``T`` coerces to ``T?`` but the reverse is not true in general*
 6. ``Array[T]+`` coerces to ``Array[T]`` but the reverse is not true in general*
@@ -171,7 +171,7 @@ class String(Base):
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
-        if isinstance(rhs, File):
+        if isinstance(rhs, (File, Int, Float)):
             return self._check_optional(rhs, check_quant)
         return super().coerces(rhs, check_quant)
 

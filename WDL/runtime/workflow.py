@@ -543,7 +543,7 @@ class _StdLib(StdLib.Base):
 
 
 def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
-    "Get the host filenames of all File values in the environment"
+    "Get the filenames of all File values in the environment"
     ans = set()
 
     def collector(v: Value.Base) -> None:

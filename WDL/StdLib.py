@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from . import Type, Value, Expr, Env, Error
 
 
-class Base:
+class Base(ABC):
     """
     Base class for standard library implementations. An instance has an
     attribute with the name of each available function and a ``Function``
@@ -159,7 +159,8 @@ class Base:
     def _devirtualize_filename(self, filename: str) -> str:
         """
         'devirtualize' filename passed to a read_* function: return a filename that can be open()ed
-        on the local host
+        on the local host. Subclasses may further wish to forbid access to files outside of a
+        designated directory or whitelist (by raising an exception)
         """
         return filename
 

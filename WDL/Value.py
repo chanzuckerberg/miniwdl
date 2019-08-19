@@ -116,6 +116,10 @@ class String(Base):
         ""
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
             return File(self.value)
+        if isinstance(desired_type, Type.Int):
+            return int(self.value)
+        if isinstance(desired_type, Type.Float):
+            return float(self.value)
         return super().coerce(desired_type)
 
 

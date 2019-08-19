@@ -1234,7 +1234,7 @@ class TestDoc(unittest.TestCase):
         doc = r"""
         version 1.0
         task bogus1 {
-            Int x = "42"
+            Int x = false
             command {
             }
         }
@@ -1248,7 +1248,7 @@ class TestDoc(unittest.TestCase):
             >>>
             output {
                 Int z = read_int(stdout())
-                Int w = 17 + "42"
+                Int w = 17 + false
             }
         }
         """
@@ -1262,7 +1262,7 @@ class TestDoc(unittest.TestCase):
         doc = r"""
         version 1.0
         workflow bogus {
-            Int x = "42"
+            Int x = false
             call sum { input:
                 not_there = 21
             }
@@ -2067,7 +2067,7 @@ class TestStruct(unittest.TestCase):
         workflow wf {
             Person alyssa = object { name: "alyssa" }
             Person ben = object { name: "ben", age: 42, bogus: 3.14}
-            Person cy = object { name: "ben", age: "42",}
+            Person cy = object { name: "ben", age: false,}
             Int i = object {}
         }
 
