@@ -4,9 +4,8 @@ import os
 import re
 import json
 import tempfile
-from typing import List, Tuple, Callable, Set, Iterable, Optional, BinaryIO
+from typing import List, Tuple, Callable, BinaryIO
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
 from . import Type, Value, Expr, Env, Error
 
 

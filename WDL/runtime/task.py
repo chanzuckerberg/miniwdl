@@ -5,14 +5,13 @@ Local task runner
 import sys
 import logging
 import os
-import tempfile
 import json
 import copy
 import traceback
 import glob
 import signal
 from abc import ABC, abstractmethod
-from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
+from typing import Tuple, List, Dict, Optional
 from types import FrameType
 
 from pygtail import Pygtail
