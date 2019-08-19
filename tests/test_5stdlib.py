@@ -413,7 +413,7 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
-        self.assertEqual(outputs["s"], "foobar\nfoobar42\n\n\n\n\n\n")
+        self.assertEqual(outputs["s"], "foobar\nfoobar42\n\n\n\n\n")
 
     def test_read(self):
         with open(os.path.join(self._dir, "strings.txt"), "w") as outfile:
@@ -452,9 +452,9 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, {"strings": os.path.join(self._dir, "strings.txt")})
-        self.assertEqual(outputs["i_strings_string"], "foo\nbar\nbas\n")
-        self.assertEqual(outputs["o_strings_string"], "foo\nbar\nbas\n")
-        self.assertEqual(outputs["o_names_string"], "Alyssa\nBen\n")
+        self.assertEqual(outputs["i_strings_string"], "foo\nbar\nbas")
+        self.assertEqual(outputs["o_strings_string"], "foo\nbar\nbas")
+        self.assertEqual(outputs["o_names_string"], "Alyssa\nBen")
         self.assertEqual(outputs["i_strings_lines"], ["foo", "bar", "bas"])
         self.assertEqual(outputs["o_strings_lines"], ["foo", "bar", "bas"])
         self.assertEqual(outputs["o_names_lines"], ["Alyssa", "Ben"])

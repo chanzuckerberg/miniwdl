@@ -246,8 +246,8 @@ class Placeholder(Base):
         # override the + operator with the within-interpolation version which accepts String?
         # operands and produces a String? result
         stdlib = stdlib or StdLib.Base()
-        with stdlib._context_override("_add", StdLib.InterpolationAddOperator()):
-            return super().infer_type(type_env, stdlib, check_quant)
+        setattr(stdlib, "_add", StdLib.InterpolationAddOperator())
+        return super().infer_type(type_env, stdlib, check_quant)
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if isinstance(self.expr.type, Type.Array):
@@ -291,8 +291,8 @@ class Placeholder(Base):
         # override the + operator with the within-interpolation version which evaluates to None
         # if either operand is None
         stdlib = stdlib or StdLib.Base()
-        with stdlib._context_override("_add", StdLib.InterpolationAddOperator()):
-            v = self.expr.eval(env, stdlib)
+        setattr(stdlib, "_add", StdLib.InterpolationAddOperator())
+        v = self.expr.eval(env, stdlib)
         if isinstance(v, Value.Null):
             if "default" in self.options:
                 return Value.String(self.options["default"])

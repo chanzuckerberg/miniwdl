@@ -5,14 +5,13 @@ Local task runner
 import sys
 import logging
 import os
-import tempfile
 import json
 import copy
 import traceback
 import glob
 import signal
 from abc import ABC, abstractmethod
-from typing import Tuple, List, Dict, Optional, Callable, BinaryIO
+from typing import Tuple, List, Dict, Optional
 from types import FrameType
 
 from pygtail import Pygtail
@@ -515,173 +514,22 @@ def _eval_task_outputs(
 
 
 class _StdLib(StdLib.Base):
-    # implements the various task-specific standard library functions
     container: TaskContainer
     inputs_only: bool  # if True then only permit access to input files
 
     def __init__(self, container: TaskContainer, inputs_only: bool) -> None:
-        super().__init__()
+        super().__init__(write_dir=os.path.join(container.host_dir, "write_"))
         self.container = container
         self.inputs_only = inputs_only
 
-        self._override("size", _Size(self))
+    def _devirtualize_filename(self, filename: str) -> str:
+        # check allowability of reading this file, & map from in-container to host
+        return self.container.host_file(filename, inputs_only=self.inputs_only)
 
-        def _read_something(
-            parse: Callable[[str], Value.Base], lib: _StdLib = self
-        ) -> Callable[[Value.File], Value.Base]:
-            def _f(
-                container_file: Value.File,
-                parse: Callable[[str], Value.Base] = parse,
-                lib: _StdLib = lib,
-            ) -> Value.Base:
-                host_file = lib.container.host_file(container_file.value, lib.inputs_only)
-                with open(host_file, "r") as infile:
-                    return parse(infile.read())
-
-            return _f
-
-        self._override_static("read_string", _read_something(Value.String))
-        self._override_static("read_int", _read_something(lambda s: Value.Int(int(s))))
-        self._override_static("read_float", _read_something(lambda s: Value.Float(float(s))))
-
-        def _parse_boolean(s: str) -> Value.Boolean:
-            s = s.rstrip()
-            if s == "true":
-                return Value.Boolean(True)
-            if s == "false":
-                return Value.Boolean(False)
-            raise Error.InputError('read_boolean(): file content is not "true" or "false"')
-
-        self._override_static("read_boolean", _read_something(_parse_boolean))
-
-        def parse_lines(s: str) -> Value.Array:
-            ans = []
-            if s:
-                ans = [
-                    Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")
-                ]
-            return Value.Array(Type.String(), ans)
-
-        self._override_static("read_lines", _read_something(parse_lines))
-
-        def parse_tsv(s: str) -> Value.Array:
-            # TODO: should a blank line parse as [] or ['']?
-            ans = [
-                Value.Array(
-                    Type.Array(Type.String()),
-                    [Value.String(field) for field in line.value.split("\t")],
-                )
-                for line in parse_lines(s).value
-            ]
-            # pyre-ignore
-            return Value.Array(Type.Array(Type.String()), ans)
-
-        self._override_static("read_tsv", _read_something(parse_tsv))
-
-        def parse_map(s: str) -> Value.Map:
-            keys = set()
-            ans = []
-            for line in parse_tsv(s).value:
-                assert isinstance(line, Value.Array)
-                if len(line.value) != 2:
-                    raise Error.InputError("read_map(): each line must have two fields")
-                if line.value[0].value in keys:
-                    raise Error.InputError("read_map(): duplicate key")
-                keys.add(line.value[0].value)
-                ans.append((line.value[0], line.value[1]))
-            return Value.Map((Type.String(), Type.String()), ans)
-
-        self._override_static("read_map", _read_something(parse_map))
-
-        def parse_json(s: str) -> Value.Base:
-            # TODO: parse int/float/boolean inside map or list as such
-            j = json.loads(s)
-            if isinstance(j, dict):
-                ans = []
-                for k in j:
-                    ans.append((Value.String(str(k)), Value.String(str(j[k]))))
-                return Value.Map((Type.String(), Type.String()), ans)
-            if isinstance(j, list):
-                return Value.Array(Type.String(), [Value.String(str(v)) for v in j])
-            if isinstance(j, bool):
-                return Value.Boolean(j)
-            if isinstance(j, int):
-                return Value.Int(j)
-            if isinstance(j, float):
-                return Value.Float(j)
-            if j is None:
-                return Value.Null()
-            raise Error.InputError("parse_json()")
-
-        self._override_static("read_json", _read_something(parse_json))
-
-        def _write_something(
-            serialize: Callable[[Value.Base, BinaryIO], None], lib: _StdLib = self
-        ) -> Callable[[Value.Base], Value.File]:
-            def _f(
-                v: Value.Base,
-                serialize: Callable[[Value.Base, BinaryIO], None] = serialize,
-                lib: _StdLib = lib,
-            ) -> Value.File:
-                host_fn = None
-                os.makedirs(os.path.join(lib.container.host_dir, "write"), exist_ok=True)
-                with tempfile.NamedTemporaryFile(
-                    dir=os.path.join(lib.container.host_dir, "write"), delete=False
-                ) as outfile:
-                    outfile: BinaryIO = outfile  # pyre-ignore
-                    serialize(v, outfile)
-                    host_fn = outfile.name
-                assert os.path.isabs(host_fn)
-                lib.container.add_files([host_fn])
-                return Value.File(lib.container.input_file_map[host_fn])
-
-            return _f
-
-        def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
-            for item in array.value:
-                outfile.write(item.coerce(Type.String()).value.encode("utf-8"))
-                outfile.write(b"\n")
-
-        self._override_static("write_lines", _write_something(_serialize_lines))  # pyre-ignore
-
-        self._override_static(
-            "write_json",
-            _write_something(lambda v, outfile: outfile.write(json.dumps(v.json).encode("utf-8"))),
-        )
-
-        self._override_static(
-            "write_tsv",
-            _write_something(
-                lambda v, outfile: _serialize_lines(
-                    Value.Array(
-                        Type.String(),
-                        [
-                            Value.String(
-                                "\t".join(
-                                    [part.coerce(Type.String()).value for part in parts.value]
-                                )
-                            )
-                            for parts in v.value
-                        ],
-                    ),
-                    outfile,
-                )
-            ),
-        )
-
-        def _serialize_map(map: Value.Map, outfile: BinaryIO) -> None:
-            lines = []
-            for (k, v) in map.value:
-                k = k.coerce(Type.String()).value
-                v = v.coerce(Type.String()).value
-                if "\n" in k or "\t" in k or "\n" in v or "\t" in v:
-                    raise ValueError(
-                        "write_map(): keys & values must not contain tab or newline characters"
-                    )
-                lines.append(Value.String(k + "\t" + v))
-            _serialize_lines(Value.Array(Type.String(), lines), outfile)
-
-        self._override_static("write_map", _write_something(_serialize_map))  # pyre-ignore
+    def _virtualize_filename(self, filename: str) -> str:
+        # register new file with container input_file_map
+        self.container.add_files([filename])
+        return self.container.input_file_map[filename]
 
 
 class InputStdLib(_StdLib):
@@ -732,23 +580,3 @@ class OutputStdLib(_StdLib):
             return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
 
         self._override_static("glob", _glob)
-
-
-class _Size(StdLib._Size):
-    # overrides StdLib._Size() to perform translation of in-container to host paths
-
-    lib: _StdLib
-
-    def __init__(self, lib: _StdLib) -> None:
-        super().__init__()
-        self.lib = lib
-
-    def _call_eager(self, expr: Expr.Apply, arguments: List[Value.Base]) -> Value.Base:
-        files = arguments[0].coerce(Type.Array(Type.File()))
-        host_files = [
-            Value.File(self.lib.container.host_file(fn_c.value, inputs_only=self.lib.inputs_only))
-            for fn_c in files.value
-        ]
-        # pyre-ignore
-        arguments = [Value.Array(files.type.item_type, host_files)] + arguments[1:]
-        return super()._call_eager(expr, arguments)

@@ -180,6 +180,7 @@ class TestEval(unittest.TestCase):
             ('"foo" + "bar"', '"foobar"'),
             ('"foo" + 1', '"foo1"'),
             ('2.0 + "bar"', '"2.0bar"'),
+            ('17 + "42"', '"1742"'),
             (""" 'foo' + "bar" """, '"foobar"'),
             ('"{"', '"{"', WDL.Type.String()),
             ('"$" + "$"', '"$$"', WDL.Type.String()))
@@ -324,7 +325,8 @@ class TestEval(unittest.TestCase):
     def test_map(self):
         self._test_tuples(
             ("{'foo': 1, 'bar': 2}['bar']", "2"),
-            ("{0: 1, 2: 3}['foo']", "", WDL.Error.StaticTypeMismatch),
+            ("{0: 1, 2: 3}[false]", "", WDL.Error.StaticTypeMismatch),
+            ("{0: 1, 2: 3}['foo']", "", WDL.Error.EvalError),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
             ("{3: 1, false: 2}", "", WDL.Error.StaticTypeMismatch),
             ("{'foo': true, 'bar': 0,}", "", WDL.Error.StaticTypeMismatch)
