@@ -531,7 +531,7 @@ class TestTaskRunner(unittest.TestCase):
             output {
                 Car car = object {
                     model: "Mazda",
-                    year: 2017
+                    year: "2017"
                 }
                 Car car2 = {
                     "model": "Toyota"

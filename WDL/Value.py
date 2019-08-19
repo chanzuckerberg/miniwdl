@@ -117,9 +117,9 @@ class String(Base):
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
             return File(self.value)
         if isinstance(desired_type, Type.Int):
-            return int(self.value)
+            return Int(int(self.value))
         if isinstance(desired_type, Type.Float):
-            return float(self.value)
+            return Float(float(self.value))
         return super().coerce(desired_type)
 
 
@@ -285,9 +285,13 @@ class Struct(Base):
         super().__init__(type, value)
         self.value = dict(value)
         if isinstance(type, Type.StructInstance):
+            assert type.members
+            # coerce values to member types
+            for k in self.value:
+                assert k in type.members
+                self.value[k] = self.value[k].coerce(type.members[k])
             # if initializer (map or object literal) omits optional members,
             # fill them in with null
-            assert type.members
             for k in type.members:
                 if k not in self.value:
                     assert type.members[k].optional
