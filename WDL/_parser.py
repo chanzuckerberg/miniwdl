@@ -418,7 +418,9 @@ class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 raise Error.InvalidType(self._sp(meta), "Array must have one type parameter")
             if quantifiers - set(["optional", "nonempty"]):
                 raise Error.ValidationError(self._sp(meta), "invalid type quantifier(s) for Array")
-            return Type.Array(param, "optional" in quantifiers, "nonempty" in quantifiers)
+            ans = Type.Array(param, "optional" in quantifiers, "nonempty" in quantifiers)
+            ans.pos = self._sp(meta)
+            return ans
         if "nonempty" in quantifiers:
             raise Error.InvalidType(
                 self._sp(meta), "invalid type quantifier(s) for " + items[0].value
@@ -436,22 +438,30 @@ class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 raise Error.InvalidType(
                     self._sp(meta), items[0] + " type doesn't accept parameters"
                 )
-            return atomic_types[items[0].value]("optional" in quantifiers)
+            ans = atomic_types[items[0].value]("optional" in quantifiers)
+            ans.pos = self._sp(meta)
+            return ans
 
         if items[0].value == "Map":
             if not (param and param2):
                 raise Error.InvalidType(self._sp(meta), "Map must have two type parameters")
-            return Type.Map((param, param2), "optional" in quantifiers)
+            ans = Type.Map((param, param2), "optional" in quantifiers)
+            ans.pos = self._sp(meta)
+            return ans
 
         if items[0].value == "Pair":
             if not (param and param2):
                 raise Error.InvalidType(self._sp(meta), "Pair must have two type parameters")
-            return Type.Pair(param, param2, "optional" in quantifiers)
+            ans = Type.Pair(param, param2, "optional" in quantifiers)
+            ans.pos = self._sp(meta)
+            return ans
 
         if param or param2:
             raise Error.InvalidType(self._sp(meta), "Unexpected type parameter(s)")
 
-        return Type.StructInstance(items[0].value, "optional" in quantifiers)
+        ans = Type.StructInstance(items[0].value, "optional" in quantifiers)
+        ans.pos = self._sp(meta)
+        return ans
 
 
 def _check_keyword(pos, name):

@@ -38,9 +38,9 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
 .. inheritance-diagram:: WDL.Type
    :top-classes: WDL.Type.Base
 """
+import copy
 from abc import ABC
 from typing import Optional, Tuple, Dict, Iterable, Set
-import copy
 
 
 class Base(ABC):
@@ -55,6 +55,10 @@ class Base(ABC):
     """
 
     _optional: bool = False  # immutable!!!
+
+    # pos is set on Type objects instantiated by the WDL syntax parser (mainly in Decl). Other Type
+    # objects are instantiated in other ways (e.g. Value describing itself), so will not have pos.
+    pos: "Optional[WDL.Error.SourcePosition]" = None
 
     def coerces(self, rhs: "Base", check_quant: bool = True) -> bool:
         """
