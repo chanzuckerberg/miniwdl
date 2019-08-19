@@ -325,6 +325,7 @@ class TestEval(unittest.TestCase):
     def test_map(self):
         self._test_tuples(
             ("{'foo': 1, 'bar': 2}['bar']", "2"),
+            ("{0: 1, 2: 3}[false]", "", WDL.Error.StaticTypeMismatch),
             ("{0: 1, 2: 3}['foo']", "", WDL.Error.EvalError),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
             ("{3: 1, false: 2}", "", WDL.Error.StaticTypeMismatch),

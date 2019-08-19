@@ -513,7 +513,7 @@ class TestTaskRunner(unittest.TestCase):
             input {
                 Map[String,Pair[Array[String],Float]] x = {
                     1: ([2,3],4),
-                    5: ([6,7],8)
+                    5: ([6,7],"8")
                 }
             }
             command {}

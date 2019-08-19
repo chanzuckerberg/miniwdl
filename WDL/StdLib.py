@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from . import Type, Value, Expr, Env, Error
 
 
-class Base(ABC):
+class Base:
     """
     Base class for standard library implementations. An instance has an
     attribute with the name of each available function and a ``Function``
@@ -162,7 +162,7 @@ class Base(ABC):
         on the local host. Subclasses may further wish to forbid access to files outside of a
         designated directory or whitelist (by raising an exception)
         """
-        return filename
+        raise NotImplementedError()
 
     def _write(
         self, serialize: Callable[[Value.Base, BinaryIO], None]
@@ -185,7 +185,7 @@ class Base(ABC):
         from a local path in write_dir, 'virtualize' into the filename as it should present in a
         File value
         """
-        return filename
+        raise NotImplementedError()
 
     def _override_static(self, name: str, f: Callable) -> None:
         # replace the implementation lambda of a StaticFunction (keeping its
