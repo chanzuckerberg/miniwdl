@@ -696,12 +696,14 @@ def run_self_test(**kwargs):
                 input {
                     File who
                 }
-                call hello {
-                    input:
-                        who = who
+                scatter (name in read_lines(who)) {
+                    call hello {
+                        input:
+                            who = write_lines([name])
+                    }
                 }
                 output {
-                    File message = hello.message
+                    Array[File] messages = hello.message
                 }
             }
             task hello {
@@ -710,6 +712,7 @@ def run_self_test(**kwargs):
                 }
                 command {
                     echo -n "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                    sleep 2
                 }
                 output {
                     File message = glob("message.*")[0]
@@ -717,21 +720,25 @@ def run_self_test(**kwargs):
             }
             """
         )
-    with open(os.path.join(dn, "alyssa.txt"), "w") as outfile:
-        outfile.write("Alyssa P. Hacker")
+    with open(os.path.join(dn, "who.txt"), "w") as outfile:
+        outfile.write("Alyssa P. Hacker\n")
+        outfile.write("Ben Bitdiddle\n")
 
     check(uri=[os.path.join(dn, "test.wdl")])
 
     run_args = dict(kwargs)
     run_args["uri"] = os.path.join(dn, "test.wdl")
-    run_args["inputs"] = ["who=" + os.path.join(dn, "alyssa.txt")]
+    run_args["inputs"] = ["who=" + os.path.join(dn, "who.txt")]
     run_args["rundir"] = dn
     run_args["verbose"] = True
     run_args["debug"] = True
     outputs = runner(**run_args)
 
-    with open(outputs["hello_caller.message"], "r") as infile:
+    assert len(outputs["hello_caller.messages"]) == 2
+    with open(outputs["hello_caller.messages"][0], "r") as infile:
         assert infile.read() == "Hello, Alyssa P. Hacker!"
+    with open(outputs["hello_caller.messages"][1], "r") as infile:
+        assert infile.read() == "Hello, Ben Bitdiddle!"
 
     print("miniwdl run_self_test OK")
 
