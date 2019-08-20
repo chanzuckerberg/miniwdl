@@ -1,13 +1,16 @@
 # pyre-strict
 # misc utility functions...
 
+import sys
 import os
 import json
 import logging
 from time import sleep
 from datetime import datetime
-from typing import Tuple, Dict, Set, Iterable, List, TypeVar, Generic, Optional
+from contextlib import contextmanager
+from typing import Tuple, Dict, Set, Iterable, Iterator, List, TypeVar, Generic, Optional, Callable
 import coloredlogs
+from pygtail import Pygtail
 
 __all__: List[str] = []
 
@@ -218,3 +221,36 @@ def install_coloredlogs(logger: logging.Logger) -> None:
         level_styles=level_styles,
         fmt=LOGGING_FORMAT,
     )
+
+
+@contextmanager
+def PygtailLogger(
+    logger: logging.Logger, filename: str, prefix: str = "2| "
+) -> Iterator[Callable[[], None]]:
+    """
+    Helper for streaming task stderr into logger using pygtail. Context manager yielding a function
+    which reads the latest lines from the file and writes them into logger at verbose level. This
+    function also runs automatically on context exit.
+    """
+    pygtail = Pygtail(filename, full_lines=True)
+    pygtail_ok = True
+
+    def poll() -> None:
+        nonlocal pygtail_ok
+        if pygtail_ok:
+            try:
+                for line in pygtail:
+                    logger.verbose(prefix + line.rstrip())  # pyre-ignore
+            except:
+                pygtail_ok = False
+                # cf. https://github.com/bgreenlee/pygtail/issues/48
+                logger.verbose(  # pyre-ignore
+                    "incomplete log stream due to the following exception; see %s",
+                    filename,
+                    exc_info=sys.exc_info(),
+                )
+
+    try:
+        yield poll
+    finally:
+        poll()

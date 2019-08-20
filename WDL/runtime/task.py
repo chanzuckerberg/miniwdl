@@ -2,7 +2,6 @@
 """
 Local task runner
 """
-import sys
 import logging
 import os
 import json
@@ -14,11 +13,10 @@ from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional
 from types import FrameType
 
-from pygtail import Pygtail
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
-from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT
+from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, PygtailLogger
 from .error import *
 
 
@@ -96,9 +94,10 @@ class TaskContainer(ABC):
     def run(self, logger: logging.Logger, command: str) -> None:
         """
         1. Container is instantiated
-        2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to {container_dir} inside the container)
+        2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
+           {container_dir} inside the container)
         3. Standard output is written to ``{host_dir}/stdout.txt``
-        4. Standard error is written to ``{host_dir}/stderr.txt`` and logged at INFO level
+        4. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
         5. Raises CommandFailure for nonzero exit code, or any other error
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
@@ -230,93 +229,61 @@ class TaskDockerContainer(TaskContainer):
         # connect to dockerd
         client = docker.from_env()
         try:
-            container = None
+            # run container
+            logger.info("docker starting image {}".format(self.image_tag))
+            container = client.containers.run(
+                self.image_tag,
+                command=[
+                    "/bin/bash",
+                    "-c",
+                    "/bin/bash ../command >> ../stdout.txt 2>> ../stderr.txt",
+                ],
+                detach=True,
+                auto_remove=True,
+                working_dir=os.path.join(self.container_dir, "work"),
+                volumes=volumes,
+            )
+            logger.debug("docker container name = {}, id = {}".format(container.name, container.id))
+
             exit_info = None
-            stderr_file = os.path.join(self.host_dir, "stderr.txt")
-            pygtail = Pygtail(stderr_file, full_lines=True)
-            pygtail_exn = False
-            try:
-                # run container
-                logger.info("docker starting image {}".format(self.image_tag))
-                container = client.containers.run(
-                    self.image_tag,
-                    command=[
-                        "/bin/bash",
-                        "-c",
-                        "/bin/bash ../command >> ../stdout.txt 2>> ../stderr.txt",
-                    ],
-                    detach=True,
-                    auto_remove=True,
-                    working_dir=os.path.join(self.container_dir, "work"),
-                    volumes=volumes,
-                )
-                logger.debug(
-                    "docker container name = {}, id = {}".format(container.name, container.id)
-                )
-                # long-poll for container exit
-                while exit_info is None:
-                    try:
-                        exit_info = container.wait(timeout=1)
-                    except Exception as exn:
-                        if self._terminate:
-                            raise Terminated() from None
-                        # workaround for docker-py not throwing the exception class
-                        # it's supposed to
-                        s_exn = str(exn)
-                        if "timed out" not in s_exn and "Timeout" not in s_exn:
-                            raise
-                    # stream stderr into log
-                    if not pygtail_exn:
+            # stream stderr into log
+            with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
+                try:
+                    # long-poll for container exit
+                    while exit_info is None:
                         try:
-                            for line in pygtail:
-                                logger.verbose(f"2| {line.rstrip()}")
-                        except:
-                            pygtail_exn = True
-                            # cf. https://github.com/bgreenlee/pygtail/issues/48
-                            logger.info(
-                                "task standard error log is incomplete due to the following exception; see %s",
-                                stderr_file,
-                                exc_info=sys.exc_info(),
-                            )
-                logger.info("container exit info = " + str(exit_info))
-            except:
-                # make sure to stop & clean up the container if we're stopping due
-                # to SIGTERM or something. Most other cases should be handled by
-                # auto_remove.
-                if container:
+                            exit_info = container.wait(timeout=1)
+                        except Exception as exn:
+                            if self._terminate:
+                                raise Terminated() from None
+                            # workaround for docker-py not throwing the exception class
+                            # it's supposed to
+                            s_exn = str(exn)
+                            if "timed out" not in s_exn and "Timeout" not in s_exn:
+                                raise
+                        poll_stderr()
+                    logger.info("container exit info = " + str(exit_info))
+                except:
+                    # make sure to stop & clean up the container if we're stopping due
+                    # to SIGTERM or something. Most other cases should be handled by
+                    # auto_remove.
                     try:
                         container.remove(force=True)
                         logger.info("force-removed docker container")
                     except Exception as exn:
                         logger.exception("failed to remove docker container")
-                raise
+                    raise
 
             # retrieve and check container exit status
-            assert exit_info
-            if "StatusCode" not in exit_info:
-                raise CommandFailure(
-                    (-sys.maxsize - 1),
-                    os.path.join(self.host_dir, "stderr.txt"),
-                    "docker finished without reporting exit status in: " + str(exit_info),
-                )
+            assert (
+                exit_info and "StatusCode" in exit_info and isinstance(exit_info["StatusCode"], int)
+            )
             return exit_info["StatusCode"]
         finally:
             try:
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
-            # log the final stderr lines
-            if not pygtail_exn:
-                try:
-                    for line in Pygtail(stderr_file, full_lines=False):
-                        logger.verbose(f"2| {line.rstrip()}")
-                except:
-                    # cf. https://github.com/bgreenlee/pygtail/issues/48
-                    logger.info(
-                        "task standard error log is incomplete due to the following exception; see %s",
-                        stderr_file,
-                        exc_info=sys.exc_info(),
-                    )
 
 
 def run_local_task(
