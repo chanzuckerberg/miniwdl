@@ -7,7 +7,7 @@
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
-*miniwdl* provides WDL developer productivity tools, a local runtime implementation, and a foundation for language experimentation. See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap. This project in alpha development, and interfaces are still liable to change somewhat.
+*miniwdl* provides WDL developer productivity tools, a local runner, and a foundation for language experimentation. See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap.
 
 <!-- TOC generator tool: https://magnetikonline.github.io/markdown-toc-generate/ -->
 - [Installation](#installation)
