@@ -1,7 +1,7 @@
 # Packages needed for miniwdl to run in common use. Additional packages needed
 # for miniwdl development are listed in requirements.dev.txt.
 setuptools
-lark-parser==0.7.1
+lark-parser==0.7.3
 docker>=3.4.0
 argcomplete
 pygtail>=0.11.0
