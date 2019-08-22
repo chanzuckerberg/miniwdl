@@ -23,7 +23,7 @@ from ._util import (
     VERBOSE_LEVEL,
     NOTICE_LEVEL,
     install_coloredlogs,
-    ensure_swarm
+    ensure_swarm,
 )
 
 quant_warning = False

@@ -93,7 +93,7 @@ class TestTaskRunner(unittest.TestCase):
                 docker: "nonexistent:202407"
             }
         }
-        """, expected_exception=docker.errors.ImageNotFound)
+        """, expected_exception=RuntimeError)
 
     @log_capture()
     def test_logging_std_err(self, capture):

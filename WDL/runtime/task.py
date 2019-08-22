@@ -17,7 +17,13 @@ from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
-from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, PygtailLogger, ensure_swarm
+from .._util import (
+    write_values_json,
+    provision_run_dir,
+    LOGGING_FORMAT,
+    PygtailLogger,
+    ensure_swarm,
+)
 from .error import *
 
 
@@ -212,11 +218,17 @@ class TaskDockerContainer(TaskContainer):
         # mount input files and command read-only
         for host_path, container_path in self.input_file_map.items():
             mounts.append(f"{host_path}:{container_path}:ro")
-        mounts.append(f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro")
+        mounts.append(
+            f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
+        )
         # mount stdout, stderr, and working directory read/write
         for pipe_file in pipe_files:
-            mounts.append(f"{os.path.join(self.host_dir, pipe_file)}:{os.path.join(self.container_dir, pipe_file)}:rw")
-        mounts.append(f"{os.path.join(self.host_dir, 'work')}:{os.path.join(self.container_dir, 'work')}:rw")
+            mounts.append(
+                f"{os.path.join(self.host_dir, pipe_file)}:{os.path.join(self.container_dir, pipe_file)}:rw"
+            )
+        mounts.append(
+            f"{os.path.join(self.host_dir, 'work')}:{os.path.join(self.container_dir, 'work')}:rw"
+        )
         logger.debug("docker mounts: " + str(mounts))
 
         # connect to dockerd
@@ -239,10 +251,10 @@ class TaskDockerContainer(TaskContainer):
                 resources=docker.types.Resources(
                     # cpu_limit throttles container to desired # of cpus.
                     # the unit expected by swarm is "NanoCPUs"
-                    cpu_limit=cpu*1_000_000_000,
+                    cpu_limit=cpu * 1_000_000_000,
                     # cpu_reservation makes swarm delay starting the container until the desired # of
                     # cpus are available (considering other running services)
-                    cpu_reservation=cpu*1_000_000_000,
+                    cpu_reservation=cpu * 1_000_000_000,
                 ),
             )
             logger.debug("docker service name = {}, id = {}".format(svc.name, svc.short_id))
@@ -250,27 +262,28 @@ class TaskDockerContainer(TaskContainer):
             exit_code = None
             # stream stderr into log
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
-                try:
-                    # poll for container exit
-                    while exit_code is None:
-                        time.sleep(1)
-                        if self._terminate:
-                            raise Terminated() from None
-                        svc.reload()
-                        tasks = svc.tasks()
-                        logger.debug("docker task status = " + str(tasks))
-                        assert len(tasks) == 1
-                        state = tasks[0]["Status"]["State"]
-                        if state in ["complete", "failed"]:
-                            exit_code = tasks[0]["Status"]["ContainerStatus"]["ExitCode"]
-                            assert isinstance(exit_code, int)
-                        # TODO: handle state 'rejected'
-                        poll_stderr()
-                    logger.info("container exit code = " + str(exit_code))
-                except:
+                # poll for container exit
+                while exit_code is None:
+                    poll_stderr()
+                    time.sleep(1)
                     if self._terminate:
                         raise Terminated() from None
-                    raise
+
+                    svc.reload()
+                    tasks = svc.tasks()
+                    assert len(tasks) == 1
+                    status = tasks[0]["Status"]
+                    logger.debug("docker task status = " + str(status))
+                    state = status["State"]
+                    if state in ["complete", "failed"]:
+                        exit_code = status["ContainerStatus"]["ExitCode"]
+                        assert isinstance(exit_code, int)
+                    elif state in ["rejected", "orphaned", "remove", "shutdown"]:
+                        raise RuntimeError(
+                            f"docker task {state}"
+                            + ((": " + status["Err"]) if "Err" in status else "")
+                        )
+                logger.info("container exit code = " + str(exit_code))
 
             # retrieve and check container exit status
             assert isinstance(exit_code, int)
