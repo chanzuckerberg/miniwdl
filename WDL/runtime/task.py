@@ -8,18 +8,22 @@ import json
 import copy
 import traceback
 import glob
-import signal
 import time
 import math
 import multiprocessing
 from abc import ABC, abstractmethod
-from typing import Tuple, List, Dict, Optional
-from types import FrameType
+from typing import Tuple, List, Dict, Optional, Callable
 
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
-from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, PygtailLogger
+from .._util import (
+    write_values_json,
+    provision_run_dir,
+    LOGGING_FORMAT,
+    PygtailLogger,
+    TerminationSignalFlag,
+)
 from .error import *
 
 
@@ -56,7 +60,6 @@ class TaskContainer(ABC):
     """
 
     _running: bool
-    _terminate: bool
 
     def __init__(self, run_id: str, host_dir: str) -> None:
         self.run_id = run_id
@@ -64,7 +67,6 @@ class TaskContainer(ABC):
         self.container_dir = "/mnt/miniwdl_task_container"
         self.input_file_map = {}
         self._running = False
-        self._terminate = False
 
     def add_files(self, host_files: List[str]) -> None:
         """
@@ -105,42 +107,28 @@ class TaskContainer(ABC):
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
-        # container-specific logic should be in _run(). this wrapper traps SIGTERM/SIGHUP
-        # and sets self._terminate
+        # container-specific logic should be in _run(). this wrapper traps signals
 
-        assert not (self._running or self._terminate)
+        assert not self._running
         if command.strip():  # if the command is empty then don't bother with any of this
-            signals = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGPIPE, signal.SIGALRM]
+            with TerminationSignalFlag(logger) as terminating:
 
-            def handle_signal(
-                signal: int,
-                frame: FrameType,
-                self: TaskContainer = self,
-                logger: logging.Logger = logger,
-            ) -> None:
-                logger.critical("received termination signal {}".format(signal))
-                self._terminate = True
+                self._running = True
+                try:
+                    os.makedirs(os.path.join(self.host_dir, "work"))
+                    exit_status = self._run(logger, terminating, command, cpu)
+                finally:
+                    self._running = False
 
-            restore_signal_handlers = dict(
-                (sig, signal.signal(sig, handle_signal)) for sig in signals
-            )
-
-            self._running = True
-            try:
-                os.makedirs(os.path.join(self.host_dir, "work"))
-                exit_status = self._run(logger, command, cpu)
-            finally:
-                self._running = False
-                for sig, handler in restore_signal_handlers.items():
-                    signal.signal(sig, handler)
-
-            if self._terminate:
-                raise Terminated()
-            if exit_status != 0:
-                raise CommandFailure(exit_status, os.path.join(self.host_dir, "stderr.txt"))
+                if terminating():
+                    raise Terminated()
+                if exit_status != 0:
+                    raise CommandFailure(exit_status, os.path.join(self.host_dir, "stderr.txt"))
 
     @abstractmethod
-    def _run(self, logger: logging.Logger, command: str, cpu: int) -> int:
+    def _run(
+        self, logger: logging.Logger, terminating: Callable[[], bool], command: str, cpu: int
+    ) -> int:
         # run command in container & return exit status
         raise NotImplementedError()
 
@@ -202,7 +190,9 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    def _run(self, logger: logging.Logger, command: str, cpu: int) -> int:
+    def _run(
+        self, logger: logging.Logger, terminating: Callable[[], bool], command: str, cpu: int
+    ) -> int:
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
         pipe_files = ["stdout.txt", "stderr.txt"]
@@ -262,7 +252,7 @@ class TaskDockerContainer(TaskContainer):
                     poll_stderr()
                     # poll frequently in the first few seconds (QoS for short-running tasks)
                     time.sleep(1.05 - math.exp(i / -10.0))
-                    if self._terminate:
+                    if terminating():
                         raise Terminated() from None
                     exit_code = self.poll_service(logger, svc)
                     i += 1

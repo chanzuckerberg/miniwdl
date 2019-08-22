@@ -5,10 +5,13 @@ import sys
 import os
 import json
 import logging
+import signal
+import threading
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager
 from typing import Tuple, Dict, Set, Iterable, Iterator, List, TypeVar, Generic, Optional, Callable
+from types import FrameType
 import coloredlogs
 from pygtail import Pygtail
 import docker
@@ -224,6 +227,7 @@ def install_coloredlogs(logger: logging.Logger) -> None:
     )
 
 
+@export
 @contextmanager
 def PygtailLogger(
     logger: logging.Logger, filename: str, prefix: str = "2| "
@@ -257,6 +261,7 @@ def PygtailLogger(
         poll()
 
 
+@export
 def ensure_swarm(logger: logging.Logger) -> None:
     client = docker.from_env()
     try:
@@ -274,3 +279,42 @@ def ensure_swarm(logger: logging.Logger) -> None:
             )
     finally:
         client.close()
+
+
+_terminating: Optional[bool] = None
+_terminating_lock: threading.Lock = threading.Lock()
+
+
+@export
+@contextmanager
+def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]]:
+    """
+    Context manager which installs a handler for termination signals (SIGTERM, SIGINT, SIGHUP,
+    SIGPIPE) that sets an internal flag. Yields a function indicating whether such signal has been
+    received. Multiple concurrent handler contexts can be opened without interfering with each
+    other, so long as one wraps all the others.
+    """
+    signals = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGPIPE, signal.SIGALRM]
+
+    def handle_signal(signal: int, frame: FrameType) -> None:
+        global _terminating
+        _terminating = True
+        logger.critical("received termination signal {}".format(signal))
+
+    global _terminating
+    global _terminating_lock
+    restore_signal_handlers = None
+    with _terminating_lock:
+        if _terminating is None:
+            restore_signal_handlers = dict(
+                (sig, signal.signal(sig, handle_signal)) for sig in signals
+            )
+            _terminating = False
+    try:
+        yield lambda: _terminating
+    finally:
+        if restore_signal_handlers:
+            with _terminating_lock:
+                for sig, handler in restore_signal_handlers.items():
+                    signal.signal(sig, handler)
+                _terminating = None

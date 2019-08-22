@@ -373,24 +373,14 @@ def runner(
             runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
         )
         rundir, output_env = entrypoint(target, input_env, run_dir=rundir)
-    except Error.EvalError as exn:
-        logger.error(
-            "({} Ln {} Col {}) {}{}".format(
-                exn.pos.uri,
-                exn.pos.line,
-                exn.pos.column,
-                exn.__class__.__name__,
-                (", " + str(exn) if str(exn) else ""),
-            )
-        )
-        sys.exit(2)
-    except runtime.task.TaskFailure as exn:
-        exn = exn.__cause__ or exn
+    except Exception as exn:
+        if isinstance(exn, runtime.task.TaskFailure):
+            exn = exn.__cause__ or exn
         if isinstance(exn, runtime.task.CommandFailure) and not (
             kwargs["verbose"] or kwargs["debug"]
         ):
             logger.error("run with --verbose for standard error logging")
-            logger.error("command's standard error in %s", getattr(exn, "stderr_file"))
+            logger.error("see task's standard error in %s", getattr(exn, "stderr_file"))
         if isinstance(getattr(exn, "pos", None), SourcePosition):
             pos = getattr(exn, "pos")
             logger.error(
@@ -403,7 +393,9 @@ def runner(
                 )
             )
         else:
-            logger.error(f"{exn.__class__.__name__}, {str(exn)}")
+            logger.error(f"{exn.__class__.__name__}{(', ' + str(exn) if str(exn) else '')}")
+        if kwargs["debug"]:
+            raise
         sys.exit(2)
 
     # link output files
