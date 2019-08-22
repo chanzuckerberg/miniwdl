@@ -9,6 +9,9 @@ import copy
 import traceback
 import glob
 import signal
+import time
+import math
+import multiprocessing
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional
 from types import FrameType
@@ -91,7 +94,7 @@ class TaskContainer(ABC):
                     self.container_dir, "inputs", dn, os.path.basename(host_file)
                 )
 
-    def run(self, logger: logging.Logger, command: str) -> None:
+    def run(self, logger: logging.Logger, command: str, cpu: int) -> None:
         """
         1. Container is instantiated
         2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
@@ -124,7 +127,8 @@ class TaskContainer(ABC):
 
             self._running = True
             try:
-                exit_status = self._run(logger, command)
+                os.makedirs(os.path.join(self.host_dir, "work"))
+                exit_status = self._run(logger, command, cpu)
             finally:
                 self._running = False
                 for sig, handler in restore_signal_handlers.items():
@@ -136,7 +140,7 @@ class TaskContainer(ABC):
                 raise CommandFailure(exit_status, os.path.join(self.host_dir, "stderr.txt"))
 
     @abstractmethod
-    def _run(self, logger: logging.Logger, command: str) -> int:
+    def _run(self, logger: logging.Logger, command: str, cpu: int) -> int:
         # run command in container & return exit status
         raise NotImplementedError()
 
@@ -188,7 +192,7 @@ class TaskContainer(ABC):
 
 class TaskDockerContainer(TaskContainer):
     """
-    TaskContainer docker runtime
+    TaskContainer docker (swarm) runtime
     """
 
     image_tag: str = "ubuntu:18.04"
@@ -198,7 +202,7 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    def _run(self, logger: logging.Logger, command: str) -> int:
+    def _run(self, logger: logging.Logger, command: str, cpu: int) -> int:
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
         pipe_files = ["stdout.txt", "stderr.txt"]
@@ -206,84 +210,110 @@ class TaskDockerContainer(TaskContainer):
             with open(os.path.join(self.host_dir, touch_file), "x") as outfile:
                 pass
 
-        volumes = {}
+        mounts = []
         # mount input files and command read-only
         for host_path, container_path in self.input_file_map.items():
-            volumes[host_path] = {"bind": container_path, "mode": "ro"}
-        volumes[os.path.join(self.host_dir, "command")] = {
-            "bind": os.path.join(self.container_dir, "command"),
-            "mode": "ro",
-        }
+            mounts.append(f"{host_path}:{container_path}:ro")
+        mounts.append(
+            f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
+        )
         # mount stdout, stderr, and working directory read/write
         for pipe_file in pipe_files:
-            volumes[os.path.join(self.host_dir, pipe_file)] = {
-                "bind": os.path.join(self.container_dir, pipe_file),
-                "mode": "rw",
-            }
-        volumes[os.path.join(self.host_dir, "work")] = {
-            "bind": os.path.join(self.container_dir, "work"),
-            "mode": "rw",
-        }
-        logger.debug("docker volume map: " + str(volumes))
+            mounts.append(
+                f"{os.path.join(self.host_dir, pipe_file)}:{os.path.join(self.container_dir, pipe_file)}:rw"
+            )
+        mounts.append(
+            f"{os.path.join(self.host_dir, 'work')}:{os.path.join(self.container_dir, 'work')}:rw"
+        )
+        logger.debug("docker mounts: " + str(mounts))
 
         # connect to dockerd
         client = docker.from_env()
+        svc = None
         try:
-            # run container
+            # run container as a transient docker swarm service, letting docker handle the resource
+            # scheduling (waiting until requested # of CPUs are available)
             logger.info("docker starting image {}".format(self.image_tag))
-            container = client.containers.run(
+            svc = client.services.create(
                 self.image_tag,
                 command=[
                     "/bin/bash",
                     "-c",
                     "/bin/bash ../command >> ../stdout.txt 2>> ../stderr.txt",
                 ],
-                detach=True,
-                auto_remove=True,
-                working_dir=os.path.join(self.container_dir, "work"),
-                volumes=volumes,
+                # restart_policy 'none' so that swarm runs the container just once
+                restart_policy=docker.types.RestartPolicy("none"),
+                workdir=os.path.join(self.container_dir, "work"),
+                mounts=mounts,
+                resources=docker.types.Resources(
+                    # the unit expected by swarm is "NanoCPUs"
+                    cpu_limit=cpu * 1_000_000_000,
+                    cpu_reservation=cpu * 1_000_000_000,
+                ),
             )
-            logger.debug("docker container name = {}, id = {}".format(container.name, container.id))
+            logger.debug("docker service name = {}, id = {}".format(svc.name, svc.short_id))
 
-            exit_info = None
+            exit_code = None
             # stream stderr into log
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
-                try:
-                    # long-poll for container exit
-                    while exit_info is None:
-                        try:
-                            exit_info = container.wait(timeout=1)
-                        except Exception as exn:
-                            if self._terminate:
-                                raise Terminated() from None
-                            # workaround for docker-py not throwing the exception class
-                            # it's supposed to
-                            s_exn = str(exn)
-                            if "timed out" not in s_exn and "Timeout" not in s_exn:
-                                raise
-                        poll_stderr()
-                    logger.info("container exit info = " + str(exit_info))
-                except:
-                    # make sure to stop & clean up the container if we're stopping due
-                    # to SIGTERM or something. Most other cases should be handled by
-                    # auto_remove.
-                    try:
-                        container.remove(force=True)
-                        logger.info("force-removed docker container")
-                    except Exception as exn:
-                        logger.exception("failed to remove docker container")
-                    raise
+                # poll for container exit
+                i = 0
+                while exit_code is None:
+                    poll_stderr()
+                    # poll frequently in the first few seconds (QoS for short-running tasks)
+                    time.sleep(1.05 - math.exp(i / -10.0))
+                    if self._terminate:
+                        raise Terminated() from None
+                    exit_code = self.poll_service(logger, svc)
+                    i += 1
+                logger.info("container exit code = " + str(exit_code))
 
             # retrieve and check container exit status
-            assert (
-                exit_info and "StatusCode" in exit_info and isinstance(exit_info["StatusCode"], int)
-            )
-            return exit_info["StatusCode"]
+            assert isinstance(exit_code, int)
+            return exit_code
         finally:
+            if svc:
+                try:
+                    svc.remove()
+                except:
+                    logger.exception("failed to remove docker service")
             try:
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
+
+    def poll_service(
+        self, logger: logging.Logger, svc: docker.models.services.Service
+    ) -> Optional[int]:
+        svc.reload()
+        tasks = svc.tasks()
+        if not tasks:
+            logger.warning(f"docker service has no tasks yet")
+        else:
+            assert len(tasks) == 1
+            status = tasks[0]["Status"]
+            logger.debug("docker task status = " + str(status))
+            state = status["State"]
+            if state in ["complete", "failed"]:
+                exit_code = status["ContainerStatus"]["ExitCode"]
+                assert isinstance(exit_code, int)
+                return exit_code
+            elif state in ["rejected", "orphaned", "remove", "shutdown"]:
+                raise RuntimeError(
+                    f"docker task {state}" + ((": " + status["Err"]) if "Err" in status else "")
+                )
+            # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
+            elif state not in [
+                "new",
+                "pending",
+                "assigned",
+                "accepted",
+                "preparing",
+                "starting",
+                "running",
+            ]:
+                logger.warning(f"docker task in unknown state: {state}")
+        return None
 
 
 def run_local_task(
@@ -329,11 +359,21 @@ def run_local_task(
         # in-container file paths
         container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
-        # evaluate runtime.docker
+        # evaluate runtime fields
         image_tag_expr = task.runtime.get("docker", None)
         if image_tag_expr:
             assert isinstance(image_tag_expr, Expr.Base)
-            container.image_tag = image_tag_expr.eval(container_env).value
+            container.image_tag = image_tag_expr.eval(container_env).coerce(Type.String()).value
+        cpu = 1
+        if "cpu" in task.runtime:
+            cpu_expr = task.runtime["cpu"]
+            assert isinstance(cpu_expr, Expr.Base)
+            cpu_value = cpu_expr.eval(container_env).coerce(Type.Int()).value
+            cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
+            if cpu != cpu_value:
+                logger.warning(f"runtime.cpu: {cpu} (adjusted from {cpu_value})")
+            else:
+                logger.info(f"runtime.cpu: {cpu}")
 
         # interpolate command
         command = _util.strip_leading_whitespace(
@@ -342,7 +382,7 @@ def run_local_task(
         logger.debug("command:\n%s", command.rstrip())
 
         # start container & run command
-        container.run(logger, command)
+        container.run(logger, command, cpu)
 
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)

@@ -14,6 +14,7 @@ class TestWorkflowRunner(unittest.TestCase):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
 
     def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None):
+        WDL._util.ensure_swarm(logging.getLogger("test_workflow"))
         try:
             with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:
                 outfile.write(wdl.encode("utf-8"))

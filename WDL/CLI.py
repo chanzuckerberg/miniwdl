@@ -23,6 +23,7 @@ from ._util import (
     VERBOSE_LEVEL,
     NOTICE_LEVEL,
     install_coloredlogs,
+    ensure_swarm,
 )
 
 quant_warning = False
@@ -364,6 +365,8 @@ def runner(
         logger.debug("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
     for pkg in ["docker", "lark-parser", "argcomplete", "pygtail"]:
         logger.debug(pkg_resources.get_distribution(pkg))
+
+    ensure_swarm(logger)
 
     try:
         entrypoint = (
