@@ -10,6 +10,7 @@ import traceback
 import glob
 import signal
 import time
+import math
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional
 from types import FrameType
@@ -17,13 +18,7 @@ from types import FrameType
 from requests.exceptions import ReadTimeout
 import docker
 from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
-from .._util import (
-    write_values_json,
-    provision_run_dir,
-    LOGGING_FORMAT,
-    PygtailLogger,
-    ensure_swarm,
-)
+from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, PygtailLogger
 from .error import *
 
 
@@ -235,7 +230,7 @@ class TaskDockerContainer(TaskContainer):
         client = docker.from_env()
         svc = None
         try:
-            # run container
+            # run container as a one-shot docker swarm service
             logger.info("docker starting image {}".format(self.image_tag))
             svc = client.services.create(
                 self.image_tag,
@@ -263,26 +258,15 @@ class TaskDockerContainer(TaskContainer):
             # stream stderr into log
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
                 # poll for container exit
+                i = 0
                 while exit_code is None:
                     poll_stderr()
-                    time.sleep(1)
+                    # poll frequently in the first few seconds (QoS for short-running tasks)
+                    time.sleep(1.05 - math.exp(i / -10.0))
                     if self._terminate:
                         raise Terminated() from None
-
-                    svc.reload()
-                    tasks = svc.tasks()
-                    assert len(tasks) == 1
-                    status = tasks[0]["Status"]
-                    logger.debug("docker task status = " + str(status))
-                    state = status["State"]
-                    if state in ["complete", "failed"]:
-                        exit_code = status["ContainerStatus"]["ExitCode"]
-                        assert isinstance(exit_code, int)
-                    elif state in ["rejected", "orphaned", "remove", "shutdown"]:
-                        raise RuntimeError(
-                            f"docker task {state}"
-                            + ((": " + status["Err"]) if "Err" in status else "")
-                        )
+                    exit_code = self.poll_service(logger, svc)
+                    i += 1
                 logger.info("container exit code = " + str(exit_code))
 
             # retrieve and check container exit status
@@ -298,6 +282,39 @@ class TaskDockerContainer(TaskContainer):
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
+
+    def poll_service(
+        self, logger: logging.Logger, svc: docker.models.services.Service
+    ) -> Optional[int]:
+        svc.reload()
+        tasks = svc.tasks()
+        if not tasks:
+            logger.warning(f"docker service has no tasks yet")
+        else:
+            assert len(tasks) == 1
+            status = tasks[0]["Status"]
+            logger.debug("docker task status = " + str(status))
+            state = status["State"]
+            if state in ["complete", "failed"]:
+                exit_code = status["ContainerStatus"]["ExitCode"]
+                assert isinstance(exit_code, int)
+                return exit_code
+            elif state in ["rejected", "orphaned", "remove", "shutdown"]:
+                raise RuntimeError(
+                    f"docker task {state}" + ((": " + status["Err"]) if "Err" in status else "")
+                )
+            # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
+            elif state not in [
+                "new",
+                "pending",
+                "assigned",
+                "accepted",
+                "preparing",
+                "starting",
+                "running",
+            ]:
+                logger.warning(f"docker task in unknown state: {state}")
+        return None
 
 
 def run_local_task(

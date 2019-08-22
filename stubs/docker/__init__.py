@@ -23,21 +23,23 @@ class Swarm:
     def init(self, **kwargs) -> str:
         ...
 
-class Service:
-    short_id: str
-    name: str
+class models:
+    class services:
+        class Service:
+            short_id: str
+            name: str
 
-    def tasks(self) -> List[Dict[str, Any]]:
-        ...
+            def tasks(self) -> List[Dict[str, Any]]:
+                ...
 
-    def reload(self) -> None:
-        ...
+            def reload(self) -> None:
+                ...
 
-    def remove(self) -> None:
-        ...
+            def remove(self) -> None:
+                ...
 
 class Services:
-    def create(self, image: str, **kwargs) -> Service:
+    def create(self, image: str, **kwargs) -> model.services.Service:
         ...
 
 class types:
