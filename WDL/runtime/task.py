@@ -231,7 +231,8 @@ class TaskDockerContainer(TaskContainer):
         client = docker.from_env()
         svc = None
         try:
-            # run container as a one-shot docker swarm service
+            # run container as a transient docker swarm service, letting docker handle the resource
+            # scheduling (waiting until requested # of CPUs are available)
             logger.info("docker starting image {}".format(self.image_tag))
             svc = client.services.create(
                 self.image_tag,
@@ -245,11 +246,8 @@ class TaskDockerContainer(TaskContainer):
                 workdir=os.path.join(self.container_dir, "work"),
                 mounts=mounts,
                 resources=docker.types.Resources(
-                    # cpu_limit throttles container to desired # of cpus.
                     # the unit expected by swarm is "NanoCPUs"
                     cpu_limit=cpu * 1_000_000_000,
-                    # cpu_reservation makes swarm delay starting the container until the desired #
-                    # of cpus are available (considering other running services)
                     cpu_reservation=cpu * 1_000_000_000,
                 ),
             )
@@ -373,7 +371,9 @@ def run_local_task(
             cpu_value = cpu_expr.eval(container_env).coerce(Type.Int()).value
             cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
             if cpu != cpu_value:
-                logger.warning(f"adjusted runtime.cpu from {cpu_value} to {cpu}")
+                logger.warning(f"runtime.cpu: {cpu} (adjusted from {cpu_value})")
+            else:
+                logger.info(f"runtime.cpu: {cpu}")
 
         # interpolate command
         command = _util.strip_leading_whitespace(
@@ -382,7 +382,7 @@ def run_local_task(
         logger.debug("command:\n%s", command.rstrip())
 
         # start container & run command
-        container.run(logger, command, cpu=cpu)
+        container.run(logger, command, cpu)
 
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)

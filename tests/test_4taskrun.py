@@ -659,3 +659,46 @@ class TestTaskRunner(unittest.TestCase):
         }
         """, {"w": 2})
         self.assertAlmostEqual(output["logsize"], 0.0)
+
+    def test_cpu_limit(self):
+        txt = R"""
+        version 1.0
+        task spin {
+            input {
+                Int n
+                Int cpu
+            }
+            command <<<
+                set -x
+                source /root/.profile
+                cat << EOF > spin_one_cpu_second.py
+                import time
+                while time.process_time() < 1.0:
+                    pass
+                EOF
+                t0=$(date +"%s")
+                for i in $(seq ~{n}); do
+                    python3 spin_one_cpu_second.py &
+                done
+                wait
+                t1=$(date +"%s")
+                echo $(( t1 - t0 )) > wall_seconds
+            >>>
+            output {
+                Int wall_seconds = read_int("wall_seconds")
+            }
+            runtime {
+                docker: "continuumio/miniconda3"
+                cpu: cpu
+            }
+        }
+        """
+        # 4 concurrent spinners limited to 1 cpu should take 4 seconds
+        outputs = self._test_task(txt, {"n": 4, "cpu": 1})
+        self.assertGreaterEqual(outputs["wall_seconds"], 3)
+        # 8 concurrent spinners on >1 cpus should take <8 seconds
+        outputs = self._test_task(txt, {"n": 8, "cpu": 4})
+        self.assertLessEqual(outputs["wall_seconds"], 6)
+        # check task with overkill number of CPUs gets scheduled
+        outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
+        self.assertLessEqual(outputs["wall_seconds"], 6)
