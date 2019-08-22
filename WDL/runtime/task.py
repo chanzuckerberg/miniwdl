@@ -11,6 +11,7 @@ import glob
 import signal
 import time
 import math
+import multiprocessing
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional
 from types import FrameType
@@ -93,7 +94,7 @@ class TaskContainer(ABC):
                     self.container_dir, "inputs", dn, os.path.basename(host_file)
                 )
 
-    def run(self, logger: logging.Logger, command: str) -> None:
+    def run(self, logger: logging.Logger, command: str, cpu: int) -> None:
         """
         1. Container is instantiated
         2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
@@ -127,7 +128,7 @@ class TaskContainer(ABC):
             self._running = True
             try:
                 os.makedirs(os.path.join(self.host_dir, "work"))
-                exit_status = self._run(logger, command)
+                exit_status = self._run(logger, command, cpu)
             finally:
                 self._running = False
                 for sig, handler in restore_signal_handlers.items():
@@ -139,7 +140,7 @@ class TaskContainer(ABC):
                 raise CommandFailure(exit_status, os.path.join(self.host_dir, "stderr.txt"))
 
     @abstractmethod
-    def _run(self, logger: logging.Logger, command: str) -> int:
+    def _run(self, logger: logging.Logger, command: str, cpu: int) -> int:
         # run command in container & return exit status
         raise NotImplementedError()
 
@@ -191,7 +192,7 @@ class TaskContainer(ABC):
 
 class TaskDockerContainer(TaskContainer):
     """
-    TaskContainer docker runtime
+    TaskContainer docker (swarm) runtime
     """
 
     image_tag: str = "ubuntu:18.04"
@@ -201,7 +202,7 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    def _run(self, logger: logging.Logger, command: str, cpu: int = 1) -> int:
+    def _run(self, logger: logging.Logger, command: str, cpu: int) -> int:
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
         pipe_files = ["stdout.txt", "stderr.txt"]
@@ -247,8 +248,8 @@ class TaskDockerContainer(TaskContainer):
                     # cpu_limit throttles container to desired # of cpus.
                     # the unit expected by swarm is "NanoCPUs"
                     cpu_limit=cpu * 1_000_000_000,
-                    # cpu_reservation makes swarm delay starting the container until the desired # of
-                    # cpus are available (considering other running services)
+                    # cpu_reservation makes swarm delay starting the container until the desired #
+                    # of cpus are available (considering other running services)
                     cpu_reservation=cpu * 1_000_000_000,
                 ),
             )
@@ -360,11 +361,19 @@ def run_local_task(
         # in-container file paths
         container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
-        # evaluate runtime.docker
+        # evaluate runtime fields
         image_tag_expr = task.runtime.get("docker", None)
         if image_tag_expr:
             assert isinstance(image_tag_expr, Expr.Base)
-            container.image_tag = image_tag_expr.eval(container_env).value
+            container.image_tag = image_tag_expr.eval(container_env).coerce(Type.String()).value
+        cpu = 1
+        if "cpu" in task.runtime:
+            cpu_expr = task.runtime["cpu"]
+            assert isinstance(cpu_expr, Expr.Base)
+            cpu_value = cpu_expr.eval(container_env).coerce(Type.Int()).value
+            cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
+            if cpu != cpu_value:
+                logger.warning(f"adjusted runtime.cpu from {cpu_value} to {cpu}")
 
         # interpolate command
         command = _util.strip_leading_whitespace(
@@ -373,7 +382,7 @@ def run_local_task(
         logger.debug("command:\n%s", command.rstrip())
 
         # start container & run command
-        container.run(logger, command)
+        container.run(logger, command, cpu=cpu)
 
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
