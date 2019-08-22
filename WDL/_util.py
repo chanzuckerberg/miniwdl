@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from typing import Tuple, Dict, Set, Iterable, Iterator, List, TypeVar, Generic, Optional, Callable
 import coloredlogs
 from pygtail import Pygtail
+import docker
 
 __all__: List[str] = []
 
@@ -254,3 +255,22 @@ def PygtailLogger(
         yield poll
     finally:
         poll()
+
+
+def ensure_swarm(logger: logging.Logger) -> None:
+    client = docker.from_env()
+    try:
+        info = client.info()
+        if (
+            "Swarm" in info
+            and "LocalNodeState" in info["Swarm"]
+            and info["Swarm"]["LocalNodeState"] == "inactive"
+        ):
+            logger.warning(
+                "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1 --task-history-limit 0`"
+            )
+            client.swarm.init(
+                advertise_addr="127.0.0.1", listen_addr="127.0.0.1", task_history_retention_limit=0
+            )
+    finally:
+        client.close()

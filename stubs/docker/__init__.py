@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Any, List
 
 class Container:
     @property
@@ -19,12 +19,51 @@ class Containers:
     def run(self, image_tag: str, **kwargs) -> Container:
         ...
 
-class Client:
-    @property
-    def containers() -> Containers:
+class Swarm:
+    def init(self, **kwargs) -> str:
         ...
 
-    def close() -> None:
+class Service:
+    short_id: str
+    name: str
+
+    def tasks(self) -> List[Dict[str, Any]]:
+        ...
+
+    def reload(self) -> None:
+        ...
+
+    def remove(self) -> None:
+        ...
+
+class Services:
+    def create(self, image: str, **kwargs) -> Service:
+        ...
+
+class types:
+    def RestartPolicy(p: str) -> Any:
+        ...
+
+    def Resources(**kwargs) -> Any:
+        ...
+
+class Client:
+    @property
+    def containers(self) -> Containers:
+        ...
+
+    def close(self) -> None:
+        ...
+
+    def info(self) -> Dict[str, Any]:
+        ...
+
+    @property
+    def swarm(self) -> Swarm:
+        ...
+
+    @property
+    def services(self) -> Services:
         ...
 
 def from_env() -> Client:
