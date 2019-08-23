@@ -58,7 +58,11 @@ class SourceNode:
     """Base class for an AST node, recording the source position"""
 
     pos: SourcePosition
-    """Source position for this AST node"""
+    """
+    :type: SourcePosition
+
+    Source position for this AST node
+    """
 
     def __init__(self, pos: SourcePosition) -> None:
         self.pos = pos

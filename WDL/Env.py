@@ -57,8 +57,15 @@ class _EmptyNamespace:
 class Bindings(Generic[T]):
     """WDL.Env.Bindings(binding: Optional[WDL.Env.Binding[T]] = None, next: Optional[WDL.Env.Bindings[T]] = None)
 
-    An environment consisting of an immutable linked-list of bindings. ``WDL.Env.Bindings()`` is
-    the empty environment. ``Bindings[T]`` is iterable for the individual ``Binding[T]`` objects.
+    An environment consisting of an immutable linked-list of :class:`WDL.Env.Binding` objects.
+    ``WDL.Env.Bindings()`` is the empty environment. ``Bindings[T]`` is iterable for the individual
+    ``Binding[T]`` objects::
+
+        env = WDL.Env.Bindings()
+        env = env.bind("x", 1).bind("y", 42)
+        print(env["x"])                             # 1
+        print(",".join(str(b.value) for b in env))  # 1,42
+
     """
 
     _binding: Union[None, Binding[T], _EmptyNamespace]
@@ -107,7 +114,7 @@ class Bindings(Generic[T]):
         return Bindings(Binding(name, value, info), self)
 
     def resolve_binding(self, name: str) -> Binding[T]:
-        """Look up a ``Binding[T]`` object by name
+        """Look up a :class:`WDL.Env.Binding` object by name
 
         :raise KeyError: no such binding
         """

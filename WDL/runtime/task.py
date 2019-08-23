@@ -359,6 +359,7 @@ def run_local_task(
             cpu_expr = task.runtime["cpu"]
             assert isinstance(cpu_expr, Expr.Base)
             cpu_value = cpu_expr.eval(container_env).coerce(Type.Int()).value
+            assert isinstance(cpu_value, int)
             cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
             if cpu != cpu_value:
                 logger.warning(f"runtime.cpu: {cpu} (adjusted from {cpu_value})")

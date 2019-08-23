@@ -1,4 +1,11 @@
-"""Toolkit for static analysis of Workflow Description Language (WDL)"""
+"""
+`miniwdl <https://github.com/chanzuckerberg/miniwdl/>`_ is a developer toolkit and local runner for
+the bioinformatics-focused `Workflow Description Language (WDL) <http://openwdl.org/>`_. This
+documentation covers the Python3 ``WDL`` package facilitating parsing & static analysis of WDL
+documents.
+
+* `GitHub repo <https://github.com/chanzuckerberg/miniwdl/>`_ for installation and further background
+"""
 import os
 import errno
 import inspect

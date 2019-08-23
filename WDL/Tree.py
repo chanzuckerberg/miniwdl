@@ -1,7 +1,7 @@
 """
 Abstract syntax tree (AST) for WDL documents, containing tasks and workflows, which contain
-declarations, calls, and scatter & if sections. The AST is typically constructed and returned by
-:func:`~WDL.load` or :func:`~WDL.parse_document`.
+declarations, calls, and scatter & if sections. The AST is typically constructed by
+:func:`~WDL.load`.
 
 The ``WDL.Tree.*`` classes are also exported by the base ``WDL`` module, i.e. ``WDL.Tree.Document``
 can be abbreviated ``WDL.Document``.
@@ -579,10 +579,10 @@ class Gather(WorkflowNode):
     workflow's data types and dependency structure.
 
     Each scatter/conditional section provides ``Gather`` nodes to expose the section body's
-    products to the rest of the workflow. When a ``WDL.Expr.Ident`` elsewhere identifies a node
-    inside the section, its ``referee`` attribute is the corresponding ``Gather`` node, which in
-    turn references the interior node. The interior node might itself be another ``Gather`` node,
-    from a nested scatter/conditional section.
+    products to the rest of the workflow. When a :class:`WDL.Expr.Ident` elsewhere identifies a
+    node inside the section, its ``referee`` attribute is the corresponding ``Gather`` node, which
+    in turn references the interior node. The interior node might itself be another ``Gather``
+    node, from a nested scatter/conditional section.
     """
 
     section: "WorkflowSection"
@@ -1146,10 +1146,8 @@ Represents one imported document, with position of the import statement, import 
 
 class Document(SourceNode):
     """
-    Top-level document, with imports, tasks, and a workflow. Typically returned
-    by :func:`~WDL.load` with imported sub-documents loaded, and everything
-    typechecked. Alternatively, :func:`~WDL.parse_document` constructs the AST
-    but doesn't process imports nor perform typechecking.
+    Top-level document, with imports, tasks, and up to one workflow. Typically returned by
+    :func:`~WDL.load`.
     """
 
     imports: List[DocImport]
@@ -1158,7 +1156,7 @@ class Document(SourceNode):
 
     Imported documents"""
     struct_typedefs: Env.Bindings[StructTypeDef]
-    """:type: Dict[str, Dict[str, WDL.Type.Base]]"""
+    """:type: Env.Bindings[WDL.Tree.StructTypeDef]"""
     tasks: List[Task]
     """:type: List[WDL.Tree.Task]"""
     workflow: Optional[Workflow]
