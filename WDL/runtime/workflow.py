@@ -173,6 +173,8 @@ class StateMachine:
                 known_jobs,
             )
 
+        self._log_status()
+
     @property
     def outputs(self) -> Optional[Env.Bindings[Value.Base]]:
         """
@@ -234,6 +236,7 @@ class StateMachine:
                         ),
                     )
                     assert False
+                self._log_status()
                 return None
             job_id = runnable.pop()
             job = self.jobs[job_id]
@@ -251,6 +254,7 @@ class StateMachine:
 
             # if it's a call, return instructions to the driver
             if isinstance(res, StateMachine.CallInstructions):
+                self._log_status()
                 return res
 
             # otherwise, record the outputs, mark the job finished, and move on to the next job
@@ -274,6 +278,7 @@ class StateMachine:
         self.filename_whitelist |= _filenames(outputs)
         self.finished.add(job_id)
         self.running.remove(job_id)
+        self._log_status()
 
     def _schedule(self, job: _Job) -> None:
         self.logger.debug("schedule %s after {%s}", job.id, ", ".join(job.dependencies))
@@ -367,6 +372,11 @@ class StateMachine:
                 self._logger.addHandler(fh)
             install_coloredlogs(self._logger)
         return self._logger
+
+    def _log_status(self) -> None:
+        self.logger.info(
+            f"workflow nodes waiting: {len(self.waiting)} running: {len(self.running)} finished: {len(self.finished)}"
+        )
 
     def __getstate__(self) -> Dict[str, Any]:
         ans = dict(self.__dict__)

@@ -12,6 +12,7 @@ import math
 import argcomplete
 import logging
 import urllib
+import docker
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action
@@ -365,6 +366,7 @@ def runner(
         logger.debug("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
     for pkg in ["docker", "lark-parser", "argcomplete", "pygtail"]:
         logger.debug(pkg_resources.get_distribution(pkg))
+    logger.debug("dockerd: " + str(docker.from_env().version()))
 
     ensure_swarm(logger)
 
