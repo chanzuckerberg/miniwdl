@@ -165,7 +165,7 @@ class TaskContainer(ABC):
                 container_file, os.path.join(self.container_dir, "work")
             )
 
-        host_workdir = os.path.join(self.host_dir, "work")
+        host_workdir = os.path.realpath(os.path.join(self.host_dir, "work"))
         ans = os.path.realpath(os.path.join(host_workdir, container_file))
         assert os.path.isabs(ans) and "/../" not in ans
         if os.path.isfile(ans):
