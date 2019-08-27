@@ -11,8 +11,9 @@ import glob
 import time
 import math
 import multiprocessing
+import shutil
 from abc import ABC, abstractmethod
-from typing import Tuple, List, Dict, Optional, Callable
+from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
 
 from requests.exceptions import ReadTimeout
 import docker
@@ -68,7 +69,7 @@ class TaskContainer(ABC):
         self.input_file_map = {}
         self._running = False
 
-    def add_files(self, host_files: List[str]) -> None:
+    def add_files(self, host_files: Iterable[str]) -> None:
         """
         Use before running the container to add a list of host files to mount
         inside the container as inputs. The host-to-container path mapping is
@@ -190,6 +191,13 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
+    input_files_rw: bool = False
+    """
+    :type: bool
+
+    if True, then input files are mounted read/write instead of read-only
+    """
+
     def _run(
         self, logger: logging.Logger, terminating: Callable[[], bool], command: str, cpu: int
     ) -> int:
@@ -201,9 +209,9 @@ class TaskDockerContainer(TaskContainer):
                 pass
 
         mounts = []
-        # mount input files and command read-only
+        # mount input files and command
         for host_path, container_path in self.input_file_map.items():
-            mounts.append(f"{host_path}:{container_path}:ro")
+            mounts.append(f"{host_path}:{container_path}:{'rw' if self.input_files_rw else 'ro'}")
         mounts.append(
             f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
         )
@@ -314,6 +322,7 @@ def run_local_task(
     posix_inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
+    copy_input_files: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -325,6 +334,7 @@ def run_local_task(
     :param run_dir: outputs and scratch will be stored in this directory if it doesn't already
                     exist; if it does, a timestamp-based subdirectory is created and used (defaults
                     to current working directory)
+    :param copy_input_files: copy input files and mount them read/write instead of read-only
     """
 
     run_id = run_id or task.name
@@ -350,7 +360,11 @@ def run_local_task(
 
         # evaluate input/postinput declarations, including mapping from host to
         # in-container file paths
-        container_env = _eval_task_inputs(logger, task, posix_inputs, container)
+        container_env = _eval_task_inputs(
+            logger, task, posix_inputs, container, copy_input_files=copy_input_files
+        )
+        if copy_input_files:
+            container.input_files_rw = True
 
         # evaluate runtime fields
         image_tag_expr = task.runtime.get("docker", None)
@@ -403,21 +417,14 @@ def _eval_task_inputs(
     task: Tree.Task,
     posix_inputs: Env.Bindings[Value.Base],
     container: TaskContainer,
+    copy_input_files: bool = False,
 ) -> Env.Bindings[Value.Base]:
+
+    if copy_input_files:
+        posix_inputs = _copy_input_files(logger, container, posix_inputs)
+
     # Map all the provided input Files to in-container paths
-    # First make a pass to collect all the host paths and pass them to the
-    # container as a group (so that it can deal with any basename collisions)
-    host_files = []
-
-    def collect_host_files(v: Value.Base) -> None:
-        if isinstance(v, Value.File):
-            host_files.append(v.value)
-        for ch in v.children:
-            collect_host_files(ch)
-
-    for binding in posix_inputs:
-        collect_host_files(binding.value)
-    container.add_files(host_files)
+    container.add_files(_filenames(posix_inputs))
 
     # copy posix_inputs with all Files mapped to their in-container paths
     def map_files(v: Value.Base) -> Value.Base:
@@ -476,6 +483,50 @@ def _eval_task_inputs(
         container_env = container_env.bind(decl.name, v)
 
     return container_env
+
+
+def _copy_input_files(
+    logger: logging.Logger, container: TaskContainer, posix_inputs: Env.Bindings[Value.Base]
+) -> Env.Bindings[Value.Base]:
+    input_files_by_dir = {}
+    for filename in _filenames(posix_inputs):
+        input_files_by_dir.setdefault(os.path.dirname(filename), set()).add(filename)
+
+    dest = os.path.join(container.host_dir, "inputs")
+    filename_map = {}
+    for i, filenames in enumerate(input_files_by_dir.values()):
+        dest_i = os.path.join(dest, str(i))
+        os.makedirs(dest_i)
+        for filename in filenames:
+            filename_map[filename] = os.path.join(dest_i, os.path.basename(filename))
+            shutil.copy(filename, filename_map[filename])
+            logger.info("copy input file %s -> %s", filename, filename_map[filename])
+
+    def map_files(v: Value.Base) -> Value.Base:
+        if isinstance(v, Value.File):
+            v.value = filename_map[v.value]
+        for ch in v.children:
+            map_files(ch)
+        return v
+
+    return posix_inputs.map(
+        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
+    )
+
+
+def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
+    "Get the filenames of all File values in the environment"
+    ans = set()
+
+    def collector(v: Value.Base) -> None:
+        if isinstance(v, Value.File):
+            ans.add(v.value)
+        for ch in v.children:
+            collector(ch)
+
+    for b in env:
+        collector(b.value)
+    return ans
 
 
 def _eval_task_outputs(
