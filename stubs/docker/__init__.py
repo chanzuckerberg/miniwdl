@@ -38,8 +38,15 @@ class models:
             def remove(self) -> None:
                 ...
 
+            @property
+            def attrs(self) -> Dict[str, Any]:
+                ...
+
 class Services:
-    def create(self, image: str, **kwargs) -> model.services.Service:
+    def create(self, image: str, **kwargs) -> models.services.Service:
+        ...
+
+    def list(**kwargs) -> List[models.services.Service]:
         ...
 
 class types:

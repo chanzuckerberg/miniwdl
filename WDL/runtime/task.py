@@ -240,6 +240,8 @@ class TaskDockerContainer(TaskContainer):
                     cpu_limit=cpu * 1_000_000_000,
                     cpu_reservation=cpu * 1_000_000_000,
                 ),
+                labels={"miniwdl_run_id": self.run_id},
+                container_labels={"miniwdl_run_id": self.run_id},
             )
             logger.debug("docker service name = {}, id = {}".format(svc.name, svc.short_id))
 
@@ -276,6 +278,7 @@ class TaskDockerContainer(TaskContainer):
         self, logger: logging.Logger, svc: docker.models.services.Service
     ) -> Optional[int]:
         svc.reload()
+        assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
         tasks = svc.tasks()
         if not tasks:
             logger.warning(f"docker service has no tasks yet")
