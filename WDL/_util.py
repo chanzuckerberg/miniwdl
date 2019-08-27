@@ -289,10 +289,13 @@ _terminating_lock: threading.Lock = threading.Lock()
 @contextmanager
 def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]]:
     """
-    Context manager which installs a handler for termination signals (SIGTERM, SIGINT, SIGHUP,
-    SIGPIPE) that sets an internal flag. Yields a function indicating whether such signal has been
-    received. Multiple concurrent handler contexts can be opened without interfering with each
-    other, so long as one wraps all the others.
+    Context manager installing termination signal handlers (SIGTERM, SIGINT, SIGHUP, SIGPIPE) which
+    set a global flag indicating whether such a signal has been received. Yields a function which
+    returns this flag.
+
+    Should be opened on the main thread wrapping all the desired operations. Once this is so, more
+    instances can be opened on any thread without interfering with each other, as long as they're
+    wrapped within the main one.
     """
     signals = [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGPIPE, signal.SIGALRM]
 
