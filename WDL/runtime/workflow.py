@@ -36,11 +36,12 @@ import itertools
 import json
 import traceback
 import pickle
+from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, install_coloredlogs
 from .task import run_local_task, _filenames
+from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, install_coloredlogs, TerminationSignalFlag
 from .error import TaskFailure
 
 
@@ -553,11 +554,12 @@ class _StdLib(StdLib.Base):
 
 
 def run_local_workflow(
-    workflow: Tree.Workflow,
-    posix_inputs: Env.Bindings[Value.Base],
-    run_id: Optional[str] = None,
-    run_dir: Optional[str] = None,
-    _test_pickle: bool = False,
+        workflow: Tree.Workflow,
+        posix_inputs: Env.Bindings[Value.Base],
+        run_id: Optional[str] = None,
+        run_dir: Optional[str] = None,
+        _test_pickle: bool = False,
+        thread_pool: Optional[futures.ThreadPoolExecutor] = None
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
@@ -570,6 +572,10 @@ def run_local_workflow(
                     exist; if it does, a timestamp-based subdirectory is created and used (defaults
                     to current working directory)
     """
+    if not thread_pool:
+        thread_pool = futures.ThreadPoolExecutor(max_workers=10)
+    future_task_map = {}
+    futures_list = []
 
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
@@ -589,41 +595,57 @@ def run_local_workflow(
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
     state = StateMachine(run_id, run_dir, workflow, posix_inputs)
+    with TerminationSignalFlag(logger) as terminating:
+        try:
+            with thread_pool as executor:
+                while state.outputs is None:
+                    if _test_pickle:
+                        state = pickle.loads(pickle.dumps(state))
 
-    try:
-        while state.outputs is None:
-            if _test_pickle:
-                state = pickle.loads(pickle.dumps(state))
+                    next_call = state.step()
+                    if next_call:
+                        if isinstance(next_call.callee, Tree.Task):
+                            run_callee = run_local_task
+                        elif isinstance(next_call.callee, Tree.Workflow):
+                            run_callee = run_local_workflow
+                        else:
+                            assert False
+                        future = executor.submit(run_callee,
+                                                 next_call.callee,  # pyre-fixme
+                                                 next_call.inputs,
+                                                 run_id=next_call.id,
+                                                 run_dir=os.path.join(run_dir, next_call.id),
+                                                 thread_pool=thread_pool,
+                                                 )
+                        future_task_map[future] = next_call.id
 
-            next_call = state.step()
-            if next_call:
-                if isinstance(next_call.callee, Tree.Task):
-                    run_callee = run_local_task
-                elif isinstance(next_call.callee, Tree.Workflow):
-                    run_callee = run_local_workflow
-                else:
-                    assert False
-                _, outputs = run_callee(
-                    next_call.callee,  # pyre-fixme
-                    next_call.inputs,
-                    run_id=next_call.id,
-                    run_dir=os.path.join(run_dir, next_call.id),
-                )
-                state.call_finished(next_call.id, outputs)
-    except Exception as exn:
-        logger.debug(traceback.format_exc())
-        if isinstance(exn, TaskFailure):
-            logger.error("%s failed", getattr(exn, "run_id"))
-        else:
-            msg = ""
-            if hasattr(exn, "job_id"):
-                msg += getattr(exn, "job_id") + " "
-            msg += exn.__class__.__name__
-            if str(exn):
-                msg += ", " + str(exn)
-            logger.error(msg)
-            logger.info("run directory: %s", run_dir)
-        raise
+                    done_iter = futures.as_completed(future_task_map)
+                    print(f"********************************************************************* {future_task_map.keys()}")
+                    future = next(done_iter, None)
+                    if future:
+                        try:
+                            _, outputs = future.result()
+                            call_id = future_task_map[future]
+                            state.call_finished(call_id, outputs)
+                            future_task_map.pop(future)
+
+                        except Exception as e:
+                            # @madison TODO stop creating new tasks and kill other running tasks/workflows if an exception is raised
+                            print(f'oooops: {e}')
+        except Exception as exn:
+            logger.debug(traceback.format_exc())
+            if isinstance(exn, TaskFailure):
+                logger.error("%s failed", getattr(exn, "run_id"))
+            else:
+                msg = ""
+                if hasattr(exn, "job_id"):
+                    msg += getattr(exn, "job_id") + " "
+                msg += exn.__class__.__name__
+                if str(exn):
+                    msg += ", " + str(exn)
+                logger.error(msg)
+                logger.info("run directory: %s", run_dir)
+            raise
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)

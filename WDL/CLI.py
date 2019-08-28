@@ -9,12 +9,13 @@ import tempfile
 import glob
 import json
 import math
+
 import argcomplete
 import logging
 import urllib
 import docker
 from shlex import quote as shellquote
-from datetime import datetime
+import time
 from argparse import ArgumentParser, Action
 import pkg_resources
 from . import *
@@ -24,8 +25,7 @@ from ._util import (
     VERBOSE_LEVEL,
     NOTICE_LEVEL,
     install_coloredlogs,
-    ensure_swarm,
-)
+    ensure_swarm)
 
 quant_warning = False
 
@@ -45,6 +45,7 @@ def main(args=None):
     fill_common(fill_cromwell_subparser(subparsers), path=False)  # FIXME path issue #131
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
+    fill_common(fill_run_parallelization_test_subparser(subparsers))
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args(args if args is not None else sys.argv[1:])
@@ -56,6 +57,8 @@ def main(args=None):
             runner(**vars(args))
         elif args.command == "run_self_test":
             run_self_test(**vars(args))
+        elif args.command == "run_parallelization_test":
+            run_parallelization_test(**vars(args))
         elif args.command == "cromwell":
             cromwell(**vars(args))
         else:
@@ -683,6 +686,14 @@ def fill_run_self_test_subparser(subparsers):
     return run_parser
 
 
+def fill_run_parallelization_test_subparser(subparsers):
+    run_parser = subparsers.add_parser(
+        "run_parallelization_test",
+        help="Run a trivial workflow to test parallelization.",
+    )
+    return run_parser
+
+
 def run_self_test(**kwargs):
     dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
     with open(os.path.join(dn, "test.wdl"), "w") as outfile:
@@ -738,6 +749,74 @@ def run_self_test(**kwargs):
         assert infile.read() == "Hello, Ben Bitdiddle!"
 
     print("miniwdl run_self_test OK")
+
+
+def run_parallelization_test(**kwargs):
+    dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
+    with open(os.path.join(dn, "test.wdl"), "w") as outfile:
+        outfile.write(
+            """
+            version 1.0
+            workflow hello_caller {
+                input {
+                    File who
+                }
+                scatter (name in read_lines(who)) {
+                    call hello {
+                        input:
+                            who = write_lines([name])
+                    }
+                }
+                output {
+                    Array[File] messages = hello.message
+                }
+            }
+            task hello {
+                input {
+                    File who
+                }
+                command {
+                    echo -n "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                    sleep 20
+                }
+                output {
+                    File message = glob("message.*")[0]
+                }
+            }
+            """
+        )
+    with open(os.path.join(dn, "who.txt"), "w") as outfile:
+        outfile.write("Alyssa P. Hacker\n")
+        outfile.write("Ben Bitdiddle\n")
+        outfile.write("Christine Christie\n")
+        outfile.write("David Davidson\n")
+        outfile.write("Elaine Ellington\n")
+        outfile.write("Frank Flinstone\n")
+        outfile.write("Georgia Gorge\n")
+        outfile.write("Hank Holiday\n")
+        outfile.write("Irene Tu\n")
+
+    check(uri=[os.path.join(dn, "test.wdl")])
+
+    run_args = dict(kwargs)
+    run_args["uri"] = os.path.join(dn, "test.wdl")
+    run_args["inputs"] = ["who=" + os.path.join(dn, "who.txt")]
+    run_args["rundir"] = dn
+    run_args["verbose"] = True
+    run_args["debug"] = True
+    start = time.time()
+    outputs = runner(**run_args)
+    end = time.time()
+
+    assert len(outputs["hello_caller.messages"]) == 9
+    with open(outputs["hello_caller.messages"][0], "r") as infile:
+        assert infile.read() == "Hello, Alyssa P. Hacker!"
+    with open(outputs["hello_caller.messages"][1], "r") as infile:
+        assert infile.read() == "Hello, Ben Bitdiddle!"
+    # with open(outputs["hello_caller.messages"][8], "r") as infile:
+    #     assert infile.read() == "Hello, Irene Tu!"
+
+    print(f"miniwdl run_parallelization_test OK in {round(end-start)}")
 
 
 def fill_cromwell_subparser(subparsers):
