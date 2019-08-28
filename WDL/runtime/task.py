@@ -191,11 +191,13 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    input_files_rw: bool = False
+    rw_inputs_dir: Optional[Tuple[str, str]] = None
     """
     :type: bool
 
-    if True, then input files are mounted read/write instead of read-only
+    By default, input files are individually mounted read-only. If rw_inputs_dir is set to the pair
+    of a host directory and corresponding in-container path, this whole directory (expected to
+    contain all input files) is mounted read/write, instead of the individual file mounts.
     """
 
     def _run(
@@ -210,8 +212,11 @@ class TaskDockerContainer(TaskContainer):
 
         mounts = []
         # mount input files and command
-        for host_path, container_path in self.input_file_map.items():
-            mounts.append(f"{host_path}:{container_path}:{'rw' if self.input_files_rw else 'ro'}")
+        if self.rw_inputs_dir:
+            mounts.append(f"{self.rw_inputs_dir[0]}:{self.rw_inputs_dir[1]}:rw")
+        else:
+            for host_path, container_path in self.input_file_map.items():
+                mounts.append(f"{host_path}:{container_path}:ro")
         mounts.append(
             f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
         )
@@ -364,7 +369,10 @@ def run_local_task(
             logger, task, posix_inputs, container, copy_input_files=copy_input_files
         )
         if copy_input_files:
-            container.input_files_rw = True
+            container.rw_inputs_dir = (
+                os.path.join(container.host_dir, "inputs"),
+                os.path.join(container.container_dir, "inputs"),
+            )
 
         # evaluate runtime fields
         image_tag_expr = task.runtime.get("docker", None)

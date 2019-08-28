@@ -711,6 +711,7 @@ class TestTaskRunner(unittest.TestCase):
                 Array[File] files
             }
             command <<<
+                set -x
                 touch ~{sep=" " files}
                 mv ~{files[0]} alyssa2.txt
                 rm ~{files[1]}
@@ -730,4 +731,4 @@ class TestTaskRunner(unittest.TestCase):
 
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
                                   copy_input_files=True)
-        self.assertTrue(outputs[outfile].endswith("alyssa2.txt"))
+        self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))
