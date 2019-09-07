@@ -777,7 +777,11 @@ def parse_document(
         for line in txt.split("\n"):
             line = line.strip()
             if line and line[0] != "#":
-                if line.startswith("version ") and line[8].isdigit():
+                if (
+                    line.startswith("version ")
+                    and line[8].isdigit()
+                    or line == "version development"
+                ):
                     version = "1.0"
                 break
     if not txt.strip():
