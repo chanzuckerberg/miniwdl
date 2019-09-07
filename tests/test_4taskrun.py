@@ -14,7 +14,7 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
 
-    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None):
+    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, copy_input_files: bool = False):
         WDL._util.ensure_swarm(logging.getLogger("test_task"))
         try:
             doc = WDL.parse_document(wdl)
@@ -22,7 +22,7 @@ class TestTaskRunner(unittest.TestCase):
             doc.typecheck()
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir)
+            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, copy_input_files=copy_input_files)
         except WDL.runtime.TaskFailure as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
@@ -578,36 +578,42 @@ class TestTaskRunner(unittest.TestCase):
             outfile.write("x\n")
         with open(os.path.join(self._dir, "b", "x.y"), "w") as outfile:
             outfile.write("x.y\n")
-        outputs = self._test_task(R"""
+        txt = R"""
         version 1.0
         task t {
             input {
                 Array[File] files
             }
             command {
-                sort "~{write_lines(files)}"
+                cat "~{write_lines(files)}"
             }
             output {
                 Array[String] outfiles = read_lines(stdout())
             }
         }
-        """, {"files": [
+        """
+        inp = {"files": [
             os.path.join(self._dir, "a", "x"),
             os.path.join(self._dir, "a", "x.y"),
             os.path.join(self._dir, "b", "x"),
             os.path.join(self._dir, "b", "x.y"),
             os.path.join(self._dir, "b", "x.y") # intentional duplicate
-        ]})
-        outfiles = outputs["outfiles"]
-        self.assertEqual(len(outfiles), 5)
-        self.assertEqual(os.path.basename(outfiles[0]), "x")
-        self.assertEqual(os.path.basename(outfiles[1]), "x.y")
-        self.assertEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[1]))
-        self.assertEqual(os.path.basename(outfiles[2]), "x")
-        self.assertEqual(os.path.basename(outfiles[3]), "x.y")
-        self.assertEqual(os.path.dirname(outfiles[2]), os.path.dirname(outfiles[3]))
-        self.assertNotEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[2]))
-        self.assertEqual(outfiles[3], outfiles[4])
+        ]}
+        def chk(outfiles):
+            self.assertEqual(len(outfiles), 5)
+            self.assertEqual(os.path.basename(outfiles[0]), "x")
+            self.assertEqual(os.path.basename(outfiles[1]), "x.y")
+            self.assertEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[1]))
+            self.assertEqual(os.path.basename(outfiles[2]), "x")
+            self.assertEqual(os.path.basename(outfiles[3]), "x.y")
+            self.assertEqual(os.path.dirname(outfiles[2]), os.path.dirname(outfiles[3]))
+            self.assertNotEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[2]))
+            self.assertEqual(outfiles[3], outfiles[4])
+
+        outputs = self._test_task(txt, inp)
+        chk(outputs["outfiles"])
+        outputs = self._test_task(txt, inp, copy_input_files=True)
+        chk(outputs["outfiles"])
 
     def test_topsort(self):
         txt = R"""
@@ -702,3 +708,33 @@ class TestTaskRunner(unittest.TestCase):
         # check task with overkill number of CPUs gets scheduled
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
         self.assertLessEqual(outputs["wall_seconds"], 6)
+
+    def test_input_files_rw(self):
+        txt = R"""
+        version 1.0
+        task clobber {
+            input {
+                Array[File] files
+            }
+            command <<<
+                set -x
+                touch ~{sep=" " files}
+                mv ~{files[0]} alyssa2.txt
+                rm ~{files[1]}
+            >>>
+            output {
+                File outfile = glob("*.txt")[0]
+            }
+        }
+        """
+        with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
+            outfile.write("Alyssa\n")
+        with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
+            outfile.write("Ben\n")
+
+        self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
+                        expected_exception=WDL.runtime.task.CommandFailure)
+
+        outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
+                                  copy_input_files=True)
+        self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))

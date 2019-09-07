@@ -40,7 +40,7 @@ from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, install_coloredlogs
-from .task import run_local_task
+from .task import run_local_task, _filenames
 from .error import TaskFailure
 
 
@@ -550,21 +550,6 @@ class _StdLib(StdLib.Base):
     def _virtualize_filename(self, filename: str) -> str:
         self.state.filename_whitelist.add(filename)
         return filename
-
-
-def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
-    "Get the filenames of all File values in the environment"
-    ans = set()
-
-    def collector(v: Value.Base) -> None:
-        if isinstance(v, Value.File):
-            ans.add(v.value)
-        for ch in v.children:
-            collector(ch)
-
-    for b in env:
-        collector(b.value)
-    return ans
 
 
 def run_local_workflow(

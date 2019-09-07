@@ -381,7 +381,7 @@ def runner(
         if isinstance(exn, runtime.task.CommandFailure) and not (
             kwargs["verbose"] or kwargs["debug"]
         ):
-            logger.error("run with --verbose for standard error logging")
+            logger.error("run with --verbose to include task standard error streams in this log")
             logger.error("see task's standard error in %s", getattr(exn, "stderr_file"))
         if isinstance(getattr(exn, "pos", None), SourcePosition):
             pos = getattr(exn, "pos")
