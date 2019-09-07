@@ -106,7 +106,7 @@ class TestTaskRunner(unittest.TestCase):
                 String issue = read_string(stdout())
             }
             runtime {
-                docker: "frolvlad/alpine-bash:latest"
+                docker: "frolvlad/alpine-bash"
             }
         }
         """)
