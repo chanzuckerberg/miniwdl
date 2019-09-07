@@ -1371,6 +1371,19 @@ class TestDoc(unittest.TestCase):
         """
         WDL.parse_document(doc).typecheck()
 
+    def test_issue233_version_development(self):
+        # bug where "version development" resulted in draft-2 grammar
+        doc = r"""
+        version development
+
+        # struct won't parse under draft-2
+        struct Car {
+            String make
+            String model
+        }
+        """
+        WDL.parse_document(doc).typecheck()
+
 class TestCycleDetection(unittest.TestCase):
     def test_task(self):
         doc = r"""
