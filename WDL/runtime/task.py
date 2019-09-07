@@ -191,13 +191,14 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    rw_inputs_dir: Optional[Tuple[str, str]] = None
+    rw_inputs_dir: bool = False
     """
     :type: bool
 
-    By default, input files are individually mounted read-only. If rw_inputs_dir is set to the pair
-    of a host directory and corresponding in-container path, this whole directory (expected to
-    contain all input files) is mounted read/write, instead of the individual file mounts.
+    By default, input files are individually mounted read-only using their original paths. If
+    rw_inputs_dir is True, then the ``inputs`` subdirectory of ``self.host_dir`` is expected to
+    contain all input files; this whole directory is then mounted read/write, instead of the
+    individual file mounts.
     """
 
     def _run(
@@ -213,7 +214,9 @@ class TaskDockerContainer(TaskContainer):
         mounts = []
         # mount input files and command
         if self.rw_inputs_dir:
-            mounts.append(f"{self.rw_inputs_dir[0]}:{self.rw_inputs_dir[1]}:rw")
+            mounts.append(
+                f"{os.path.join(self.host_dir, 'inputs')}:{os.path.join(self.container_dir, 'inputs')}:rw"
+            )
         else:
             for host_path, container_path in self.input_file_map.items():
                 mounts.append(f"{host_path}:{container_path}:ro")
@@ -312,6 +315,7 @@ class TaskDockerContainer(TaskContainer):
             elif state not in [
                 "new",
                 "pending",
+                "ready",
                 "assigned",
                 "accepted",
                 "preparing",
@@ -369,10 +373,7 @@ def run_local_task(
             logger, task, posix_inputs, container, copy_input_files=copy_input_files
         )
         if copy_input_files:
-            container.rw_inputs_dir = (
-                os.path.join(container.host_dir, "inputs"),
-                os.path.join(container.container_dir, "inputs"),
-            )
+            container.rw_inputs_dir = True
 
         # evaluate runtime fields
         image_tag_expr = task.runtime.get("docker", None)
@@ -496,11 +497,17 @@ def _eval_task_inputs(
 def _copy_input_files(
     logger: logging.Logger, container: TaskContainer, posix_inputs: Env.Bindings[Value.Base]
 ) -> Env.Bindings[Value.Base]:
+    # partition input files by directory, to help us we keep the copies of files from the same
+    # source directory together, even if the basenames of files from different source directories
+    # should collide.
     input_files_by_dir = {}
     for filename in _filenames(posix_inputs):
         input_files_by_dir.setdefault(os.path.dirname(filename), set()).add(filename)
 
+    # copy them into appropriate host_dir subdirectories and record the original/copy filename
+    # mapping
     dest = os.path.join(container.host_dir, "inputs")
+    os.makedirs(dest)
     filename_map = {}
     for i, filenames in enumerate(input_files_by_dir.values()):
         dest_i = os.path.join(dest, str(i))
@@ -510,6 +517,7 @@ def _copy_input_files(
             shutil.copy(filename, filename_map[filename])
             logger.info("copy input file %s -> %s", filename, filename_map[filename])
 
+    # rewrite posix_inputs with the copied filenames
     def map_files(v: Value.Base) -> Value.Base:
         if isinstance(v, Value.File):
             v.value = filename_map[v.value]

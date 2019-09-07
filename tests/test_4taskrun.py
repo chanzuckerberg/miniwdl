@@ -585,7 +585,7 @@ class TestTaskRunner(unittest.TestCase):
                 Array[File] files
             }
             command {
-                sort "~{write_lines(files)}"
+                cat "~{write_lines(files)}"
             }
             output {
                 Array[String] outfiles = read_lines(stdout())
@@ -725,7 +725,7 @@ class TestTaskRunner(unittest.TestCase):
             outfile.write("Alyssa\n")
         with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
             outfile.write("Ben\n")
-        
+
         self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
                         expected_exception=WDL.runtime.task.CommandFailure)
 
