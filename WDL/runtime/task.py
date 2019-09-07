@@ -500,7 +500,7 @@ def _copy_input_files(logger: logging.Logger, container: TaskContainer) -> None:
         rel_filename = container_filename[len(container_inputs_dir) :]
         host_copy_filename = os.path.join(container.host_dir, "inputs", rel_filename)
         os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
-        logger.info("copy input file %s -> %s", host_filename, host_copy_filename)
+        logger.info("copy host input file %s -> %s", host_filename, host_copy_filename)
         shutil.copy(host_filename, host_copy_filename)
 
 
