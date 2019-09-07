@@ -369,11 +369,7 @@ def run_local_task(
 
         # evaluate input/postinput declarations, including mapping from host to
         # in-container file paths
-        container_env = _eval_task_inputs(
-            logger, task, posix_inputs, container, copy_input_files=copy_input_files
-        )
-        if copy_input_files:
-            container.rw_inputs_dir = True
+        container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
         # evaluate runtime fields
         image_tag_expr = task.runtime.get("docker", None)
@@ -394,9 +390,14 @@ def run_local_task(
 
         # interpolate command
         command = _util.strip_leading_whitespace(
-            task.command.eval(container_env, stdlib=InputStdLib(container)).value
+            task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
         )[1]
         logger.debug("command:\n%s", command.rstrip())
+
+        # if needed, copy input files for r/w mounting
+        if copy_input_files:
+            _copy_input_files(logger, container)
+            container.rw_inputs_dir = True
 
         # start container & run command
         container.run(logger, command, cpu)
@@ -426,11 +427,7 @@ def _eval_task_inputs(
     task: Tree.Task,
     posix_inputs: Env.Bindings[Value.Base],
     container: TaskContainer,
-    copy_input_files: bool = False,
 ) -> Env.Bindings[Value.Base]:
-
-    if copy_input_files:
-        posix_inputs = _copy_input_files(logger, container, posix_inputs)
 
     # Map all the provided input Files to in-container paths
     container.add_files(_filenames(posix_inputs))
@@ -471,7 +468,7 @@ def _eval_task_inputs(
 
     # evaluate each declaration in that order
     # note: the write_* functions call container.add_files as a side-effect
-    stdlib = InputStdLib(container)
+    stdlib = InputStdLib(logger, container)
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
         v = Value.Null()
@@ -494,40 +491,17 @@ def _eval_task_inputs(
     return container_env
 
 
-def _copy_input_files(
-    logger: logging.Logger, container: TaskContainer, posix_inputs: Env.Bindings[Value.Base]
-) -> Env.Bindings[Value.Base]:
-    # partition input files by directory, to help us we keep the copies of files from the same
-    # source directory together, even if the basenames of files from different source directories
-    # should collide.
-    input_files_by_dir = {}
-    for filename in _filenames(posix_inputs):
-        input_files_by_dir.setdefault(os.path.dirname(filename), set()).add(filename)
-
-    # copy them into appropriate host_dir subdirectories and record the original/copy filename
-    # mapping
-    dest = os.path.join(container.host_dir, "inputs")
-    os.makedirs(dest)
-    filename_map = {}
-    for i, filenames in enumerate(input_files_by_dir.values()):
-        dest_i = os.path.join(dest, str(i))
-        os.makedirs(dest_i)
-        for filename in filenames:
-            filename_map[filename] = os.path.join(dest_i, os.path.basename(filename))
-            shutil.copy(filename, filename_map[filename])
-            logger.info("copy input file %s -> %s", filename, filename_map[filename])
-
-    # rewrite posix_inputs with the copied filenames
-    def map_files(v: Value.Base) -> Value.Base:
-        if isinstance(v, Value.File):
-            v.value = filename_map[v.value]
-        for ch in v.children:
-            map_files(ch)
-        return v
-
-    return posix_inputs.map(
-        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
-    )
+def _copy_input_files(logger: logging.Logger, container: TaskContainer) -> None:
+    # for each virtualized filename in container.input_file_map, copy the corresponding host file
+    # into appropriate subdirectory of host_dir/inputs; making the virtualized mapping "real."
+    container_inputs_dir = os.path.join(container.container_dir, "inputs") + "/"
+    for host_filename, container_filename in container.input_file_map.items():
+        assert container_filename.startswith(container_inputs_dir)
+        rel_filename = container_filename[len(container_inputs_dir) :]
+        host_copy_filename = os.path.join(container.host_dir, "inputs", rel_filename)
+        os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
+        logger.info("copy input file %s -> %s", host_filename, host_copy_filename)
+        shutil.copy(host_filename, host_copy_filename)
 
 
 def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
@@ -549,7 +523,7 @@ def _eval_task_outputs(
     logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
 ) -> Env.Bindings[Value.Base]:
 
-    stdlib = OutputStdLib(container)
+    stdlib = OutputStdLib(logger, container)
     outputs = Env.Bindings()
     for decl in task.outputs:
         assert decl.expr
@@ -582,34 +556,40 @@ def _eval_task_outputs(
 
 
 class _StdLib(StdLib.Base):
+    logger: logging.Logger
     container: TaskContainer
     inputs_only: bool  # if True then only permit access to input files
 
-    def __init__(self, container: TaskContainer, inputs_only: bool) -> None:
+    def __init__(self, logger: logging.Logger, container: TaskContainer, inputs_only: bool) -> None:
         super().__init__(write_dir=os.path.join(container.host_dir, "write_"))
+        self.logger = logger
         self.container = container
         self.inputs_only = inputs_only
 
     def _devirtualize_filename(self, filename: str) -> str:
         # check allowability of reading this file, & map from in-container to host
-        return self.container.host_file(filename, inputs_only=self.inputs_only)
+        ans = self.container.host_file(filename, inputs_only=self.inputs_only)
+        self.logger.debug("read_ %s from host %s", filename, ans)
+        return ans
 
     def _virtualize_filename(self, filename: str) -> str:
         # register new file with container input_file_map
         self.container.add_files([filename])
+        self.logger.debug("write_ host %s", filename)
+        self.logger.info("wrote %s", self.container.input_file_map[filename])
         return self.container.input_file_map[filename]
 
 
 class InputStdLib(_StdLib):
     # StdLib for evaluation of task inputs and command
-    def __init__(self, container: TaskContainer) -> None:
-        super().__init__(container, True)
+    def __init__(self, logger: logging.Logger, container: TaskContainer) -> None:
+        super().__init__(logger, container, True)
 
 
 class OutputStdLib(_StdLib):
     # StdLib for evaluation of task outputs
-    def __init__(self, container: TaskContainer) -> None:
-        super().__init__(container, False)
+    def __init__(self, logger: logging.Logger, container: TaskContainer) -> None:
+        super().__init__(logger, container, False)
 
         setattr(
             self,

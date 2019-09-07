@@ -578,7 +578,7 @@ class TestTaskRunner(unittest.TestCase):
             outfile.write("x\n")
         with open(os.path.join(self._dir, "b", "x.y"), "w") as outfile:
             outfile.write("x.y\n")
-        outputs = self._test_task(R"""
+        txt = R"""
         version 1.0
         task t {
             input {
@@ -591,23 +591,29 @@ class TestTaskRunner(unittest.TestCase):
                 Array[String] outfiles = read_lines(stdout())
             }
         }
-        """, {"files": [
+        """
+        inp = {"files": [
             os.path.join(self._dir, "a", "x"),
             os.path.join(self._dir, "a", "x.y"),
             os.path.join(self._dir, "b", "x"),
             os.path.join(self._dir, "b", "x.y"),
             os.path.join(self._dir, "b", "x.y") # intentional duplicate
-        ]})
-        outfiles = outputs["outfiles"]
-        self.assertEqual(len(outfiles), 5)
-        self.assertEqual(os.path.basename(outfiles[0]), "x")
-        self.assertEqual(os.path.basename(outfiles[1]), "x.y")
-        self.assertEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[1]))
-        self.assertEqual(os.path.basename(outfiles[2]), "x")
-        self.assertEqual(os.path.basename(outfiles[3]), "x.y")
-        self.assertEqual(os.path.dirname(outfiles[2]), os.path.dirname(outfiles[3]))
-        self.assertNotEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[2]))
-        self.assertEqual(outfiles[3], outfiles[4])
+        ]}
+        def chk(outfiles):
+            self.assertEqual(len(outfiles), 5)
+            self.assertEqual(os.path.basename(outfiles[0]), "x")
+            self.assertEqual(os.path.basename(outfiles[1]), "x.y")
+            self.assertEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[1]))
+            self.assertEqual(os.path.basename(outfiles[2]), "x")
+            self.assertEqual(os.path.basename(outfiles[3]), "x.y")
+            self.assertEqual(os.path.dirname(outfiles[2]), os.path.dirname(outfiles[3]))
+            self.assertNotEqual(os.path.dirname(outfiles[0]), os.path.dirname(outfiles[2]))
+            self.assertEqual(outfiles[3], outfiles[4])
+
+        outputs = self._test_task(txt, inp)
+        chk(outputs["outfiles"])
+        outputs = self._test_task(txt, inp, copy_input_files=True)
+        chk(outputs["outfiles"])
 
     def test_topsort(self):
         txt = R"""
