@@ -495,12 +495,15 @@ def _copy_input_files(logger: logging.Logger, container: TaskContainer) -> None:
     # for each virtualized filename in container.input_file_map, copy the corresponding host file
     # into appropriate subdirectory of host_dir/inputs; making the virtualized mapping "real."
     container_inputs_dir = os.path.join(container.container_dir, "inputs") + "/"
+
     for host_filename, container_filename in container.input_file_map.items():
         assert container_filename.startswith(container_inputs_dir)
-        rel_filename = container_filename[len(container_inputs_dir) :]
-        host_copy_filename = os.path.join(container.host_dir, "inputs", rel_filename)
-        os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
+        host_copy_filename = os.path.join(
+            container.host_dir, "inputs", os.path.relpath(container_filename, container_inputs_dir)
+        )
+
         logger.info("copy host input file %s -> %s", host_filename, host_copy_filename)
+        os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
         shutil.copy(host_filename, host_copy_filename)
 
 
