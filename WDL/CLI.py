@@ -480,16 +480,9 @@ def runner_input(doc, inputs, input_file, empty, task=None):
 
     # build up an values env of the provided inputs
     available_inputs = target.available_inputs
-    input_env = Env.Bindings()
-
-    # first load input JSON file if any
-    if input_file:
-        with open(input_file) as infile:
-            input_env = values_from_json(
-                json.loads(infile.read()),
-                available_inputs,
-                namespace=(target.name if isinstance(target, Workflow) else ""),
-            )
+    input_env = runner_input_json_file(
+        available_inputs, (target.name if isinstance(target, Workflow) else ""), input_file
+    )
 
     # set explicitly empty arrays
     for empty_name in empty or []:
@@ -557,6 +550,32 @@ def runner_input(doc, inputs, input_file, empty, task=None):
         input_env,
         values_to_json(input_env, namespace=(target.name if isinstance(target, Workflow) else "")),
     )
+
+
+def runner_input_json_file(available_inputs, namespace, input_file):
+    """
+    Load user-supplied inputs JSON file, if any
+    """
+    ans = Env.Bindings()
+
+    if input_file:
+        with open(input_file) as infile:
+            ans = values_from_json(json.loads(infile.read()), available_inputs, namespace=namespace)
+
+        # make relative file paths absolute within the JSON file's directory
+        input_dir = os.path.dirname(os.path.abspath(input_file))
+
+        def absolutify_files(v: Value.Base) -> Value.Base:
+            if isinstance(v, Value.File):
+                if "://" not in v.value and not os.path.isabs(v.value):
+                    v.value = os.path.normpath(os.path.join(input_dir, v.value))
+            for ch in v.children:
+                absolutify_files(ch)
+            return v
+
+        ans = ans.map(lambda binding: Env.Binding(binding.name, absolutify_files(binding.value)))
+
+    return ans
 
 
 def runner_input_help(target):
@@ -935,8 +954,8 @@ def cromwell(
     sys.exit(proc.returncode)
 
 
-CROMWELL_VERSION = "45"
-CROMWELL_JAR_SIZE = 196_093_204
+CROMWELL_VERSION = "45.1"
+CROMWELL_JAR_SIZE = 196_095_569
 
 
 def ensure_cromwell_jar(jarfile=None):
