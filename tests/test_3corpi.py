@@ -268,14 +268,14 @@ class Contrived2(unittest.TestCase):
         # these use the pattern 'input { Type? x = default }' and need check_quant=False
         "mergecounts","somaticseq"
     ],
-    expected_lint={'UnusedImport': 8, 'OptionalCoercion': 9, 'StringCoercion': 14, 'UnusedDeclaration': 18, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1, 'SelectArray': 1},
+    expected_lint={'OptionalCoercion': 9, 'StringCoercion': 14, 'UnusedDeclaration': 18, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1, 'SelectArray': 1},
 )
 class BioWDLTasks(unittest.TestCase):
     pass
 
 @wdl_corpus(
     ["test_corpi/biowdl/aligning/**"],
-    expected_lint={'UnusedImport': 12, 'OptionalCoercion': 12, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
+    expected_lint={'OptionalCoercion': 12, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 1, 'NameCollision': 1},
     check_quant=False,
 )
 class BioWDLAligning(unittest.TestCase):
@@ -283,7 +283,7 @@ class BioWDLAligning(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/biowdl/expression-quantification/**"],
-    expected_lint={'UnusedImport': 12, 'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 3, 'NameCollision': 1},
+    expected_lint={'OptionalCoercion': 11, 'StringCoercion': 14, 'UnusedDeclaration': 12, 'UnnecessaryQuantifier': 41, 'NonemptyCoercion': 3, 'NameCollision': 1},
     check_quant=False,
 )
 class BioWDLExpressionQuantification(unittest.TestCase):
@@ -291,7 +291,7 @@ class BioWDLExpressionQuantification(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/biowdl/somatic-variantcalling"],
-    expected_lint={'UnusedImport': 12, 'OptionalCoercion': 11, 'StringCoercion': 16, 'UnusedDeclaration': 11, 'UnnecessaryQuantifier': 166, 'NonemptyCoercion': 37, 'SelectArray': 5},
+    expected_lint={'UnusedImport': 2, 'OptionalCoercion': 11, 'StringCoercion': 16, 'UnusedDeclaration': 11, 'UnnecessaryQuantifier': 166, 'NonemptyCoercion': 37, 'SelectArray': 5},
     check_quant=False,
 )
 class BioWDLSomaticVariantCalling(unittest.TestCase):

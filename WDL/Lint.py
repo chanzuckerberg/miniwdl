@@ -78,7 +78,7 @@ def lint(doc, descend_imports: bool = True):
 
     # Add additional markups to the AST for use by the linters
     Walker.SetParents()(doc)
-    Walker.MarkCalled()(doc)
+    Walker.MarkUsed()(doc)
     Walker.SetReferrers()(doc)
 
     # instantiate linters
@@ -605,15 +605,21 @@ class UnusedImport(Linter):
     def document(self, obj: Tree.Document) -> Any:
         for imp in obj.imports:
             assert imp.doc is not None
-            any_called = False
+            any_used = False
+            for stb in obj.struct_typedefs:
+                st: Tree.StructTypeDef = stb.value
+                if st.imported and st.imported[0] is imp and getattr(st, "used", False):
+                    any_used = True
             for task in imp.doc.tasks:
-                if getattr(task, "called", False):
-                    any_called = True
-            if imp.doc.workflow and getattr(imp.doc.workflow, "called", False):
-                any_called = True
-            if not any_called and (imp.doc.tasks or imp.doc.workflow):
+                if getattr(task, "used", False):
+                    any_used = True
+            if imp.doc.workflow and getattr(imp.doc.workflow, "used", False):
+                any_used = True
+            if not any_used and (imp.doc.tasks or imp.doc.workflow):
                 self.add(
-                    obj, "no calls to tasks/workflow in the imported document " + imp.namespace
+                    obj,
+                    "no calls to tasks/workflow, nor use of structs defined, in the imported document "
+                    + imp.namespace,
                 )
 
 

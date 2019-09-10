@@ -1,6 +1,6 @@
 # pylint: disable=assignment-from-no-return
 from typing import Any, List, Optional
-from . import Error, Expr, Tree
+from . import Error, Expr, Tree, Type
 
 
 class Base:
@@ -236,22 +236,36 @@ class SetParents(Base):
         obj.parent = self._parent_stack[-1]
 
 
-class MarkCalled(Base):
+class MarkUsed(Base):
     """
-    Mark each Task and Workflow with ``called : bool`` according to whether
-    there exists a Call to it in the top-level workflow (or a subworkflow it
-    calls). Requires SetParents to have been applied previously.
+    Mark each Task and Workflow with ``used : bool`` according to whether there exists a Call to it
+    in the top-level workflow (or a called sub-workflow). The top-level workflow is considered
+    called.
 
-    The top-level workflow is considered called.
+    Also mark each StructTypeDef used if there exists a Decl instance of it in any workflow,
+    sub-workflow, or task (regardless of whether those are called). If the StructTypeDef is imported
+    from another document, propagate the flag there as well.
+
+    Requires SetParents to have been applied previously.
     """
 
     marking: bool = False  # True while recursing from the top-level workflow
 
+    def document(self, obj: Tree.Document) -> None:
+        for stb in obj.struct_typedefs:
+            st: Tree.StructTypeDef = stb.value
+            st.used = False
+            # if struct has members that are imported structs, mark those used
+            for ty in st.members.values():
+                self._mark_structs(obj, ty, imported_only=True)
+
+        super().document(obj)
+
     def workflow(self, obj: Tree.Workflow) -> None:
-        obj.called = False
+        obj.used = False
         if obj.parent.parent is None:  # pyre-ignore
             assert not self.marking
-            obj.called = True
+            obj.used = True
             self.marking = True
             super().workflow(obj)
             self.marking = False
@@ -262,10 +276,29 @@ class MarkCalled(Base):
         assert self.marking
         if isinstance(obj.callee, Tree.Workflow):
             self(obj.callee)
-        obj.callee.called = True
+        obj.callee.used = True
 
     def task(self, obj: Tree.Task) -> None:
-        obj.called = False
+        obj.used = False
+        super().task(obj)
+
+    def decl(self, obj: Tree.Decl) -> None:
+        doc = obj
+        while not isinstance(doc, Tree.Document):
+            doc = getattr(doc, "parent")
+        self._mark_structs(doc, obj.type)
+
+    def _mark_structs(self, doc: Tree.Document, ty: Type.Base, imported_only: bool = False) -> None:
+        if isinstance(ty, Type.StructInstance):
+            st: Tree.StructTypeDef = doc.struct_typedefs[ty.type_name]
+            if not imported_only:
+                st.used = True
+            while st.imported:
+                st.used = True
+                st = st.imported[1]
+                st.used = True
+        for ch in ty.parameters:
+            self._mark_structs(doc, ch, imported_only=imported_only)
 
 
 class SetReferrers(Base):
