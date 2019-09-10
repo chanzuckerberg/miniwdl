@@ -562,13 +562,12 @@ def runner_input_json_file(available_inputs, namespace, input_file):
         with open(input_file) as infile:
             ans = values_from_json(json.loads(infile.read()), available_inputs, namespace=namespace)
 
-        # make relative file paths absolute within the JSON file's directory
-        input_dir = os.path.dirname(os.path.abspath(input_file))
+        # join relative file paths to the cwd
 
         def absolutify_files(v: Value.Base) -> Value.Base:
             if isinstance(v, Value.File):
                 if "://" not in v.value and not os.path.isabs(v.value):
-                    v.value = os.path.normpath(os.path.join(input_dir, v.value))
+                    v.value = os.path.normpath(os.path.join(os.getcwd(), v.value))
             for ch in v.children:
                 absolutify_files(ch)
             return v

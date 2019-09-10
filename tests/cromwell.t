@@ -130,7 +130,7 @@ is "$(jq -r '.["echo.a_s"][0]' workflow_inputs2.json)" "ok" "workflow --input --
 # issue #230: relative file paths in input JSON file
 mkdir relative
 echo Alice > relative/file
-echo '{"who": "file"}' > relative/input.json
+echo '{"who": "relative/file"}' > relative/input.json
 cat << 'EOF' > greet.wdl
 version 1.0
 task greet {
