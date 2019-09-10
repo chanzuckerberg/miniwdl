@@ -49,15 +49,20 @@ class StructTypeDef(SourceNode):
     Member names and types
     """
 
-    imported: bool
+    imported: "Optional[Tuple[Document,StructTypeDef]]"
     """
-    :type: bool
+    :type: Optional[Tuple[Document,StructTypeDef]]
 
-    True if this struct type was imported from another document
+    If this struct is imported from another document, references that document and its definition
+    there. The referenced definition might itself be imported from yet another document.
     """
 
     def __init__(
-        self, pos: SourcePosition, name: str, members: Dict[str, Type.Base], imported: bool = False
+        self,
+        pos: SourcePosition,
+        name: str,
+        members: Dict[str, Type.Base],
+        imported: "Optional[Tuple[Document,StructTypeDef]]" = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
@@ -1681,7 +1686,7 @@ def _import_structs(doc: Document):
             except KeyError:
                 pass
             if not existing:
-                st2 = StructTypeDef(imp.pos, name, st.members, imported=True)
+                st2 = StructTypeDef(imp.pos, name, st.members, imported=(imp, st))
                 doc.struct_typedefs = doc.struct_typedefs.bind(name, st2)
 
 
