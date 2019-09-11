@@ -3,13 +3,17 @@ PYTHON_PKG_BASE?=$(HOME)/.local
 export TMPDIR = /tmp
 
 test: check check_check
+	python3 tests/no_docker_services.py
 	pytest -v -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
 	prove -v tests/*.t
+	python3 tests/no_docker_services.py
 
 # fail fast
 qtest:
+	python3 tests/no_docker_services.py
 	pytest -vx -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
 	prove -v tests/check.t tests/runner.t
+	python3 tests/no_docker_services.py
 
 check:
 	pyre \
