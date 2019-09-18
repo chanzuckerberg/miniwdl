@@ -233,6 +233,7 @@ def install_coloredlogs(logger: logging.Logger) -> None:
         fmt=LOGGING_FORMAT,
     )
 
+
 class CustomDeepCopyMixin:
     """
     Mixin class overrides __deepcopy__ to consult an internal list of attribute names to be merely
