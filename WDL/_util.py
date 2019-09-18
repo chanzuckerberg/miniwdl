@@ -236,7 +236,7 @@ def install_coloredlogs(logger: logging.Logger) -> None:
 
 class CustomDeepCopyMixin:
     """
-    Mixin class overrides __deepcopy__ to consult an internal list of attribute names to be merely
+    Mixin class overrides __deepcopy__ to consult an internal set of attribute names to be merely
     shallow-copied when the time comes. Useful for attributes referencing large, immutable data
     structures.
 

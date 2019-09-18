@@ -29,8 +29,8 @@ class Base(CustomDeepCopyMixin, ABC):
     from ``WDL.Expr.eval``
     """
 
-    # avoid deep-copying expr since it's immutable and potentially large
-    _shallow_copy_attrs: Set[str] = set("expr")
+    # exempt type & expr from deep-copying since they're immutable
+    _shallow_copy_attrs: Set[str] = set(["expr", "type"])
 
     def __init__(self, type: Type.Base, value: Any) -> None:
         assert isinstance(type, Type.Base)
