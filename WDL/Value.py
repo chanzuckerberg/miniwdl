@@ -8,7 +8,7 @@ Each value is represented by an instance of a Python class inheriting from
    :top-classes: WDL.Value.Base
 """
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union
+from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Set
 import json
 from . import Error, Type
 from ._util import CustomDeepCopyMixin
@@ -29,13 +29,14 @@ class Base(CustomDeepCopyMixin, ABC):
     from ``WDL.Expr.eval``
     """
 
+    # avoid deep-copying expr since it's immutable and potentially large
+    _shallow_copy_attrs: Set[str] = set("expr")
+
     def __init__(self, type: Type.Base, value: Any) -> None:
         assert isinstance(type, Type.Base)
         self.type = type
         self.value = value
         self.expr = None
-        # avoid deep-copying expr since it's immutable and potentially large
-        self._shallow_copy_attr("expr")
 
     def __eq__(self, other) -> bool:
         return self.type == other.type and self.value == other.value

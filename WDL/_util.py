@@ -240,15 +240,11 @@ class CustomDeepCopyMixin:
     shallow-copied when the time comes. Useful for attributes referencing large, immutable data
     structures.
 
-    Call self._shallow_copy_attr("attr_name") in subclass initializer to register.
+    Override class variable _shallow_copy_attrs to a set of the attribute names to be
+    shallow-copied.
     """
 
     _shallow_copy_attrs: Optional[Set[str]] = None
-
-    def _shallow_copy_attr(self, k: str) -> None:
-        if self._shallow_copy_attrs is None:
-            self._shallow_copy_attrs = set()
-        self._shallow_copy_attrs.add(k)
 
     def __deepcopy__(self, memo: Dict[int, Any]) -> Any:  # pyre-ignore
         cls = self.__class__
