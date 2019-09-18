@@ -249,12 +249,15 @@ class CustomDeepCopyMixin:
     def __deepcopy__(self, memo: Dict[int, Any]) -> Any:  # pyre-ignore
         cls = self.__class__
         cp = cls.__new__(cls)
-        for k, v in self.__dict__.items():
-            vcp = (
-                copy.deepcopy(v, memo)
-                if self._shallow_copy_attrs is None or k not in self._shallow_copy_attrs
-                else v
-            )
-            setattr(cp, k, vcp)
         memo[id(self)] = cp
+        for k, v in self.__dict__.items():
+            setattr(
+                cp,
+                k,
+                (
+                    copy.deepcopy(v, memo)
+                    if self._shallow_copy_attrs is None or k not in self._shallow_copy_attrs
+                    else v
+                ),
+            )
         return cp
