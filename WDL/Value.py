@@ -11,9 +11,10 @@ from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union
 import json
 from . import Error, Type
+from ._util import CustomDeepCopyMixin
 
 
-class Base(ABC):
+class Base(CustomDeepCopyMixin, ABC):
     """The abstract base class for WDL values"""
 
     type: Type.Base
@@ -33,6 +34,8 @@ class Base(ABC):
         self.type = type
         self.value = value
         self.expr = None
+        # avoid deep-copying expr since it's immutable and potentially large
+        self._shallow_copy_attr("expr")
 
     def __eq__(self, other) -> bool:
         return self.type == other.type and self.value == other.value

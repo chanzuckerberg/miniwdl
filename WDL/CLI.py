@@ -29,6 +29,8 @@ quant_warning = False
 
 
 def main(args=None):
+    sys.setrecursionlimit(1_000_000)  # permit as much call stack depth as OS can give us
+
     parser = ArgumentParser()
     parser.add_argument(
         "--version",

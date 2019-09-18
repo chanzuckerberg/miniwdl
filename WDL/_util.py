@@ -4,9 +4,23 @@
 import os
 import json
 import logging
+import copy
 from time import sleep
 from datetime import datetime
-from typing import Tuple, Dict, Set, Iterable, List, TypeVar, Generic, Optional
+from contextlib import contextmanager
+from typing import (
+    Tuple,
+    Dict,
+    Set,
+    Iterable,
+    Iterator,
+    List,
+    TypeVar,
+    Generic,
+    Optional,
+    Callable,
+    Any,
+)
 import coloredlogs
 
 __all__: List[str] = []
@@ -218,3 +232,32 @@ def install_coloredlogs(logger: logging.Logger) -> None:
         level_styles=level_styles,
         fmt=LOGGING_FORMAT,
     )
+
+class CustomDeepCopyMixin:
+    """
+    Mixin class overrides __deepcopy__ to consult an internal list of attribute names to be merely
+    shallow-copied when the time comes. Useful for attributes referencing large, immutable data
+    structures.
+
+    Call self._shallow_copy_attr("attr_name") in subclass initializer to register.
+    """
+
+    _shallow_copy_attrs: Optional[Set[str]] = None
+
+    def _shallow_copy_attr(self, k: str) -> None:
+        if self._shallow_copy_attrs is None:
+            self._shallow_copy_attrs = set()
+        self._shallow_copy_attrs.add(k)
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> Any:  # pyre-ignore
+        cls = self.__class__
+        cp = cls.__new__(cls)
+        for k, v in self.__dict__.items():
+            vcp = (
+                copy.deepcopy(v, memo)
+                if self._shallow_copy_attrs is None or k not in self._shallow_copy_attrs
+                else v
+            )
+            setattr(cp, k, vcp)
+        memo[id(self)] = cp
+        return cp
