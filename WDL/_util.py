@@ -236,28 +236,23 @@ def install_coloredlogs(logger: logging.Logger) -> None:
 
 class CustomDeepCopyMixin:
     """
-    Mixin class overrides __deepcopy__ to consult an internal set of attribute names to be merely
+    Mixin class overrides __deepcopy__ to consult an internal list of attribute names to be merely
     shallow-copied when the time comes. Useful for attributes referencing large, immutable data
     structures.
 
-    Override class variable _shallow_copy_attrs to a set of the attribute names to be
+    Override class variable _shallow_copy_attrs to a list of the attribute names to be
     shallow-copied.
     """
 
-    _shallow_copy_attrs: Optional[Set[str]] = None
+    _shallow_copy_attrs: Optional[List[str]] = None
 
     def __deepcopy__(self, memo: Dict[int, Any]) -> Any:  # pyre-ignore
         cls = self.__class__
         cp = cls.__new__(cls)
         memo[id(self)] = cp
+        for k in self._shallow_copy_attrs or []:
+            v = self.__dict__[k]
+            memo[id(v)] = v
         for k, v in self.__dict__.items():
-            setattr(
-                cp,
-                k,
-                (
-                    copy.deepcopy(v, memo)
-                    if self._shallow_copy_attrs is None or k not in self._shallow_copy_attrs
-                    else v
-                ),
-            )
+            setattr(cp, k, copy.deepcopy(v, memo))
         return cp

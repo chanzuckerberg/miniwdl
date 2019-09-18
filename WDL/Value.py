@@ -8,7 +8,7 @@ Each value is represented by an instance of a Python class inheriting from
    :top-classes: WDL.Value.Base
 """
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Set
+from typing import Any, List, Optional, Tuple, Dict, Iterable, Union
 import json
 from . import Error, Type
 from ._util import CustomDeepCopyMixin
@@ -30,7 +30,7 @@ class Base(CustomDeepCopyMixin, ABC):
     """
 
     # exempt type & expr from deep-copying since they're immutable
-    _shallow_copy_attrs: Set[str] = set(["expr", "type"])
+    _shallow_copy_attrs: List[str] = ["expr", "type"]
 
     def __init__(self, type: Type.Base, value: Any) -> None:
         assert isinstance(type, Type.Base)
