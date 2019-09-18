@@ -34,6 +34,7 @@ import os
 import math
 import itertools
 import json
+import signal
 import traceback
 import pickle
 from concurrent import futures
@@ -575,7 +576,6 @@ def run_local_workflow(
     if not thread_pool:
         thread_pool = futures.ThreadPoolExecutor(max_workers=10)
     future_task_map = {}
-    futures_list = []
 
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
@@ -601,9 +601,8 @@ def run_local_workflow(
                 while state.outputs is None:
                     if _test_pickle:
                         state = pickle.loads(pickle.dumps(state))
-
                     next_call = state.step()
-                    if next_call:
+                    while next_call:
                         if isinstance(next_call.callee, Tree.Task):
                             run_callee = run_local_task
                         elif isinstance(next_call.callee, Tree.Workflow):
@@ -618,9 +617,8 @@ def run_local_workflow(
                                                  thread_pool=thread_pool,
                                                  )
                         future_task_map[future] = next_call.id
-
+                        next_call = state.step()
                     done_iter = futures.as_completed(future_task_map)
-                    print(f"********************************************************************* {future_task_map.keys()}")
                     future = next(done_iter, None)
                     if future:
                         try:
@@ -630,8 +628,10 @@ def run_local_workflow(
                             future_task_map.pop(future)
 
                         except Exception as e:
-                            # @madison TODO stop creating new tasks and kill other running tasks/workflows if an exception is raised
-                            print(f'oooops: {e}')
+                            logger.debug(f"Exception: {e} raised in future: {future}, {traceback.format_exc()}")
+                            for key in future_task_map:
+                                key.cancel()
+                            terminating.handle_signal(signal.SIGTERM)
         except Exception as exn:
             logger.debug(traceback.format_exc())
             if isinstance(exn, TaskFailure):

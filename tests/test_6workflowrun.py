@@ -713,3 +713,62 @@ class TestWorkflowRunner(unittest.TestCase):
         """, {"who": ["Alyssa", "Ben"]})
         self.assertEqual(outputs["messages"], ["Hello, Alyssa!", "Hello, Ben!"])
         self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
+
+    def test_run_parallelization_test(self):
+        start = time.time()
+
+        with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
+            outfile.write("Alyssa P. Hacker\n")
+            outfile.write("Ben Bitdiddle\n")
+            outfile.write("Christine Christie\n")
+            outfile.write("David Davidson\n")
+            outfile.write("Elaine Ellington\n")
+            outfile.write("Frank Flinstone\n")
+            outfile.write("Georgia Gorge\n")
+            outfile.write("Hank Holiday\n")
+            outfile.write("Irene Tu\n")
+        outputs = self._test_workflow(
+            """
+                           version 1.0
+                           workflow hello_caller {
+                               input {
+                                   File who
+                               }
+                               scatter (name in read_lines(who)) {
+                                   call hello {
+                                       input:
+                                           who = write_lines([name])
+                                   }
+                               }
+                               output {
+                                   Array[File] messages = hello.message
+                               }
+                           }
+                           task hello {
+                               input {
+                                   File who
+                               }
+                               command {
+                                   echo -n "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                                   sleep 10
+                               }
+                               output {
+                                   File message = glob("message.*")[0]
+                               }
+                           }
+                           """, {"who": os.path.join(self._dir, "who.txt")}
+        )
+
+        end = time.time()
+        test_time = round(end-start)
+
+        assert len(outputs["messages"]) == 9
+        with open(outputs["messages"][0], "r") as infile:
+            assert infile.read() == "Hello, Alyssa P. Hacker!"
+        with open(outputs["messages"][1], "r") as infile:
+            assert infile.read() == "Hello, Ben Bitdiddle!"
+        with open(outputs["messages"][8], "r") as infile:
+            assert infile.read() == "Hello, Irene Tu!"
+        assert test_time < 10 * len(outputs["messages"])
+
+        print(f"miniwdl run_parallelization_test OK in {test_time} seconds")
