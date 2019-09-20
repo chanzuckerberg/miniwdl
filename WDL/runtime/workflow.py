@@ -30,6 +30,7 @@ operations.
 """
 
 import logging
+import multiprocessing
 import os
 import math
 import itertools
@@ -42,7 +43,13 @@ from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .task import run_local_task, _filenames
-from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, install_coloredlogs, TerminationSignalFlag
+from .._util import (
+    write_values_json,
+    provision_run_dir,
+    LOGGING_FORMAT,
+    install_coloredlogs,
+    TerminationSignalFlag,
+)
 from .error import TaskFailure
 
 
@@ -555,12 +562,11 @@ class _StdLib(StdLib.Base):
 
 
 def run_local_workflow(
-        workflow: Tree.Workflow,
-        posix_inputs: Env.Bindings[Value.Base],
-        run_id: Optional[str] = None,
-        run_dir: Optional[str] = None,
-        _test_pickle: bool = False,
-        thread_pool: Optional[futures.ThreadPoolExecutor] = None
+    workflow: Tree.Workflow,
+    posix_inputs: Env.Bindings[Value.Base],
+    run_id: Optional[str] = None,
+    run_dir: Optional[str] = None,
+    _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
@@ -573,8 +579,8 @@ def run_local_workflow(
                     exist; if it does, a timestamp-based subdirectory is created and used (defaults
                     to current working directory)
     """
-    if not thread_pool:
-        thread_pool = futures.ThreadPoolExecutor(max_workers=10)
+    max_workers = multiprocessing.cpu_count()
+    thread_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
     future_task_map = {}
 
     run_id = run_id or workflow.name
@@ -596,8 +602,8 @@ def run_local_workflow(
 
     state = StateMachine(run_id, run_dir, workflow, posix_inputs)
     with TerminationSignalFlag(logger) as terminating:
-        try:
-            with thread_pool as executor:
+        with thread_pool as executor:
+            try:
                 while state.outputs is None:
                     if _test_pickle:
                         state = pickle.loads(pickle.dumps(state))
@@ -609,43 +615,45 @@ def run_local_workflow(
                             run_callee = run_local_workflow
                         else:
                             assert False
-                        future = executor.submit(run_callee,
-                                                 next_call.callee,  # pyre-fixme
-                                                 next_call.inputs,
-                                                 run_id=next_call.id,
-                                                 run_dir=os.path.join(run_dir, next_call.id),
-                                                 thread_pool=thread_pool,
-                                                 )
+                        future = executor.submit(
+                            run_callee,
+                            next_call.callee,
+                            next_call.inputs,
+                            run_id=next_call.id,
+                            run_dir=os.path.join(run_dir, next_call.id),
+                        )
                         future_task_map[future] = next_call.id
                         next_call = state.step()
                     done_iter = futures.as_completed(future_task_map)
                     future = next(done_iter, None)
                     if future:
-                        try:
-                            _, outputs = future.result()
-                            call_id = future_task_map[future]
-                            state.call_finished(call_id, outputs)
-                            future_task_map.pop(future)
+                        _, outputs = future.result()
+                        call_id = future_task_map[future]
+                        state.call_finished(call_id, outputs)
+                        future_task_map.pop(future)
+                    else:
+                        assert state.outputs is not None
 
-                        except Exception as e:
-                            logger.debug(f"Exception: {e} raised in future: {future}, {traceback.format_exc()}")
-                            for key in future_task_map:
-                                key.cancel()
-                            terminating.handle_signal(signal.SIGTERM)
-        except Exception as exn:
-            logger.debug(traceback.format_exc())
-            if isinstance(exn, TaskFailure):
-                logger.error("%s failed", getattr(exn, "run_id"))
-            else:
-                msg = ""
-                if hasattr(exn, "job_id"):
-                    msg += getattr(exn, "job_id") + " "
-                msg += exn.__class__.__name__
-                if str(exn):
-                    msg += ", " + str(exn)
-                logger.error(msg)
-                logger.info("run directory: %s", run_dir)
-            raise
+            except Exception as exn:
+                # Cancel all future tasks that havent started
+                for key in future_task_map:
+                    key.cancel()
+                pid = os.getpid()
+                # send a termination signal to ensure global termination flag is raised to force termination of running processes
+                os.kill(pid, signal.SIGTERM)
+                logger.debug(traceback.format_exc())
+                if isinstance(exn, TaskFailure):
+                    logger.error("%s failed", getattr(exn, "run_id"))
+                else:
+                    msg = ""
+                    if hasattr(exn, "job_id"):
+                        msg += getattr(exn, "job_id") + " "
+                    msg += exn.__class__.__name__
+                    if str(exn):
+                        msg += ", " + str(exn)
+                    logger.error(msg)
+                    logger.info("run directory: %s", run_dir)
+                raise
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)

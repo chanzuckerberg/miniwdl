@@ -714,9 +714,9 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["messages"], ["Hello, Alyssa!", "Hello, Ben!"])
         self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
 
-    def test_run_parallelization_test(self):
+    def test_task_parallelization(self):
         start = time.time()
-
+        sleep_time = 10
         with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
             outfile.write("Alyssa P. Hacker\n")
             outfile.write("Ben Bitdiddle\n")
@@ -733,11 +733,13 @@ class TestWorkflowRunner(unittest.TestCase):
                            workflow hello_caller {
                                input {
                                    File who
+                                   Int sleepTime
                                }
                                scatter (name in read_lines(who)) {
                                    call hello {
                                        input:
-                                           who = write_lines([name])
+                                           who = write_lines([name]),
+                                           sleepTime = sleepTime
                                    }
                                }
                                output {
@@ -747,16 +749,17 @@ class TestWorkflowRunner(unittest.TestCase):
                            task hello {
                                input {
                                    File who
+                                   Int sleepTime
                                }
                                command {
                                    echo -n "Hello, $(cat ${who})!" | tee message.txt 1>&2
-                                   sleep 10
+                                   sleep ${sleepTime}
                                }
                                output {
                                    File message = glob("message.*")[0]
                                }
                            }
-                           """, {"who": os.path.join(self._dir, "who.txt")}
+                           """, {"who": os.path.join(self._dir, "who.txt"), "sleepTime": sleep_time}
         )
 
         end = time.time()
@@ -769,6 +772,66 @@ class TestWorkflowRunner(unittest.TestCase):
             assert infile.read() == "Hello, Ben Bitdiddle!"
         with open(outputs["messages"][8], "r") as infile:
             assert infile.read() == "Hello, Irene Tu!"
-        assert test_time < 10 * len(outputs["messages"])
+        assert test_time < sleep_time * len(outputs["messages"])
 
-        print(f"miniwdl run_parallelization_test OK in {test_time} seconds")
+    def test_task_parallelization_error_handling(self):
+        start = time.time()
+        with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
+            outfile.write("Alyssa P. Hacker\n")
+            outfile.write("Ben Bitdiddle\n")
+            outfile.write("Christine Christie\n")
+            outfile.write("David Davidson\n")
+        self._test_workflow(
+            """
+                           version 1.0
+                           workflow hello_caller {
+                               input {
+                                   File who
+                               }
+                               call sum {
+                                    input:
+                                        lhs = 1,
+                                        rhs = 1
+                                }
+                               scatter (name in read_lines(who)) {
+                                   call hello {
+                                       input:
+                                           who = write_lines([name]),
+                                   }
+                               }
+                               output {
+                                   Array[File] messages = hello.message
+                               }
+                           }
+                           task sum {
+                                input {
+                                    Int lhs
+                                    Int rhs
+                                }
+                                command {
+                                    sleep 4
+                                }
+                                output {
+                                    Int ans = lhs + rhs
+                                    Int y = range(4)[99]
+                                }
+                            }
+                           task hello {
+                               input {
+                                   File who
+                               }
+                               command {
+                                   echo -n "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                                   sleep 30
+                               }
+                               output {
+                                   File message = glob("message.*")[0]
+                               }
+                           }
+                           """, {"who": os.path.join(self._dir, "who.txt")},
+            expected_exception=WDL.Error.EvalError
+        )
+
+        end = time.time()
+        test_time = round(end - start)
+        assert test_time < 15

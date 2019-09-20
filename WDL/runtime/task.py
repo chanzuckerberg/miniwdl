@@ -332,7 +332,7 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
-    **kwargs) -> Tuple[str, Env.Bindings[Value.Base]]:
+) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
 
