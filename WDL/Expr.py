@@ -1031,9 +1031,9 @@ class Apply(Base):
             return "{} && {}".format(arguments[0], arguments[1])
         elif isinstance(func, StdLib._Or):
             return "{} || {}".format(arguments[0], arguments[1])
-        elif func.name == "_rem":
+        elif self.function_name == "_rem":
             return "{} % {}".format(arguments[0], arguments[1])
-        elif func.name == "_negate":
+        elif self.function_name == "_negate":
             return "!{}".format(arguments[0])
         else:
             return "{}({})".format(self.function_name, ",".join(arguments))

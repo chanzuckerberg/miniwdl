@@ -38,6 +38,7 @@ class TestEval(unittest.TestCase):
 
         # functions
         self.assertEqual(str(WDL.parse_expr("defined(value)")), "defined(value)")
+        self.assertEqual(str(WDL.parse_expr("select_first([1, 2])")), "select_first([1, 2])")
 
         # access
         self.assertEqual(str(WDL.parse_expr("[1,2][1]")), "[1, 2][1]")
