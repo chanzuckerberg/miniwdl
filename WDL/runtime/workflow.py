@@ -30,17 +30,26 @@ operations.
 """
 
 import logging
+import multiprocessing
 import os
 import math
 import itertools
 import json
+import signal
 import traceback
 import pickle
+from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .._util import write_values_json, provision_run_dir, LOGGING_FORMAT, install_coloredlogs
 from .task import run_local_task, _filenames
+from .._util import (
+    write_values_json,
+    provision_run_dir,
+    LOGGING_FORMAT,
+    install_coloredlogs,
+    TerminationSignalFlag,
+)
 from .error import TaskFailure
 
 
@@ -570,6 +579,9 @@ def run_local_workflow(
                     exist; if it does, a timestamp-based subdirectory is created and used (defaults
                     to current working directory)
     """
+    max_workers = multiprocessing.cpu_count()
+    thread_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
+    future_task_map = {}
 
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
@@ -589,41 +601,59 @@ def run_local_workflow(
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
     state = StateMachine(run_id, run_dir, workflow, posix_inputs)
+    with TerminationSignalFlag(logger) as terminating:
+        with thread_pool as executor:
+            try:
+                while state.outputs is None:
+                    if _test_pickle:
+                        state = pickle.loads(pickle.dumps(state))
+                    next_call = state.step()
+                    while next_call:
+                        if isinstance(next_call.callee, Tree.Task):
+                            run_callee = run_local_task
+                        elif isinstance(next_call.callee, Tree.Workflow):
+                            run_callee = run_local_workflow
+                        else:
+                            assert False
+                        future = executor.submit(
+                            run_callee,
+                            next_call.callee,
+                            next_call.inputs,
+                            run_id=next_call.id,
+                            run_dir=os.path.join(run_dir, next_call.id),
+                        )
+                        future_task_map[future] = next_call.id
+                        next_call = state.step()
+                    done_iter = futures.as_completed(future_task_map)
+                    future = next(done_iter, None)
+                    if future:
+                        _, outputs = future.result()
+                        call_id = future_task_map[future]
+                        state.call_finished(call_id, outputs)
+                        future_task_map.pop(future)
+                    else:
+                        assert state.outputs is not None
 
-    try:
-        while state.outputs is None:
-            if _test_pickle:
-                state = pickle.loads(pickle.dumps(state))
-
-            next_call = state.step()
-            if next_call:
-                if isinstance(next_call.callee, Tree.Task):
-                    run_callee = run_local_task
-                elif isinstance(next_call.callee, Tree.Workflow):
-                    run_callee = run_local_workflow
+            except Exception as exn:
+                # Cancel all future tasks that havent started
+                for key in future_task_map:
+                    key.cancel()
+                pid = os.getpid()
+                # send a termination signal to ensure global termination flag is raised to force termination of running processes
+                os.kill(pid, signal.SIGTERM)
+                logger.debug(traceback.format_exc())
+                if isinstance(exn, TaskFailure):
+                    logger.error("%s failed", getattr(exn, "run_id"))
                 else:
-                    assert False
-                _, outputs = run_callee(
-                    next_call.callee,  # pyre-fixme
-                    next_call.inputs,
-                    run_id=next_call.id,
-                    run_dir=os.path.join(run_dir, next_call.id),
-                )
-                state.call_finished(next_call.id, outputs)
-    except Exception as exn:
-        logger.debug(traceback.format_exc())
-        if isinstance(exn, TaskFailure):
-            logger.error("%s failed", getattr(exn, "run_id"))
-        else:
-            msg = ""
-            if hasattr(exn, "job_id"):
-                msg += getattr(exn, "job_id") + " "
-            msg += exn.__class__.__name__
-            if str(exn):
-                msg += ", " + str(exn)
-            logger.error(msg)
-            logger.info("run directory: %s", run_dir)
-        raise
+                    msg = ""
+                    if hasattr(exn, "job_id"):
+                        msg += getattr(exn, "job_id") + " "
+                    msg += exn.__class__.__name__
+                    if str(exn):
+                        msg += ", " + str(exn)
+                    logger.error(msg)
+                    logger.info("run directory: %s", run_dir)
+                raise
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
