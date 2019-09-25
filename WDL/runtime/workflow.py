@@ -50,7 +50,7 @@ from .._util import (
     install_coloredlogs,
     TerminationSignalFlag,
 )
-from .error import TaskFailure
+from .error import TaskFailure, Terminated
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -263,7 +263,6 @@ class StateMachine:
 
             # if it's a call, return instructions to the driver
             if isinstance(res, StateMachine.CallInstructions):
-                self._log_status()
                 return res
 
             # otherwise, record the outputs, mark the job finished, and move on to the next job
@@ -383,8 +382,8 @@ class StateMachine:
         return self._logger
 
     def _log_status(self) -> None:
-        self.logger.info(
-            f"workflow nodes waiting: {len(self.waiting)} running: {len(self.running)} finished: {len(self.finished)}"
+        self.logger.notice(  # pyre-fixme
+            f"workflow steps waiting: {len(self.waiting)} running: {len(self.running)} finished: {len(self.finished)}"
         )
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -590,7 +589,7 @@ def run_local_workflow(
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     install_coloredlogs(logger)
-    logger.notice(  # pyre-fixme
+    logger.notice(
         "starting workflow %s (%s Ln %d Col %d) in %s",
         workflow.name,
         workflow.pos.uri,
@@ -607,6 +606,8 @@ def run_local_workflow(
                 while state.outputs is None:
                     if _test_pickle:
                         state = pickle.loads(pickle.dumps(state))
+                    if terminating():
+                        raise Terminated()
                     next_call = state.step()
                     while next_call:
                         if isinstance(next_call.callee, Tree.Task):
@@ -657,5 +658,5 @@ def run_local_workflow(
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
-    logger.notice("done")  # pyre-fixme
+    logger.notice("done")
     return (run_dir, state.outputs)

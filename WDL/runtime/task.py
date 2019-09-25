@@ -113,7 +113,8 @@ class TaskContainer(ABC):
         assert not self._running
         if command.strip():  # if the command is empty then don't bother with any of this
             with TerminationSignalFlag(logger) as terminating:
-
+                if terminating():
+                    raise Terminated()
                 self._running = True
                 try:
                     os.makedirs(os.path.join(self.host_dir, "work"))
