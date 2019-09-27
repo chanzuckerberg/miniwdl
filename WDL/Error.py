@@ -182,7 +182,7 @@ class UnknownIdentifier(ValidationError):
     def __init__(self, node: SourceNode) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Ident)
-        super().__init__(node, "Unknown identifier " + ".".join(getattr(node, "_ident")))
+        super().__init__(node, "Unknown identifier " + str(node))
 
 
 class NoSuchInput(ValidationError):

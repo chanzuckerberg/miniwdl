@@ -377,12 +377,13 @@ def runner(
         rundir, output_env = entrypoint(target, input_env, run_dir=rundir)
     except Exception as exn:
         if isinstance(exn, runtime.task.TaskFailure):
+            logger.error(str(exn))
             exn = exn.__cause__ or exn
         if isinstance(exn, runtime.task.CommandFailure) and not (
             kwargs["verbose"] or kwargs["debug"]
         ):
-            logger.error("run with --verbose to include task standard error streams in this log")
-            logger.error("see task's standard error in %s", getattr(exn, "stderr_file"))
+            logger.notice("run with --verbose to include task standard error streams in this log")
+            logger.notice("see task's standard error in %s", getattr(exn, "stderr_file"))
         if isinstance(getattr(exn, "pos", None), SourcePosition):
             pos = getattr(exn, "pos")
             logger.error(

@@ -636,12 +636,6 @@ def run_local_workflow(
                         assert state.outputs is not None
 
             except Exception as exn:
-                # Cancel all future tasks that havent started
-                for key in future_task_map:
-                    key.cancel()
-                pid = os.getpid()
-                # send a termination signal to ensure global termination flag is raised to force termination of running processes
-                os.kill(pid, signal.SIGTERM)
                 logger.debug(traceback.format_exc())
                 if isinstance(exn, TaskFailure):
                     logger.error("%s failed", getattr(exn, "run_id"))
@@ -654,6 +648,11 @@ def run_local_workflow(
                         msg += ", " + str(exn)
                     logger.error(msg)
                     logger.info("run directory: %s", run_dir)
+                # Cancel all future tasks that havent started
+                for key in future_task_map:
+                    key.cancel()
+                # signal any concurrent tasks/workflows to abort (via TerminationSignalFlag)
+                os.kill(os.getpid(), signal.SIGUSR1)
                 raise
 
     assert state.outputs is not None

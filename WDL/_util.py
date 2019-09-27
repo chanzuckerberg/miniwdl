@@ -304,7 +304,7 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
 
     Should be opened on the main thread wrapping all the desired operations. Once this is so, more
     instances can be opened on any thread without interfering with each other, as long as they're
-    wrapped within the main one.
+    nested within the main one.
     """
     signals = [
         signal.SIGTERM,
@@ -313,12 +313,19 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
         signal.SIGHUP,
         signal.SIGPIPE,
         signal.SIGALRM,
+        signal.SIGUSR1,
     ]
 
-    def handle_signal(signal: int, frame: FrameType) -> None:
+    def handle_signal(sig: int, frame: FrameType) -> None:
         global _terminating
+        if not _terminating:
+            if sig != signal.SIGUSR1:
+                logger.critical("received termination signal ({})".format(sig))
+            else:
+                # SIGUSR1 comes from ourselves, as the signal to abort after something else has
+                # already gone wrong
+                logger.notice("aborting workflow")  # pyre-fixme
         _terminating = True
-        logger.critical("received termination signal {}".format(signal))
 
     global _terminating
     global _terminating_lock
