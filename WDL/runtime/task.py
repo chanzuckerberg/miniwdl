@@ -60,6 +60,8 @@ class TaskContainer(ABC):
     maintained by ``add_files``.
     """
 
+    input_file_map_rev: Dict[str, str]
+
     _running: bool
 
     def __init__(self, run_id: str, host_dir: str) -> None:
@@ -67,6 +69,7 @@ class TaskContainer(ABC):
         self.host_dir = host_dir
         self.container_dir = "/mnt/miniwdl_task_container"
         self.input_file_map = {}
+        self.input_file_map_rev = {}
         self._running = False
         os.makedirs(os.path.join(self.host_dir, "work"))
 
@@ -85,18 +88,24 @@ class TaskContainer(ABC):
         # partition the files by host directory
         host_files_by_dir = {}
         for host_file in host_files:
-            host_files_by_dir.setdefault(os.path.dirname(host_file), set()).add(host_file)
+            if host_file not in self.input_file_map:
+                host_files_by_dir.setdefault(os.path.dirname(host_file), set()).add(host_file)
 
-        # map the files in each host directory into a unique container
-        # directory. ensuring that (i) there will be no name collisions, and
-        # (ii) files co-located in the same host directory will be mounted into
-        # the same container directory.
+        # for each such partition of files
+        # - if there are no basename collisions under input subdirectory 0, then mount them there.
+        # - otherwise, mount them in a fresh subdirectory
         for files in host_files_by_dir.values():
-            dn = str(len(self.input_file_map))
+            based = os.path.join(self.container_dir, "work/_miniwdl_inputs")
+            subd = "0"
             for host_file in files:
-                self.input_file_map[host_file] = os.path.join(
-                    self.container_dir, "work/_miniwdl_inputs", dn, os.path.basename(host_file)
-                )
+                container_file = os.path.join(based, subd, os.path.basename(host_file))
+                if container_file in self.input_file_map_rev:
+                    subd = str(len(self.input_file_map) + 1)
+            for host_file in files:
+                container_file = os.path.join(based, subd, os.path.basename(host_file))
+                assert container_file not in self.input_file_map_rev
+                self.input_file_map[host_file] = container_file
+                self.input_file_map_rev[container_file] = host_file
 
     def copy_input_files(self, logger: logging.Logger) -> None:
         # After add_files has been used as needed, copy the input files from their original
@@ -154,8 +163,9 @@ class TaskContainer(ABC):
         Map an output file's in-container path under ``container_dir`` to a host path under
         ``host_dir``
 
-        SECURITY: this method must only return host paths under ``host_dir`` and prevent any
-        reference to other host files (e.g. /etc/passwd), including via sneaky symlinks
+        SECURITY: except for input files, this method must only return host paths under
+        ``host_dir`` and prevent any reference to other host files (e.g. /etc/passwd), including
+        via sneaky symlinks
         """
         if os.path.isabs(container_file):
             # handle output of std{out,err}.txt
@@ -165,13 +175,8 @@ class TaskContainer(ABC):
             ]:
                 return os.path.join(self.host_dir, os.path.basename(container_file))
             # handle output of an input file
-            host_input_files = [
-                host_input_file
-                for (host_input_file, container_input_file) in self.input_file_map.items()
-                if container_input_file == container_file
-            ]
-            if host_input_files:
-                return host_input_files[0]
+            if container_file in self.input_file_map_rev:
+                return self.input_file_map_rev[container_file]
             if inputs_only:
                 raise Error.InputError(
                     "task inputs attempted to use a non-input or non-existent file "

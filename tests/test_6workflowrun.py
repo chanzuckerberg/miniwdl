@@ -714,6 +714,71 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["messages"], ["Hello, Alyssa!", "Hello, Ben!"])
         self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
 
+    def test_index_file_localization(self):
+        # from a data file we call a task to generate an index file; and in a subsequent task
+        # expect both files to be localized in the same working directory, even though they'll be
+        # located separately on the host.
+        self._test_workflow("""
+        version 1.0
+
+        workflow test_index_file_localization {
+            call fetch_fasta
+            call samtools_faidx {
+                input:
+                    fasta = fetch_fasta.fasta
+            }
+            call check {
+                input:
+                    fasta = fetch_fasta.fasta,
+                    fasta_idx = samtools_faidx.fai
+            }
+        }
+
+        task fetch_fasta {
+            command <<<
+                set -euxo pipefail
+                echo -e ">X\nAGCT" > X.fa
+            >>>
+
+            output {
+                File fasta = "X.fa"
+            }
+        }
+
+        task samtools_faidx {
+            input {
+                File fasta
+            }
+
+            command <<<
+                set -euxo pipefail
+                samtools faidx "~{fasta}"
+            >>>
+
+            output {
+                File fai = "~{fasta}.fai"
+            }
+
+            runtime {
+                docker: "quay.io/vgteam/vg:v1.19.0"
+            }
+        }
+
+        task check {
+            input {
+                File fasta
+                File fasta_idx
+            }
+
+            command <<<
+                set -euxo pipefail
+                if [ "~{fasta}.fai" != "~{fasta_idx}" ]; then
+                    exit 1
+                fi
+            >>>
+        }
+        """)
+
     def test_task_parallelization(self):
         start = time.time()
         sleep_time = 10
