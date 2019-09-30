@@ -98,6 +98,21 @@ class TaskContainer(ABC):
                     self.container_dir, "work/_miniwdl_inputs", dn, os.path.basename(host_file)
                 )
 
+    def copy_input_files(self, logger: logging.Logger) -> None:
+        # After add_files has been used as needed, copy the input files from their original
+        # locations to the appropriate subdirectories of the container working directory. This may
+        # not be necessary e.g. if the container implementation supports bind-mounting the input
+        # files from their original host paths.
+        for host_filename, container_filename in self.input_file_map.items():
+            assert container_filename.startswith(self.container_dir)
+            host_copy_filename = os.path.join(
+                self.host_dir, os.path.relpath(container_filename, self.container_dir)
+            )
+
+            logger.info("copy host input file %s -> %s", host_filename, host_copy_filename)
+            os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
+            shutil.copy(host_filename, host_copy_filename)
+
     def run(self, logger: logging.Logger, command: str, cpu: int) -> None:
         """
         1. Container is instantiated
@@ -192,15 +207,13 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    bind_input_files: Optional[str] = "ro"
-    """
-    :type: bool
+    _bind_input_files: Optional[str] = "ro"
 
-    By default, input files are individually mounted read-only into the container from their host
-    paths. If bind_input_files is set to None, then no such bindings are created; the input files
-    are expected to have been copied into appropriate subirectores of the container working
-    directory which is mounted read/write.
-    """
+    def copy_input_files(self, logger: logging.Logger) -> None:
+        assert self._bind_input_files
+        super().copy_input_files(logger)
+        # now that files have been copied, it won't be necessary to bind-mount them
+        self._bind_input_files = None
 
     def _run(
         self, logger: logging.Logger, terminating: Callable[[], bool], command: str, cpu: int
@@ -214,9 +227,9 @@ class TaskDockerContainer(TaskContainer):
 
         mounts = []
         # mount input files and command
-        if self.bind_input_files:
+        if self._bind_input_files:
             for host_path, container_path in self.input_file_map.items():
-                mounts.append(f"{host_path}:{container_path}:{self.bind_input_files}")
+                mounts.append(f"{host_path}:{container_path}:{self._bind_input_files}")
         mounts.append(
             f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
         )
@@ -393,8 +406,7 @@ def run_local_task(
 
         # if needed, copy input files into working directory
         if copy_input_files:
-            _copy_input_files(logger, container)
-            container.bind_input_files = None
+            container.copy_input_files(logger)
 
         # start container & run command
         container.run(logger, command, cpu)
@@ -486,23 +498,6 @@ def _eval_task_inputs(
         container_env = container_env.bind(decl.name, v)
 
     return container_env
-
-
-def _copy_input_files(logger: logging.Logger, container: TaskContainer) -> None:
-    # for each virtualized filename in container.input_file_map, copy the corresponding host file
-    # into appropriate subdirectory of host_dir/work/_miniwdl_inputs; making the virtualized
-    # mapping "real."
-    container_inputs_dir = os.path.join(container.container_dir, "work/_miniwdl_inputs") + "/"
-
-    for host_filename, container_filename in container.input_file_map.items():
-        assert container_filename.startswith(container_inputs_dir)
-        host_copy_filename = os.path.join(
-            container.host_dir, "work/_miniwdl_inputs", os.path.relpath(container_filename, container_inputs_dir)
-        )
-
-        logger.info("copy host input file %s -> %s", host_filename, host_copy_filename)
-        os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
-        shutil.copy(host_filename, host_copy_filename)
 
 
 def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
