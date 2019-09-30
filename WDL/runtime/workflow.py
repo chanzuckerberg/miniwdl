@@ -565,6 +565,7 @@ def run_local_workflow(
     posix_inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
+    copy_input_files: bool = False,
     _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -622,6 +623,7 @@ def run_local_workflow(
                             next_call.inputs,
                             run_id=next_call.id,
                             run_dir=os.path.join(run_dir, next_call.id),
+                            copy_input_files=copy_input_files,
                         )
                         future_task_map[future] = next_call.id
                         next_call = state.step()
