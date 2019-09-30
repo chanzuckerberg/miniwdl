@@ -68,6 +68,7 @@ class TaskContainer(ABC):
         self.container_dir = "/mnt/miniwdl_task_container"
         self.input_file_map = {}
         self._running = False
+        os.makedirs(os.path.join(self.host_dir, "work"))
 
     def add_files(self, host_files: Iterable[str]) -> None:
         """
@@ -94,7 +95,7 @@ class TaskContainer(ABC):
             dn = str(len(self.input_file_map))
             for host_file in files:
                 self.input_file_map[host_file] = os.path.join(
-                    self.container_dir, "inputs", dn, os.path.basename(host_file)
+                    self.container_dir, "work/_miniwdl_inputs", dn, os.path.basename(host_file)
                 )
 
     def run(self, logger: logging.Logger, command: str, cpu: int) -> None:
@@ -117,7 +118,6 @@ class TaskContainer(ABC):
                     raise Terminated()
                 self._running = True
                 try:
-                    os.makedirs(os.path.join(self.host_dir, "work"))
                     exit_status = self._run(logger, terminating, command, cpu)
                 finally:
                     self._running = False
@@ -192,14 +192,14 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    rw_inputs_dir: bool = False
+    bind_input_files: Optional[str] = "ro"
     """
     :type: bool
 
-    By default, input files are individually mounted read-only using their original paths. If
-    rw_inputs_dir is True, then the ``inputs`` subdirectory of ``self.host_dir`` is expected to
-    contain all input files; this whole directory is then mounted read/write, instead of the
-    individual file mounts.
+    By default, input files are individually mounted read-only into the container from their host
+    paths. If bind_input_files is set to None, then no such bindings are created; the input files
+    are expected to have been copied into appropriate subirectores of the container working
+    directory which is mounted read/write.
     """
 
     def _run(
@@ -214,13 +214,9 @@ class TaskDockerContainer(TaskContainer):
 
         mounts = []
         # mount input files and command
-        if self.rw_inputs_dir:
-            mounts.append(
-                f"{os.path.join(self.host_dir, 'inputs')}:{os.path.join(self.container_dir, 'inputs')}:rw"
-            )
-        else:
+        if self.bind_input_files:
             for host_path, container_path in self.input_file_map.items():
-                mounts.append(f"{host_path}:{container_path}:ro")
+                mounts.append(f"{host_path}:{container_path}:{self.bind_input_files}")
         mounts.append(
             f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
         )
@@ -395,10 +391,10 @@ def run_local_task(
         )[1]
         logger.debug("command:\n%s", command.rstrip())
 
-        # if needed, copy input files for r/w mounting
+        # if needed, copy input files into working directory
         if copy_input_files:
             _copy_input_files(logger, container)
-            container.rw_inputs_dir = True
+            container.bind_input_files = None
 
         # start container & run command
         container.run(logger, command, cpu)
@@ -494,13 +490,14 @@ def _eval_task_inputs(
 
 def _copy_input_files(logger: logging.Logger, container: TaskContainer) -> None:
     # for each virtualized filename in container.input_file_map, copy the corresponding host file
-    # into appropriate subdirectory of host_dir/inputs; making the virtualized mapping "real."
-    container_inputs_dir = os.path.join(container.container_dir, "inputs") + "/"
+    # into appropriate subdirectory of host_dir/work/_miniwdl_inputs; making the virtualized
+    # mapping "real."
+    container_inputs_dir = os.path.join(container.container_dir, "work/_miniwdl_inputs") + "/"
 
     for host_filename, container_filename in container.input_file_map.items():
         assert container_filename.startswith(container_inputs_dir)
         host_copy_filename = os.path.join(
-            container.host_dir, "inputs", os.path.relpath(container_filename, container_inputs_dir)
+            container.host_dir, "work/_miniwdl_inputs", os.path.relpath(container_filename, container_inputs_dir)
         )
 
         logger.info("copy host input file %s -> %s", host_filename, host_copy_filename)

@@ -738,3 +738,18 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
                                   copy_input_files=True)
         self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))
+
+        self._test_task(R"""
+        version 1.0
+        task rmdir {
+            input {
+                Array[File] files
+            }
+            command <<<
+                set -x
+                rm -rf _miniwdl*
+            >>>
+        }
+        """, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
+             expected_exception=WDL.runtime.task.CommandFailure)
+        self.assertTrue(os.path.exists(os.path.join(self._dir, "alyssa.txt")))
