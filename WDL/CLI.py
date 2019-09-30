@@ -310,6 +310,11 @@ def fill_run_subparser(subparsers):
         help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
     )
     run_parser.add_argument(
+        "--copy-input-files",
+        action="store_true",
+        help="copy input files for each task (for compatibility with commands assuming write access to them)",
+    )
+    run_parser.add_argument(
         "-t",
         "--task",
         metavar="TASK_NAME",
@@ -336,6 +341,7 @@ def runner(
     task=None,
     rundir=None,
     path=None,
+    copy_input_files=False,
     **kwargs,
 ):
     # load WDL document
@@ -374,7 +380,9 @@ def runner(
         entrypoint = (
             runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
         )
-        rundir, output_env = entrypoint(target, input_env, run_dir=rundir)
+        rundir, output_env = entrypoint(
+            target, input_env, run_dir=rundir, copy_input_files=copy_input_files
+        )
     except Exception as exn:
         if isinstance(exn, runtime.task.TaskFailure):
             logger.error(str(exn))

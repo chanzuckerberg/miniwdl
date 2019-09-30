@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 46
+plan tests 47
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -196,3 +196,21 @@ EOF
 $miniwdl run multitask.wdl --task second | tee stdout
 is "$?" "0" "multitask"
 is "$(jq -r '.outputs["second.msg"]' stdout)" "two" "multitask stdout"
+
+cat << 'EOF' > mv_input_file.wdl
+version 1.0
+task mv_input_file {
+    input {
+        File file
+    }
+    command {
+        mv "~{file}" xxx
+    }
+    output {
+        File xxx = "xxx"
+    }
+}
+EOF
+
+$miniwdl run --copy-input-files mv_input_file.wdl file=quick
+is "$?" "0" "copy input files"
