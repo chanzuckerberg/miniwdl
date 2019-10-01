@@ -290,6 +290,7 @@ def ensure_swarm(logger: logging.Logger) -> None:
             client.swarm.init(
                 advertise_addr="127.0.0.1", listen_addr="127.0.0.1", task_history_retention_limit=0
             )
+            sleep(3)
         miniwdl_services = [
             d
             for d in [s.attrs for s in client.services.list()]
