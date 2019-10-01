@@ -5,6 +5,7 @@ import os
 import docker
 import signal
 import time
+import sys
 from .context import WDL
 
 class TestWorkflowRunner(unittest.TestCase):
@@ -14,6 +15,7 @@ class TestWorkflowRunner(unittest.TestCase):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
 
     def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None):
+        sys.setrecursionlimit(180)  # set artificially low in unit tests to detect excessive recursion (issue #239)
         WDL._util.ensure_swarm(logging.getLogger("test_workflow"))
         try:
             with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:

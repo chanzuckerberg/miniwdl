@@ -248,6 +248,10 @@ class TaskDockerContainer(TaskContainer):
         )
         logger.debug("docker mounts: " + str(mounts))
 
+        if ":" not in self.image_tag:
+            # seems we need to do this explicitly under some configurations -- issue #232
+            self.image_tag += ":latest"
+
         # connect to dockerd
         client = docker.from_env()
         svc = None
