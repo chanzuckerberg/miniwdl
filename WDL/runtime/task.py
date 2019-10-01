@@ -236,7 +236,7 @@ class TaskDockerContainer(TaskContainer):
             pygtail = Pygtail(stderr_file, full_lines=True)
             pygtail_exn = False
             if ":" not in self.image_tag:
-                # seems we need to do this explicitly under some configurations -- issue 232
+                # seems we need to do this explicitly under some configurations -- issue #232
                 self.image_tag += ":latest"
             try:
                 # run container
