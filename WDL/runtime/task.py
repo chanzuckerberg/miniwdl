@@ -351,6 +351,7 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
+    logger_prefix: str = "wdl:",
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -367,7 +368,7 @@ def run_local_task(
 
     run_id = run_id or task.name
     run_dir = provision_run_dir(task.name, run_dir)
-    logger = logging.getLogger("wdl-task:" + run_id)
+    logger = logging.getLogger(logger_prefix + "task:" + run_id)
     fh = logging.FileHandler(os.path.join(run_dir, "task.log"))
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)

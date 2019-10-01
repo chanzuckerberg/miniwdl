@@ -116,7 +116,7 @@ class StateMachine:
     """
 
     _logger: Optional[logging.Logger] = None
-    run_id: str
+    logger_id: str
     run_dir: str
     values_to_json: Callable[[Env.Bindings[Value.Base]], Dict]
     workflow: Tree.Workflow
@@ -130,12 +130,16 @@ class StateMachine:
     # TODO: factor out WorkflowState interface?
 
     def __init__(
-        self, run_id: str, run_dir: str, workflow: Tree.Workflow, inputs: Env.Bindings[Value.Base]
+        self,
+        logger_id: str,
+        run_dir: str,
+        workflow: Tree.Workflow,
+        inputs: Env.Bindings[Value.Base],
     ) -> None:
         """
         Initialize the workflow state machine from the workflow AST and inputs
         """
-        self.run_id = run_id
+        self.logger_id = logger_id
         self.run_dir = run_dir
         self.workflow = workflow
         self.inputs = inputs
@@ -373,7 +377,7 @@ class StateMachine:
     @property
     def logger(self) -> logging.Logger:
         if not self._logger:
-            self._logger = logging.getLogger("wdl-worfklow:" + self.run_id)
+            self._logger = logging.getLogger(self.logger_id)
             if self.run_dir:
                 fh = logging.FileHandler(os.path.join(self.run_dir, "workflow.log"))
                 fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
@@ -566,6 +570,7 @@ def run_local_workflow(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
+    logger_prefix: str = "wdl:",
     _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -585,7 +590,8 @@ def run_local_workflow(
 
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
-    logger = logging.getLogger("wdl-workflow:" + run_id)
+    logger_id = logger_prefix + "wf:" + run_id
+    logger = logging.getLogger(logger_id)
     fh = logging.FileHandler(os.path.join(run_dir, "workflow.log"))
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
@@ -600,7 +606,7 @@ def run_local_workflow(
     )
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
-    state = StateMachine(run_id, run_dir, workflow, posix_inputs)
+    state = StateMachine(logger_id, run_dir, workflow, posix_inputs)
     with TerminationSignalFlag(logger) as terminating:
         with thread_pool as executor:
             try:
@@ -624,6 +630,7 @@ def run_local_workflow(
                             run_id=next_call.id,
                             run_dir=os.path.join(run_dir, next_call.id),
                             copy_input_files=copy_input_files,
+                            logger_prefix=(logger_id + ":"),
                         )
                         future_task_map[future] = next_call.id
                         next_call = state.step()
