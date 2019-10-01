@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 63
+plan tests 65
 
 DN=$(mktemp -d --tmpdir miniwdl_cromwell_tests_XXXXXX)
 cd $DN
@@ -123,9 +123,31 @@ echo '{"echo.i":88,"echo.t.f":"quick","echo.t.a_f":["brown"],"echo.a_s":["bogus"
 $miniwdl cromwell echo.wdl t.s=foo t.a_s=bar a_s=ok --input test_input.json --empty a_s --json > workflow_inputs2.json
 is "$?" "0" "workflow --input json status"
 is "$(jq '.["echo.i"]' workflow_inputs2.json)" "88" "workflow --input json i"
-is "$(jq -r '.["echo.t.f"]' workflow_inputs2.json)" 'quick' "workflow --input json t.f"
+is "$(basename `jq -r '.["echo.t.f"]' workflow_inputs2.json`)" 'quick' "workflow --input json t.f"
 is "$(jq '.["echo.a_s"] | length' workflow_inputs2.json)" "1" "workflow --input --empty"
 is "$(jq -r '.["echo.a_s"][0]' workflow_inputs2.json)" "ok" "workflow --input --empty & append"
+
+# issue #230: relative file paths in input JSON file
+mkdir relative
+echo Alice > relative/file
+echo '{"who": "relative/file"}' > relative/input.json
+cat << 'EOF' > greet.wdl
+version 1.0
+task greet {
+    input {
+        File who
+    }
+    command <<<
+        echo "Hello, $(cat ~{who})!"
+    >>>
+    output {
+        String message = read_string(stdout())
+    }
+}
+EOF
+$miniwdl cromwell greet.wdl --input relative/input.json | tee stdout
+is "$?" "0" "relative file path in input JSON file"
+is "$(jq -r '.outputs["greet.message"]' stdout)" 'Hello, Alice!' "output from relative path"
 
 $miniwdl cromwell --dir workflowrun echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s | tee stdout
 is "$?" "0" "workflow run"
