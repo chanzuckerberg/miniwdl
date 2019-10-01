@@ -96,6 +96,23 @@ class TestTaskRunner(unittest.TestCase):
         }
         """, expected_exception=RuntimeError)
 
+        # issue #232
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            command <<<
+                cat /etc/issue
+            >>>
+            output {
+                String issue = read_string(stdout())
+            }
+            runtime {
+                docker: "frolvlad/alpine-bash"
+            }
+        }
+        """)
+        self.assertTrue("Alpine Linux" in outputs["issue"])
+
     @log_capture()
     def test_logging_std_err(self, capture):
         self._test_task(R"""
