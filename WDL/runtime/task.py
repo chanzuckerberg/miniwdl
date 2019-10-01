@@ -258,7 +258,7 @@ class TaskDockerContainer(TaskContainer):
         try:
             # run container as a transient docker swarm service, letting docker handle the resource
             # scheduling (waiting until requested # of CPUs are available)
-            logger.info("docker starting image {}".format(self.image_tag))
+            logger.info("scheduling task with image: {}".format(self.image_tag))
             svc = client.services.create(
                 self.image_tag,
                 command=[
@@ -309,39 +309,39 @@ class TaskDockerContainer(TaskContainer):
             except:
                 logger.exception("failed to close docker-py client")
 
+    _observed_states: Optional[Set[str]] = None
+
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service
     ) -> Optional[int]:
+        state = "(no tasks)"
+
         svc.reload()
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
         tasks = svc.tasks()
-        if not tasks:
-            logger.warning(f"docker service has no tasks yet")
-        else:
+        if tasks:
             assert len(tasks) == 1
             status = tasks[0]["Status"]
             logger.debug("docker task status = " + str(status))
             state = status["State"]
-            if state in ["complete", "failed"]:
-                exit_code = status["ContainerStatus"]["ExitCode"]
-                assert isinstance(exit_code, int)
-                return exit_code
-            elif state in ["rejected", "orphaned", "remove", "shutdown"]:
-                raise RuntimeError(
-                    f"docker task {state}" + ((": " + status["Err"]) if "Err" in status else "")
-                )
-            # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
-            elif state not in [
-                "new",
-                "pending",
-                "ready",
-                "assigned",
-                "accepted",
-                "preparing",
-                "starting",
-                "running",
-            ]:
-                logger.warning(f"docker task in unknown state: {state}")
+
+        # log each new state
+        if self._observed_states is None:
+            self._observed_states = set()
+        if state not in self._observed_states:
+            logger.info("docker task state = " + state)
+            self._observed_states.add(state)
+
+        # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
+        # https://github.com/moby/moby/blob/8fbf2598f58fb212230e6ddbcfbde628b0458250/api/types/swarm/task.go#L12
+        if state in ["complete", "failed"]:
+            exit_code = status["ContainerStatus"]["ExitCode"]
+            assert isinstance(exit_code, int)
+            return exit_code
+        elif state in ["rejected", "orphaned", "remove", "shutdown"]:
+            raise RuntimeError(
+                f"docker task {state}" + ((": " + status["Err"]) if "Err" in status else "")
+            )
         return None
 
 
@@ -436,8 +436,9 @@ def run_local_task(
         msg += ": " + exn.__class__.__name__
         if str(exn):
             msg += ", " + str(exn)
+        if isinstance(exn, CommandFailure):
+            logger.info("run directory: %s", run_dir)
         logger.error(msg)
-        logger.info("run directory: %s", run_dir)
         raise wrapper from exn
 
 

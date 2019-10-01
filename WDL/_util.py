@@ -230,12 +230,21 @@ __all__.append("LOGGING_FORMAT")
 
 @export
 def install_coloredlogs(logger: logging.Logger) -> None:
-    level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
-    level_styles["debug"]["color"] = 242
+    level_styles = {}
+    field_styles = {}
+
+    if "NO_COLOR" not in os.environ:
+        level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
+        level_styles["debug"]["color"] = 242
+        level_styles["notice"] = {}
+        level_styles["info"] = {"color": "magenta"}
+        field_styles = None
+
     coloredlogs.install(
         level=logger.getEffectiveLevel(),
         logger=logger,
         level_styles=level_styles,
+        field_styles=field_styles,
         fmt=LOGGING_FORMAT,
     )
 
@@ -279,6 +288,7 @@ def ensure_swarm(logger: logging.Logger) -> None:
     client = docker.from_env()
     try:
         info = client.info()
+        # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
         if (
             "Swarm" in info
             and "LocalNodeState" in info["Swarm"]
@@ -291,6 +301,7 @@ def ensure_swarm(logger: logging.Logger) -> None:
                 advertise_addr="127.0.0.1", listen_addr="127.0.0.1", task_history_retention_limit=0
             )
             sleep(3)
+        # TODO: wait for ["Swarm"]["LocalNodeState"] == "active", log each transition
         miniwdl_services = [
             d
             for d in [s.attrs for s in client.services.list()]
