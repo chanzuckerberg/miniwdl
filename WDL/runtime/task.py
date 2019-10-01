@@ -314,7 +314,7 @@ class TaskDockerContainer(TaskContainer):
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service
     ) -> Optional[int]:
-        state = "(no tasks)"
+        state = "(unknown)"
 
         svc.reload()
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id

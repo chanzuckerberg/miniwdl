@@ -287,21 +287,30 @@ def PygtailLogger(
 def ensure_swarm(logger: logging.Logger) -> None:
     client = docker.from_env()
     try:
-        info = client.info()
-        # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
-        if (
-            "Swarm" in info
-            and "LocalNodeState" in info["Swarm"]
-            and info["Swarm"]["LocalNodeState"] == "inactive"
-        ):
-            logger.warning(
-                "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1 --task-history-limit 0`"
-            )
-            client.swarm.init(
-                advertise_addr="127.0.0.1", listen_addr="127.0.0.1", task_history_retention_limit=0
-            )
-            sleep(3)
-        # TODO: wait for ["Swarm"]["LocalNodeState"] == "active", log each transition
+        state = "(unknown)"
+        while True:
+            info = client.info()
+            if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
+                state = info["Swarm"]["LocalNodeState"]
+
+            # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
+            if state == "inactive":
+                logger.warning(
+                    "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1 --task-history-limit 0`"
+                )
+                client.swarm.init(
+                    advertise_addr="127.0.0.1",
+                    listen_addr="127.0.0.1",
+                    task_history_retention_limit=0,
+                )
+            elif state == "active":
+                break
+            else:
+                logger.notice(  # pyre-fixme
+                    "waiting for docker swarm to become active; current state = " + state
+                )
+                sleep(2)
+
         miniwdl_services = [
             d
             for d in [s.attrs for s in client.services.list()]
