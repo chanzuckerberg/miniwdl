@@ -1,9 +1,11 @@
-language: cpp
+language: python
 dist: bionic
+services:
+  - docker
 
 script:
   - |
-      set -ex -o pipefail
+      set -exo pipefail
       make docker
       docker run --env TRAVIS_JOB_ID=${TRAVIS_JOB_ID} --env TRAVIS_BRANCH=${TRAVIS_BRANCH} \
                  -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp \

@@ -235,6 +235,9 @@ class TaskDockerContainer(TaskContainer):
             stderr_file = os.path.join(self.host_dir, "stderr.txt")
             pygtail = Pygtail(stderr_file, full_lines=True)
             pygtail_exn = False
+            if ":" not in self.image_tag:
+                # seems we need to do this explicitly under some configurations -- issue #232
+                self.image_tag += ":latest"
             try:
                 # run container
                 logger.info("docker starting image {}".format(self.image_tag))
