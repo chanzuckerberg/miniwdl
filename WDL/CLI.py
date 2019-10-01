@@ -961,8 +961,8 @@ def cromwell(
     sys.exit(proc.returncode)
 
 
-CROMWELL_VERSION = "45.1"
-CROMWELL_JAR_SIZE = 196_095_569
+CROMWELL_VERSION = "46.1"
+CROMWELL_JAR_SIZE = 196_260_064
 
 
 def ensure_cromwell_jar(jarfile=None):
