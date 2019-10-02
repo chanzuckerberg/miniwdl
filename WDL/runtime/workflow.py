@@ -571,6 +571,7 @@ def run_local_workflow(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     logger_prefix: str = "wdl:",
+    max_workers: Optional[int] = None,
     _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -584,7 +585,8 @@ def run_local_workflow(
                     exist; if it does, a timestamp-based subdirectory is created and used (defaults
                     to current working directory)
     """
-    max_workers = multiprocessing.cpu_count()
+    if max_workers is None:
+        max_workers = multiprocessing.cpu_count()
     thread_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
     future_task_map = {}
 
@@ -630,6 +632,7 @@ def run_local_workflow(
                             run_id=next_call.id,
                             run_dir=os.path.join(run_dir, next_call.id),
                             copy_input_files=copy_input_files,
+                            max_workers=max_workers,
                             logger_prefix=(logger_id + ":"),
                         )
                         future_task_map[future] = next_call.id

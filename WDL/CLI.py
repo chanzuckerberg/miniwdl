@@ -15,7 +15,7 @@ import urllib
 import docker
 from shlex import quote as shellquote
 from datetime import datetime
-from argparse import ArgumentParser, Action
+from argparse import ArgumentParser, Action, SUPPRESS
 import pkg_resources
 from . import *
 from ._util import (
@@ -300,11 +300,17 @@ def fill_run_subparser(subparsers):
         help="file with Cromwell-style input JSON; command-line inputs will be merged in",
     )
     run_parser.add_argument(
+        "-t",
+        "--task",
+        metavar="TASK_NAME",
+        help="name of task to run (for WDL documents with multiple tasks & no workflow)",
+    )
+    run_parser.add_argument(
         "-j",
         "--json",
         dest="json_only",
         action="store_true",
-        help="just print Cromwell-style input JSON to standard output, then exit",
+        help=SUPPRESS,  # "just print Cromwell-style input JSON to standard output, then exit",
     )
     run_parser.add_argument(
         "-d",
@@ -316,13 +322,15 @@ def fill_run_subparser(subparsers):
     run_parser.add_argument(
         "--copy-input-files",
         action="store_true",
-        help="copy input files for each task (for compatibility with commands assuming write access to them)",
+        help="copy input files for each task (for compatibility with mv/rm/write commands)",
     )
     run_parser.add_argument(
-        "-t",
-        "--task",
-        metavar="TASK_NAME",
-        help="name of task to run (for WDL documents with multiple tasks & no workflow)",
+        "-@",
+        metavar="N",
+        dest="max_workers",
+        type=int,
+        default=None,
+        help="maximum concurrent tasks; defaults to # of processors (limit effectively lower when tasks require multiple processors)",
     )
     run_parser.add_argument(
         "-v",
@@ -346,6 +354,7 @@ def runner(
     rundir=None,
     path=None,
     copy_input_files=False,
+    max_workers=None,
     **kwargs,
 ):
     # load WDL document
@@ -385,7 +394,11 @@ def runner(
             runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
         )
         rundir, output_env = entrypoint(
-            target, input_env, run_dir=rundir, copy_input_files=copy_input_files
+            target,
+            input_env,
+            run_dir=rundir,
+            copy_input_files=copy_input_files,
+            max_workers=max_workers,
         )
     except Exception as exn:
         if isinstance(exn, runtime.task.TaskFailure):

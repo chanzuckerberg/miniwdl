@@ -352,6 +352,7 @@ def run_local_task(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     logger_prefix: str = "wdl:",
+    max_workers: Optional[int] = None,  # unused
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
