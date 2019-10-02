@@ -258,6 +258,8 @@ def PygtailLogger(
     Helper for streaming task stderr into logger using pygtail. Context manager yielding a function
     which reads the latest lines from the file and writes them into logger at verbose level. This
     function also runs automatically on context exit.
+
+    Truncates lines at 4KB in case writer goes haywire.
     """
     pygtail = Pygtail(filename, full_lines=True)
     pygtail_ok = True
@@ -267,7 +269,7 @@ def PygtailLogger(
         if pygtail_ok:
             try:
                 for line in pygtail:
-                    logger.verbose(prefix + line.rstrip())  # pyre-ignore
+                    logger.verbose((prefix + line.rstrip())[:4096])  # pyre-ignore
             except:
                 pygtail_ok = False
                 # cf. https://github.com/bgreenlee/pygtail/issues/48
