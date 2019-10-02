@@ -1,7 +1,7 @@
 # miniwdl
 **[Workflow Description Language](http://openwdl.org/) toolkit for Python 3.6+**
 
-![Project Status](https://img.shields.io/badge/status-alpha-red.svg)
+![Project Status](https://img.shields.io/badge/status-beta-yellow.svg)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/master/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
@@ -13,8 +13,8 @@
 - [Installation](#installation)
 - [Command-line tools](#command-line-tools)
   - [miniwdl check](#miniwdl-check)
-  - [miniwdl cromwell](#miniwdl-cromwell)
   - [miniwdl run](#miniwdl-run)
+  - [miniwdl cromwell](#miniwdl-cromwell)
 - [WDL Python library](#wdl-python-library)
   - [API documentation](#api-documentation)
 - [Contributing](#contributing)
@@ -79,9 +79,13 @@ In addition to its suite of WDL-specific warnings, `miniwdl check` uses [ShellCh
 
 If you haven't installed the PyPI package to get the `miniwdl` entry point, equivalently `PYTHONPATH=$PYTHONPATH:/path/to/miniwdl python3 -m WDL check ...`.
 
-### `miniwdl cromwell`
+### `miniwdl run`
 
-This tool provides a nicer command-line interface for running a workflow locally using [Cromwell](https://github.com/broadinstitute/cromwell). Example:
+miniwdl can run a parallelized workflow on the local host, provided that [Docker is installed](https://docs.docker.com/install/) and the invoking user has [permission to control it](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user). (miniwdl uses the built-in [Docker Swarm](https://docs.docker.com/engine/swarm/) mode, which it'll enable locally if it isn't already.)
+
+* Start with `miniwdl run_self_test` for a quick viability check.
+
+By analyzing the WDL file, the runner can receive workflow inputs via the command line, as illustrated:
 
 ```
 $ cat << 'EOF' > hello.wdl
@@ -100,7 +104,7 @@ task hello {
     }
 }
 EOF
-$ miniwdl cromwell hello.wdl
+$ miniwdl run hello.wdl
 missing required inputs for hello: who
 required inputs:
   Array[String]+ who
@@ -109,6 +113,30 @@ optional inputs:
 outputs:
   Array[String]+ messages
   Int meaning_of_life
+$ miniwdl run hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
+{
+  "outputs": {
+    "hello.messages": [
+      "Hello Alyssa",
+      "Hello Ben Bitdiddle"
+    ],
+    "hello.meaning_of_life": 42
+  },
+  "dir": "/home/user/20190718_213847_hello"
+}
+```
+
+Relative or absolute paths are accepted for File inputs. The runner can also provide shell tab-completion for the workflow's available inputs. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl run hello.wdl ` and try double-tab.
+
+Lastly, inputs can be supplied through a Cromwell-style JSON file; see `miniwdl run --help` for this and other options.
+
+The miniwdl runner is still in beta testing, and the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) page documents certain existing limitations. If you encounter a WDL 1.0 interoperability problem not mentioned there, please file it via [Issues](https://github.com/chanzuckerberg/miniwdl/issues).
+
+### `miniwdl cromwell`
+
+This tool provides `miniwidl run`'s command-line interface for supplying the workflow's inputs, but calls out to [Cromwell](https://github.com/broadinstitute/cromwell) to actually run it instead of the built-in runtime.
+
+```
 $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 {
   "outputs": {
@@ -123,29 +151,8 @@ $ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 }
 ```
 
-By first analyzing the WDL code, this tool translates the freeform command-line arguments into appropriately-typed JSON inputs for Cromwell. It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available to run it. You can use the `-r/--jar` option if you already have a local copy of Cromwell; other Cromwell configuration options are available (see `--help`). The invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user).
 
-The tool supports shell tab-completion for the workflow's available input names. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl cromwell hello.wdl ` and try double-tab.
-
-### `miniwdl run`
-
-miniwdl's built-in capability to execute workflows on the local host is in early testing. The [Releases](https://github.com/chanzuckerberg/miniwdl/releases) page documents current salient limitations. If you encounter an interoperability problem not mentioned there, we want to hear about it via [Issues](https://github.com/chanzuckerberg/miniwdl/issues)!
-
-Operation is nearly identical to `miniwdl cromwell`. The invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user).
-
-```
-$ miniwdl run hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
-{
-  "outputs": {
-    "hello.messages": [
-      "Hello Alyssa",
-      "Hello Ben Bitdiddle"
-    ],
-    "hello.meaning_of_life": 42
-  },
-  "dir": "/home/user/20190718_213847_hello"
-}
-```
+It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available. You can use the `-r/--jar` option if you already have a local copy of Cromwell; other Cromwell configuration options are available (see `miniwdl cromwell --help`).
 
 ## WDL Python library
 

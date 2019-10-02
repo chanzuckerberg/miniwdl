@@ -275,7 +275,7 @@ async def read_source(uri, path, importer_uri):
 def fill_run_subparser(subparsers):
     run_parser = subparsers.add_parser(
         "run",
-        help="Run workflow/task locally with built-in runtime [alpha test]",
+        help="Run workflow/task locally with built-in runtime [beta test]",
         epilog="NO_COLOR= environment variable disables terminal colors in log messages.",
     )
     run_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
