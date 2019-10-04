@@ -378,11 +378,14 @@ class StateMachine:
     def logger(self) -> logging.Logger:
         if not self._logger:
             self._logger = logging.getLogger(self.logger_id)
-            if self.run_dir:
-                fh = logging.FileHandler(os.path.join(self.run_dir, "workflow.log"))
-                fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
-                self._logger.addHandler(fh)
-            install_coloredlogs(self._logger)
+            # TODO: if we were truly unpickling in a new process, we'd need to reinitialize the
+            # logger object like this --
+            #
+            # if self.run_dir:
+            #    fh = logging.FileHandler(os.path.join(self.run_dir, "workflow.log"))
+            #    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
+            #    self._logger.addHandler(fh)
+            # install_coloredlogs(self._logger)
         return self._logger
 
     def _log_status(self) -> None:
