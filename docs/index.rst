@@ -1,57 +1,22 @@
-.. miniwdl documentation master file, created by
-   sphinx-quickstart on Tue Sep  4 15:20:37 2018.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 miniwdl
 =======
 
-.. contents::
+`miniwdl <https://github.com/chanzuckerberg/miniwdl/>`_ is a local runner and developer toolkit for
+the bioinformatics-focused `Workflow Description Language (WDL) <http://openwdl.org/>`_. 
 
-.. automodule:: WDL
-   :members:
+.. toctree::
+   :maxdepth: 2
 
-Tree
-----
-.. automodule:: WDL.Tree
-   :members:
-   :show-inheritance:
+   getting_started.md
+   WDL.rst
 
-Expr
-----
+Links
+=====
 
-.. automodule:: WDL.Expr
-   :members:
-   :show-inheritance:
-
-Env
----
-.. automodule:: WDL.Env
-   :members:
-   :show-inheritance:
-
-Type
-----
-
-.. automodule:: WDL.Type
-   :members:
-   :show-inheritance:
-
-Value
------
-.. automodule:: WDL.Value
-   :members:
-   :show-inheritance:
-
-Error
------
-.. automodule:: WDL.Error
-   :members:
-   :show-inheritance:
-
-Lint
-----
-.. automodule:: WDL.Lint
+* `miniwdl repo <https://github.com/chanzuckerberg/miniwdl/>`_ for installation instructions & issue
+  tracker
+* `OpenWDL repo <https://github.com/openwdl/wdl>`_ for WDL spec, proposals, and discussion
+* `CZI Science Technology <https://chanzuckerberg.com/technology/science/>`_ sponsors this project
 
 Indices and tables
 ==================

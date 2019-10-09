@@ -162,3 +162,11 @@ texinfo_documents = [
 # -- Extension configuration -------------------------------------------------
 
 autodoc_member_order = 'bysource'
+
+from recommonmark.parser import CommonMarkParser
+
+source_parsers = {
+    '.md': CommonMarkParser,
+}
+
+source_suffix = ['.rst', '.md']
