@@ -1538,7 +1538,7 @@ def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callab
                     if id(stb.value.members) == id(actual.members):
                         actual = Type.StructInstance(stb.name, optional=actual.optional)
                         actual.members = stb.value.members
-            raise Error.StaticTypeMismatch(exc.node or exc.pos, expected, actual, exc.args[0])
+            raise Error.StaticTypeMismatch(exc.node or exc.pos, expected, actual, exc.message)
 
     return f
 

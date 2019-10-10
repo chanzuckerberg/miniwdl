@@ -1744,7 +1744,7 @@ class TestStruct(unittest.TestCase):
         }
         """
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+        with self.assertRaisesRegex(WDL.Error.StaticTypeMismatch, "Expected Person instead of Car"):
             doc.typecheck()
 
         doc = r"""
@@ -2195,6 +2195,7 @@ class TestStruct(unittest.TestCase):
         self.assertEqual(len(ctx.exception.exceptions), 4)
         for i in range(4):
             self.assertTrue(isinstance(ctx.exception.exceptions[i], WDL.Error.StaticTypeMismatch))
+        self.assertEqual(str(ctx.exception.exceptions[2]), "Expected Person instead of object(age : Boolean, name : String)")
 
         doc = r"""
         version 1.0

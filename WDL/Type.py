@@ -393,9 +393,7 @@ class StructInstance(Base):
         self.members = None
 
     def __str__(self) -> str:
-        return (_struct_type_id(self.members) if self.members else self.type_name) + (
-            "?" if self.optional else ""
-        )
+        return self.type_name + ("?" if self.optional else "")
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
