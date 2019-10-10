@@ -345,6 +345,7 @@ class OptionalCoercion(Linter):
     # Expression of optional type where a non-optional value is expected
     # Normally these fail typechecking, but the enforcement isn't stringent in
     # older WDLs.
+    # TODO: suppress within 'if (defined(x))' consequent
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
             if obj.function_name in ["_add", "_sub", "_mul", "_div", "_land", "_lor"]:

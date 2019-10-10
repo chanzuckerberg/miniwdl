@@ -301,7 +301,7 @@ class Task(SourceNode):
         Each input is at the top level of the Env, with no namespace.
         """
         ans = Env.Bindings()
-        for decl in self.inputs if self.inputs is not None else self.postinputs:
+        for decl in reversed(self.inputs if self.inputs is not None else self.postinputs):
             ans = ans.bind(decl.name, decl)
         return ans
 
@@ -315,7 +315,7 @@ class Task(SourceNode):
         Each input is at the top level of the Env, with no namespace.
         """
         ans = Env.Bindings()
-        for b in self.available_inputs:
+        for b in reversed(list(self.available_inputs)):
             assert isinstance(b, Env.Binding)
             d: Decl = b.value
             if d.expr is None and d.type.optional is False:
@@ -331,7 +331,7 @@ class Task(SourceNode):
         ``Workflow.effective_outputs``)
         """
         ans = Env.Bindings()
-        for decl in self.outputs:
+        for decl in reversed(self.outputs):
             ans = ans.bind(decl.name, decl.type, decl)
         return ans
 
@@ -358,10 +358,10 @@ class Task(SourceNode):
         # must be bound
         if self.inputs is not None:
             for decl in self.postinputs:
-                if not decl.expr:
+                if not decl.type.optional and not decl.expr:
                     raise Error.StrayInputDeclaration(
                         self,
-                        "unbound declaration {} {} outside task input{} section".format(
+                        "unbound non-optional declaration {} {} outside task input{} section".format(
                             str(decl.type), decl.name, "{}"
                         ),
                     )
@@ -567,7 +567,7 @@ class Call(WorkflowNode):
         """
         ans = Env.Bindings()
         assert self.callee
-        for outp in self.callee.effective_outputs:
+        for outp in reversed(list(self.callee.effective_outputs)):
             ans = ans.bind(self.name + "." + outp.name, outp.value, self)
         return ans
 
@@ -925,30 +925,28 @@ class Workflow(SourceNode):
     def available_inputs(self) -> Env.Bindings[Decl]:
         """:type: WDL.Env.Bindings[WDL.Tree.Decl]
 
-        Yields the workflow's input declarations. This includes:
+        The workflow's input declarations. This includes:
 
-        1. If the ``input{}`` workflow section is present, all declarations
-        within that section. Otherwise, all declarations in the workflow body,
-        excluding outputs. (This dichotomy bridges pre-1.0 and 1.0+ WDL
-        versions.) These appear at the top level of the Env, with no namepsace.
+        1. If the ``input{}`` workflow section is present, all declarations within that section.
+        Otherwise, all declarations in the top-level workflow body, excluding outputs. (This
+        dichotomy bridges pre-1.0 and 1.0+ WDL versions.) These appear at the top level of the Env,
+        with no namespace.
 
-        2. Available inputs of all calls in the workflow, namespaced by the
-        call names.
+        2. Available inputs of all calls in the workflow, namespaced by the call names.
         """
         ans = Env.Bindings()
 
-        if self.inputs is not None:
-            for decl in self.inputs:
-                ans = ans.bind(decl.name, decl)
+        # order of operations here ensures that iterating the env yields decls in the source order
+        for c in reversed(list(_calls(self))):
+            ans = Env.merge(c.available_inputs, ans)
 
-        for elt in _decls_and_calls(self, exclude_outputs=True):
-            if isinstance(elt, Decl):
-                if self.inputs is None:
+        if self.inputs is not None:
+            for decl in reversed(self.inputs):
+                ans = ans.bind(decl.name, decl)
+        else:
+            for elt in reversed(self.body):
+                if isinstance(elt, Decl):
                     ans = ans.bind(elt.name, elt)
-            elif isinstance(elt, Call):
-                ans = Env.merge(elt.available_inputs, ans)
-            else:
-                assert False
 
         return ans
 
@@ -956,23 +954,19 @@ class Workflow(SourceNode):
     def required_inputs(self) -> Env.Bindings[Decl]:
         """:type: WDL.Env.Bindings[Decl]
 
-        Yields the subset of available inputs which are required to start the
-        workflow."""
+        The subset of available inputs which are required to start the workflow.
+        """
         ans = Env.Bindings()
 
-        if self.inputs is not None:
-            for decl in self.inputs:
-                if decl.expr is None and decl.type.optional is False:
-                    ans = ans.bind(decl.name, decl)
+        for c in reversed(list(_calls(self))):
+            ans = Env.merge(c.required_inputs, ans)
 
-        for elt in _decls_and_calls(self, exclude_outputs=True):
-            if isinstance(elt, Decl):
-                if self.inputs is None and elt.expr is None and elt.type.optional is False:
-                    ans = ans.bind(elt.name, elt)
-            elif isinstance(elt, Call):
-                ans = Env.merge(elt.required_inputs, ans)
-            else:
-                assert False
+        for b in reversed(list(self.available_inputs)):
+            if "." not in b.name:
+                d = b.value
+                assert isinstance(d, Decl)
+                if not d.type.optional and not d.expr:
+                    ans = ans.bind(b.name, b.value)
 
         return ans
 
@@ -987,10 +981,10 @@ class Workflow(SourceNode):
         ans = Env.Bindings()
 
         if self.outputs is not None:
-            for decl in self.outputs:
+            for decl in reversed(self.outputs):
                 ans = ans.bind(decl.name, decl.type, decl)
         else:
-            for elt in self.body:
+            for elt in reversed(self.body):
                 if isinstance(elt, (Call, WorkflowSection)):
                     ans = Env.merge(elt.effective_outputs, ans)
 
@@ -1353,21 +1347,13 @@ def load(
 #
 
 
-def _decls_and_calls(
-    element: Union[Workflow, Scatter, Conditional], exclude_outputs: bool = True
-) -> Generator[Union[Decl, Call], None, None]:
-    # Yield each Decl and Call in the workflow, including those nested within
-    # scatter/conditional sections
-    children = element.children
-    if isinstance(element, Workflow) and exclude_outputs:
-        children = element.inputs if element.inputs else []
-        children = children + element.body
-    for ch in children:
-        if isinstance(ch, (Decl, Call)):
+def _calls(element: Union[Workflow, WorkflowSection]) -> Generator[Call, None, None]:
+    # Yield each Call in the workflow, including those nested withis scatter/conditional sections
+    for ch in element.children:
+        if isinstance(ch, Call):
             yield ch
-        elif isinstance(ch, (Scatter, Conditional)):
-            for gch in _decls_and_calls(ch):
-                yield gch
+        elif isinstance(ch, WorkflowSection):
+            yield from _calls(ch)
 
 
 def _resolve_calls(doc: Document) -> None:
@@ -1375,9 +1361,8 @@ def _resolve_calls(doc: Document) -> None:
     # sections).
     if doc.workflow:
         with Error.multi_context() as errors:
-            for c in _decls_and_calls(doc.workflow):
-                if isinstance(c, Call):
-                    errors.try1(lambda c=c: c.resolve(doc))
+            for c in _calls(doc.workflow):
+                errors.try1(lambda c=c: c.resolve(doc))
 
 
 def _build_workflow_type_env(
@@ -1459,13 +1444,21 @@ def _build_workflow_type_env(
                         doc.struct_typedefs, child_outer_type_env
                     )
             _build_workflow_type_env(doc, check_quant, child, child_outer_type_env)
-        elif doc.workflow.inputs is not None and isinstance(child, Decl) and not child.expr:
-            raise Error.StrayInputDeclaration(
-                self,
-                "unbound declaration {} {} outside workflow input{} section".format(
-                    str(child.type), child.name, "{}"
-                ),
-            )
+        elif isinstance(child, Decl) and not child.type.optional and not child.expr:
+            if doc.workflow.inputs is not None:
+                raise Error.StrayInputDeclaration(
+                    self,
+                    "unbound non-optional declaration {} {} outside workflow input{} section".format(
+                        str(child.type), child.name, "{}"
+                    ),
+                )
+            elif not isinstance(self, Workflow):
+                raise Error.StrayInputDeclaration(
+                    self,
+                    "unbound non-optional declaration {} {} inside scatter/conditional section".format(
+                        str(child.type), child.name
+                    ),
+                )
 
     # finally, populate self._type_env with all our children
     for child in self.body:
@@ -1545,7 +1538,7 @@ def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callab
                     if id(stb.value.members) == id(actual.members):
                         actual = Type.StructInstance(stb.name, optional=actual.optional)
                         actual.members = stb.value.members
-            raise Error.StaticTypeMismatch(exc.node or exc.pos, expected, actual, exc.args[0])
+            raise Error.StaticTypeMismatch(exc.node or exc.pos, expected, actual, exc.message)
 
     return f
 

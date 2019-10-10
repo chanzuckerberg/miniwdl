@@ -17,6 +17,7 @@ class TestStdLib(unittest.TestCase):
             doc = WDL.parse_document(wdl)
             assert len(doc.tasks) == 1
             doc.typecheck()
+            assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
             rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir)
