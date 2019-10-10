@@ -606,8 +606,8 @@ def runner_input_help(target):
     ans = []
     required_inputs = target.required_inputs
     ans.append("\nrequired inputs:")
-    for name, ty in values_to_json(required_inputs).items():
-        ans.append("  {} {}".format(ty, name))
+    for b in required_inputs:
+        ans.append("  {} {}".format(str(b.value.type), b.name))
     optional_inputs = target.available_inputs.subtract(target.required_inputs)
     if target.inputs is None:
         # if the target doesn't have an input{} section (pre WDL 1.0), exclude
@@ -617,11 +617,11 @@ def runner_input_help(target):
         )
     if optional_inputs:
         ans.append("\noptional inputs:")
-        for name, ty in values_to_json(optional_inputs).items():
-            ans.append("  {} {}".format(ty, name))
+        for b in optional_inputs:
+            ans.append("  {} {}".format(str(b.value.type), b.name))
     ans.append("\noutputs:")
-    for name, ty in values_to_json(target.effective_outputs).items():
-        ans.append("  {} {}".format(ty, name))
+    for b in target.effective_outputs:
+        ans.append("  {} {}".format(str(b.value), b.name))
     return "\n".join(ans)
 
 

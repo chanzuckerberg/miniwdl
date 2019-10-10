@@ -69,12 +69,14 @@ class Base(ABC):
         if not check_quant and isinstance(rhs, Array) and self.coerces(rhs.item_type, check_quant):
             # coerce T to Array[T]
             return True
-        return (type(rhs).__name__ in [type(self).__name__, "Any"]) and self._check_optional(
-            rhs, check_quant
-        )
+        return (
+            type(self).__name__ == type(rhs).__name__ or isinstance(rhs, Any)
+        ) and self._check_optional(rhs, check_quant)
 
     def _check_optional(self, rhs: "Base", check_quant: bool) -> bool:
-        return not (check_quant and (self.optional and not rhs.optional))
+        return not (
+            check_quant and (self.optional and not rhs.optional and not isinstance(rhs, Any))
+        )
 
     @property
     def optional(self) -> bool:
@@ -119,10 +121,10 @@ class Any(Base):
     """
 
     def __init__(self, optional: bool = False) -> None:
-        self._optional = optional
+        self._optional = False  # no point, since this unconditionally coerces to anything
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        return self._check_optional(rhs, check_quant)
+        return True
 
 
 class Boolean(Base):

@@ -159,18 +159,18 @@ class NoSuchMember(ValidationError):
 
 class StaticTypeMismatch(ValidationError):
     def __init__(
-        self,
-        node: SourceNode,
-        expected: Type.Base,
-        actual: Type.Base,
-        message: Optional[str] = None,
+        self, node: SourceNode, expected: Type.Base, actual: Type.Base, message: str = ""
     ) -> None:
         self.expected = expected
         self.actual = actual
-        msg = "Expected {} instead of {}".format(str(expected), str(actual))
-        if message is not None:
-            msg = msg + " " + message
-        super().__init__(node, msg)
+        super().__init__(node, message)
+
+    def __str__(self) -> str:
+        msg = "Expected {} instead of {}".format(str(self.expected), str(self.actual))
+        msg2 = super().__str__()
+        if msg2:
+            msg += " " + msg2
+        return msg
 
 
 class IncompatibleOperand(ValidationError):

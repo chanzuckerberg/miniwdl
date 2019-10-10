@@ -1200,6 +1200,27 @@ class TestDoc(unittest.TestCase):
             doc.typecheck()
 
         doc = r"""
+        version 1.0
+        task sum {
+            input {
+                Int x = select_first([y,42])
+            }
+            Int? y
+            command <<<
+                echo $(( ~{x} + ~{y} ))
+            >>>
+            output {
+                Int z = read_int(stdout())
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertIn("x", doc.tasks[0].available_inputs)
+        self.assertNotIn("x", doc.tasks[0].required_inputs)
+        self.assertNotIn("y", doc.tasks[0].available_inputs)
+
+        doc = r"""
         workflow wf {
             input {
                 Int x = y
@@ -1210,6 +1231,70 @@ class TestDoc(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.StrayInputDeclaration):
             doc.typecheck()
+
+        doc = r"""
+        workflow wf {
+            input {
+                Int x = select_first([y, 42])
+            }
+            Int? y
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertIn("x", doc.workflow.available_inputs)
+        self.assertNotIn("y", doc.workflow.available_inputs)
+
+        doc = r"""
+        workflow wf {
+            input {
+                Int x = y[0]
+            }
+            scatter (i in [1,2,3]) {
+                Int y
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StrayInputDeclaration):
+            doc.typecheck()
+
+        doc = r"""
+        workflow wf {
+            scatter (i in [1,2,3]) {
+                Int y
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        with self.assertRaises(WDL.Error.StrayInputDeclaration):
+            doc.typecheck()
+
+        doc = r"""
+        workflow wf {
+            input {
+                Int x = select_first([y, 42])
+            }
+            Int? y
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertIn("x", doc.workflow.available_inputs)
+        self.assertNotIn("y", doc.workflow.available_inputs)
+
+        doc = r"""
+        workflow wf {
+            Int x
+            scatter (i in [1,2,3]) {
+                Int? y
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertIn("x", doc.workflow.available_inputs)
+        self.assertNotIn("y", doc.workflow.available_inputs)
 
         doc = r"""
         version 1.0
