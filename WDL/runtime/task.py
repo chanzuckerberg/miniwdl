@@ -12,6 +12,7 @@ import time
 import math
 import multiprocessing
 import shutil
+import threading
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
 
@@ -338,7 +339,8 @@ class TaskDockerContainer(TaskContainer):
             exit_code = status["ContainerStatus"]["ExitCode"]
             assert isinstance(exit_code, int)
             return exit_code
-        elif state in ["rejected", "orphaned", "remove", "shutdown"]:
+        elif state in ["rejected", "orphaned", "remove"]:
+            # "shutdown" seems to be a normal transient state
             raise RuntimeError(
                 f"docker task {state}" + ((": " + status["Err"]) if "Err" in status else "")
             )
@@ -375,12 +377,13 @@ def run_local_task(
     logger.addHandler(fh)
     _util.install_coloredlogs(logger)
     logger.notice(  # pyre-fixme
-        "starting task %s (%s Ln %d Col %d) in %s",
+        "starting task %s (%s Ln %d Col %d) in %s [thread %d]",
         task.name,
         task.pos.uri,
         task.pos.line,
         task.pos.column,
         run_dir,
+        threading.get_ident(),
     )
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
 
