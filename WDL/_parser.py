@@ -75,7 +75,7 @@ call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 call: "call" namespaced_ident call_body? -> call
     | "call" namespaced_ident "as" CNAME call_body? -> call_as
 
-?inner_workflow_element: bound_decl | call | scatter | conditional
+?inner_workflow_element: any_decl | call | scatter | conditional
 scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 

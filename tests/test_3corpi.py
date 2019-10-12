@@ -208,7 +208,7 @@ class ENCODE_ChIPseq(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/ENCODE-DCC/atac-seq-pipeline/**"],
-    expected_lint={'StringCoercion': 195, 'FileCoercion': 204, 'OptionalCoercion': 26, 'UnusedCall': 13, 'MixedIndentation': 13},
+    expected_lint={'UnusedDeclaration': 63, 'MixedIndentation': 15, 'OptionalCoercion': 1020, 'UnusedCall': 45, 'StringCoercion': 90, 'FileCoercion': 71},
     check_quant=False,
 )
 class ENCODE_ATACseq(unittest.TestCase):

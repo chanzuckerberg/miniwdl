@@ -22,6 +22,7 @@ class TestWorkflowRunner(unittest.TestCase):
                 outfile.write(wdl.encode("utf-8"))
                 wdlfn = outfile.name
             doc = WDL.load(wdlfn)
+            assert len(doc.workflow.required_inputs.subtract(doc.workflow.available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
             rundir, outputs = WDL.runtime.run_local_workflow(doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
@@ -427,6 +428,31 @@ class TestWorkflowRunner(unittest.TestCase):
         """
         self.assertEqual(self._test_workflow(txt)["ans"], 42)
         self.assertEqual(self._test_workflow(txt, {"optional": 123})["ans"], 123)
+
+        # null declarations
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow x {
+            input {
+            }
+            Int? n0
+            scatter (i in [1,2,3]) {
+                Int? n1
+                if (i > 1) {
+                    Int? n2
+                }
+            }
+            output {
+                Int? null0 = n0
+                Array[Int?] null1 = n1
+                Array[Int?] null2 = n2
+            }
+        }
+        """)
+        self.assertEqual(outputs["null0"], None)
+        self.assertEqual(outputs["null1"], [None, None, None])
+        self.assertEqual(outputs["null2"], [None, None, None])
 
     def test_errors(self):
         exn = self._test_workflow("""
