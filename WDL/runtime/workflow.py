@@ -38,6 +38,7 @@ import json
 import signal
 import traceback
 import pickle
+import threading
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from .. import Env, Type, Value, Tree, StdLib
@@ -609,6 +610,7 @@ def run_local_workflow(
         workflow.pos.column,
         run_dir,
     )
+    logger.info("thread %d", threading.get_ident())
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
     state = StateMachine(logger_id, run_dir, workflow, posix_inputs)

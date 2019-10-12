@@ -11,6 +11,7 @@ import glob
 import time
 import math
 import multiprocessing
+import threading
 import shutil
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
@@ -338,7 +339,8 @@ class TaskDockerContainer(TaskContainer):
             exit_code = status["ContainerStatus"]["ExitCode"]
             assert isinstance(exit_code, int)
             return exit_code
-        elif state in ["rejected", "orphaned", "remove", "shutdown"]:
+        elif state in ["rejected", "orphaned", "remove"]:
+            # "shutdown" seems to a normal transient state
             raise RuntimeError(
                 f"docker task {state}" + ((": " + status["Err"]) if "Err" in status else "")
             )
@@ -382,6 +384,7 @@ def run_local_task(
         task.pos.column,
         run_dir,
     )
+    logger.info("thread %d", threading.get_ident())
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
