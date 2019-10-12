@@ -11,6 +11,7 @@ import glob
 import time
 import math
 import multiprocessing
+import threading
 import shutil
 import threading
 from abc import ABC, abstractmethod
@@ -377,14 +378,14 @@ def run_local_task(
     logger.addHandler(fh)
     _util.install_coloredlogs(logger)
     logger.notice(  # pyre-fixme
-        "starting task %s (%s Ln %d Col %d) in %s [thread %d]",
+        "starting task %s (%s Ln %d Col %d) in %s",
         task.name,
         task.pos.uri,
         task.pos.line,
         task.pos.column,
         run_dir,
-        threading.get_ident(),
     )
+    logger.info("thread %d", threading.get_ident())
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
