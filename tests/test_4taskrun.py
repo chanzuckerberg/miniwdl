@@ -774,3 +774,19 @@ class TestTaskRunner(unittest.TestCase):
         """, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
              expected_exception=WDL.runtime.task.CommandFailure)
         self.assertTrue(os.path.exists(os.path.join(self._dir, "alyssa.txt")))
+
+    def test_optional_file_outputs(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task rmdir {
+            command <<<
+                touch foo.txt
+            >>>
+            output {
+                Array[File?] files = ["foo.txt", "bar.txt"]
+            }
+        }
+        """)
+        self.assertEqual(len(outputs["files"]), 2)
+        self.assertIsNotNone(outputs["files"][0])
+        self.assertIsNone(outputs["files"][1])
