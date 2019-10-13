@@ -1,5 +1,5 @@
 # miniwdl
-**[Workflow Description Language](http://openwdl.org/) toolkit for Python 3.6+**
+**[Workflow Description Language](http://openwdl.org/) local runner & developer toolkit for Python 3.6+**
 
 ![Project Status](https://img.shields.io/badge/status-beta-yellow.svg)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/master/LICENSE)
@@ -7,10 +7,8 @@
 [![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
-*miniwdl* provides WDL developer productivity tools, a local runner, and a foundation for language experimentation. See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap.
-
 <!-- TOC generator tool: https://magnetikonline.github.io/markdown-toc-generate/ -->
-- [Installation](#installation)
+- [Getting Started](#getting-started)
 - [Command-line tools](#command-line-tools)
   - [miniwdl check](#miniwdl-check)
   - [miniwdl run](#miniwdl-run)
@@ -20,13 +18,17 @@
 - [Contributing](#contributing)
 - [Security](#security)
 
-## Installation
+## Getting Started
+
+### [Start Here: tutorial with a Human Cell Atlas data pipeline](https://miniwdl.readthedocs.io/en/latest/getting_started.html)
 
 [![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/) `pip3 install miniwdl`
 
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl)  [configure conda-forge](http://conda-forge.org/docs/user/introduction.html) and `conda install miniwdl` 
+[![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl) `conda install miniwdl` after adding [conda-forge](http://conda-forge.org/docs/user/introduction.html)
 
-locally: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) for an example of dependencies prior to running `setup.py`
+Source install: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) for dependencies to run `setup.py`
+
+See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap.
 
 ## Command-line tools
 
@@ -191,7 +193,7 @@ File barcoded_bam
 
 ### API documentation
 
-Online Python developer documentation for the `WDL` package: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
+Online Python developer documentation for the `WDL` package: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/WDL.html)
 
 (Read the Docs currently builds from the [mlin/miniwdl](https://github.com/mlin/miniwdl) fork of this repository.)
 

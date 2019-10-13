@@ -187,4 +187,8 @@ Here miniwdl points out an unused declaration in one task, and (if [ShellCheck](
 
 Installing miniwdl also makes available a `WDL` package for Python 3.6+, providing programmatic access to miniwdl's WDL parser and other functionality; its documentation follows here.
 
-Lastly, all issues and contributions are welcome on the miniwidl [GitHub repo](https://github.com/chanzuckerberg/miniwdl/)!
+### Links
+
+* [chanzuckerberg/miniwdl GitHub](https://github.com/chanzuckerberg/miniwdl/) where issues & contributions are welcome
+* [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec, proposals, and discussion
+* [CZI Science Technology](https://chanzuckerberg.com/technology/science/) sponsors this project
