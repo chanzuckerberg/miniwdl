@@ -779,11 +779,12 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(R"""
         version 1.0
         task rmdir {
+            String x = "foo"
             command <<<
-                touch foo.txt
+                touch foobar.txt
             >>>
             output {
-                Array[File?] files = ["foo.txt", "bar.txt"]
+                Array[File?] files = ["~{x}bar.txt", "~{x}bas.txt"]
             }
         }
         """)
