@@ -32,11 +32,11 @@ class Base(CustomDeepCopyMixin, ABC):
     # exempt type & expr from deep-copying since they're immutable
     _shallow_copy_attrs: List[str] = ["expr", "type"]
 
-    def __init__(self, type: Type.Base, value: Any) -> None:
+    def __init__(self, type: Type.Base, value: Any, expr: "Optional[Expr.Base]" = None) -> None:
         assert isinstance(type, Type.Base)
         self.type = type
         self.value = value
-        self.expr = None
+        self.expr = expr
 
     def __eq__(self, other) -> bool:
         return self.type == other.type and self.value == other.value
@@ -54,13 +54,13 @@ class Base(CustomDeepCopyMixin, ABC):
         :raises: ReferenceError for a null value and non-optional type
         """
         if isinstance(desired_type, Type.String):
-            return String(str(self.value))
+            return String(str(self.value), self.expr)
         if isinstance(desired_type, Type.Array) and self.type.coerces(
             desired_type.item_type, check_quant=False
         ):
             # coercion of T to Array[T] (x to [x])
             # if self is an Array, then Array.coerce precludes this path
-            return Array(desired_type, [self.coerce(desired_type.item_type)])
+            return Array(desired_type, [self.coerce(desired_type.item_type)], self.expr)
         return self
 
     def expect(self, desired_type: Optional[Type.Base] = None) -> "Base":
@@ -80,51 +80,51 @@ class Base(CustomDeepCopyMixin, ABC):
 class Boolean(Base):
     """``value`` has Python type ``bool``"""
 
-    def __init__(self, value: bool) -> None:
-        super().__init__(Type.Boolean(), value)
+    def __init__(self, value: bool, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(Type.Boolean(), value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
         if isinstance(desired_type, Type.String):
-            return String(str(self))
+            return String(str(self), self.expr)
         return super().coerce(desired_type)
 
 
 class Float(Base):
     """``value`` has Python type ``float``"""
 
-    def __init__(self, value: float) -> None:
-        super().__init__(Type.Float(), value)
+    def __init__(self, value: float, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(Type.Float(), value, expr)
 
 
 class Int(Base):
     """``value`` has Python type ``int``"""
 
-    def __init__(self, value: int) -> None:
-        super().__init__(Type.Int(), value)
+    def __init__(self, value: int, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(Type.Int(), value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
         if isinstance(desired_type, Type.Float):
-            return Float(float(self.value))
+            return Float(float(self.value), self.expr)
         return super().coerce(desired_type)
 
 
 class String(Base):
     """``value`` has Python type ``str``"""
 
-    def __init__(self, value: str) -> None:
-        super().__init__(Type.String(), value)
+    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(Type.String(), value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
-            return File(self.value)
+            return File(self.value, self.expr)
         try:
             if isinstance(desired_type, Type.Int):
-                return Int(int(self.value))
+                return Int(int(self.value), self.expr)
             if isinstance(desired_type, Type.Float):
-                return Float(float(self.value))
+                return Float(float(self.value), self.expr)
         except ValueError as exn:
             if self.expr:
                 raise Error.EvalError(self.expr, "coercing String to number: " + str(exn)) from exn
@@ -135,7 +135,16 @@ class String(Base):
 class File(String):
     """``value`` has Python type ``str``"""
 
-    pass
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+        ""
+        if self.value is None:
+            # special case for dealing with File? task outputs; see _eval_task_outputs in
+            # runtime/task.py. Only on that path should self.value possibly be None.
+            if isinstance(desired_type, Type.File) and desired_type.optional:
+                return Null(self.expr)
+            else:
+                raise FileNotFoundError()
+        return super().coerce(desired_type)
 
 
 class Array(Base):
@@ -144,10 +153,12 @@ class Array(Base):
     value: List[Base]
     type: Type.Array
 
-    def __init__(self, item_type: Type.Base, value: List[Base]) -> None:
+    def __init__(
+        self, item_type: Type.Base, value: List[Base], expr: "Optional[Expr.Base]" = None
+    ) -> None:
         self.value = []
         self.type = Type.Array(item_type, nonempty=(len(value) > 0))
-        super().__init__(self.type, value)
+        super().__init__(self.type, value, expr)
 
     @property
     def json(self) -> Any:
@@ -171,7 +182,9 @@ class Array(Base):
                 or isinstance(self.type.item_type, Type.Any)
             ):
                 return self
-            return Array(desired_type, [v.coerce(desired_type.item_type) for v in self.value])
+            return Array(
+                desired_type, [v.coerce(desired_type.item_type) for v in self.value], self.expr
+            )
         return super().coerce(desired_type)
 
 
@@ -180,11 +193,14 @@ class Map(Base):
     type: Type.Map
 
     def __init__(
-        self, item_type: Tuple[Type.Base, Type.Base], value: List[Tuple[Base, Base]]
+        self,
+        item_type: Tuple[Type.Base, Type.Base],
+        value: List[Tuple[Base, Base]],
+        expr: "Optional[Expr.Base]" = None,
     ) -> None:
         self.value = []
         self.type = Type.Map(item_type)
-        super().__init__(self.type, value)
+        super().__init__(self.type, value, expr)
 
     @property
     def json(self) -> Any:
@@ -210,6 +226,7 @@ class Map(Base):
                     (k.coerce(desired_type.item_type[0]), v.coerce(desired_type.item_type[1]))
                     for (k, v) in self.value
                 ],
+                self.expr,
             )
         if isinstance(desired_type, Type.StructInstance):
             assert desired_type.members
@@ -218,7 +235,7 @@ class Map(Base):
                 k = k.coerce(Type.String()).value
                 assert k in desired_type.members
                 ans[k] = v
-            return Struct(desired_type, ans)
+            return Struct(desired_type, ans, self.expr)
         return super().coerce(desired_type)
 
 
@@ -227,11 +244,15 @@ class Pair(Base):
     type: Type.Pair
 
     def __init__(
-        self, left_type: Type.Base, right_type: Type.Base, value: Tuple[Base, Base]
+        self,
+        left_type: Type.Base,
+        right_type: Type.Base,
+        value: Tuple[Base, Base],
+        expr: "Optional[Expr.Base]" = None,
     ) -> None:
         self.value = value
         self.type = Type.Pair(left_type, right_type)
-        super().__init__(self.type, value)
+        super().__init__(self.type, value, expr)
 
     def __str__(self) -> str:
         assert isinstance(self.value, tuple)
@@ -257,6 +278,7 @@ class Pair(Base):
                     self.value[0].coerce(desired_type.left_type),
                     self.value[1].coerce(desired_type.right_type),
                 ),
+                self.expr,
             )
         return super().coerce(desired_type)
 
@@ -265,8 +287,8 @@ class Null(Base):
     """Represents the missing value which optional inputs may take.
     ``type`` and ``value`` are both None."""
 
-    def __init__(self) -> None:
-        super().__init__(Type.Any(optional=True), None)
+    def __init__(self, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(Type.Any(optional=True), expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
@@ -276,7 +298,7 @@ class Null(Base):
             if self.expr:
                 raise Error.NullValue(self.expr)
             else:
-                raise ValueError("'None' for non-optional input/declaration")
+                raise Error.InputError("'None' for non-optional input/declaration")
         return self
 
     @property
@@ -289,9 +311,12 @@ class Struct(Base):
     value: Dict[str, Base]
 
     def __init__(
-        self, type: Union[Type.Object, Type.StructInstance], value: Dict[str, Base]
+        self,
+        type: Union[Type.Object, Type.StructInstance],
+        value: Dict[str, Base],
+        expr: "Optional[Expr.Base]" = None,
     ) -> None:
-        super().__init__(type, value)
+        super().__init__(type, value, expr)
         self.value = dict(value)
         if isinstance(type, Type.StructInstance):
             assert type.members
@@ -309,7 +334,7 @@ class Struct(Base):
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
         if isinstance(self.type, Type.Object) and isinstance(desired_type, Type.StructInstance):
-            return Struct(desired_type, self.value)
+            return Struct(desired_type, self.value, self.expr)
         return self
 
     def __str__(self) -> str:

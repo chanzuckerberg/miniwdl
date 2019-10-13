@@ -159,10 +159,10 @@ class TaskContainer(ABC):
         # run command in container & return exit status
         raise NotImplementedError()
 
-    def host_file(self, container_file: str, inputs_only: bool = False) -> str:
+    def host_file(self, container_file: str, inputs_only: bool = False) -> Optional[str]:
         """
         Map an output file's in-container path under ``container_dir`` to a host path under
-        ``host_dir``
+        ``host_dir``. Return None if the designated file does not exist.
 
         SECURITY: except for input files, this method must only return host paths under
         ``host_dir`` and prevent any reference to other host files (e.g. /etc/passwd), including
@@ -198,7 +198,7 @@ class TaskContainer(ABC):
                 "task outputs attempted to use a file outside its working directory: "
                 + container_file
             )
-        raise OutputError("task output file not found: " + container_file)
+        return None
 
 
 class TaskDockerContainer(TaskContainer):
@@ -534,6 +534,25 @@ def _eval_task_outputs(
     logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
 ) -> Env.Bindings[Value.Base]:
 
+    # helper to rewrite Files from in-container paths to host paths
+    def rewrite_files(v: Value.Base, output_name: str) -> None:
+        if isinstance(v, Value.File):
+            host_file = container.host_file(v.value)
+            if host_file is None:
+                logger.warning(
+                    "file not found for output %s: %s (error unless declared type is optional File?)",
+                    output_name,
+                    v.value,
+                )
+            else:
+                logger.debug("container output file %s -> host %s", v.value, host_file)
+            # We may overwrite File.value with None, which is an invalid state, then we'll fix it
+            # up (or abort) below. This trickery is because we don't, at this point, know whether
+            # the 'desired' output type is File or File?.
+            v.value = host_file
+        for ch in v.children:
+            rewrite_files(ch, output_name)
+
     stdlib = OutputStdLib(logger, container)
     outputs = Env.Bindings()
     for decl in task.outputs:
@@ -548,22 +567,28 @@ def _eval_task_outputs(
             setattr(exn2, "job_id", decl.workflow_node_id)
             raise exn2 from exn
         logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
+
+        # Now, a delicate sequence for postprocessing File outputs (including Files nested within
+        # compound values)
+
+        # First bind the value as-is in the environment, so that subsequent output expressions will
+        # "see" the in-container path(s) if they use this binding. (Copy it though, because we'll
+        # then clobber v)
+        env = env.bind(decl.name, copy.deepcopy(v))
+        # Rewrite each File.value to either a host path, or None if the file doesn't exist.
+        rewrite_files(v, decl.name)
+        # File.coerce has a special behavior for us so that, if the value is None:
+        #   - produces Value.Null() if the desired type is File?
+        #   - raises FileNotFoundError otherwise.
+        try:
+            v = v.coerce(decl.type)
+        except FileNotFoundError:
+            exn = OutputError("File not found in task output " + decl.name)
+            setattr(exn, "job_id", decl.workflow_node_id)
+            raise exn
         outputs = outputs.bind(decl.name, v)
-        env = env.bind(decl.name, v)
 
-    # map Files from in-container paths to host paths
-    def map_files(v: Value.Base) -> Value.Base:
-        if isinstance(v, Value.File):
-            host_file = container.host_file(v.value)
-            logger.debug("container output file %s -> host %s", v.value, host_file)
-            v.value = host_file
-        for ch in v.children:
-            map_files(ch)
-        return v
-
-    return outputs.map(
-        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
-    )
+    return outputs
 
 
 class _StdLib(StdLib.Base):
@@ -580,6 +605,8 @@ class _StdLib(StdLib.Base):
     def _devirtualize_filename(self, filename: str) -> str:
         # check allowability of reading this file, & map from in-container to host
         ans = self.container.host_file(filename, inputs_only=self.inputs_only)
+        if ans is None:
+            raise OutputError("function was passed non-existent file " + filename)
         self.logger.debug("read_ %s from host %s", filename, ans)
         return ans
 
