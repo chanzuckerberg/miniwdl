@@ -161,7 +161,7 @@ Individual tasks and sub-workflows run in their own nested subdirectories, each 
 
 ## Next steps
 
-To support the workflow development cycle, miniwdl also includes a code quality checker, which scans a WDL file and generates warnings and suggestions:
+To aid the workflow development cycle, miniwdl also includes a code quality checker which statically analyzes a WDL file to generate warnings and suggestions:
 
 ```
 $ miniwdl check skylab/library/tasks/ZarrUtils.wdl
@@ -184,6 +184,6 @@ ZarrUtils.wdl
 
 Here miniwdl points out an unused declaration in one task, and (if [ShellCheck](https://www.shellcheck.net/) is installed) several suggestions for the embedded shell commands.
 
-Installing miniwdl also provides a `WDL` package for Python 3.6+, providing programmatic access to miniwdl's WDL parser and other functionality; the documentation follows here.
+Installing miniwdl also makes available a `WDL` package for Python 3.6+, providing programmatic access to miniwdl's WDL parser and other functionality; its documentation follows here.
 
 Lastly, all issues and contributions are welcome on the miniwidl [GitHub repo](https://github.com/chanzuckerberg/miniwdl/)!
