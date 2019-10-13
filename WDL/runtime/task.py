@@ -340,7 +340,7 @@ class TaskDockerContainer(TaskContainer):
             assert isinstance(exit_code, int)
             return exit_code
         elif state in ["rejected", "orphaned", "remove"]:
-            # "shutdown" seems to a normal transient state
+            # "shutdown" seems to be a normal transient state
             raise RuntimeError(
                 f"docker task {state}" + ((": " + status["Err"]) if "Err" in status else "")
             )
