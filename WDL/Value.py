@@ -139,7 +139,7 @@ class File(String):
         ""
         if self.value is None:
             # special case for dealing with File? task outputs; see _eval_task_outputs in
-            # runtime/task.py
+            # runtime/task.py. Only on that path should self.value possibly be None.
             if isinstance(desired_type, Type.File) and desired_type.optional:
                 return Null(self.expr)
             else:

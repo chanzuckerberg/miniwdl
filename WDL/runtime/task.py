@@ -535,22 +535,23 @@ def _eval_task_outputs(
 ) -> Env.Bindings[Value.Base]:
 
     # helper to rewrite Files from in-container paths to host paths
-    def rewrite_files(v: Value.Base) -> None:
+    def rewrite_files(v: Value.Base, output_name: str) -> None:
         if isinstance(v, Value.File):
             host_file = container.host_file(v.value)
             if host_file is None:
                 logger.warning(
-                    "container output file %s not found (error unless output type is optional File?)",
+                    "file not found for output %s: %s (error unless declared type is optional File?)",
+                    output_name,
                     v.value,
                 )
             else:
                 logger.debug("container output file %s -> host %s", v.value, host_file)
             # We may overwrite File.value with None, which is an invalid state, then we'll fix it
-            # up below. This trickery is because we don't, at this point, know whether the
-            # 'desired' output type is File or File?.
+            # up (or abort) below. This trickery is because we don't, at this point, know whether
+            # the 'desired' output type is File or File?.
             v.value = host_file
         for ch in v.children:
-            rewrite_files(ch)
+            rewrite_files(ch, output_name)
 
     stdlib = OutputStdLib(logger, container)
     outputs = Env.Bindings()
@@ -575,7 +576,7 @@ def _eval_task_outputs(
         # then clobber v)
         env = env.bind(decl.name, copy.deepcopy(v))
         # Rewrite each File.value to either a host path, or None if the file doesn't exist.
-        rewrite_files(v)
+        rewrite_files(v, decl.name)
         # File.coerce has a special behavior for us so that, if the value is None:
         #   - produces Value.Null() if the desired type is File?
         #   - raises FileNotFoundError otherwise.
