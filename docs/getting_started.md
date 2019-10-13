@@ -1,6 +1,7 @@
 # Getting Started
 
-In this tutorial, we'll use miniwdl's local workflow runner to run a [Human Cell Atlas (HCA) secondary analysis pipeline](https://github.com/HumanCellAtlas/skylab/) on a test dataset.
+[miniwdl](https://github.com/chanzuckerberg/miniwdl/) is a local runner and developer toolkit for
+the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/>).  In this tutorial, we'll use miniwdl's runner with a [Human Cell Atlas (HCA) secondary analysis pipeline](https://github.com/HumanCellAtlas/skylab/) and test dataset.
 
 ## Install miniwdl
 
@@ -9,7 +10,7 @@ Requirements:
 1. Linux or Mac OS X
 2. Python 3.6 or higher
 3. [Docker Engine](https://docs.docker.com/install/) 17 or higher
-4. User must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
+4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
 
 
 Installation options:
@@ -161,7 +162,7 @@ Individual tasks and sub-workflows run in their own nested subdirectories, each 
 
 ## Next steps
 
-To aid the workflow development cycle, miniwdl also includes a code quality checker which statically analyzes a WDL file to generate warnings and suggestions:
+To aid the workflow development cycle, miniwdl includes a code quality checker which statically analyzes WDL source code to generate warnings and suggestions:
 
 ```
 $ miniwdl check skylab/library/tasks/ZarrUtils.wdl
