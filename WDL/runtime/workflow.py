@@ -576,7 +576,7 @@ def run_local_workflow(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     logger_prefix: str = "wdl:",
-    rerun: Optional[str] = None,
+    rerun_sh: Optional[str] = None,
     max_workers: Optional[int] = None,
     _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
@@ -604,14 +604,14 @@ def run_local_workflow(
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     install_coloredlogs(logger)
-    if rerun:
+    if rerun_sh:
         try:
             version = f"v{pkg_resources.get_distribution('miniwdl').version}"
         except pkg_resources.DistributionNotFound:
             version = "version unknown"
         logger.notice("miniwdl %s", version)
-        with open(os.path.join(run_dir, "rerun"), "w") as rerunfile:
-            print(rerun, file=rerunfile)
+        with open(os.path.join(run_dir, "source_to_rerun"), "w") as rerunfile:
+            print(rerun_sh, file=rerunfile)
     logger.notice(
         "starting workflow %s (%s Ln %d Col %d) in %s",
         workflow.name,

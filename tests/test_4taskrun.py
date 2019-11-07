@@ -23,7 +23,7 @@ class TestTaskRunner(unittest.TestCase):
             assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, copy_input_files=copy_input_files)
+            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, copy_input_files=copy_input_files, rerun_sh="date")
         except WDL.runtime.TaskFailure as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)

@@ -398,7 +398,7 @@ def runner(
             run_dir=rundir,
             copy_input_files=copy_input_files,
             max_workers=max_workers,
-            rerun=f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd",
+            rerun_sh=f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd",
         )
     except Exception as exn:
         if isinstance(exn, runtime.task.TaskFailure):
