@@ -656,8 +656,7 @@ def run_local_workflow(
                     call_futures[future] = next_call.id
                     next_call = state.step()
                 # no more calls to launch right now; wait for an outstanding call to finish
-                done_iter = futures.as_completed(call_futures)
-                future = next(done_iter, None)
+                future = next(futures.as_completed(call_futures), None)
                 if future:
                     _, outputs = future.result()
                     call_id = call_futures[future]
