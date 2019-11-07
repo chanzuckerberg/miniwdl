@@ -147,10 +147,10 @@ class TaskContainer(ABC):
                 finally:
                     self._running = False
 
-                if terminating():
-                    raise Terminated()
                 if exit_status != 0:
-                    raise CommandFailed(exit_status, os.path.join(self.host_dir, "stderr.txt"))
+                    raise CommandFailed(
+                        exit_status, os.path.join(self.host_dir, "stderr.txt")
+                    ) if not terminating() else Terminated()
 
     @abstractmethod
     def _run(
