@@ -406,7 +406,8 @@ def runner(
         while isinstance(exn, runtime.RunFailed):
             logger.error(str(exn))
             rundir = rundir or getattr(exn, "run_dir")
-            exn = exn.__cause__ or exn
+            exn = exn.__cause__
+            assert exn
         if isinstance(exn, runtime.task.CommandFailed) and not (
             kwargs["verbose"] or kwargs["debug"]
         ):

@@ -693,7 +693,7 @@ def run_local_workflow(
                 # from top-level workflow, signal abort to anything still running concurrently
                 # (SIGUSR1 will be picked up by TerminationSignalFlag)
                 os.kill(os.getpid(), signal.SIGUSR1)
-            raise
+            raise wrapper from exn
         finally:
             if not _thread_pools:
                 # thread pools are "ours", so wind them down
