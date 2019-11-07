@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 65
+plan tests 67
 
 DN=$(mktemp -d --tmpdir miniwdl_cromwell_tests_XXXXXX)
 cd $DN
@@ -26,7 +26,9 @@ EOF
 $miniwdl cromwell --dir do_nothing_task do_nothing.wdl | tee stdout
 is "$?" "0" "run do_nothing task"
 is "$(jq .outputs stdout)" "{}" "do_nothing task stdout"
-is "$(jq .outputs do_nothing_task/outputs.json)" "{}" "do_nothing task outputs"
+rundir="$(jq -r .dir stdout)"
+is "$(dirname "$rundir")" "${DN}/do_nothing_task" "do_nothing task created subdirectory"
+is "$(jq .outputs "$rundir/outputs.json")" "{}" "do_nothing task outputs"
 
 cat << 'EOF' > do_nothing_wf.wdl
 version 1.0
@@ -36,7 +38,9 @@ EOF
 $miniwdl cromwell --dir do_nothing_wf do_nothing_wf.wdl | tee stdout
 is "$?" "0" "run do_nothing workflow"
 is "$(jq .outputs stdout)" "{}" "do_nothing workflow stdout"
-is "$(jq .outputs do_nothing_wf/outputs.json)" "{}" "do_nothing workflow outputs"
+rundir="$(jq -r .dir stdout)"
+is "$(dirname "$rundir")" "${DN}/do_nothing_wf" "do_nothing workflow created subdirectory"
+is "$(jq .outputs "$rundir/outputs.json")" "{}" "do_nothing workflow outputs"
 
 cat << 'EOF' > echo_task.wdl
 version 1.0
@@ -75,7 +79,7 @@ is "$(jq '.a_s | length' task_inputs.json)" "2" "task json a_s length"
 is "$(jq .a_s[0] task_inputs.json)" '"bar"' "task json a_s bar"
 is "$(jq .a_s[1] task_inputs.json)" '"baz"' "task json a_s baz"
 
-$miniwdl cromwell --dir taskrun/ echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown | tee stdout
+$miniwdl cromwell --dir taskrun/. echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown | tee stdout
 is "$?" "0" "task run"
 is "$(jq '.outputs["echo.out_i"]' stdout)" "42" "task stdout out_i"
 is "$(jq '.outputs["echo.out_i"]' taskrun/outputs.json)" "42" "task outputs.json out_i"
@@ -149,7 +153,7 @@ $miniwdl cromwell greet.wdl --input relative/input.json | tee stdout
 is "$?" "0" "relative file path in input JSON file"
 is "$(jq -r '.outputs["greet.message"]' stdout)" 'Hello, Alice!' "output from relative path"
 
-$miniwdl cromwell --dir workflowrun echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s | tee stdout
+$miniwdl cromwell --dir workflowrun/. echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s | tee stdout
 is "$?" "0" "workflow run"
 is "$(jq '.outputs["echo.t.out_i"]' stdout)" "42" "workflow stdout out_i"
 is "$(jq '.outputs["echo.t.out_i"]' workflowrun/outputs.json)" "42" "workflow outputs.json out_i"
@@ -183,7 +187,7 @@ workflow echo {
     }
 }
 EOF
-$miniwdl cromwell --dir scatterrun scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
+$miniwdl cromwell --dir scatterrun/. scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
 is "$?" "0" "scatter run"
 is "$(ls scatterrun/output_links/echo.t.out_f/0/0)" "quick" "scatter product 0 quick link"
 is "$(ls scatterrun/output_links/echo.t.out_f/0/1)" "brown" "scatter product 0 brown link"

@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 47
+plan tests 48
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -29,7 +29,9 @@ EOF
 $miniwdl run --dir do_nothing_task do_nothing.wdl | tee stdout
 is "$?" "0" "run do_nothing task"
 is "$(jq .outputs stdout)" "{}" "do_nothing task stdout"
-is "$(jq .outputs do_nothing_task/outputs.json)" "{}" "do_nothing task outputs"
+rundir="$(jq -r .dir stdout)"
+is "$(dirname "$rundir")" "${DN}/do_nothing_task" "do_nothing task created subdirectory"
+is "$(jq .outputs "$rundir/outputs.json")" "{}" "do_nothing task outputs"
 
 cat << 'EOF' > echo_task.wdl
 version 1.0
@@ -57,7 +59,7 @@ task echo {
 EOF
 touch quick brown fox
 
-$miniwdl run --dir taskrun/ echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown | tee stdout
+$miniwdl run --dir taskrun/. echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown | tee stdout
 is "$?" "0" "task run"
 is "$(jq '.outputs["echo.out_i"]' stdout)" "42" "task stdout out_i"
 is "$(jq '.outputs["echo.out_i"]' taskrun/outputs.json)" "42" "task outputs.json out_i"
@@ -114,7 +116,7 @@ workflow echo {
 }
 EOF
 
-$miniwdl run --dir workflowrun echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s | tee stdout
+$miniwdl run --dir workflowrun/. echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s | tee stdout
 is "$?" "0" "workflow run"
 is "$(jq '.outputs["echo.t.out_i"]' stdout)" "42" "workflow stdout out_i"
 is "$(jq '.outputs["echo.t.out_i"]' workflowrun/outputs.json)" "42" "workflow outputs.json out_i"
@@ -148,7 +150,7 @@ workflow echo {
     }
 }
 EOF
-$miniwdl run --dir scatterrun scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
+$miniwdl run --dir scatterrun/. scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
 is "$?" "0" "scatter run"
 is "$(ls scatterrun/output_links/echo.t.out_f/0/0)" "quick" "scatter product 0 quick link"
 is "$(ls scatterrun/output_links/echo.t.out_f/0/1)" "brown" "scatter product 0 brown link"
@@ -157,7 +159,7 @@ is "$(ls scatterrun/output_links/echo.t.out_f/1/0)" "quick" "scatter product 1 q
 is "$(ls scatterrun/output_links/echo.t.out_f/1/1)" "brown" "scatter product 1 brown link"
 is "$(ls scatterrun/output_links/echo.t.out_f/1/2)" "fox" "scatter product 1 fox link"
 
-$miniwdl run --dir failer2000 --verbose <(echo "
+$miniwdl run --dir failer2000/. --verbose <(echo "
 version 1.0
 workflow failer2000 { call failer }
 task failer { command { echo >&2 this is the end, beautiful friend; exit 1 } }

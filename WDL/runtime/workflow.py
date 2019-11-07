@@ -585,9 +585,10 @@ def run_local_workflow(
     paths that can be mounted into a container.
 
     :param run_id: unique ID for the run, defaults to workflow name
-    :param run_dir: outputs and scratch will be stored in this directory if it doesn't already
-                    exist; if it does, a timestamp-based subdirectory is created and used (defaults
-                    to current working directory)
+    :param run_dir: directory under which to create a timestamp-named subdirectory for this run
+                    (defaults to current working directory).
+                    If the final path component is ".", then operate in run_dir directly.
+    :param copy_input_files: copy input files and mount them read/write instead of read-only
     """
     if max_workers is None:
         max_workers = multiprocessing.cpu_count()
@@ -630,12 +631,17 @@ def run_local_workflow(
                             run_callee = run_local_workflow
                         else:
                             assert False
+                        call_dir = os.path.join(run_dir, next_call.id)
+                        if os.path.exists(call_dir):
+                            logger.warning(
+                                "subdirectory %s already exists; conflict likely", call_dir
+                            )
                         future = executor.submit(
                             run_callee,
                             next_call.callee,
                             next_call.inputs,
                             run_id=next_call.id,
-                            run_dir=os.path.join(run_dir, next_call.id),
+                            run_dir=os.path.join(call_dir, "."),
                             copy_input_files=copy_input_files,
                             max_workers=max_workers,
                             logger_prefix=(logger_id + ":"),
@@ -674,5 +680,5 @@ def run_local_workflow(
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
-    logger.notice("done")
+    logger.notice("done")  # pyre-ignore
     return (run_dir, state.outputs)

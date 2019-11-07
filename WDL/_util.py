@@ -173,13 +173,16 @@ def write_values_json(
 
 @export
 def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
+    here = (
+        (run_dir in [".", "./"] or run_dir.endswith("/.") or run_dir.endswith("/./"))
+        if run_dir
+        else False
+    )
     run_dir = os.path.abspath(run_dir or os.getcwd())
-    try:
-        os.makedirs(run_dir, exist_ok=False)
+
+    if here:
+        os.makedirs(run_dir, exist_ok=True)
         return run_dir
-    except FileExistsError:
-        if not os.path.isdir(run_dir):
-            raise
 
     now = datetime.today()
     run_dir2 = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
