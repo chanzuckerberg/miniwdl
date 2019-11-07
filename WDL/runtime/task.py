@@ -13,7 +13,6 @@ import math
 import multiprocessing
 import threading
 import shutil
-import pkg_resources
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
 
@@ -131,7 +130,7 @@ class TaskContainer(ABC):
            {container_dir} inside the container)
         3. Standard output is written to ``{host_dir}/stdout.txt``
         4. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
-        5. Raises CommandFailure for nonzero exit code, or any other error
+        5. Raises CommandFailed for nonzero exit code, or any other error
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
@@ -151,7 +150,7 @@ class TaskContainer(ABC):
                 if terminating():
                     raise Terminated()
                 if exit_status != 0:
-                    raise CommandFailure(exit_status, os.path.join(self.host_dir, "stderr.txt"))
+                    raise CommandFailed(exit_status, os.path.join(self.host_dir, "stderr.txt"))
 
     @abstractmethod
     def _run(
@@ -355,7 +354,6 @@ def run_local_task(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     logger_prefix: str = "wdl:",
-    rerun_sh: Optional[str] = None,
     max_workers: Optional[int] = None,  # unused
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -378,14 +376,6 @@ def run_local_task(
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     _util.install_coloredlogs(logger)
-    if rerun_sh:
-        try:
-            version = f"v{pkg_resources.get_distribution('miniwdl').version}"
-        except pkg_resources.DistributionNotFound:
-            version = "version unknown"
-        logger.notice("miniwdl %s", version)
-        with open(os.path.join(run_dir, "source_to_rerun"), "w") as rerunfile:
-            print(rerun_sh, file=rerunfile)
     logger.notice(  # pyre-fixme
         "starting task %s (%s Ln %d Col %d) in %s",
         task.name,
@@ -443,14 +433,14 @@ def run_local_task(
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
-        wrapper = TaskFailure(task, run_id, run_dir)
+        wrapper = RunFailed(task, run_id, run_dir)
         msg = str(wrapper)
         if hasattr(exn, "job_id"):
             msg += " evaluating " + getattr(exn, "job_id")
         msg += ": " + exn.__class__.__name__
         if str(exn):
             msg += ", " + str(exn)
-        if isinstance(exn, CommandFailure):
+        if isinstance(exn, CommandFailed):
             logger.info("run directory: %s", run_dir)
         logger.error(msg)
         raise wrapper from exn

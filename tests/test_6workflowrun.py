@@ -25,12 +25,14 @@ class TestWorkflowRunner(unittest.TestCase):
             assert len(doc.workflow.required_inputs.subtract(doc.workflow.available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
-            rundir, outputs = WDL.runtime.run_local_workflow(doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True, , rerun_sh="date")
-        except WDL.runtime.TaskFailure as exn:
+            rundir, outputs = WDL.runtime.run_local_workflow(doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
+        except WDL.runtime.RunFailed as exn:
+            while isinstance(exn, WDL.runtime.RunFailed):
+                exn = exn.__context__
             if expected_exception:
-                self.assertIsInstance(exn.__context__, expected_exception)
-                return exn.__context__
-            raise exn.__context__
+                self.assertIsInstance(exn, expected_exception)
+                return exn
+            raise exn
         except WDL.Error.MultipleValidationErrors as multi:
             for exn in multi.exceptions:
                 logging.error("%s: %s", str(exn.pos), str(exn))

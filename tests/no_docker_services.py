@@ -18,5 +18,5 @@ if (
     if miniwdl_services:
         for d in miniwdl_services:
             print(d["Spec"]["Labels"]["miniwdl_run_id"])
-        print("docker swarm lists existing miniwdl-related services, suggesting miniwdl task runtime failed to clean up after itself", file=sys.stderr)
+        print("Docker swarm lists existing miniwdl-related services, suggesting miniwdl task runtime failed to clean up after itself. Debug this and/or `docker swarm leave --force` to clear.", file=sys.stderr)
         sys.exit(1)

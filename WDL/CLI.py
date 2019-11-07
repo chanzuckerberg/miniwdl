@@ -386,6 +386,8 @@ def runner(
             logger.debug(f"{pkg} UNKNOWN")
     logger.debug("dockerd: " + str(docker.from_env().version()))
 
+    rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
+
     ensure_swarm(logger)
 
     try:
@@ -398,13 +400,14 @@ def runner(
             run_dir=rundir,
             copy_input_files=copy_input_files,
             max_workers=max_workers,
-            rerun_sh=f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd",
         )
     except Exception as exn:
-        if isinstance(exn, runtime.task.TaskFailure):
+        rundir = None
+        while isinstance(exn, runtime.RunFailed):
             logger.error(str(exn))
+            rundir = rundir or getattr(exn, "run_dir")
             exn = exn.__cause__ or exn
-        if isinstance(exn, runtime.task.CommandFailure) and not (
+        if isinstance(exn, runtime.task.CommandFailed) and not (
             kwargs["verbose"] or kwargs["debug"]
         ):
             logger.notice("run with --verbose to include task standard error streams in this log")
@@ -422,6 +425,9 @@ def runner(
             )
         else:
             logger.error(f"{exn.__class__.__name__}{(', ' + str(exn) if str(exn) else '')}")
+        if rundir:
+            with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
+                print(rerun_sh, file=rerunfile)
         if kwargs["debug"]:
             raise
         sys.exit(2)
@@ -429,6 +435,8 @@ def runner(
     # link output files
     outputs_json = values_to_json(output_env, namespace=target.name)
     runner_organize_outputs(target, {"outputs": outputs_json}, rundir)
+    with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
+        print(rerun_sh, file=rerunfile)
 
     return outputs_json
 

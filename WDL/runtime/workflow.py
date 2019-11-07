@@ -52,7 +52,7 @@ from .._util import (
     install_coloredlogs,
     TerminationSignalFlag,
 )
-from .error import TaskFailure, Terminated
+from .error import RunFailed, Terminated
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -576,7 +576,6 @@ def run_local_workflow(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     logger_prefix: str = "wdl:",
-    rerun_sh: Optional[str] = None,
     max_workers: Optional[int] = None,
     _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
@@ -604,14 +603,11 @@ def run_local_workflow(
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     install_coloredlogs(logger)
-    if rerun_sh:
-        try:
-            version = f"v{pkg_resources.get_distribution('miniwdl').version}"
-        except pkg_resources.DistributionNotFound:
-            version = "version unknown"
-        logger.notice("miniwdl %s", version)
-        with open(os.path.join(run_dir, "source_to_rerun"), "w") as rerunfile:
-            print(rerun_sh, file=rerunfile)
+    try:
+        version = f"v{pkg_resources.get_distribution('miniwdl').version}"
+    except pkg_resources.DistributionNotFound:
+        version = "version unknown"
+    logger.notice("miniwdl %s", version)
     logger.notice(
         "starting workflow %s (%s Ln %d Col %d) in %s",
         workflow.name,
@@ -664,13 +660,14 @@ def run_local_workflow(
 
             except Exception as exn:
                 logger.debug(traceback.format_exc())
-                if isinstance(exn, TaskFailure):
+                wrapper = RunFailed(workflow, run_id, run_dir)
+                if isinstance(exn, RunFailed):
                     logger.error("%s failed", getattr(exn, "run_id"))
                 else:
-                    msg = ""
+                    msg = str(wrapper)
                     if hasattr(exn, "job_id"):
-                        msg += getattr(exn, "job_id") + " "
-                    msg += exn.__class__.__name__
+                        msg += " evaluating " + getattr(exn, "job_id")
+                    msg += ": " + exn.__class__.__name__
                     if str(exn):
                         msg += ", " + str(exn)
                     logger.error(msg)
@@ -680,7 +677,7 @@ def run_local_workflow(
                     key.cancel()
                 # signal any concurrent tasks/workflows to abort (via TerminationSignalFlag)
                 os.kill(os.getpid(), signal.SIGUSR1)
-                raise
+                raise wrapper from exn
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
