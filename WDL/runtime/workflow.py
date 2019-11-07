@@ -575,7 +575,7 @@ def run_local_workflow(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
-    logger_prefix: str = "wdl:",
+    logger_prefix: Optional[List[str]] = None,
     max_workers: Optional[int] = None,
     _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
     _test_pickle: bool = False,
@@ -594,8 +594,9 @@ def run_local_workflow(
 
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
-    logger_id = logger_prefix + "wf:" + run_id
-    logger = logging.getLogger(logger_id)
+    logger_prefix = logger_prefix or ["wdl"]
+    logger_id = logger_prefix + ["w:"+ run_id]
+    logger = logging.getLogger(".".join(logger_id))
     fh = logging.FileHandler(os.path.join(run_dir, "workflow.log"))
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
@@ -617,7 +618,7 @@ def run_local_workflow(
     logger.info("thread %d", threading.get_ident())
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
-    state = StateMachine(logger_id, run_dir, workflow, posix_inputs)
+    state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
 
     with TerminationSignalFlag(logger) as terminating:
         thread_pools = _thread_pools
@@ -649,7 +650,7 @@ def run_local_workflow(
                         "run_id": next_call.id,
                         "run_dir": os.path.join(run_dir, next_call.id),
                         "copy_input_files": copy_input_files,
-                        "logger_prefix": (logger_id + ":"),
+                        "logger_prefix": logger_id,
                     }
                     # submit to appropriate thread pool
                     if isinstance(next_call.callee, Tree.Task):
