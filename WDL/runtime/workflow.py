@@ -682,8 +682,10 @@ def run_local_workflow(
             # Cancel all future tasks that havent started
             for key in call_futures:
                 key.cancel()
-            # signal any concurrent tasks/workflows to abort (via TerminationSignalFlag)
-            os.kill(os.getpid(), signal.SIGUSR1)
+            if not _thread_pools:
+                # from top-level workflow, signal abort to anything still running concurrently
+                # (SIGUSR1 will be picked up by TerminationSignalFlag)
+                os.kill(os.getpid(), signal.SIGUSR1)
             raise
         finally:
             if not _thread_pools:
