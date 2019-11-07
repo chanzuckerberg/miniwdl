@@ -130,7 +130,7 @@ class TaskContainer(ABC):
            {container_dir} inside the container)
         3. Standard output is written to ``{host_dir}/stdout.txt``
         4. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
-        5. Raises CommandFailure for nonzero exit code, or any other error
+        5. Raises CommandFailed for nonzero exit code, or any other error
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
@@ -148,7 +148,7 @@ class TaskContainer(ABC):
                     self._running = False
 
                 if exit_status != 0:
-                    raise CommandFailure(
+                    raise CommandFailed(
                         exit_status, os.path.join(self.host_dir, "stderr.txt")
                     ) if not terminating() else Terminated()
 
@@ -433,14 +433,14 @@ def run_local_task(
         return (run_dir, outputs)
     except Exception as exn:
         logger.debug(traceback.format_exc())
-        wrapper = TaskFailure(task, run_id, run_dir)
+        wrapper = RunFailed(task, run_id, run_dir)
         msg = str(wrapper)
         if hasattr(exn, "job_id"):
             msg += " evaluating " + getattr(exn, "job_id")
         msg += ": " + exn.__class__.__name__
         if str(exn):
             msg += ", " + str(exn)
-        if isinstance(exn, CommandFailure):
+        if isinstance(exn, CommandFailed):
             logger.info("run directory: %s", run_dir)
         logger.error(msg)
         raise wrapper from exn

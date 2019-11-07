@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 47
+plan tests 48
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -131,6 +131,7 @@ f1=$(jq -r '.outputs["echo.t.out_f"][2]' workflowrun/outputs.json)
 is "$(basename $f1)" "fox" "workflow product fox"
 is "$(ls $f1)" "$f1" "workflow product fox file"
 is "$(ls workflowrun/output_links/echo.t.out_f/2)" "fox" "workflow product fox link"
+is "$(cat workflowrun/rerun)" "pushd $DN && miniwdl run --dir workflowrun echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s; popd"
 
 cat << 'EOF' > scatter_echo.wdl
 version 1.0

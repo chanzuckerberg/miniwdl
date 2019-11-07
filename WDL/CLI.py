@@ -83,9 +83,9 @@ def main(args=None):
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
         try:
-            print(pkg_resources.get_distribution("miniwdl"))
-        except pkg_resources.DistributionNotFound as exc:
-            print("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
+            print(f"miniwdl v{pkg_resources.get_distribution('miniwdl').version}")
+        except pkg_resources.DistributionNotFound:
+            print("miniwdl version unknown")
         print("Cromwell version: " + CROMWELL_VERSION)
         sys.exit(0)
 
@@ -379,13 +379,14 @@ def runner(
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
 
-    try:
-        logger.debug(pkg_resources.get_distribution("miniwdl"))
-    except pkg_resources.DistributionNotFound as exc:
-        logger.debug("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
-    for pkg in ["docker", "lark-parser", "argcomplete", "pygtail"]:
-        logger.debug(pkg_resources.get_distribution(pkg))
+    for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
+        try:
+            logger.debug(pkg_resources.get_distribution(pkg))
+        except pkg_resources.DistributionNotFound:
+            logger.debug(f"{pkg} UNKNOWN")
     logger.debug("dockerd: " + str(docker.from_env().version()))
+
+    rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
     ensure_swarm(logger)
 
@@ -401,10 +402,13 @@ def runner(
             max_workers=max_workers,
         )
     except Exception as exn:
-        if isinstance(exn, runtime.task.TaskFailure):
+        rundir = None
+        while isinstance(exn, runtime.RunFailed):
             logger.error(str(exn))
-            exn = exn.__cause__ or exn
-        if isinstance(exn, runtime.task.CommandFailure) and not (
+            rundir = rundir or getattr(exn, "run_dir")
+            exn = exn.__cause__
+            assert exn
+        if isinstance(exn, runtime.task.CommandFailed) and not (
             kwargs["verbose"] or kwargs["debug"]
         ):
             logger.notice("run with --verbose to include task standard error streams in this log")
@@ -422,6 +426,9 @@ def runner(
             )
         else:
             logger.error(f"{exn.__class__.__name__}{(', ' + str(exn) if str(exn) else '')}")
+        if rundir:
+            with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
+                print(rerun_sh, file=rerunfile)
         if kwargs["debug"]:
             raise
         sys.exit(2)
@@ -429,6 +436,8 @@ def runner(
     # link output files
     outputs_json = values_to_json(output_env, namespace=target.name)
     runner_organize_outputs(target, {"outputs": outputs_json}, rundir)
+    with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
+        print(rerun_sh, file=rerunfile)
 
     return outputs_json
 

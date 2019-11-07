@@ -24,7 +24,7 @@ class TestTaskRunner(unittest.TestCase):
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
             rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, copy_input_files=copy_input_files)
-        except WDL.runtime.TaskFailure as exn:
+        except WDL.runtime.RunFailed as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
                 return exn.__context__
@@ -410,7 +410,7 @@ class TestTaskRunner(unittest.TestCase):
                 exit 1
             }
         }
-        """, expected_exception=WDL.runtime.CommandFailure)
+        """, expected_exception=WDL.runtime.CommandFailed)
 
     def test_write_lines(self):
         outputs = self._test_task(R"""
@@ -754,7 +754,7 @@ class TestTaskRunner(unittest.TestCase):
             outfile.write("Ben\n")
 
         self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
-                        expected_exception=WDL.runtime.task.CommandFailure)
+                        expected_exception=WDL.runtime.task.CommandFailed)
 
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
                                   copy_input_files=True)
@@ -772,7 +772,7 @@ class TestTaskRunner(unittest.TestCase):
             >>>
         }
         """, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
-             expected_exception=WDL.runtime.task.CommandFailure)
+             expected_exception=WDL.runtime.task.CommandFailed)
         self.assertTrue(os.path.exists(os.path.join(self._dir, "alyssa.txt")))
 
     def test_optional_file_outputs(self):

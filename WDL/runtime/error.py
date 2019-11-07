@@ -1,9 +1,10 @@
 # pyre-strict
+from typing import Union
 from ..Error import RuntimeError as _RuntimeError
-from ..Tree import Task as _Task
+from ..Tree import Task as _Task, Workflow as _Workflow
 
 
-class CommandFailure(_RuntimeError):
+class CommandFailed(_RuntimeError):
     """
     Failure of the task command
     """
@@ -40,19 +41,19 @@ class OutputError(_RuntimeError):
     pass
 
 
-class TaskFailure(_RuntimeError):
+class RunFailed(_RuntimeError):
     """
 
     """
 
-    task: _Task
+    exe: Union[_Task, _Workflow]
     run_id: str
     run_dir: str
 
-    def __init__(self, task: _Task, run_id: str, run_dir: str) -> None:
+    def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str) -> None:
         super().__init__(
-            f"task {task.name} ({task.pos.uri} Ln {task.pos.line} Col {task.pos.column}) failed"
+            f"{'task' if  isinstance(exe, _Task) else 'workflow'} {exe.name} ({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed"
         )
-        self.task = task
+        self.exe = exe
         self.run_id = run_id
         self.run_dir = run_dir
