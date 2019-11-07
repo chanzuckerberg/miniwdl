@@ -13,6 +13,7 @@ import math
 import multiprocessing
 import threading
 import shutil
+import pkg_resources
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
 
@@ -354,6 +355,7 @@ def run_local_task(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     logger_prefix: str = "wdl:",
+    rerun: Optional[str] = None,
     max_workers: Optional[int] = None,  # unused
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -376,6 +378,14 @@ def run_local_task(
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     _util.install_coloredlogs(logger)
+    if rerun:
+        try:
+            version = f"v{pkg_resources.get_distribution('miniwdl').version}"
+        except pkg_resources.DistributionNotFound:
+            version = "version unknown"
+        logger.notice("miniwdl %s", version)  # pyre-ignore
+        with open(os.path.join(run_dir, "rerun"), "w") as rerunfile:
+            print(rerun, file=rerunfile)
     logger.notice(  # pyre-fixme
         "starting task %s (%s Ln %d Col %d) in %s",
         task.name,

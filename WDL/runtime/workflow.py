@@ -39,6 +39,7 @@ import signal
 import traceback
 import pickle
 import threading
+import pkg_resources
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from .. import Env, Type, Value, Tree, StdLib
@@ -575,6 +576,7 @@ def run_local_workflow(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     logger_prefix: str = "wdl:",
+    rerun: Optional[str] = None,
     max_workers: Optional[int] = None,
     _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
@@ -602,6 +604,14 @@ def run_local_workflow(
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     install_coloredlogs(logger)
+    if rerun:
+        try:
+            version = f"v{pkg_resources.get_distribution('miniwdl').version}"
+        except pkg_resources.DistributionNotFound:
+            version = "version unknown"
+        logger.notice("miniwdl %s", version)
+        with open(os.path.join(run_dir, "rerun"), "w") as rerunfile:
+            print(rerun, file=rerunfile)
     logger.notice(
         "starting workflow %s (%s Ln %d Col %d) in %s",
         workflow.name,

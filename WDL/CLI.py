@@ -83,9 +83,9 @@ def main(args=None):
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
         try:
-            print(pkg_resources.get_distribution("miniwdl"))
-        except pkg_resources.DistributionNotFound as exc:
-            print("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
+            print(f"miniwdl v{pkg_resources.get_distribution('miniwdl').version}")
+        except pkg_resources.DistributionNotFound:
+            print("miniwdl version unknown")
         print("Cromwell version: " + CROMWELL_VERSION)
         sys.exit(0)
 
@@ -379,12 +379,11 @@ def runner(
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
 
-    try:
-        logger.debug(pkg_resources.get_distribution("miniwdl"))
-    except pkg_resources.DistributionNotFound as exc:
-        logger.debug("miniwdl version unknown ({}: {})".format(type(exc).__name__, exc))
-    for pkg in ["docker", "lark-parser", "argcomplete", "pygtail"]:
-        logger.debug(pkg_resources.get_distribution(pkg))
+    for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
+        try:
+            logger.debug(pkg_resources.get_distribution(pkg))
+        except pkg_resources.DistributionNotFound:
+            logger.debug(f"{pkg} UNKNOWN")
     logger.debug("dockerd: " + str(docker.from_env().version()))
 
     ensure_swarm(logger)
@@ -399,6 +398,7 @@ def runner(
             run_dir=rundir,
             copy_input_files=copy_input_files,
             max_workers=max_workers,
+            rerun=f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd",
         )
     except Exception as exn:
         if isinstance(exn, runtime.task.TaskFailure):
