@@ -243,11 +243,10 @@ class StateMachine:
                     reverse=True,
                 )
             if not runnable:
-                if self.waiting and not self.running:
-                    assert False, "deadlocked: " + str(
-                        set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
-                        - self.finished
-                    )
+                assert self.running or not self.waiting, "deadlocked: " + str(
+                    set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
+                    - self.finished
+                )
                 self._log_status()
                 return None
             job_id = runnable.pop()
