@@ -250,8 +250,8 @@ def install_coloredlogs(logger: logging.Logger) -> None:
     if sys.stderr.isatty() and "NO_COLOR" not in os.environ:
         level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
         level_styles["debug"]["color"] = 242
-        level_styles["notice"] = {}
-        level_styles["info"] = {"color": "magenta"}
+        level_styles["notice"] = {"color": "magenta"}
+        level_styles["info"] = {}
         field_styles = None
 
     coloredlogs.install(
