@@ -28,6 +28,7 @@ from types import FrameType
 import coloredlogs
 from pygtail import Pygtail
 import docker
+import yaml
 
 __all__: List[str] = []
 
@@ -211,7 +212,7 @@ class StructuredLogMessage:
         self.kwargs = kwargs
 
     def __str__(self) -> str:
-        return "%s >>> %s" % (self.message, json.dumps(self.kwargs))
+        return f"{self.message} :: {yaml.dump(self.kwargs, default_flow_style=True, width=999999).strip()[1:-1]}"
 
 
 VERBOSE_LEVEL = 15

@@ -631,7 +631,7 @@ def run_local_workflow(
         try:
             version = f"v{pkg_resources.get_distribution('miniwdl').version}"
         except pkg_resources.DistributionNotFound:
-            version = "version unknown"
+            version = "UNKNOWN"
         logger.notice(_("miniwdl", version=version))
     logger.notice(
         _(
