@@ -26,6 +26,7 @@ from ._util import (
     install_coloredlogs,
     ensure_swarm,
 )
+from ._util import StructuredLogMessage as _
 
 quant_warning = False
 
@@ -402,17 +403,20 @@ def runner(
             max_workers=max_workers,
         )
     except Exception as exn:
-        rundir = None
+        outer_rundir = None
+        inner_rundir = None
         while isinstance(exn, runtime.RunFailed):
             logger.error(str(exn))
-            rundir = rundir or getattr(exn, "run_dir")
+            outer_rundir = outer_rundir or getattr(exn, "run_dir")
+            inner_rundir = getattr(exn, "run_dir", inner_rundir)
             exn = exn.__cause__
             assert exn
         if isinstance(exn, runtime.task.CommandFailed) and not (
             kwargs["verbose"] or kwargs["debug"]
         ):
+            logger.notice(_("failed run", dir=inner_rundir))
+            logger.notice(_("standard error", file=getattr(exn, "stderr_file")))
             logger.notice("run with --verbose to include task standard error streams in this log")
-            logger.notice("see task's standard error in %s", getattr(exn, "stderr_file"))
         if isinstance(getattr(exn, "pos", None), SourcePosition):
             pos = getattr(exn, "pos")
             logger.error(
@@ -426,8 +430,8 @@ def runner(
             )
         else:
             logger.error(f"{exn.__class__.__name__}{(', ' + str(exn) if str(exn) else '')}")
-        if rundir:
-            with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
+        if outer_rundir:
+            with open(os.path.join(outer_rundir, "rerun"), "w") as rerunfile:
                 print(rerun_sh, file=rerunfile)
         if kwargs["debug"]:
             raise

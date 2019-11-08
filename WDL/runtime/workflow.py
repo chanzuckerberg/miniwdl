@@ -52,6 +52,7 @@ from .._util import (
     install_coloredlogs,
     TerminationSignalFlag,
 )
+from .._util import StructuredLogMessage as _
 from .error import RunFailed, Terminated
 
 
@@ -243,14 +244,10 @@ class StateMachine:
                 )
             if not runnable:
                 if self.waiting and not self.running:
-                    self.logger.critical(
-                        "deadlocked: %s",
-                        str(
-                            set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
-                            - self.finished
-                        ),
+                    assert False, "deadlocked: " + str(
+                        set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
+                        - self.finished
                     )
-                    assert False
                 self._log_status()
                 return None
             job_id = runnable.pop()
@@ -272,8 +269,14 @@ class StateMachine:
                 return res
 
             # otherwise, record the outputs, mark the job finished, and move on to the next job
-            envlog = json.dumps(self.values_to_json(res))
-            self.logger.info("visit %s -> %s", job.id, envlog if len(envlog) < 4096 else "(large)")
+            envlog = self.values_to_json(res)
+            self.logger.info(
+                _(
+                    "visit",
+                    node=job.id,
+                    values=envlog if len(json.dumps(envlog)) < 4096 else "(((large)))",
+                )
+            )
             self.job_outputs[job.id] = res
             self.running.remove(job.id)
             self.finished.add(job.id)
@@ -283,9 +286,15 @@ class StateMachine:
         Deliver notice of a job's successful completion, along with its outputs
         """
         assert job_id in self.running
-        outlog = json.dumps(self.values_to_json(outputs))
-        self.logger.notice("finish %s", job_id)  # pyre-fixme
-        self.logger.info("output %s -> %s", job_id, outlog if len(outlog) < 4096 else "(large)")
+        outlog = self.values_to_json(outputs)
+        self.logger.notice(_("finish", job=job_id))  # pyre-fixme
+        self.logger.info(
+            _(
+                "output",
+                job=job_id,
+                values=outlog if len(json.dumps(outlog)) < 4096 else "(((large)))",
+            )
+        )
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
         self.job_outputs[job_id] = outputs.wrap_namespace(call_node.name)
@@ -295,7 +304,7 @@ class StateMachine:
         self._log_status()
 
     def _schedule(self, job: _Job) -> None:
-        self.logger.debug("schedule %s after {%s}", job.id, ", ".join(job.dependencies))
+        self.logger.debug(_("schedule", node=job.id, dependencies=list(job.dependencies)))
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
@@ -315,8 +324,14 @@ class StateMachine:
             scatter_vars = Env.Bindings(p[1], scatter_vars)
         # pyre-ignore
         env = Env.merge(scatter_vars, *(self.job_outputs[dep] for dep in job.dependencies))
-        envlog = json.dumps(self.values_to_json(env))
-        self.logger.debug("env %s <- %s", job.id, envlog if len(envlog) < 4096 else "(large)")
+        envlog = self.values_to_json(env)
+        self.logger.debug(
+            _(
+                "env",
+                node=job.id,
+                values=envlog if len(json.dumps(envlog)) > 4096 else "(((large)))",
+            )
+        )
 
         stdlib = _StdLib(self)
 
@@ -366,9 +381,15 @@ class StateMachine:
                     f"call {job.node.name} inputs use unknown file: {next(iter(disallowed_filenames))}"
                 )
             # issue CallInstructions
-            self.logger.notice("issue %s on %s", job.id, job.node.callee.name)  # pyre-fixme
-            inplog = json.dumps(self.values_to_json(call_inputs))
-            self.logger.info("input %s <- %s", job.id, inplog if len(inplog) < 4096 else "(large)")
+            self.logger.notice(_("issue", job=job.id, callee=job.node.callee.name))  # pyre-fixme
+            inplog = self.values_to_json(call_inputs)
+            self.logger.info(
+                _(
+                    "input",
+                    job=job.id,
+                    values=inplog if len(json.dumps(inplog)) < 4096 else "(((large)))",
+                )
+            )
 
             return StateMachine.CallInstructions(
                 id=job.id, callee=job.node.callee, inputs=call_inputs
@@ -392,7 +413,12 @@ class StateMachine:
 
     def _log_status(self) -> None:
         self.logger.notice(  # pyre-fixme
-            f"workflow steps waiting: {len(self.waiting)} running: {len(self.running)} finished: {len(self.finished)}"
+            _(
+                "workflow steps",
+                waiting=len(self.waiting),
+                running=len(self.running),
+                finished=len(self.finished),
+            )
         )
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -595,7 +621,7 @@ def run_local_workflow(
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
     logger_prefix = logger_prefix or ["wdl"]
-    logger_id = logger_prefix + ["w:"+ run_id]
+    logger_id = logger_prefix + ["w:" + run_id]
     logger = logging.getLogger(".".join(logger_id))
     fh = logging.FileHandler(os.path.join(run_dir, "workflow.log"))
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
@@ -606,16 +632,18 @@ def run_local_workflow(
             version = f"v{pkg_resources.get_distribution('miniwdl').version}"
         except pkg_resources.DistributionNotFound:
             version = "version unknown"
-        logger.notice("miniwdl %s", version)
+        logger.notice(_("miniwdl", version=version))
     logger.notice(
-        "starting workflow %s (%s Ln %d Col %d) in %s",
-        workflow.name,
-        workflow.pos.uri,
-        workflow.pos.line,
-        workflow.pos.column,
-        run_dir,
+        _(
+            "workflow start",
+            name=workflow.name,
+            source=workflow.pos.uri,
+            line=workflow.pos.line,
+            column=workflow.pos.column,
+            dir=run_dir,
+        )
     )
-    logger.info("thread %d", threading.get_ident())
+    logger.info(_("thread", ident=threading.get_ident()))
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
     state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
@@ -666,7 +694,7 @@ def run_local_workflow(
                 # no more calls to launch right now; wait for an outstanding call to finish
                 future = next(futures.as_completed(call_futures), None)
                 if future:
-                    _, outputs = future.result()
+                    __, outputs = future.result()
                     call_id = call_futures[future]
                     state.call_finished(call_id, outputs)
                     call_futures.pop(future)
@@ -677,16 +705,16 @@ def run_local_workflow(
             logger.debug(traceback.format_exc())
             wrapper = RunFailed(workflow, run_id, run_dir)
             if isinstance(exn, RunFailed):
-                logger.error("%s failed", getattr(exn, "run_id"))
+                logger.error(
+                    _("run failure propagating", inner=getattr(exn, "run_id"), outer=run_id)
+                )
             else:
-                msg = str(wrapper)
-                if hasattr(exn, "job_id"):
-                    msg += " evaluating " + getattr(exn, "job_id")
-                msg += ": " + exn.__class__.__name__
+                info = {"error": exn.__class__.__name__}
                 if str(exn):
-                    msg += ", " + str(exn)
-                logger.error(msg)
-                logger.info("run directory: %s", run_dir)
+                    info["message"] = str(exn)
+                if hasattr(exn, "job_id"):
+                    info["node"] = getattr(exn, "job_id")
+                logger.error(_(str(wrapper), **info))
             # Cancel all future tasks that havent started
             for key in call_futures:
                 key.cancel()
