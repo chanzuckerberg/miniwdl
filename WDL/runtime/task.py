@@ -26,6 +26,7 @@ from .._util import (
     PygtailLogger,
     TerminationSignalFlag,
 )
+from .._util import StructuredLogMessage as _
 from .error import *
 
 
@@ -119,7 +120,7 @@ class TaskContainer(ABC):
                 self.host_dir, os.path.relpath(container_filename, self.container_dir)
             )
 
-            logger.info("copy host input file %s -> %s", host_filename, host_copy_filename)
+            logger.info(_("copy host input file", input=host_filename, copy=host_copy_filename))
             os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
             shutil.copy(host_filename, host_copy_filename)
 
@@ -247,7 +248,7 @@ class TaskDockerContainer(TaskContainer):
         mounts.append(
             f"{os.path.join(self.host_dir, 'work')}:{os.path.join(self.container_dir, 'work')}:rw"
         )
-        logger.debug("docker mounts: " + str(mounts))
+        logger.debug(_("docker mounts", mounts=mounts))
 
         if ":" not in self.image_tag:
             # seems we need to do this explicitly under some configurations -- issue #232
@@ -259,7 +260,7 @@ class TaskDockerContainer(TaskContainer):
         try:
             # run container as a transient docker swarm service, letting docker handle the resource
             # scheduling (waiting until requested # of CPUs are available)
-            logger.info("scheduling task with image: {}".format(self.image_tag))
+            logger.info(_("docker image", tag=self.image_tag))
             svc = client.services.create(
                 self.image_tag,
                 command=[
@@ -279,7 +280,7 @@ class TaskDockerContainer(TaskContainer):
                 labels={"miniwdl_run_id": self.run_id},
                 container_labels={"miniwdl_run_id": self.run_id},
             )
-            logger.debug("docker service name = {}, id = {}".format(svc.name, svc.short_id))
+            logger.debug(_("docker service", name=svc.name, id=svc.short_id))
 
             exit_code = None
             # stream stderr into log
@@ -294,7 +295,7 @@ class TaskDockerContainer(TaskContainer):
                         raise Terminated() from None
                     exit_code = self.poll_service(logger, svc)
                     i += 1
-                logger.info("container exit code = " + str(exit_code))
+                logger.info(_("docker exit", code=exit_code))
 
             # retrieve and check container exit status
             assert isinstance(exit_code, int)
@@ -323,14 +324,14 @@ class TaskDockerContainer(TaskContainer):
         if tasks:
             assert len(tasks) == 1
             status = tasks[0]["Status"]
-            logger.debug("docker task status = " + str(status))
+            logger.debug(_("docker task", status=status))
             state = status["State"]
 
         # log each new state
         if self._observed_states is None:
             self._observed_states = set()
         if state not in self._observed_states:
-            logger.info("docker task state = " + state)
+            logger.info(_("docker task", state=state))
             self._observed_states.add(state)
 
         # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
@@ -353,7 +354,7 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
-    logger_prefix: str = "wdl:",
+    logger_prefix: Optional[List[str]] = None,
     max_workers: Optional[int] = None,  # unused
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -371,20 +372,22 @@ def run_local_task(
 
     run_id = run_id or task.name
     run_dir = provision_run_dir(task.name, run_dir)
-    logger = logging.getLogger(logger_prefix + "task:" + run_id)
+    logger = logging.getLogger(".".join((logger_prefix or ["wdl"]) + ["t:" + run_id]))
     fh = logging.FileHandler(os.path.join(run_dir, "task.log"))
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
     _util.install_coloredlogs(logger)
     logger.notice(  # pyre-fixme
-        "starting task %s (%s Ln %d Col %d) in %s",
-        task.name,
-        task.pos.uri,
-        task.pos.line,
-        task.pos.column,
-        run_dir,
+        _(
+            "task start",
+            name=task.name,
+            source=task.pos.uri,
+            line=task.pos.line,
+            column=task.pos.column,
+            dir=run_dir,
+        )
     )
-    logger.info("thread %d", threading.get_ident())
+    logger.info(_("thread", ident=threading.get_ident()))
     write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
@@ -408,15 +411,14 @@ def run_local_task(
             assert isinstance(cpu_value, int)
             cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
             if cpu != cpu_value:
-                logger.warning(f"runtime.cpu: {cpu} (adjusted from {cpu_value})")
-            else:
-                logger.info(f"runtime.cpu: {cpu}")
+                logger.warning(_("runtime.cpu", original=cpu_value, adjusted=cpu))
+        logger.info(_("runtime", cpu=cpu))
 
         # interpolate command
         command = _util.strip_leading_whitespace(
             task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
         )[1]
-        logger.debug("command:\n%s", command.rstrip())
+        logger.debug(_("command", command=command.strip()))
 
         # if needed, copy input files into working directory
         if copy_input_files:
@@ -434,15 +436,12 @@ def run_local_task(
     except Exception as exn:
         logger.debug(traceback.format_exc())
         wrapper = RunFailed(task, run_id, run_dir)
-        msg = str(wrapper)
-        if hasattr(exn, "job_id"):
-            msg += " evaluating " + getattr(exn, "job_id")
-        msg += ": " + exn.__class__.__name__
+        info = {"error": exn.__class__.__name__}
         if str(exn):
-            msg += ", " + str(exn)
-        if isinstance(exn, CommandFailed):
-            logger.info("run directory: %s", run_dir)
-        logger.error(msg)
+            info["message"] = str(exn)
+        if hasattr(exn, "job_id"):
+            info["node"] = getattr(exn, "job_id")
+        logger.error(_(str(wrapper), **info))
         raise wrapper from exn
 
 
@@ -476,7 +475,7 @@ def _eval_task_inputs(
         assert isinstance(v, Value.Base)
         container_env = container_env.bind(b.name, v)
         vj = json.dumps(v.json)
-        logger.info("input {} -> {}".format(b.name, vj if len(vj) < 4096 else "(large)"))
+        logger.info(_("input", name=b.name, value=(v.json if len(vj) < 4096 else "(((large)))")))
 
     # collect remaining declarations requiring evaluation.
     decls_to_eval = []
@@ -509,7 +508,7 @@ def _eval_task_inputs(
         else:
             assert decl.type.optional
         vj = json.dumps(v.json)
-        logger.info("eval {} -> {}".format(decl.name, vj if len(vj) < 4096 else "(large)"))
+        logger.info(_("eval", name=decl.name, value=(v.json if len(vj) < 4096 else "(((large)))")))
         container_env = container_env.bind(decl.name, v)
 
     return container_env
@@ -540,12 +539,14 @@ def _eval_task_outputs(
             host_file = container.host_file(v.value)
             if host_file is None:
                 logger.warning(
-                    "file not found for output %s: %s (error unless declared type is optional File?)",
-                    output_name,
-                    v.value,
+                    _(
+                        "output file not found in container (error unless declared type is optional)",
+                        name=output_name,
+                        file=v.value,
+                    )
                 )
             else:
-                logger.debug("container output file %s -> host %s", v.value, host_file)
+                logger.debug(_("output file", container=v.value, host=host_file))
             # We may overwrite File.value with None, which is an invalid state, then we'll fix it
             # up (or abort) below. This trickery is because we don't, at this point, know whether
             # the 'desired' output type is File or File?.
@@ -566,7 +567,10 @@ def _eval_task_outputs(
             exn2 = Error.EvalError(decl, str(exn))
             setattr(exn2, "job_id", decl.workflow_node_id)
             raise exn2 from exn
-        logger.info("output {} -> {}".format(decl.name, json.dumps(v.json)))
+        vj = json.dumps(v.json)
+        logger.info(
+            _("output", name=decl.name, value=(v.json if len(vj) < 4096 else "(((large)))"))
+        )
 
         # Now, a delicate sequence for postprocessing File outputs (including Files nested within
         # compound values)
@@ -607,14 +611,16 @@ class _StdLib(StdLib.Base):
         ans = self.container.host_file(filename, inputs_only=self.inputs_only)
         if ans is None:
             raise OutputError("function was passed non-existent file " + filename)
-        self.logger.debug("read_ %s from host %s", filename, ans)
+        self.logger.debug(_("read_", container=filename, host=ans))
         return ans
 
     def _virtualize_filename(self, filename: str) -> str:
         # register new file with container input_file_map
         self.container.add_files([filename])
-        self.logger.debug("write_ host %s", filename)
-        self.logger.info("wrote %s", self.container.input_file_map[filename])
+        self.logger.debug(
+            _("write_", host=filename, container=self.container.input_file_map[filename])
+        )
+        self.logger.info(_("wrote", file=self.container.input_file_map[filename]))
         return self.container.input_file_map[filename]
 
 

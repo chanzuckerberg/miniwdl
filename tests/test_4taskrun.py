@@ -138,7 +138,7 @@ class TestTaskRunner(unittest.TestCase):
         }
         """)
 
-        std_error_msgs = [record for record in capture.records if record.msg.startswith("2|")]
+        std_error_msgs = [record for record in capture.records if str(record.msg).startswith("2|")]
 
         self.assertEqual(std_error_msgs.pop(0).msg, "2| Start logging")
         self.assertEqual(std_error_msgs.pop().msg, "2| End logging")
@@ -171,7 +171,7 @@ class TestTaskRunner(unittest.TestCase):
 
                 }
                 """)
-        std_error_msgs = [record for record in capture.records if record.msg.startswith("2|")]
+        std_error_msgs = [record for record in capture.records if str(record.msg).startswith("2|")]
 
         self.assertEqual(len(std_error_msgs), 6)
         self.assertEqual(std_error_msgs[0].msg, "2| Part onePart two")

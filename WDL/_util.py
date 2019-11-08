@@ -28,6 +28,7 @@ from types import FrameType
 import coloredlogs
 from pygtail import Pygtail
 import docker
+import yaml
 
 __all__: List[str] = []
 
@@ -201,6 +202,19 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
             sleep(1e-3)
 
 
+class StructuredLogMessage:
+    message: str
+    kwargs: Dict[str, Any]
+
+    # from https://docs.python.org/3.8/howto/logging-cookbook.html#implementing-structured-logging
+    def __init__(self, _message: str, **kwargs) -> None:  # pyre-fixme
+        self.message = _message
+        self.kwargs = kwargs
+
+    def __str__(self) -> str:
+        return f"{self.message} :: {yaml.dump(self.kwargs, default_flow_style=True, width=999999).strip()[1:-1]}"
+
+
 VERBOSE_LEVEL = 15
 __all__.append("VERBOSE_LEVEL")
 logging.addLevelName(VERBOSE_LEVEL, "VERBOSE")
@@ -233,7 +247,7 @@ def install_coloredlogs(logger: logging.Logger) -> None:
     level_styles = {}
     field_styles = {}
 
-    if "NO_COLOR" not in os.environ:
+    if sys.stderr.isatty() and "NO_COLOR" not in os.environ:
         level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
         level_styles["debug"]["color"] = 242
         level_styles["notice"] = {}
@@ -309,7 +323,7 @@ def ensure_swarm(logger: logging.Logger) -> None:
                 break
             else:
                 logger.notice(  # pyre-fixme
-                    "waiting for docker swarm to become active; current state = " + state
+                    StructuredLogMessage("waiting for docker swarm to become active", state=state)
                 )
                 sleep(2)
 
@@ -356,7 +370,7 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
         global _terminating
         if not _terminating:
             if sig != signal.SIGUSR1:
-                logger.critical("received termination signal ({})".format(sig))
+                logger.critical(StructuredLogMessage("ABORT", signal=sig))
             else:
                 # SIGUSR1 comes from ourselves, as the signal to abort after something else has
                 # already gone wrong
