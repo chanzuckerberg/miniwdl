@@ -199,31 +199,9 @@ Online Python developer documentation for the `WDL` package: [![Docs Status](htt
 
 Locally, `make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate the docs under `docs/_build/html/`. Or, after building the docker image, copy them out with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
 
-## Contributing
+## [Contributing](https://github.com/chanzuckerberg/miniwdl/blob/master/CONTRIBUTING.md)
 
-Feedback and contributions are welcome on this repository. Please:
-
-1. Add appropriate tests to the automatic suite
-2. Use `make pretty` to reformat the code with [black](https://github.com/python/black)
-3. Ensure compatibility with this project's MIT license
-4. Send pull requests from a dedicated branch without unrelated edits
-
-The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) is our up-to-date tracker.
-
-To set up your local development environment,
-
-1. `git clone --recursive` this repository
-2. Install dependencies as illustrated in the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) (OS packages + PyPI packages listed in `requirements.txt` and `requirements.dev.txt`)
-3. Invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user).
-
-The Makefile has a few typical scripted flows:
-
-- `make` or `make test` runs the full test suite with code coverage report (takes several minutes)
-- `make qtest` runs most of the tests more quickly (by omitting some slower cases, and not tracking coverage)
-- `make pretty` reformats the code with [black](https://github.com/python/black)
-- `make check` validates the code with [Pylint](https://www.pylint.org/) and [Pyre](https://pyre-check.org/)
-
-To quickly run only a relevant subset of the tests, you can e.g. `python3 -m unittest -f tests/test_5stdlib.py`. To invoke the command-line interface (`miniwdl` command once installed), e.g. `python3 -m WDL check ...` or `python3 -m WDL run ...`.
+Feedback and contributions to miniwdl are welcome, via issues and pull requests on this repository. See [CONTRIBUTING.md](https://github.com/chanzuckerberg/miniwdl/blob/master/CONTRIBUTING.md) for guidelines and instructions to set up your development environment.
 
 ## Security
 
