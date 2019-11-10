@@ -730,6 +730,28 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
         self.assertLessEqual(outputs["wall_seconds"], 6)
 
+    def test_runtime_memory(self):
+        txt = R"""
+        version 1.0
+        task nop {
+            input {
+                String memory
+            }
+            command <<<
+                echo "~{memory}"
+            >>>
+            runtime {
+                memory: "~{memory}"
+            }
+        }
+        """
+        self._test_task(txt, {"memory": "100000000"})
+        self._test_task(txt, {"memory": "1G"})
+        self._test_task(txt, {"memory": "99T"})
+        self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.EvalError)
+        self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
+        self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)
+
     def test_input_files_rw(self):
         txt = R"""
         version 1.0

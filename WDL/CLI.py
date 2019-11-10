@@ -771,6 +771,10 @@ def run_self_test(**kwargs):
                 output {
                     File message = glob("message.*")[0]
                 }
+                runtime {
+                    docker: "ubuntu:18.04"
+                    memory: "1G"
+                }
             }
             """
         )

@@ -7,6 +7,7 @@ import tempfile
 from typing import List, Tuple, Callable, BinaryIO
 from abc import ABC, abstractmethod
 from . import Type, Value, Expr, Env, Error
+from ._util import byte_size_units
 
 
 class Base:
@@ -664,29 +665,10 @@ class _Size(EagerFunction):
 
         if unit:
             try:
-                ans /= float(_Size.unit_divisors[unit.value])
+                ans /= float(byte_size_units[unit.value])
             except KeyError:
                 raise Error.EvalError(expr, "size(): invalid unit " + unit.value)
         return Value.Float(ans)
-
-    unit_divisors = {
-        "K": 1000,
-        "KB": 1000,
-        "Ki": 1024,
-        "KiB": 1024,
-        "M": 1000000,
-        "MB": 1000000,
-        "Mi": 1048576,
-        "MiB": 1048576,
-        "G": 1000000000,
-        "GB": 1000000000,
-        "Gi": 1073741824,
-        "GiB": 1073741824,
-        "T": 1000000000000,
-        "TB": 1000000000000,
-        "Ti": 1099511627776,
-        "TiB": 1099511627776,
-    }
 
 
 class _SelectFirst(EagerFunction):

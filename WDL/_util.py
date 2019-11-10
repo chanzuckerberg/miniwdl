@@ -418,3 +418,23 @@ class CustomDeepCopyMixin:
         for k, v in self.__dict__.items():
             setattr(cp, k, copy.deepcopy(v, memo))
         return cp
+
+
+byte_size_units = {
+    "K": 1000,
+    "KB": 1000,
+    "Ki": 1024,
+    "KiB": 1024,
+    "M": 1000000,
+    "MB": 1000000,
+    "Mi": 1048576,
+    "MiB": 1048576,
+    "G": 1000000000,
+    "GB": 1000000000,
+    "Gi": 1073741824,
+    "GiB": 1073741824,
+    "T": 1000000000000,
+    "TB": 1000000000000,
+    "Ti": 1099511627776,
+    "TiB": 1099511627776,
+}
