@@ -399,20 +399,8 @@ def run_local_task(
         container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
         # evaluate runtime fields
-        image_tag_expr = task.runtime.get("docker", None)
-        if image_tag_expr:
-            assert isinstance(image_tag_expr, Expr.Base)
-            container.image_tag = image_tag_expr.eval(container_env).coerce(Type.String()).value
-        cpu = 1
-        if "cpu" in task.runtime:
-            cpu_expr = task.runtime["cpu"]
-            assert isinstance(cpu_expr, Expr.Base)
-            cpu_value = cpu_expr.eval(container_env).coerce(Type.Int()).value
-            assert isinstance(cpu_value, int)
-            cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
-            if cpu != cpu_value:
-                logger.warning(_("runtime.cpu", original=cpu_value, adjusted=cpu))
-        logger.info(_("runtime", cpu=cpu))
+        runtime = _eval_task_runtime(logger, task, container_env)
+        container.image_tag = str(runtime.get("docker", container.image_tag))
 
         # interpolate command
         command = _util.strip_leading_whitespace(
@@ -425,7 +413,7 @@ def run_local_task(
             container.copy_input_files(logger)
 
         # start container & run command
-        container.run(logger, command, cpu)
+        container.run(logger, command, int(runtime.get("cpu", 1)))
 
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
@@ -526,6 +514,29 @@ def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
 
     for b in env:
         collector(b.value)
+    return ans
+
+
+def _eval_task_runtime(
+    logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base]
+) -> Dict[str, Union[int, str]]:
+    ans = {}
+    image_tag_expr = task.runtime.get("docker", None)
+    if image_tag_expr:
+        assert isinstance(image_tag_expr, Expr.Base)
+        ans["docker"] = image_tag_expr.eval(env).coerce(Type.String()).value
+    if "cpu" in task.runtime:
+        cpu_expr = task.runtime["cpu"]
+        assert isinstance(cpu_expr, Expr.Base)
+        cpu_value = cpu_expr.eval(env).coerce(Type.Int()).value
+        assert isinstance(cpu_value, int)
+        cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
+        if cpu != cpu_value:
+            logger.warning(
+                _("runtime.cpu adjusted to match local host", original=cpu_value, adjusted=cpu)
+            )
+        ans["cpu"] = cpu
+    logger.info(_("effective runtime", **ans))
     return ans
 
 
