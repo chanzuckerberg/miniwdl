@@ -25,6 +25,7 @@ from ._util import (
     NOTICE_LEVEL,
     install_coloredlogs,
     ensure_swarm,
+    parse_byte_size,
 )
 from ._util import StructuredLogMessage as _
 
@@ -54,13 +55,13 @@ def main(args=None):
 
     try:
         if args.command == "check":
-            check(**vars(args))
+            return check(**vars(args))
         elif args.command == "run":
-            runner(**vars(args))
+            return runner(**vars(args))
         elif args.command == "run_self_test":
-            run_self_test(**vars(args))
+            return run_self_test(**vars(args))
         elif args.command == "cromwell":
-            cromwell(**vars(args))
+            return cromwell(**vars(args))
         else:
             assert False
     except (
@@ -328,10 +329,24 @@ def fill_run_subparser(subparsers):
     run_parser.add_argument(
         "-@",
         metavar="N",
-        dest="max_workers",
+        dest="max_tasks",
         type=int,
         default=None,
         help="maximum concurrent tasks; defaults to # of processors (limit effectively lower when tasks require multiple processors)",
+    )
+    run_parser.add_argument(
+        "--max-runtime-cpu",
+        metavar="N",
+        type=int,
+        default=None,
+        help="maximum effective runtime.cpu for any task (default: # host processors)",
+    )
+    run_parser.add_argument(
+        "--max-runtime-memory",
+        metavar="N",
+        type=str,
+        default=None,
+        help="maximum effective runtime.memory for any task (default: total host memory)",
     )
     run_parser.add_argument(
         "-v",
@@ -354,8 +369,6 @@ def runner(
     task=None,
     rundir=None,
     path=None,
-    copy_input_files=False,
-    max_workers=None,
     **kwargs,
 ):
     # load WDL document
@@ -370,6 +383,14 @@ def runner(
 
     if rundir and os.path.isfile(rundir):
         die("--dir must be an existing directory or one that can be created")
+
+    run_kwargs = dict(
+        (k, kwargs[k]) for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory"]
+    )
+    if run_kwargs["max_runtime_memory"]:
+        run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
+    if isinstance(target, Workflow):
+        run_kwargs["max_tasks"] = kwargs["max_tasks"]
 
     level = NOTICE_LEVEL
     if kwargs["verbose"]:
@@ -395,13 +416,7 @@ def runner(
         entrypoint = (
             runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
         )
-        rundir, output_env = entrypoint(
-            target,
-            input_env,
-            run_dir=rundir,
-            copy_input_files=copy_input_files,
-            max_workers=max_workers,
-        )
+        rundir, output_env = entrypoint(target, input_env, run_dir=rundir, **run_kwargs)
     except Exception as exn:
         outer_rundir = None
         inner_rundir = None
@@ -784,13 +799,16 @@ def run_self_test(**kwargs):
 
     check(uri=[os.path.join(dn, "test.wdl")])
 
-    run_args = dict(kwargs)
-    run_args["uri"] = os.path.join(dn, "test.wdl")
-    run_args["inputs"] = ["who=" + os.path.join(dn, "who.txt")]
-    run_args["rundir"] = dn
-    run_args["verbose"] = True
-    run_args["debug"] = True
-    outputs = runner(**run_args)
+    outputs = main(
+        [
+            "run",
+            os.path.join(dn, "test.wdl"),
+            "who=" + os.path.join(dn, "who.txt"),
+            "--dir",
+            dn,
+            "--debug",
+        ]
+    )
 
     assert len(outputs["hello_caller.messages"]) == 2
     with open(outputs["hello_caller.messages"][0], "r") as infile:

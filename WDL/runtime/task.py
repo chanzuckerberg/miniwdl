@@ -26,7 +26,7 @@ from .._util import (
     LOGGING_FORMAT,
     PygtailLogger,
     TerminationSignalFlag,
-    byte_size_units,
+    parse_byte_size,
 )
 from .._util import StructuredLogMessage as _
 from .error import *
@@ -273,14 +273,18 @@ class TaskDockerContainer(TaskContainer):
             # run container as a transient docker swarm service, letting docker handle the resource
             # scheduling (waiting until requested # of CPUs are available)
             logger.info(_("docker image", tag=self.image_tag))
-            resources = {
+            resources = {}
+            if cpu:
                 # the cpu unit expected by swarm is "NanoCPUs"
-                "cpu_limit": cpu * 1_000_000_000,
-                "cpu_reservation": cpu * 1_000_000_000,
-            }
+                resources["cpu_limit"] = cpu * 1_000_000_000
+                resources["cpu_reservation"] = cpu * 1_000_000_000
             if memory:
                 resources["mem_reservation"] = memory
-            logger.info(_("docker resources", **resources))
+            if resources:
+                logger.debug(_("docker resources", **resources))
+                resources = docker.types.Resources(**resources)
+            else:
+                resources = None
             svc = client.services.create(
                 self.image_tag,
                 command=[
@@ -292,7 +296,7 @@ class TaskDockerContainer(TaskContainer):
                 restart_policy=docker.types.RestartPolicy("none"),
                 workdir=os.path.join(self.container_dir, "work"),
                 mounts=mounts,
-                resources=docker.types.Resources(**resources),
+                resources=resources,
                 labels={"miniwdl_run_id": self.run_id},
                 container_labels={"miniwdl_run_id": self.run_id},
             )
@@ -370,8 +374,9 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
+    max_runtime_cpu: Optional[int] = None,
+    max_runtime_memory: Optional[int] = None,
     logger_prefix: Optional[List[str]] = None,
-    max_workers: Optional[int] = None,  # unused
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -384,6 +389,9 @@ def run_local_task(
                     exist; if it does, a timestamp-based subdirectory is created and used (defaults
                     to current working directory)
     :param copy_input_files: copy input files and mount them read/write instead of read-only
+    :param max_runtime_cpu: maximum effective runtime.cpu value (default: # host CPUs)
+    :param max_runtime_memory: maximum effective runtime.memory value in bytes (default: total host
+                               memory)
     """
 
     run_id = run_id or task.name
@@ -415,7 +423,9 @@ def run_local_task(
         container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
         # evaluate runtime fields
-        runtime = _eval_task_runtime(logger, task, container_env)
+        runtime = _eval_task_runtime(
+            logger, task, container_env, max_runtime_cpu, max_runtime_memory
+        )
         container.image_tag = str(runtime.get("docker", container.image_tag))
 
         # interpolate command
@@ -429,7 +439,7 @@ def run_local_task(
             container.copy_input_files(logger)
 
         # start container & run command
-        container.run(logger, command, int(runtime.get("cpu", 1)), int(runtime.get("memory", 0)))
+        container.run(logger, command, int(runtime.get("cpu", 0)), int(runtime.get("memory", 0)))
 
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
@@ -537,7 +547,11 @@ _host_memory: Optional[int] = None
 
 
 def _eval_task_runtime(
-    logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base]
+    logger: logging.Logger,
+    task: Tree.Task,
+    env: Env.Bindings[Value.Base],
+    max_runtime_cpu: Optional[int],
+    max_runtime_memory: Optional[int],
 ) -> Dict[str, Union[int, str]]:
     global _host_memory
     ans = {}
@@ -552,10 +566,10 @@ def _eval_task_runtime(
         assert isinstance(cpu_expr, Expr.Base)
         cpu_value = cpu_expr.eval(env).coerce(Type.Int()).value
         assert isinstance(cpu_value, int)
-        cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
+        cpu = max(1, min(max_runtime_cpu or multiprocessing.cpu_count(), cpu_value))
         if cpu != cpu_value:
             logger.warning(
-                _("runtime.cpu adjusted to match local host", original=cpu_value, adjusted=cpu)
+                _("runtime.cpu adjusted to configured maximum", original=cpu_value, adjusted=cpu)
             )
         ans["cpu"] = cpu
 
@@ -564,34 +578,28 @@ def _eval_task_runtime(
         assert isinstance(memory_expr, Expr.Base)
         memory_str = memory_expr.eval(env).coerce(Type.String()).value
         assert isinstance(memory_str, str)
-
-        memory_int = None
-        memory_unit = None
-        for i in range(len(memory_str)):
-            if memory_str[i].isdigit():
-                memory_int = int(memory_str[: i + 1])
-                memory_unit = memory_str[i + 1 :].strip()
-            else:
-                break
-        if memory_int and memory_unit:
-            memory_int *= byte_size_units.get(memory_unit, 0)
-        if not memory_int or memory_int < 0:
+        try:
+            memory_bytes = parse_byte_size(memory_str)
+        except ValueError:
             raise Error.EvalError(memory_expr, "invalid setting of runtime.memory, " + memory_str)
 
-        _host_memory = _host_memory or psutil.virtual_memory().total
-        assert isinstance(_host_memory, int)
-        if memory_int > _host_memory:
+        if not max_runtime_memory:
+            _host_memory = _host_memory or psutil.virtual_memory().total
+            max_runtime_memory = _host_memory
+        assert isinstance(max_runtime_memory, int)
+        if memory_bytes > max_runtime_memory:
             logger.warning(
                 _(
-                    "runtime.memory adjusted to match local host",
-                    original=memory_int,
-                    adjusted=_host_memory,
+                    "runtime.memory adjusted to configured maximum",
+                    original=memory_bytes,
+                    adjusted=max_runtime_memory,
                 )
             )
-            memory_int = _host_memory
-        ans["memory"] = memory_int
+            memory_bytes = max_runtime_memory
+        ans["memory"] = memory_bytes
 
-    logger.info(_("effective runtime", **ans))
+    if ans:
+        logger.info(_("effective runtime", **ans))
     return ans
 
 

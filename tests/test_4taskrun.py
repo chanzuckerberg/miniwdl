@@ -14,7 +14,7 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
 
-    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, copy_input_files: bool = False):
+    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, **kwargs):
         WDL._util.ensure_swarm(logging.getLogger("test_task"))
         try:
             doc = WDL.parse_document(wdl)
@@ -23,7 +23,7 @@ class TestTaskRunner(unittest.TestCase):
             assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, copy_input_files=copy_input_files)
+            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs)
         except WDL.runtime.RunFailed as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
@@ -729,6 +729,9 @@ class TestTaskRunner(unittest.TestCase):
         # check task with overkill number of CPUs gets scheduled
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
         self.assertLessEqual(outputs["wall_seconds"], 6)
+        # check max_runtime_cpu set to 1 causes serialization
+        outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, max_runtime_cpu=1)
+        self.assertGreaterEqual(outputs["wall_seconds"], 8)
 
     def test_runtime_memory(self):
         txt = R"""
@@ -748,6 +751,7 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"memory": "100000000"})
         self._test_task(txt, {"memory": "1G"})
         self._test_task(txt, {"memory": "99T"})
+        self._test_task(txt, {"memory": "99T"}, max_runtime_memory=WDL._util.parse_byte_size(" 123 MiB "))
         self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)

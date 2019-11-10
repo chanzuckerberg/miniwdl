@@ -601,9 +601,10 @@ def run_local_workflow(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     logger_prefix: Optional[List[str]] = None,
-    max_workers: Optional[int] = None,
+    max_tasks: Optional[int] = None,
     _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
     _test_pickle: bool = False,
+    **task_args,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
@@ -656,9 +657,7 @@ def run_local_workflow(
             # There's still a minor risk of deadlock if sub-workflow nesting is deeper than the
             # subworkflow thread pool size.
             thread_pools = (
-                futures.ThreadPoolExecutor(
-                    max_workers=(max_workers or multiprocessing.cpu_count())
-                ),
+                futures.ThreadPoolExecutor(max_workers=(max_tasks or multiprocessing.cpu_count())),
                 futures.ThreadPoolExecutor(max_workers=16),
             )
         call_futures = {}
@@ -681,10 +680,16 @@ def run_local_workflow(
                     }
                     # submit to appropriate thread pool
                     if isinstance(next_call.callee, Tree.Task):
-                        future = thread_pools[0].submit(run_local_task, *sub_args, **sub_kwargs)
+                        future = thread_pools[0].submit(
+                            run_local_task, *sub_args, **sub_kwargs, **task_args
+                        )
                     elif isinstance(next_call.callee, Tree.Workflow):
                         future = thread_pools[1].submit(
-                            run_local_workflow, *sub_args, **sub_kwargs, _thread_pools=thread_pools
+                            run_local_workflow,
+                            *sub_args,
+                            **sub_kwargs,
+                            _thread_pools=thread_pools,
+                            **task_args,
                         )
                     else:
                         assert False

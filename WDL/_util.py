@@ -441,3 +441,25 @@ byte_size_units = {
     "Ti": 1099511627776,
     "TiB": 1099511627776,
 }
+
+
+@export
+def parse_byte_size(s: str) -> int:
+    """
+    convert strings like "2000", "4G", "1 TiB" to a positive number of bytes
+    """
+
+    s = s.strip()
+    N = None
+    unit = None
+    for i in range(len(s)):
+        if s[i].isdigit():
+            N = int(s[: i + 1])
+            unit = s[i + 1 :].lstrip()
+        else:
+            break
+    if N and unit:
+        N *= byte_size_units.get(unit, 0)
+    if not N or N < 0:
+        raise ValueError("invalid byte size string, " + s)
+    return N
