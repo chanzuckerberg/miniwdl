@@ -541,10 +541,12 @@ def _eval_task_runtime(
 ) -> Dict[str, Union[int, str]]:
     global _host_memory
     ans = {}
+
     image_tag_expr = task.runtime.get("docker", None)
     if image_tag_expr:
         assert isinstance(image_tag_expr, Expr.Base)
         ans["docker"] = image_tag_expr.eval(env).coerce(Type.String()).value
+
     if "cpu" in task.runtime:
         cpu_expr = task.runtime["cpu"]
         assert isinstance(cpu_expr, Expr.Base)
@@ -556,11 +558,13 @@ def _eval_task_runtime(
                 _("runtime.cpu adjusted to match local host", original=cpu_value, adjusted=cpu)
             )
         ans["cpu"] = cpu
+
     if "memory" in task.runtime:
         memory_expr = task.runtime["memory"]
         assert isinstance(memory_expr, Expr.Base)
         memory_str = memory_expr.eval(env).coerce(Type.String()).value
         assert isinstance(memory_str, str)
+
         memory_int = None
         memory_unit = None
         for i in range(len(memory_str)):
@@ -586,6 +590,7 @@ def _eval_task_runtime(
             )
             memory_int = _host_memory
         ans["memory"] = memory_int
+
     logger.info(_("effective runtime", **ans))
     return ans
 

@@ -28,7 +28,6 @@ from types import FrameType
 import coloredlogs
 from pygtail import Pygtail
 import docker
-import yaml
 
 __all__: List[str] = []
 
@@ -202,6 +201,7 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
             sleep(1e-3)
 
 
+@export
 class StructuredLogMessage:
     message: str
     kwargs: Dict[str, Any]
@@ -212,7 +212,9 @@ class StructuredLogMessage:
         self.kwargs = kwargs
 
     def __str__(self) -> str:
-        return f"{self.message} :: {yaml.dump(self.kwargs, default_flow_style=True, width=999999).strip()[1:-1]}"
+        return (
+            f"{self.message} :: {', '.join(k+ ': ' + json.dumps(v) for k,v in self.kwargs.items())}"
+        )
 
 
 VERBOSE_LEVEL = 15
@@ -396,6 +398,7 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
                 _terminating = None
 
 
+@export
 class CustomDeepCopyMixin:
     """
     Mixin class overrides __deepcopy__ to consult an internal list of attribute names to be merely
