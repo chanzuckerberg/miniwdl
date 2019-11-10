@@ -722,13 +722,13 @@ class TestTaskRunner(unittest.TestCase):
         """
         # 4 concurrent spinners limited to 1 cpu should take 4 seconds
         outputs = self._test_task(txt, {"n": 4, "cpu": 1})
-        self.assertGreaterEqual(outputs["wall_seconds"], 3)
+        self.assertGreaterEqual(outputs["wall_seconds"], 4)
         # 8 concurrent spinners on >1 cpus should take <8 seconds
         outputs = self._test_task(txt, {"n": 8, "cpu": 4})
-        self.assertLessEqual(outputs["wall_seconds"], 6)
+        self.assertLess(outputs["wall_seconds"], 8)
         # check task with overkill number of CPUs gets scheduled
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
-        self.assertLessEqual(outputs["wall_seconds"], 6)
+        self.assertLess(outputs["wall_seconds"], 8)
         # check max_runtime_cpu set to 1 causes serialization
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, max_runtime_cpu=1)
         self.assertGreaterEqual(outputs["wall_seconds"], 8)
