@@ -929,4 +929,4 @@ class TestWorkflowRunner(unittest.TestCase):
 
         end = time.time()
         test_time = round(end - start)
-        assert test_time < 15
+        assert test_time < 30

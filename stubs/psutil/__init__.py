@@ -1,0 +1,6 @@
+class svmem:
+    total: int
+    ...
+
+def virtual_memory() -> svmem:
+    ...

@@ -13,6 +13,7 @@ import math
 import multiprocessing
 import threading
 import shutil
+import psutil
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
 
@@ -25,6 +26,7 @@ from .._util import (
     LOGGING_FORMAT,
     PygtailLogger,
     TerminationSignalFlag,
+    parse_byte_size,
 )
 from .._util import StructuredLogMessage as _
 from .error import *
@@ -124,7 +126,7 @@ class TaskContainer(ABC):
             os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
             shutil.copy(host_filename, host_copy_filename)
 
-    def run(self, logger: logging.Logger, command: str, cpu: int) -> None:
+    def run(self, logger: logging.Logger, command: str, cpu: int, memory: int) -> None:
         """
         1. Container is instantiated
         2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
@@ -144,7 +146,7 @@ class TaskContainer(ABC):
                     raise Terminated()
                 self._running = True
                 try:
-                    exit_status = self._run(logger, terminating, command, cpu)
+                    exit_status = self._run(logger, terminating, command, cpu, memory)
                 finally:
                     self._running = False
 
@@ -155,7 +157,12 @@ class TaskContainer(ABC):
 
     @abstractmethod
     def _run(
-        self, logger: logging.Logger, terminating: Callable[[], bool], command: str, cpu: int
+        self,
+        logger: logging.Logger,
+        terminating: Callable[[], bool],
+        command: str,
+        cpu: int,
+        memory: int,
     ) -> int:
         # run command in container & return exit status
         raise NotImplementedError()
@@ -223,7 +230,12 @@ class TaskDockerContainer(TaskContainer):
         self._bind_input_files = None
 
     def _run(
-        self, logger: logging.Logger, terminating: Callable[[], bool], command: str, cpu: int
+        self,
+        logger: logging.Logger,
+        terminating: Callable[[], bool],
+        command: str,
+        cpu: int,
+        memory: int,
     ) -> int:
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
@@ -261,6 +273,18 @@ class TaskDockerContainer(TaskContainer):
             # run container as a transient docker swarm service, letting docker handle the resource
             # scheduling (waiting until requested # of CPUs are available)
             logger.info(_("docker image", tag=self.image_tag))
+            resources = {}
+            if cpu:
+                # the cpu unit expected by swarm is "NanoCPUs"
+                resources["cpu_limit"] = cpu * 1_000_000_000
+                resources["cpu_reservation"] = cpu * 1_000_000_000
+            if memory:
+                resources["mem_reservation"] = memory
+            if resources:
+                logger.debug(_("docker resources", **resources))
+                resources = docker.types.Resources(**resources)
+            else:
+                resources = None
             svc = client.services.create(
                 self.image_tag,
                 command=[
@@ -272,11 +296,7 @@ class TaskDockerContainer(TaskContainer):
                 restart_policy=docker.types.RestartPolicy("none"),
                 workdir=os.path.join(self.container_dir, "work"),
                 mounts=mounts,
-                resources=docker.types.Resources(
-                    # the unit expected by swarm is "NanoCPUs"
-                    cpu_limit=cpu * 1_000_000_000,
-                    cpu_reservation=cpu * 1_000_000_000,
-                ),
+                resources=resources,
                 labels={"miniwdl_run_id": self.run_id},
                 container_labels={"miniwdl_run_id": self.run_id},
             )
@@ -354,8 +374,9 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
+    max_runtime_cpu: Optional[int] = None,
+    max_runtime_memory: Optional[int] = None,
     logger_prefix: Optional[List[str]] = None,
-    max_workers: Optional[int] = None,  # unused
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -368,6 +389,9 @@ def run_local_task(
                     exist; if it does, a timestamp-based subdirectory is created and used (defaults
                     to current working directory)
     :param copy_input_files: copy input files and mount them read/write instead of read-only
+    :param max_runtime_cpu: maximum effective runtime.cpu value (default: # host CPUs)
+    :param max_runtime_memory: maximum effective runtime.memory value in bytes (default: total host
+                               memory)
     """
 
     run_id = run_id or task.name
@@ -399,20 +423,10 @@ def run_local_task(
         container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
         # evaluate runtime fields
-        image_tag_expr = task.runtime.get("docker", None)
-        if image_tag_expr:
-            assert isinstance(image_tag_expr, Expr.Base)
-            container.image_tag = image_tag_expr.eval(container_env).coerce(Type.String()).value
-        cpu = 1
-        if "cpu" in task.runtime:
-            cpu_expr = task.runtime["cpu"]
-            assert isinstance(cpu_expr, Expr.Base)
-            cpu_value = cpu_expr.eval(container_env).coerce(Type.Int()).value
-            assert isinstance(cpu_value, int)
-            cpu = max(1, min(multiprocessing.cpu_count(), cpu_value))
-            if cpu != cpu_value:
-                logger.warning(_("runtime.cpu", original=cpu_value, adjusted=cpu))
-        logger.info(_("runtime", cpu=cpu))
+        runtime = _eval_task_runtime(
+            logger, task, container_env, max_runtime_cpu, max_runtime_memory
+        )
+        container.image_tag = str(runtime.get("docker", container.image_tag))
 
         # interpolate command
         command = _util.strip_leading_whitespace(
@@ -425,7 +439,7 @@ def run_local_task(
             container.copy_input_files(logger)
 
         # start container & run command
-        container.run(logger, command, cpu)
+        container.run(logger, command, int(runtime.get("cpu", 0)), int(runtime.get("memory", 0)))
 
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
@@ -526,6 +540,66 @@ def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
 
     for b in env:
         collector(b.value)
+    return ans
+
+
+_host_memory: Optional[int] = None
+
+
+def _eval_task_runtime(
+    logger: logging.Logger,
+    task: Tree.Task,
+    env: Env.Bindings[Value.Base],
+    max_runtime_cpu: Optional[int],
+    max_runtime_memory: Optional[int],
+) -> Dict[str, Union[int, str]]:
+    global _host_memory
+    ans = {}
+
+    image_tag_expr = task.runtime.get("docker", None)
+    if image_tag_expr:
+        assert isinstance(image_tag_expr, Expr.Base)
+        ans["docker"] = image_tag_expr.eval(env).coerce(Type.String()).value
+
+    if "cpu" in task.runtime:
+        cpu_expr = task.runtime["cpu"]
+        assert isinstance(cpu_expr, Expr.Base)
+        cpu_value = cpu_expr.eval(env).coerce(Type.Int()).value
+        assert isinstance(cpu_value, int)
+        cpu = max(1, min(max_runtime_cpu or multiprocessing.cpu_count(), cpu_value))
+        if cpu != cpu_value:
+            logger.warning(
+                _("runtime.cpu adjusted to configured maximum", original=cpu_value, adjusted=cpu)
+            )
+        ans["cpu"] = cpu
+
+    if "memory" in task.runtime:
+        memory_expr = task.runtime["memory"]
+        assert isinstance(memory_expr, Expr.Base)
+        memory_str = memory_expr.eval(env).coerce(Type.String()).value
+        assert isinstance(memory_str, str)
+        try:
+            memory_bytes = parse_byte_size(memory_str)
+        except ValueError:
+            raise Error.EvalError(memory_expr, "invalid setting of runtime.memory, " + memory_str)
+
+        if not max_runtime_memory:
+            _host_memory = _host_memory or psutil.virtual_memory().total
+            max_runtime_memory = _host_memory
+        assert isinstance(max_runtime_memory, int)
+        if memory_bytes > max_runtime_memory:
+            logger.warning(
+                _(
+                    "runtime.memory adjusted to configured maximum",
+                    original=memory_bytes,
+                    adjusted=max_runtime_memory,
+                )
+            )
+            memory_bytes = max_runtime_memory
+        ans["memory"] = memory_bytes
+
+    if ans:
+        logger.info(_("effective runtime", **ans))
     return ans
 
 

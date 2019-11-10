@@ -28,7 +28,6 @@ from types import FrameType
 import coloredlogs
 from pygtail import Pygtail
 import docker
-import yaml
 
 __all__: List[str] = []
 
@@ -202,6 +201,7 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
             sleep(1e-3)
 
 
+@export
 class StructuredLogMessage:
     message: str
     kwargs: Dict[str, Any]
@@ -212,7 +212,9 @@ class StructuredLogMessage:
         self.kwargs = kwargs
 
     def __str__(self) -> str:
-        return f"{self.message} :: {yaml.dump(self.kwargs, default_flow_style=True, width=999999).strip()[1:-1]}"
+        return (
+            f"{self.message} :: {', '.join(k+ ': ' + json.dumps(v) for k,v in self.kwargs.items())}"
+        )
 
 
 VERBOSE_LEVEL = 15
@@ -396,6 +398,7 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
                 _terminating = None
 
 
+@export
 class CustomDeepCopyMixin:
     """
     Mixin class overrides __deepcopy__ to consult an internal list of attribute names to be merely
@@ -418,3 +421,45 @@ class CustomDeepCopyMixin:
         for k, v in self.__dict__.items():
             setattr(cp, k, copy.deepcopy(v, memo))
         return cp
+
+
+byte_size_units = {
+    "K": 1000,
+    "KB": 1000,
+    "Ki": 1024,
+    "KiB": 1024,
+    "M": 1000000,
+    "MB": 1000000,
+    "Mi": 1048576,
+    "MiB": 1048576,
+    "G": 1000000000,
+    "GB": 1000000000,
+    "Gi": 1073741824,
+    "GiB": 1073741824,
+    "T": 1000000000000,
+    "TB": 1000000000000,
+    "Ti": 1099511627776,
+    "TiB": 1099511627776,
+}
+
+
+@export
+def parse_byte_size(s: str) -> int:
+    """
+    convert strings like "2000", "4G", "1 TiB" to a positive number of bytes
+    """
+
+    s = s.strip()
+    N = None
+    unit = None
+    for i in range(len(s)):
+        if s[i].isdigit():
+            N = int(s[: i + 1])
+            unit = s[i + 1 :].lstrip()
+        else:
+            break
+    if N and unit:
+        N *= byte_size_units.get(unit, 0)
+    if not N or N < 0:
+        raise ValueError("invalid byte size string, " + s)
+    return N
