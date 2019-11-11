@@ -336,7 +336,7 @@ class TaskDockerContainer(TaskContainer):
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service
     ) -> Optional[int]:
-        state = "(unknown)"
+        status = None
 
         svc.reload()
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
@@ -344,35 +344,35 @@ class TaskDockerContainer(TaskContainer):
         if tasks:
             assert len(tasks) == 1
             status = tasks[0]["Status"]
-            logger.debug(_("docker task", status=status))
-            state = status["State"]
-        elif len(self._observed_states or []) > 1:
-            # once we observe the docker task in some state, it should always be there until we
-            # remove the service (as long as task history limit is positive)
-            logger.critical(
-                "docker task disappeared from swarm service; ensure swarm is configured with positive task history limit",
-                svc_attrs=svc.attrs,
-            )
-            assert False
+            logger.debug(_("docker task", id=tasks[0]["ID"], status=status))
+        else:
+            assert (
+                len(self._observed_states or []) <= 1
+            ), "docker task disappeared from swarm service"
+            status = {"State": "(UNKNOWN)"}
+
+        # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
+        # https://github.com/moby/moby/blob/8fbf2598f58fb212230e6ddbcfbde628b0458250/api/types/swarm/task.go#L12
+        if "ExitCode" in status.get("ContainerStatus", {}):
+            exit_code = status["ContainerStatus"]["ExitCode"]
+            assert isinstance(exit_code, int)
+            if exit_code != 0 or status["State"] == "complete":
+                logger.info(_("docker task exit", state=status["State"], exit_code=exit_code))
+                return exit_code
 
         # log each new state
         if self._observed_states is None:
             self._observed_states = set()
-        if state not in self._observed_states:
-            logger.info(_("docker task", state=state))
-            self._observed_states.add(state)
+        if status["State"] not in self._observed_states:
+            logger.info(_("docker task transition", state=status["State"]))
+            self._observed_states.add(status["State"])
 
-        # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
-        # https://github.com/moby/moby/blob/8fbf2598f58fb212230e6ddbcfbde628b0458250/api/types/swarm/task.go#L12
-        if state in ["complete", "failed"]:
-            exit_code = status["ContainerStatus"]["ExitCode"]
-            assert isinstance(exit_code, int)
-            return exit_code
-        elif state in ["rejected", "orphaned", "remove"]:
-            # "shutdown" seems to be a normal transient state
+        if status["State"] in ["failed", "rejected", "orphaned", "remove"]:
             raise RuntimeError(
-                f"docker task {state}" + ((": " + status["Err"]) if "Err" in status else "")
+                f"docker task {status['State']}"
+                + ((": " + status["Err"]) if "Err" in status else "")
             )
+
         return None
 
 
