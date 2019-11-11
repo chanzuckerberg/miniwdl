@@ -328,7 +328,7 @@ class StateMachine:
             _(
                 "env",
                 node=job.id,
-                values=envlog if len(json.dumps(envlog)) > 4096 else "(((large)))",
+                values=envlog if len(json.dumps(envlog)) < 4096 else "(((large)))",
             )
         )
 

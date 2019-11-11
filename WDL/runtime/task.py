@@ -342,13 +342,13 @@ class TaskDockerContainer(TaskContainer):
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
         tasks = svc.tasks()
         if tasks:
-            assert len(tasks) == 1
+            assert len(tasks) == 1, "docker service should have at most 1 task"
             status = tasks[0]["Status"]
             logger.debug(_("docker task", id=tasks[0]["ID"], status=status))
         else:
             assert (
                 len(self._observed_states or []) <= 1
-            ), "docker task disappeared from swarm service"
+            ), "docker task shouldn't disappear from service"
             status = {"State": "(UNKNOWN)"}
 
         # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
@@ -577,7 +577,7 @@ def _eval_task_runtime(
         cpu = max(1, min(max_runtime_cpu or multiprocessing.cpu_count(), cpu_value))
         if cpu != cpu_value:
             logger.warning(
-                _("runtime.cpu adjusted to configured maximum", original=cpu_value, adjusted=cpu)
+                _("runtime.cpu adjusted to local limit", original=cpu_value, adjusted=cpu)
             )
         ans["cpu"] = cpu
 
@@ -598,7 +598,7 @@ def _eval_task_runtime(
         if memory_bytes > max_runtime_memory:
             logger.warning(
                 _(
-                    "runtime.memory adjusted to configured maximum",
+                    "runtime.memory adjusted to local limit",
                     original=memory_bytes,
                     adjusted=max_runtime_memory,
                 )
