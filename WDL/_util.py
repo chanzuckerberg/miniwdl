@@ -314,13 +314,9 @@ def ensure_swarm(logger: logging.Logger) -> None:
             # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
             if state == "inactive":
                 logger.warning(
-                    "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1 --task-history-limit 0`"
+                    "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
                 )
-                client.swarm.init(
-                    advertise_addr="127.0.0.1",
-                    listen_addr="127.0.0.1",
-                    task_history_retention_limit=0,
-                )
+                client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
             elif state == "active":
                 break
             else:
@@ -446,20 +442,20 @@ byte_size_units = {
 @export
 def parse_byte_size(s: str) -> int:
     """
-    convert strings like "2000", "4G", "1 TiB" to a positive number of bytes
+    convert strings like "2000", "4G", "1.5 TiB" to a positive number of bytes
     """
 
     s = s.strip()
     N = None
     unit = None
     for i in range(len(s)):
-        if s[i].isdigit():
-            N = int(s[: i + 1])
+        if s[i].isdigit() or s[i] == ".":
+            N = float(s[: i + 1])
             unit = s[i + 1 :].lstrip()
         else:
             break
     if N and unit:
         N *= byte_size_units.get(unit, 0)
-    if not N or N < 0:
+    if N is None or N <= 0:
         raise ValueError("invalid byte size string, " + s)
-    return N
+    return int(N)

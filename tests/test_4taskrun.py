@@ -751,7 +751,7 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"memory": "100000000"})
         self._test_task(txt, {"memory": "1G"})
         self._test_task(txt, {"memory": "99T"})
-        self._test_task(txt, {"memory": "99T"}, max_runtime_memory=WDL._util.parse_byte_size(" 123 MiB "))
+        self._test_task(txt, {"memory": "99T"}, max_runtime_memory=WDL._util.parse_byte_size(" 123.45 MiB "))
         self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)

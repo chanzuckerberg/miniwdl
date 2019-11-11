@@ -346,6 +346,14 @@ class TaskDockerContainer(TaskContainer):
             status = tasks[0]["Status"]
             logger.debug(_("docker task", status=status))
             state = status["State"]
+        elif len(self._observed_states or []) > 1:
+            # once we observe the docker task in some state, it should always be there until we
+            # remove the service (as long as task history limit is positive)
+            logger.critical(
+                "docker task disappeared from swarm service; ensure swarm is configured with positive task history limit",
+                svc_attrs=svc.attrs,
+            )
+            assert False
 
         # log each new state
         if self._observed_states is None:
