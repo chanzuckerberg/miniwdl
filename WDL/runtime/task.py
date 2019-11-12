@@ -306,15 +306,13 @@ class TaskDockerContainer(TaskContainer):
             # stream stderr into log
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
                 # poll for container exit
-                i = 0
                 while exit_code is None:
-                    poll_stderr()
-                    # poll frequently in the first few seconds (QoS for short-running tasks)
-                    time.sleep(1.05 - math.exp(i / -10.0))
+                    time.sleep(1)
                     if terminating():
                         raise Terminated() from None
+                    if self._observed_states and "running" in self._observed_states:
+                        poll_stderr()
                     exit_code = self.poll_service(logger, svc)
-                    i += 1
                 logger.info(_("docker exit", code=exit_code))
 
             # retrieve and check container exit status
@@ -351,6 +349,13 @@ class TaskDockerContainer(TaskContainer):
             ), "docker task shouldn't disappear from service"
             status = {"State": "(UNKNOWN)"}
 
+        # log each new state
+        if self._observed_states is None:
+            self._observed_states = set()
+        if status["State"] not in self._observed_states:
+            logger.info(_("docker task transition", state=status["State"]))
+            self._observed_states.add(status["State"])
+
         # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
         # https://github.com/moby/moby/blob/8fbf2598f58fb212230e6ddbcfbde628b0458250/api/types/swarm/task.go#L12
         if "ExitCode" in status.get("ContainerStatus", {}):
@@ -359,13 +364,6 @@ class TaskDockerContainer(TaskContainer):
             if exit_code != 0 or status["State"] == "complete":
                 logger.info(_("docker task exit", state=status["State"], exit_code=exit_code))
                 return exit_code
-
-        # log each new state
-        if self._observed_states is None:
-            self._observed_states = set()
-        if status["State"] not in self._observed_states:
-            logger.info(_("docker task transition", state=status["State"]))
-            self._observed_states.add(status["State"])
 
         if status["State"] in ["failed", "rejected", "orphaned", "remove"]:
             raise RuntimeError(

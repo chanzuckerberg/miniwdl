@@ -780,7 +780,7 @@ def run_self_test(**kwargs):
                     File who
                 }
                 command {
-                    echo -n "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                    echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
                     sleep 2
                 }
                 output {
@@ -812,9 +812,9 @@ def run_self_test(**kwargs):
 
     assert len(outputs["hello_caller.messages"]) == 2
     with open(outputs["hello_caller.messages"][0], "r") as infile:
-        assert infile.read() == "Hello, Alyssa P. Hacker!"
+        assert infile.read().rstrip() == "Hello, Alyssa P. Hacker!"
     with open(outputs["hello_caller.messages"][1], "r") as infile:
-        assert infile.read() == "Hello, Ben Bitdiddle!"
+        assert infile.read().rstrip() == "Hello, Ben Bitdiddle!"
 
     print("miniwdl run_self_test OK")
 
