@@ -290,7 +290,7 @@ class TaskDockerContainer(TaskContainer):
                 command=[
                     "/bin/bash",
                     "-c",
-                    "/bin/bash ../command >> ../stdout.txt 2>> ../stderr.txt",
+                    "${SHELL:-/bin/bash} ../command >> ../stdout.txt 2>> ../stderr.txt",
                 ],
                 # restart_policy 'none' so that swarm runs the container just once
                 restart_policy=docker.types.RestartPolicy("none"),
