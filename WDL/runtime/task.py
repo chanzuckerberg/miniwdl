@@ -336,7 +336,7 @@ class TaskDockerContainer(TaskContainer):
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service
     ) -> Optional[int]:
-        status = None
+        status = {"State": "(UNKNOWN)"}
 
         svc.reload()
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
@@ -349,7 +349,6 @@ class TaskDockerContainer(TaskContainer):
             assert (
                 len(self._observed_states or []) <= 1
             ), "docker task shouldn't disappear from service"
-            status = {"State": "(UNKNOWN)"}
 
         # log each new state
         if self._observed_states is None:
