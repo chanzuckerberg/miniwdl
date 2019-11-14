@@ -560,17 +560,16 @@ def _eval_task_runtime(
     max_runtime_memory: Optional[int],
 ) -> Dict[str, Union[int, str]]:
     global _host_memory
+
+    runtime_values = dict((key, expr.eval(env)) for key, expr in task.runtime.items())
+    logger.debug(_("runtime values", **runtime_values))
     ans = {}
 
-    image_tag_expr = task.runtime.get("docker", None)
-    if image_tag_expr:
-        assert isinstance(image_tag_expr, Expr.Base)
-        ans["docker"] = image_tag_expr.eval(env).coerce(Type.String()).value
+    if "docker" in runtime_values:
+        ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
 
-    if "cpu" in task.runtime:
-        cpu_expr = task.runtime["cpu"]
-        assert isinstance(cpu_expr, Expr.Base)
-        cpu_value = cpu_expr.eval(env).coerce(Type.Int()).value
+    if "cpu" in runtime_values:
+        cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
         assert isinstance(cpu_value, int)
         cpu = max(1, min(max_runtime_cpu or multiprocessing.cpu_count(), cpu_value))
         if cpu != cpu_value:
@@ -579,15 +578,15 @@ def _eval_task_runtime(
             )
         ans["cpu"] = cpu
 
-    if "memory" in task.runtime:
-        memory_expr = task.runtime["memory"]
-        assert isinstance(memory_expr, Expr.Base)
-        memory_str = memory_expr.eval(env).coerce(Type.String()).value
+    if "memory" in runtime_values:
+        memory_str = runtime_values["memory"].coerce(Type.String()).value
         assert isinstance(memory_str, str)
         try:
             memory_bytes = parse_byte_size(memory_str)
         except ValueError:
-            raise Error.EvalError(memory_expr, "invalid setting of runtime.memory, " + memory_str)
+            raise Error.EvalError(
+                task.runtime["memory"], "invalid setting of runtime.memory, " + memory_str
+            )
 
         if not max_runtime_memory:
             _host_memory = _host_memory or psutil.virtual_memory().total
@@ -603,6 +602,13 @@ def _eval_task_runtime(
             )
             memory_bytes = max_runtime_memory
         ans["memory"] = memory_bytes
+
+    if "maxTries" in runtime_values:
+        ans["maxTries"] = runtime_values["maxTries"].coerce(Type.Int()).value
+
+    unused_keys = set(key for key in runtime_values if key not in ans)
+    if unused_keys:
+        logger.warn(_("task runtime keys ignored", keys=unused_keys))
 
     if ans:
         logger.info(_("effective runtime", **ans))
