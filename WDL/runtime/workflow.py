@@ -613,9 +613,10 @@ def run_local_workflow(
     paths that can be mounted into a container.
 
     :param run_id: unique ID for the run, defaults to workflow name
-    :param run_dir: outputs and scratch will be stored in this directory if it doesn't already
-                    exist; if it does, a timestamp-based subdirectory is created and used (defaults
-                    to current working directory)
+    :param run_dir: directory under which to create a timestamp-named subdirectory for this run
+                    (defaults to current working directory).
+                    If the final path component is ".", then operate in run_dir directly.
+    :param copy_input_files: copy input files and mount them read/write instead of read-only
     """
 
     run_id = run_id or workflow.name
@@ -671,10 +672,15 @@ def run_local_workflow(
                 # schedule all runnable calls
                 next_call = state.step()
                 while next_call:
+                    call_dir = os.path.join(run_dir, next_call.id)
+                    if os.path.exists(call_dir):
+                        logger.warning(
+                            _("call subdirectory already exists, conflict likely", dir=call_dir)
+                        )
                     sub_args = (next_call.callee, next_call.inputs)
                     sub_kwargs = {
                         "run_id": next_call.id,
-                        "run_dir": os.path.join(run_dir, next_call.id),
+                        "run_dir": os.path.join(call_dir, "."),
                         "copy_input_files": copy_input_files,
                         "logger_prefix": logger_id,
                     }

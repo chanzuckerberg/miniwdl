@@ -34,8 +34,9 @@ quant_warning = False
 
 def main(args=None):
     sys.setrecursionlimit(1_000_000)  # permit as much call stack depth as OS can give us
+    os.environ["COLUMNS"] = os.environ.get("COLUMNS", "100")
 
-    parser = ArgumentParser()
+    parser = ArgumentParser("miniwdl")
     parser.add_argument(
         "--version",
         nargs=0,
@@ -93,14 +94,15 @@ class PipVersionAction(Action):
 
 
 def fill_common(subparser, path=True):
-    subparser.add_argument(
+    group = subparser.add_argument_group("language")
+    group.add_argument(
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
         help="relax static typechecking of optional types, and permit coercion of T to Array[T] (discouraged; for backwards compatibility with older WDL)",
     )
     if path:
-        subparser.add_argument(
+        group.add_argument(
             "-p",
             "--path",
             metavar="DIR",
@@ -276,9 +278,7 @@ async def read_source(uri, path, importer_uri):
 
 def fill_run_subparser(subparsers):
     run_parser = subparsers.add_parser(
-        "run",
-        help="Run workflow/task locally with built-in runtime [beta test]",
-        epilog="NO_COLOR= environment variable disables terminal colors in log messages.",
+        "run", help="Run workflow/task locally with built-in runtime [beta test]"
     )
     run_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
     run_parser.add_argument(
@@ -288,60 +288,62 @@ def fill_run_subparser(subparsers):
         nargs="*",
         help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
     ).completer = runner_input_completer
-    run_parser.add_argument(
+    group = run_parser.add_argument_group("input")
+    group.add_argument(
+        "-i",
+        "--input",
+        metavar="INPUT.json",
+        dest="input_file",
+        help="Cromwell-style input JSON file; command-line inputs will be merged in",
+    )
+    group.add_argument(
         "--empty",
         metavar="input_key",
         action="append",
         help="explicitly set an array input to the empty array (to override a default)",
     )
-    run_parser.add_argument(
-        "-i",
-        "--input",
-        metavar="INPUT.json",
-        dest="input_file",
-        help="file with Cromwell-style input JSON; command-line inputs will be merged in",
-    )
-    run_parser.add_argument(
-        "-t",
+    group.add_argument(
         "--task",
         metavar="TASK_NAME",
         help="name of task to run (for WDL documents with multiple tasks & no workflow)",
     )
-    run_parser.add_argument(
+    group.add_argument(
         "-j",
         "--json",
         dest="json_only",
         action="store_true",
-        help=SUPPRESS,  # "just print Cromwell-style input JSON to standard output, then exit",
+        help="just print Cromwell-style input JSON to standard output, then exit",
     )
-    run_parser.add_argument(
-        "-d",
-        "--dir",
-        metavar="NEW_DIR",
-        dest="rundir",
-        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
-    )
-    run_parser.add_argument(
+    group.add_argument(
         "--copy-input-files",
         action="store_true",
-        help="copy input files for each task (for compatibility with mv/rm/write commands)",
+        help="copy input files for each task and mount them read/write (for compatibility with mv/rm/write commands)",
     )
-    run_parser.add_argument(
+    group = run_parser.add_argument_group("output")
+    group.add_argument(
+        "-d",
+        "--dir",
+        metavar="DIR",
+        dest="rundir",
+        help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly",
+    )
+    group = run_parser.add_argument_group("resourcing")
+    group.add_argument(
         "-@",
         metavar="N",
         dest="max_tasks",
         type=int,
         default=None,
-        help="maximum concurrent tasks; defaults to # of processors (limit effectively lower when tasks require multiple processors)",
+        help="maximum concurrent tasks (default: # host processors; limit effectively lower when tasks require multiple processors)",
     )
-    run_parser.add_argument(
+    group.add_argument(
         "--max-runtime-cpu",
         metavar="N",
         type=int,
         default=None,
         help="maximum effective runtime.cpu for any task (default: # host processors)",
     )
-    run_parser.add_argument(
+    group.add_argument(
         "--max-runtime-memory",
         metavar="N",
         type=str,
@@ -353,6 +355,11 @@ def fill_run_subparser(subparsers):
         "--verbose",
         action="store_true",
         help="increase logging detail & stream tasks' stderr",
+    )
+    run_parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable colored logging on terminal (also set by NO_COLOR environment variable)",
     )
     # TODO:
     # way to specify None for an optional value (that has a default)
@@ -381,9 +388,6 @@ def runner(
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    if rundir and os.path.isfile(rundir):
-        die("--dir must be an existing directory or one that can be created")
-
     run_kwargs = dict(
         (k, kwargs[k]) for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory"]
     )
@@ -397,6 +401,8 @@ def runner(
         level = VERBOSE_LEVEL
     if kwargs["debug"]:
         level = logging.DEBUG
+    if kwargs["no_color"]:
+        os.environ["NO_COLOR"] = ""  # picked up by _util.install_coloredlogs()
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
@@ -752,11 +758,19 @@ def fill_run_self_test_subparser(subparsers):
         "run_self_test",
         help="Run a trivial workflow to smoke-test installation, docker permission, etc.",
     )
+    run_parser.add_argument(
+        "--dir",
+        metavar="DIR",
+        default=None,
+        help="run the test in specified directory, instead of some new temporary directory",
+    )
     return run_parser
 
 
 def run_self_test(**kwargs):
-    dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
+    dn = kwargs["dir"]
+    if not dn:
+        dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
     with open(os.path.join(dn, "test.wdl"), "w") as outfile:
         outfile.write(
             """
@@ -831,55 +845,57 @@ def fill_cromwell_subparser(subparsers):
         nargs="*",
         help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
     ).completer = runner_input_completer
-    cromwell_parser.add_argument(
-        "-d",
-        "--dir",
-        metavar="NEW_DIR",
-        dest="rundir",
-        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
+    group = cromwell_parser.add_argument_group("input")
+    group.add_argument(
+        "--empty",
+        metavar="input_key",
+        action="append",
+        help="explicitly set an array input to the empty array (to override a default)",
     )
-    cromwell_parser.add_argument(
+    group.add_argument(
         "-i",
         "--input",
         metavar="INPUT.json",
         dest="input_file",
         help="file with Cromwell-style input JSON; command-line inputs will be merged in",
     )
-    cromwell_parser.add_argument(
+    group.add_argument(
         "-j",
         "--json",
         dest="json_only",
         action="store_true",
         help="just print Cromwell-style input JSON to standard output, then exit",
     )
-    cromwell_parser.add_argument(
-        "--empty",
-        metavar="input_key",
-        action="append",
-        help="explicitly set an array input to the empty array (to override a default)",
+    group = cromwell_parser.add_argument_group("Cromwell configuration")
+    group.add_argument(
+        "-d",
+        "--dir",
+        metavar="DIR",
+        dest="rundir",
+        help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead operate in this directory directly",
     )
-    cromwell_parser.add_argument(
+    group.add_argument(
         "-o",
         "--options",
         metavar="OPTIONS.json",
         dest="options_file",
         help="file with Cromwell workflow options JSON",
     )
-    cromwell_parser.add_argument(
-        "-r",
-        "--jar",
-        metavar="jarfile",
-        dest="jarfile",
-        type=str,
-        help="Cromwell jarfile file path (also set by CROMWELL_JAR environment variable). Overrides default behavior of downloading a hard-coded version",
-    )
-    cromwell_parser.add_argument(
+    group.add_argument(
         "-c",
         "--config",
         metavar="CONFIG.conf",
         dest="config",
         type=str,
         help="Cromwell backend configuration CONF file path (also set by CROMWELL_CONFIG environment variable)",
+    )
+    group.add_argument(
+        "-r",
+        "--jar",
+        metavar="jarfile",
+        dest="jarfile",
+        type=str,
+        help="Cromwell jarfile file path (also set by CROMWELL_JAR environment variable). Overrides default behavior of downloading a hard-coded version",
     )
     # TODO:
     # way to specify None for an optional value (that has a default)
@@ -912,11 +928,8 @@ def cromwell(
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    try:
-        rundir = provision_run_dir(target.name, rundir)
-    except FileExistsError:
-        die("--dir must be an existing directory or one that can be created")
-    os.makedirs(os.path.join(rundir, "cromwell"))
+    rundir = provision_run_dir(target.name, rundir)
+    os.makedirs(os.path.join(rundir, "cromwell"), exist_ok=False)
 
     # write the JSON inputs file
     input_json_filename = None

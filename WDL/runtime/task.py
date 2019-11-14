@@ -391,9 +391,9 @@ def run_local_task(
     paths that can be mounted into a container.
 
     :param run_id: unique ID for the run, defaults to workflow name
-    :param run_dir: outputs and scratch will be stored in this directory if it doesn't already
-                    exist; if it does, a timestamp-based subdirectory is created and used (defaults
-                    to current working directory)
+    :param run_dir: directory under which to create a timestamp-named subdirectory for this run
+                    (defaults to current working directory).
+                    If the final path component is ".", then operate in run_dir directly.
     :param copy_input_files: copy input files and mount them read/write instead of read-only
     :param max_runtime_cpu: maximum effective runtime.cpu value (default: # host CPUs)
     :param max_runtime_memory: maximum effective runtime.memory value in bytes (default: total host
