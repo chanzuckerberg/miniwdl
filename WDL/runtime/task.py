@@ -325,10 +325,7 @@ class TaskDockerContainer(TaskContainer):
                     svc.remove()
                 except:
                     logger.exception("failed to remove docker service")
-                try:
-                    self.chown(logger, client)
-                except:
-                    pass
+                self.chown(logger, client)
             try:
                 client.close()
             except:
@@ -381,15 +378,15 @@ class TaskDockerContainer(TaskContainer):
     def chown(self, logger: logging.Logger, client: docker.DockerClient) -> None:
         """
         After task completion, chown all files in the working directory to the invoking user:group,
-        instead of leaving them root-owned. This is done in a funny way, in its own little docker
-        container; see GitHub issue #271 for alternatives and their problems.
+        instead of leaving them root-owned. We do this in a funny way via Docker; see GitHub issue
+        #271 for discussion of alternatives and their problems.
         """
         script = f"""
         chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
         """.strip()
         volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
-        logger.debug(_("post-task chown", script=script, volumes=volumes))
         try:
+            logger.debug(_("post-task chown", script=script, volumes=volumes))
             client.containers.run(
                 "alpine", command=["/bin/ash", "-c", script], volumes=volumes, auto_remove=True
             )
