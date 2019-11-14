@@ -2,6 +2,7 @@
 """
 Local task runner
 """
+import sys
 import logging
 import os
 import json
@@ -13,6 +14,7 @@ import math
 import multiprocessing
 import threading
 import shutil
+import shlex
 import psutil
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
@@ -317,6 +319,7 @@ class TaskDockerContainer(TaskContainer):
 
             # retrieve and check container exit status
             assert isinstance(exit_code, int)
+            self.chown(logger, client)
             return exit_code
         finally:
             if svc:
@@ -372,6 +375,19 @@ class TaskDockerContainer(TaskContainer):
             )
 
         return None
+
+    def chown(self, logger: logging.Logger, client: docker.DockerClient) -> None:
+        script = f"""
+        chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
+        """.strip()
+        volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
+        logger.debug(_("post-task chown", script=script, volumes=volumes))
+        try:
+            client.containers.run(
+                "alpine", command=["/bin/ash", "-c", script], volumes=volumes, auto_remove=True
+            )
+        except:
+            logger.warn(_("post-task chown failed", error=str(sys.exc_info()[1])))
 
 
 def run_local_task(
