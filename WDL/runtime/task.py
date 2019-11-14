@@ -325,10 +325,10 @@ class TaskDockerContainer(TaskContainer):
                     svc.remove()
                 except:
                     logger.exception("failed to remove docker service")
-            try:
-                self.chown(logger, client)
-            except:
-                pass
+                try:
+                    self.chown(logger, client)
+                except:
+                    pass
             try:
                 client.close()
             except:
