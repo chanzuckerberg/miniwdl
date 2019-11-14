@@ -2,7 +2,6 @@
 """
 Local task runner
 """
-import sys
 import logging
 import os
 import json
@@ -319,14 +318,17 @@ class TaskDockerContainer(TaskContainer):
 
             # retrieve and check container exit status
             assert isinstance(exit_code, int)
-            self.chown(logger, client)
             return exit_code
         finally:
             if svc:
-                # try:
-                svc.remove()
-            # except:
-            #    logger.exception("failed to remove docker service")
+                try:
+                    svc.remove()
+                except:
+                    logger.exception("failed to remove docker service")
+            try:
+                self.chown(logger, client)
+            except:
+                pass
             try:
                 client.close()
             except:
@@ -392,7 +394,7 @@ class TaskDockerContainer(TaskContainer):
                 "alpine", command=["/bin/ash", "-c", script], volumes=volumes, auto_remove=True
             )
         except:
-            logger.warn(_("post-task chown failed", error=str(sys.exc_info()[1])))
+            logger.exception("post-task chown failed")
 
 
 def run_local_task(
