@@ -551,6 +551,12 @@ def runner_input(doc, inputs, input_file, empty, task=None):
 
     # add in command-line inputs
     for one_input in inputs:
+        if not one_input or not one_input[0].isalpha():
+            # let user just see runner_input_help
+            die(
+                f"{target.name} ({target.pos.uri})\n{'-'*(len(target.name)+len(target.pos.uri)+3)}\n{runner_input_help(target)}"
+            )
+
         # parse [namespace], name, and value
         buf = one_input.split("=", 1)
         if len(buf) != 2 or not buf[0]:
