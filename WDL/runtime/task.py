@@ -377,6 +377,11 @@ class TaskDockerContainer(TaskContainer):
         return None
 
     def chown(self, logger: logging.Logger, client: docker.DockerClient) -> None:
+        """
+        After task completion, chown all files in the working directory to the invoking user:group,
+        instead of leaving them root-owned. This is done in a funny way, in its own little docker
+        container; see GitHub issue #271 for alternatives and their problems.
+        """
         script = f"""
         chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
         """.strip()
