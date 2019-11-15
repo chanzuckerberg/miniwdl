@@ -364,8 +364,7 @@ class TaskDockerContainer(TaskContainer):
             status = {"State": "(UNKNOWN)"}
 
         # log each new state
-        if self._observed_states is None:
-            self._observed_states = set()
+        assert isinstance(self._observed_states, set)
         if status["State"] not in self._observed_states:
             logger.info(_("docker task transition", state=status["State"]))
             self._observed_states.add(status["State"])
