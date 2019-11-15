@@ -56,7 +56,7 @@ class types:
     def Resources(**kwargs) -> Any:
         ...
 
-class Client:
+class DockerClient:
     @property
     def containers(self) -> Containers:
         ...
@@ -75,6 +75,6 @@ class Client:
     def services(self) -> Services:
         ...
 
-def from_env() -> Client:
+def from_env() -> DockerClient:
     ...
 

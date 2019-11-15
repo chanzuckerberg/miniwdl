@@ -12,6 +12,7 @@ import time
 import multiprocessing
 import threading
 import shutil
+import shlex
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
 import psutil
@@ -336,10 +337,11 @@ class TaskDockerContainer(TaskContainer):
             return exit_code
         finally:
             if svc:
-                # try:
-                svc.remove()
-            # except:
-            #    logger.exception("failed to remove docker service")
+                try:
+                    svc.remove()
+                except:
+                    logger.exception("failed to remove docker service")
+                self.chown(logger, client)
             try:
                 client.close()
             except:
@@ -348,7 +350,7 @@ class TaskDockerContainer(TaskContainer):
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service
     ) -> Optional[int]:
-        status = None
+        status = {"State": "(UNKNOWN)"}
 
         svc.reload()
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
@@ -361,7 +363,6 @@ class TaskDockerContainer(TaskContainer):
             assert (
                 len(self._observed_states or []) <= 1
             ), "docker task shouldn't disappear from service"
-            status = {"State": "(UNKNOWN)"}
 
         # log each new state
         assert isinstance(self._observed_states, set)
@@ -385,6 +386,24 @@ class TaskDockerContainer(TaskContainer):
             )
 
         return None
+
+    def chown(self, logger: logging.Logger, client: docker.DockerClient) -> None:
+        """
+        After task completion, chown all files in the working directory to the invoking user:group,
+        instead of leaving them root-owned. We do this in a funny way via Docker; see GitHub issue
+        #271 for discussion of alternatives and their problems.
+        """
+        script = f"""
+        chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
+        """.strip()
+        volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
+        try:
+            logger.debug(_("post-task chown", script=script, volumes=volumes))
+            client.containers.run(
+                "alpine", command=["/bin/ash", "-c", script], volumes=volumes, auto_remove=True
+            )
+        except:
+            logger.exception("post-task chown failed")
 
 
 def run_local_task(
