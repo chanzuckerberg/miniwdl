@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 49
+plan tests 51
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -160,16 +160,42 @@ is "$(ls scatterrun/output_links/echo.t.out_f/1/0)" "quick" "scatter product 1 q
 is "$(ls scatterrun/output_links/echo.t.out_f/1/1)" "brown" "scatter product 1 brown link"
 is "$(ls scatterrun/output_links/echo.t.out_f/1/2)" "fox" "scatter product 1 fox link"
 
-$miniwdl run --dir failer2000/. --verbose <(echo "
+cat << 'EOF' > failer2000.wdl
 version 1.0
-workflow failer2000 { call failer }
-task failer { command { echo >&2 this is the end, beautiful friend; exit 1 } }
-") 2> failer2000.log.txt
+
+workflow failer2000 {
+    call failer {
+        input:
+            message = "this is the end, beautiful friend"
+    }
+}
+
+task failer {
+    input {
+        String message
+        Int retries = 2
+    }
+    File messagefile = write_lines([message])
+    command {
+        cat "~{messagefile}" | tee iwuzhere > /dev/stderr
+        exit 1
+    }
+    runtime {
+        maxRetries: 2
+    }
+}
+EOF
+$miniwdl run --dir failer2000/. --verbose failer2000.wdl 2> failer2000.log.txt
 is "$?" "2" "failer2000"
 grep -q beautiful failer2000/call-failer/stderr.txt
 is "$?" "0" "failer2000 stderr"
 grep -q beautiful failer2000.log.txt
 is "$?" "0" "failer2000 stderr logged"
+grep -q beautiful failer2000/call-failer/failed_tries/1/stderr.txt
+is "$?" "0" "failer2000 try1 stderr"
+grep -q beautiful failer2000/call-failer/failed_tries/1/work/iwuzhere
+is "$?" "0" "failer2000 try1 iwuzhere"
+
 
 cat << 'EOF' > multitask.wdl
 version 1.0

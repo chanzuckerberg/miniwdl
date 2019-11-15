@@ -930,3 +930,47 @@ class TestWorkflowRunner(unittest.TestCase):
         end = time.time()
         test_time = round(end - start)
         assert test_time < 30
+
+    def test_retry(self):
+        outputs = self._test_workflow(R"""
+        version 1.0
+        workflow test_retry {
+            call start
+            call failer2000 as finish {
+                input:
+                    start_time = start.time
+            }
+            output {
+                Int start_time = start.time
+                Int finish_time = finish.time
+            }
+        }
+        task start {
+            command {
+                date +%s
+            }
+            output {
+                Int time = read_int(stdout())
+            }
+        }
+        task failer2000 {
+            # this task fails unless it's been at least 20 seconds since start_time (unix seconds)
+            input {
+                Int start_time
+            }
+            command <<<
+                now=$(date +%s)
+                if (( now < ~{start_time} + 20 )); then
+                    exit 1
+                fi
+                echo $now
+            >>>
+            output {
+                Int time = read_int(stdout())
+            }
+            runtime {
+                maxRetries: 99
+            }
+        }
+        """)
+        self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)

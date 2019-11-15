@@ -9,17 +9,14 @@ import copy
 import traceback
 import glob
 import time
-import math
 import multiprocessing
 import threading
 import shutil
-import psutil
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
-
-from requests.exceptions import ReadTimeout
+import psutil
 import docker
-from .. import Error, Type, Env, Expr, Value, StdLib, Tree, _util
+from .. import Error, Type, Env, Value, StdLib, Tree, _util
 from .._util import (
     write_values_json,
     provision_run_dir,
@@ -167,6 +164,23 @@ class TaskContainer(ABC):
         # run command in container & return exit status
         raise NotImplementedError()
 
+    def reset(self, logger: logging.Logger, prev_retries: int) -> None:
+        """
+        After a container/command failure, reset the working directory state so that
+        copy_input_files() and run() can be retried.
+        """
+        artifacts_dir = os.path.join(self.host_dir, "failed_tries", str(prev_retries))
+        artifacts_moved = []
+        for artifact in ["work", "command", "stdout.txt", "stderr.txt", "stderr.txt.offset"]:
+            src = os.path.join(self.host_dir, artifact)
+            if os.path.exists(src):
+                os.renames(src, os.path.join(artifacts_dir, artifact))
+                artifacts_moved.append(src)
+        logger.info(
+            _("archived failed task artifacts", artifacts=artifacts_moved, dest=artifacts_dir)
+        )
+        os.makedirs(os.path.join(self.host_dir, "work"))
+
     def host_file(self, container_file: str, inputs_only: bool = False) -> Optional[str]:
         """
         Map an output file's in-container path under ``container_dir`` to a host path under
@@ -222,6 +236,7 @@ class TaskDockerContainer(TaskContainer):
     """
 
     _bind_input_files: Optional[str] = "ro"
+    _observed_states: Optional[Set[str]] = None
 
     def copy_input_files(self, logger: logging.Logger) -> None:
         assert self._bind_input_files
@@ -237,6 +252,7 @@ class TaskDockerContainer(TaskContainer):
         cpu: int,
         memory: int,
     ) -> int:
+        self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
         pipe_files = ["stdout.txt", "stderr.txt"]
@@ -310,7 +326,7 @@ class TaskDockerContainer(TaskContainer):
                     time.sleep(1)
                     if terminating():
                         raise Terminated() from None
-                    if self._observed_states and "running" in self._observed_states:
+                    if "running" in self._observed_states:
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
                 logger.info(_("docker exit", code=exit_code))
@@ -328,8 +344,6 @@ class TaskDockerContainer(TaskContainer):
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
-
-    _observed_states: Optional[Set[str]] = None
 
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service
@@ -440,12 +454,8 @@ def run_local_task(
         )[1]
         logger.debug(_("command", command=command.strip()))
 
-        # if needed, copy input files into working directory
-        if copy_input_files:
-            container.copy_input_files(logger)
-
-        # start container & run command
-        container.run(logger, command, int(runtime.get("cpu", 0)), int(runtime.get("memory", 0)))
+        # start container & run command (and retry if needed)
+        _try_task(logger, container, command, runtime, copy_input_files)
 
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
@@ -562,7 +572,7 @@ def _eval_task_runtime(
     global _host_memory
 
     runtime_values = dict((key, expr.eval(env)) for key, expr in task.runtime.items())
-    logger.debug(_("runtime values", **runtime_values))
+    logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
     if "docker" in runtime_values:
@@ -603,16 +613,55 @@ def _eval_task_runtime(
             memory_bytes = max_runtime_memory
         ans["memory"] = memory_bytes
 
-    if "maxTries" in runtime_values:
-        ans["maxTries"] = runtime_values["maxTries"].coerce(Type.Int()).value
-
-    unused_keys = set(key for key in runtime_values if key not in ans)
-    if unused_keys:
-        logger.warn(_("task runtime keys ignored", keys=unused_keys))
+    if "maxRetries" in runtime_values:
+        ans["maxRetries"] = max(0, runtime_values["maxRetries"].coerce(Type.Int()).value)
 
     if ans:
         logger.info(_("effective runtime", **ans))
+    unused_keys = list(key for key in runtime_values if key not in ans)
+    if unused_keys:
+        logger.warning(_("ignored runtime settings", keys=unused_keys))
+
     return ans
+
+
+def _try_task(
+    logger: logging.Logger,
+    container: TaskContainer,
+    command: str,
+    runtime: Dict[str, Union[int, str]],
+    copy_input_files: bool,
+) -> None:
+    """
+    Run the task command in the container, with up to runtime.maxRetries
+    """
+    maxRetries = runtime.get("maxRetries", 0)
+    prevRetries = 0
+
+    while True:
+        # copy input files, if needed
+        if copy_input_files:
+            container.copy_input_files(logger)
+
+        try:
+            # start container & run command
+            return container.run(
+                logger, command, int(runtime.get("cpu", 0)), int(runtime.get("memory", 0))
+            )
+        except Exception as exn:
+            if isinstance(exn, Terminated) or prevRetries >= maxRetries:
+                raise
+            logger.error(
+                _(
+                    "task failure will be retried",
+                    error=exn.__class__.__name__,
+                    message=str(exn),
+                    prevRetries=prevRetries,
+                    maxRetries=maxRetries,
+                )
+            )
+            container.reset(logger, prevRetries)
+            prevRetries += 1
 
 
 def _eval_task_outputs(
