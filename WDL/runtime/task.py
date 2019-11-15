@@ -27,6 +27,7 @@ from .._util import (
     parse_byte_size,
 )
 from .._util import StructuredLogMessage as _
+from .download import able as downloadable, run as download
 from .error import *
 
 
@@ -408,7 +409,7 @@ class TaskDockerContainer(TaskContainer):
 
 def run_local_task(
     task: Tree.Task,
-    posix_inputs: Env.Bindings[Value.Base],
+    inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
@@ -434,7 +435,8 @@ def run_local_task(
 
     run_id = run_id or task.name
     run_dir = provision_run_dir(task.name, run_dir)
-    logger = logging.getLogger(".".join((logger_prefix or ["wdl"]) + ["t:" + run_id]))
+    logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
+    logger = logging.getLogger(".".join(logger_prefix))
     fh = logging.FileHandler(os.path.join(run_dir, "task.log"))
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
@@ -450,9 +452,13 @@ def run_local_task(
         )
     )
     logger.info(_("thread", ident=threading.get_ident()))
-    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
+
+    write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
+        # download input files, if needed
+        posix_inputs = _download_input_files(logger, run_dir, logger_prefix, inputs)
+
         # create appropriate TaskContainer
         container = TaskDockerContainer(run_id, run_dir)
 
@@ -491,6 +497,34 @@ def run_local_task(
             info["node"] = getattr(exn, "job_id")
         logger.error(_(str(wrapper), **info))
         raise wrapper from exn
+
+
+def _download_input_files(
+    logger: logging.Logger, run_dir: str, logger_prefix: List[str], inputs: Env.Bindings[Value.Base]
+) -> Env.Bindings[Value.Base]:
+    downloads = 0
+
+    def map_files(v: Value.Base) -> Value.Base:
+        nonlocal downloads
+        if isinstance(v, Value.File):
+            if downloadable(v.value):
+                logger.info(_("download input file", uri=v.value))
+                v.value = download(
+                    v.value, os.path.join(run_dir, "download"), logger_prefix + ["download"]
+                )
+                downloads += 1
+            elif not os.path.isfile(v.value):
+                raise Error.InputError("file not found: " + v.value)
+        for ch in v.children:
+            map_files(ch)
+        return v
+
+    ans = inputs.map(
+        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
+    )
+    if downloads:
+        logger.notice(_("downloaded input files", count=downloads))  # pyre-fixme
+    return ans
 
 
 def _eval_task_inputs(

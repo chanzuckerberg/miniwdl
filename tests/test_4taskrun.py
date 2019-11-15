@@ -817,3 +817,19 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(len(outputs["files"]), 2)
         self.assertIsNotNone(outputs["files"][0])
         self.assertIsNone(outputs["files"][1])
+
+    def test_download_input_files(self):
+        self._test_task(R"""
+        version 1.0
+        task lines {
+            input {
+                File file
+            }
+            command {
+                cat "~{file}" | wc -l
+            }
+            output {
+                Int count = read_int(stdout())
+            }
+        }
+        """, {"file": "https://google.com/robots.txt"})
