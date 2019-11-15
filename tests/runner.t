@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 49
+plan tests 50
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -159,6 +159,7 @@ is "$(ls scatterrun/output_links/echo.t.out_f/0/2)" "fox" "scatter product 0 fox
 is "$(ls scatterrun/output_links/echo.t.out_f/1/0)" "quick" "scatter product 1 quick link"
 is "$(ls scatterrun/output_links/echo.t.out_f/1/1)" "brown" "scatter product 1 brown link"
 is "$(ls scatterrun/output_links/echo.t.out_f/1/2)" "fox" "scatter product 1 fox link"
+is "$(find scatterrun/ | xargs -n 1 stat -c %U | sort | uniq)" "$(whoami)" "scatter files all owned by $(whoami)"
 
 $miniwdl run --dir failer2000/. --verbose <(echo "
 version 1.0
