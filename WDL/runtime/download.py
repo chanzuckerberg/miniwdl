@@ -1,4 +1,11 @@
-from typing import Optional, List
+"""
+Logic for downloading input files from URIs
+"""
+import os
+from typing import Optional, List, Iterable, Dict
+
+# WDL tasks for downloading a file based on its URI scheme
+# TODO: formalize plugin mechanism
 
 _downloaders = {}
 _downloaders[
@@ -43,21 +50,30 @@ def _downloader(uri: str) -> Optional[str]:
 
 
 def able(uri: str) -> bool:
+    """
+    Returns True if uri appears to be a URI we know how to download
+    """
     return _downloader(uri) is not None
 
 
-def run(uri: str, dir: str, logger_prefix: Optional[List[str]] = None) -> str:
-    from . import run_local_task, DownloadFailed, RunFailed
+def run(uri: str, **kwargs) -> str:
+    """
+    Download the URI and return the local filename.
+
+    kwargs are passed through to ``run_local_task``, so ``run_dir`` and ``logger_prefix`` may be
+    useful in particular.
+    """
+    from . import run_local_task, RunFailed, DownloadFailed
     from .. import parse_tasks, values_from_json
 
     downloader_wdl = _downloader(uri)
-    if not downloader_wdl:
-        raise DownloadFailed(uri, "no downloader for scheme " + uri)
+    assert downloader_wdl
+
     task = parse_tasks(downloader_wdl, version="1.0")[0]  # pyre-ignore
     task.typecheck()
     inputs = values_from_json({"uri": uri}, task.available_inputs)  # pyre-ignore
     try:
-        subdir, outputs = run_local_task(task, inputs, run_dir=dir, logger_prefix=logger_prefix)
+        subdir, outputs = run_local_task(task, inputs, **kwargs)
     except RunFailed as exn:
-        raise DownloadFailed(uri, str(exn.__cause__))
+        raise DownloadFailed(uri) from exn.__cause__
     return outputs["file"].value

@@ -457,7 +457,7 @@ def run_local_task(
 
     try:
         # download input files, if needed
-        posix_inputs = _download_input_files(logger, run_dir, logger_prefix, inputs)
+        posix_inputs = _download_input_files(logger, logger_prefix, run_dir, inputs)
 
         # create appropriate TaskContainer
         container = TaskDockerContainer(run_id, run_dir)
@@ -500,8 +500,14 @@ def run_local_task(
 
 
 def _download_input_files(
-    logger: logging.Logger, run_dir: str, logger_prefix: List[str], inputs: Env.Bindings[Value.Base]
+    logger: logging.Logger, logger_prefix: List[str], run_dir: str, inputs: Env.Bindings[Value.Base]
 ) -> Env.Bindings[Value.Base]:
+    """
+    Find all File values in the inputs (including any nested within compound values) that need
+    to / can be downloaded. Download them to some location under run_dir and return a copy of the
+    inputs with the URI values replaced by the downloaded filenames.
+    """
+
     downloads = 0
 
     def map_files(v: Value.Base) -> Value.Base:
@@ -511,8 +517,8 @@ def _download_input_files(
                 logger.info(_("download input file", uri=v.value))
                 v.value = download(
                     v.value,
-                    os.path.join(run_dir, "download", str(downloads)),
-                    logger_prefix + [f"download{downloads}"],
+                    run_dir=os.path.join(run_dir, "download", str(downloads)),
+                    logger_prefix=logger_prefix + [f"download{downloads}"],
                 )
                 logger.info(_("downloaded input file", uri=v.value, file=v.value))
                 downloads += 1

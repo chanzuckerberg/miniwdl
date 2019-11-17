@@ -661,16 +661,16 @@ def run_local_workflow(
                 futures.ThreadPoolExecutor(max_workers=(max_tasks or multiprocessing.cpu_count())),
                 futures.ThreadPoolExecutor(max_workers=16),
             )
+        call_futures = {}
 
         try:
             # download input files, if needed
             posix_inputs = _download_input_files(
-                logger, run_dir, logger_id, inputs, thread_pools[0]
+                logger, logger_id, run_dir, inputs, thread_pools[0]
             )
 
             # run workflow state machine to completion
             state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
-            call_futures = {}
             while state.outputs is None:
                 if _test_pickle:
                     state = pickle.loads(pickle.dumps(state))
@@ -754,14 +754,22 @@ def run_local_workflow(
 
 def _download_input_files(
     logger: logging.Logger,
-    run_dir: str,
     logger_prefix: List[str],
+    run_dir: str,
     inputs: Env.Bindings[Value.Base],
     thread_pool: futures.ThreadPoolExecutor,
 ) -> Env.Bindings[Value.Base]:
+    """
+    Find all File values in the inputs (including any nested within compound values) that need
+    to / can be downloaded. Download them to some location under run_dir and return a copy of the
+    inputs with the URI values replaced by the downloaded filenames. Parallelize the download
+    operations on thread_pool.
+    """
+
+    # scan for URIs and schedule their downloads on the thread pool
     ops = {}
 
-    def find_uris(v: Value.Base) -> None:
+    def schedule_downloads(v: Value.Base) -> None:
         nonlocal ops
         if isinstance(v, Value.File):
             if v.value not in ops and downloadable(v.value):
@@ -769,17 +777,18 @@ def _download_input_files(
                 future = thread_pool.submit(
                     download,
                     v.value,
-                    os.path.join(run_dir, "download", str(len(ops))),
-                    logger_prefix + [f"download{len(ops)}"],
+                    run_dir=os.path.join(run_dir, "download", str(len(ops))),
+                    logger_prefix=logger_prefix + [f"download{len(ops)}"],
                 )
                 ops[future] = v.value
         for ch in v.children:
-            find_uris(ch)
+            schedule_downloads(ch)
 
-    inputs.map(lambda b: find_uris(b.value))
+    inputs.map(lambda b: schedule_downloads(b.value))
     if not ops:
         return inputs
 
+    # collect the results
     downloaded = {}
     try:
         for future in futures.as_completed(ops):
@@ -792,10 +801,12 @@ def _download_input_files(
         raise
     logger.notice(_("downloaded input files", count=len(downloaded)))  # pyre-fixme
 
+    # rewrite the input URIs to the downloaded filenames
     def rewrite_downloaded(v: Value.Base) -> Value.Base:
         nonlocal downloaded
         if isinstance(v, Value.File) and v.value in downloaded:
             v.value = downloaded[v.value]
+            assert os.path.isfile(v.value)
         for ch in v.children:
             rewrite_downloaded(ch)
         return v
