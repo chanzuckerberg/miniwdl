@@ -424,7 +424,10 @@ class TaskDockerContainer(TaskContainer):
             try:
                 logger.debug(_("post-task chown", script=script, volumes=volumes))
                 client.containers.run(
-                    "alpine", command=["/bin/ash", "-c", script], volumes=volumes, auto_remove=True
+                    "alpine:3",
+                    command=["/bin/ash", "-c", script],
+                    volumes=volumes,
+                    auto_remove=True,
                 )
             except:
                 logger.exception("post-task chown failed")
