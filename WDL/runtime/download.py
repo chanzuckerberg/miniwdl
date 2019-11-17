@@ -73,7 +73,7 @@ def run(uri: str, **kwargs) -> str:
     task.typecheck()
     inputs = values_from_json({"uri": uri}, task.available_inputs)  # pyre-ignore
     try:
-        subdir, outputs = run_local_task(task, inputs, **kwargs)
+        subdir, outputs = run_local_task(task, inputs, as_me=True, **kwargs)
     except RunFailed as exn:
         raise DownloadFailed(uri) from exn.__cause__
     return outputs["file"].value

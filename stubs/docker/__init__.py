@@ -38,6 +38,9 @@ class models:
             def remove(self) -> None:
                 ...
 
+            def logs(self, **kwargs) -> Iterable[bytes]:
+                ...
+
             @property
             def attrs(self) -> Dict[str, Any]:
                 ...

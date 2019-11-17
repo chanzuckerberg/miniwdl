@@ -317,7 +317,7 @@ def fill_run_subparser(subparsers):
     group.add_argument(
         "--copy-input-files",
         action="store_true",
-        help="copy input files for each task and mount them read/write (for compatibility with mv/rm/write commands)",
+        help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write)",
     )
     group = run_parser.add_argument_group("output")
     group.add_argument(
@@ -357,6 +357,11 @@ def fill_run_subparser(subparsers):
         help="increase logging detail & stream tasks' stderr",
     )
     run_parser.add_argument(
+        "--as-me",
+        action="store_true",
+        help="run all containers as the invoking user uid:gid; more secure, but potentially blocks task commands e.g. apt-get",
+    )
+    run_parser.add_argument(
         "--no-color",
         action="store_true",
         help="disable colored logging on terminal (also set by NO_COLOR environment variable)",
@@ -389,7 +394,8 @@ def runner(
         sys.exit(0)
 
     run_kwargs = dict(
-        (k, kwargs[k]) for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory"]
+        (k, kwargs[k])
+        for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory", "as_me"]
     )
     if run_kwargs["max_runtime_memory"]:
         run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
@@ -771,6 +777,9 @@ def fill_run_self_test_subparser(subparsers):
         default=None,
         help="run the test in specified directory, instead of some new temporary directory",
     )
+    run_parser.add_argument(
+        "--as-me", action="store_true", help="run all containers as the current user uid:gid"
+    )
     return run_parser
 
 
@@ -821,16 +830,17 @@ def run_self_test(**kwargs):
 
     check(uri=[os.path.join(dn, "test.wdl")])
 
-    outputs = main(
-        [
-            "run",
-            os.path.join(dn, "test.wdl"),
-            "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt",
-            "--dir",
-            dn,
-            "--debug",
-        ]
-    )
+    argv = [
+        "run",
+        os.path.join(dn, "test.wdl"),
+        "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt",
+        "--dir",
+        dn,
+        "--debug",
+    ]
+    if kwargs["as_me"]:
+        argv.append("--as-me")
+    outputs = main(argv)
 
     assert len(outputs["hello_caller.messages"]) == 2
     assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"

@@ -237,6 +237,14 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
+    as_me: bool = False
+    """
+    :type: bool
+
+    If so then run command inside the container using the uid:gid of the invoking user. Otherwise
+    don't override container user (=> it'll often run as root).
+    """
+
     _bind_input_files: Optional[str] = "ro"
     _observed_states: Optional[Set[str]] = None
 
@@ -303,20 +311,25 @@ class TaskDockerContainer(TaskContainer):
                 resources = docker.types.Resources(**resources)
             else:
                 resources = None
+            user = None
+            if self.as_me:
+                user = f"{os.geteuid()}:{os.getegid()}"
+                logger.info(_("docker user", uid_gid=user))
+                if os.geteuid() == 0:
+                    logger.warning("container command will run explicitly as root (as_me=True)")
             svc = client.services.create(
                 self.image_tag,
                 command=[
                     "/bin/bash",
                     "-c",
-                    "id; touch iwashere; ls -Rl ..; ${SHELL:-/bin/bash} ../command >> ../stdout.txt 2>> ../stderr.txt",
-                    # FIXME: need to let this command append to the mounted pipe files even if we're not running as root
-                    # make them world-writable? owned by user 1000? newly created in a rw logs directory?
+                    "id; ls -Rl ..; ${SHELL:-/bin/bash} ../command >> ../stdout.txt 2>> ../stderr.txt",
                 ],
                 # restart_policy 'none' so that swarm runs the container just once
                 restart_policy=docker.types.RestartPolicy("none"),
                 workdir=os.path.join(self.container_dir, "work"),
                 mounts=mounts,
                 resources=resources,
+                user=user,
                 labels={"miniwdl_run_id": self.run_id},
                 container_labels={"miniwdl_run_id": self.run_id},
             )
@@ -403,17 +416,18 @@ class TaskDockerContainer(TaskContainer):
         instead of leaving them root-owned. We do this in a funny way via Docker; see GitHub issue
         #271 for discussion of alternatives and their problems.
         """
-        script = f"""
-        chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
-        """.strip()
-        volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
-        try:
-            logger.debug(_("post-task chown", script=script, volumes=volumes))
-            client.containers.run(
-                "alpine", command=["/bin/ash", "-c", script], volumes=volumes, auto_remove=True
-            )
-        except:
-            logger.exception("post-task chown failed")
+        if not self.as_me and (os.geteuid() or os.getegid()):
+            script = f"""
+            chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
+            """.strip()
+            volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
+            try:
+                logger.debug(_("post-task chown", script=script, volumes=volumes))
+                client.containers.run(
+                    "alpine", command=["/bin/ash", "-c", script], volumes=volumes, auto_remove=True
+                )
+            except:
+                logger.exception("post-task chown failed")
 
 
 def run_local_task(
@@ -425,6 +439,7 @@ def run_local_task(
     max_runtime_cpu: Optional[int] = None,
     max_runtime_memory: Optional[int] = None,
     logger_prefix: Optional[List[str]] = None,
+    as_me: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -440,6 +455,8 @@ def run_local_task(
     :param max_runtime_cpu: maximum effective runtime.cpu value (default: # host CPUs)
     :param max_runtime_memory: maximum effective runtime.memory value in bytes (default: total host
                                memory)
+    :param as_me: run container command using the current user uid:gid (may break commands that
+                  assume root access, e.g. apt-get)
     """
 
     run_id = run_id or task.name
@@ -480,6 +497,7 @@ def run_local_task(
             logger, task, container_env, max_runtime_cpu, max_runtime_memory
         )
         container.image_tag = str(runtime.get("docker", container.image_tag))
+        container.as_me = as_me
 
         # interpolate command
         command = _util.strip_leading_whitespace(
