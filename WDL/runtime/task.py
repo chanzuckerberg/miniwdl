@@ -308,7 +308,9 @@ class TaskDockerContainer(TaskContainer):
                 command=[
                     "/bin/bash",
                     "-c",
-                    "${SHELL:-/bin/bash} ../command >> ../stdout.txt 2>> ../stderr.txt",
+                    "id; touch iwashere; ls -Rl ..; ${SHELL:-/bin/bash} ../command >> ../stdout.txt 2>> ../stderr.txt",
+                    # FIXME: need to let this command append to the mounted pipe files even if we're not running as root
+                    # make them world-writable? owned by user 1000? newly created in a rw logs directory?
                 ],
                 # restart_policy 'none' so that swarm runs the container just once
                 restart_policy=docker.types.RestartPolicy("none"),
@@ -331,6 +333,13 @@ class TaskDockerContainer(TaskContainer):
                     if "running" in self._observed_states:
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
+                logger.debug(
+                    _(
+                        "docker service logs",
+                        stdout=list(msg.decode().rstrip() for msg in svc.logs(stdout=True)),
+                        stderr=list(msg.decode().rstrip() for msg in svc.logs(stderr=True)),
+                    )
+                )
                 logger.info(_("docker exit", code=exit_code))
 
             # retrieve and check container exit status

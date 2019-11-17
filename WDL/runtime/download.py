@@ -22,7 +22,7 @@ task aria2c {
         mkdir __out
         cd __out
         aria2c -x ~{connections} -s ~{connections} \
-            --file-allocation=none --retry-wait=2 --stderr=true \
+            --file-allocation=none --retry-wait=2 --stderr=true --enable-color=false \
             "~{uri}"
     >>>
 
