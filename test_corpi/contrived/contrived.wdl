@@ -57,5 +57,6 @@ task popular {
         Array[String] nums = [1]
         String left_contents = contents.left
         String right_contents = contents.right
+        File? optional_file = "nonexistent.txt"
     }
 }
