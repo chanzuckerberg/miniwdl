@@ -416,7 +416,7 @@ class TaskDockerContainer(TaskContainer):
         instead of leaving them root-owned. We do this in a funny way via Docker; see GitHub issue
         #271 for discussion of alternatives and their problems.
         """
-        if not self.as_me and (os.geteuid() or os.getegid()):
+        if os.geteuid() or os.getegid():
             script = f"""
             chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
             """.strip()
