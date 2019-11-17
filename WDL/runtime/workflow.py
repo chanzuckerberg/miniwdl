@@ -39,12 +39,14 @@ import signal
 import traceback
 import pickle
 import threading
+import copy
 import pkg_resources
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .task import run_local_task, _filenames
+from .download import able as downloadable, run as download
 from .._util import (
     write_values_json,
     provision_run_dir,
@@ -596,7 +598,7 @@ class _StdLib(StdLib.Base):
 
 def run_local_workflow(
     workflow: Tree.Workflow,
-    posix_inputs: Env.Bindings[Value.Base],
+    inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
@@ -645,9 +647,7 @@ def run_local_workflow(
         )
     )
     logger.info(_("thread", ident=threading.get_ident()))
-    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
-
-    state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
+    write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
     with TerminationSignalFlag(logger) as terminating:
         thread_pools = _thread_pools
@@ -661,10 +661,17 @@ def run_local_workflow(
                 futures.ThreadPoolExecutor(max_workers=(max_tasks or multiprocessing.cpu_count())),
                 futures.ThreadPoolExecutor(max_workers=16),
             )
-        call_futures = {}
 
         try:
-            while state.outputs is None:  # until workflow completion
+            # download input files, if needed
+            posix_inputs = _download_input_files(
+                logger, run_dir, logger_id, inputs, thread_pools[0]
+            )
+
+            # run workflow state machine to completion
+            state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
+            call_futures = {}
+            while state.outputs is None:
                 if _test_pickle:
                     state = pickle.loads(pickle.dumps(state))
                 if terminating():
@@ -743,3 +750,56 @@ def run_local_workflow(
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
     logger.notice("done")
     return (run_dir, state.outputs)
+
+
+def _download_input_files(
+    logger: logging.Logger,
+    run_dir: str,
+    logger_prefix: List[str],
+    inputs: Env.Bindings[Value.Base],
+    thread_pool: futures.ThreadPoolExecutor,
+) -> Env.Bindings[Value.Base]:
+    ops = {}
+
+    def find_uris(v: Value.Base) -> None:
+        nonlocal ops
+        if isinstance(v, Value.File):
+            if v.value not in ops and downloadable(v.value):
+                logger.info(_("schedule input file download", uri=v.value))
+                future = thread_pool.submit(
+                    download,
+                    v.value,
+                    os.path.join(run_dir, "download", str(len(ops))),
+                    logger_prefix + [f"download{len(ops)}"],
+                )
+                ops[future] = v.value
+        for ch in v.children:
+            find_uris(ch)
+
+    inputs.map(lambda b: find_uris(b.value))
+    if not ops:
+        return inputs
+
+    downloaded = {}
+    try:
+        for future in futures.as_completed(ops):
+            uri = ops[future]
+            downloaded[uri] = future.result()
+            logger.info(_("downloaded input file", uri=uri, file=downloaded[uri]))
+    except:
+        for future in ops:
+            future.cancel()
+        raise
+    logger.notice(_("downloaded input files", count=len(downloaded)))  # pyre-fixme
+
+    def rewrite_downloaded(v: Value.Base) -> Value.Base:
+        nonlocal downloaded
+        if isinstance(v, Value.File) and v.value in downloaded:
+            v.value = downloaded[v.value]
+        for ch in v.children:
+            rewrite_downloaded(ch)
+        return v
+
+    return inputs.map(
+        lambda binding: Env.Binding(binding.name, rewrite_downloaded(copy.deepcopy(binding.value)))
+    )

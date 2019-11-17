@@ -510,11 +510,12 @@ def _download_input_files(
             if downloadable(v.value):
                 logger.info(_("download input file", uri=v.value))
                 v.value = download(
-                    v.value, os.path.join(run_dir, "download"), logger_prefix + ["download"]
+                    v.value,
+                    os.path.join(run_dir, "download", str(downloads)),
+                    logger_prefix + [f"download{downloads}"],
                 )
+                logger.info(_("downloaded input file", uri=v.value, file=v.value))
                 downloads += 1
-            elif not os.path.isfile(v.value):
-                raise Error.InputError("file not found: " + v.value)
         for ch in v.children:
             map_files(ch)
         return v

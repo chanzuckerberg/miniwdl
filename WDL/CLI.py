@@ -473,7 +473,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         # load document. in the completer setting, we need to substitute the home directory
         # and environment variables
         uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
-        if not os.path.exists(uri):
+        if not (runtime.download.able(uri) or os.path.exists(uri)):
             argcomplete.warn("file not found: " + uri)
             return []
         try:
@@ -689,9 +689,10 @@ def runner_input_value(s_value, ty):
     if isinstance(ty, Type.String):
         return Value.String(s_value)
     if isinstance(ty, Type.File):
-        if not os.path.exists(s_value):
+        downloadable = runtime.download.able(s_value)
+        if not (downloadable or os.path.exists(s_value)):
             die("File not found: " + s_value)
-        return Value.File(os.path.abspath(s_value))
+        return Value.File(os.path.abspath(s_value) if not downloadable else s_value)
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
@@ -790,9 +791,12 @@ def run_self_test(**kwargs):
                         input:
                             who = write_lines([name])
                     }
+                    if (defined(hello.message)) {
+                        String msg = read_string(select_first([hello.message]))
+                    }
                 }
                 output {
-                    Array[File] messages = hello.message
+                    Array[String] messages = select_all(msg)
                 }
             }
             task hello {
@@ -800,11 +804,12 @@ def run_self_test(**kwargs):
                     File who
                 }
                 command {
-                    echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
-                    sleep 2
+                    if grep -v ^\# "${who}" ; then
+                        echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                    fi
                 }
                 output {
-                    File message = glob("message.*")[0]
+                    File? message = "message.txt"
                 }
                 runtime {
                     docker: "ubuntu:18.04"
@@ -813,9 +818,6 @@ def run_self_test(**kwargs):
             }
             """
         )
-    with open(os.path.join(dn, "who.txt"), "w") as outfile:
-        outfile.write("Alyssa P. Hacker\n")
-        outfile.write("Ben Bitdiddle\n")
 
     check(uri=[os.path.join(dn, "test.wdl")])
 
@@ -823,7 +825,7 @@ def run_self_test(**kwargs):
         [
             "run",
             os.path.join(dn, "test.wdl"),
-            "who=" + os.path.join(dn, "who.txt"),
+            "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt",
             "--dir",
             dn,
             "--debug",
@@ -831,10 +833,8 @@ def run_self_test(**kwargs):
     )
 
     assert len(outputs["hello_caller.messages"]) == 2
-    with open(outputs["hello_caller.messages"][0], "r") as infile:
-        assert infile.read().rstrip() == "Hello, Alyssa P. Hacker!"
-    with open(outputs["hello_caller.messages"][1], "r") as infile:
-        assert infile.read().rstrip() == "Hello, Ben Bitdiddle!"
+    assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
+    assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"
 
     print("miniwdl run_self_test OK")
 
