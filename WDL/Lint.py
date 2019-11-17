@@ -717,7 +717,8 @@ class UnnecessaryQuantifier(Linter):
     # A declaration like T? x = :T: where the right-hand side can't be null.
     # The optional quantifier is unnecessary except within a task/workflow
     # input section (where it denotes that the default value can be overridden
-    # by expressly passing null)
+    # by expressly passing null). Another exception is File? outputs of tasks,
+    # e.g. File? optional_file_output = "filename.txt"
 
     def decl(self, obj: Tree.Decl) -> Any:
         if obj.type.optional and obj.expr and not obj.expr.type.optional:
@@ -725,7 +726,15 @@ class UnnecessaryQuantifier(Linter):
             while not isinstance(tw, (Tree.Task, Tree.Workflow)):
                 tw = getattr(tw, "parent")
             assert isinstance(tw, (Tree.Task, Tree.Workflow))
-            if isinstance(tw.inputs, list) and obj not in tw.inputs:
+            if (
+                isinstance(tw.inputs, list)
+                and obj not in tw.inputs
+                and not (
+                    isinstance(tw, Tree.Task)
+                    and isinstance(obj.type, Type.File)
+                    and obj in tw.outputs
+                )
+            ):
                 self.add(
                     obj,
                     "unnecessary optional quantifier (?) for non-input {} {}".format(
