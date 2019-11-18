@@ -833,3 +833,30 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """, {"file": "https://google.com/robots.txt"})
+
+    def test_workdir_ownership(self):
+        # verify that everything within working directory is owned by the invoking user
+        txt = R"""
+        version 1.0
+        task clobber {
+            input {
+                Array[File] files
+            }
+            command <<<
+                set -euxo pipefail
+                ls -alR .. > /dev/stderr
+                find . | grep -Fv uids.txt | xargs -t -n 1 stat -c %u | sort | uniq > uids.txt
+            >>>
+            output {
+                Array[Int] uids = read_lines("uids.txt")
+            }
+        }
+        """
+        with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
+            outfile.write("Alyssa\n")
+        with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
+            outfile.write("Ben\n")
+
+        outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]})
+        self.assertEqual(len(outputs["uids"]), 1)
+        self.assertEqual(outputs["uids"][0], os.geteuid())

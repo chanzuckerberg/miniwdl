@@ -265,21 +265,19 @@ class TaskDockerContainer(TaskContainer):
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
-        pipe_files = ["stdout.txt", "stderr.txt"]
-        for touch_file in pipe_files:
-            with open(os.path.join(self.host_dir, touch_file), "x") as outfile:
-                pass
 
         mounts = []
         # mount input files and command
         if self._bind_input_files:
             for host_path, container_path in self.input_file_map.items():
+                self.touch_mount_point(container_path)
                 mounts.append(f"{host_path}:{container_path}:{self._bind_input_files}")
         mounts.append(
             f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
         )
         # mount stdout, stderr, and working directory read/write
-        for pipe_file in pipe_files:
+        for pipe_file in ["stdout.txt", "stderr.txt"]:
+            self.touch_mount_point(os.path.join(self.container_dir, pipe_file))
             mounts.append(
                 f"{os.path.join(self.host_dir, pipe_file)}:{os.path.join(self.container_dir, pipe_file)}:rw"
             )
@@ -322,7 +320,7 @@ class TaskDockerContainer(TaskContainer):
                 command=[
                     "/bin/bash",
                     "-c",
-                    "id; ls -Rl ..; ${SHELL:-/bin/bash} ../command >> ../stdout.txt 2>> ../stderr.txt",
+                    "id; ls -Rl ..; bash ../command >> ../stdout.txt 2>> ../stderr.txt",
                 ],
                 # restart_policy 'none' so that swarm runs the container just once
                 restart_policy=docker.types.RestartPolicy("none"),
@@ -410,13 +408,24 @@ class TaskDockerContainer(TaskContainer):
 
         return None
 
+    def touch_mount_point(self, container_file: str) -> None:
+        """
+        Touch a mount point to ensure it'll be owned by invoking user
+        """
+        assert container_file.startswith(self.container_dir + "/")
+        host_file = os.path.join(self.host_dir, os.path.relpath(container_file, self.container_dir))
+        assert host_file.startswith(self.host_dir + "/")
+        os.makedirs(os.path.dirname(host_file), exist_ok=True)
+        with open(host_file, "x") as outfile:
+            pass
+
     def chown(self, logger: logging.Logger, client: docker.DockerClient) -> None:
         """
         After task completion, chown all files in the working directory to the invoking user:group,
         instead of leaving them root-owned. We do this in a funny way via Docker; see GitHub issue
         #271 for discussion of alternatives and their problems.
         """
-        if os.geteuid() or os.getegid():
+        if not self.as_me and (os.geteuid() or os.getegid()):
             script = f"""
             chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
             """.strip()

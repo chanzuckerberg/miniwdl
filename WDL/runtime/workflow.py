@@ -377,6 +377,7 @@ class StateMachine:
             )
             # check input files against whitelist
             disallowed_filenames = _filenames(call_inputs) - self.filename_whitelist
+            disallowed_filenames = set(fn for fn in disallowed_filenames if not downloadable(fn))
             if disallowed_filenames:
                 raise InputError(
                     f"call {job.node.name} inputs use unknown file: {next(iter(disallowed_filenames))}"
