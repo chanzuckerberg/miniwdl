@@ -41,6 +41,18 @@ class OutputError(_RuntimeError):
     pass
 
 
+class DownloadFailed(_RuntimeError):
+    """
+    Failure to download a URI input file
+    """
+
+    uri: str
+
+    def __init__(self, uri: str, message: str = "") -> None:
+        super().__init__(message or ("unable to download " + uri))
+        self.uri = uri
+
+
 class RunFailed(_RuntimeError):
     """
 

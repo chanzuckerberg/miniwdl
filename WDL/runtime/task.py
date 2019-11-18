@@ -27,6 +27,7 @@ from .._util import (
     parse_byte_size,
 )
 from .._util import StructuredLogMessage as _
+from .download import able as downloadable, run as download
 from .error import *
 
 
@@ -236,6 +237,14 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
+    as_me: bool = False
+    """
+    :type: bool
+
+    If so then run command inside the container using the uid:gid of the invoking user. Otherwise
+    don't override container user (=> it'll often run as root).
+    """
+
     _bind_input_files: Optional[str] = "ro"
     _observed_states: Optional[Set[str]] = None
 
@@ -302,18 +311,25 @@ class TaskDockerContainer(TaskContainer):
                 resources = docker.types.Resources(**resources)
             else:
                 resources = None
+            user = None
+            if self.as_me:
+                user = f"{os.geteuid()}:{os.getegid()}"
+                logger.info(_("docker user", uid_gid=user))
+                if os.geteuid() == 0:
+                    logger.warning("container command will run explicitly as root (as_me=True)")
             svc = client.services.create(
                 self.image_tag,
                 command=[
                     "/bin/bash",
                     "-c",
-                    "${SHELL:-/bin/bash} ../command >> ../stdout.txt 2>> ../stderr.txt",
+                    "id; ls -Rl ..; ${SHELL:-/bin/bash} ../command >> ../stdout.txt 2>> ../stderr.txt",
                 ],
                 # restart_policy 'none' so that swarm runs the container just once
                 restart_policy=docker.types.RestartPolicy("none"),
                 workdir=os.path.join(self.container_dir, "work"),
                 mounts=mounts,
                 resources=resources,
+                user=user,
                 labels={"miniwdl_run_id": self.run_id},
                 container_labels={"miniwdl_run_id": self.run_id},
             )
@@ -330,6 +346,13 @@ class TaskDockerContainer(TaskContainer):
                     if "running" in self._observed_states:
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
+                logger.debug(
+                    _(
+                        "docker service logs",
+                        stdout=list(msg.decode().rstrip() for msg in svc.logs(stdout=True)),
+                        stderr=list(msg.decode().rstrip() for msg in svc.logs(stderr=True)),
+                    )
+                )
                 logger.info(_("docker exit", code=exit_code))
 
             # retrieve and check container exit status
@@ -393,28 +416,33 @@ class TaskDockerContainer(TaskContainer):
         instead of leaving them root-owned. We do this in a funny way via Docker; see GitHub issue
         #271 for discussion of alternatives and their problems.
         """
-        script = f"""
-        chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
-        """.strip()
-        volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
-        try:
-            logger.debug(_("post-task chown", script=script, volumes=volumes))
-            client.containers.run(
-                "alpine:3", command=["/bin/ash", "-c", script], volumes=volumes, auto_remove=True
-            )
-        except:
-            logger.exception("post-task chown failed")
+        if os.geteuid() or os.getegid():
+            script = f"""
+            chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
+            """.strip()
+            volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
+            try:
+                logger.debug(_("post-task chown", script=script, volumes=volumes))
+                client.containers.run(
+                    "alpine:3",
+                    command=["/bin/ash", "-c", script],
+                    volumes=volumes,
+                    auto_remove=True,
+                )
+            except:
+                logger.exception("post-task chown failed")
 
 
 def run_local_task(
     task: Tree.Task,
-    posix_inputs: Env.Bindings[Value.Base],
+    inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     max_runtime_cpu: Optional[int] = None,
     max_runtime_memory: Optional[int] = None,
     logger_prefix: Optional[List[str]] = None,
+    as_me: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -430,11 +458,14 @@ def run_local_task(
     :param max_runtime_cpu: maximum effective runtime.cpu value (default: # host CPUs)
     :param max_runtime_memory: maximum effective runtime.memory value in bytes (default: total host
                                memory)
+    :param as_me: run container command using the current user uid:gid (may break commands that
+                  assume root access, e.g. apt-get)
     """
 
     run_id = run_id or task.name
     run_dir = provision_run_dir(task.name, run_dir)
-    logger = logging.getLogger(".".join((logger_prefix or ["wdl"]) + ["t:" + run_id]))
+    logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
+    logger = logging.getLogger(".".join(logger_prefix))
     fh = logging.FileHandler(os.path.join(run_dir, "task.log"))
     fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
     logger.addHandler(fh)
@@ -450,9 +481,13 @@ def run_local_task(
         )
     )
     logger.info(_("thread", ident=threading.get_ident()))
-    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"))
+
+    write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
     try:
+        # download input files, if needed
+        posix_inputs = _download_input_files(logger, logger_prefix, run_dir, inputs)
+
         # create appropriate TaskContainer
         container = TaskDockerContainer(run_id, run_dir)
 
@@ -465,6 +500,7 @@ def run_local_task(
             logger, task, container_env, max_runtime_cpu, max_runtime_memory
         )
         container.image_tag = str(runtime.get("docker", container.image_tag))
+        container.as_me = as_me
 
         # interpolate command
         command = _util.strip_leading_whitespace(
@@ -491,6 +527,41 @@ def run_local_task(
             info["node"] = getattr(exn, "job_id")
         logger.error(_(str(wrapper), **info))
         raise wrapper from exn
+
+
+def _download_input_files(
+    logger: logging.Logger, logger_prefix: List[str], run_dir: str, inputs: Env.Bindings[Value.Base]
+) -> Env.Bindings[Value.Base]:
+    """
+    Find all File values in the inputs (including any nested within compound values) that need
+    to / can be downloaded. Download them to some location under run_dir and return a copy of the
+    inputs with the URI values replaced by the downloaded filenames.
+    """
+
+    downloads = 0
+
+    def map_files(v: Value.Base) -> Value.Base:
+        nonlocal downloads
+        if isinstance(v, Value.File):
+            if downloadable(v.value):
+                logger.info(_("download input file", uri=v.value))
+                v.value = download(
+                    v.value,
+                    run_dir=os.path.join(run_dir, "download", str(downloads)),
+                    logger_prefix=logger_prefix + [f"download{downloads}"],
+                )
+                logger.info(_("downloaded input file", uri=v.value, file=v.value))
+                downloads += 1
+        for ch in v.children:
+            map_files(ch)
+        return v
+
+    ans = inputs.map(
+        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
+    )
+    if downloads:
+        logger.notice(_("downloaded input files", count=downloads))  # pyre-fixme
+    return ans
 
 
 def _eval_task_inputs(

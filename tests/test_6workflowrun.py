@@ -974,3 +974,22 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """)
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
+
+    def test_download_input_files(self):
+        count = R"""
+        version 1.0
+        workflow count {
+            input {
+                Array[File] files
+            }
+            scatter (file in files) {
+                Array[String] file_lines = read_lines(file)
+            }
+            output {
+                Int lines = length(flatten(file_lines))
+            }
+        }
+        """
+        self._test_workflow(count, {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]})
+        self._test_workflow(count, {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/nonexistent12345.txt"]},
+                            expected_exception=WDL.runtime.DownloadFailed)

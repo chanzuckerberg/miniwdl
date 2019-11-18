@@ -317,7 +317,7 @@ def fill_run_subparser(subparsers):
     group.add_argument(
         "--copy-input-files",
         action="store_true",
-        help="copy input files for each task and mount them read/write (for compatibility with mv/rm/write commands)",
+        help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write)",
     )
     group = run_parser.add_argument_group("output")
     group.add_argument(
@@ -357,6 +357,11 @@ def fill_run_subparser(subparsers):
         help="increase logging detail & stream tasks' stderr",
     )
     run_parser.add_argument(
+        "--as-me",
+        action="store_true",
+        help="run all containers as the invoking user uid:gid; more secure, but potentially blocks task commands e.g. apt-get",
+    )
+    run_parser.add_argument(
         "--no-color",
         action="store_true",
         help="disable colored logging on terminal (also set by NO_COLOR environment variable)",
@@ -389,7 +394,8 @@ def runner(
         sys.exit(0)
 
     run_kwargs = dict(
-        (k, kwargs[k]) for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory"]
+        (k, kwargs[k])
+        for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory", "as_me"]
     )
     if run_kwargs["max_runtime_memory"]:
         run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
@@ -473,7 +479,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         # load document. in the completer setting, we need to substitute the home directory
         # and environment variables
         uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
-        if not os.path.exists(uri):
+        if not (runtime.download.able(uri) or os.path.exists(uri)):
             argcomplete.warn("file not found: " + uri)
             return []
         try:
@@ -557,6 +563,12 @@ def runner_input(doc, inputs, input_file, empty, task=None):
 
     # add in command-line inputs
     for one_input in inputs:
+        if not one_input or not one_input[0].isalpha():
+            # let user just see runner_input_help
+            die(
+                f"{target.name} ({target.pos.uri})\n{'-'*(len(target.name)+len(target.pos.uri)+3)}\n{runner_input_help(target)}"
+            )
+
         # parse [namespace], name, and value
         buf = one_input.split("=", 1)
         if len(buf) != 2 or not buf[0]:
@@ -683,9 +695,10 @@ def runner_input_value(s_value, ty):
     if isinstance(ty, Type.String):
         return Value.String(s_value)
     if isinstance(ty, Type.File):
-        if not os.path.exists(s_value):
+        downloadable = runtime.download.able(s_value)
+        if not (downloadable or os.path.exists(s_value)):
             die("File not found: " + s_value)
-        return Value.File(os.path.abspath(s_value))
+        return Value.File(os.path.abspath(s_value) if not downloadable else s_value)
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
@@ -764,6 +777,9 @@ def fill_run_self_test_subparser(subparsers):
         default=None,
         help="run the test in specified directory, instead of some new temporary directory",
     )
+    run_parser.add_argument(
+        "--as-me", action="store_true", help="run all containers as the current user uid:gid"
+    )
     return run_parser
 
 
@@ -784,9 +800,12 @@ def run_self_test(**kwargs):
                         input:
                             who = write_lines([name])
                     }
+                    if (defined(hello.message)) {
+                        String msg = read_string(select_first([hello.message]))
+                    }
                 }
                 output {
-                    Array[File] messages = hello.message
+                    Array[String] messages = select_all(msg)
                 }
             }
             task hello {
@@ -794,11 +813,12 @@ def run_self_test(**kwargs):
                     File who
                 }
                 command {
-                    echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
-                    sleep 2
+                    if grep -v ^\# "${who}" ; then
+                        echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                    fi
                 }
                 output {
-                    File message = glob("message.*")[0]
+                    File? message = "message.txt"
                 }
                 runtime {
                     docker: "ubuntu:18.04"
@@ -807,28 +827,24 @@ def run_self_test(**kwargs):
             }
             """
         )
-    with open(os.path.join(dn, "who.txt"), "w") as outfile:
-        outfile.write("Alyssa P. Hacker\n")
-        outfile.write("Ben Bitdiddle\n")
 
     check(uri=[os.path.join(dn, "test.wdl")])
 
-    outputs = main(
-        [
-            "run",
-            os.path.join(dn, "test.wdl"),
-            "who=" + os.path.join(dn, "who.txt"),
-            "--dir",
-            dn,
-            "--debug",
-        ]
-    )
+    argv = [
+        "run",
+        os.path.join(dn, "test.wdl"),
+        "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt",
+        "--dir",
+        dn,
+        "--debug",
+    ]
+    if kwargs["as_me"]:
+        argv.append("--as-me")
+    outputs = main(argv)
 
     assert len(outputs["hello_caller.messages"]) == 2
-    with open(outputs["hello_caller.messages"][0], "r") as infile:
-        assert infile.read().rstrip() == "Hello, Alyssa P. Hacker!"
-    with open(outputs["hello_caller.messages"][1], "r") as infile:
-        assert infile.read().rstrip() == "Hello, Ben Bitdiddle!"
+    assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
+    assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"
 
     print("miniwdl run_self_test OK")
 
