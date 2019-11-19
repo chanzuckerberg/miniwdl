@@ -181,13 +181,13 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
     run_dir = os.path.abspath(run_dir or os.getcwd())
 
     if here:
-        os.makedirs(run_dir, exist_ok=True)
+        os.makedirs(run_dir, exist_ok=True, mode=dir_mode())
         return run_dir
 
     now = datetime.today()
     run_dir2 = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
     try:
-        os.makedirs(run_dir2, exist_ok=False)
+        os.makedirs(run_dir2, exist_ok=False, mode=dir_mode())
         return run_dir2
     except FileExistsError:
         pass
@@ -198,7 +198,7 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
             now.strftime("%Y%m%d_%H%M%S_") + str(int(now.microsecond / 1000)).zfill(3) + "_" + name,
         )
         try:
-            os.makedirs(run_dir2, exist_ok=False)
+            os.makedirs(run_dir2, exist_ok=False, mode=dir_mode())
             return run_dir2
         except FileExistsError:
             sleep(1e-3)
@@ -462,3 +462,33 @@ def parse_byte_size(s: str) -> int:
     if N is None or N <= 0:
         raise ValueError("invalid byte size string, " + s)
     return int(N)
+
+
+@export
+def file_mode() -> int:
+    """
+    mode for runtime-created files: u=rw,g=rw,a=(6-umask&6)
+
+    We ensure runtime files have group r/w so that in-container processes that drop privileges to
+    some arbitrary uid may still r/w the mounted files. (We add the group of the invoking user to
+    container processes)
+    """
+    u = os.umask(0o777)
+    assert os.umask(u) == 0o777
+    a = 6 - (u & 6)
+    assert a in [0, 2, 4, 6] and not (a & (u & 7))
+    return 0o660 + a
+
+
+@export
+def dir_mode() -> int:
+    """
+    mode for runtime-created directories: u=rwx,g=rwx,a=(7-umask&7)
+
+    see above
+    """
+    u = os.umask(0o777)
+    assert os.umask(u) == 0o777
+    a = 7 - (u & 7)
+    assert a >= 0 and a <= 7 and not (a & (u & 7))
+    return 0o770 + a

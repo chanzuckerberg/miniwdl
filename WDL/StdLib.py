@@ -7,7 +7,7 @@ import tempfile
 from typing import List, Tuple, Callable, BinaryIO
 from abc import ABC, abstractmethod
 from . import Type, Value, Expr, Env, Error
-from ._util import byte_size_units
+from ._util import byte_size_units, file_mode, dir_mode
 
 
 class Base:
@@ -166,11 +166,12 @@ class Base:
         "generate write_* function implementation based on serialize"
 
         def _f(v: Value.Base,) -> Value.File:
-            os.makedirs(self._write_dir, exist_ok=True)
+            os.makedirs(self._write_dir, exist_ok=True, mode=dir_mode())
             with tempfile.NamedTemporaryFile(dir=self._write_dir, delete=False) as outfile:
                 outfile: BinaryIO = outfile  # pyre-ignore
                 serialize(v, outfile)
                 filename = outfile.name
+            os.chmod(filename, file_mode())
             vfn = self._virtualize_filename(filename)
             return Value.File(vfn)
 

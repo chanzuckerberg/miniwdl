@@ -27,6 +27,8 @@ from .._util import (
     PygtailLogger,
     TerminationSignalFlag,
     parse_byte_size,
+    file_mode,
+    dir_mode,
 )
 from .._util import StructuredLogMessage as _
 from .download import able as downloadable, run as download
@@ -76,7 +78,7 @@ class TaskContainer(ABC):
         self.input_file_map = {}
         self.input_file_map_rev = {}
         self._running = False
-        os.makedirs(os.path.join(self.host_dir, "work"))
+        os.makedirs(os.path.join(self.host_dir, "work"), mode=dir_mode())
 
     def add_files(self, host_files: Iterable[str]) -> None:
         """
@@ -124,17 +126,19 @@ class TaskContainer(ABC):
             )
 
             logger.info(_("copy host input file", input=host_filename, copy=host_copy_filename))
-            os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
+            os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True, mode=dir_mode())
             shutil.copy(host_filename, host_copy_filename)
 
     def run(self, logger: logging.Logger, command: str, cpu: int, memory: int) -> None:
         """
-        1. Container is instantiated
-        2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
+        1. Container is instantiated with the configured mounts
+        2. The mounted directory and all subdirectories have u+rwx,g+rwx permission bits; all files
+           within have u+rw,g+rw permission bits.
+        3. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
            {container_dir} inside the container)
-        3. Standard output is written to ``{host_dir}/stdout.txt``
-        4. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
-        5. Raises CommandFailed for nonzero exit code, or any other error
+        4. Standard output is written to ``{host_dir}/stdout.txt``
+        5. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
+        6. Raises CommandFailed for nonzero exit code, or any other error
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
@@ -183,7 +187,7 @@ class TaskContainer(ABC):
         logger.info(
             _("archived failed task artifacts", artifacts=artifacts_moved, dest=artifacts_dir)
         )
-        os.makedirs(os.path.join(self.host_dir, "work"))
+        os.makedirs(os.path.join(self.host_dir, "work"), mode=dir_mode())
 
     def host_file(self, container_file: str, inputs_only: bool = False) -> Optional[str]:
         """
@@ -265,8 +269,10 @@ class TaskDockerContainer(TaskContainer):
         memory: int,
     ) -> int:
         self._observed_states = set()
-        with open(os.path.join(self.host_dir, "command"), "x") as outfile:
+        command_file = os.path.join(self.host_dir, "command")
+        with open(command_file, "x") as outfile:
             outfile.write(command)
+        os.chmod(command_file, file_mode())
 
         mounts = []
         # mount input files and command
@@ -330,6 +336,9 @@ class TaskDockerContainer(TaskContainer):
                 mounts=mounts,
                 resources=resources,
                 user=user,
+                # add invoking user's group to ensure that command can access the mounted working
+                # directory even if the docker image assumes some arbitrary uid
+                groups=[str(os.getegid())] if os.getegid() else None,
                 labels={"miniwdl_run_id": self.run_id},
                 container_labels={"miniwdl_run_id": self.run_id},
             )
@@ -412,14 +421,15 @@ class TaskDockerContainer(TaskContainer):
 
     def touch_mount_point(self, container_file: str) -> None:
         """
-        Touch a mount point to ensure it'll be owned by invoking user
+        Touch a mount point to ensure it'll be owned by invoking user:group
         """
         assert container_file.startswith(self.container_dir + "/")
         host_file = os.path.join(self.host_dir, os.path.relpath(container_file, self.container_dir))
         assert host_file.startswith(self.host_dir + "/")
-        os.makedirs(os.path.dirname(host_file), exist_ok=True)
+        os.makedirs(os.path.dirname(host_file), exist_ok=True, mode=dir_mode())
         with open(host_file, "x") as outfile:
             pass
+        os.chmod(host_file, file_mode())
 
     def chown(self, logger: logging.Logger, client: docker.DockerClient) -> None:
         """
@@ -861,7 +871,7 @@ def make_output_links(outputs_json: Dict[str, Any], run_dir: str) -> None:
             and os.path.isfile(v)
             and os.path.realpath(v).startswith(os.path.realpath(run_dir) + "/")
         ):
-            os.makedirs(dn, exist_ok=False)
+            os.makedirs(dn, exist_ok=False, mode=dir_mode())
             os.symlink(v, os.path.join(dn, os.path.basename(v)))
         elif isinstance(v, list) and len(v):
             d = int(math.ceil(math.log10(len(v))))  # how many digits needed
@@ -881,7 +891,7 @@ def make_output_links(outputs_json: Dict[str, Any], run_dir: str) -> None:
                 traverse(list(v.values()), dn)
 
     dn0 = os.path.join(run_dir, "output_links")
-    os.makedirs(dn0, exist_ok=False)
+    os.makedirs(dn0, exist_ok=False, mode=dir_mode())
     traverse(outputs_json, dn0)
 
 
