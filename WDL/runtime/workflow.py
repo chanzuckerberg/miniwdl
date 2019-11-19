@@ -793,16 +793,21 @@ def _download_input_files(
 
     # collect the results
     downloaded = {}
+    total_bytes = 0
     try:
         for future in futures.as_completed(ops):
             uri = ops[future]
             downloaded[uri] = future.result()
-            logger.info(_("downloaded input file", uri=uri, file=downloaded[uri]))
+            sz = os.path.getsize(downloaded[uri])
+            logger.info(_("downloaded input file", uri=uri, file=downloaded[uri], bytes=sz))
+            total_bytes += sz
     except:
         for future in ops:
             future.cancel()
         raise
-    logger.notice(_("downloaded input files", count=len(downloaded)))  # pyre-fixme
+    logger.notice(  # pyre-fixme
+        _("downloaded input files", count=len(downloaded), total_bytes=total_bytes)
+    )
 
     # rewrite the input URIs to the downloaded filenames
     def rewrite_downloaded(v: Value.Base) -> Value.Base:

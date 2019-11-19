@@ -554,9 +554,10 @@ def _download_input_files(
     """
 
     downloads = 0
+    total_bytes = 0
 
     def map_files(v: Value.Base) -> Value.Base:
-        nonlocal downloads
+        nonlocal downloads, total_bytes
         if isinstance(v, Value.File):
             if downloadable(v.value):
                 logger.info(_("download input file", uri=v.value))
@@ -565,8 +566,10 @@ def _download_input_files(
                     run_dir=os.path.join(run_dir, "download", str(downloads)),
                     logger_prefix=logger_prefix + [f"download{downloads}"],
                 )
-                logger.info(_("downloaded input file", uri=v.value, file=v.value))
+                sz = os.path.getsize(v.value)
+                logger.info(_("downloaded input file", uri=v.value, file=v.value, bytes=sz))
                 downloads += 1
+                total_bytes += sz
         for ch in v.children:
             map_files(ch)
         return v
@@ -575,7 +578,9 @@ def _download_input_files(
         lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
     )
     if downloads:
-        logger.notice(_("downloaded input files", count=downloads))  # pyre-fixme
+        logger.notice(  # pyre-fixme
+            _("downloaded input files", count=downloads, total_bytes=total_bytes)
+        )
     return ans
 
 
