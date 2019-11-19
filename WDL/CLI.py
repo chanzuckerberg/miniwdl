@@ -464,13 +464,11 @@ def runner(
             raise
         sys.exit(2)
 
-    # organize outputs
-    outputs_json = values_to_json(output_env, namespace=target.name)
-    runtime.make_output_links(target, rundir, outputs_json)
+    # report
     with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
         print(rerun_sh, file=rerunfile)
-
-    print(json.dumps({"outputs": outputs_json, "dir": rundir}, indent=2))
+    outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
+    print(json.dumps(outputs_json, indent=2))
     return outputs_json
 
 
@@ -796,7 +794,7 @@ def run_self_test(**kwargs):
     ]
     if kwargs["as_me"]:
         argv.append("--as-me")
-    outputs = main(argv)
+    outputs = main(argv)["outputs"]
 
     assert len(outputs["hello_caller.messages"]) == 2
     assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
@@ -998,7 +996,7 @@ def cromwell(
         with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
             print(json.dumps(outputs_json["outputs"], indent=2), file=outfile)
 
-        runtime.make_output_links(target, rundir, outputs_json["outputs"])
+        runtime.make_output_links(outputs_json["outputs"], rundir)
 
     sys.exit(proc.returncode)
 

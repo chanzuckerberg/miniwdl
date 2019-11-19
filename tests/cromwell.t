@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 67
+plan tests 59
 
 DN=$(mktemp -d --tmpdir miniwdl_cromwell_tests_XXXXXX)
 cd $DN
@@ -90,11 +90,9 @@ is "$(jq '.["echo.out_f"] | length' taskrun/outputs.json)" '3' "task outputs.jso
 f1=$(jq -r '.["echo.out_f"][0]' taskrun/outputs.json)
 is "$(basename $f1)" "quick" "task product quick"
 is "$(ls $f1)" "$f1" "task product quick file"
-is "$(ls taskrun/output_links/echo.out_f/0)" "quick" "task product quick link"
 f1=$(jq -r '.["echo.out_f"][1]' taskrun/outputs.json)
 is "$(basename $f1)" "brown" "task product brown"
 is "$(ls $f1)" "$f1" "task product brown file"
-is "$(ls taskrun/output_links/echo.out_f/1)" "brown" "task product brown link"
 f1=$(jq -r '.["echo.out_f"][2]' taskrun/outputs.json)
 is "$(basename $f1)" "fox" "task product fox"
 is "$(ls $f1)" "$f1" "task product fox file"
@@ -161,11 +159,9 @@ is "$(jq '.["echo.t.out_f"] | length' workflowrun/outputs.json)" '3' "workflow o
 f1=$(jq -r '.["echo.t.out_f"][0]' workflowrun/outputs.json)
 is "$(basename $f1)" "quick" "workflow product quick"
 is "$(ls $f1)" "$f1" "workflow product quick file"
-is "$(ls workflowrun/output_links/echo.t.out_f/0)" "quick" "workflow product quick link"
 f1=$(jq -r '.["echo.t.out_f"][1]' workflowrun/outputs.json)
 is "$(basename $f1)" "brown" "workflow product brown"
 is "$(ls $f1)" "$f1" "workflow product brown file"
-is "$(ls workflowrun/output_links/echo.t.out_f/1)" "brown" "workflow product brown link"
 f1=$(jq -r '.["echo.t.out_f"][2]' workflowrun/outputs.json)
 is "$(basename $f1)" "fox" "workflow product fox"
 is "$(ls $f1)" "$f1" "workflow product fox file"
@@ -189,11 +185,7 @@ workflow echo {
 EOF
 $miniwdl cromwell --dir scatterrun/. scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
 is "$?" "0" "scatter run"
-is "$(ls scatterrun/output_links/echo.t.out_f/0/0)" "quick" "scatter product 0 quick link"
-is "$(ls scatterrun/output_links/echo.t.out_f/0/1)" "brown" "scatter product 0 brown link"
 is "$(ls scatterrun/output_links/echo.t.out_f/0/2)" "fox" "scatter product 0 fox link"
-is "$(ls scatterrun/output_links/echo.t.out_f/1/0)" "quick" "scatter product 1 quick link"
-is "$(ls scatterrun/output_links/echo.t.out_f/1/1)" "brown" "scatter product 1 brown link"
 is "$(ls scatterrun/output_links/echo.t.out_f/1/2)" "fox" "scatter product 1 fox link"
 
 mkdir my_imports

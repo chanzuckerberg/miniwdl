@@ -3,6 +3,7 @@
 Local task runner
 """
 import logging
+import math
 import os
 import json
 import copy
@@ -14,7 +15,7 @@ import threading
 import shutil
 import shlex
 from abc import ABC, abstractmethod
-from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set
+from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 import psutil
 import docker
 from .. import Error, Type, Env, Value, StdLib, Tree, _util
@@ -524,6 +525,10 @@ def run_local_task(
         outputs = _eval_task_outputs(logger, task, container_env, container)
 
         write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
+
+        from .. import values_to_json
+
+        make_output_links(values_to_json(outputs, namespace=task.name), run_dir)  # pyre-fixme
         logger.notice("done")  # pyre-fixme
         return (run_dir, outputs)
     except Exception as exn:
@@ -826,6 +831,52 @@ def _eval_task_outputs(
         outputs = outputs.bind(decl.name, v)
 
     return outputs
+
+
+def make_output_links(outputs_json: Dict[str, Any], run_dir: str) -> None:
+    """
+    Following a successful run, the output files may be scattered throughout a complex directory
+    tree used for execution. To help navigating this, generate a subdirectory of the run directory
+    containing nicely organized symlinks to the output files.
+
+    Given ``WDL.Env.Bindings[WDL.Value.Base]`` outputs, this expects to receive
+    ``WDL.values_to_json(outputs, namespace=targets.name)`` instead of outputs directly. This makes
+    it compatible with Cromwell's output JSON too.
+
+    For security reasons, omits any files not inside run_dir (e.g. if the outputs include an input
+    file located elsewhere)
+    """
+
+    def traverse(v: Any, dn: str) -> None:  # pyre-fixme
+        assert isinstance(v, (str, int, float, list, dict)) or v is None
+        if (
+            isinstance(v, str)
+            and v.startswith(run_dir + "/")
+            and os.path.isfile(v)
+            and os.path.realpath(v).startswith(os.path.realpath(run_dir) + "/")
+        ):
+            os.makedirs(dn, exist_ok=False)
+            os.symlink(v, os.path.join(dn, os.path.basename(v)))
+        elif isinstance(v, list) and len(v):
+            d = int(math.ceil(math.log10(len(v))))  # how many digits needed
+            for i, elt in enumerate(v):
+                traverse(elt, os.path.join(dn, str(i).rjust(d, "0")))
+        elif isinstance(v, dict):
+            # create a subdirectory for each key, as long as the key names seem to make reasonable
+            # path components; otherwise, treat the dict as a list of its values
+            keys_ok = True
+            for key in v:
+                if not (isinstance(key, str) and "/" not in key and not key.startswith(".")):
+                    keys_ok = False
+            if keys_ok:
+                for key, value in v.items():
+                    traverse(value, os.path.join(dn, key))
+            else:
+                traverse(list(v.values()), dn)
+
+    dn0 = os.path.join(run_dir, "output_links")
+    os.makedirs(dn0, exist_ok=False)
+    traverse(outputs_json, dn0)
 
 
 class _StdLib(StdLib.Base):
