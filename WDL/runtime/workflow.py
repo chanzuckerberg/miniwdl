@@ -40,12 +40,12 @@ import traceback
 import pickle
 import threading
 import copy
-import pkg_resources
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
+import pkg_resources
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .task import run_local_task, _filenames
+from .task import run_local_task, _filenames, make_output_links
 from .download import able as downloadable, run as download
 from .._util import (
     write_values_json,
@@ -159,9 +159,7 @@ class StateMachine:
 
         self.values_to_json = values_to_json  # pyre-ignore
 
-        workflow_nodes = [
-            node for node in (workflow.inputs or []) + workflow.body + (workflow.outputs or [])
-        ]
+        workflow_nodes = (workflow.inputs or []) + workflow.body + (workflow.outputs or [])
         workflow_nodes.append(WorkflowOutputs(workflow))
 
         # TODO: by topsorting all section bodies we can ensure that when we schedule an additional
@@ -749,6 +747,10 @@ def run_local_workflow(
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
+
+    from .. import values_to_json
+
+    make_output_links(values_to_json(state.outputs, namespace=workflow.name), run_dir)
     logger.notice("done")
     return (run_dir, state.outputs)
 
