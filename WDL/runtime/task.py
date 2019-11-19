@@ -322,7 +322,13 @@ class TaskDockerContainer(TaskContainer):
                 user = f"{os.geteuid()}:{os.getegid()}"
                 logger.info(_("docker user", uid_gid=user))
                 if os.geteuid() == 0:
-                    logger.warning("container command will run explicitly as root (as_me=True)")
+                    logger.warning(
+                        "container command will run explicitly as root (as_me=True), since you are root"
+                    )
+            if os.getegid() == 0:
+                logger.warning(
+                    "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
+                )
             svc = client.services.create(
                 self.image_tag,
                 command=[
@@ -338,7 +344,7 @@ class TaskDockerContainer(TaskContainer):
                 user=user,
                 # add invoking user's group to ensure that command can access the mounted working
                 # directory even if the docker image assumes some arbitrary uid
-                groups=[str(os.getegid())] if os.getegid() else None,
+                groups=[str(os.getegid())],
                 labels={"miniwdl_run_id": self.run_id},
                 container_labels={"miniwdl_run_id": self.run_id},
             )
