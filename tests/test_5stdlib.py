@@ -20,7 +20,7 @@ class TestStdLib(unittest.TestCase):
             assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir)
+            rundir, outputs = WDL.runtime.run(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, max_tasks=1)
         except WDL.runtime.RunFailed as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
@@ -439,6 +439,7 @@ class TestStdLib(unittest.TestCase):
                 echo false > false.txt
                 echo -e "key1\tvalue1" > map.txt
                 echo -e "key2\tvalue2" >> map.txt
+                echo -e "..\ttricky" >> map.txt
             }
             output {
                 String i_strings_string = i1
@@ -462,7 +463,7 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["o_names_lines"], ["Alyssa", "Ben"])
         self.assertEqual(outputs["o_fortytwo"], 42)
         self.assertEqual(outputs["o_boolean"], [True, False])
-        self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2"})
+        self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2", "..": "tricky"})
 
     def test_read_json(self):
         outputs = self._test_task(R"""

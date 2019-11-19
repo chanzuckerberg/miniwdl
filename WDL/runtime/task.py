@@ -14,6 +14,7 @@ import multiprocessing
 import threading
 import shutil
 import shlex
+import re
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 import psutil
@@ -863,12 +864,12 @@ def make_output_links(outputs_json: Dict[str, Any], run_dir: str) -> None:
                 traverse(elt, os.path.join(dn, str(i).rjust(d, "0")))
         elif isinstance(v, dict):
             # create a subdirectory for each key, as long as the key names seem to make reasonable
-            # path components; otherwise, treat the dict as a list of its values
-            keys_ok = True
-            for key in v:
-                if not (isinstance(key, str) and "/" not in key and not key.startswith(".")):
-                    keys_ok = False
-            if keys_ok:
+            # path components; otherwise, treat the dict as a list of its values (this is possible
+            # in Maps where keys can be arbitrary)
+            if (
+                sum(1 for key in v if re.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", key) is None)
+                == 0
+            ):
                 for key, value in v.items():
                     traverse(value, os.path.join(dn, key))
             else:
