@@ -373,42 +373,34 @@ def fill_run_subparser(subparsers):
 
 def runner(
     uri,
+    task=None,
     inputs=[],
     input_file=None,
-    json_only=False,
     empty=[],
-    check_quant=True,
-    task=None,
-    rundir=None,
+    json_only=False,
     path=None,
+    check_quant=True,
     **kwargs,
 ):
     # load WDL document
     doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
-    # validate the provided inputs and prepare Cromwell-style JSON
+    # parse and validate the provided inputs
     target, input_env, input_json = runner_input(doc, inputs, input_file, empty, task=task)
 
     if json_only:
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    run_kwargs = dict(
-        (k, kwargs[k])
-        for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory", "as_me"]
-    )
-    if run_kwargs["max_runtime_memory"]:
-        run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
-    if isinstance(target, Workflow):
-        run_kwargs["max_tasks"] = kwargs["max_tasks"]
-
+    # set up logging
     level = NOTICE_LEVEL
     if kwargs["verbose"]:
         level = VERBOSE_LEVEL
     if kwargs["debug"]:
         level = logging.DEBUG
     if kwargs["no_color"]:
-        os.environ["NO_COLOR"] = ""  # picked up by _util.install_coloredlogs()
+        # picked up by _util.install_coloredlogs()
+        os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
@@ -422,13 +414,21 @@ def runner(
 
     rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
+    # configuration
+    run_kwargs = dict(
+        (k, kwargs[k])
+        for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory", "as_me"]
+    )
+    if run_kwargs["max_runtime_memory"]:
+        run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
+    if "rundir" in kwargs:
+        run_kwargs["run_dir"] = kwargs["rundir"]
+
     ensure_swarm(logger)
 
+    # run & handle any errors
     try:
-        entrypoint = (
-            runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
-        )
-        rundir, output_env = entrypoint(target, input_env, run_dir=rundir, **run_kwargs)
+        rundir, output_env = runtime.run(target, input_env, **run_kwargs)
     except Exception as exn:
         outer_rundir = None
         inner_rundir = None
@@ -464,12 +464,13 @@ def runner(
             raise
         sys.exit(2)
 
-    # link output files
+    # organize outputs
     outputs_json = values_to_json(output_env, namespace=target.name)
-    runner_organize_outputs(target, {"outputs": outputs_json}, rundir)
+    runtime.make_output_links(target, rundir, outputs_json)
     with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
         print(rerun_sh, file=rerunfile)
 
+    print(json.dumps({"outputs": outputs_json, "dir": rundir}, indent=2))
     return outputs_json
 
 
@@ -719,51 +720,6 @@ def runner_input_value(s_value, ty):
             str(ty)
         )
     )
-
-
-def runner_organize_outputs(target, outputs_json, rundir):
-    """
-    After a successful workflow run, the output files are typically sprayed
-    across a bushy directory tree used for execution. To help the user find
-    what they're looking for, we create another directory tree with nicer
-    organization, containing symlinks to the output files (so as not to disturb
-    them).
-
-    One of the subtleties is to organize compound outputs like Array[File],
-    Array[Array[File]], etc.
-    """
-    assert "dir" not in outputs_json
-    outputs_json["dir"] = rundir
-    print(json.dumps(outputs_json, indent=2))
-    with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
-        print(json.dumps(outputs_json, indent=2), file=outfile)
-
-    os.makedirs(os.path.join(rundir, "output_links"), exist_ok=False)
-
-    def link_output_files(dn, files):
-        # dn: output directory which already exists
-        # files: either a filename str, or a [nested] list thereof
-        if isinstance(files, str) and os.path.exists(files):
-            os.symlink(files, os.path.join(dn, os.path.basename(files)))
-        if isinstance(files, list) and files:
-            d = int(math.ceil(math.log10(len(files))))  # how many digits needed
-            for i, elt in enumerate(files):
-                subdn = os.path.join(dn, str(i).rjust(d, "0"))
-                os.makedirs(subdn, exist_ok=False)
-                link_output_files(subdn, elt)
-
-    def output_links(binding):
-        fqon = ".".join([target.name, binding.name])
-        if _is_files(binding.value) and fqon in outputs_json["outputs"]:
-            odn = os.path.join(rundir, "output_links", fqon)
-            os.makedirs(os.path.join(rundir, odn), exist_ok=False)
-            link_output_files(odn, outputs_json["outputs"][fqon])
-        return True
-
-    for binding in target.effective_outputs:
-        output_links(binding)
-    # TODO: handle File's inside other compound types,
-    # Pair[File,File], Map[String,File], Structs, etc.
 
 
 def fill_run_self_test_subparser(subparsers):
@@ -1035,7 +991,14 @@ def cromwell(
             )
         except:
             die("failed to find outputs JSON in Cromwell standard output")
-        runner_organize_outputs(target, outputs_json, rundir)
+
+        assert "dir" not in outputs_json
+        outputs_json["dir"] = rundir
+        print(json.dumps(outputs_json, indent=2))
+        with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
+            print(json.dumps(outputs_json["outputs"], indent=2), file=outfile)
+
+        runtime.make_output_links(target, rundir, outputs_json["outputs"])
 
     sys.exit(proc.returncode)
 
@@ -1075,16 +1038,6 @@ def ensure_cromwell_jar(jarfile=None):
             "unexpected size of downloaded " + jarpath
         )
     return jarpath
-
-
-def _is_files(ty):
-    """
-    is ty a File or an Array[File] or an Array[Array[File]] or an Array[Array[Array[File]]]...
-    """
-    return isinstance(ty, Type.File) or (
-        isinstance(ty, Type.Array)
-        and (isinstance(ty.item_type, Type.File) or _is_files(ty.item_type))
-    )
 
 
 def die(msg, status=2):

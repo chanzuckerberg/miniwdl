@@ -28,7 +28,7 @@ is "$?" "0" "run do_nothing task"
 is "$(jq .outputs stdout)" "{}" "do_nothing task stdout"
 rundir="$(jq -r .dir stdout)"
 is "$(dirname "$rundir")" "${DN}/do_nothing_task" "do_nothing task created subdirectory"
-is "$(jq .outputs "$rundir/outputs.json")" "{}" "do_nothing task outputs"
+is "$(jq . "$rundir/outputs.json")" "{}" "do_nothing task outputs"
 
 cat << 'EOF' > do_nothing_wf.wdl
 version 1.0
@@ -40,7 +40,7 @@ is "$?" "0" "run do_nothing workflow"
 is "$(jq .outputs stdout)" "{}" "do_nothing workflow stdout"
 rundir="$(jq -r .dir stdout)"
 is "$(dirname "$rundir")" "${DN}/do_nothing_wf" "do_nothing workflow created subdirectory"
-is "$(jq .outputs "$rundir/outputs.json")" "{}" "do_nothing workflow outputs"
+is "$(jq . "$rundir/outputs.json")" "{}" "do_nothing workflow outputs"
 
 cat << 'EOF' > echo_task.wdl
 version 1.0
@@ -82,20 +82,20 @@ is "$(jq .a_s[1] task_inputs.json)" '"baz"' "task json a_s baz"
 $miniwdl cromwell --dir taskrun/. echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown | tee stdout
 is "$?" "0" "task run"
 is "$(jq '.outputs["echo.out_i"]' stdout)" "42" "task stdout out_i"
-is "$(jq '.outputs["echo.out_i"]' taskrun/outputs.json)" "42" "task outputs.json out_i"
-is "$(jq '.outputs["echo.out_s"] | length' taskrun/outputs.json)" "2" "task outputs.json out_s length"
-is "$(jq '.outputs["echo.out_s"][0]' taskrun/outputs.json)" '"foo"' "task outputs.json out_s foo"
-is "$(jq '.outputs["echo.out_s"][1]' taskrun/outputs.json)" '"bar"' "task outputs.json out_s bar"
-is "$(jq '.outputs["echo.out_f"] | length' taskrun/outputs.json)" '3' "task outputs.json out_f length"
-f1=$(jq -r '.outputs["echo.out_f"][0]' taskrun/outputs.json)
+is "$(jq '.["echo.out_i"]' taskrun/outputs.json)" "42" "task outputs.json out_i"
+is "$(jq '.["echo.out_s"] | length' taskrun/outputs.json)" "2" "task outputs.json out_s length"
+is "$(jq '.["echo.out_s"][0]' taskrun/outputs.json)" '"foo"' "task outputs.json out_s foo"
+is "$(jq '.["echo.out_s"][1]' taskrun/outputs.json)" '"bar"' "task outputs.json out_s bar"
+is "$(jq '.["echo.out_f"] | length' taskrun/outputs.json)" '3' "task outputs.json out_f length"
+f1=$(jq -r '.["echo.out_f"][0]' taskrun/outputs.json)
 is "$(basename $f1)" "quick" "task product quick"
 is "$(ls $f1)" "$f1" "task product quick file"
 is "$(ls taskrun/output_links/echo.out_f/0)" "quick" "task product quick link"
-f1=$(jq -r '.outputs["echo.out_f"][1]' taskrun/outputs.json)
+f1=$(jq -r '.["echo.out_f"][1]' taskrun/outputs.json)
 is "$(basename $f1)" "brown" "task product brown"
 is "$(ls $f1)" "$f1" "task product brown file"
 is "$(ls taskrun/output_links/echo.out_f/1)" "brown" "task product brown link"
-f1=$(jq -r '.outputs["echo.out_f"][2]' taskrun/outputs.json)
+f1=$(jq -r '.["echo.out_f"][2]' taskrun/outputs.json)
 is "$(basename $f1)" "fox" "task product fox"
 is "$(ls $f1)" "$f1" "task product fox file"
 is "$(ls taskrun/output_links/echo.out_f/2)" "fox" "task product fox link"
@@ -156,17 +156,17 @@ is "$(jq -r '.outputs["greet.message"]' stdout)" 'Hello, Alice!' "output from re
 $miniwdl cromwell --dir workflowrun/. echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s | tee stdout
 is "$?" "0" "workflow run"
 is "$(jq '.outputs["echo.t.out_i"]' stdout)" "42" "workflow stdout out_i"
-is "$(jq '.outputs["echo.t.out_i"]' workflowrun/outputs.json)" "42" "workflow outputs.json out_i"
-is "$(jq '.outputs["echo.t.out_f"] | length' workflowrun/outputs.json)" '3' "workflow outputs.json out_f length"
-f1=$(jq -r '.outputs["echo.t.out_f"][0]' workflowrun/outputs.json)
+is "$(jq '.["echo.t.out_i"]' workflowrun/outputs.json)" "42" "workflow outputs.json out_i"
+is "$(jq '.["echo.t.out_f"] | length' workflowrun/outputs.json)" '3' "workflow outputs.json out_f length"
+f1=$(jq -r '.["echo.t.out_f"][0]' workflowrun/outputs.json)
 is "$(basename $f1)" "quick" "workflow product quick"
 is "$(ls $f1)" "$f1" "workflow product quick file"
 is "$(ls workflowrun/output_links/echo.t.out_f/0)" "quick" "workflow product quick link"
-f1=$(jq -r '.outputs["echo.t.out_f"][1]' workflowrun/outputs.json)
+f1=$(jq -r '.["echo.t.out_f"][1]' workflowrun/outputs.json)
 is "$(basename $f1)" "brown" "workflow product brown"
 is "$(ls $f1)" "$f1" "workflow product brown file"
 is "$(ls workflowrun/output_links/echo.t.out_f/1)" "brown" "workflow product brown link"
-f1=$(jq -r '.outputs["echo.t.out_f"][2]' workflowrun/outputs.json)
+f1=$(jq -r '.["echo.t.out_f"][2]' workflowrun/outputs.json)
 is "$(basename $f1)" "fox" "workflow product fox"
 is "$(ls $f1)" "$f1" "workflow product fox file"
 is "$(ls workflowrun/output_links/echo.t.out_f/2)" "fox" "workflow product fox link"

@@ -523,7 +523,7 @@ def run_local_task(
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
 
-        write_values_json(outputs, os.path.join(run_dir, "outputs.json"))
+        write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
         logger.notice("done")  # pyre-fixme
         return (run_dir, outputs)
     except Exception as exn:
