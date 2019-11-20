@@ -314,11 +314,6 @@ def fill_run_subparser(subparsers):
         action="store_true",
         help="just print Cromwell-style input JSON to standard output, then exit",
     )
-    group.add_argument(
-        "--copy-input-files",
-        action="store_true",
-        help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write)",
-    )
     group = run_parser.add_argument_group("output")
     group.add_argument(
         "-d",
@@ -327,14 +322,14 @@ def fill_run_subparser(subparsers):
         dest="rundir",
         help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly",
     )
-    group = run_parser.add_argument_group("resourcing")
+    group = run_parser.add_argument_group("provisioning")
     group.add_argument(
         "-@",
         metavar="N",
         dest="max_tasks",
         type=int,
         default=None,
-        help="maximum concurrent tasks (default: # host processors; limit effectively lower when tasks require multiple processors)",
+        help="maximum concurrent tasks (default: # host processors, effectively lower when tasks require multiple processors)",
     )
     group.add_argument(
         "--max-runtime-cpu",
@@ -350,16 +345,21 @@ def fill_run_subparser(subparsers):
         default=None,
         help="maximum effective runtime.memory for any task (default: total host memory)",
     )
+    group.add_argument(
+        "--copy-input-files",
+        action="store_true",
+        help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write them)",
+    )
+    group.add_argument(
+        "--as-me",
+        action="store_true",
+        help="run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. apt-get)",
+    )
     run_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         help="increase logging detail & stream tasks' stderr",
-    )
-    run_parser.add_argument(
-        "--as-me",
-        action="store_true",
-        help="run all containers as the invoking user uid:gid; more secure, but potentially blocks task commands e.g. apt-get",
     )
     run_parser.add_argument(
         "--no-color",

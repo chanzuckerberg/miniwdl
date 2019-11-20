@@ -7,7 +7,7 @@ import tempfile
 from typing import List, Tuple, Callable, BinaryIO
 from abc import ABC, abstractmethod
 from . import Type, Value, Expr, Env, Error
-from ._util import byte_size_units
+from ._util import byte_size_units, chmod_R_plus
 
 
 class Base:
@@ -171,6 +171,7 @@ class Base:
                 outfile: BinaryIO = outfile  # pyre-ignore
                 serialize(v, outfile)
                 filename = outfile.name
+            chmod_R_plus(filename, file_bits=0o660)
             vfn = self._virtualize_filename(filename)
             return Value.File(vfn)
 

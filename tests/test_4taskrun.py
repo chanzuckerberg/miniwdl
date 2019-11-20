@@ -832,7 +832,7 @@ class TestTaskRunner(unittest.TestCase):
                 Int count = read_int(stdout())
             }
         }
-        """, {"file": "https://google.com/robots.txt"})
+        """, {"file": "https://google.com/robots.txt"}, as_me=True)
 
     def test_workdir_ownership(self):
         # verify that everything within working directory is owned by the invoking user
