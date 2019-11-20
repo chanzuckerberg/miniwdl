@@ -1581,7 +1581,7 @@ def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[str, Decl], _util.A
 
 
 def _workflow_dependency_matrix(
-    workflow: Workflow
+    workflow: Workflow,
 ) -> Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]:
     # Given workflow, produce mapping of workflow node id to each node, and the AdjM of their
     # dependencies (edge from o1 to o2 = o2 depends on o1). Considers each Scatter and Conditional
