@@ -192,23 +192,25 @@ class TestTaskRunner(unittest.TestCase):
     def test_hello_file(self):
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
             outfile.write("Alyssa")
-        outputs = self._test_task(R"""
-            version 1.0
-            task hello_file {
-                input {
-                    File who
-                }
-                command <<<
-                    echo -n "Hello, $(cat ~{who})!" > message.txt
-                >>>
-                output {
-                    File message = "message.txt"
-                }
+        hello = R"""
+        version 1.0
+        task hello_file {
+            input {
+                File who
             }
-            """,
-            {"who": os.path.join(self._dir, "alyssa.txt")})
+            command <<<
+                echo -n "Hello, $(cat ~{who})!" > message.txt
+            >>>
+            output {
+                File message = "message.txt"
+            }
+        }
+        """
+        outputs = self._test_task(hello, {"who": os.path.join(self._dir, "alyssa.txt")})
         with open(outputs["message"]) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
+
+        self._test_task(hello, {"who": "/a/nonexistent/file"}, expected_exception=WDL.Error.InputError)
 
         # output an input file
         outputs = self._test_task(R"""
