@@ -13,7 +13,6 @@ import argcomplete
 import logging
 import urllib
 import docker
-import re
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action, SUPPRESS
@@ -1103,7 +1102,7 @@ def localize(infile, name=None, outfile=None, **kwargs):
 
     if uris:
         # create a dummy workflow and provide the list of URIs as its File inputs, which will cause
-        # the runtime to dowlnoad them
+        # the runtime to download them
         localizer_wdl = (
             """
             version 1.0
@@ -1121,9 +1120,7 @@ def localize(infile, name=None, outfile=None, **kwargs):
         doc = parse_document(localizer_wdl)
         doc.typecheck()
         subdir, outputs = runtime.run(
-            doc.workflow,
-            values_from_json({"uris": uris}, doc.workflow.available_inputs),
-            **kwargs,
+            doc.workflow, values_from_json({"uris": uris}, doc.workflow.available_inputs), **kwargs
         )
 
         # recover the mapping of URIs to downloaded files
