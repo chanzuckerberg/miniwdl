@@ -39,12 +39,14 @@ import signal
 import traceback
 import pickle
 import threading
-import pkg_resources
+import copy
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
+import pkg_resources
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .task import run_local_task, _filenames
+from .task import run_local_task, _filenames, make_output_links
+from .download import able as downloadable, run as download
 from .._util import (
     write_values_json,
     provision_run_dir,
@@ -157,9 +159,7 @@ class StateMachine:
 
         self.values_to_json = values_to_json  # pyre-ignore
 
-        workflow_nodes = [
-            node for node in (workflow.inputs or []) + workflow.body + (workflow.outputs or [])
-        ]
+        workflow_nodes = (workflow.inputs or []) + workflow.body + (workflow.outputs or [])
         workflow_nodes.append(WorkflowOutputs(workflow))
 
         # TODO: by topsorting all section bodies we can ensure that when we schedule an additional
@@ -375,6 +375,7 @@ class StateMachine:
             )
             # check input files against whitelist
             disallowed_filenames = _filenames(call_inputs) - self.filename_whitelist
+            disallowed_filenames = set(fn for fn in disallowed_filenames if not downloadable(fn))
             if disallowed_filenames:
                 raise InputError(
                     f"call {job.node.name} inputs use unknown file: {next(iter(disallowed_filenames))}"
@@ -596,7 +597,7 @@ class _StdLib(StdLib.Base):
 
 def run_local_workflow(
     workflow: Tree.Workflow,
-    posix_inputs: Env.Bindings[Value.Base],
+    inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
@@ -613,9 +614,10 @@ def run_local_workflow(
     paths that can be mounted into a container.
 
     :param run_id: unique ID for the run, defaults to workflow name
-    :param run_dir: outputs and scratch will be stored in this directory if it doesn't already
-                    exist; if it does, a timestamp-based subdirectory is created and used (defaults
-                    to current working directory)
+    :param run_dir: directory under which to create a timestamp-named subdirectory for this run
+                    (defaults to current working directory).
+                    If the final path component is ".", then operate in run_dir directly.
+    :param copy_input_files: copy input files and mount them read/write instead of read-only
     """
 
     run_id = run_id or workflow.name
@@ -644,9 +646,7 @@ def run_local_workflow(
         )
     )
     logger.info(_("thread", ident=threading.get_ident()))
-    write_values_json(posix_inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
-
-    state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
+    write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
     with TerminationSignalFlag(logger) as terminating:
         thread_pools = _thread_pools
@@ -663,7 +663,14 @@ def run_local_workflow(
         call_futures = {}
 
         try:
-            while state.outputs is None:  # until workflow completion
+            # download input files, if needed
+            posix_inputs = _download_input_files(
+                logger, logger_id, run_dir, inputs, thread_pools[0]
+            )
+
+            # run workflow state machine to completion
+            state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
+            while state.outputs is None:
                 if _test_pickle:
                     state = pickle.loads(pickle.dumps(state))
                 if terminating():
@@ -671,10 +678,15 @@ def run_local_workflow(
                 # schedule all runnable calls
                 next_call = state.step()
                 while next_call:
+                    call_dir = os.path.join(run_dir, next_call.id)
+                    if os.path.exists(call_dir):
+                        logger.warning(
+                            _("call subdirectory already exists, conflict likely", dir=call_dir)
+                        )
                     sub_args = (next_call.callee, next_call.inputs)
                     sub_kwargs = {
                         "run_id": next_call.id,
-                        "run_dir": os.path.join(run_dir, next_call.id),
+                        "run_dir": os.path.join(call_dir, "."),
                         "copy_input_files": copy_input_files,
                         "logger_prefix": logger_id,
                     }
@@ -735,5 +747,78 @@ def run_local_workflow(
 
     assert state.outputs is not None
     write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
+
+    from .. import values_to_json
+
+    make_output_links(values_to_json(state.outputs, namespace=workflow.name), run_dir)
     logger.notice("done")
     return (run_dir, state.outputs)
+
+
+def _download_input_files(
+    logger: logging.Logger,
+    logger_prefix: List[str],
+    run_dir: str,
+    inputs: Env.Bindings[Value.Base],
+    thread_pool: futures.ThreadPoolExecutor,
+) -> Env.Bindings[Value.Base]:
+    """
+    Find all File values in the inputs (including any nested within compound values) that need
+    to / can be downloaded. Download them to some location under run_dir and return a copy of the
+    inputs with the URI values replaced by the downloaded filenames. Parallelize the download
+    operations on thread_pool.
+    """
+
+    # scan for URIs and schedule their downloads on the thread pool
+    ops = {}
+
+    def schedule_downloads(v: Value.Base) -> None:
+        nonlocal ops
+        if isinstance(v, Value.File):
+            if v.value not in ops and downloadable(v.value):
+                logger.info(_("schedule input file download", uri=v.value))
+                future = thread_pool.submit(
+                    download,
+                    v.value,
+                    run_dir=os.path.join(run_dir, "download", str(len(ops))),
+                    logger_prefix=logger_prefix + [f"download{len(ops)}"],
+                )
+                ops[future] = v.value
+        for ch in v.children:
+            schedule_downloads(ch)
+
+    inputs.map(lambda b: schedule_downloads(b.value))
+    if not ops:
+        return inputs
+
+    # collect the results
+    downloaded = {}
+    total_bytes = 0
+    try:
+        for future in futures.as_completed(ops):
+            uri = ops[future]
+            downloaded[uri] = future.result()
+            sz = os.path.getsize(downloaded[uri])
+            logger.info(_("downloaded input file", uri=uri, file=downloaded[uri], bytes=sz))
+            total_bytes += sz
+    except:
+        for future in ops:
+            future.cancel()
+        raise
+    logger.notice(  # pyre-fixme
+        _("downloaded input files", count=len(downloaded), total_bytes=total_bytes)
+    )
+
+    # rewrite the input URIs to the downloaded filenames
+    def rewrite_downloaded(v: Value.Base) -> Value.Base:
+        nonlocal downloaded
+        if isinstance(v, Value.File) and v.value in downloaded:
+            v.value = downloaded[v.value]
+            assert os.path.isfile(v.value)
+        for ch in v.children:
+            rewrite_downloaded(ch)
+        return v
+
+    return inputs.map(
+        lambda binding: Env.Binding(binding.name, rewrite_downloaded(copy.deepcopy(binding.value)))
+    )

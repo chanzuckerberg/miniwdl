@@ -34,8 +34,9 @@ quant_warning = False
 
 def main(args=None):
     sys.setrecursionlimit(1_000_000)  # permit as much call stack depth as OS can give us
+    os.environ["COLUMNS"] = os.environ.get("COLUMNS", "100")
 
-    parser = ArgumentParser()
+    parser = ArgumentParser("miniwdl")
     parser.add_argument(
         "--version",
         nargs=0,
@@ -93,14 +94,15 @@ class PipVersionAction(Action):
 
 
 def fill_common(subparser, path=True):
-    subparser.add_argument(
+    group = subparser.add_argument_group("language")
+    group.add_argument(
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
         help="relax static typechecking of optional types, and permit coercion of T to Array[T] (discouraged; for backwards compatibility with older WDL)",
     )
     if path:
-        subparser.add_argument(
+        group.add_argument(
             "-p",
             "--path",
             metavar="DIR",
@@ -276,9 +278,7 @@ async def read_source(uri, path, importer_uri):
 
 def fill_run_subparser(subparsers):
     run_parser = subparsers.add_parser(
-        "run",
-        help="Run workflow/task locally with built-in runtime [beta test]",
-        epilog="NO_COLOR= environment variable disables terminal colors in log messages.",
+        "run", help="Run workflow/task locally with built-in runtime [beta test]"
     )
     run_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
     run_parser.add_argument(
@@ -288,71 +288,83 @@ def fill_run_subparser(subparsers):
         nargs="*",
         help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
     ).completer = runner_input_completer
-    run_parser.add_argument(
+    group = run_parser.add_argument_group("input")
+    group.add_argument(
+        "-i",
+        "--input",
+        metavar="INPUT.json",
+        dest="input_file",
+        help="Cromwell-style input JSON file; command-line inputs will be merged in",
+    )
+    group.add_argument(
         "--empty",
         metavar="input_key",
         action="append",
         help="explicitly set an array input to the empty array (to override a default)",
     )
-    run_parser.add_argument(
-        "-i",
-        "--input",
-        metavar="INPUT.json",
-        dest="input_file",
-        help="file with Cromwell-style input JSON; command-line inputs will be merged in",
-    )
-    run_parser.add_argument(
-        "-t",
+    group.add_argument(
         "--task",
         metavar="TASK_NAME",
         help="name of task to run (for WDL documents with multiple tasks & no workflow)",
     )
-    run_parser.add_argument(
+    group.add_argument(
         "-j",
         "--json",
         dest="json_only",
         action="store_true",
-        help=SUPPRESS,  # "just print Cromwell-style input JSON to standard output, then exit",
+        help="just print Cromwell-style input JSON to standard output, then exit",
     )
-    run_parser.add_argument(
+    group = run_parser.add_argument_group("output")
+    group.add_argument(
         "-d",
         "--dir",
-        metavar="NEW_DIR",
+        metavar="DIR",
         dest="rundir",
-        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
+        help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly",
     )
-    run_parser.add_argument(
-        "--copy-input-files",
-        action="store_true",
-        help="copy input files for each task (for compatibility with mv/rm/write commands)",
-    )
-    run_parser.add_argument(
+    group = run_parser.add_argument_group("provisioning")
+    group.add_argument(
         "-@",
         metavar="N",
         dest="max_tasks",
         type=int,
         default=None,
-        help="maximum concurrent tasks; defaults to # of processors (limit effectively lower when tasks require multiple processors)",
+        help="maximum concurrent tasks (default: # host processors, effectively lower when tasks require multiple processors)",
     )
-    run_parser.add_argument(
+    group.add_argument(
         "--max-runtime-cpu",
         metavar="N",
         type=int,
         default=None,
         help="maximum effective runtime.cpu for any task (default: # host processors)",
     )
-    run_parser.add_argument(
+    group.add_argument(
         "--max-runtime-memory",
         metavar="N",
         type=str,
         default=None,
         help="maximum effective runtime.memory for any task (default: total host memory)",
     )
+    group.add_argument(
+        "--copy-input-files",
+        action="store_true",
+        help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write them)",
+    )
+    group.add_argument(
+        "--as-me",
+        action="store_true",
+        help="run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. apt-get)",
+    )
     run_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
         help="increase logging detail & stream tasks' stderr",
+    )
+    run_parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable colored logging on terminal (also set by NO_COLOR environment variable)",
     )
     # TODO:
     # way to specify None for an optional value (that has a default)
@@ -361,42 +373,34 @@ def fill_run_subparser(subparsers):
 
 def runner(
     uri,
+    task=None,
     inputs=[],
     input_file=None,
-    json_only=False,
     empty=[],
-    check_quant=True,
-    task=None,
-    rundir=None,
+    json_only=False,
     path=None,
+    check_quant=True,
     **kwargs,
 ):
     # load WDL document
     doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
-    # validate the provided inputs and prepare Cromwell-style JSON
+    # parse and validate the provided inputs
     target, input_env, input_json = runner_input(doc, inputs, input_file, empty, task=task)
 
     if json_only:
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    if rundir and os.path.isfile(rundir):
-        die("--dir must be an existing directory or one that can be created")
-
-    run_kwargs = dict(
-        (k, kwargs[k]) for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory"]
-    )
-    if run_kwargs["max_runtime_memory"]:
-        run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
-    if isinstance(target, Workflow):
-        run_kwargs["max_tasks"] = kwargs["max_tasks"]
-
+    # set up logging
     level = NOTICE_LEVEL
     if kwargs["verbose"]:
         level = VERBOSE_LEVEL
     if kwargs["debug"]:
         level = logging.DEBUG
+    if kwargs["no_color"]:
+        # picked up by _util.install_coloredlogs()
+        os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
@@ -410,13 +414,21 @@ def runner(
 
     rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
+    # configuration
+    run_kwargs = dict(
+        (k, kwargs[k])
+        for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory", "as_me"]
+    )
+    if run_kwargs["max_runtime_memory"]:
+        run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
+    if "rundir" in kwargs:
+        run_kwargs["run_dir"] = kwargs["rundir"]
+
     ensure_swarm(logger)
 
+    # run & handle any errors
     try:
-        entrypoint = (
-            runtime.run_local_task if isinstance(target, Task) else runtime.run_local_workflow
-        )
-        rundir, output_env = entrypoint(target, input_env, run_dir=rundir, **run_kwargs)
+        rundir, output_env = runtime.run(target, input_env, **run_kwargs)
     except Exception as exn:
         outer_rundir = None
         inner_rundir = None
@@ -452,12 +464,11 @@ def runner(
             raise
         sys.exit(2)
 
-    # link output files
-    outputs_json = values_to_json(output_env, namespace=target.name)
-    runner_organize_outputs(target, {"outputs": outputs_json}, rundir)
+    # report
     with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
         print(rerun_sh, file=rerunfile)
-
+    outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
+    print(json.dumps(outputs_json, indent=2))
     return outputs_json
 
 
@@ -467,7 +478,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         # load document. in the completer setting, we need to substitute the home directory
         # and environment variables
         uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
-        if not os.path.exists(uri):
+        if not (runtime.download.able(uri) or os.path.exists(uri)):
             argcomplete.warn("file not found: " + uri)
             return []
         try:
@@ -683,9 +694,10 @@ def runner_input_value(s_value, ty):
     if isinstance(ty, Type.String):
         return Value.String(s_value)
     if isinstance(ty, Type.File):
-        if not os.path.exists(s_value):
+        downloadable = runtime.download.able(s_value)
+        if not (downloadable or os.path.isfile(s_value)):
             die("File not found: " + s_value)
-        return Value.File(os.path.abspath(s_value))
+        return Value.File(os.path.abspath(s_value) if not downloadable else s_value)
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
@@ -708,61 +720,27 @@ def runner_input_value(s_value, ty):
     )
 
 
-def runner_organize_outputs(target, outputs_json, rundir):
-    """
-    After a successful workflow run, the output files are typically sprayed
-    across a bushy directory tree used for execution. To help the user find
-    what they're looking for, we create another directory tree with nicer
-    organization, containing symlinks to the output files (so as not to disturb
-    them).
-
-    One of the subtleties is to organize compound outputs like Array[File],
-    Array[Array[File]], etc.
-    """
-    assert "dir" not in outputs_json
-    outputs_json["dir"] = rundir
-    print(json.dumps(outputs_json, indent=2))
-    with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
-        print(json.dumps(outputs_json, indent=2), file=outfile)
-
-    os.makedirs(os.path.join(rundir, "output_links"), exist_ok=False)
-
-    def link_output_files(dn, files):
-        # dn: output directory which already exists
-        # files: either a filename str, or a [nested] list thereof
-        if isinstance(files, str) and os.path.exists(files):
-            os.symlink(files, os.path.join(dn, os.path.basename(files)))
-        if isinstance(files, list) and files:
-            d = int(math.ceil(math.log10(len(files))))  # how many digits needed
-            for i, elt in enumerate(files):
-                subdn = os.path.join(dn, str(i).rjust(d, "0"))
-                os.makedirs(subdn, exist_ok=False)
-                link_output_files(subdn, elt)
-
-    def output_links(binding):
-        fqon = ".".join([target.name, binding.name])
-        if _is_files(binding.value) and fqon in outputs_json["outputs"]:
-            odn = os.path.join(rundir, "output_links", fqon)
-            os.makedirs(os.path.join(rundir, odn), exist_ok=False)
-            link_output_files(odn, outputs_json["outputs"][fqon])
-        return True
-
-    for binding in target.effective_outputs:
-        output_links(binding)
-    # TODO: handle File's inside other compound types,
-    # Pair[File,File], Map[String,File], Structs, etc.
-
-
 def fill_run_self_test_subparser(subparsers):
     run_parser = subparsers.add_parser(
         "run_self_test",
         help="Run a trivial workflow to smoke-test installation, docker permission, etc.",
     )
+    run_parser.add_argument(
+        "--dir",
+        metavar="DIR",
+        default=None,
+        help="run the test in specified directory, instead of some new temporary directory",
+    )
+    run_parser.add_argument(
+        "--as-me", action="store_true", help="run all containers as the current user uid:gid"
+    )
     return run_parser
 
 
 def run_self_test(**kwargs):
-    dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
+    dn = kwargs["dir"]
+    if not dn:
+        dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
     with open(os.path.join(dn, "test.wdl"), "w") as outfile:
         outfile.write(
             """
@@ -776,9 +754,12 @@ def run_self_test(**kwargs):
                         input:
                             who = write_lines([name])
                     }
+                    if (defined(hello.message)) {
+                        String msg = read_string(select_first([hello.message]))
+                    }
                 }
                 output {
-                    Array[File] messages = hello.message
+                    Array[String] messages = select_all(msg)
                 }
             }
             task hello {
@@ -786,11 +767,12 @@ def run_self_test(**kwargs):
                     File who
                 }
                 command {
-                    echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
-                    sleep 2
+                    if grep -v ^\# "${who}" ; then
+                        echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                    fi
                 }
                 output {
-                    File message = glob("message.*")[0]
+                    File? message = "message.txt"
                 }
                 runtime {
                     docker: "ubuntu:18.04"
@@ -799,28 +781,24 @@ def run_self_test(**kwargs):
             }
             """
         )
-    with open(os.path.join(dn, "who.txt"), "w") as outfile:
-        outfile.write("Alyssa P. Hacker\n")
-        outfile.write("Ben Bitdiddle\n")
 
     check(uri=[os.path.join(dn, "test.wdl")])
 
-    outputs = main(
-        [
-            "run",
-            os.path.join(dn, "test.wdl"),
-            "who=" + os.path.join(dn, "who.txt"),
-            "--dir",
-            dn,
-            "--debug",
-        ]
-    )
+    argv = [
+        "run",
+        os.path.join(dn, "test.wdl"),
+        "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt",
+        "--dir",
+        dn,
+        "--debug",
+    ]
+    if kwargs["as_me"]:
+        argv.append("--as-me")
+    outputs = main(argv)["outputs"]
 
     assert len(outputs["hello_caller.messages"]) == 2
-    with open(outputs["hello_caller.messages"][0], "r") as infile:
-        assert infile.read().rstrip() == "Hello, Alyssa P. Hacker!"
-    with open(outputs["hello_caller.messages"][1], "r") as infile:
-        assert infile.read().rstrip() == "Hello, Ben Bitdiddle!"
+    assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
+    assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"
 
     print("miniwdl run_self_test OK")
 
@@ -837,55 +815,57 @@ def fill_cromwell_subparser(subparsers):
         nargs="*",
         help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
     ).completer = runner_input_completer
-    cromwell_parser.add_argument(
-        "-d",
-        "--dir",
-        metavar="NEW_DIR",
-        dest="rundir",
-        help="outputs and scratch will be stored in this directory if it doesn't already exist; if it does, a timestamp-based subdirectory is created and used (defaults to current working directory)",
+    group = cromwell_parser.add_argument_group("input")
+    group.add_argument(
+        "--empty",
+        metavar="input_key",
+        action="append",
+        help="explicitly set an array input to the empty array (to override a default)",
     )
-    cromwell_parser.add_argument(
+    group.add_argument(
         "-i",
         "--input",
         metavar="INPUT.json",
         dest="input_file",
         help="file with Cromwell-style input JSON; command-line inputs will be merged in",
     )
-    cromwell_parser.add_argument(
+    group.add_argument(
         "-j",
         "--json",
         dest="json_only",
         action="store_true",
         help="just print Cromwell-style input JSON to standard output, then exit",
     )
-    cromwell_parser.add_argument(
-        "--empty",
-        metavar="input_key",
-        action="append",
-        help="explicitly set an array input to the empty array (to override a default)",
+    group = cromwell_parser.add_argument_group("Cromwell configuration")
+    group.add_argument(
+        "-d",
+        "--dir",
+        metavar="DIR",
+        dest="rundir",
+        help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead operate in this directory directly",
     )
-    cromwell_parser.add_argument(
+    group.add_argument(
         "-o",
         "--options",
         metavar="OPTIONS.json",
         dest="options_file",
         help="file with Cromwell workflow options JSON",
     )
-    cromwell_parser.add_argument(
-        "-r",
-        "--jar",
-        metavar="jarfile",
-        dest="jarfile",
-        type=str,
-        help="Cromwell jarfile file path (also set by CROMWELL_JAR environment variable). Overrides default behavior of downloading a hard-coded version",
-    )
-    cromwell_parser.add_argument(
+    group.add_argument(
         "-c",
         "--config",
         metavar="CONFIG.conf",
         dest="config",
         type=str,
         help="Cromwell backend configuration CONF file path (also set by CROMWELL_CONFIG environment variable)",
+    )
+    group.add_argument(
+        "-r",
+        "--jar",
+        metavar="jarfile",
+        dest="jarfile",
+        type=str,
+        help="Cromwell jarfile file path (also set by CROMWELL_JAR environment variable). Overrides default behavior of downloading a hard-coded version",
     )
     # TODO:
     # way to specify None for an optional value (that has a default)
@@ -918,11 +898,8 @@ def cromwell(
         print(json.dumps(input_json, indent=2))
         sys.exit(0)
 
-    try:
-        rundir = provision_run_dir(target.name, rundir)
-    except FileExistsError:
-        die("--dir must be an existing directory or one that can be created")
-    os.makedirs(os.path.join(rundir, "cromwell"))
+    rundir = provision_run_dir(target.name, rundir)
+    os.makedirs(os.path.join(rundir, "cromwell"), exist_ok=False)
 
     # write the JSON inputs file
     input_json_filename = None
@@ -1012,7 +989,14 @@ def cromwell(
             )
         except:
             die("failed to find outputs JSON in Cromwell standard output")
-        runner_organize_outputs(target, outputs_json, rundir)
+
+        assert "dir" not in outputs_json
+        outputs_json["dir"] = rundir
+        print(json.dumps(outputs_json, indent=2))
+        with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
+            print(json.dumps(outputs_json["outputs"], indent=2), file=outfile)
+
+        runtime.make_output_links(outputs_json["outputs"], rundir)
 
     sys.exit(proc.returncode)
 
@@ -1052,16 +1036,6 @@ def ensure_cromwell_jar(jarfile=None):
             "unexpected size of downloaded " + jarpath
         )
     return jarpath
-
-
-def _is_files(ty):
-    """
-    is ty a File or an Array[File] or an Array[Array[File]] or an Array[Array[Array[File]]]...
-    """
-    return isinstance(ty, Type.File) or (
-        isinstance(ty, Type.Array)
-        and (isinstance(ty.item_type, Type.File) or _is_files(ty.item_type))
-    )
 
 
 def die(msg, status=2):

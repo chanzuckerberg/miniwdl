@@ -192,23 +192,25 @@ class TestTaskRunner(unittest.TestCase):
     def test_hello_file(self):
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
             outfile.write("Alyssa")
-        outputs = self._test_task(R"""
-            version 1.0
-            task hello_file {
-                input {
-                    File who
-                }
-                command <<<
-                    echo -n "Hello, $(cat ~{who})!" > message.txt
-                >>>
-                output {
-                    File message = "message.txt"
-                }
+        hello = R"""
+        version 1.0
+        task hello_file {
+            input {
+                File who
             }
-            """,
-            {"who": os.path.join(self._dir, "alyssa.txt")})
+            command <<<
+                echo -n "Hello, $(cat ~{who})!" > message.txt
+            >>>
+            output {
+                File message = "message.txt"
+            }
+        }
+        """
+        outputs = self._test_task(hello, {"who": os.path.join(self._dir, "alyssa.txt")})
         with open(outputs["message"]) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
+
+        self._test_task(hello, {"who": "/a/nonexistent/file"}, expected_exception=WDL.Error.InputError)
 
         # output an input file
         outputs = self._test_task(R"""
@@ -817,3 +819,46 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(len(outputs["files"]), 2)
         self.assertIsNotNone(outputs["files"][0])
         self.assertIsNone(outputs["files"][1])
+
+    def test_download_input_files(self):
+        self._test_task(R"""
+        version 1.0
+        task lines {
+            input {
+                File file
+            }
+            command {
+                cat "~{file}" | wc -l
+            }
+            output {
+                Int count = read_int(stdout())
+            }
+        }
+        """, {"file": "https://google.com/robots.txt"}, as_me=True)
+
+    def test_workdir_ownership(self):
+        # verify that everything within working directory is owned by the invoking user
+        txt = R"""
+        version 1.0
+        task clobber {
+            input {
+                Array[File] files
+            }
+            command <<<
+                set -euxo pipefail
+                ls -alR .. > /dev/stderr
+                find . | grep -Fv uids.txt | xargs -t -n 1 stat -c %u | sort | uniq > uids.txt
+            >>>
+            output {
+                Array[Int] uids = read_lines("uids.txt")
+            }
+        }
+        """
+        with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
+            outfile.write("Alyssa\n")
+        with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
+            outfile.write("Ben\n")
+
+        outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]})
+        self.assertEqual(len(outputs["uids"]), 1)
+        self.assertEqual(outputs["uids"][0], os.geteuid())

@@ -173,13 +173,16 @@ def write_values_json(
 
 @export
 def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
+    here = (
+        (run_dir in [".", "./"] or run_dir.endswith("/.") or run_dir.endswith("/./"))
+        if run_dir
+        else False
+    )
     run_dir = os.path.abspath(run_dir or os.getcwd())
-    try:
-        os.makedirs(run_dir, exist_ok=False)
+
+    if here:
+        os.makedirs(run_dir, exist_ok=True)
         return run_dir
-    except FileExistsError:
-        if not os.path.isdir(run_dir):
-            raise
 
     now = datetime.today()
     run_dir2 = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
@@ -459,3 +462,54 @@ def parse_byte_size(s: str) -> int:
     if N is None or N <= 0:
         raise ValueError("invalid byte size string, " + s)
     return int(N)
+
+
+def splitall(path: str) -> List[str]:
+    """
+    https://www.oreilly.com/library/view/python-cookbook/0596001673/ch04s16.html
+    """
+    allparts = []
+    while 1:
+        parts = os.path.split(path)
+        if parts[0] == path:  # sentinel for absolute paths
+            allparts.insert(0, parts[0])
+            break
+        elif parts[1] == path:  # sentinel for relative paths
+            allparts.insert(0, parts[1])
+            break
+        else:
+            path = parts[0]
+            allparts.insert(0, parts[1])
+    return allparts
+
+
+@export
+def path_really_within(lhs: str, rhs: str) -> bool:
+    """
+    After resolving symlinks, is path lhs either equal to or nested within path rhs?
+    """
+    lhs_cmp = splitall(os.path.realpath(lhs))
+    rhs_cmp = splitall(os.path.realpath(rhs))
+    return len(lhs_cmp) >= len(rhs_cmp) and lhs_cmp[: len(rhs_cmp)] == rhs_cmp
+
+
+@export
+def chmod_R_plus(path: str, file_bits: int = 0, dir_bits: int = 0) -> None:
+    """
+    recursive chmod to add permission bits (possibly different for files and subdirectiores)
+    does not follow symlinks
+    """
+
+    def do1(path1: str, bits: int) -> None:
+        assert 0 <= bits < 0o10000
+        if path_really_within(path1, path):
+            os.chmod(path1, (os.stat(path1).st_mode & 0o7777) | bits)
+
+    if os.path.isdir(path):
+        for root, subdirs, files in os.walk(path, followlinks=False):
+            for dn in subdirs:
+                do1(os.path.join(root, dn), dir_bits)
+            for fn in files:
+                do1(os.path.join(root, fn), file_bits)
+    else:
+        do1(path, file_bits)

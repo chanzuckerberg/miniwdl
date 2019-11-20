@@ -25,7 +25,7 @@ class TestWorkflowRunner(unittest.TestCase):
             assert len(doc.workflow.required_inputs.subtract(doc.workflow.available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
-            rundir, outputs = WDL.runtime.run_local_workflow(doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
+            rundir, outputs = WDL.runtime.run(doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
         except WDL.runtime.RunFailed as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
                 exn = exn.__context__
@@ -930,3 +930,66 @@ class TestWorkflowRunner(unittest.TestCase):
         end = time.time()
         test_time = round(end - start)
         assert test_time < 30
+
+    def test_retry(self):
+        outputs = self._test_workflow(R"""
+        version 1.0
+        workflow test_retry {
+            call start
+            call failer2000 as finish {
+                input:
+                    start_time = start.time
+            }
+            output {
+                Int start_time = start.time
+                Int finish_time = finish.time
+            }
+        }
+        task start {
+            command {
+                date +%s
+            }
+            output {
+                Int time = read_int(stdout())
+            }
+        }
+        task failer2000 {
+            # this task fails unless it's been at least 20 seconds since start_time (unix seconds)
+            input {
+                Int start_time
+            }
+            command <<<
+                now=$(date +%s)
+                if (( now < ~{start_time} + 20 )); then
+                    exit 1
+                fi
+                echo $now
+            >>>
+            output {
+                Int time = read_int(stdout())
+            }
+            runtime {
+                maxRetries: 99
+            }
+        }
+        """)
+        self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
+
+    def test_download_input_files(self):
+        count = R"""
+        version 1.0
+        workflow count {
+            input {
+                Array[File] files
+            }
+            scatter (file in files) {
+                Array[String] file_lines = read_lines(file)
+            }
+            output {
+                Int lines = length(flatten(file_lines))
+            }
+        }
+        """
+        self._test_workflow(count, {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]})
+        self._test_workflow(count, {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/nonexistent12345.txt"]},
+                            expected_exception=WDL.runtime.DownloadFailed)

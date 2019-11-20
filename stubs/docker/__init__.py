@@ -38,6 +38,9 @@ class models:
             def remove(self) -> None:
                 ...
 
+            def logs(self, **kwargs) -> Iterable[bytes]:
+                ...
+
             @property
             def attrs(self) -> Dict[str, Any]:
                 ...
@@ -56,7 +59,7 @@ class types:
     def Resources(**kwargs) -> Any:
         ...
 
-class Client:
+class DockerClient:
     @property
     def containers(self) -> Containers:
         ...
@@ -75,6 +78,6 @@ class Client:
     def services(self) -> Services:
         ...
 
-def from_env() -> Client:
+def from_env() -> DockerClient:
     ...
 
