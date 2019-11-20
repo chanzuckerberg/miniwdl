@@ -7,6 +7,7 @@ env:
   - CI_TARGET=unit_tests
   - CI_TARGET=integration_tests
   - CI_TARGET=ci_housekeeping
+  - CI_TARGET=skylab_bulk_rna
 
 script:
   - |
@@ -15,3 +16,8 @@ script:
       docker run --env TRAVIS_JOB_ID=${TRAVIS_JOB_ID} --env TRAVIS_BRANCH=${TRAVIS_BRANCH} \
                   -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp \
                   miniwdl bash -c "make $CI_TARGET && coveralls"
+
+jobs:
+  allow_failures:
+    - env: CI_TARGET=skylab_bulk_rna
+  fast_finish: true
