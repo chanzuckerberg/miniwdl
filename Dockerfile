@@ -17,8 +17,8 @@ USER wdler
 
 # pip install the requirements files -- we do this before adding the rest of the source tree, so
 # that docker build doesn't have to reinstall the pip packages for every minor source change
-COPY requirements.txt requirements.dev.txt /miniwdl/
-RUN bash -o pipefail -c "pip3 install --user -r <(cat /miniwdl/requirements.txt /miniwdl/requirements.dev.txt)"
+COPY requirements.txt requirements.dev.txt /home/wdler
+RUN bash -o pipefail -c "pip3 install --user -r <(cat /home/wdler/requirements.txt /home/wdler/requirements.dev.txt)"
 
 # add the source tree
 ADD --chown=wdler:wdler . /miniwdl
