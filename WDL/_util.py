@@ -181,13 +181,13 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
     run_dir = os.path.abspath(run_dir or os.getcwd())
 
     if here:
-        os.makedirs(run_dir, exist_ok=True, mode=dir_mode())
+        os.makedirs(run_dir, exist_ok=True)
         return run_dir
 
     now = datetime.today()
     run_dir2 = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
     try:
-        os.makedirs(run_dir2, exist_ok=False, mode=dir_mode())
+        os.makedirs(run_dir2, exist_ok=False)
         return run_dir2
     except FileExistsError:
         pass
@@ -198,7 +198,7 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
             now.strftime("%Y%m%d_%H%M%S_") + str(int(now.microsecond / 1000)).zfill(3) + "_" + name,
         )
         try:
-            os.makedirs(run_dir2, exist_ok=False, mode=dir_mode())
+            os.makedirs(run_dir2, exist_ok=False)
             return run_dir2
         except FileExistsError:
             sleep(1e-3)
@@ -464,31 +464,52 @@ def parse_byte_size(s: str) -> int:
     return int(N)
 
 
+def splitall(path: str) -> List[str]:
+    """
+    https://www.oreilly.com/library/view/python-cookbook/0596001673/ch04s16.html
+    """
+    allparts = []
+    while 1:
+        parts = os.path.split(path)
+        if parts[0] == path:  # sentinel for absolute paths
+            allparts.insert(0, parts[0])
+            break
+        elif parts[1] == path:  # sentinel for relative paths
+            allparts.insert(0, parts[1])
+            break
+        else:
+            path = parts[0]
+            allparts.insert(0, parts[1])
+    return allparts
+
+
 @export
-def file_mode() -> int:
+def path_really_within(lhs: str, rhs: str) -> bool:
     """
-    mode for runtime-created files: u=rw,g=rw,a=(6-umask&6)
-
-    We ensure runtime files have group r/w so that in-container processes that drop privileges to
-    some arbitrary uid may still r/w the mounted files. (We add the group of the invoking user to
-    container processes)
+    After resolving symlinks, is path lhs either equal to or nested within path rhs?
     """
-    u = os.umask(0o777)
-    assert os.umask(u) == 0o777
-    a = 6 - (u & 6)
-    assert a in [0, 2, 4, 6] and not (a & (u & 7))
-    return 0o660 + a
+    lhs_cmp = splitall(os.path.realpath(lhs))
+    rhs_cmp = splitall(os.path.realpath(rhs))
+    return len(lhs_cmp) >= len(rhs_cmp) and lhs_cmp[: len(rhs_cmp)] == rhs_cmp
 
 
 @export
-def dir_mode() -> int:
+def chmod_R_plus(path: str, file_bits: int = 0, dir_bits: int = 0) -> None:
     """
-    mode for runtime-created directories: u=rwx,g=rwx,a=(7-umask&7)
+    recursive chmod to add permission bits (possibly different for files and subdirectiores)
+    does not follow symlinks
+    """
 
-    see above
-    """
-    u = os.umask(0o777)
-    assert os.umask(u) == 0o777
-    a = 7 - (u & 7)
-    assert a >= 0 and a <= 7 and not (a & (u & 7))
-    return 0o770 + a
+    def do1(path1: str, bits: int) -> None:
+        assert 0 <= bits < 0o10000
+        if path_really_within(path1, path):
+            os.chmod(path1, (os.stat(path1).st_mode & 0o7777) | bits)
+
+    if os.path.isdir(path):
+        for root, subdirs, files in os.walk(path, followlinks=False):
+            for dn in subdirs:
+                do1(os.path.join(root, dn), dir_bits)
+            for fn in files:
+                do1(os.path.join(root, fn), file_bits)
+    else:
+        do1(path, file_bits)
