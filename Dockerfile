@@ -2,13 +2,14 @@
 #    docker build -t miniwdl .
 # run the full test suite -- notice configuration needed for it to command the host dockerd
 #    docker run --rm -it -v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock) -v /tmp:/tmp miniwdl
+# or append 'bash' to that to enter interactive shell
 
 # start with ubuntu:18.04 plus some apt packages
 FROM ubuntu:18.04
 ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
 RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
-    python3-pip python3-setuptools tzdata wget zip git-core default-jre jq shellcheck
+    python3-pip python3-setuptools tzdata wget zip git-core default-jre jq shellcheck docker.io
 
 # add and become 'wdler' user -- it's useful to run the test suite as some arbitrary uid, because
 # the runner has numerous file permissions-related constraints
