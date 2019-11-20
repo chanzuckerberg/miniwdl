@@ -13,6 +13,7 @@ import argcomplete
 import logging
 import urllib
 import docker
+import re
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action, SUPPRESS
@@ -50,6 +51,7 @@ def main(args=None):
     fill_common(fill_cromwell_subparser(subparsers), path=False)  # FIXME path issue #131
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
+    fill_localize_subparser(subparsers)
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args(args if args is not None else sys.argv[1:])
@@ -61,6 +63,8 @@ def main(args=None):
             return runner(**vars(args))
         elif args.command == "run_self_test":
             return run_self_test(**vars(args))
+        elif args.command == "localize":
+            return localize(**vars(args))
         elif args.command == "cromwell":
             return cromwell(**vars(args))
         else:
@@ -1036,6 +1040,122 @@ def ensure_cromwell_jar(jarfile=None):
             "unexpected size of downloaded " + jarpath
         )
     return jarpath
+
+
+def fill_localize_subparser(subparsers):
+    localize_parser = subparsers.add_parser(
+        "localize",
+        help="Download URIs found in Cromwell-style input JSON and rewrite",
+        description=f"Download {'/'.join(runtime.download.schemes())} URIs found in Cromwell-style input JSON, and rewrite it with the local filenames.",
+    )
+    localize_parser.add_argument(
+        "infile", metavar="INPUT.json", type=str, help="input JSON filename or - for standard input"
+    )
+    localize_parser.add_argument(
+        "name",
+        metavar="NAME",
+        type=str,
+        nargs="?",
+        default=None,
+        help="short name to include in local paths (default: basename of JSON file)",
+    )
+    localize_parser.add_argument(
+        "-d",
+        "--dir",
+        metavar="DIR",
+        dest="rundir",
+        help="base directory in which to store downloaded files",
+    )
+    localize_parser.add_argument(
+        "-o",
+        metavar="LOCAL.json",
+        type=str,
+        dest="outfile",
+        help="write transformed JSON to file instead of standard output",
+    )
+    return localize_parser
+
+
+def localize(infile, name=None, outfile=None, **kwargs):
+    logging.basicConfig(level=NOTICE_LEVEL)
+
+    # read input JSON
+    if infile in [None, "", "-"]:
+        inputs = json.load(sys.stdin)
+    else:
+        with open(infile, "r") as inp:
+            inputs = json.load(inp)
+        name = name or os.path.basename(infile).split(".")[0]
+    assert isinstance(inputs, dict)
+
+    # scan for strings that appear to be downloadable URIs
+    def scan(x):
+        if isinstance(x, str) and runtime.download.able(x):
+            yield x
+        elif isinstance(x, list):
+            for y in x:
+                yield from scan(y)
+        elif isinstance(x, dict):
+            for y in x.values():
+                yield from scan(y)
+
+    uris = list(set(scan(inputs)))
+
+    if uris:
+        # create a dummy workflow and provide the list of URIs as its File inputs, which will cause
+        # the runtime to dowlnoad them
+        localizer_wdl = (
+            """
+            version 1.0
+            workflow localize_%s {
+                input {
+                    Array[File] uris
+                }
+                output {
+                    Array[File] files = uris
+                }
+            }
+        """
+            % name
+        )
+        doc = parse_document(localizer_wdl)
+        doc.typecheck()
+        subdir, outputs = runtime.run(
+            doc.workflow,
+            values_from_json({"uris": uris}, doc.workflow.available_inputs),
+            **kwargs,
+        )
+
+        # recover the mapping of URIs to downloaded files
+        uri_to_file = {}
+        assert isinstance(outputs["files"], Value.Array)
+        for uri, elt in zip(uris, outputs["files"].value):
+            assert isinstance(elt, Value.File) and os.path.isfile(elt.value)
+            uri_to_file[uri] = elt.value
+
+        # in the JSON structure, replace the URIs with the filenames
+        def rewrite(x):
+            if isinstance(x, list):
+                for i, elt in enumerate(x):
+                    if isinstance(elt, str) and elt in uri_to_file:
+                        x[i] = uri_to_file[elt]
+                    else:
+                        rewrite(elt)
+            elif isinstance(x, dict):
+                for k, v in x.items():
+                    if isinstance(v, str) and v in uri_to_file:
+                        x[k] = uri_to_file[v]
+                    else:
+                        rewrite(v)
+
+        rewrite(inputs)
+
+    # write out the possibly-modified JSON
+    if outfile in [None, "", "-"]:
+        print(json.dumps(inputs, indent=2))
+    else:
+        with open(outfile, "w") as outp:
+            print(json.dumps(inputs, indent=2), file=outp)
 
 
 def die(msg, status=2):

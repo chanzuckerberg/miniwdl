@@ -72,6 +72,10 @@ def _downloader(uri: str) -> Optional[str]:
     return _downloaders.get(scheme, None)
 
 
+def schemes() -> Iterable[str]:
+    yield from _downloaders.keys()
+
+
 def able(uri: str) -> bool:
     """
     Returns True if uri appears to be a URI we know how to download
