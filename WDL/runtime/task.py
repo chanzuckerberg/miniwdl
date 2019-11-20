@@ -27,6 +27,8 @@ from .._util import (
     PygtailLogger,
     TerminationSignalFlag,
     parse_byte_size,
+    chmod_R_plus,
+    path_really_within,
 )
 from .._util import StructuredLogMessage as _
 from .download import able as downloadable, run as download
@@ -129,12 +131,14 @@ class TaskContainer(ABC):
 
     def run(self, logger: logging.Logger, command: str, cpu: int, memory: int) -> None:
         """
-        1. Container is instantiated
-        2. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
+        1. Container is instantiated with the configured mounts
+        2. The mounted directory and all subdirectories have u+rwx,g+rwx permission bits; all files
+           within have u+rw,g+rw permission bits.
+        3. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
            {container_dir} inside the container)
-        3. Standard output is written to ``{host_dir}/stdout.txt``
-        4. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
-        5. Raises CommandFailed for nonzero exit code, or any other error
+        4. Standard output is written to ``{host_dir}/stdout.txt``
+        5. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
+        6. Raises CommandFailed for nonzero exit code, or any other error
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
@@ -214,11 +218,10 @@ class TaskContainer(ABC):
                 container_file, os.path.join(self.container_dir, "work")
             )
 
-        host_workdir = os.path.realpath(os.path.join(self.host_dir, "work"))
-        ans = os.path.realpath(os.path.join(host_workdir, container_file))
-        assert os.path.isabs(ans) and "/../" not in ans
+        host_workdir = os.path.join(self.host_dir, "work")
+        ans = os.path.join(host_workdir, container_file)
         if os.path.isfile(ans):
-            if ans.startswith(host_workdir + "/"):
+            if path_really_within(ans, host_workdir):
                 return ans
             raise OutputError(
                 "task outputs attempted to use a file outside its working directory: "
@@ -268,29 +271,19 @@ class TaskDockerContainer(TaskContainer):
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
 
-        mounts = []
-        # mount input files and command
-        if self._bind_input_files:
-            for host_path, container_path in self.input_file_map.items():
-                self.touch_mount_point(container_path)
-                mounts.append(f"{host_path}:{container_path}:{self._bind_input_files}")
-        mounts.append(
-            f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
-        )
-        # mount stdout, stderr, and working directory read/write
-        for pipe_file in ["stdout.txt", "stderr.txt"]:
-            self.touch_mount_point(os.path.join(self.container_dir, pipe_file))
-            mounts.append(
-                f"{os.path.join(self.host_dir, pipe_file)}:{os.path.join(self.container_dir, pipe_file)}:rw"
-            )
-        mounts.append(
-            f"{os.path.join(self.host_dir, 'work')}:{os.path.join(self.container_dir, 'work')}:rw"
-        )
-        logger.debug(_("docker mounts", mounts=mounts))
-
+        # prepare docker configuration
         if ":" not in self.image_tag:
             # seems we need to do this explicitly under some configurations -- issue #232
             self.image_tag += ":latest"
+        logger.info(_("docker image", tag=self.image_tag))
+
+        mounts = self.prepare_mounts(logger)
+        # we want g+rw on files (and g+rwx on directories) under host_dir, to ensure the container
+        # command will be able to access them regardless of what user id it runs as (we will
+        # configure docker to make the container a member of the invoking user's primary group)
+        chmod_R_plus(self.host_dir, file_bits=0o660, dir_bits=0o770)
+
+        resources, user, groups = self.misc_config(logger, cpu, memory)
 
         # connect to dockerd
         client = docker.from_env()
@@ -298,25 +291,6 @@ class TaskDockerContainer(TaskContainer):
         try:
             # run container as a transient docker swarm service, letting docker handle the resource
             # scheduling (waiting until requested # of CPUs are available)
-            logger.info(_("docker image", tag=self.image_tag))
-            resources = {}
-            if cpu:
-                # the cpu unit expected by swarm is "NanoCPUs"
-                resources["cpu_limit"] = cpu * 1_000_000_000
-                resources["cpu_reservation"] = cpu * 1_000_000_000
-            if memory:
-                resources["mem_reservation"] = memory
-            if resources:
-                logger.debug(_("docker resources", **resources))
-                resources = docker.types.Resources(**resources)
-            else:
-                resources = None
-            user = None
-            if self.as_me:
-                user = f"{os.geteuid()}:{os.getegid()}"
-                logger.info(_("docker user", uid_gid=user))
-                if os.geteuid() == 0:
-                    logger.warning("container command will run explicitly as root (as_me=True)")
             svc = client.services.create(
                 self.image_tag,
                 command=[
@@ -330,6 +304,7 @@ class TaskDockerContainer(TaskContainer):
                 mounts=mounts,
                 resources=resources,
                 user=user,
+                groups=groups,
                 labels={"miniwdl_run_id": self.run_id},
                 container_labels={"miniwdl_run_id": self.run_id},
             )
@@ -369,6 +344,72 @@ class TaskDockerContainer(TaskContainer):
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
+
+    def prepare_mounts(self, logger: logging.Logger) -> List[Dict[str, str]]:
+        def touch_mount_point(container_file: str) -> None:
+            # touching each mount point ensures they'll be owned by invoking user:group
+            assert container_file.startswith(self.container_dir + "/")
+            host_file = os.path.join(
+                self.host_dir, os.path.relpath(container_file, self.container_dir)
+            )
+            assert host_file.startswith(self.host_dir + "/")
+            os.makedirs(os.path.dirname(host_file), exist_ok=True)
+            with open(host_file, "x") as outfile:
+                pass
+
+        mounts = []
+        # mount input files and command
+        if self._bind_input_files:
+            for host_path, container_path in self.input_file_map.items():
+                touch_mount_point(container_path)
+                mounts.append(f"{host_path}:{container_path}:{self._bind_input_files}")
+        # TODO: issue warning of input files lacking group rw permission bits
+        mounts.append(
+            f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
+        )
+        # mount stdout, stderr, and working directory read/write
+        for pipe_file in ["stdout.txt", "stderr.txt"]:
+            touch_mount_point(os.path.join(self.container_dir, pipe_file))
+            mounts.append(
+                f"{os.path.join(self.host_dir, pipe_file)}:{os.path.join(self.container_dir, pipe_file)}:rw"
+            )
+        mounts.append(
+            f"{os.path.join(self.host_dir, 'work')}:{os.path.join(self.container_dir, 'work')}:rw"
+        )
+        logger.debug(_("docker mounts", mounts=mounts))
+        return mounts
+
+    def misc_config(
+        self, logger: logging.Logger, cpu: int, memory: int
+    ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
+        resources = {}
+        if cpu:
+            # the cpu unit expected by swarm is "NanoCPUs"
+            resources["cpu_limit"] = cpu * 1_000_000_000
+            resources["cpu_reservation"] = cpu * 1_000_000_000
+        if memory:
+            resources["mem_reservation"] = memory
+        if resources:
+            logger.debug(_("docker resources", **resources))
+            resources = docker.types.Resources(**resources)
+        else:
+            resources = None
+        user = None
+        if self.as_me:
+            user = f"{os.geteuid()}:{os.getegid()}"
+            logger.info(_("docker user", uid_gid=user))
+            if os.geteuid() == 0:
+                logger.warning(
+                    "container command will run explicitly as root, since you are root and set --as-me"
+                )
+        # add invoking user's group to ensure that command can access the mounted working
+        # directory even if the docker image assumes some arbitrary uid
+        groups = [str(os.getegid())]
+        if groups == ["0"]:
+            logger.warning(
+                "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
+            )
+        return resources, user, groups
 
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service
@@ -410,22 +451,12 @@ class TaskDockerContainer(TaskContainer):
 
         return None
 
-    def touch_mount_point(self, container_file: str) -> None:
-        """
-        Touch a mount point to ensure it'll be owned by invoking user
-        """
-        assert container_file.startswith(self.container_dir + "/")
-        host_file = os.path.join(self.host_dir, os.path.relpath(container_file, self.container_dir))
-        assert host_file.startswith(self.host_dir + "/")
-        os.makedirs(os.path.dirname(host_file), exist_ok=True)
-        with open(host_file, "x") as outfile:
-            pass
-
     def chown(self, logger: logging.Logger, client: docker.DockerClient) -> None:
         """
         After task completion, chown all files in the working directory to the invoking user:group,
-        instead of leaving them root-owned. We do this in a funny way via Docker; see GitHub issue
-        #271 for discussion of alternatives and their problems.
+        instead of leaving them frequently owned by root or some other arbitrary user id (image-
+        dependent). We do this in a funny way via Docker; see GitHub issue #271 for discussion of
+        alternatives and their problems.
         """
         if not self.as_me and (os.geteuid() or os.getegid()):
             script = f"""
@@ -525,11 +556,15 @@ def run_local_task(
         # evaluate output declarations
         outputs = _eval_task_outputs(logger, task, container_env, container)
 
-        write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
-
+        # write and link outputs
         from .. import values_to_json
 
         make_output_links(values_to_json(outputs, namespace=task.name), run_dir)  # pyre-fixme
+        write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
+
+        # make sure everything will be accessible to downstream tasks
+        chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
+
         logger.notice("done")  # pyre-fixme
         return (run_dir, outputs)
     except Exception as exn:
@@ -859,11 +894,11 @@ def make_output_links(outputs_json: Dict[str, Any], run_dir: str) -> None:
             isinstance(v, str)
             and v.startswith(run_dir + "/")
             and os.path.isfile(v)
-            and os.path.realpath(v).startswith(os.path.realpath(run_dir) + "/")
+            and path_really_within(v, run_dir)
         ):
             os.makedirs(dn, exist_ok=False)
             os.symlink(v, os.path.join(dn, os.path.basename(v)))
-        elif isinstance(v, list) and len(v):
+        elif isinstance(v, list) and v:
             d = int(math.ceil(math.log10(len(v))))  # how many digits needed
             for i, elt in enumerate(v):
                 traverse(elt, os.path.join(dn, str(i).rjust(d, "0")))

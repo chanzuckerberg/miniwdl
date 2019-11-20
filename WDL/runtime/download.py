@@ -40,6 +40,29 @@ task aria2c {
 _downloaders["http"] = _downloaders["https"]
 _downloaders["ftp"] = _downloaders["https"]
 
+_downloaders[
+    "gs"
+] = r"""
+task gsutil_cp {
+    input {
+        String uri
+    }
+    command <<<
+        set -euxo pipefail
+        mkdir __out/
+        gsutil -q cp "~{uri}" __out/
+    >>>
+    output {
+        File file = glob("__out/*")[0]
+    }
+    runtime {
+        cpu: 4
+        memory: "1G"
+        docker: "google/cloud-sdk:slim"
+    }
+}
+"""
+
 
 def _downloader(uri: str) -> Optional[str]:
     colon = uri.find(":")
@@ -73,7 +96,7 @@ def run(uri: str, **kwargs) -> str:
     task.typecheck()
     inputs = values_from_json({"uri": uri}, task.available_inputs)  # pyre-ignore
     try:
-        subdir, outputs = run_local_task(task, inputs, as_me=True, **kwargs)
+        subdir, outputs = run_local_task(task, inputs, **kwargs)
     except RunFailed as exn:
         raise DownloadFailed(uri) from exn.__cause__
     return outputs["file"].value
