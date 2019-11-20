@@ -2,11 +2,7 @@ SHELL := /bin/bash
 PYTHON_PKG_BASE?=$(HOME)/.local
 export TMPDIR = /tmp
 
-test: check check_check
-	python3 tests/no_docker_services.py
-	pytest -v -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
-	prove -v tests/{check,runner,cromwell}.t
-	python3 tests/no_docker_services.py
+test: check_check check unit_tests integration_tests
 
 # fail fast
 qtest:
@@ -14,6 +10,16 @@ qtest:
 	pytest -vx -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
 	prove -v tests/{check,runner}.t
 	python3 tests/no_docker_services.py
+
+unit_tests:
+	pytest -v -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
+	python3 tests/no_docker_services.py
+
+integration_tests:
+	prove -v tests/{check,runner,cromwell}.t
+	python3 tests/no_docker_services.py
+
+ci_housekeeping: sopretty check_check check doc
 
 check:
 	pyre \
@@ -64,4 +70,4 @@ doc:
 
 docs: doc
 
-.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist
+.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist ci_housekeeping unit_tests integration_tests
