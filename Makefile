@@ -19,6 +19,9 @@ integration_tests:
 	prove -v tests/{check,runner,cromwell}.t
 	python3 tests/no_docker_services.py
 
+skylab_bulk_rna:
+	prove -v tests/skylab_bulk_rna.t
+
 ci_housekeeping: sopretty check_check check doc
 
 check:
@@ -70,4 +73,4 @@ doc:
 
 docs: doc
 
-.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist ci_housekeeping unit_tests integration_tests
+.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist ci_housekeeping unit_tests integration_tests skylab_bulk_rna
