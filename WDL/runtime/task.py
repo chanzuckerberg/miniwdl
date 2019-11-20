@@ -96,6 +96,8 @@ class TaskContainer(ABC):
         host_files_by_dir = {}
         for host_file in host_files:
             if host_file not in self.input_file_map:
+                if not os.path.isfile(host_file):
+                    raise Error.InputError("input file not found: " + host_file)
                 host_files_by_dir.setdefault(os.path.dirname(host_file), set()).add(host_file)
 
         # for each such partition of files
@@ -360,10 +362,22 @@ class TaskDockerContainer(TaskContainer):
         mounts = []
         # mount input files and command
         if self._bind_input_files:
+            perm_warn = True
             for host_path, container_path in self.input_file_map.items():
+                st = os.stat(host_path)
+                if perm_warn and not (
+                    (st.st_mode & 4) or (st.st_gid == os.getegid() and (st.st_mode & 0o40))
+                ):
+                    # file is neither world-readable, nor group-readable for the invoking user's primary group
+                    logger.warning(
+                        _(
+                            "one or more input file(s) could be inaccessible to docker images that don't run as root; it may be necessary to `chmod a+r` them, or set --copy-input-files",
+                            example_file=host_path,
+                        )
+                    )
+                    perm_warn = False
                 touch_mount_point(container_path)
                 mounts.append(f"{host_path}:{container_path}:{self._bind_input_files}")
-        # TODO: issue warning of input files lacking group rw permission bits
         mounts.append(
             f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
         )
