@@ -131,7 +131,10 @@ class TestEval(unittest.TestCase):
             ("!!true", "true"),
             ("!false", "true"),
             ("!false && true", "true"),
-            ("!(false && true)", "true")
+            ("!false && false", "false"),
+            ("!true && false", "false"),
+            ("!(false && false)", "true"),
+            ("!(false && true)", "true"),
         )
 
     def test_arithmetic(self):

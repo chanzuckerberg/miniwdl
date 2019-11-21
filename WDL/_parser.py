@@ -138,7 +138,7 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 ?expr_core: "(" expr ")"
           | literal
           | string
-          | "!" expr -> negate
+          | "!" expr_core -> negate
 
           | "[" [expr ("," expr)*] ","? "]" -> array
           | expr_core "[" expr "]" -> at

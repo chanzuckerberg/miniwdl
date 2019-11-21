@@ -4,14 +4,43 @@ services:
   - docker
 
 env:
-  - CI_TARGET=unit_tests
-  - CI_TARGET=integration_tests
-  - CI_TARGET=ci_housekeeping
+  global:
+    - DOCKER_CACHE_TAG=quay.io/mlin/miniwdl_ci:latest
+    - secure: "nxHBaRAUj641OAFDBYGp+VZ5U7txbm8BLanBCQE0SuulFCTz1mYf8+vEHPkhkm0hcQrghnvB27NT/1EwXJQcJTwX/+HF8ealhgogvJKcgiLNLGVLIK2DF/D2hYjbOFAX9yV4hMX6EFNwEVBiH+8OfI5JxXNPzAnDFJpyEHENe8LDEP4IpmGsjgcY8569zDJjT91Rc43YOKMiQDZFWqdN75CQDwP8EOhR7AKOt8kzpuNCR5Ovh1qEfXbvmdK2qnyUAo9ODJD4QF4Zps+HTs8GfTpn9Z6l1J4Nv2ACYEeB8ZTwy/0EBvzuM9QSHvlgCe9EjKoXQWV9qPQ3M1FBYs4dSDLiB2ILatRBbGxPP1QUP+uSFpmvxiWaAuUd6SgANVL880s8aCa5M+3gQ4QoxabcX9vyvdbWd69fJFXbv4XSwtTYrqTxwjhaeQ/oFhSgQISIs09IMDVqqSwTAJ/5hKMnJRdpemQIOEuKC3bvP/CoawxK4v5scGhYoa5tlYijQumQJj71/YgqAXCm3Si8283fBxbxZwch+JRNSWq/msaco6OMqi8dfgA2M/C3ovuFKeat0kdWFUwfzhmd1yUYyE+eorotrV+lb+rXwY7tLRV4BySNvixjOcfUQqKagnbyUHFNKti/obfywAS1xHRAfiNEbKJDGjZdDRjBmTld9DYhwrc="
+
+# don't bother with pip install -r requirements.txt, since we're going to use docker
+install:
+  - whoami
+
+# Pull docker image layers from the last successful build, in hopes we might reuse the package
+# installation steps when we docker build --cache-from
+before_script:
+  - docker pull $DOCKER_CACHE_TAG || true
 
 script:
   - |
-      set -exo pipefail
-      make docker
+      set -e
+      docker build -t miniwdl_deps --target deps --cache-from $DOCKER_CACHE_TAG .
+      docker build -t miniwdl --cache-from miniwdl_deps .
       docker run --env TRAVIS_JOB_ID=${TRAVIS_JOB_ID} --env TRAVIS_BRANCH=${TRAVIS_BRANCH} \
-                  -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp \
-                  miniwdl bash -c "make $CI_TARGET && coveralls"
+                  --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp \
+                  miniwdl make $CI_TARGET
+
+jobs:
+  include:
+    - env: CI_TARGET=ci_housekeeping
+      after_success:
+        - |
+            # Push layers back to the registry for the next build(s) to use. From time to time, one
+            # should delete the 'latest' tag via the quay.io website to trigger a refresh.
+            if [ -n "$QUAY_PASSWORD" ]; then  # secure variable won't be available in others' PRs
+              docker tag miniwdl_deps $DOCKER_CACHE_TAG
+              echo "$QUAY_PASSWORD" | docker login -u mlin+miniwdl_ci --password-stdin quay.io
+              docker push $DOCKER_CACHE_TAG
+            fi
+    - env: CI_TARGET=ci_unit_tests
+    - env: CI_TARGET=integration_tests
+    - env: CI_TARGET=skylab_bulk_rna
+  allow_failures:
+    - env: CI_TARGET=skylab_bulk_rna
+  fast_finish: true
