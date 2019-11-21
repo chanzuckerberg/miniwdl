@@ -5,7 +5,7 @@
 # or append 'bash' to that to enter interactive shell
 
 # start with ubuntu:18.04 plus some apt packages
-FROM ubuntu:18.04
+FROM ubuntu:18.04 as deps
 ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
 RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
@@ -22,6 +22,7 @@ COPY requirements.txt requirements.dev.txt /home/wdler/
 RUN bash -o pipefail -c "pip3 install --user -r <(cat /home/wdler/requirements.txt /home/wdler/requirements.dev.txt)"
 
 # add the source tree
+FROM deps as all
 ADD --chown=wdler:wdler . /miniwdl
 WORKDIR /miniwdl
 
