@@ -10,6 +10,7 @@ env:
 
 # don't bother with pip install -r requirements.txt, since we're going to use docker
 install:
+  - whoami
 
 # Pull docker image layers from the last successful build, in hopes we might reuse the package
 # installation steps when we docker build --cache-from
