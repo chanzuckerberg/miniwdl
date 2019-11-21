@@ -16,7 +16,8 @@ before_script:
 script:
   - |
       set -e
-      docker build -t miniwdl --cache-from $DOCKER_CACHE_TAG .
+      docker build -t miniwdl_deps --target deps --cache-from $DOCKER_CACHE_TAG .
+      docker build -t miniwdl --cache-from miniwdl_deps .
       docker run --env TRAVIS_JOB_ID=${TRAVIS_JOB_ID} --env TRAVIS_BRANCH=${TRAVIS_BRANCH} \
                   --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp \
                   miniwdl make $CI_TARGET
@@ -29,7 +30,7 @@ jobs:
             # Push layers back to the registry for the next build(s) to use. From time to time, one
             # should delete the 'latest' tag via the quay.io website to trigger a refresh.
             if [ -n "$QUAY_PASSWORD" ]; then  # secure variable won't be available in others' PRs
-              docker tag miniwdl $DOCKER_CACHE_TAG
+              docker tag miniwdl_deps $DOCKER_CACHE_TAG
               echo "$QUAY_PASSWORD" | docker login -u mlin+miniwdl_ci --password-stdin quay.io
               docker push $DOCKER_CACHE_TAG
             fi
