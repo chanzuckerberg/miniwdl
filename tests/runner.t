@@ -240,7 +240,15 @@ is "$?" "0" "copy input files"
 cat << 'EOF' > uri_inputs.json
 {"my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
 EOF
-$miniwdl localize -o local_inputs.json uri_inputs.json
+cat << 'EOF' > localize_me.wdl
+version 1.0
+workflow my_workflow {
+    input {
+        Array[File] files
+    }
+}
+EOF
+$miniwdl localize -o local_inputs.json localize_me.wdl uri_inputs.json
 fn=$(jq -r '.["my_workflow.files"][0]' local_inputs.json)
 test -f "$fn"
 is "$?" "0" "localized robots.txt"

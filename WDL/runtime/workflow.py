@@ -780,7 +780,7 @@ def _download_input_files(
                 future = thread_pool.submit(
                     download,
                     v.value,
-                    run_dir=os.path.join(run_dir, "download", str(len(ops))),
+                    run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
                     logger_prefix=logger_prefix + [f"download{len(ops)}"],
                 )
                 ops[future] = v.value

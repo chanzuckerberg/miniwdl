@@ -50,7 +50,7 @@ def main(args=None):
     fill_common(fill_cromwell_subparser(subparsers), path=False)  # FIXME path issue #131
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
-    fill_localize_subparser(subparsers)
+    fill_common(fill_localize_subparser(subparsers))
 
     argcomplete.autocomplete(parser)
     args = parser.parse_args(args if args is not None else sys.argv[1:])
@@ -436,15 +436,15 @@ def runner(
         outer_rundir = None
         inner_rundir = None
         while isinstance(exn, runtime.RunFailed):
-            logger.error(str(exn))
-            outer_rundir = outer_rundir or getattr(exn, "run_dir")
-            inner_rundir = getattr(exn, "run_dir", inner_rundir)
+            exn_rundir = getattr(exn, "run_dir")
+            logger.error(_(str(exn), dir=exn_rundir))
+            outer_rundir = outer_rundir or exn_rundir
+            inner_rundir = exn_rundir
             exn = exn.__cause__
             assert exn
         if isinstance(exn, runtime.task.CommandFailed) and not (
             kwargs["verbose"] or kwargs["debug"]
         ):
-            logger.notice(_("failed run", dir=inner_rundir))
             logger.notice(_("standard error", file=getattr(exn, "stderr_file")))
             logger.notice("run with --verbose to include task standard error streams in this log")
         if isinstance(getattr(exn, "pos", None), SourcePosition):
@@ -519,7 +519,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         return available_input_names
 
 
-def runner_input(doc, inputs, input_file, empty, task=None):
+def runner_input(doc, inputs, input_file, empty, task=None, check_required=True):
     """
     - Determine the target workflow/task
     - Check types of supplied inputs
@@ -607,13 +607,14 @@ def runner_input(doc, inputs, input_file, empty, task=None):
             input_env = input_env.bind(name, v, decl)
 
     # check for missing inputs
-    missing_inputs = values_to_json(target.required_inputs.subtract(input_env))
-    if missing_inputs:
-        die(
-            "missing required inputs for {}: {}\n{}".format(
-                target.name, ", ".join(missing_inputs.keys()), runner_input_help(target)
+    if check_required:
+        missing_inputs = values_to_json(target.required_inputs.subtract(input_env))
+        if missing_inputs:
+            die(
+                "missing required inputs for {}: {}\n{}".format(
+                    target.name, ", ".join(missing_inputs.keys()), runner_input_help(target)
+                )
             )
-        )
 
     # make a pass over the Env to create a dict for Cromwell-style input JSON
     return (
@@ -630,8 +631,16 @@ def runner_input_json_file(available_inputs, namespace, input_file):
     ans = Env.Bindings()
 
     if input_file:
-        with open(input_file) as infile:
-            ans = values_from_json(json.loads(infile.read()), available_inputs, namespace=namespace)
+        input_file = input_file.strip()
+    if input_file:
+        if input_file[0] == "{":
+            input_json = json.loads(input_file)
+        elif input_file == "-":
+            input_json = json.load(sys.stdin)
+        else:
+            with open(input_file) as infile:
+                input_json = json.load(infile)
+        ans = values_from_json(input_json, available_inputs, namespace=namespace)
 
         # join relative file paths to the cwd
 
@@ -1048,7 +1057,13 @@ def fill_localize_subparser(subparsers):
         description=f"Download {'/'.join(runtime.download.schemes())} URIs found in Cromwell-style input JSON, and rewrite it with the local filenames.",
     )
     localize_parser.add_argument(
-        "infile", metavar="INPUT.json", type=str, help="input JSON filename or - for standard input"
+        "wdlfile", metavar="DOC.wdl", type=str, help="WDL document filename/URI"
+    )
+    localize_parser.add_argument(
+        "infile",
+        metavar="INPUT.json",
+        type=str,
+        help="input JSON filename (- for standard input) or literal object",
     )
     localize_parser.add_argument(
         "name",
@@ -1062,7 +1077,7 @@ def fill_localize_subparser(subparsers):
         "-d",
         "--dir",
         metavar="DIR",
-        dest="rundir",
+        dest="run_dir",
         help="base directory in which to store downloaded files",
     )
     localize_parser.add_argument(
@@ -1072,37 +1087,44 @@ def fill_localize_subparser(subparsers):
         dest="outfile",
         help="write transformed JSON to file instead of standard output",
     )
+    localize_parser.add_argument(
+        "--task",
+        metavar="TASK_NAME",
+        help="name of task (for WDL documents with multiple tasks & no workflow)",
+    )
     return localize_parser
 
 
-def localize(infile, name=None, outfile=None, **kwargs):
-    logging.basicConfig(level=NOTICE_LEVEL)
+def localize(
+    wdlfile, infile, name=None, outfile=None, task=None, path=None, check_quant=True, **kwargs
+):
+    # load WDL document
+    doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
+
+    # parse the provided input JSON
+    target, input_env, input_json = runner_input(
+        doc, [], infile, [], task=task, check_required=False
+    )
 
     # read input JSON
-    if infile in [None, "", "-"]:
-        inputs = json.load(sys.stdin)
-    else:
-        with open(infile, "r") as inp:
-            inputs = json.load(inp)
-        name = name or os.path.basename(infile).split(".")[0]
-    assert isinstance(inputs, dict)
+    name = name or os.path.basename(infile).split(".")[0]
 
-    # scan for strings that appear to be downloadable URIs
+    # scan for Files that appear to be downloadable URIs
     def scan(x):
-        if isinstance(x, str) and runtime.download.able(x):
-            yield x
-        elif isinstance(x, list):
-            for y in x:
-                yield from scan(y)
-        elif isinstance(x, dict):
-            for y in x.values():
-                yield from scan(y)
+        if isinstance(x, Value.File) and runtime.download.able(x.value):
+            yield x.value
+        for y in x.children:
+            yield from scan(y)
 
-    uris = list(set(scan(inputs)))
+    uris = set()
+    for b in input_env:
+        uris |= set(scan(b.value))
 
     if uris:
-        # create a dummy workflow and provide the list of URIs as its File inputs, which will cause
-        # the runtime to download them
+        logging.basicConfig(level=NOTICE_LEVEL)
+
+        # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
+        # runtime to download them
         localizer_wdl = (
             """
             version 1.0
@@ -1114,13 +1136,15 @@ def localize(infile, name=None, outfile=None, **kwargs):
                     Array[File] files = uris
                 }
             }
-        """
+            """
             % name
         )
-        doc = parse_document(localizer_wdl)
-        doc.typecheck()
+        localizer = parse_document(localizer_wdl)
+        localizer.typecheck()
         subdir, outputs = runtime.run(
-            doc.workflow, values_from_json({"uris": uris}, doc.workflow.available_inputs), **kwargs
+            localizer.workflow,
+            values_from_json({"uris": list(uris)}, localizer.workflow.available_inputs),
+            **kwargs,
         )
 
         # recover the mapping of URIs to downloaded files
@@ -1130,29 +1154,25 @@ def localize(infile, name=None, outfile=None, **kwargs):
             assert isinstance(elt, Value.File) and os.path.isfile(elt.value)
             uri_to_file[uri] = elt.value
 
-        # in the JSON structure, replace the URIs with the filenames
+        # rewrite the input Env to replace URIs with filenames
         def rewrite(x):
-            if isinstance(x, list):
-                for i, elt in enumerate(x):
-                    if isinstance(elt, str) and elt in uri_to_file:
-                        x[i] = uri_to_file[elt]
-                    else:
-                        rewrite(elt)
-            elif isinstance(x, dict):
-                for k, v in x.items():
-                    if isinstance(v, str) and v in uri_to_file:
-                        x[k] = uri_to_file[v]
-                    else:
-                        rewrite(v)
+            if isinstance(x, Value.File) and x.value in uri_to_file:
+                x.value = uri_to_file[x.value]
+            for y in x.children:
+                rewrite(y)
 
-        rewrite(inputs)
+        for b in input_env:
+            rewrite(b.value)
 
     # write out the possibly-modified JSON
+    result_json = values_to_json(
+        input_env, namespace=(target.name if isinstance(target, Workflow) else "")
+    )
     if outfile in [None, "", "-"]:
-        print(json.dumps(inputs, indent=2))
+        print(json.dumps(result_json, indent=2))
     else:
         with open(outfile, "w") as outp:
-            print(json.dumps(inputs, indent=2), file=outp)
+            print(json.dumps(result_json, indent=2), file=outp)
 
 
 def die(msg, status=2):
