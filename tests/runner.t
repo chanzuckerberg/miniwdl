@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 44
+plan tests 46
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -236,3 +236,22 @@ EOF
 
 $miniwdl run --copy-input-files mv_input_file.wdl file=quick
 is "$?" "0" "copy input files"
+
+cat << 'EOF' > uri_inputs.json
+{"my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
+EOF
+cat << 'EOF' > localize_me.wdl
+version 1.0
+workflow my_workflow {
+    input {
+        Array[File] files
+    }
+}
+EOF
+$miniwdl localize -o local_inputs.json localize_me.wdl uri_inputs.json
+fn=$(jq -r '.["my_workflow.files"][0]' local_inputs.json)
+test -f "$fn"
+is "$?" "0" "localized robots.txt"
+fn=$(jq -r '.["my_workflow.files"][1]' local_inputs.json)
+test -f "$fn"
+is "$?" "0" "localized alyssa_ben.txt"

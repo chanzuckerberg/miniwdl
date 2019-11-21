@@ -614,7 +614,7 @@ def _download_input_files(
                 logger.info(_("download input file", uri=v.value))
                 v.value = download(
                     v.value,
-                    run_dir=os.path.join(run_dir, "download", str(downloads)),
+                    run_dir=os.path.join(run_dir, "download", str(downloads), "."),
                     logger_prefix=logger_prefix + [f"download{downloads}"],
                 )
                 sz = os.path.getsize(v.value)
