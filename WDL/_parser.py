@@ -89,13 +89,13 @@ import_doc: "import" string_literal ["as" CNAME] import_alias*
 document: version? document_element*
         | version? document_element*
 
+CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 COMMENT: "#" /[^\r\n]*/ NEWLINE
 
 %import common.INT
 %import common.SIGNED_INT
 %import common.FLOAT
 %import common.SIGNED_FLOAT
-%import common.CNAME
 %import common.ESCAPED_STRING
 %import common.WS
 %import common.NEWLINE
