@@ -300,7 +300,9 @@ class Placeholder(Base):
         if isinstance(v, Value.String):
             return v
         if isinstance(v, Value.Array):
-            return Value.String(self.options["sep"].join(str(item.value) for item in v.value))
+            return Value.String(
+                self.options["sep"].join(item.coerce(Type.String()).value for item in v.value)
+            )
         if v == Value.Boolean(True) and "true" in self.options:
             return Value.String(self.options["true"])
         if v == Value.Boolean(False) and "false" in self.options:

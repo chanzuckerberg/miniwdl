@@ -428,7 +428,7 @@ def runner(
         (k, kwargs[k]) for k in ["copy_input_files", "run_dir", "runtime_cpu_max", "as_me"]
     )
     if runtime_memory_max:
-        run_kwargs["runtime_memory_max"] = parse_byte_size(runtime)
+        run_kwargs["runtime_memory_max"] = parse_byte_size(runtime_memory_max)
     if runtime_defaults:
         if runtime_defaults.lstrip()[0] == "{":
             run_kwargs["runtime_defaults"] = json.loads(runtime_defaults)
@@ -943,7 +943,7 @@ def cromwell(
 
     # launch Cromwell
     jarpath = ensure_cromwell_jar(jarfile)
-    cromwell_cmd = ["java", "-DLOG_LEVEL=warn", "-DLOG_MODE=pretty"]
+    cromwell_cmd = ["java", "-DLOG_LEVEL=info", "-DLOG_MODE=pretty"]
     cromwell_cmd.extend([config_setting] if config_setting else [])
     cromwell_cmd.extend(
         [
