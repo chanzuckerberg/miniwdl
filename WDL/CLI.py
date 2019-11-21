@@ -322,7 +322,7 @@ def fill_run_subparser(subparsers):
         dest="rundir",
         help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly",
     )
-    group = run_parser.add_argument_group("provisioning")
+    group = run_parser.add_argument_group("runtime")
     group.add_argument(
         "-@",
         metavar="N",
@@ -344,6 +344,13 @@ def fill_run_subparser(subparsers):
         type=str,
         default=None,
         help="maximum effective runtime.memory for any task (default: total host memory)",
+    )
+    group.add_argument(
+        "--default-task-runtime",
+        metavar="JSON",
+        type=str,
+        default=None,
+        help="""default runtime settings for all tasks (JSON filename or literal object e.g. '{"maxRetries":2}')""",
     )
     group.add_argument(
         "--copy-input-files",
@@ -378,6 +385,7 @@ def runner(
     input_file=None,
     empty=[],
     json_only=False,
+    default_task_runtime=None,
     path=None,
     check_quant=True,
     **kwargs,
@@ -423,6 +431,12 @@ def runner(
         run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
     if "rundir" in kwargs:
         run_kwargs["run_dir"] = kwargs["rundir"]
+    if default_task_runtime and default_task_runtime.strip():
+        if default_task_runtime.lstrip()[0] == "{":
+            run_kwargs["default_runtime"] = json.loads(default_task_runtime)
+        else:
+            with open(default_task_runtime, "r") as infile:
+                run_kwargs["default_runtime"] = json.load(infile)
 
     ensure_swarm(logger)
 

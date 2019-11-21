@@ -495,6 +495,7 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
+    default_runtime: Optional[Dict[str, Union[str, int]]] = None,
     max_runtime_cpu: Optional[int] = None,
     max_runtime_memory: Optional[int] = None,
     logger_prefix: Optional[List[str]] = None,
@@ -553,7 +554,7 @@ def run_local_task(
 
         # evaluate runtime fields
         runtime = _eval_task_runtime(
-            logger, task, container_env, max_runtime_cpu, max_runtime_memory
+            logger, task, container_env, default_runtime, max_runtime_cpu, max_runtime_memory
         )
         container.image_tag = str(runtime.get("docker", container.image_tag))
         container.as_me = as_me
@@ -724,12 +725,23 @@ def _eval_task_runtime(
     logger: logging.Logger,
     task: Tree.Task,
     env: Env.Bindings[Value.Base],
+    default_runtime: Optional[Dict[str, Union[str, int]]],
     max_runtime_cpu: Optional[int],
     max_runtime_memory: Optional[int],
 ) -> Dict[str, Union[int, str]]:
     global _host_memory
 
-    runtime_values = dict((key, expr.eval(env)) for key, expr in task.runtime.items())
+    runtime_values = {}
+    if default_runtime:
+        for key, v in default_runtime.items():
+            if isinstance(v, str):
+                runtime_values[key] = Value.String(v)
+            elif isinstance(v, int):
+                runtime_values[key] = Value.Int(v)
+            else:
+                raise Error.InputError(f"invalid default runtime setting {key} = {v}")
+    for key, expr in task.runtime.items():
+        runtime_values[key] = expr.eval(env)
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
