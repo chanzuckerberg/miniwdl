@@ -10,8 +10,8 @@ import subprocess
 import json
 import glob
 
-skylab_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../test_corpi/HumanCellAtlas/skylab"))
-WDL_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../WDL"))
+skylab_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../test_corpi/HumanCellAtlas/skylab"))
+WDL_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../WDL"))
 
 def stage_skylab_test_inputs(test_inputs_json_filename, dir="."):
     def rw(v, index=None):

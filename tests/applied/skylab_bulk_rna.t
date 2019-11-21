@@ -2,7 +2,7 @@
 # run the HCA skylab bulk RNA pipeline test
 set -eo pipefail
 
-cd "$(dirname $0)/.."
+cd "$(dirname $0)/../.."
 SOURCE_DIR="$(pwd)"
 
 DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)

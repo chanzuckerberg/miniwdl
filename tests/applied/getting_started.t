@@ -4,7 +4,7 @@
 # Warning: consumes about 32GB of disk space and peaks at >10GB of memory
 set -eo pipefail
 
-cd "$(dirname $0)/.."
+cd "$(dirname $0)/../.."
 SOURCE_DIR="$(pwd)"
 
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
