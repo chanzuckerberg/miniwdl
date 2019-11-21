@@ -409,13 +409,15 @@ class TestStdLib(unittest.TestCase):
                 echo ~{foo + none + bar}
                 echo ~{foo + bar + none}
                 echo ~{foo + bar + i_none}
+                echo ~{sep='::' [foo,bar,none]}
+                echo ~{sep='::' [foo,none,bar]}
             }
             output {
                 String s = read_string(stdout())
             }
         }
         """)
-        self.assertEqual(outputs["s"], "foobar\nfoobar42\n\n\n\n\n")
+        self.assertEqual(outputs["s"], "foobar\nfoobar42\n\n\n\n\n\nfoo::bar::\nfoo::::bar")
 
     def test_read(self):
         with open(os.path.join(self._dir, "strings.txt"), "w") as outfile:

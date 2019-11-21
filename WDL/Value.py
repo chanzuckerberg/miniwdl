@@ -295,10 +295,11 @@ class Null(Base):
         if desired_type and not desired_type.optional and not isinstance(desired_type, Type.Any):
             # normally the typechecker should prevent this, but it might have
             # had check_quant=False
+            if isinstance(desired_type, Type.String):
+                return String("", self.expr)
             if self.expr:
                 raise Error.NullValue(self.expr)
-            else:
-                raise Error.InputError("'None' for non-optional input/declaration")
+            raise Error.InputError("'None' for non-optional input/declaration")
         return self
 
     @property
