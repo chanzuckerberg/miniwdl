@@ -416,7 +416,7 @@ class StateMachine:
             _(
                 "workflow steps",
                 waiting=len(self.waiting),
-                running=len(self.running),
+                outstanding=len(self.running),
                 finished=len(self.finished),
             )
         )
