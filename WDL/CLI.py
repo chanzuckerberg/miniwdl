@@ -267,13 +267,18 @@ def print_error(exn):
                 quant_warning = True
 
 
-async def read_source(uri, path, importer_uri):
+async def read_source(uri, path, importer):
     if uri.startswith("http:") or uri.startswith("https:"):
         fn = os.path.join(tempfile.mkdtemp(prefix="miniwdl_import_uri_"), os.path.basename(uri))
         urllib.request.urlretrieve(uri, filename=fn)
         with open(fn, "r") as infile:
             return ReadSourceResult(infile.read(), os.path.abspath(fn))
-    return await read_source_default(uri, path, importer_uri)
+    elif importer and (
+        importer.pos.uri.startswith("http:") or importer.pos.uri.startswith("https:")
+    ):
+        assert not os.path.isabs(uri), "absolute import from downloaded WDL"
+        return await read_source(urllib.parse.urljoin(importer.pos.uri, uri), [], importer)
+    return await read_source_default(uri, path, importer)
 
 
 def fill_run_subparser(subparsers):
