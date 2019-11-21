@@ -731,8 +731,8 @@ class TestTaskRunner(unittest.TestCase):
         # check task with overkill number of CPUs gets scheduled
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
         self.assertLess(outputs["wall_seconds"], 8)
-        # check max_runtime_cpu set to 1 causes serialization
-        outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, max_runtime_cpu=1)
+        # check runtime_cpu_max set to 1 causes serialization
+        outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, runtime_cpu_max=1)
         self.assertGreaterEqual(outputs["wall_seconds"], 8)
 
     def test_runtime_memory(self):
@@ -753,8 +753,8 @@ class TestTaskRunner(unittest.TestCase):
         """
         self._test_task(txt, {"memory": "100000000"})
         self._test_task(txt, {"memory": "1G"})
-        self._test_task(txt, {"memory": "99T"})
-        self._test_task(txt, {"memory": "99T"}, max_runtime_memory=WDL._util.parse_byte_size(" 123.45 MiB "))
+        self._test_task(txt, {"memory": "99T"}, runtime_defaults={"docker":"ubuntu:18.10","cpu":1})
+        self._test_task(txt, {"memory": "99T"}, runtime_memory_max=WDL._util.parse_byte_size(" 123.45 MiB "))
         self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)

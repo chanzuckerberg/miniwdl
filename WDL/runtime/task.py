@@ -495,8 +495,9 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
-    max_runtime_cpu: Optional[int] = None,
-    max_runtime_memory: Optional[int] = None,
+    runtime_defaults: Optional[Dict[str, Union[str, int]]] = None,
+    runtime_cpu_max: Optional[int] = None,
+    runtime_memory_max: Optional[int] = None,
     logger_prefix: Optional[List[str]] = None,
     as_me: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
@@ -511,8 +512,9 @@ def run_local_task(
                     (defaults to current working directory).
                     If the final path component is ".", then operate in run_dir directly.
     :param copy_input_files: copy input files and mount them read/write instead of read-only
-    :param max_runtime_cpu: maximum effective runtime.cpu value (default: # host CPUs)
-    :param max_runtime_memory: maximum effective runtime.memory value in bytes (default: total host
+    :param runtime_defaults: default values for runtime settings
+    :param runtime_cpu_max: maximum effective runtime.cpu value (default: # host CPUs)
+    :param runtime_memory_max: maximum effective runtime.memory value in bytes (default: total host
                                memory)
     :param as_me: run container command using the current user uid:gid (may break commands that
                   assume root access, e.g. apt-get)
@@ -553,7 +555,7 @@ def run_local_task(
 
         # evaluate runtime fields
         runtime = _eval_task_runtime(
-            logger, task, container_env, max_runtime_cpu, max_runtime_memory
+            logger, task, container_env, runtime_defaults, runtime_cpu_max, runtime_memory_max
         )
         container.image_tag = str(runtime.get("docker", container.image_tag))
         container.as_me = as_me
@@ -724,12 +726,23 @@ def _eval_task_runtime(
     logger: logging.Logger,
     task: Tree.Task,
     env: Env.Bindings[Value.Base],
-    max_runtime_cpu: Optional[int],
-    max_runtime_memory: Optional[int],
+    runtime_defaults: Optional[Dict[str, Union[str, int]]],
+    runtime_cpu_max: Optional[int],
+    runtime_memory_max: Optional[int],
 ) -> Dict[str, Union[int, str]]:
     global _host_memory
 
-    runtime_values = dict((key, expr.eval(env)) for key, expr in task.runtime.items())
+    runtime_values = {}
+    if runtime_defaults:
+        for key, v in runtime_defaults.items():
+            if isinstance(v, str):
+                runtime_values[key] = Value.String(v)
+            elif isinstance(v, int):
+                runtime_values[key] = Value.Int(v)
+            else:
+                raise Error.InputError(f"invalid default runtime setting {key} = {v}")
+    for key, expr in task.runtime.items():
+        runtime_values[key] = expr.eval(env)
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
@@ -739,7 +752,7 @@ def _eval_task_runtime(
     if "cpu" in runtime_values:
         cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
         assert isinstance(cpu_value, int)
-        cpu = max(1, min(max_runtime_cpu or multiprocessing.cpu_count(), cpu_value))
+        cpu = max(1, min(runtime_cpu_max or multiprocessing.cpu_count(), cpu_value))
         if cpu != cpu_value:
             logger.warning(
                 _("runtime.cpu adjusted to local limit", original=cpu_value, adjusted=cpu)
@@ -756,19 +769,19 @@ def _eval_task_runtime(
                 task.runtime["memory"], "invalid setting of runtime.memory, " + memory_str
             )
 
-        if not max_runtime_memory:
+        if not runtime_memory_max:
             _host_memory = _host_memory or psutil.virtual_memory().total
-            max_runtime_memory = _host_memory
-        assert isinstance(max_runtime_memory, int)
-        if memory_bytes > max_runtime_memory:
+            runtime_memory_max = _host_memory
+        assert isinstance(runtime_memory_max, int)
+        if memory_bytes > runtime_memory_max:
             logger.warning(
                 _(
                     "runtime.memory adjusted to local limit",
                     original=memory_bytes,
-                    adjusted=max_runtime_memory,
+                    adjusted=runtime_memory_max,
                 )
             )
-            memory_bytes = max_runtime_memory
+            memory_bytes = runtime_memory_max
         ans["memory"] = memory_bytes
 
     if "maxRetries" in runtime_values:
