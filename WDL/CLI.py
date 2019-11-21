@@ -319,10 +319,10 @@ def fill_run_subparser(subparsers):
         "-d",
         "--dir",
         metavar="DIR",
-        dest="rundir",
+        dest="run_dir",
         help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly",
     )
-    group = run_parser.add_argument_group("runtime")
+    group = run_parser.add_argument_group("task runtime")
     group.add_argument(
         "-@",
         metavar="N",
@@ -332,21 +332,21 @@ def fill_run_subparser(subparsers):
         help="maximum concurrent tasks (default: # host processors, effectively lower when tasks require multiple processors)",
     )
     group.add_argument(
-        "--max-runtime-cpu",
+        "--runtime-cpu-max",
         metavar="N",
         type=int,
         default=None,
         help="maximum effective runtime.cpu for any task (default: # host processors)",
     )
     group.add_argument(
-        "--max-runtime-memory",
+        "--runtime-memory-max",
         metavar="N",
         type=str,
         default=None,
         help="maximum effective runtime.memory for any task (default: total host memory)",
     )
     group.add_argument(
-        "--default-task-runtime",
+        "--runtime-defaults",
         metavar="JSON",
         type=str,
         default=None,
@@ -385,7 +385,8 @@ def runner(
     input_file=None,
     empty=[],
     json_only=False,
-    default_task_runtime=None,
+    runtime_defaults=None,
+    runtime_memory_max=None,
     path=None,
     check_quant=True,
     **kwargs,
@@ -424,19 +425,16 @@ def runner(
 
     # configuration
     run_kwargs = dict(
-        (k, kwargs[k])
-        for k in ["copy_input_files", "max_runtime_cpu", "max_runtime_memory", "as_me"]
+        (k, kwargs[k]) for k in ["copy_input_files", "rundir", "runtime_cpu_max", "as_me"]
     )
-    if run_kwargs["max_runtime_memory"]:
-        run_kwargs["max_runtime_memory"] = parse_byte_size(run_kwargs["max_runtime_memory"])
-    if "rundir" in kwargs:
-        run_kwargs["run_dir"] = kwargs["rundir"]
-    if default_task_runtime and default_task_runtime.strip():
-        if default_task_runtime.lstrip()[0] == "{":
-            run_kwargs["default_runtime"] = json.loads(default_task_runtime)
+    if runtime_memory_max:
+        run_kwargs["runtime_memory_max"] = parse_byte_size(runtime)
+    if runtime_defaults:
+        if runtime_defaults.lstrip()[0] == "{":
+            run_kwargs["runtime_defaults"] = json.loads(runtime_defaults)
         else:
-            with open(default_task_runtime, "r") as infile:
-                run_kwargs["default_runtime"] = json.load(infile)
+            with open(runtime_defaults, "r") as infile:
+                run_kwargs["runtime_defaults"] = json.load(infile)
 
     ensure_swarm(logger)
 
