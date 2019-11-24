@@ -790,6 +790,7 @@ def _download_input_files(
     inputs.map(lambda b: schedule_downloads(b.value))
     if not ops:
         return inputs
+    logger.notice(_("downloading input files", count=len(ops)))  # pyre-fixme
 
     # collect the results
     downloaded = {}

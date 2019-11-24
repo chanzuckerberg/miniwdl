@@ -90,7 +90,7 @@ def run(uri: str, **kwargs) -> str:
     kwargs are passed through to ``run_local_task``, so ``run_dir`` and ``logger_prefix`` may be
     useful in particular.
     """
-    from . import run_local_task, RunFailed, DownloadFailed
+    from . import run_local_task, RunFailed, DownloadFailed, Terminated
     from .. import parse_tasks, values_from_json
 
     downloader_wdl = _downloader(uri)
@@ -102,5 +102,7 @@ def run(uri: str, **kwargs) -> str:
     try:
         subdir, outputs = run_local_task(task, inputs, **kwargs)
     except RunFailed as exn:
+        if isinstance(exn.__cause__, Terminated):
+            raise exn.__cause__ from None
         raise DownloadFailed(uri) from exn.__cause__
     return outputs["file"].value

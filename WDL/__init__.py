@@ -174,14 +174,15 @@ def values_from_json(
         namespace += "."
     ans = Env.Bindings()
     for key in values_json:
-        key2 = key
-        if namespace and key.startswith(namespace):
-            key2 = key[len(namespace) :]
-        try:
-            ty = available[key2].type
-        except KeyError:
-            raise Error.InputError("unknown input/output: " + key) from None
-        ans = ans.bind(key2, Value.from_json(ty, values_json[key]))
+        if not key.startswith("#"):  # ignore "comments"
+            key2 = key
+            if namespace and key.startswith(namespace):
+                key2 = key[len(namespace) :]
+            try:
+                ty = available[key2].type
+            except KeyError:
+                raise Error.InputError("unknown input/output: " + key) from None
+            ans = ans.bind(key2, Value.from_json(ty, values_json[key]))
     if required:
         missing = required.subtract(ans)
         if missing:
