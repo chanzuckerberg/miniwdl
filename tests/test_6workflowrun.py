@@ -16,7 +16,9 @@ class TestWorkflowRunner(unittest.TestCase):
 
     def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None):
         sys.setrecursionlimit(180)  # set artificially low in unit tests to detect excessive recursion (issue #239)
-        WDL._util.ensure_swarm(logging.getLogger("test_workflow"))
+        logger = logging.getLogger("test_workflow")
+        WDL._util.install_coloredlogs(logger)
+        WDL._util.ensure_swarm(logger)
         try:
             with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:
                 outfile.write(wdl.encode("utf-8"))
