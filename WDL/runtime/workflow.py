@@ -51,8 +51,8 @@ from .._util import (
     write_values_json,
     provision_run_dir,
     LOGGING_FORMAT,
-    install_coloredlogs,
     TerminationSignalFlag,
+    LoggingFileHandler,
 )
 from .._util import StructuredLogMessage as _
 from .error import RunFailed, Terminated
@@ -300,7 +300,6 @@ class StateMachine:
         self.filename_whitelist |= _filenames(outputs)
         self.finished.add(job_id)
         self.running.remove(job_id)
-        self._log_status()
 
     def _schedule(self, job: _Job) -> None:
         self.logger.debug(_("schedule", node=job.id, dependencies=list(job.dependencies)))
@@ -404,11 +403,12 @@ class StateMachine:
             # TODO: if we were truly unpickling in a new process, we'd need to reinitialize the
             # logger object like this --
             #
-            # if self.run_dir:
+            # if self.run_dir and not self._logger.hasHandlers():
             #    fh = logging.FileHandler(os.path.join(self.run_dir, "workflow.log"))
             #    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
             #    self._logger.addHandler(fh)
-            # install_coloredlogs(self._logger)
+            #
+            # and close it later
         return self._logger
 
     def _log_status(self) -> None:
@@ -600,12 +600,11 @@ def run_local_workflow(
     inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
-    copy_input_files: bool = False,
     logger_prefix: Optional[List[str]] = None,
     max_tasks: Optional[int] = None,
     _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
     _test_pickle: bool = False,
-    **task_args,
+    **task_args,  # pyre-ignore
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
@@ -617,38 +616,38 @@ def run_local_workflow(
     :param run_dir: directory under which to create a timestamp-named subdirectory for this run
                     (defaults to current working directory).
                     If the final path component is ".", then operate in run_dir directly.
-    :param copy_input_files: copy input files and mount them read/write instead of read-only
     """
 
+    # provision run directory and log file
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
+    write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
+
     logger_prefix = logger_prefix or ["wdl"]
     logger_id = logger_prefix + ["w:" + run_id]
     logger = logging.getLogger(".".join(logger_id))
-    fh = logging.FileHandler(os.path.join(run_dir, "workflow.log"))
-    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
-    logger.addHandler(fh)
-    install_coloredlogs(logger)
-    if not _thread_pools:
-        try:
-            version = f"v{pkg_resources.get_distribution('miniwdl').version}"
-        except pkg_resources.DistributionNotFound:
-            version = "UNKNOWN"
-        logger.notice(_("miniwdl", version=version))
-    logger.notice(
-        _(
-            "workflow start",
-            name=workflow.name,
-            source=workflow.pos.uri,
-            line=workflow.pos.line,
-            column=workflow.pos.column,
-            dir=run_dir,
+    logfile = os.path.join(run_dir, "workflow.log")
+    with LoggingFileHandler(logger, logfile) as fh:
+        fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
+        if not _thread_pools:
+            try:
+                version = f"v{pkg_resources.get_distribution('miniwdl').version}"
+            except pkg_resources.DistributionNotFound:
+                version = "UNKNOWN"
+            logger.notice(_("miniwdl", version=version))  # pyre-fixme
+        logger.notice(  # pyre-fixme
+            _(
+                "workflow start",
+                name=workflow.name,
+                source=workflow.pos.uri,
+                line=workflow.pos.line,
+                column=workflow.pos.column,
+                dir=run_dir,
+            )
         )
-    )
-    logger.info(_("thread", ident=threading.get_ident()))
-    write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
+        logger.info(_("thread", ident=threading.get_ident()))
 
-    with TerminationSignalFlag(logger) as terminating:
+        # if we're the top-level workflow, provision thread pools
         thread_pools = _thread_pools
         if not thread_pools:
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
@@ -660,8 +659,49 @@ def run_local_workflow(
                 futures.ThreadPoolExecutor(max_workers=(max_tasks or multiprocessing.cpu_count())),
                 futures.ThreadPoolExecutor(max_workers=16),
             )
-        call_futures = {}
+        try:
+            # run workflow state machine
+            outputs = _workflow_main_loop(
+                workflow,
+                inputs,
+                run_id,
+                run_dir,
+                logger,
+                logger_id,
+                thread_pools,
+                _test_pickle,
+                top=not _thread_pools,
+                **task_args,
+            )
+        finally:
+            if not _thread_pools:
+                # thread pools are "ours", so wind them down
+                for tp in thread_pools:
+                    tp.shutdown()
 
+    write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
+
+    from .. import values_to_json
+
+    make_output_links(values_to_json(outputs, namespace=workflow.name), run_dir)
+    logger.notice("done")  # pyre-fixme
+    return (run_dir, outputs)
+
+
+def _workflow_main_loop(
+    workflow: Tree.Workflow,
+    inputs: Env.Bindings[Value.Base],
+    run_id: str,
+    run_dir: str,
+    logger: logging.Logger,
+    logger_id: List[str],
+    thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]],
+    _test_pickle: bool,
+    top: bool = False,
+    **task_args,
+) -> Env.Bindings[Value.Base]:
+    with TerminationSignalFlag(logger) as terminating:
+        call_futures = {}
         try:
             # download input files, if needed
             posix_inputs = _download_input_files(
@@ -687,7 +727,6 @@ def run_local_workflow(
                     sub_kwargs = {
                         "run_id": next_call.id,
                         "run_dir": os.path.join(call_dir, "."),
-                        "copy_input_files": copy_input_files,
                         "logger_prefix": logger_id,
                     }
                     # submit to appropriate thread pool
@@ -717,6 +756,7 @@ def run_local_workflow(
                 else:
                     assert state.outputs is not None
 
+            return state.outputs
         except Exception as exn:
             logger.debug(traceback.format_exc())
             wrapper = RunFailed(workflow, run_id, run_dir)
@@ -731,28 +771,15 @@ def run_local_workflow(
                 if hasattr(exn, "job_id"):
                     info["node"] = getattr(exn, "job_id")
                 logger.error(_(str(wrapper), **info))
+            if top:
+                # if we're the top-level worfklow, signal abort to anything still running
+                # concurrently on the thread pools (SIGUSR1 will be picked up by
+                # TerminationSignalFlag)
+                os.kill(os.getpid(), signal.SIGUSR1)
             # Cancel all future tasks that havent started
             for key in call_futures:
                 key.cancel()
-            if not _thread_pools:
-                # from top-level workflow, signal abort to anything still running concurrently
-                # (SIGUSR1 will be picked up by TerminationSignalFlag)
-                os.kill(os.getpid(), signal.SIGUSR1)
             raise wrapper from exn
-        finally:
-            if not _thread_pools:
-                # thread pools are "ours", so wind them down
-                for tp in thread_pools:
-                    tp.shutdown()
-
-    assert state.outputs is not None
-    write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
-
-    from .. import values_to_json
-
-    make_output_links(values_to_json(state.outputs, namespace=workflow.name), run_dir)
-    logger.notice("done")
-    return (run_dir, state.outputs)
 
 
 def _download_input_files(

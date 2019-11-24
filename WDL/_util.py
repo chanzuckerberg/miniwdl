@@ -513,3 +513,20 @@ def chmod_R_plus(path: str, file_bits: int = 0, dir_bits: int = 0) -> None:
                 do1(os.path.join(root, fn), file_bits)
     else:
         do1(path, file_bits)
+
+
+@export
+@contextmanager
+def LoggingFileHandler(logger: logging.Logger, filename: str) -> Iterator[logging.FileHandler]:
+    """
+    Context manager which opens a logging.FileHandler and adds it to the logger; on exit, closes
+    the log file and removes the handler.
+    """
+    fh = logging.FileHandler(filename)
+    try:
+        logger.addHandler(fh)
+        yield fh
+    finally:
+        fh.flush()
+        fh.close()
+        logger.removeHandler(fh)
