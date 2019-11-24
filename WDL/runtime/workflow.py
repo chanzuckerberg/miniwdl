@@ -627,7 +627,7 @@ def run_local_workflow(
     logger_id = logger_prefix + ["w:" + run_id]
     logger = logging.getLogger(".".join(logger_id))
     logfile = os.path.join(run_dir, "workflow.log")
-    with LoggingFileHandler(logger, logfile) as fh:
+    with LoggingFileHandler(logger, logfile) as fh, TerminationSignalFlag(logger) as terminating:
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         if not _thread_pools:
             try:
@@ -669,10 +669,17 @@ def run_local_workflow(
                 logger,
                 logger_id,
                 thread_pools,
+                terminating,
                 _test_pickle,
-                top=not _thread_pools,
                 **task_args,
             )
+        except:
+            if not _thread_pools:
+                # if we're the top-level worfklow, signal abort to anything still running
+                # concurrently on the thread pools (SIGUSR1 will be picked up by
+                # TerminationSignalFlag)
+                os.kill(os.getpid(), signal.SIGUSR1)
+            raise
         finally:
             if not _thread_pools:
                 # thread pools are "ours", so wind them down
@@ -696,90 +703,80 @@ def _workflow_main_loop(
     logger: logging.Logger,
     logger_id: List[str],
     thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]],
+    terminating: Callable[[], bool],
     _test_pickle: bool,
-    top: bool = False,
     **task_args,
 ) -> Env.Bindings[Value.Base]:
-    with TerminationSignalFlag(logger) as terminating:
-        call_futures = {}
-        try:
-            # download input files, if needed
-            posix_inputs = _download_input_files(
-                logger, logger_id, run_dir, inputs, thread_pools[0]
-            )
+    call_futures = {}
+    try:
+        # download input files, if needed
+        posix_inputs = _download_input_files(logger, logger_id, run_dir, inputs, thread_pools[0])
 
-            # run workflow state machine to completion
-            state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
-            while state.outputs is None:
-                if _test_pickle:
-                    state = pickle.loads(pickle.dumps(state))
-                if terminating():
-                    raise Terminated()
-                # schedule all runnable calls
-                next_call = state.step()
-                while next_call:
-                    call_dir = os.path.join(run_dir, next_call.id)
-                    if os.path.exists(call_dir):
-                        logger.warning(
-                            _("call subdirectory already exists, conflict likely", dir=call_dir)
-                        )
-                    sub_args = (next_call.callee, next_call.inputs)
-                    sub_kwargs = {
-                        "run_id": next_call.id,
-                        "run_dir": os.path.join(call_dir, "."),
-                        "logger_prefix": logger_id,
-                    }
-                    # submit to appropriate thread pool
-                    if isinstance(next_call.callee, Tree.Task):
-                        future = thread_pools[0].submit(
-                            run_local_task, *sub_args, **sub_kwargs, **task_args
-                        )
-                    elif isinstance(next_call.callee, Tree.Workflow):
-                        future = thread_pools[1].submit(
-                            run_local_workflow,
-                            *sub_args,
-                            **sub_kwargs,
-                            _thread_pools=thread_pools,
-                            **task_args,
-                        )
-                    else:
-                        assert False
-                    call_futures[future] = next_call.id
-                    next_call = state.step()
-                # no more calls to launch right now; wait for an outstanding call to finish
-                future = next(futures.as_completed(call_futures), None)
-                if future:
-                    __, outputs = future.result()
-                    call_id = call_futures[future]
-                    state.call_finished(call_id, outputs)
-                    call_futures.pop(future)
+        # run workflow state machine to completion
+        state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
+        while state.outputs is None:
+            if _test_pickle:
+                state = pickle.loads(pickle.dumps(state))
+            if terminating():
+                raise Terminated()
+            # schedule all runnable calls
+            next_call = state.step()
+            while next_call:
+                call_dir = os.path.join(run_dir, next_call.id)
+                if os.path.exists(call_dir):
+                    logger.warning(
+                        _("call subdirectory already exists, conflict likely", dir=call_dir)
+                    )
+                sub_args = (next_call.callee, next_call.inputs)
+                sub_kwargs = {
+                    "run_id": next_call.id,
+                    "run_dir": os.path.join(call_dir, "."),
+                    "logger_prefix": logger_id,
+                }
+                # submit to appropriate thread pool
+                if isinstance(next_call.callee, Tree.Task):
+                    future = thread_pools[0].submit(
+                        run_local_task, *sub_args, **sub_kwargs, **task_args
+                    )
+                elif isinstance(next_call.callee, Tree.Workflow):
+                    future = thread_pools[1].submit(
+                        run_local_workflow,
+                        *sub_args,
+                        **sub_kwargs,
+                        _thread_pools=thread_pools,
+                        **task_args,
+                    )
                 else:
-                    assert state.outputs is not None
-
-            return state.outputs
-        except Exception as exn:
-            logger.debug(traceback.format_exc())
-            wrapper = RunFailed(workflow, run_id, run_dir)
-            if isinstance(exn, RunFailed):
-                logger.error(
-                    _("run failure propagating", inner=getattr(exn, "run_id"), outer=run_id)
-                )
+                    assert False
+                call_futures[future] = next_call.id
+                next_call = state.step()
+            # no more calls to launch right now; wait for an outstanding call to finish
+            future = next(futures.as_completed(call_futures), None)
+            if future:
+                __, outputs = future.result()
+                call_id = call_futures[future]
+                state.call_finished(call_id, outputs)
+                call_futures.pop(future)
             else:
-                info = {"error": exn.__class__.__name__}
-                if str(exn):
-                    info["message"] = str(exn)
-                if hasattr(exn, "job_id"):
-                    info["node"] = getattr(exn, "job_id")
-                logger.error(_(str(wrapper), **info))
-            if top:
-                # if we're the top-level worfklow, signal abort to anything still running
-                # concurrently on the thread pools (SIGUSR1 will be picked up by
-                # TerminationSignalFlag)
-                os.kill(os.getpid(), signal.SIGUSR1)
-            # Cancel all future tasks that havent started
-            for key in call_futures:
-                key.cancel()
-            raise wrapper from exn
+                assert state.outputs is not None
+
+        return state.outputs
+    except Exception as exn:
+        logger.debug(traceback.format_exc())
+        wrapper = RunFailed(workflow, run_id, run_dir)
+        if isinstance(exn, RunFailed):
+            logger.error(_("run failure propagating", inner=getattr(exn, "run_id"), outer=run_id))
+        else:
+            info = {"error": exn.__class__.__name__}
+            if str(exn):
+                info["message"] = str(exn)
+            if hasattr(exn, "job_id"):
+                info["node"] = getattr(exn, "job_id")
+            logger.error(_(str(wrapper), **info))
+        # Cancel all future tasks that havent started
+        for key in call_futures:
+            key.cancel()
+        raise wrapper from exn
 
 
 def _download_input_files(
