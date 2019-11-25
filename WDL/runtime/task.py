@@ -10,6 +10,7 @@ import copy
 import traceback
 import glob
 import time
+import random
 import multiprocessing
 import threading
 import shutil
@@ -317,11 +318,15 @@ class TaskDockerContainer(TaskContainer):
             # stream stderr into log
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
                 # poll for container exit
+                running = False
                 while exit_code is None:
-                    time.sleep(1)
+                    time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
                     if terminating():
                         raise Terminated() from None
                     if "running" in self._observed_states:
+                        if not running:
+                            logger.notice("container running")  # pyre-fixme
+                            running = True
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
                 logger.debug(
@@ -478,14 +483,24 @@ class TaskDockerContainer(TaskContainer):
             chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
             """.strip()
             volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
+            logger.debug(_("post-task chown", script=script, volumes=volumes))
             try:
-                logger.debug(_("post-task chown", script=script, volumes=volumes))
-                client.containers.run(
-                    "alpine:3",
-                    command=["/bin/ash", "-c", script],
-                    volumes=volumes,
-                    auto_remove=True,
-                )
+                chowner = None
+                try:
+                    chowner = client.containers.run(
+                        "alpine:3",
+                        command=["/bin/ash", "-c", script],
+                        volumes=volumes,
+                        detach=True,
+                    )
+                    chowner_status = chowner.wait()
+                    assert (
+                        isinstance(chowner_status, dict)
+                        and chowner_status.get("StatusCode", -1) == 0
+                    ), str(chowner_status)
+                finally:
+                    if chowner:
+                        chowner.remove()
             except:
                 logger.exception("post-task chown failed")
 

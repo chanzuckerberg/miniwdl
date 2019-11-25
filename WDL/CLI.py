@@ -433,7 +433,8 @@ def runner(
 
     # configuration
     run_kwargs = dict(
-        (k, kwargs[k]) for k in ["copy_input_files", "run_dir", "runtime_cpu_max", "as_me"]
+        (k, kwargs[k])
+        for k in ["copy_input_files", "run_dir", "runtime_cpu_max", "as_me", "max_tasks"]
     )
     if runtime_memory_max:
         run_kwargs["runtime_memory_max"] = parse_byte_size(runtime_memory_max)
