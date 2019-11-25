@@ -22,6 +22,9 @@ integration_tests:
 skylab_bulk_rna:
 	prove -v tests/applied/skylab_bulk_rna.t
 
+DVGLx:
+	prove -v tests/applied/DVGLx.t
+
 ci_housekeeping: sopretty check_check check doc
 
 ci_unit_tests: unit_tests
@@ -76,4 +79,4 @@ doc:
 
 docs: doc
 
-.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist ci_housekeeping unit_tests integration_tests skylab_bulk_rna
+.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist ci_housekeeping unit_tests integration_tests skylab_bulk_rna DVGLx
