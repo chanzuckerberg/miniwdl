@@ -37,8 +37,10 @@ jobs:
     - env: CI_TARGET=ci_unit_tests
     - env: CI_TARGET=integration_tests
     - env: CI_TARGET=skylab_bulk_rna
+    - env: CI_TARGET=DVGLx
   allow_failures:
     - env: CI_TARGET=skylab_bulk_rna
+    - env: CI_TARGET=DVGLx
   fast_finish: true
 
 # bash -c "while true ; do sleep 60; docker service ls; done" &
