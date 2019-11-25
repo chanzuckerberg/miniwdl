@@ -29,6 +29,7 @@ from .._util import (
     parse_byte_size,
     chmod_R_plus,
     path_really_within,
+    LoggingFileHandler,
 )
 from .._util import StructuredLogMessage as _
 from .download import able as downloadable, run as download
@@ -520,79 +521,78 @@ def run_local_task(
                   assume root access, e.g. apt-get)
     """
 
+    # provision run directory and log file
     run_id = run_id or task.name
     run_dir = provision_run_dir(task.name, run_dir)
-    logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
-    logger = logging.getLogger(".".join(logger_prefix))
-    fh = logging.FileHandler(os.path.join(run_dir, "task.log"))
-    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
-    logger.addHandler(fh)
-    _util.install_coloredlogs(logger)
-    logger.notice(  # pyre-fixme
-        _(
-            "task start",
-            name=task.name,
-            source=task.pos.uri,
-            line=task.pos.line,
-            column=task.pos.column,
-            dir=run_dir,
-        )
-    )
-    logger.info(_("thread", ident=threading.get_ident()))
-
     write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
-    try:
-        # download input files, if needed
-        posix_inputs = _download_input_files(logger, logger_prefix, run_dir, inputs)
-
-        # create appropriate TaskContainer
-        container = TaskDockerContainer(run_id, run_dir)
-
-        # evaluate input/postinput declarations, including mapping from host to
-        # in-container file paths
-        container_env = _eval_task_inputs(logger, task, posix_inputs, container)
-
-        # evaluate runtime fields
-        runtime = _eval_task_runtime(
-            logger, task, container_env, runtime_defaults, runtime_cpu_max, runtime_memory_max
+    logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
+    logger = logging.getLogger(".".join(logger_prefix))
+    with LoggingFileHandler(logger, os.path.join(run_dir, "task.log")) as fh:
+        fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
+        logger.notice(  # pyre-fixme
+            _(
+                "task start",
+                name=task.name,
+                source=task.pos.uri,
+                line=task.pos.line,
+                column=task.pos.column,
+                dir=run_dir,
+            )
         )
-        container.image_tag = str(runtime.get("docker", container.image_tag))
-        container.as_me = as_me
+        logger.info(_("thread", ident=threading.get_ident()))
 
-        # interpolate command
-        command = _util.strip_leading_whitespace(
-            task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
-        )[1]
-        logger.debug(_("command", command=command.strip()))
+        try:
+            # download input files, if needed
+            posix_inputs = _download_input_files(logger, logger_prefix, run_dir, inputs)
 
-        # start container & run command (and retry if needed)
-        _try_task(logger, container, command, runtime, copy_input_files)
+            # create appropriate TaskContainer
+            container = TaskDockerContainer(run_id, run_dir)
 
-        # evaluate output declarations
-        outputs = _eval_task_outputs(logger, task, container_env, container)
+            # evaluate input/postinput declarations, including mapping from host to
+            # in-container file paths
+            container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
-        # write and link outputs
-        from .. import values_to_json
+            # evaluate runtime fields
+            runtime = _eval_task_runtime(
+                logger, task, container_env, runtime_defaults, runtime_cpu_max, runtime_memory_max
+            )
+            container.image_tag = str(runtime.get("docker", container.image_tag))
+            container.as_me = as_me
 
-        make_output_links(values_to_json(outputs, namespace=task.name), run_dir)  # pyre-fixme
-        write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
+            # interpolate command
+            command = _util.strip_leading_whitespace(
+                task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
+            )[1]
+            logger.debug(_("command", command=command.strip()))
 
-        # make sure everything will be accessible to downstream tasks
-        chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
+            # start container & run command (and retry if needed)
+            _try_task(logger, container, command, runtime, copy_input_files)
 
-        logger.notice("done")  # pyre-fixme
-        return (run_dir, outputs)
-    except Exception as exn:
-        logger.debug(traceback.format_exc())
-        wrapper = RunFailed(task, run_id, run_dir)
-        info = {"error": exn.__class__.__name__}
-        if str(exn):
-            info["message"] = str(exn)
-        if hasattr(exn, "job_id"):
-            info["node"] = getattr(exn, "job_id")
-        logger.error(_(str(wrapper), **info))
-        raise wrapper from exn
+            # evaluate output declarations
+            outputs = _eval_task_outputs(logger, task, container_env, container)
+
+            # write and link outputs
+            from .. import values_to_json
+
+            make_output_links(values_to_json(outputs, namespace=task.name), run_dir)  # pyre-fixme
+            write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
+
+            # make sure everything will be accessible to downstream tasks
+            chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
+
+            logger.notice("done")  # pyre-fixme
+            return (run_dir, outputs)
+        except Exception as exn:
+            logger.debug(traceback.format_exc())
+            wrapper = RunFailed(task, run_id, run_dir)
+            info = {"error": exn.__class__.__name__}
+            if str(exn):
+                info["message"] = str(exn)
+            if hasattr(exn, "job_id"):
+                info["node"] = getattr(exn, "job_id")
+            logger.error(_(str(wrapper), **info))
+            raise wrapper from exn
 
 
 def _download_input_files(

@@ -51,8 +51,8 @@ from .._util import (
     write_values_json,
     provision_run_dir,
     LOGGING_FORMAT,
-    install_coloredlogs,
     TerminationSignalFlag,
+    LoggingFileHandler,
 )
 from .._util import StructuredLogMessage as _
 from .error import RunFailed, Terminated
@@ -300,7 +300,6 @@ class StateMachine:
         self.filename_whitelist |= _filenames(outputs)
         self.finished.add(job_id)
         self.running.remove(job_id)
-        self._log_status()
 
     def _schedule(self, job: _Job) -> None:
         self.logger.debug(_("schedule", node=job.id, dependencies=list(job.dependencies)))
@@ -404,11 +403,12 @@ class StateMachine:
             # TODO: if we were truly unpickling in a new process, we'd need to reinitialize the
             # logger object like this --
             #
-            # if self.run_dir:
+            # if self.run_dir and not self._logger.hasHandlers():
             #    fh = logging.FileHandler(os.path.join(self.run_dir, "workflow.log"))
             #    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
             #    self._logger.addHandler(fh)
-            # install_coloredlogs(self._logger)
+            #
+            # and close it later
         return self._logger
 
     def _log_status(self) -> None:
@@ -600,12 +600,11 @@ def run_local_workflow(
     inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
-    copy_input_files: bool = False,
     logger_prefix: Optional[List[str]] = None,
     max_tasks: Optional[int] = None,
     _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
     _test_pickle: bool = False,
-    **task_args,
+    **task_args,  # pyre-ignore
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
@@ -617,38 +616,38 @@ def run_local_workflow(
     :param run_dir: directory under which to create a timestamp-named subdirectory for this run
                     (defaults to current working directory).
                     If the final path component is ".", then operate in run_dir directly.
-    :param copy_input_files: copy input files and mount them read/write instead of read-only
     """
 
+    # provision run directory and log file
     run_id = run_id or workflow.name
     run_dir = provision_run_dir(workflow.name, run_dir)
+    write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
+
     logger_prefix = logger_prefix or ["wdl"]
     logger_id = logger_prefix + ["w:" + run_id]
     logger = logging.getLogger(".".join(logger_id))
-    fh = logging.FileHandler(os.path.join(run_dir, "workflow.log"))
-    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
-    logger.addHandler(fh)
-    install_coloredlogs(logger)
-    if not _thread_pools:
-        try:
-            version = f"v{pkg_resources.get_distribution('miniwdl').version}"
-        except pkg_resources.DistributionNotFound:
-            version = "UNKNOWN"
-        logger.notice(_("miniwdl", version=version))
-    logger.notice(
-        _(
-            "workflow start",
-            name=workflow.name,
-            source=workflow.pos.uri,
-            line=workflow.pos.line,
-            column=workflow.pos.column,
-            dir=run_dir,
+    logfile = os.path.join(run_dir, "workflow.log")
+    with LoggingFileHandler(logger, logfile) as fh, TerminationSignalFlag(logger) as terminating:
+        fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
+        if not _thread_pools:
+            try:
+                version = f"v{pkg_resources.get_distribution('miniwdl').version}"
+            except pkg_resources.DistributionNotFound:
+                version = "UNKNOWN"
+            logger.notice(_("miniwdl", version=version))  # pyre-fixme
+        logger.notice(  # pyre-fixme
+            _(
+                "workflow start",
+                name=workflow.name,
+                source=workflow.pos.uri,
+                line=workflow.pos.line,
+                column=workflow.pos.column,
+                dir=run_dir,
+            )
         )
-    )
-    logger.info(_("thread", ident=threading.get_ident()))
-    write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
+        logger.info(_("thread", ident=threading.get_ident()))
 
-    with TerminationSignalFlag(logger) as terminating:
+        # if we're the top-level workflow, provision thread pools
         thread_pools = _thread_pools
         if not thread_pools:
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
@@ -660,99 +659,124 @@ def run_local_workflow(
                 futures.ThreadPoolExecutor(max_workers=(max_tasks or multiprocessing.cpu_count())),
                 futures.ThreadPoolExecutor(max_workers=16),
             )
-        call_futures = {}
-
         try:
-            # download input files, if needed
-            posix_inputs = _download_input_files(
-                logger, logger_id, run_dir, inputs, thread_pools[0]
+            # run workflow state machine
+            outputs = _workflow_main_loop(
+                workflow,
+                inputs,
+                run_id,
+                run_dir,
+                logger,
+                logger_id,
+                thread_pools,
+                terminating,
+                _test_pickle,
+                **task_args,
             )
-
-            # run workflow state machine to completion
-            state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
-            while state.outputs is None:
-                if _test_pickle:
-                    state = pickle.loads(pickle.dumps(state))
-                if terminating():
-                    raise Terminated()
-                # schedule all runnable calls
-                next_call = state.step()
-                while next_call:
-                    call_dir = os.path.join(run_dir, next_call.id)
-                    if os.path.exists(call_dir):
-                        logger.warning(
-                            _("call subdirectory already exists, conflict likely", dir=call_dir)
-                        )
-                    sub_args = (next_call.callee, next_call.inputs)
-                    sub_kwargs = {
-                        "run_id": next_call.id,
-                        "run_dir": os.path.join(call_dir, "."),
-                        "copy_input_files": copy_input_files,
-                        "logger_prefix": logger_id,
-                    }
-                    # submit to appropriate thread pool
-                    if isinstance(next_call.callee, Tree.Task):
-                        future = thread_pools[0].submit(
-                            run_local_task, *sub_args, **sub_kwargs, **task_args
-                        )
-                    elif isinstance(next_call.callee, Tree.Workflow):
-                        future = thread_pools[1].submit(
-                            run_local_workflow,
-                            *sub_args,
-                            **sub_kwargs,
-                            _thread_pools=thread_pools,
-                            **task_args,
-                        )
-                    else:
-                        assert False
-                    call_futures[future] = next_call.id
-                    next_call = state.step()
-                # no more calls to launch right now; wait for an outstanding call to finish
-                future = next(futures.as_completed(call_futures), None)
-                if future:
-                    __, outputs = future.result()
-                    call_id = call_futures[future]
-                    state.call_finished(call_id, outputs)
-                    call_futures.pop(future)
-                else:
-                    assert state.outputs is not None
-
-        except Exception as exn:
-            logger.debug(traceback.format_exc())
-            wrapper = RunFailed(workflow, run_id, run_dir)
-            if isinstance(exn, RunFailed):
-                logger.error(
-                    _("run failure propagating", inner=getattr(exn, "run_id"), outer=run_id)
-                )
-            else:
-                info = {"error": exn.__class__.__name__}
-                if str(exn):
-                    info["message"] = str(exn)
-                if hasattr(exn, "job_id"):
-                    info["node"] = getattr(exn, "job_id")
-                logger.error(_(str(wrapper), **info))
-            # Cancel all future tasks that havent started
-            for key in call_futures:
-                key.cancel()
+        except:
             if not _thread_pools:
-                # from top-level workflow, signal abort to anything still running concurrently
-                # (SIGUSR1 will be picked up by TerminationSignalFlag)
+                # if we're the top-level worfklow, signal abort to anything still running
+                # concurrently on the thread pools (SIGUSR1 will be picked up by
+                # TerminationSignalFlag)
                 os.kill(os.getpid(), signal.SIGUSR1)
-            raise wrapper from exn
+            raise
         finally:
             if not _thread_pools:
                 # thread pools are "ours", so wind them down
                 for tp in thread_pools:
                     tp.shutdown()
 
-    assert state.outputs is not None
-    write_values_json(state.outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
+    write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
 
     from .. import values_to_json
 
-    make_output_links(values_to_json(state.outputs, namespace=workflow.name), run_dir)
-    logger.notice("done")
-    return (run_dir, state.outputs)
+    make_output_links(values_to_json(outputs, namespace=workflow.name), run_dir)
+    logger.notice("done")  # pyre-fixme
+    return (run_dir, outputs)
+
+
+def _workflow_main_loop(
+    workflow: Tree.Workflow,
+    inputs: Env.Bindings[Value.Base],
+    run_id: str,
+    run_dir: str,
+    logger: logging.Logger,
+    logger_id: List[str],
+    thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]],
+    terminating: Callable[[], bool],
+    _test_pickle: bool,
+    **task_args,
+) -> Env.Bindings[Value.Base]:
+    call_futures = {}
+    try:
+        # download input files, if needed
+        posix_inputs = _download_input_files(logger, logger_id, run_dir, inputs, thread_pools[0])
+
+        # run workflow state machine to completion
+        state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
+        while state.outputs is None:
+            if _test_pickle:
+                state = pickle.loads(pickle.dumps(state))
+            if terminating():
+                raise Terminated()
+            # schedule all runnable calls
+            next_call = state.step()
+            while next_call:
+                call_dir = os.path.join(run_dir, next_call.id)
+                if os.path.exists(call_dir):
+                    logger.warning(
+                        _("call subdirectory already exists, conflict likely", dir=call_dir)
+                    )
+                sub_args = (next_call.callee, next_call.inputs)
+                sub_kwargs = {
+                    "run_id": next_call.id,
+                    "run_dir": os.path.join(call_dir, "."),
+                    "logger_prefix": logger_id,
+                }
+                # submit to appropriate thread pool
+                if isinstance(next_call.callee, Tree.Task):
+                    future = thread_pools[0].submit(
+                        run_local_task, *sub_args, **sub_kwargs, **task_args
+                    )
+                elif isinstance(next_call.callee, Tree.Workflow):
+                    future = thread_pools[1].submit(
+                        run_local_workflow,
+                        *sub_args,
+                        **sub_kwargs,
+                        _thread_pools=thread_pools,
+                        **task_args,
+                    )
+                else:
+                    assert False
+                call_futures[future] = next_call.id
+                next_call = state.step()
+            # no more calls to launch right now; wait for an outstanding call to finish
+            future = next(futures.as_completed(call_futures), None)
+            if future:
+                __, outputs = future.result()
+                call_id = call_futures[future]
+                state.call_finished(call_id, outputs)
+                call_futures.pop(future)
+            else:
+                assert state.outputs is not None
+
+        return state.outputs
+    except Exception as exn:
+        logger.debug(traceback.format_exc())
+        wrapper = RunFailed(workflow, run_id, run_dir)
+        if isinstance(exn, RunFailed):
+            logger.error(_("run failure propagating", inner=getattr(exn, "run_id"), outer=run_id))
+        else:
+            info = {"error": exn.__class__.__name__}
+            if str(exn):
+                info["message"] = str(exn)
+            if hasattr(exn, "job_id"):
+                info["node"] = getattr(exn, "job_id")
+            logger.error(_(str(wrapper), **info))
+        # Cancel all future tasks that havent started
+        for key in call_futures:
+            key.cancel()
+        raise wrapper from exn
 
 
 def _download_input_files(
