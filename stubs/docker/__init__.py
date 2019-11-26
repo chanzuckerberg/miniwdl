@@ -78,6 +78,6 @@ class DockerClient:
     def services(self) -> Services:
         ...
 
-def from_env() -> DockerClient:
+def from_env(timeout: Optional[int] = None) -> DockerClient:
     ...
 

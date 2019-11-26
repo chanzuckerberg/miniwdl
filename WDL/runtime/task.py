@@ -290,7 +290,7 @@ class TaskDockerContainer(TaskContainer):
         resources, user, groups = self.misc_config(logger, cpu, memory)
 
         # connect to dockerd
-        client = docker.from_env()
+        client = docker.from_env(timeout=900)
         svc = None
         try:
             # run container as a transient docker swarm service, letting docker handle the resource
@@ -479,6 +479,7 @@ class TaskDockerContainer(TaskContainer):
         alternatives and their problems.
         """
         if not self.as_me and (os.geteuid() or os.getegid()):
+            t_0 = time.monotonic()
             script = f"""
             chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
             """.strip()
@@ -503,6 +504,15 @@ class TaskDockerContainer(TaskContainer):
                         chowner.remove()
             except:
                 logger.exception("post-task chown failed")
+            finally:
+                t_delta = time.monotonic() - t_0
+                if t_delta >= 60:
+                    logger.warning(
+                        _(
+                            "post-task chown was slow (symptomatic of excessive file count and/or IOPS saturation)",
+                            seconds=int(t_delta),
+                        )
+                    )
 
 
 def run_local_task(

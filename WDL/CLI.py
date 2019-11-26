@@ -12,6 +12,7 @@ import math
 import argcomplete
 import logging
 import urllib
+import asyncio
 import docker
 from shlex import quote as shellquote
 from datetime import datetime
@@ -656,8 +657,11 @@ def runner_input_json_file(available_inputs, namespace, input_file):
         elif input_file == "-":
             input_json = json.load(sys.stdin)
         else:
-            with open(input_file) as infile:
-                input_json = json.load(infile)
+            input_json = json.loads(
+                asyncio.get_event_loop()
+                .run_until_complete(read_source(input_file, [], None))
+                .source_text
+            )
         ans = values_from_json(input_json, available_inputs, namespace=namespace)
 
         # join relative file paths to the cwd
