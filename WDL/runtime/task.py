@@ -509,7 +509,7 @@ class TaskDockerContainer(TaskContainer):
                 if t_delta >= 60:
                     logger.warning(
                         _(
-                            "post-task chown was slow (symptomatic of excessive file count and/or IOPS saturation)",
+                            "post-task chown was slow (indicative of excessive file count and/or IOPS exhaustion)",
                             seconds=int(t_delta),
                         )
                     )
