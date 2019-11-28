@@ -182,18 +182,28 @@ class StringCoercion(Linter):
             # String function operands with non-String expression
             if obj.function_name == "_add":
                 any_string = False
+                any_string_literal = False
                 all_string = True
                 for arg in obj.arguments:
                     if isinstance(arg.type, Type.String):
                         any_string = True
+                        if isinstance(arg, Expr.String):
+                            any_string_literal = True
                     elif not isinstance(arg.type, Type.File):
                         all_string = arg.type
-                if any_string and all_string is not True and not isinstance(pt, Tree.Task):
-                    # exception when parent is Task (i.e. we're in the task
-                    # command) because the coercion is probably intentional
+                if (
+                    any_string
+                    and all_string is not True
+                    # a literal string on one side or the other makes intent pretty clear
+                    and not any_string_literal
+                    # as does being inside an interpolation placeholder
+                    and not getattr(obj, "in_placeholder", False)
+                ):
                     self.add(
                         pt,
-                        "string concatenation (+) has {} argument".format(str(all_string)),
+                        "string concatenation (+) has {} argument; consider using interpolation".format(
+                            str(all_string)
+                        ),
                         obj.pos,
                     )
             else:
@@ -353,14 +363,17 @@ class OptionalCoercion(Linter):
                 assert len(obj.arguments) == 2
                 arg0ty = obj.arguments[0].type
                 arg1ty = obj.arguments[1].type
-                if (arg0ty.optional or arg1ty.optional) and (
-                    obj.function_name != "_add" or not isinstance(getattr(obj, "parent"), Tree.Task)
+                if (arg0ty.optional or arg1ty.optional) and not (
+                    obj.function_name == "_add"
+                    and getattr(obj, "in_placeholder", False)
+                    and (
+                        isinstance(arg0ty, Type.String)
+                        and not arg0ty.optional
+                        or isinstance(arg1ty, Type.String)
+                        and not arg1ty.optional
+                    )
                 ):
-                    # exception for + in task command because the coercion is
-                    # probably intentional, per "Prepending a String to an
-                    # Optional Parameter"
-                    # TODO: carve out an exception for the pattern
-                    #          if defined(x) then EXPR_WITH_x else DEFAULT
+                    # exception for :String: + :T?: or vice-versa in string interpolations
                     self.add(
                         getattr(obj, "parent"),
                         "infix operator has :{}: and :{}: operands".format(
