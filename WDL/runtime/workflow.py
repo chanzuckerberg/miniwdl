@@ -816,20 +816,35 @@ def _download_input_files(
         return inputs
     logger.notice(_("downloading input files", count=len(ops)))  # pyre-fixme
 
-    # collect the results
+    # collect the results, with "clean" fail-fast
+    outstanding = ops.keys()
     downloaded = {}
     total_bytes = 0
-    try:
-        for future in futures.as_completed(ops):
-            uri = ops[future]
-            downloaded[uri] = future.result()
-            sz = os.path.getsize(downloaded[uri])
-            logger.info(_("downloaded input file", uri=uri, file=downloaded[uri], bytes=sz))
-            total_bytes += sz
-    except:
-        for future in ops:
-            future.cancel()
-        raise
+    exn = None
+    while outstanding:
+        just_finished, still_outstanding = futures.wait(
+            outstanding, return_when=futures.FIRST_EXCEPTION
+        )
+        outstanding = still_outstanding
+        for future in just_finished:
+            try:
+                future_exn = future.exception()
+            except futures.CancelledError:
+                future_exn = Terminated()
+            if not future_exn:
+                uri = ops[future]
+                downloaded[uri] = future.result()
+                sz = os.path.getsize(downloaded[uri])
+                logger.info(_("downloaded input file", uri=uri, file=downloaded[uri], bytes=sz))
+                total_bytes += sz
+            elif not exn:
+                # cancel pending ops and signal running ones to abort
+                for outsfut in outstanding:
+                    outsfut.cancel()
+                os.kill(os.getpid(), signal.SIGUSR1)
+                exn = future_exn
+    if exn:
+        raise exn
     logger.notice(  # pyre-fixme
         _("downloaded input files", count=len(downloaded), total_bytes=total_bytes)
     )
