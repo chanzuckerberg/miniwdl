@@ -26,6 +26,7 @@ import subprocess
 import tempfile
 import json
 import os
+import random
 import shutil
 from typing import Any, Optional, Union
 from . import Error, Type, Env, Expr, Tree, StdLib, Walker, _util
@@ -859,7 +860,9 @@ def _shellcheck_dummy_value(ty, pos):
     # assert ty.coerces(Type.String), str(ty)
     # https://github.com/HumanCellAtlas/skylab/blob/a99b8ddffdb3c0ebdea1a8905d28f01a4d365af5/pipelines/10x/count/count.wdl#L325
     # https://github.com/openwdl/wdl/blob/master/versions/draft-2/SPEC.md#map-serialization
-    return "x" * desired_length
+    return "".join(
+        chr(ord(random.choice(["A", "a"])) + random.randrange(26)) for _ in range(desired_length)
+    )
 
 
 @a_linter
