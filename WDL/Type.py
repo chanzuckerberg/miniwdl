@@ -368,7 +368,9 @@ class StructInstance(Base):
     """
     Type of an instance of a struct
 
-    Not to be confused with struct type definition, ``WDL.Tree.StructTypeDef``.
+    Not to be confused with struct type definition, :class:`WDL.Tree.StructTypeDef`. To find the
+    ``WDL.Tree.StructTypeDef`` in the current ``doc: WDL.Tree.Document`` corresponding to
+    ``ty: WDL.Type.StructInstance``, use ``doc.struct_typedefs[ty.type_name]``.
     """
 
     type_name: str
