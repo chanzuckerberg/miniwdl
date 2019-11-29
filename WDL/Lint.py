@@ -79,8 +79,8 @@ def lint(doc, descend_imports: bool = True):
 
     # Add additional markups to the AST for use by the linters
     Walker.SetParents()(doc)
-    Walker.MarkUsed()(doc)
-    Walker.SetReferrers()(doc)
+    Walker.MarkCalled()(doc)
+    Walker.Multi([Walker.MarkImportsUsed(), Walker.SetReferrers()])(doc)
 
     # instantiate linters
     linter_instances = [cons(descend_imports=descend_imports) for cons in _all_linters]
@@ -616,24 +616,15 @@ class NameCollision(Linter):
 @a_linter
 class UnusedImport(Linter):
     # Nothing used from an imported document
-    # TODO: suppress if document is imported just to use its struct type declarations
+    # TODO: clarify confusion when none of an imported document D's structs are used because all
+    #       the same struct definitions were imported from a different document E (probably because
+    #       E itself imported D)
     def document(self, obj: Tree.Document) -> Any:
         for imp in obj.imports:
-            assert imp.doc is not None
-            any_used = False
-            for stb in obj.struct_typedefs:
-                st: Tree.StructTypeDef = stb.value
-                if st.imported and st.imported[0] is imp and getattr(st, "used", False):
-                    any_used = True
-            for task in imp.doc.tasks:
-                if getattr(task, "used", False):
-                    any_used = True
-            if imp.doc.workflow and getattr(imp.doc.workflow, "used", False):
-                any_used = True
-            if not any_used and (imp.doc.tasks or imp.doc.workflow):
+            if imp.namespace not in getattr(obj, "imports_used"):
                 self.add(
                     obj,
-                    "no calls to tasks/workflow, nor use of structs defined, in the imported document "
+                    "no use of workflow, tasks, or structs defined in the imported document "
                     + imp.namespace,
                 )
 

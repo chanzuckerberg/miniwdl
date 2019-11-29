@@ -245,36 +245,26 @@ class SetParents(Base):
             self._placeholder_depth -= 1
 
 
-class MarkUsed(Base):
+class MarkCalled(Base):
     """
-    Mark each Task and Workflow with ``used : bool`` according to whether there exists a Call to it
+    Mark each Task and Workflow with ``called : bool`` according to whether there exists a Call to it
     in the top-level workflow (or a called sub-workflow). The top-level workflow is considered
     called.
-
-    Also mark each StructTypeDef used if there exists a Decl instance of it in any workflow,
-    sub-workflow, or task (regardless of whether those are called). If the StructTypeDef is imported
-    from another document, propagate the flag there as well.
 
     Requires SetParents to have been applied previously.
     """
 
     marking: bool = False  # True while recursing from the top-level workflow
 
-    def document(self, obj: Tree.Document) -> None:
-        for stb in obj.struct_typedefs:
-            st: Tree.StructTypeDef = stb.value
-            st.used = False
-            # if struct has members that are imported structs, mark those used
-            for ty in st.members.values():
-                self._mark_structs(obj, ty, imported_only=True)
-
-        super().document(obj)
+    def task(self, obj: Tree.Task) -> None:
+        obj.called = getattr(obj, "called", False)
+        super().task(obj)
 
     def workflow(self, obj: Tree.Workflow) -> None:
-        obj.used = False
+        obj.called = getattr(obj, "called", False)
         if obj.parent.parent is None:  # pyre-ignore
             assert not self.marking
-            obj.used = True
+            obj.called = True
             self.marking = True
             super().workflow(obj)
             self.marking = False
@@ -285,11 +275,41 @@ class MarkUsed(Base):
         assert self.marking
         if isinstance(obj.callee, Tree.Workflow):
             self(obj.callee)
-        obj.callee.used = True
+        obj.callee.called = True
 
-    def task(self, obj: Tree.Task) -> None:
-        obj.used = False
-        super().task(obj)
+
+class MarkImportsUsed(Base):
+    """
+    Mark each DocImport object with ``used=True`` if the any of the workflow, tasks, or struct
+    typedefs in the imported document are used in the current document
+
+    Requires SetParents to have been applied previously.
+    """
+
+    def __init__(self):
+        super().__init__(auto_descend=True)
+
+    def document(self, obj: Tree.Document) -> None:
+        obj.imports_used = set()
+        for stb in obj.struct_typedefs:
+            st: Tree.StructTypeDef = stb.value
+            # if struct has members that are imported structs, mark those used
+            for ty in st.members.values():
+                self._mark_structs(obj, ty)
+
+    def call(self, obj: Tree.Call) -> None:
+        doc = obj
+        while not isinstance(doc, Tree.Document):
+            doc = getattr(doc, "parent")
+        assert isinstance(doc, Tree.Document)
+        callee_doc = obj.callee
+        while not isinstance(callee_doc, Tree.Document):
+            callee_doc = getattr(callee_doc, "parent")
+        assert isinstance(callee_doc, Tree.Document)
+        if doc is not callee_doc:
+            imp = next(imp for imp in doc.imports if imp.doc is callee_doc)
+            if imp:
+                getattr(doc, "imports_used").add(imp.namespace)
 
     def decl(self, obj: Tree.Decl) -> None:
         doc = obj
@@ -297,17 +317,16 @@ class MarkUsed(Base):
             doc = getattr(doc, "parent")
         self._mark_structs(doc, obj.type)
 
-    def _mark_structs(self, doc: Tree.Document, ty: Type.Base, imported_only: bool = False) -> None:
+    def _mark_structs(self, doc: Tree.Document, ty: Type.Base) -> None:
         if isinstance(ty, Type.StructInstance):
             st: Tree.StructTypeDef = doc.struct_typedefs[ty.type_name]
-            if not imported_only:
-                st.used = True
-            while st.imported:
-                st.used = True
-                st = st.imported[1]
-                st.used = True
+            if st.imported:
+                assert isinstance(st.imported[0], Tree.Document)
+                imp = next((imp for imp in doc.imports if imp.doc is st.imported[0]), None)
+                if imp:
+                    getattr(doc, "imports_used").add(imp.namespace)
         for ch in ty.parameters:
-            self._mark_structs(doc, ch, imported_only=imported_only)
+            self._mark_structs(doc, ch)
 
 
 class SetReferrers(Base):

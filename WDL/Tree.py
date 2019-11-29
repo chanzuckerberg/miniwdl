@@ -1679,7 +1679,7 @@ def _import_structs(doc: Document):
             except KeyError:
                 pass
             if not existing:
-                st2 = StructTypeDef(imp.pos, name, st.members, imported=(imp, st))
+                st2 = StructTypeDef(imp.pos, name, st.members, imported=(imp.doc, st))
                 doc.struct_typedefs = doc.struct_typedefs.bind(name, st2)
 
 

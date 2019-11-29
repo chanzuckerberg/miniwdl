@@ -132,7 +132,7 @@ class HCAskylab_workflow(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/**"],
-    expected_lint={'UnusedDeclaration': 5, 'NameCollision': 2, 'UnusedImport': 2},
+    expected_lint={'UnusedDeclaration': 5, 'NameCollision': 2, 'UnusedImport': 8},
 )
 class GATK_five_dollar(unittest.TestCase):
     pass

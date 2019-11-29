@@ -185,7 +185,7 @@ def outline(obj, level, file=sys.stdout, show_called=True):
         if obj.workflow:
             descend(obj.workflow)
         # tasks
-        for task in sorted(obj.tasks, key=lambda task: (not task.used, task.name)):
+        for task in sorted(obj.tasks, key=lambda task: (not task.called, task.name)):
             descend(task)
         # imports
         for imp in sorted(obj.imports, key=lambda t: t.namespace):
@@ -195,7 +195,7 @@ def outline(obj, level, file=sys.stdout, show_called=True):
     elif isinstance(obj, Workflow):
         print(
             "{}workflow {}{}".format(
-                s, obj.name, " (not called)" if show_called and not obj.used else ""
+                s, obj.name, " (not called)" if show_called and not obj.called else ""
             ),
             file=file,
         )
@@ -205,7 +205,7 @@ def outline(obj, level, file=sys.stdout, show_called=True):
     elif isinstance(obj, Task):
         print(
             "{}task {}{}".format(
-                s, obj.name, " (not called)" if show_called and not obj.used else ""
+                s, obj.name, " (not called)" if show_called and not obj.called else ""
             ),
             file=file,
         )
