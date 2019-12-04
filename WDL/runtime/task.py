@@ -31,6 +31,7 @@ from .._util import (
     chmod_R_plus,
     path_really_within,
     LoggingFileHandler,
+    AtomicCounter,
 )
 from .._util import StructuredLogMessage as _
 from .download import able as downloadable, run as download
@@ -256,6 +257,7 @@ class TaskDockerContainer(TaskContainer):
 
     _bind_input_files: Optional[str] = "ro"
     _observed_states: Optional[Set[str]] = None
+    _id_counter: AtomicCounter = AtomicCounter()
 
     def copy_input_files(self, logger: logging.Logger) -> None:
         assert self._bind_input_files
@@ -297,6 +299,7 @@ class TaskDockerContainer(TaskContainer):
             # scheduling (waiting until requested # of CPUs are available)
             svc = client.services.create(
                 self.image_tag,
+                name=f"wdl-{self.run_id}-{os.getpid()}-{TaskDockerContainer._id_counter.next()}",
                 command=[
                     "/bin/bash",
                     "-c",
@@ -490,6 +493,7 @@ class TaskDockerContainer(TaskContainer):
                 try:
                     chowner = client.containers.run(
                         "alpine:3",
+                        name=f"wdl-{self.run_id}-chown-{os.getpid()}-{TaskDockerContainer._id_counter.next()}",
                         command=["/bin/ash", "-c", script],
                         volumes=volumes,
                         detach=True,
@@ -509,7 +513,7 @@ class TaskDockerContainer(TaskContainer):
                 if t_delta >= 60:
                     logger.warning(
                         _(
-                            "post-task chown was slow (indicative of excessive file count and/or IOPS exhaustion)",
+                            "post-task chown was slow (may indicate excessive file count and/or IOPS exhaustion)",
                             seconds=int(t_delta),
                         )
                     )
