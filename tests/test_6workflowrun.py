@@ -580,6 +580,20 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["sums"], [1, 5, 14])
         self.assertEqual(outputs["sum"], 20)
 
+        subwf_input = R"""
+        version 1.0
+        import "sum_sq.wdl" as lib
+
+        workflow subwf_input {
+            call lib.sum_sq as summer
+            output {
+                Int ans = summer.ans
+            }
+        }
+        """
+        self._test_workflow(subwf_input, {"summer.n": 3})
+        self._test_workflow(subwf_input, {"summer.sum_sq.n": 3})
+
     def test_host_file_access(self):
         exn = self._test_workflow("""
         version 1.0
