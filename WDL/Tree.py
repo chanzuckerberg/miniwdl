@@ -1232,7 +1232,7 @@ async def resolve_file_import(uri: str, path: List[str], importer: Optional[Docu
         # for now we do nothing with web URIs
         return uri
     if uri.startswith("file:///"):
-        uri = uri[7:]
+        uri = uri[8:]
     if os.path.isabs(uri):
         # given an already-absolute filename, just normalize it
         ans = os.path.abspath(uri)
