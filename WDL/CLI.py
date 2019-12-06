@@ -58,15 +58,15 @@ def main(args=None):
 
     try:
         if args.command == "check":
-            return check(**vars(args))
+            check(**vars(args))
         elif args.command == "run":
-            return runner(**vars(args))
+            runner(**vars(args))
         elif args.command == "run_self_test":
-            return run_self_test(**vars(args))
+            run_self_test(**vars(args))
         elif args.command == "localize":
-            return localize(**vars(args))
+            localize(**vars(args))
         elif args.command == "cromwell":
-            return cromwell(**vars(args))
+            cromwell(**vars(args))
         else:
             assert False
     except (
@@ -85,6 +85,7 @@ def main(args=None):
         if args.debug:
             raise exn
         sys.exit(2)
+    sys.exit(0)
 
 
 class PipVersionAction(Action):
