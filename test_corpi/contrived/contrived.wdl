@@ -17,7 +17,7 @@ workflow contrived {
         Float required
     }
     Int? fallaciously_optional = 123
-    call popular as contrived { input:
+    call popular as c1 { input:
         popular = popular,
         i = fortytwo,
         y = [select_first([fortytwo,23])]
@@ -28,8 +28,8 @@ workflow contrived {
     Pair[Pair[String,String],Pair[Int,Int]] p2 = ((c2.left_contents, c2.right_contents), (4,2))
 
     output {
-        Int read_int = read_json(contrived.json) + p2.right.left + p2.right.right
-        Array[Boolean] read_array = read_json(contrived.json)
+        Int read_int = read_json(c1.json) + p2.right.left + p2.right.right
+        Array[Boolean] read_array = read_json(c1.json)
         String left_contents = p2.left.left
         String right_contents = p2.left.right
     }
