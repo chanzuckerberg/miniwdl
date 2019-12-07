@@ -274,7 +274,10 @@ def print_error(exn):
 
 async def read_source(uri, path, importer):
     if uri.startswith("http:") or uri.startswith("https:"):
-        fn = os.path.join(tempfile.mkdtemp(prefix="miniwdl_import_uri_"), os.path.basename(uri))
+        fn = os.path.join(
+            tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
+            os.path.basename(urllib.parse.urlsplit(uri).path),
+        )
         urllib.request.urlretrieve(uri, filename=fn)
         with open(fn, "r") as infile:
             return ReadSourceResult(infile.read(), uri)
