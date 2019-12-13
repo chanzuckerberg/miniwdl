@@ -621,11 +621,7 @@ def runner_input(doc, inputs, input_file, empty, task=None, check_required=True)
                 assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
                 existing.value.extend(v.value)
             else:
-                die(
-                    "non-array input {} duplicated on command line\n{}".format(
-                        buf[0], runner_input_help(target)
-                    )
-                )
+                die("non-array input {} duplicated\n{}".format(buf[0], runner_input_help(target)))
         else:
             input_env = input_env.bind(name, v, decl)
 

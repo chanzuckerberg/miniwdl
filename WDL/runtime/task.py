@@ -380,7 +380,7 @@ class TaskDockerContainer(TaskContainer):
                     # file is neither world-readable, nor group-readable for the invoking user's primary group
                     logger.warning(
                         _(
-                            "one or more input file(s) could be inaccessible to docker images that don't run as root; it may be necessary to `chmod a+r` them, or set --copy-input-files",
+                            "one or more input file(s) could be inaccessible to docker images that don't run as root; it may be necessary to `chmod g+r` them, or set --copy-input-files",
                             example_file=host_path,
                         )
                     )
