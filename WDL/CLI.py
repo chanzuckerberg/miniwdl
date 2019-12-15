@@ -94,7 +94,10 @@ class PipVersionAction(Action):
             print(f"miniwdl v{pkg_resources.get_distribution('miniwdl').version}")
         except pkg_resources.DistributionNotFound:
             print("miniwdl version unknown")
-        print("Cromwell version: " + CROMWELL_VERSION)
+        print("Cromwell " + CROMWELL_VERSION)
+        for plugin_group in ["miniwdl.plugin.file_download"]:
+            for plugin in pkg_resources.iter_entry_points(group=plugin_group):
+                print(f"{plugin_group}\t{plugin}\t{plugin.dist}")
         sys.exit(0)
 
 

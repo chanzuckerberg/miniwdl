@@ -8,8 +8,9 @@ from reentry import manager as entry_pt_manager
 
 # WDL tasks for downloading a file based on its URI scheme
 
+
 @contextmanager
-def aria2c_downloader(uri: str, dir: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
+def aria2c_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
     wdl = r"""
     task aria2c {
         input {
@@ -38,7 +39,7 @@ def aria2c_downloader(uri: str, dir: str) -> Iterator[Tuple[str, Dict[str, Any]]
 
 
 @contextmanager
-def gsutil_downloader(uri: str, dir: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
+def gsutil_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
     wdl = r"""
     task gsutil_cp {
         input {
@@ -69,19 +70,18 @@ def _load():
     if _downloaders:
         return
 
+    # default public URI downloaders
     _downloaders["https"] = aria2c_downloader
     _downloaders["http"] = aria2c_downloader
     _downloaders["ftp"] = aria2c_downloader
-
     _downloaders["gs"] = gsutil_downloader
 
-    for plugin in entry_pt_manager.iter_entry_points(group="miniwdl.plugin.download"):
+    # plugins
+    for plugin in entry_pt_manager.iter_entry_points(group="miniwdl.plugin.file_download"):
         _downloaders[plugin.name] = plugin.load()
 
 
-def _downloader(
-    uri: str,
-) -> Optional[Callable[[str, str], ContextManager[Tuple[str, Dict[str, Any]]]]]:
+def _downloader(uri: str,) -> Optional[Callable[[str], ContextManager[Tuple[str, Dict[str, Any]]]]]:
     _load()
     colon = uri.find(":")
     if colon <= 0:
