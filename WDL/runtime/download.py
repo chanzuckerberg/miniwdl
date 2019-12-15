@@ -124,7 +124,7 @@ def gsutil_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
 
     TODO: adopt security credentials from runtime environment
     """
-    wdl = r"""
+    yield r"""
     task gsutil_cp {
         input {
             String uri
@@ -143,5 +143,4 @@ def gsutil_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
             docker: "google/cloud-sdk:slim"
         }
     }
-    """
-    yield wdl, {"uri": uri}
+    """, {"uri": uri}
