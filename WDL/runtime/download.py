@@ -2,7 +2,7 @@
 Downloading input files from URIs, with plugin modules for different URI schemes
 
 Download URI plugins are installed & registered using the setuptools entry point group
-"miniwdl.plugin.file_download", with entry point name equal to the URI scheme (e.g. "gs" or "s3").
+"miniwdl.plugin.file_download", with name equal to the URI scheme (e.g. "gs" or "s3").
 
 The plugin entry point should be a context manager, which the runtime keeps open for the duration of
 the download operation. Given the desired URI, it should quickly yield a tuple with:
@@ -16,9 +16,9 @@ The Python context manager itself might be used to obtain and manage the lifetim
 security credentials.
 """
 import os
+import pkg_resources
 from typing import Optional, List, Iterable, Iterator, Dict, Any, Tuple, ContextManager, Callable
 from contextlib import contextmanager
-from reentry import manager as entry_pt_manager
 
 # WDL tasks for downloading a file based on its URI scheme
 
@@ -65,7 +65,7 @@ def _load():
     _downloaders["ftp"] = aria2c_downloader
 
     # plugins
-    for plugin in entry_pt_manager.iter_entry_points(group="miniwdl.plugin.file_download"):
+    for plugin in pkg_resources.iter_entry_points(group="miniwdl.plugin.file_download"):
         _downloaders[plugin.name] = plugin.load()
 
 
