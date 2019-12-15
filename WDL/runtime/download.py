@@ -1,5 +1,19 @@
 """
-Logic for downloading input files from URIs
+Downloading input files from URIs, with plugin modules for different URI schemes
+
+Download URI plugins are installed & registered using the setuptools entry point group
+"miniwdl.plugin.file_download", with entry point name equal to the URI scheme (e.g. "gs" or "s3").
+
+The plugin entry point should be a context manager, which the runtime keeps open for the duration of
+the download operation. Given the desired URI, it should quickly yield a tuple with:
+    1. source code of a WDL 1.0 task to perform the download
+    2. dict of Cromwell-style JSON inputs to give to the task
+miniwdl then executes this specified operation, expecting it to produce an output "File file" with
+the downloaded file. By doing the heavy lifting in a WDL task, the operation gets to inherit all
+the functionality of miniwdl's task runtime, e.g. pulling docker image with binary dependencies,
+resource scheduling & isolation, logging, error/signal handling, retry, etc.
+The Python context manager itself might be used to obtain and manage the lifetime of any needed
+security credentials.
 """
 import os
 from typing import Optional, List, Iterable, Iterator, Dict, Any, Tuple, ContextManager, Callable
@@ -7,6 +21,9 @@ from contextlib import contextmanager
 from reentry import manager as entry_pt_manager
 
 # WDL tasks for downloading a file based on its URI scheme
+
+
+_downloaders = {}
 
 
 @contextmanager
@@ -38,34 +55,6 @@ def aria2c_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
     yield wdl, {"uri": uri}
 
 
-@contextmanager
-def gsutil_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
-    wdl = r"""
-    task gsutil_cp {
-        input {
-            String uri
-        }
-        command <<<
-            set -euxo pipefail
-            mkdir __out/
-            gsutil -q cp "~{uri}" __out/
-        >>>
-        output {
-            File file = glob("__out/*")[0]
-        }
-        runtime {
-            cpu: 4
-            memory: "1G"
-            docker: "google/cloud-sdk:slim"
-        }
-    }
-    """
-    yield wdl, {"uri": uri}
-
-
-_downloaders = {}
-
-
 def _load():
     if _downloaders:
         return
@@ -74,7 +63,6 @@ def _load():
     _downloaders["https"] = aria2c_downloader
     _downloaders["http"] = aria2c_downloader
     _downloaders["ftp"] = aria2c_downloader
-    _downloaders["gs"] = gsutil_downloader
 
     # plugins
     for plugin in entry_pt_manager.iter_entry_points(group="miniwdl.plugin.file_download"):
@@ -127,3 +115,33 @@ def run(uri: str, **kwargs) -> str:
         raise DownloadFailed(uri) from exn.__cause__
     except:
         raise DownloadFailed(uri)
+
+
+@contextmanager
+def gsutil_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
+    """
+    Built-in downloader plugin for public gs:// URIs; registered by setup.cfg entry_points section
+
+    TODO: adopt security credentials from runtime environment
+    """
+    wdl = r"""
+    task gsutil_cp {
+        input {
+            String uri
+        }
+        command <<<
+            set -euxo pipefail
+            mkdir __out/
+            gsutil -q cp "~{uri}" __out/
+        >>>
+        output {
+            File file = glob("__out/*")[0]
+        }
+        runtime {
+            cpu: 4
+            memory: "1G"
+            docker: "google/cloud-sdk:slim"
+        }
+    }
+    """
+    yield wdl, {"uri": uri}
