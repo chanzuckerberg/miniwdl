@@ -143,4 +143,6 @@ def gsutil_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
             docker: "google/cloud-sdk:slim"
         }
     }
-    """, {"uri": uri}
+    """, {
+        "uri": uri
+    }
