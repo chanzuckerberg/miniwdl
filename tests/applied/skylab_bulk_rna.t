@@ -5,11 +5,11 @@ set -eo pipefail
 cd "$(dirname $0)/../.."
 SOURCE_DIR="$(pwd)"
 
+pip3 install .  # make sure gs:// downloader is registered
+
 DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)
 cd $DN
 echo "$DN"
-
-pip3 install .  # make sure gs:// downloader is registered
 
 git clone --depth 1 https://github.com/HumanCellAtlas/skylab.git
 
