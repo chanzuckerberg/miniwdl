@@ -1033,7 +1033,7 @@ def cromwell(
         with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
             print(json.dumps(outputs_json["outputs"], indent=2), file=outfile)
 
-        runtime.make_output_links(outputs_json["outputs"], rundir)
+        runtime.link_outputs(outputs_json["outputs"], rundir)
 
     sys.exit(proc.returncode)
 

@@ -604,7 +604,7 @@ def run_local_task(
             # write and link outputs
             from .. import values_to_json
 
-            make_output_links(values_to_json(outputs, namespace=task.name), run_dir)  # pyre-fixme
+            outputs = link_outputs(outputs, run_dir)
             write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
 
             # make sure everything will be accessible to downstream tasks
@@ -930,50 +930,64 @@ def _eval_task_outputs(
     return outputs
 
 
-def make_output_links(outputs_json: Dict[str, Any], run_dir: str) -> None:
+def link_outputs(outputs: Env.Bindings[Value.Base], run_dir: str) -> Env.Bindings[Value.Base]:
     """
     Following a successful run, the output files may be scattered throughout a complex directory
     tree used for execution. To help navigating this, generate a subdirectory of the run directory
-    containing nicely organized symlinks to the output files.
-
-    Given ``WDL.Env.Bindings[WDL.Value.Base]`` outputs, this expects to receive
-    ``WDL.values_to_json(outputs, namespace=targets.name)`` instead of outputs directly. This makes
-    it compatible with Cromwell's output JSON too.
-
-    For security reasons, omits any files not inside run_dir (e.g. if the outputs include an input
-    file located elsewhere)
+    containing nicely organized symlinks to the output files, and rewrite File values in the
+    outputs env to use these symlinks.
     """
 
-    def traverse(v: Any, dn: str) -> None:  # pyre-fixme
-        assert isinstance(v, (str, int, float, list, dict)) or v is None
-        if (
-            isinstance(v, str)
-            and v.startswith(run_dir + "/")
-            and os.path.isfile(v)
-            and path_really_within(v, run_dir)
-        ):
+    def map_files(v: Value.Base, dn: str) -> Value.Base:
+        if isinstance(v, Value.File):
+            hardlink = os.path.realpath(v.value)
+            assert os.path.isfile(hardlink)
+            symlink = os.path.join(dn, os.path.basename(v.value))
             os.makedirs(dn, exist_ok=False)
-            os.symlink(v, os.path.join(dn, os.path.basename(v)))
-        elif isinstance(v, list) and v:
-            d = int(math.ceil(math.log10(len(v))))  # how many digits needed
-            for i, elt in enumerate(v):
-                traverse(elt, os.path.join(dn, str(i).rjust(d, "0")))
-        elif isinstance(v, dict):
+            os.symlink(hardlink, symlink)
+            v.value = symlink
+        # recurse into compound values
+        elif isinstance(v, Value.Array) and v.value:
+            d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
+            for i in range(len(v.value)):
+                v.value[i] = map_files(v.value[i], os.path.join(dn, str(i).rjust(d, "0")))
+        elif isinstance(v, Value.Map):
             # create a subdirectory for each key, as long as the key names seem to make reasonable
-            # path components; otherwise, treat the dict as a list of its values (this is possible
-            # in Maps where keys can be arbitrary)
-            if (
-                sum(1 for key in v if re.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", key) is None)
+            # path components; otherwise, treat the dict as a list of its values
+            keys_ok = (
+                sum(
+                    1
+                    for b in v.value
+                    if re.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0])) is None
+                )
                 == 0
-            ):
-                for key, value in v.items():
-                    traverse(value, os.path.join(dn, key))
-            else:
-                traverse(list(v.values()), dn)
+            )
+            d = int(math.ceil(math.log10(len(v.value))))
+            for i, b in enumerate(v.value):
+                v.value[i] = (
+                    b[0],
+                    map_files(
+                        b[1], os.path.join(dn, str(b[0]) if keys_ok else str(i).rjust(d, "0"))
+                    ),
+                )
+        elif isinstance(v, Value.Pair):
+            v.value = (
+                map_files(v.value[0], os.path.join(dn, "left")),
+                map_files(v.value[1], os.path.join(dn, "right")),
+            )
+        elif isinstance(v, Value.Struct):
+            for key in v.value:
+                v.value[key] = map_files(v.value[key], os.path.join(dn, key))
+        return v
 
-    dn0 = os.path.join(run_dir, "output_links")
-    os.makedirs(dn0, exist_ok=False)
-    traverse(outputs_json, dn0)
+    return outputs.map(
+        lambda binding: Env.Binding(
+            binding.name,
+            map_files(
+                copy.deepcopy(binding.value), os.path.join(run_dir, "output_links", binding.name)
+            ),
+        )
+    )
 
 
 class _StdLib(StdLib.Base):
