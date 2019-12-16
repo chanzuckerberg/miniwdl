@@ -94,7 +94,10 @@ class PipVersionAction(Action):
             print(f"miniwdl v{pkg_resources.get_distribution('miniwdl').version}")
         except pkg_resources.DistributionNotFound:
             print("miniwdl version unknown")
-        print("Cromwell version: " + CROMWELL_VERSION)
+        for plugin_group in ["miniwdl.plugin.file_download"]:
+            for plugin in pkg_resources.iter_entry_points(group=plugin_group):
+                print(f"{plugin_group}\t{plugin}\t{plugin.dist}")
+        print("Cromwell " + CROMWELL_VERSION)
         sys.exit(0)
 
 
@@ -621,11 +624,7 @@ def runner_input(doc, inputs, input_file, empty, task=None, check_required=True)
                 assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
                 existing.value.extend(v.value)
             else:
-                die(
-                    "non-array input {} duplicated on command line\n{}".format(
-                        buf[0], runner_input_help(target)
-                    )
-                )
+                die("non-array input {} duplicated\n{}".format(buf[0], runner_input_help(target)))
         else:
             input_env = input_env.bind(name, v, decl)
 
@@ -1080,7 +1079,7 @@ def fill_localize_subparser(subparsers):
     localize_parser = subparsers.add_parser(
         "localize",
         help="Download URIs found in Cromwell-style input JSON and rewrite",
-        description=f"Download {'/'.join(runtime.download.schemes())} URIs found in Cromwell-style input JSON, and rewrite it with the local filenames.",
+        description=f"Download URIs found in Cromwell-style input JSON, and rewrite it with the local filenames.",
     )
     localize_parser.add_argument(
         "wdlfile", metavar="DOC.wdl", type=str, help="WDL document filename/URI"

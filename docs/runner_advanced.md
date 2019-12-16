@@ -54,11 +54,11 @@ WDL's `size()` function to measure `File` size (or total `Array[File]` size) can
 
 ### Control multithreading explicitly
 
-With multiple concurrent containers, each one might "see" all of the host processors (for example, using `nproc` or Python `multiprocessing.cpu_count()`) even if it reserved fewer. If the tasks use parallel tools that default their thread/process count to the detected processor count, they might cause an overload. Therefore, tasks should explicitly control their internal multithreading to match their reserved CPU count, as illustrated in the previous example with `xargs -P`.
+With multiple concurrent containers, each one might "see" all of the host processors (for example, using `nproc` or Python `multiprocessing.cpu_count()`) even if its `runtime.cpu` reserved fewer. If the tasks use parallel tools that default their thread/process count to the detected processor count, they might cause an overload. Therefore, tasks should explicitly control their internal multithreading to match their reserved CPU count, as illustrated in the previous example with `xargs -P`.
 
 ### bash shell configuration
 
-In any task whose command consists of a non-trivial script, [`set -xueo pipefail`](https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/) at the beginning to configure the bash shell in a way that usually improves robustness and debuggability.
+In any task whose command consists of a non-trivial script, `set -euxo pipefail` at the beginning to configure the bash shell in a way that [usually improves robustness and debuggability](https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/).
 
 The record of invocations left by `set -x` goes well with `miniwdl run --verbose`, which includes them in the task log along with timestamps. You can also put arbitrary messages into this log by writing them into standard error, e.g. `>&2 echo "progress report"`
 
