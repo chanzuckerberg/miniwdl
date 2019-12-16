@@ -96,7 +96,7 @@ is "$(ls $f1)" "$f1" "task product brown file"
 f1=$(jq -r '.["echo.out_f"][2]' taskrun/outputs.json)
 is "$(basename $f1)" "fox" "task product fox"
 is "$(ls $f1)" "$f1" "task product fox file"
-is "$(ls taskrun/output_links/echo.out_f/2)" "fox" "task product fox link"
+is "$(ls taskrun/output_links/out_f/2)" "fox" "task product fox link"
 
 cat << 'EOF' > echo.wdl
 version 1.0
@@ -165,7 +165,7 @@ is "$(ls $f1)" "$f1" "workflow product brown file"
 f1=$(jq -r '.["echo.t.out_f"][2]' workflowrun/outputs.json)
 is "$(basename $f1)" "fox" "workflow product fox"
 is "$(ls $f1)" "$f1" "workflow product fox file"
-is "$(ls workflowrun/output_links/echo.t.out_f/2)" "fox" "workflow product fox link"
+is "$(ls workflowrun/output_links/t.out_f/2)" "fox" "workflow product fox link"
 
 cat << 'EOF' > scatter_echo.wdl
 version 1.0
@@ -185,8 +185,8 @@ workflow echo {
 EOF
 $miniwdl cromwell --dir scatterrun/. scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
 is "$?" "0" "scatter run"
-is "$(ls scatterrun/output_links/echo.t.out_f/0/2)" "fox" "scatter product 0 fox link"
-is "$(ls scatterrun/output_links/echo.t.out_f/1/2)" "fox" "scatter product 1 fox link"
+is "$(ls scatterrun/output_links/t.out_f/0/2)" "fox" "scatter product 0 fox link"
+is "$(ls scatterrun/output_links/t.out_f/1/2)" "fox" "scatter product 1 fox link"
 
 mkdir my_imports
 cat << 'EOF' > my_imports/my_hello.wdl

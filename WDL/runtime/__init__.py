@@ -4,7 +4,7 @@ from .. import Tree, Value, Env
 from . import task
 from . import workflow
 from .error import *
-from .task import run_local_task, make_output_links
+from .task import run_local_task, link_outputs
 from .workflow import run_local_workflow
 
 

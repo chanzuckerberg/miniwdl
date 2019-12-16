@@ -358,19 +358,19 @@ class TestStdLib(unittest.TestCase):
         }
         """)
         self.assertEqual(len(outputs["globs"][0]), 1)
-        self.assertTrue(outputs["globs"][0][0].endswith("/stuff/foo"))
+        self.assertTrue(outputs["globs"][0][0].endswith("/foo"))
         self.assertEqual(len(outputs["globs"][1]), 4)
-        self.assertTrue(outputs["globs"][1][0].endswith("/stuff/bar"))
-        self.assertTrue(outputs["globs"][1][1].endswith("/stuff/bas"))
-        self.assertTrue(outputs["globs"][1][2].endswith("/stuff/bat"))
-        self.assertTrue(outputs["globs"][1][3].endswith("/stuff/baz"))
+        self.assertTrue(outputs["globs"][1][0].endswith("/bar"))
+        self.assertTrue(outputs["globs"][1][1].endswith("/bas"))
+        self.assertTrue(outputs["globs"][1][2].endswith("/bat"))
+        self.assertTrue(outputs["globs"][1][3].endswith("/baz"))
         self.assertEqual(len(outputs["globs"][2]), 5)
-        self.assertTrue(outputs["globs"][2][4].endswith("/stuff/foo"))
+        self.assertTrue(outputs["globs"][2][4].endswith("/foo"))
         self.assertEqual(len(outputs["globs"][3]), 0)
         for g in outputs["globs"] + [[outputs["f1"]]]:
             for fn in g:
                 assert os.path.isfile(fn), fn
-        self.assertTrue(outputs["f1"].endswith("/stuff/foo"))
+        self.assertTrue(outputs["f1"].endswith("/foo"))
 
         self._test_task(R"""
         version 1.0

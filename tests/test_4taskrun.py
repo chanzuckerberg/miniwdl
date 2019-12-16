@@ -228,7 +228,7 @@ class TestTaskRunner(unittest.TestCase):
             }
             """,
             {"who": os.path.join(self._dir, "alyssa.txt")})
-        self.assertEqual(outputs["who2"], os.path.join(self._dir, "alyssa.txt"))
+        self.assertEqual(os.path.realpath(outputs["who2"]), os.path.join(self._dir, "alyssa.txt"))
 
         # stdout()
         outputs = self._test_task(R"""

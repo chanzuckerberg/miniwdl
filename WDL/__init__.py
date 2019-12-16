@@ -9,7 +9,7 @@ documents.
 import os
 import errno
 import inspect
-from typing import List, Optional, Callable, Dict, Any, Awaitable
+from typing import List, Optional, Callable, Dict, Any, Awaitable, Union
 from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker, Lint, StdLib
 from .Tree import (
     Decl,
@@ -156,8 +156,8 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[Task]:
 
 def values_from_json(
     values_json: Dict[str, Any],
-    available: Env.Bindings[Tree.Decl],
-    required: Optional[Env.Bindings[Tree.Decl]] = None,
+    available: Env.Bindings[Union[Tree.Decl, Type.Base]],
+    required: Optional[Env.Bindings[Union[Tree.Decl, Type.Base]]] = None,
     namespace: str = "",
 ) -> Env.Bindings[Value.Base]:
     """
@@ -179,9 +179,12 @@ def values_from_json(
             if namespace and key.startswith(namespace):
                 key2 = key[len(namespace) :]
             try:
-                ty = available[key2].type
+                ty = available[key2]
             except KeyError:
                 raise Error.InputError("unknown input/output: " + key) from None
+            if isinstance(ty, Tree.Decl):
+                ty = ty.type
+            assert isinstance(ty, Type.Base)
             ans = ans.bind(key2, Value.from_json(ty, values_json[key]))
     if required:
         missing = required.subtract(ans)

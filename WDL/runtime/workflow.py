@@ -45,7 +45,7 @@ from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable
 import pkg_resources
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .task import run_local_task, _filenames, make_output_links
+from .task import run_local_task, _filenames, link_outputs
 from .download import able as downloadable, run as download
 from .._util import (
     write_values_json,
@@ -686,11 +686,11 @@ def run_local_workflow(
                 for tp in thread_pools:
                     tp.shutdown()
 
+    outputs = link_outputs(outputs, run_dir)
     write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
 
     from .. import values_to_json
 
-    make_output_links(values_to_json(outputs, namespace=workflow.name), run_dir)
     logger.notice("done")  # pyre-fixme
     return (run_dir, outputs)
 
