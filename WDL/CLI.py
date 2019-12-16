@@ -734,7 +734,9 @@ def runner_input_value(s_value, ty):
         downloadable = runtime.download.able(s_value)
         if not (downloadable or os.path.isfile(s_value)):
             die("File not found: " + s_value)
-        return Value.File(os.path.abspath(s_value) if not downloadable else s_value)
+        return Value.File(
+            os.path.abspath(os.path.expanduser(s_value)) if not downloadable else s_value
+        )
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
