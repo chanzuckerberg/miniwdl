@@ -1079,7 +1079,7 @@ def fill_localize_subparser(subparsers):
     localize_parser = subparsers.add_parser(
         "localize",
         help="Download URIs found in Cromwell-style input JSON and rewrite",
-        description=f"Download {'/'.join(runtime.download.schemes())} URIs found in Cromwell-style input JSON, and rewrite it with the local filenames.",
+        description=f"Download URIs found in Cromwell-style input JSON, and rewrite it with the local filenames.",
     )
     localize_parser.add_argument(
         "wdlfile", metavar="DOC.wdl", type=str, help="WDL document filename/URI"
