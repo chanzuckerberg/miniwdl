@@ -1027,13 +1027,18 @@ def cromwell(
         except:
             die("failed to find outputs JSON in Cromwell standard output")
 
+        # load the outputs, make file links and outputs.json
+        outputs = values_from_json(
+            outputs_json["outputs"], target.effective_outputs, namespace=target.name
+        )
+        outputs = runtime.link_outputs(outputs, rundir)
+
         assert "dir" not in outputs_json
         outputs_json["dir"] = rundir
+        outputs_json["outputs"] = values_to_json(outputs, namespace=target.name)
         print(json.dumps(outputs_json, indent=2))
         with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
             print(json.dumps(outputs_json["outputs"], indent=2), file=outfile)
-
-        runtime.link_outputs(outputs_json["outputs"], rundir)
 
     sys.exit(proc.returncode)
 
