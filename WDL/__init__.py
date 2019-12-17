@@ -178,6 +178,11 @@ def values_from_json(
             key2 = key
             if namespace and key.startswith(namespace):
                 key2 = key[len(namespace) :]
+            if key2 not in available:
+                # attempt to simplify <call>.<subworkflow>.<input>
+                key2parts = key2.split(".")
+                if len(key2parts) == 3 and key2parts[0] and key2parts[1] and key2parts[2]:
+                    key2 = ".".join([key2parts[0], key2parts[2]])
             try:
                 ty = available[key2]
             except KeyError:

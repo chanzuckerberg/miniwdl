@@ -483,6 +483,11 @@ class Call(WorkflowNode):
                         self.callee = task
         if self.callee is None:
             raise Error.NoSuchTask(self, ".".join(self.callee_id))
+        assert doc.workflow
+        if self.name == doc.workflow.name:
+            raise Error.MultipleDefinitions(
+                self, "Call's name may not equal the containing workflow's"
+            )
         assert isinstance(self.callee, (Task, Workflow))
 
     def add_to_type_env(

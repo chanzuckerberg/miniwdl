@@ -478,7 +478,6 @@ class IncompleteCall(Linter):
 class NameCollision(Linter):
     # Name collisions between
     # - call and import
-    # - call and its containing workflow
     # - call and struct type/alias
     # - decl and import
     # - decl and workflow
@@ -503,13 +502,10 @@ class NameCollision(Linter):
             if imp.namespace == obj.name:
                 msg = "call name '{}' collides with imported document namespace".format(obj.name)
                 self.add(obj, msg)
-        if doc.workflow and doc.workflow.name == obj.name:
-            msg = "call name '{}' collides with workflow name".format(obj.name)
-            self.add(obj, msg)
         for stb in doc.struct_typedefs:
             assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
             if stb.name == obj.name:
-                msg = "call name '{}' colides with {}struct type".format(
+                msg = "call name '{}' collides with {}struct type".format(
                     obj.name, "imported " if stb.value.imported else ""
                 )
                 self.add(obj, msg)

@@ -247,7 +247,7 @@ class dxWDL(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 4, 'NameCollision': 30, 'StringCoercion': 4, 'FileCoercion': 2, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2, 'SelectArray': 1},
+    expected_lint={'UnusedImport': 4, 'NameCollision': 27, 'StringCoercion': 4, 'FileCoercion': 2, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2, 'SelectArray': 1},
     blacklist=["check_quant", "incomplete_call"],
 )
 class Contrived(unittest.TestCase):
@@ -255,7 +255,7 @@ class Contrived(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 6, 'NameCollision': 49, 'StringCoercion': 9, 'FileCoercion': 4, 'OptionalCoercion': 3, 'NonemptyCoercion': 2, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, 'ArrayCoercion': 2, 'SelectArray': 4},
+    expected_lint={'UnusedImport': 6, 'NameCollision': 43, 'StringCoercion': 9, 'FileCoercion': 4, 'OptionalCoercion': 3, 'NonemptyCoercion': 2, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, 'ArrayCoercion': 2, 'SelectArray': 4},
     check_quant=False,
     blacklist=["incomplete_call"],
 )

@@ -319,6 +319,15 @@ class TestCalls(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
+        txt = task_no_outputs + r"""
+        workflow contrived {
+            call p as contrived
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+
     def test_if_defined(self):
         # test how we typecheck a construct like
         #   if defined(x) then EXPR_WITH_x else SOME_DEFAULT
@@ -497,8 +506,8 @@ class TestCalls(unittest.TestCase):
         doc.workflow.available_inputs.resolve("popular")
         doc.workflow.available_inputs.resolve("fortytwo")
         doc.workflow.available_inputs.resolve("required")
-        self.assertTrue(doc.workflow.available_inputs.has_namespace("contrived"))
-        doc.workflow.available_inputs.resolve("contrived.opt")
+        self.assertTrue(doc.workflow.available_inputs.has_namespace("c1"))
+        doc.workflow.available_inputs.resolve("c1.opt")
         self.assertTrue(doc.workflow.available_inputs.has_namespace("c2"))
         doc.workflow.available_inputs.enter_namespace("c2").resolve("opt")
         doc.workflow.available_inputs.enter_namespace("c2").resolve("i")
