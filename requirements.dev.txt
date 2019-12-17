@@ -6,6 +6,7 @@ pylint
 sphinx
 sphinx-autobuild
 sphinx_rtd_theme
+graphviz
 coverage==4.*
 python-coveralls
 wheel
