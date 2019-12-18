@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.abspath('..'))
 # -- Project information -----------------------------------------------------
 
 project = 'miniwdl'
-copyright = '2018, CZI'
+copyright = '2019, CZI'
 author = 'CZI'
 
 # The short X.Y version

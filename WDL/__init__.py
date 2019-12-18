@@ -18,6 +18,7 @@ from .Tree import (
     Call,
     Scatter,
     Conditional,
+    Gather,
     Workflow,
     Document,
     WorkflowNode,
