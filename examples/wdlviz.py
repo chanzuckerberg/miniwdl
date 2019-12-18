@@ -17,7 +17,11 @@ def main(args=None):
     parser = argparse.ArgumentParser(
         description="Visualize a WDL workflow using miniwdl and graphviz"
     )
-    parser.add_argument("wdl", metavar="FILE", help="WDL document containing a workflow")
+    parser.add_argument(
+        "wdl", metavar="FILE", help="WDL workflow file or URL (- for standard input)"
+    )
+    parser.add_argument("--inputs", action="store_true", help="include input declarations")
+    parser.add_argument("--outputs", action="store_true", help="include output declarations")
     parser.add_argument(
         "--no-quant-check",
         dest="check_quant",
@@ -35,16 +39,21 @@ def main(args=None):
     args = parser.parse_args(args if args is not None else sys.argv[1:])
 
     # load WDL document
-    doc = WDL.load(args.wdl, args.path or [], check_quant=args.check_quant, read_source=read_source)
+    doc = WDL.load(
+        args.wdl if args.wdl != "-" else "/dev/stdin",
+        args.path or [],
+        check_quant=args.check_quant,
+        read_source=read_source,
+    )
     assert doc.workflow, "No workflow in WDL document"
 
     # visualize workflow
-    dot = wdlviz(doc)
+    dot = wdlviz(doc.workflow, args.inputs, args.outputs)
     print(dot.source)
-    dot.render(os.path.basename(args.wdl) + ".dot", view=True)
+    dot.render(doc.workflow.name + ".dot", view=True)
 
 
-def wdlviz(doc: WDL.Document):
+def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False):
     """
     Project the workflow's built-in dependency graph onto a graphviz representation
     """
@@ -53,70 +62,80 @@ def wdlviz(doc: WDL.Document):
     # 2. graphviz API -- https://graphviz.readthedocs.io/en/stable/manual.html
 
     # initialiaze Digraph
-    top = graphviz.Digraph(comment=doc.workflow.name)
+    top = graphviz.Digraph(comment=workflow.name)
     top.attr(compound="true", rankdir="LR")
+    fontname = "Roboto"
+    top.attr("node", fontname=fontname)
+    node_ids = set()
 
     # recursively add graphviz nodes for each decl/call/scatter/conditional workflow node.
-    # some global bookkeeping:
-    gather_referees = {}  # final_referee of each Gather workflow node
-    cluster_lheads = {}  # cluster subgraph name for each scatter/conditional section
 
     def add_node(graph: graphviz.Digraph, node: WDL.WorkflowNode):
+        nonlocal node_ids
         if isinstance(node, WDL.WorkflowSection):
             # scatter/conditional section: add a cluster subgraph to contain its body
             with graph.subgraph(name="cluster-" + node.workflow_node_id) as sg:
                 label = "scatter" if isinstance(node, WDL.Scatter) else "if"
-                sg.attr(label=label + f"({str(node.expr)})", rank="same")
+                sg.attr(label=label + f"({str(node.expr)})", fontname=fontname, rank="same")
                 for child in node.body:
                     add_node(sg, child)
-                # Gather node bookkeeping
-                for gather in node.gathers.values():
-                    gather_referees[gather.workflow_node_id] = gather.final_referee.workflow_node_id
-                # Add an invisible node inside the subgraph which is just to provide a sink for the
-                # dependency edges with this cluster as their lhead
+                # Add an invisible node inside the subgraph, which provides a sink for dependencies
+                # of the scatter/conditional expression itself
                 sg.node(node.workflow_node_id, "", style="invis", height="0", width="0", margin="0")
-                cluster_lheads[node.workflow_node_id] = sg.name
-        elif isinstance(node, WDL.Decl):
-            # non-input value declaration
-            assert node.workflow_node_id.startswith("decl-")
-            graph.node(node.workflow_node_id, node.workflow_node_id[5:], shape="plaintext")
-        elif isinstance(node, WDL.Call):
-            # task/subworkflow call
-            graph.node(node.workflow_node_id, node.workflow_node_id, shape="cds")
-        else:
-            assert False, node.__class__.__name__
+            node_ids.add(node.workflow_node_id)
+            node_ids |= set(g.workflow_node_id for g in node.gathers.values())
+        elif isinstance(node, WDL.Call) or (
+            isinstance(node, WDL.Decl)
+            and (inputs or node_ids.intersection(node.workflow_node_dependencies))
+        ):
+            # node for call or decl
+            graph.node(
+                node.workflow_node_id,
+                node.name,
+                shape=("cds" if isinstance(node, WDL.Call) else "plaintext"),
+            )
+            node_ids.add(node.workflow_node_id)
 
-    for elt in doc.workflow.body:
-        add_node(top, elt)
+    for node in workflow.body:
+        add_node(top, node)
 
     # cluster of the input decls
-    with top.subgraph(name="cluster-inputs") as sg:
-        for inp in doc.workflow.inputs or []:
-            assert inp.workflow_node_id.startswith("decl-")
-            sg.node(inp.workflow_node_id, inp.workflow_node_id[5:], shape="plaintext")
-        sg.attr(label="inputs")
+    if inputs:
+        with top.subgraph(name="cluster-inputs") as sg:
+            for inp in workflow.inputs or []:
+                assert inp.workflow_node_id.startswith("decl-")
+                sg.node(inp.workflow_node_id, inp.workflow_node_id[5:], shape="plaintext")
+                node_ids.add(inp.workflow_node_id)
+            sg.attr(label="inputs", fontname=fontname)
 
     # cluster of the output decls
-    with top.subgraph(name="cluster-outputs") as sg:
-        for outp in doc.workflow.outputs or []:
-            assert outp.workflow_node_id.startswith("output-")
-            sg.node(outp.workflow_node_id, outp.workflow_node_id[7:], shape="plaintext")
-        sg.attr(label="outputs")
+    if outputs:
+        with top.subgraph(name="cluster-outputs") as sg:
+            for outp in workflow.outputs or []:
+                assert outp.workflow_node_id.startswith("output-")
+                sg.node(outp.workflow_node_id, outp.workflow_node_id[7:], shape="plaintext")
+                node_ids.add(outp.workflow_node_id)
+            sg.attr(label="outputs", fontname=fontname)
 
     # add edge for each dependency between workflow nodes
     def add_edges(node):
-        for pred in node.workflow_node_dependencies:
+        for dep_id in node.workflow_node_dependencies:
+            dep = workflow.get_node(dep_id)
             # leave Gather nodes invisible by replacing any dependencies on them with their
             # final_referee
-            pred = gather_referees.get(pred, pred)
-            top.edge(
-                pred, node.workflow_node_id, lhead=cluster_lheads.get(node.workflow_node_id, None)
-            )
+            if isinstance(dep, WDL.Tree.Gather):
+                dep = dep.final_referee
+                dep_id = dep.workflow_node_id
+            if dep_id in node_ids and node.workflow_node_id in node_ids:
+                lhead = None
+                if isinstance(node, WDL.WorkflowSection):
+                    lhead = "cluster-" + node.workflow_node_id
+                top.edge(dep_id, node.workflow_node_id, lhead=lhead)
         if isinstance(node, WDL.WorkflowSection):
             for child in node.body:
                 add_edges(child)
 
-    for node in (doc.workflow.inputs or []) + doc.workflow.body + (doc.workflow.outputs or []):
+    for node in (workflow.inputs or []) + workflow.body + (workflow.outputs or []):
         add_edges(node)
 
     return top

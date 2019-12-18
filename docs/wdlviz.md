@@ -34,7 +34,7 @@ Consider a workflow as a graph, whose nodes are task calls or intermediate value
 
 Miniwdl provides just such a representation in its WDL object model, where [`Workflow.body`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.Workflow.body) is a list of objects deriving from [`WorkflowNode`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.WorkflowNode), whose implementations include `Call`, `Decl`, and `Scatter` and `Conditional` sections. Each `WorkflowNode` exposes a `workflow_node_id` string, and a set `workflow_node_dependencies` of node IDs which it depends on. Miniwdl pre-computes these with detailed static analysis; for example, it finds `Call` dependencies by scanning each WDL expression in the [`Call.inputs`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.Call.inputs) and resolving identifiers to previous call outputs or value declarations. This detailed syntax tree is also exposed in the API, but the `WorkflowNode` abstraction is convenient for the application at hand.
 
-Let us first consider simple workflows without scatter and conditional sections, only calls and value declarations. Furthermore, to keep the visualization tidy, we'll only include intermediate declarations which depend on some previously seen node.
+Let us first consider simple workflows without scatter and conditional sections, only calls and value declarations. Furthermore, to keep the visualization tidy, we'll only include intermediate declarations which depend on other nodes.
 
 ```python3
 def wdlviz(workflow):
@@ -45,7 +45,7 @@ def wdlviz(workflow):
         shape = None
         if isinstance(elt, WDL.Call):
             shape = "cds"
-        elif isinstance(elt, WDL.Decl) and node_ids.intersection(elt.workflow_node_dependencies):
+        elif isinstance(elt, WDL.Decl) and elt.workflow_node_dependencies:
             shape = "plaintext"
 
         if shape:
@@ -114,6 +114,7 @@ def wdlviz(workflow):
     node_ids = set()
 
     def add_node(dot, elt):
+        nonlocal node_ids
         shape = None
         if isinstance(elt, WDL.WorkflowSection):
             with dot.subgraph(name="cluster-" + elt.workflow_node_id) as subdot:
@@ -125,6 +126,7 @@ def wdlviz(workflow):
                     elt.workflow_node_id, "", style="invis", height="0", width="0", margin="0"
                 )
             node_ids.add(elt.workflow_node_id)
+            node_ids |= set(g.workflow_node_id for g in elt.gathers.values())
         elif isinstance(elt, WDL.Call):
             shape = "cds"
         elif isinstance(elt, WDL.Decl) and node_ids.intersection(elt.workflow_node_dependencies):
@@ -140,7 +142,7 @@ def wdlviz(workflow):
 
 When we encounter a [`WorkflowSection`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.WorkflowSection) (the base class of `Scatter` and `Conditional`), we create a corresponding [graphviz cluster](https://graphviz.gitlab.io/_pages/Gallery/directed/cluster.html) labelled with the section's scatter/condition expression, then recurse on each node in the section body. We also add an invisible node to act as a sink for dependencies of the scatter/condition expression itself.
 
-Workflow sections also complicate miniwdl's representation of the dependency structure, because a dependency between nodes not in the same section have a different meaning. (For example, a dependency on an `Int` node inside a `scatter` section implies an `Array[Int]` outside of that section.) To model this, miniwdl synthesizes [`Gather` nodes](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.Gather) through which intermediate dependencies between nodes inside a section and those outside. We won't include `Gather` nodes in the visualization, since they're an implicit concept, but we will rely on their API to resolve the internal node or "referee."
+Workflow sections also complicate miniwdl's representation of the dependency structure, because a dependency between nodes not in the same section have a different meaning. (For example, a dependency on an `Int` node inside a `scatter` section implies an `Array[Int]` outside of that section.) To model this, miniwdl synthesizes [`Gather` nodes](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.Gather) which intermediate dependencies between nodes inside a section and those outside. We won't include `Gather` nodes in the visualization, since they're an implicit concept, but we record them in `node_ids` and we'll use their API to resolve the internal node or "referee."
 
 ```python3
     def add_edges(elt):
@@ -191,35 +193,13 @@ def main(args):
     wdlviz(doc.workflow).render("workflow.dot", view=True)
 
 
-def wdlviz1(workflow):
-    dot = graphviz.Digraph(comment=workflow.name)
-    node_ids = set()
-
-    for elt in workflow.body:
-        shape = None
-        if isinstance(elt, WDL.Call):
-            shape = "cds"
-        elif isinstance(elt, WDL.Decl) and node_ids.intersection(elt.workflow_node_dependencies):
-            shape = "plaintext"
-
-        if shape:
-            dot.node(elt.workflow_node_id, elt.name, shape=shape)
-            node_ids.add(elt.workflow_node_id)
-
-    for elt in workflow.body:
-        for dep_id in elt.workflow_node_dependencies:
-            if elt.workflow_node_id in node_ids and dep_id in node_ids:
-                dot.edge(dep_id, elt.workflow_node_id)
-
-    return dot
-
-
 def wdlviz(workflow):
     top = graphviz.Digraph(comment=workflow.name)
     top.attr(compound="true")
     node_ids = set()
 
     def add_node(dot, elt):
+        nonlocal node_ids
         shape = None
         if isinstance(elt, WDL.WorkflowSection):
             with dot.subgraph(name="cluster-" + elt.workflow_node_id) as subdot:
@@ -231,6 +211,7 @@ def wdlviz(workflow):
                     elt.workflow_node_id, "", style="invis", height="0", width="0", margin="0"
                 )
             node_ids.add(elt.workflow_node_id)
+            node_ids |= set(g.workflow_node_id for g in elt.gathers.values())
         elif isinstance(elt, WDL.Call):
             shape = "cds"
         elif isinstance(elt, WDL.Decl) and node_ids.intersection(elt.workflow_node_dependencies):
