@@ -610,7 +610,7 @@ class Gather(WorkflowNode):
     """
 
     def __init__(self, section: "WorkflowSection", referee: "Union[Decl, Call, Gather]") -> None:
-        super().__init__("gather-" + referee.workflow_node_id, section.pos)
+        super().__init__("gather-" + referee.workflow_node_id, referee.pos)
         self.section = section
         self.referee = referee
 
