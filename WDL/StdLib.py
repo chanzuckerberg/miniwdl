@@ -4,7 +4,7 @@ import os
 import re
 import json
 import tempfile
-from typing import List, Tuple, Callable, BinaryIO
+from typing import List, Tuple, Callable, BinaryIO, Optional
 from abc import ABC, abstractmethod
 from . import Type, Value, Expr, Env, Error
 from ._util import byte_size_units, chmod_R_plus
@@ -21,7 +21,7 @@ class Base:
     output sections.
     """
 
-    _write_dir: str  # directory in which write_* functions create
+    _write_dir: str  # directory in which write_* functions create files
 
     def __init__(self, write_dir: str = ""):
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()
@@ -48,88 +48,64 @@ class Base:
         self._gte = _ComparisonOperator(">=", lambda l, r: l >= r)
 
         # static stdlib functions
-        for (name, argument_types, return_type, F) in [
-            ("floor", [Type.Float()], Type.Int(), lambda v: Value.Int(math.floor(v.value))),
-            ("ceil", [Type.Float()], Type.Int(), lambda v: Value.Int(math.ceil(v.value))),
-            ("round", [Type.Float()], Type.Int(), lambda v: Value.Int(round(v.value))),
-            ("length", [Type.Array(Type.Any())], Type.Int(), lambda v: Value.Int(len(v.value))),
-            ("sub", [Type.String(), Type.String(), Type.String()], Type.String(), _sub),
-            ("basename", [Type.String(), Type.String(optional=True)], Type.String(), _basename),
-            (
-                "defined",
-                [Type.Any(optional=True)],
-                Type.Boolean(),
-                lambda v: Value.Boolean(not isinstance(v, Value.Null)),
-            ),
-            (
-                "write_lines",
-                [Type.Array(Type.String())],
-                Type.File(),
-                self._write(_serialize_lines),
-            ),
-            (
-                "write_tsv",
-                [Type.Array(Type.Array(Type.String()))],
-                Type.File(),
-                self._write(
-                    lambda v, outfile: _serialize_lines(
-                        Value.Array(
-                            Type.String(),
-                            [
-                                Value.String(
-                                    "\t".join(
-                                        [part.coerce(Type.String()).value for part in parts.value]
-                                    )
-                                )
-                                for parts in v.value
-                            ],
-                        ),
-                        outfile,
-                    )
-                ),
-            ),
-            (
-                "write_map",
-                [Type.Map((Type.Any(), Type.Any()))],
-                Type.File(),
-                self._write(_serialize_map),
-            ),
-            (
-                "write_json",
-                [Type.Any()],
-                Type.File(),
-                self._write(lambda v, outfile: outfile.write(json.dumps(v.json).encode("utf-8"))),
-            ),
-            ("read_int", [Type.File()], Type.Int(), self._read(lambda s: Value.Int(int(s)))),
-            ("read_boolean", [Type.File()], Type.Boolean(), self._read(_parse_boolean)),
-            (
-                "read_string",
-                [Type.File()],
-                Type.String(),
-                self._read(lambda s: Value.String(s[:-1] if s.endswith("\n") else s)),
-            ),
-            (
-                "read_float",
-                [Type.File()],
-                Type.Float(),
-                self._read(lambda s: Value.Float(float(s))),
-            ),
-            (
-                "read_map",
-                [Type.File()],
-                Type.Map((Type.String(), Type.String())),
-                self._read(_parse_map),
-            ),
-            ("read_lines", [Type.File()], Type.Array(Type.String()), self._read(_parse_lines)),
-            (
-                "read_tsv",
-                [Type.File()],
-                Type.Array(Type.Array(Type.String())),
-                self._read(_parse_tsv),
-            ),
-            ("read_json", [Type.File()], Type.Any(), self._read(_parse_json)),
-        ]:
-            setattr(self, name, StaticFunction(name, argument_types, return_type, F))
+        def static(
+            argument_types: List[Type.Base], return_type: Type.Base, name: Optional[str] = None
+        ):
+            """
+            helper/decorator to create a static function from type signature and a lambda
+            """
+            return lambda F: setattr(
+                self,
+                name or F.__name__,
+                StaticFunction(name or F.__name__, argument_types, return_type, F),
+            )
+
+        static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
+        static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
+        static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round(v.value)))
+        static([Type.Array(Type.Any())], Type.Int(), "length")(lambda v: Value.Int(len(v.value)))
+
+        @static([Type.String(), Type.String(), Type.String()], Type.String())
+        def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
+            return Value.String(re.compile(pattern.value).sub(replace.value, input.value))
+
+        static([Type.String(), Type.String(optional=True)], Type.String())(basename)
+
+        @static([Type.Any(optional=True)], Type.Boolean())
+        def defined(v: Value.Base):
+            return Value.Boolean(not isinstance(v, Value.Null))
+
+        # write_*
+        static([Type.Array(Type.String())], Type.File(), "write_lines")(
+            self._write(_serialize_lines)
+        )
+        static([Type.Array(Type.Array(Type.String()))], Type.File(), "write_tsv")(
+            self._write(_serialize_tsv)
+        )
+        static([Type.Map((Type.Any(), Type.Any()))], Type.File(), "write_map")(
+            self._write(_serialize_map)
+        )
+        static([Type.Any()], Type.File(), "write_json")(
+            self._write(lambda v, outfile: outfile.write(json.dumps(v.json).encode("utf-8")))
+        )
+
+        # read_*
+        static([Type.File()], Type.Int(), "read_int")(self._read(lambda s: Value.Int(int(s))))
+        static([Type.File()], Type.Boolean(), "read_boolean")(self._read(_parse_boolean))
+        static([Type.File()], Type.String(), "read_string")(
+            self._read(lambda s: Value.String(s[:-1] if s.endswith("\n") else s))
+        )
+        static([Type.File()], Type.Float(), "read_float")(
+            self._read(lambda s: Value.Float(float(s)))
+        )
+        static([Type.File()], Type.Map((Type.String(), Type.String())), "read_map")(
+            self._read(_parse_map)
+        )
+        static([Type.File()], Type.Array(Type.String()), "read_lines")(self._read(_parse_lines))
+        static([Type.File()], Type.Array(Type.Array(Type.String())), "read_tsv")(
+            self._read(_parse_tsv)
+        )
+        static([Type.File()], Type.Any(), "read_json")(self._read(_parse_json))
 
         # polymorphically typed stdlib functions which require specialized
         # infer_type logic
@@ -280,6 +256,11 @@ def _notimpl(*args, **kwargs) -> None:
 
 
 class TaskOutputs(Base):
+    """
+    Defines type signatures for functions only available in task output sections.
+    (Implementations left to by overridden by the task runtime)
+    """
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         for (name, argument_types, return_type, F) in [
@@ -288,6 +269,18 @@ class TaskOutputs(Base):
             ("glob", [Type.String()], Type.Array(Type.File()), _notimpl),
         ]:
             setattr(self, name, StaticFunction(name, argument_types, return_type, F))
+
+
+def basename(*args) -> Value.String:
+    assert len(args) in (1, 2)
+    assert isinstance(args[0], Value.String)
+    path = args[0].value
+    if len(args) > 1:
+        assert isinstance(args[1], Value.String)
+        suffix = args[1].value
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+    return Value.String(os.path.basename(path))
 
 
 def _parse_lines(s: str) -> Value.Array:
@@ -359,6 +352,19 @@ def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
         outfile.write(b"\n")
 
 
+def _serialize_tsv(v: Value.Array, outfile: BinaryIO) -> None:
+    return _serialize_lines(
+        Value.Array(
+            Type.String(),
+            [
+                Value.String("\t".join([part.coerce(Type.String()).value for part in parts.value]))
+                for parts in v.value
+            ],
+        ),
+        outfile,
+    )
+
+
 def _serialize_map(map: Value.Map, outfile: BinaryIO) -> None:
     lines = []
     for (k, v) in map.value:
@@ -370,22 +376,6 @@ def _serialize_map(map: Value.Map, outfile: BinaryIO) -> None:
             )
         lines.append(Value.String(k + "\t" + v))
     _serialize_lines(Value.Array(Type.String(), lines), outfile)
-
-
-def _basename(*args) -> Value.String:
-    assert len(args) in (1, 2)
-    assert isinstance(args[0], Value.String)
-    path = args[0].value
-    if len(args) > 1:
-        assert isinstance(args[1], Value.String)
-        suffix = args[1].value
-        if path.endswith(suffix):
-            path = path[: -len(suffix)]
-    return Value.String(os.path.basename(path))
-
-
-def _sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
-    return Value.String(re.compile(pattern.value).sub(replace.value, input.value))
 
 
 class _At(EagerFunction):
