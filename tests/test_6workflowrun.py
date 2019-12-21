@@ -56,6 +56,16 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """), {})
 
+        self.assertEqual(self._test_workflow("""
+        version 1.0
+
+        workflow nop {
+            output {
+                String msg = "hello"
+            }
+        }
+        """), {"msg": "hello"})
+
         outputs = self._test_workflow("""
         version 1.0
 

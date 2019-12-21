@@ -1030,7 +1030,7 @@ class Workflow(SourceNode):
             if self.outputs:
                 output_names = set()
                 output_type_env = self._type_env
-                assert output_type_env
+                assert output_type_env is not None
                 for output in self.outputs:
                     assert output.expr
                     if output.name in output_names:
