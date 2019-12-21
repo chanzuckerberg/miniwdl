@@ -12,6 +12,7 @@ the bioinformatics-focused `Workflow Description Language (WDL) <http://openwdl.
    WDL.rst
    trace_identifiers.md
    wdlviz.md
+   add_functions.md
 
 Links
 =====
