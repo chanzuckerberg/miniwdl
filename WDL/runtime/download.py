@@ -16,7 +16,7 @@ The Python context manager itself might be used to obtain and manage the lifetim
 security credentials.
 """
 import os
-import pkg_resources
+import importlib_metadata
 from typing import Optional, List, Iterable, Iterator, Dict, Any, Tuple, ContextManager, Callable
 from contextlib import contextmanager
 
@@ -65,7 +65,7 @@ def _load():
     _downloaders["ftp"] = aria2c_downloader
 
     # plugins
-    for plugin in pkg_resources.iter_entry_points(group="miniwdl.plugin.file_download"):
+    for plugin in importlib_metadata.entry_points().get("miniwdl.plugin.file_download", []):
         _downloaders[plugin.name] = plugin.load()
 
 

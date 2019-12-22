@@ -42,7 +42,7 @@ import threading
 import copy
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
-import pkg_resources
+import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .task import run_local_task, _filenames, link_outputs
@@ -631,8 +631,8 @@ def run_local_workflow(
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         if not _thread_pools:
             try:
-                version = f"v{pkg_resources.get_distribution('miniwdl').version}"
-            except pkg_resources.DistributionNotFound:
+                version = "v" + importlib_metadata.version("miniwdl")
+            except importlib_metadata.PackageNotFoundError:
                 version = "UNKNOWN"
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
         logger.notice(  # pyre-fixme

@@ -17,7 +17,7 @@ import docker
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action, SUPPRESS
-import pkg_resources
+import importlib_metadata
 from . import *
 from ._util import (
     provision_run_dir,
@@ -91,9 +91,16 @@ def main(args=None):
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
         try:
-            print(f"miniwdl v{pkg_resources.get_distribution('miniwdl').version}")
-        except pkg_resources.DistributionNotFound:
+            print(f"miniwdl v{importlib_metadata.version('miniwdl')}")
+        except importlib_metadata.PackageNotFoundError:
             print("miniwdl version unknown")
+
+        # show plugin versions
+        # importlib_metadata doesn't seem to provide EntryPoint.dist to get from an entry point to
+        # the metadata of the package providing it; continuing to use pkg_resources for this. Risk
+        # that they give inconsistent results?
+        import pkg_resources
+
         for plugin_group in ["miniwdl.plugin.file_download"]:
             for plugin in pkg_resources.iter_entry_points(group=plugin_group):
                 print(f"{plugin_group}\t{plugin}\t{plugin.dist}")
@@ -432,8 +439,8 @@ def runner(
 
     for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
         try:
-            logger.debug(pkg_resources.get_distribution(pkg))
-        except pkg_resources.DistributionNotFound:
+            logger.debug(importlib_metadata.version(pkg))
+        except importlib_metadata.PackageNotFoundError:
             logger.debug(f"{pkg} UNKNOWN")
     logger.debug("dockerd: " + str(docker.from_env().version()))
 
