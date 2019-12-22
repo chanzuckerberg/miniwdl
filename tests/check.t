@@ -43,7 +43,7 @@ $miniwdl check --no-shellcheck lex_error.wdl > lex_error.out 2> lex_error.err
 is "$?" "2" "lex_error.wdl exit code"
 is "$(cat lex_error.out | wc -c)" "0" "lex_error.wdl stdout"
 is "$(grep Traceback lex_error.err | wc -l)" "0" "lex_error.wdl stderr, no traceback"
-is "$(grep 'line 2 col 10' lex_error.err | wc -l)" "1" "lex_error.wdl stderr, position"
+is "$(grep 'Ln 2 Col 10' lex_error.err | wc -l)" "1" "lex_error.wdl stderr, position"
 
 $miniwdl check --no-shellcheck --debug lex_error.wdl > lex_error_debug.out 2> lex_error_debug.err
 is "$(grep Traceback lex_error_debug.err | wc -l)" "1" "lex_error.wdl stderr, traceback"

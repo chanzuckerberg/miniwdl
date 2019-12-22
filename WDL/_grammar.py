@@ -1,6 +1,7 @@
 from typing import Optional, Tuple, Set
 
-# productions shared between draft-2 and 1.0
+# We share the following productions between the grammars for draft-2 and 1.0; this maximizes test
+# coverage.
 productions_common1 = r"""
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // document
@@ -26,7 +27,7 @@ conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 
 call: "call" namespaced_ident call_body? -> call
     | "call" namespaced_ident "as" CNAME call_body? -> call_as
-namespaced_ident: CNAME ("." CNAME)* 
+namespaced_ident: CNAME ("." CNAME)*
 call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
 call_input: CNAME "=" expr
@@ -265,7 +266,223 @@ keywords["draft-2"] = set(
 )
 keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
 
-versions["development"] = versions["1.0"]
+# Development grammar version; any bugfixes to the draft-2/1.0 grammar may need to be forward-
+# ported into this.
+versions[
+    "development"
+] = r"""
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// document
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+document: version? document_element*
+        | version? document_element*
+
+version: "version" /[^ \t\r\n]+/
+?document_element: import_doc | task | workflow | struct
+
+import_doc: "import" string_literal ["as" CNAME] import_alias*
+import_alias: "alias" CNAME "as" CNAME
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// workflow
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+workflow: "workflow" CNAME "{" workflow_element* "}"
+?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section
+
+scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
+conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
+?inner_workflow_element: any_decl | call | scatter | conditional
+
+call: "call" namespaced_ident call_body? -> call
+    | "call" namespaced_ident "as" CNAME call_body? -> call_as
+namespaced_ident: CNAME ("." CNAME)*
+call_inputs: "input" ":" [call_input ("," call_input)*] ","?
+?call_body: "{" call_inputs? "}"
+call_input: CNAME "=" expr
+
+?workflow_outputs: output_decls
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// task
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+task: "task" CNAME "{" task_section* command task_section* "}"
+?task_section: input_decls
+             | output_decls
+             | meta_section
+             | runtime_section
+             | any_decl -> noninput_decl
+
+tasks: task*
+
+input_decls: "input" "{" any_decl* "}"
+output_decls: "output" "{" bound_decl* "}"
+
+// WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
+!?placeholder_key: "default" | "false" | "true" | "sep"
+?placeholder_value: string_literal
+                  | INT -> int
+                  | FLOAT -> float
+placeholder_option: placeholder_key "=" placeholder_value
+placeholder: placeholder_option* expr
+
+?command: command1 | command2
+
+// meta/parameter_meta sections (effectively JSON)
+meta_object: "{" [meta_kv (","? meta_kv)*] "}"
+meta_kv: CNAME ":" meta_value
+?meta_value: literal | string_literal
+           | meta_object
+           | "[" [meta_value ("," meta_value)*] "]" -> meta_array
+META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures higher priority than CNAME
+meta_section: META_KIND meta_object
+
+// task runtime section (key-expression pairs)
+runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
+runtime_kv: CNAME ":" expr
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// decl
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+unbound_decl: type CNAME -> decl
+bound_decl: type CNAME "=" expr -> decl
+?any_decl: unbound_decl | bound_decl
+
+struct: "struct" CNAME "{" unbound_decl* "}"
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// type
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+// WDL types
+type: CNAME _quant?
+      | CNAME "[" type ["," type] "]" _quant?
+
+_quant: optional | nonempty | optional_nonempty
+optional: "?"
+nonempty: "+"
+optional_nonempty: "+?"
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// expr
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+?expr: expr_infix
+
+?expr_infix: expr_infix0
+
+?expr_infix0: expr_infix0 "||" expr_infix1 -> lor
+            | expr_infix1
+
+?expr_infix1: expr_infix1 "&&" expr_infix2 -> land
+            | expr_infix2
+
+?expr_infix2: expr_infix2 "==" expr_infix3 -> eqeq
+            | expr_infix2 "!=" expr_infix3 -> neq
+            | expr_infix2 "<=" expr_infix3 -> lte
+            | expr_infix2 ">=" expr_infix3 -> gte
+            | expr_infix2 "<" expr_infix3 -> lt
+            | expr_infix2 ">" expr_infix3 -> gt
+            | expr_infix3
+
+?expr_infix3: expr_infix3 "+" expr_infix4 -> add
+            | expr_infix3 "-" expr_infix4 -> sub
+            | expr_infix4
+
+?expr_infix4: expr_infix4 "*" expr_infix5 -> mul
+            | expr_infix4 "/" expr_infix5 -> div
+            | expr_infix4 "%" expr_infix5 -> rem
+            | expr_infix5
+
+?expr_infix5: expr_core
+
+// expression core (everything but infix)
+// we stuck this last down here so that further language-version-specific
+// productions can be added below
+?expr_core: "(" expr ")"
+          | literal
+          | string
+          | "!" expr_core -> negate
+
+          | "[" [expr ("," expr)*] ","? "]" -> array
+          | expr_core "[" expr "]" -> at
+
+          | "(" expr "," expr ")" -> pair
+          | "{" [map_kv ("," map_kv)*] ","? "}" -> map
+
+          | "if" expr "then" expr "else" expr -> ifthenelse
+
+          | CNAME "(" [expr ("," expr)*] ")" -> apply
+
+          | CNAME -> left_name
+          | expr_core "." CNAME -> get_name
+          | "object" "{" [object_kv ("," object_kv)* ","?] "}" -> obj
+
+?map_key: literal | string
+map_kv: map_key ":" expr
+
+object_kv:  CNAME ":" expr
+          | string_literal ":" expr
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// literals & string interpolations
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+?literal: "true"-> boolean_true
+        | "false" -> boolean_false
+        | INT -> int
+        | SIGNED_INT -> int
+        | FLOAT -> float
+        | SIGNED_FLOAT -> float
+
+?string: string1 | string2
+
+STRING_INNER1: ("\\'"|/[^']/)
+ESCAPED_STRING1: "'" STRING_INNER1* "'"
+string_literal: ESCAPED_STRING | ESCAPED_STRING1
+
+_EITHER_DELIM.2: "~{" | "${"
+
+// string (single-quoted)
+STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~']/ | /\~[^{$~']/
+STRING1_FRAGMENT: STRING1_CHAR+
+string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
+
+// string (double-quoted)
+STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"]/ | /~[^{$~"]/
+STRING2_FRAGMENT: STRING2_CHAR+
+string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
+
+COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
+COMMAND1_FRAGMENT: COMMAND1_CHAR+
+command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
+
+COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
+COMMAND2_FRAGMENT: COMMAND2_CHAR+
+command2: "command" "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
+
+CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
+
+%import common.INT
+%import common.SIGNED_INT
+%import common.FLOAT
+%import common.SIGNED_FLOAT
+%import common.ESCAPED_STRING
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// whitespace/comments
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+%import common.NEWLINE
+COMMENT: "#" /[^\r\n]*/ NEWLINE
+%ignore COMMENT
+
+%import common.WS
+%ignore WS
+"""
 keywords["development"] = set(
     "Array Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
         " "
