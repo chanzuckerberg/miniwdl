@@ -11,7 +11,7 @@ class TestEval(unittest.TestCase):
         self.assertEqual(str(WDL.parse_expr('["An", "Array"]')), '["An", "Array"]')
         self.assertEqual(str(WDL.parse_expr('{"A": "Map"}')), '{"A": "Map"}')
         self.assertEqual(str(WDL.parse_expr('("A", "Pair")')), '("A", "Pair")')
-        self.assertEqual(str(WDL.parse_expr('object {"A": "struct"}', "1.2")), '{"A": "struct"}')
+        self.assertEqual(str(WDL.parse_expr('object {"A": "struct"}', "1.0")), '{"A": "struct"}')
 
         # logic
         self.assertEqual(str(WDL.parse_expr("true && false")), "true && false")

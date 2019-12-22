@@ -1,283 +1,20 @@
 # pylint: skip-file
 import inspect
-from typing import List, Optional
+from typing import List, Optional, Set
 import lark
 from .Error import SourcePosition
-from . import Error, Tree, Type, Expr
-
-common_grammar = r"""
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// document
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-document: version? document_element*
-        | version? document_element*
-
-version: "version" /[^ \t\r\n]+/
-import_alias: "alias" CNAME "as" CNAME
-import_doc: "import" string_literal ["as" CNAME] import_alias*
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// workflow
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-workflow: "workflow" CNAME "{" workflow_element* "}"
-?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section
-
-scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
-conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
-?inner_workflow_element: any_decl | call | scatter | conditional
-
-call: "call" namespaced_ident call_body? -> call
-    | "call" namespaced_ident "as" CNAME call_body? -> call_as
-namespaced_ident: CNAME ("." CNAME)* 
-call_inputs: "input" ":" [call_input ("," call_input)*] ","?
-?call_body: "{" call_inputs? "}"
-call_input: CNAME "=" expr
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// task
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-task: "task" CNAME "{" task_section* command task_section* "}"
-?task_section: input_decls
-             | output_decls
-             | meta_section
-             | runtime_section
-             | any_decl -> noninput_decl
-
-tasks: task*
-
-input_decls: "input" "{" any_decl* "}"
-output_decls: "output" "{" bound_decl* "}"
-
-// WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
-!?placeholder_key: "default" | "false" | "true" | "sep"
-?placeholder_value: string_literal
-                  | INT -> int
-                  | FLOAT -> float
-placeholder_option: placeholder_key "=" placeholder_value
-placeholder: placeholder_option* expr
-
-?command: command1 | command2
-
-// meta/parameter_meta sections (effectively JSON)
-meta_object: "{" [meta_kv (","? meta_kv)*] "}"
-meta_kv: CNAME ":" meta_value
-?meta_value: literal | string_literal
-           | meta_object
-           | "[" [meta_value ("," meta_value)*] "]" -> meta_array
-META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures higher priority than CNAME
-meta_section: META_KIND meta_object
-
-// task runtime section (key-expression pairs)
-runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
-runtime_kv: CNAME ":" expr
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// decl
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-unbound_decl: type CNAME -> decl
-bound_decl: type CNAME "=" expr -> decl
-?any_decl: unbound_decl | bound_decl
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// type
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-_quant: optional | nonempty | optional_nonempty
-optional: "?"
-nonempty: "+"
-optional_nonempty: "+?"
-
-
-CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
-COMMENT: "#" /[^\r\n]*/ NEWLINE
-
-%import common.INT
-%import common.SIGNED_INT
-%import common.FLOAT
-%import common.SIGNED_FLOAT
-%import common.ESCAPED_STRING
-%import common.WS
-%import common.NEWLINE
-%ignore WS
-%ignore COMMENT
-
-///////////////////////////////////////////////////////////////////////////////////////////////////
-// expr
-///////////////////////////////////////////////////////////////////////////////////////////////////
-
-?expr: expr_infix
-
-?expr_infix: expr_infix0
-
-?expr_infix0: expr_infix0 "||" expr_infix1 -> lor
-            | expr_infix1
-
-?expr_infix1: expr_infix1 "&&" expr_infix2 -> land
-            | expr_infix2
-
-?expr_infix2: expr_infix2 "==" expr_infix3 -> eqeq
-            | expr_infix2 "!=" expr_infix3 -> neq
-            | expr_infix2 "<=" expr_infix3 -> lte
-            | expr_infix2 ">=" expr_infix3 -> gte
-            | expr_infix2 "<" expr_infix3 -> lt
-            | expr_infix2 ">" expr_infix3 -> gt
-            | expr_infix3
-
-?expr_infix3: expr_infix3 "+" expr_infix4 -> add
-            | expr_infix3 "-" expr_infix4 -> sub
-            | expr_infix4
-
-?expr_infix4: expr_infix4 "*" expr_infix5 -> mul
-            | expr_infix4 "/" expr_infix5 -> div
-            | expr_infix4 "%" expr_infix5 -> rem
-            | expr_infix5
-
-?expr_infix5: expr_core
-
-?literal: "true"-> boolean_true
-        | "false" -> boolean_false
-        | INT -> int
-        | SIGNED_INT -> int
-        | FLOAT -> float
-        | SIGNED_FLOAT -> float
-
-?string: string1 | string2
-
-STRING_INNER1: ("\\'"|/[^']/)
-ESCAPED_STRING1: "'" STRING_INNER1* "'"
-string_literal: ESCAPED_STRING | ESCAPED_STRING1
-
-?map_key: literal | string
-map_kv: map_key ":" expr
-
-// expression core (everything but infix)
-// we stuck this last down here so that further language-version-specific
-// productions can be added below
-?expr_core: "(" expr ")"
-          | literal
-          | string
-          | "!" expr_core -> negate
-
-          | "[" [expr ("," expr)*] ","? "]" -> array
-          | expr_core "[" expr "]" -> at
-
-          | "(" expr "," expr ")" -> pair
-          | "{" [map_kv ("," map_kv)*] ","? "}" -> map
-
-          | "if" expr "then" expr "else" expr -> ifthenelse
-
-          | CNAME "(" [expr ("," expr)*] ")" -> apply
-
-          | CNAME -> left_name
-          | expr_core "." CNAME -> get_name
-"""
-
-# pre-1.0 specific productions:
-# - predefined types only
-# - interpolated strings and { } and <<< >>> command styles all have placeholders delimited by ${ }
-# - workflow outputs can be bare identifiers rather than complete decls
-productions_pre_1_0 = r"""
-// WDL types
-type: BUILTIN_TYPE _quant?
-      | BUILTIN_TYPE "[" type ["," type] "]" _quant?
-BUILTIN_TYPE.2: "Int" | "Float" | "Boolean" | "String" | "File" | "Array" | "Map" | "Pair"
-
-// string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$']/
-STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? /\$/* "${" expr "}")* STRING1_FRAGMENT? /\$/* /'/ -> string
-
-// string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{$"]/
-STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? /\$/* "${" expr "}")* STRING2_FRAGMENT? /\$/* /"/ -> string
-
-COMMAND1_CHAR: /[^$}]/ | /\$[^{$]/
-COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* "${" placeholder "}")* COMMAND1_FRAGMENT? /\$/* "}" -> command
-
-COMMAND2_CHAR: /[^$>]/ | /\$[^{$]/ | />[^>]/ | />>[^>]/
-COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? /\$/* "${" placeholder "}")* COMMAND2_FRAGMENT? /\$/* ">>>" -> command
-
-?workflow_outputs: "output" "{" workflow_output_decls "}"
-workflow_output_decls: workflow_output_decl*
-?workflow_output_decl: bound_decl | namespaced_ident | workflow_wildcard_output
-workflow_wildcard_output: namespaced_ident "." "*" | namespaced_ident ".*"
-
-?document_element: import_doc | task | workflow
-"""
-
-# 1.0+ productions:
-# - types can be any CNAME (structs)
-# - within interpolated strings and { } task commands, placeholders may be delimited by ${ } or ~{ }
-# - within <<< >>> commands, placeholders are delimited by ~{ } only
-# - workflow outputs are complete decls
-# - struct type definitions
-# - struct literals (as object literals)
-productions_1_0 = r"""
-          | "object" "{" [object_kv ("," object_kv)* ","?] "}" -> obj // appends to expr_core
-
-object_kv:  CNAME ":" expr
-          | string_literal ":" expr
-
-// WDL types
-type: CNAME _quant?
-      | CNAME "[" type ["," type] "]" _quant?
-
-_EITHER_DELIM.2: "~{" | "${"
-
-// string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~']/ | /\~[^{$~']/
-STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
-
-// string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"]/ | /~[^{$~"]/
-STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
-
-COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
-COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
-
-COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
-COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
-
-?workflow_outputs: output_decls
-
-// struct definitions
-struct: "struct" CNAME "{" unbound_decl* "}"
-
-?document_element: import_doc | task | workflow | struct
-"""
-
-_keywords = "Array Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
-    " "
-)
-
-
-def _grammar_for_version(version: Optional[str]) -> str:
-    if version == "draft-2":
-        return common_grammar + productions_pre_1_0
-    return common_grammar + productions_1_0
-
+from . import Error, Tree, Type, Expr, _grammar
 
 # memoize Lark parsers constructed for version & start symbol
 _lark_cache = {}
 
 
-def parse(txt: str, start: str, version: Optional[str] = None) -> lark.Tree:
-    if (version, start) not in _lark_cache:
-        _lark_cache[(version, start)] = lark.Lark(
-            _grammar_for_version(version), start=start, parser="lalr", propagate_positions=True
+def parse(grammar: str, txt: str, start: str) -> lark.Tree:
+    if (grammar, start) not in _lark_cache:
+        _lark_cache[(grammar, start)] = lark.Lark(
+            grammar, start=start, parser="lalr", propagate_positions=True
         )
-    return _lark_cache[(version, start)].parse(txt + ("\n" if not txt.endswith("\n") else ""))
+    return _lark_cache[(grammar, start)].parse(txt + ("\n" if not txt.endswith("\n") else ""))
 
 
 def to_int(x):
@@ -486,16 +223,21 @@ class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return ans
 
 
-def _check_keyword(pos, name):
-    if name in _keywords:
-        raise Error.SyntaxError(pos, "unexpected keyword {}".format(name))
-
-
 class _DocTransformer(_ExprTransformer, _TypeTransformer):
     # pylint: disable=no-self-use,unused-argument
 
+    _keywords: Set[str]
+
+    def __init__(self, keywords: Set[str], *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._keywords = keywords
+
+    def _check_keyword(self, pos, name):
+        if name in self._keywords:
+            raise Error.SyntaxError(pos, "unexpected keyword {}".format(name))
+
     def decl(self, items, meta):
-        _check_keyword(self._sp(meta), items[1].value)
+        self._check_keyword(self._sp(meta), items[1].value)
         return Tree.Decl(
             self._sp(meta), items[0], items[1].value, (items[2] if len(items) > 2 else None)
         )
@@ -580,7 +322,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 assert isinstance(item, str)
                 assert "name" not in d
                 d["name"] = item.value
-        _check_keyword(self._sp(meta), d["name"])
+        self._check_keyword(self._sp(meta), d["name"])
         return Tree.Task(
             self._sp(meta),
             d["name"],
@@ -615,13 +357,13 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return Tree.Call(self._sp(meta), items[0], None, items[1] if len(items) > 1 else dict())
 
     def call_as(self, items, meta):
-        _check_keyword(self._sp(meta), items[1].value)
+        self._check_keyword(self._sp(meta), items[1].value)
         return Tree.Call(
             self._sp(meta), items[0], items[1].value, items[2] if len(items) > 2 else dict()
         )
 
     def scatter(self, items, meta):
-        _check_keyword(self._sp(meta), items[0].value)
+        self._check_keyword(self._sp(meta), items[0].value)
         return Tree.Scatter(self._sp(meta), items[0].value, items[1], items[2:])
 
     def conditional(self, items, meta):
@@ -681,7 +423,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 elements.append(item)
             else:
                 assert False
-        _check_keyword(self._sp(meta), items[0].value)
+        self._check_keyword(self._sp(meta), items[0].value)
         return Tree.Workflow(
             self._sp(meta),
             items[0].value,
@@ -697,7 +439,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def struct(self, items, meta):
         assert len(items) >= 1
         name = items[0]
-        _check_keyword(self._sp(meta), name)
+        self._check_keyword(self._sp(meta), name)
         members = {}
         for d in items[1:]:
             assert not d.expr
@@ -708,7 +450,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     def import_alias(self, items, meta):
         assert len(items) == 2
-        _check_keyword(self._sp(meta), items[1].value)
+        self._check_keyword(self._sp(meta), items[1].value)
         return (items[0].value, items[1].value)
 
     def import_doc(self, items, meta):
@@ -723,7 +465,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 pass
             if namespace.endswith(".wdl"):
                 namespace = namespace[:-4]
-        _check_keyword(self._sp(meta), namespace)
+        self._check_keyword(self._sp(meta), namespace)
         aliases = [p for p in items[1:] if isinstance(p, tuple)]
         return Tree.DocImport(
             pos=self._sp(meta), uri=uri, namespace=namespace, aliases=aliases, doc=None
@@ -767,7 +509,7 @@ for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
     try:
-        return _ExprTransformer().transform(parse(txt, "expr", version))
+        return _ExprTransformer().transform(parse(_grammar.get(version)[0], txt, "expr"))
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
             uri="(buffer)",
@@ -784,7 +526,8 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
 
 def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
     try:
-        return _DocTransformer().transform(parse(txt, "tasks", version))
+        (grammar, keywords) = _grammar.get(version)
+        return _DocTransformer(keywords).transform(parse(grammar, txt, "tasks"))
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
 
@@ -792,6 +535,9 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
 def parse_document(
     txt: str, version: Optional[str] = None, uri: str = "", abspath: str = ""
 ) -> Tree.Document:
+    npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
+    if not txt.strip():
+        return Tree.Document(npos, [], {}, [], None,)
     if version is None:
         # for now assume the version is 1.0 if the first line is "version <number>"
         # otherwise draft-2
@@ -799,23 +545,17 @@ def parse_document(
         for line in txt.split("\n"):
             line = line.strip()
             if line and line[0] != "#":
-                if (
-                    line.startswith("version ")
-                    and line[8].isdigit()
-                    or line == "version development"
-                ):
-                    version = "1.0"
+                if line.startswith("version "):
+                    version = line[8:]
                 break
-    if not txt.strip():
-        return Tree.Document(
-            SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0),
-            [],
-            {},
-            [],
-            None,
-        )
     try:
-        return _DocTransformer(uri=uri, abspath=abspath).transform(parse(txt, "document", version))
+        (grammar, keywords) = _grammar.get(version)
+    except KeyError:
+        raise Error.SyntaxError(npos, "unknown WDL version " + version) from None
+    try:
+        return _DocTransformer(uri=uri, abspath=abspath, keywords=keywords).transform(
+            parse(grammar, txt, "document")
+        )
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
             uri=(uri if uri else "(buffer)"),
