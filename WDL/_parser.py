@@ -6,31 +6,50 @@ from .Error import SourcePosition
 from . import Error, Tree, Type, Expr
 
 common_grammar = r"""
-?literal: "true"-> boolean_true
-        | "false" -> boolean_false
-        | INT -> int
-        | SIGNED_INT -> int
-        | FLOAT -> float
-        | SIGNED_FLOAT -> float
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// document
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-?string: string1 | string2
+document: version? document_element*
+        | version? document_element*
 
-STRING_INNER1: ("\\'"|/[^']/)
-ESCAPED_STRING1: "'" STRING_INNER1* "'"
-string_literal: ESCAPED_STRING | ESCAPED_STRING1
+version: "version" /[^ \t\r\n]+/
+import_alias: "alias" CNAME "as" CNAME
+import_doc: "import" string_literal ["as" CNAME] import_alias*
 
-?map_key: literal | string
-map_kv: map_key ":" expr
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// workflow
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-// WDL declarations
-_quant: optional | nonempty | optional_nonempty
-optional: "?"
-nonempty: "+"
-optional_nonempty: "+?"
+workflow: "workflow" CNAME "{" workflow_element* "}"
+?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section
 
-unbound_decl: type CNAME -> decl
-bound_decl: type CNAME "=" expr -> decl
-?any_decl: unbound_decl | bound_decl
+scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
+conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
+?inner_workflow_element: any_decl | call | scatter | conditional
+
+call: "call" namespaced_ident call_body? -> call
+    | "call" namespaced_ident "as" CNAME call_body? -> call_as
+namespaced_ident: CNAME ("." CNAME)* 
+call_inputs: "input" ":" [call_input ("," call_input)*] ","?
+?call_body: "{" call_inputs? "}"
+call_input: CNAME "=" expr
+
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// task
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
+task: "task" CNAME "{" task_section* command task_section* "}"
+?task_section: input_decls
+             | output_decls
+             | meta_section
+             | runtime_section
+             | any_decl -> noninput_decl
+
+tasks: task*
+
+input_decls: "input" "{" any_decl* "}"
+output_decls: "output" "{" bound_decl* "}"
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
 !?placeholder_key: "default" | "false" | "true" | "sep"
@@ -42,7 +61,7 @@ placeholder: placeholder_option* expr
 
 ?command: command1 | command2
 
-// task meta/parameter_meta sections (effectively JSON)
+// meta/parameter_meta sections (effectively JSON)
 meta_object: "{" [meta_kv (","? meta_kv)*] "}"
 meta_kv: CNAME ":" meta_value
 ?meta_value: literal | string_literal
@@ -55,39 +74,23 @@ meta_section: META_KIND meta_object
 runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
 runtime_kv: CNAME ":" expr
 
-// WDL tasks
-input_decls: "input" "{" any_decl* "}"
-output_decls: "output" "{" bound_decl* "}"
-?task_section: input_decls
-             | output_decls
-             | meta_section
-             | runtime_section
-             | any_decl -> noninput_decl
-task: "task" CNAME "{" task_section* command task_section* "}"
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// decl
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-tasks: task*
+unbound_decl: type CNAME -> decl
+bound_decl: type CNAME "=" expr -> decl
+?any_decl: unbound_decl | bound_decl
 
-// WDL workflows
-namespaced_ident: CNAME ("." CNAME)* 
-call_input: CNAME "=" expr
-call_inputs: "input" ":" [call_input ("," call_input)*] ","?
-?call_body: "{" call_inputs? "}"
-call: "call" namespaced_ident call_body? -> call
-    | "call" namespaced_ident "as" CNAME call_body? -> call_as
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// type
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
-?inner_workflow_element: any_decl | call | scatter | conditional
-scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
-conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
+_quant: optional | nonempty | optional_nonempty
+optional: "?"
+nonempty: "+"
+optional_nonempty: "+?"
 
-?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section
-workflow: "workflow" CNAME "{" workflow_element* "}"
-
-// WDL document: version, imports, tasks and (at most one) workflow
-version: "version" /[^ \t\r\n]+/
-import_alias: "alias" CNAME "as" CNAME
-import_doc: "import" string_literal ["as" CNAME] import_alias*
-document: version? document_element*
-        | version? document_element*
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 COMMENT: "#" /[^\r\n]*/ NEWLINE
@@ -102,7 +105,10 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
 %ignore WS
 %ignore COMMENT
 
-// WDL expressions
+///////////////////////////////////////////////////////////////////////////////////////////////////
+// expr
+///////////////////////////////////////////////////////////////////////////////////////////////////
+
 ?expr: expr_infix
 
 ?expr_infix: expr_infix0
@@ -131,6 +137,22 @@ COMMENT: "#" /[^\r\n]*/ NEWLINE
             | expr_infix5
 
 ?expr_infix5: expr_core
+
+?literal: "true"-> boolean_true
+        | "false" -> boolean_false
+        | INT -> int
+        | SIGNED_INT -> int
+        | FLOAT -> float
+        | SIGNED_FLOAT -> float
+
+?string: string1 | string2
+
+STRING_INNER1: ("\\'"|/[^']/)
+ESCAPED_STRING1: "'" STRING_INNER1* "'"
+string_literal: ESCAPED_STRING | ESCAPED_STRING1
+
+?map_key: literal | string
+map_kv: map_key ":" expr
 
 // expression core (everything but infix)
 // we stuck this last down here so that further language-version-specific
