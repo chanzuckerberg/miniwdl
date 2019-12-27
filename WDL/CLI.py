@@ -13,6 +13,7 @@ import argcomplete
 import logging
 import urllib
 import asyncio
+import atexit
 import docker
 from shlex import quote as shellquote
 from datetime import datetime
@@ -840,13 +841,28 @@ def run_self_test(**kwargs):
     ]
     if kwargs["as_me"]:
         argv.append("--as-me")
-    outputs = main(argv)["outputs"]
+    try:
+        outputs = main(argv)["outputs"]
+        assert len(outputs["hello_caller.messages"]) == 2
+        assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
+        assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"
+    except SystemExit as exn:
+        assert getattr(exn, "code") == 0  # because of --debug
+    except:
+        atexit.register(
+            lambda: print(
+                "* Hint: ensure Docker is installed, running, and user has permission to control it per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+                file=sys.stderr,
+            )
+        )
+        raise
 
-    assert len(outputs["hello_caller.messages"]) == 2
-    assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
-    assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"
-
-    print("miniwdl run_self_test OK")
+    print("miniwdl run_self_test OK", file=sys.stderr)
+    if os.geteuid() == 0:
+        print(
+            "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+            file=sys.stderr,
+        )
 
 
 def fill_cromwell_subparser(subparsers):
