@@ -367,6 +367,8 @@ class StateMachine:
                 else:
                     assert job.node.type.optional
                     v = Value.Null()
+                if isinstance(job.node, Tree.Assertion) and not v.value:
+                    raise Error.RuntimeError(job.node.message)
             return Env.Bindings(Env.Binding(job.node.name, v))
 
         if isinstance(job.node, WorkflowOutputs):

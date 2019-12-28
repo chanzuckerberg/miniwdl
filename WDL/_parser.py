@@ -325,6 +325,9 @@ class _DocTransformer(_ExprTransformer):
             self._sp(meta), items[0], items[1].value, (items[2] if len(items) > 2 else None)
         )
 
+    def assertion(self, items, meta):
+        return Tree.Assertion(self._sp(meta), items[0])
+
     def input_decls(self, items, meta):
         return {"inputs": items}
 

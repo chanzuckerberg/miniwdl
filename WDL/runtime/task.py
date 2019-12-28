@@ -418,6 +418,8 @@ def _eval_task_inputs(
         vj = json.dumps(v.json)
         logger.info(_("eval", name=decl.name, value=(v.json if len(vj) < 4096 else "(((large)))")))
         container_env = container_env.bind(decl.name, v)
+        if isinstance(decl, Tree.Assertion) and not v.value:
+            raise Error.RuntimeError(decl.message)
 
     return container_env
 
