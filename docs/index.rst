@@ -10,9 +10,6 @@ the bioinformatics-focused `Workflow Description Language (WDL) <http://openwdl.
    getting_started.md
    runner_advanced.md
    WDL.rst
-   trace_identifiers.md
-   wdlviz.md
-   add_functions.md
 
 Links
 =====

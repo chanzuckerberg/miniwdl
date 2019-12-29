@@ -11,7 +11,7 @@ To set up your local development environment,
 2. Install dependencies as illustrated in the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) (OS packages + PyPI packages listed in `requirements.txt` and `requirements.dev.txt`)
 3. Invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
 
-To invoke the `miniwdl` command-line interface from your working repository, e.g. `python3 -m WDL check ...` or `python3 -m WDL run ...`.
+To invoke the `miniwdl` command-line interface from your working repository, e.g. `python3 -m WDL check ...` or `python3 -m WDL run ...`. Another possibility is to `pip3 install .` to install the `miniwdl` entry point with the current code revision (but leaving it installed!).
 
 The Makefile has a few typical flows:
 
@@ -22,7 +22,7 @@ The Makefile has a few typical flows:
 
 To quickly run only a relevant subset of the tests, you can e.g. `python3 -m unittest -f tests/test_5stdlib.py` or `python3 -m unittest -f tests.test_5stdlib.TestStdLib.test_glob`.
 
-The [pull request template](https://github.com/chanzuckerberg/miniwdl/blob/master/.github/pull_request_template.md) includes a checklist for preparing your PR. Thank you!
+Miniwdl's [online documentation](https://miniwdl.readthedocs.io/en/latest/) includes several codelab tutorials to start with. The [pull request template](https://github.com/chanzuckerberg/miniwdl/blob/master/.github/pull_request_template.md) includes a checklist for preparing your PR. Thank you!
 
 ## Security
 

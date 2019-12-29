@@ -1,4 +1,4 @@
-# Codelab: new WDL functions
+# Adding WDL functions
 
 This lab will show how to add new functions to the WDL standard library, thus introducing development on miniwdl itself, emphasizing its expression type-checking and evaluation. To begin, check out the source repository and install Python packages needed for the development environment.
 
@@ -32,7 +32,7 @@ Given a list of the arguments' WDL data types (`WDL.Type.Base`) and the return t
 
 Notice that we include not only the WDL type signature, but also [PEP 484 type hints](https://www.python.org/dev/peps/pep-0484/) for the Python functions. The miniwdl codebase uses such type hints throughout, checked using [pyre](https://pyre-check.org/), which you can try with `make check` in the repository directory. When you send a pull request upstream, miniwdl's continuous integration will require pyre's approval.
 
-(You can find the complete git diff for this and the following examples on the [codelab-stdlib-functions](https://github.com/chanzuckerberg/miniwdl/tree/codelab-stdlib-functions) branch.)
+**You can find the complete git diff for this and the following examples on the [codelab-stdlib-functions](https://github.com/chanzuckerberg/miniwdl/pull/318/files) branch.**
 
 We can try an *ad hoc* test of our new factorial function,
 
@@ -141,4 +141,4 @@ workflow test_choose_random {
 
 Try modifying the declaration types to confirm that `choose_random()`'s return type is properly inferred and constrained in each case. To propose a new function in the WDL specification, of course we should have more-thorough tests, e.g. to exercise the error code paths in both type-checking and evaluation.
 
-The [codelab-stdlib-functions](https://github.com/chanzuckerberg/miniwdl/tree/codelab-stdlib-functions) branch has the complete git diff for these examples.
+**The [codelab-stdlib-functions](https://github.com/chanzuckerberg/miniwdl/pull/318/files) branch has the complete git diff for these examples.**

@@ -1,4 +1,4 @@
-# Codelab: syntax tree traversal
+# Syntax tree traversal
 
 In this lab, we'll develop a short Python script to traverse miniwdl's abstract syntax tree (AST) for a WDL document. Our script will identify each instance of an identifier expression naming an `Array` value, and report the source code location of the value's original definition.
 

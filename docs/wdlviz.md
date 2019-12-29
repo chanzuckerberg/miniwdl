@@ -1,4 +1,4 @@
-# Codelab: wdlviz
+# wdlviz
 
 In this lab, we'll develop a Python program using miniwdl's API to generate a [graphviz](https://www.graphviz.org/) visualization of a WDL workflow's internal dependency structure. We'll keep this example brief and barebones, while a more-elaborate version can be found [in the miniwdl repo](https://github.com/chanzuckerberg/miniwdl/blob/master/examples/wdlviz.py).
 

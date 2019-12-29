@@ -52,3 +52,15 @@ Error
 Lint
 ----
 .. automodule:: WDL.Lint
+
+
+Python codelabs
+===============
+
+.. toctree::
+   :maxdepth: 2
+
+   trace_identifiers.md
+   wdlviz.md
+   add_functions.md
+   assert.md
