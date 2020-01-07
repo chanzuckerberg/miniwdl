@@ -8,3 +8,4 @@ pygtail>=0.11.0
 coloredlogs
 psutil
 importlib-metadata
+regex

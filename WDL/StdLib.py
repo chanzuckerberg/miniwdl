@@ -1,7 +1,7 @@
 # pylint: disable=protected-access,exec-used
 import math
 import os
-import re
+import regex
 import json
 import tempfile
 from typing import List, Tuple, Callable, BinaryIO, Optional
@@ -67,7 +67,7 @@ class Base:
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
         def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
-            return Value.String(re.compile(pattern.value).sub(replace.value, input.value))
+            return Value.String(regex.compile(pattern.value, flags=regex.POSIX).sub(replace.value, input.value))
 
         static([Type.String(), Type.String(optional=True)], Type.String())(basename)
 
