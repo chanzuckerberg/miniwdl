@@ -915,6 +915,7 @@ class UnknownRuntimeKey(Linter):
     # https://github.com/broadinstitute/cromwell/blob/develop/supportedBackends/aws/src/main/scala/cromwell/backend/impl/aws/AwsBatchRuntimeAttributes.scala
     # https://github.com/openwdl/wdl/pull/315
     # https://github.com/dnanexus/dxWDL/blob/master/doc/ExpertOptions.md
+    # https://cromwell.readthedocs.io/en/develop/backends/TES/
     known_keys = set(
         [
             "bootDiskSizeGb",
@@ -922,8 +923,10 @@ class UnknownRuntimeKey(Linter):
             "continueOnReturnCode",
             "cpu",
             "cpuPlatform",
+            "disk",
             "disks",
             "docker",
+            "dockerWorkingDir",
             "dx_instance_type",
             "gpu",
             "gpuCount",
