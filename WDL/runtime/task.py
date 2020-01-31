@@ -296,10 +296,13 @@ class TaskDockerContainer(TaskContainer):
         svc = None
         try:
             # run container as a transient docker swarm service, letting docker handle the resource
-            # scheduling (waiting until requested # of CPUs are available)
+            # scheduling (waiting until requested # of CPUs are available).
             svc = client.services.create(
                 self.image_tag,
-                name=f"wdl-{self.run_id}-{os.getpid()}-{TaskDockerContainer._id_counter.next()}",
+                # unique name with some human readability; docker limits to 63 chars (issue #327)
+                name=f"wdl-{os.getpid()}-{TaskDockerContainer._id_counter.next()}-{self.run_id}"[
+                    :63
+                ],
                 command=[
                     "/bin/bash",
                     "-c",

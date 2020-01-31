@@ -5,6 +5,7 @@ documentation covers the Python3 ``WDL`` package facilitating parsing & static a
 documents.
 
 * `GitHub repo <https://github.com/chanzuckerberg/miniwdl/>`_ for installation and further background
+* `Codelabs <https://miniwdl.readthedocs.io/en/latest/WDL.html#python-codelabs>`_ on using this package
 """
 import os
 import errno

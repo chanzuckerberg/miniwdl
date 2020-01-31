@@ -54,7 +54,8 @@ class TestTaskRunner(unittest.TestCase):
 
         outputs = self._test_task(R"""
         version 1.0
-        task hello {
+        # issue #327
+        task longname9012345678901234567890123456789012345678901234567890123456789012345678901234567890 {
             command <<<
                 cat /etc/issue
             >>>
