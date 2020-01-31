@@ -220,6 +220,8 @@ class TestStdLib(unittest.TestCase):
                 String chocolove = sub(chocolike, "like", "love") # I love chocolate when it's late
                 String chocoearly = sub(chocolike, "late", "early") # I like chocoearly when it's early
                 String chocolate = sub(chocolike, "late$", "early") # I like chocolate when it's early
+                String chocoearlylate = sub(chocolike, "[^ ]late", "early") # I like chocearly when it's late
+                String choco4 = sub(chocolike, " [[:alpha:]]{4} ", " 4444 ") # I 4444 chocolate 4444 it's late
             }
         }
         """)
@@ -227,7 +229,9 @@ class TestStdLib(unittest.TestCase):
             "chocolike": "I like chocolate when it's late",
             "chocolove": "I love chocolate when it's late",
             "chocoearly": "I like chocoearly when it's early",
-            "chocolate": "I like chocolate when it's early"
+            "chocolate": "I like chocolate when it's early",
+            "chocoearlylate": "I like chocearly when it's late",
+            "choco4": "I 4444 chocolate 4444 it's late"
         })
         outputs = self._test_task(R"""
         task example {
