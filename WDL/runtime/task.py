@@ -31,7 +31,6 @@ from .._util import (
     path_really_within,
     LoggingFileHandler,
     AtomicCounter,
-    docker_host_resources,
 )
 from .._util import StructuredLogMessage as _
 from .download import able as downloadable, run as download
@@ -799,7 +798,7 @@ def _eval_task_runtime(
         )
         if cpu != cpu_value:
             logger.warning(
-                _("runtime.cpu adjusted to host maximum", original=cpu_value, adjusted=cpu)
+                _("runtime.cpu adjusted to host limit", original=cpu_value, adjusted=cpu)
             )
         ans["cpu"] = cpu
 
@@ -816,7 +815,7 @@ def _eval_task_runtime(
         if runtime_memory_max > 0 and memory_bytes > runtime_memory_max:
             logger.warning(
                 _(
-                    "runtime.memory adjusted to host maximum",
+                    "runtime.memory adjusted to host limit",
                     original=memory_bytes,
                     adjusted=runtime_memory_max,
                 )

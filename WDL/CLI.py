@@ -27,9 +27,8 @@ from ._util import (
     VERBOSE_LEVEL,
     NOTICE_LEVEL,
     install_coloredlogs,
-    ensure_swarm,
     parse_byte_size,
-    docker_host_resources,
+    initialize_local_docker,
 )
 from ._util import StructuredLogMessage as _
 
@@ -461,7 +460,7 @@ def runner(
         (k, kwargs[k])
         for k in ["copy_input_files", "run_dir", "runtime_cpu_max", "as_me", "max_tasks"]
     )
-    if runtime_memory_max:
+    if runtime_memory_max is not None:
         run_kwargs["runtime_memory_max"] = parse_byte_size(runtime_memory_max)
     if runtime_defaults:
         if runtime_defaults.lstrip()[0] == "{":
@@ -473,13 +472,14 @@ def runner(
     # initialize Docker
     client = docker.from_env()
     try:
-        logger.debug("dockerd :: " + json.dumps(docker.from_env().version())[1:-1])
-        host_cpu, host_mem_bytes = docker_host_resources(logger, client)
-        ensure_swarm(logger, client)
+        logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
+        host_limits = initialize_local_docker(logger, client)
     finally:
         client.close()
-    run_kwargs["runtime_cpu_max"] = run_kwargs.get("runtime_cpu_max", None) or host_cpu
-    run_kwargs["runtime_memory_max"] = run_kwargs.get("runtime_memory_max", None) or host_mem_bytes
+    if not isinstance(run_kwargs.get("runtime_cpu_max", None), int):
+        run_kwargs["runtime_cpu_max"] = host_limits["runtime_cpu_max"]
+    if not isinstance(run_kwargs.get("runtime_memory_max", None), int):
+        run_kwargs["runtime_memory_max"] = host_limits["runtime_memory_max"]
     logger.debug(_("run_kwargs", **run_kwargs))
 
     # run & handle any errors
@@ -1201,6 +1201,13 @@ def localize(
 
     if uris:
         logging.basicConfig(level=NOTICE_LEVEL)
+        # initialize Docker
+        logger = logging.getLogger("miniwdl-localize")
+        client = docker.from_env()
+        try:
+            host_limits = initialize_local_docker(logger, client)
+        finally:
+            client.close()
 
         # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
         # runtime to download them
@@ -1223,7 +1230,7 @@ def localize(
         subdir, outputs = runtime.run(
             localizer.workflow,
             values_from_json({"uris": list(uris)}, localizer.workflow.available_inputs),
-            **kwargs,
+            **host_limits,
         )
 
         # recover the mapping of URIs to downloaded files
