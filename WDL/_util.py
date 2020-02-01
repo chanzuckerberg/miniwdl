@@ -577,7 +577,7 @@ def docker_host_resources(logger: logging.Logger) -> Tuple[int, int]:
             status = detector.wait()
             assert isinstance(status, dict) and status.get("StatusCode", -1) == 0, str(status)
             stdout = detector.logs(stdout=True)
-            logger.debug(StructuredLogMessage("detector output", stdout=stdout))
+            logger.debug(StructuredLogMessage("detector output", stdout=str(stdout)))
             stdout = stdout.decode("utf-8").strip().split("\n")
             assert len(stdout) == 2
             ans = (int(stdout[0]), int(stdout[1]))
