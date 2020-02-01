@@ -12,7 +12,7 @@ class TestStdLib(unittest.TestCase):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_stdlib_")
 
     def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None):
-        WDL._util.ensure_swarm(logging.getLogger("test_task"))
+        WDL._util.ensure_swarm(logging.getLogger("test_task"), docker.from_env())
         try:
             doc = WDL.parse_document(wdl)
             assert len(doc.tasks) == 1
