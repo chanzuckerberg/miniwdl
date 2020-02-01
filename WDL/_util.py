@@ -305,40 +305,36 @@ def PygtailLogger(
 
 
 @export
-def ensure_swarm(logger: logging.Logger) -> None:
-    client = docker.from_env()
-    try:
-        state = "(unknown)"
-        while True:
-            info = client.info()
-            if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
-                state = info["Swarm"]["LocalNodeState"]
+def ensure_swarm(logger: logging.Logger, client: docker.DockerClient) -> None:
+    state = "(unknown)"
+    while True:
+        info = client.info()
+        if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
+            state = info["Swarm"]["LocalNodeState"]
 
-            # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
-            if state == "inactive":
-                logger.warning(
-                    "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
-                )
-                client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
-            elif state == "active":
-                break
-            else:
-                logger.notice(  # pyre-fixme
-                    StructuredLogMessage("waiting for docker swarm to become active", state=state)
-                )
-                sleep(2)
-
-        miniwdl_services = [
-            d
-            for d in [s.attrs for s in client.services.list()]
-            if "Spec" in d and "Labels" in d["Spec"] and "miniwdl_run_id" in d["Spec"]["Labels"]
-        ]
-        if miniwdl_services:
+        # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
+        if state == "inactive":
             logger.warning(
-                "docker swarm lists existing miniwdl-related services. This is normal if other miniwdl processes are running concurrently; otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
+                "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
             )
-    finally:
-        client.close()
+            client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
+        elif state == "active":
+            break
+        else:
+            logger.notice(  # pyre-fixme
+                StructuredLogMessage("waiting for docker swarm to become active", state=state)
+            )
+            sleep(2)
+
+    miniwdl_services = [
+        d
+        for d in [s.attrs for s in client.services.list()]
+        if "Spec" in d and "Labels" in d["Spec"] and "miniwdl_run_id" in d["Spec"]["Labels"]
+    ]
+    if miniwdl_services:
+        logger.warning(
+            "docker swarm lists existing miniwdl-related services. This is normal if other miniwdl processes are running concurrently; otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
+        )
 
 
 _terminating: Optional[bool] = None
@@ -547,49 +543,37 @@ class AtomicCounter:
             return self._value
 
 
-_docker_cpu_mem: Optional[Tuple[int, int]] = None
-_docker_cpu_mem_lock: threading.Lock = threading.Lock()
-
-
 @export
-def docker_host_resources(logger: logging.Logger) -> Tuple[int, int]:
+def docker_host_resources(logger: logging.Logger, client: docker.DockerClient) -> Tuple[int, int]:
     """
     Detect maximum CPUs & memory (bytes) available to Docker containers on the local host
 
     This may differ from multiprocessing.cpu_count() and psutil.virtual_memory().total; in
     particular on Mac, where Docker containers run in a virtual machine with limited resources.
     """
-    with _docker_cpu_mem_lock:
-        global _docker_cpu_mem
-        if _docker_cpu_mem:
-            return _docker_cpu_mem
-
-        logger.debug("detecting host resources available for Docker containers")
-        client = docker.from_env()
-        detector = None
-        try:
-            detector = client.containers.run(
-                "alpine:3",
-                name=f"wdl-detector-{os.getpid()}",
-                command=["/bin/ash", "-c", "nproc && free -b | awk '/^Mem:/{print $2}'"],
-                detach=True,
+    detector = None
+    try:
+        detector = client.containers.run(
+            "alpine:3",
+            name=f"wdl-detector-{os.getpid()}",
+            command=["/bin/ash", "-c", "nproc && free -b | awk '/^Mem:/{print $2}'"],
+            detach=True,
+        )
+        status = detector.wait()
+        assert isinstance(status, dict) and status.get("StatusCode", -1) == 0, str(status)
+        stdout = detector.logs(stdout=True)
+        logger.debug(StructuredLogMessage("docker resource detection", stdout=str(stdout)))
+        stdout = stdout.decode("utf-8").strip().split("\n")
+        assert len(stdout) == 2
+        ans = (int(stdout[0]), int(stdout[1]))
+        logger.info(
+            StructuredLogMessage(
+                "detected host resources available for Docker containers",
+                cpu=ans[0],
+                mem_bytes=ans[1],
             )
-            status = detector.wait()
-            assert isinstance(status, dict) and status.get("StatusCode", -1) == 0, str(status)
-            stdout = detector.logs(stdout=True)
-            logger.debug(StructuredLogMessage("detector output", stdout=str(stdout)))
-            stdout = stdout.decode("utf-8").strip().split("\n")
-            assert len(stdout) == 2
-            ans = (int(stdout[0]), int(stdout[1]))
-            logger.info(
-                StructuredLogMessage(
-                    "detected host resources available for Docker containers",
-                    cpu=ans[0],
-                    mem_bytes=ans[1],
-                )
-            )
-            _docker_cpu_mem = ans
-            return ans
-        finally:
-            if detector:
-                detector.remove()
+        )
+        return ans
+    finally:
+        if detector:
+            detector.remove()

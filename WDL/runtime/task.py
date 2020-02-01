@@ -531,8 +531,8 @@ def run_local_task(
     run_dir: Optional[str] = None,
     copy_input_files: bool = False,
     runtime_defaults: Optional[Dict[str, Union[str, int]]] = None,
-    runtime_cpu_max: Optional[int] = None,
-    runtime_memory_max: Optional[int] = None,
+    runtime_cpu_max: int = 0,
+    runtime_memory_max: int = 0,
     logger_prefix: Optional[List[str]] = None,
     as_me: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
@@ -548,9 +548,8 @@ def run_local_task(
                     If the final path component is ".", then operate in run_dir directly.
     :param copy_input_files: copy input files and mount them read/write instead of read-only
     :param runtime_defaults: default values for runtime settings
-    :param runtime_cpu_max: maximum effective runtime.cpu value (default: # host CPUs)
-    :param runtime_memory_max: maximum effective runtime.memory value in bytes (default: total host
-                               memory)
+    :param runtime_cpu_max: maximum effective runtime.cpu value (if positive)
+    :param runtime_memory_max: maximum effective runtime.memory value in bytes (if positive)
     :param as_me: run container command using the current user uid:gid (may break commands that
                   assume root access, e.g. apt-get)
     """
@@ -578,7 +577,15 @@ def run_local_task(
 
         try:
             # download input files, if needed
-            posix_inputs = _download_input_files(logger, logger_prefix, run_dir, inputs)
+            posix_inputs = _download_input_files(
+                logger,
+                logger_prefix,
+                run_dir,
+                inputs,
+                runtime_defaults=runtime_defaults,
+                runtime_cpu_max=runtime_cpu_max,
+                runtime_memory_max=runtime_memory_max,
+            )
 
             # create appropriate TaskContainer
             container = TaskDockerContainer(run_id, run_dir)
@@ -588,14 +595,8 @@ def run_local_task(
             container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
             # evaluate runtime fields
-            host_cpus, host_memory = docker_host_resources(logger)
             runtime = _eval_task_runtime(
-                logger,
-                task,
-                container_env,
-                runtime_defaults,
-                runtime_cpu_max or host_cpus,
-                runtime_memory_max or host_memory,
+                logger, task, container_env, runtime_defaults, runtime_cpu_max, runtime_memory_max,
             )
             container.image_tag = str(runtime.get("docker", container.image_tag))
             container.as_me = as_me
@@ -636,7 +637,11 @@ def run_local_task(
 
 
 def _download_input_files(
-    logger: logging.Logger, logger_prefix: List[str], run_dir: str, inputs: Env.Bindings[Value.Base]
+    logger: logging.Logger,
+    logger_prefix: List[str],
+    run_dir: str,
+    inputs: Env.Bindings[Value.Base],
+    **task_args,  # pyre-ignore
 ) -> Env.Bindings[Value.Base]:
     """
     Find all File values in the inputs (including any nested within compound values) that need
@@ -656,6 +661,7 @@ def _download_input_files(
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(downloads), "."),
                     logger_prefix=logger_prefix + [f"download{downloads}"],
+                    **task_args,
                 )
                 sz = os.path.getsize(v.value)
                 logger.info(_("downloaded input file", uri=v.value, file=v.value, bytes=sz))
@@ -787,10 +793,13 @@ def _eval_task_runtime(
     if "cpu" in runtime_values:
         cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
         assert isinstance(cpu_value, int)
-        cpu = max(1, min(runtime_cpu_max, cpu_value))
+        cpu = max(
+            1,
+            cpu_value if runtime_cpu_max <= 0 or cpu_value <= runtime_cpu_max else runtime_cpu_max,
+        )
         if cpu != cpu_value:
             logger.warning(
-                _("runtime.cpu adjusted to local limit", original=cpu_value, adjusted=cpu)
+                _("runtime.cpu adjusted to host maximum", original=cpu_value, adjusted=cpu)
             )
         ans["cpu"] = cpu
 
@@ -804,10 +813,10 @@ def _eval_task_runtime(
                 task.runtime["memory"], "invalid setting of runtime.memory, " + memory_str
             )
 
-        if memory_bytes > runtime_memory_max:
+        if runtime_memory_max > 0 and memory_bytes > runtime_memory_max:
             logger.warning(
                 _(
-                    "runtime.memory adjusted to local limit",
+                    "runtime.memory adjusted to host maximum",
                     original=memory_bytes,
                     adjusted=runtime_memory_max,
                 )

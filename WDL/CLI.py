@@ -4,6 +4,7 @@ miniwdl command-line interface
 # PYTHON_ARGCOMPLETE_OK
 import sys
 import os
+import platform
 import subprocess
 import tempfile
 import glob
@@ -28,6 +29,7 @@ from ._util import (
     install_coloredlogs,
     ensure_swarm,
     parse_byte_size,
+    docker_host_resources,
 )
 from ._util import StructuredLogMessage as _
 
@@ -438,12 +440,19 @@ def runner(
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
 
+    versionlog = {}
     for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
         try:
-            logger.debug(importlib_metadata.version(pkg))
+            versionlog[pkg] = str(importlib_metadata.version(pkg))
         except importlib_metadata.PackageNotFoundError:
-            logger.debug(f"{pkg} UNKNOWN")
-    logger.debug("dockerd: " + str(docker.from_env().version()))
+            versionlog[pkg] = "UNKNOWN"
+    logger.debug(_("package versions", **versionlog))
+
+    envlog = {}
+    for k in ["LANG", "SHELL", "USER", "HOME", "PWD", "TMPDIR"]:
+        if k in os.environ:
+            envlog[k] = os.environ[k]
+    logger.debug(_("environment", **envlog))
 
     rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
@@ -461,7 +470,17 @@ def runner(
             with open(runtime_defaults, "r") as infile:
                 run_kwargs["runtime_defaults"] = json.load(infile)
 
-    ensure_swarm(logger)
+    # initialize Docker
+    client = docker.from_env()
+    try:
+        logger.debug("dockerd :: " + json.dumps(docker.from_env().version())[1:-1])
+        host_cpu, host_mem_bytes = docker_host_resources(logger, client)
+        ensure_swarm(logger, client)
+    finally:
+        client.close()
+    run_kwargs["runtime_cpu_max"] = run_kwargs.get("runtime_cpu_max", None) or host_cpu
+    run_kwargs["runtime_memory_max"] = run_kwargs.get("runtime_memory_max", None) or host_mem_bytes
+    logger.debug(_("run_kwargs", **run_kwargs))
 
     # run & handle any errors
     try:
@@ -851,7 +870,12 @@ def run_self_test(**kwargs):
     except:
         atexit.register(
             lambda: print(
-                "* Hint: ensure Docker is installed, running, and user has permission to control it per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+                "* Hint: ensure Docker is installed & running"
+                + (
+                    ", and user has permission to control it per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
+                    if platform.system() != "Darwin"
+                    else "; and on macOS override the environment variable TMPDIR=/tmp/"
+                ),
                 file=sys.stderr,
             )
         )
