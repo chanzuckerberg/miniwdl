@@ -18,7 +18,6 @@ import shlex
 import re
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
-import psutil
 import docker
 from .. import Error, Type, Env, Value, StdLib, Tree, _util
 from .._util import (
@@ -32,6 +31,7 @@ from .._util import (
     path_really_within,
     LoggingFileHandler,
     AtomicCounter,
+    docker_host_resources,
 )
 from .._util import StructuredLogMessage as _
 from .download import able as downloadable, run as download
@@ -496,7 +496,9 @@ class TaskDockerContainer(TaskContainer):
                 try:
                     chowner = client.containers.run(
                         "alpine:3",
-                        name=f"wdl-{self.run_id}-chown-{os.getpid()}-{TaskDockerContainer._id_counter.next()}",
+                        name=f"wdl-chown-{os.getpid()}-{TaskDockerContainer._id_counter.next()}-{self.run_id}"[
+                            :63
+                        ],
                         command=["/bin/ash", "-c", script],
                         volumes=volumes,
                         detach=True,
@@ -586,8 +588,14 @@ def run_local_task(
             container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
             # evaluate runtime fields
+            host_cpus, host_memory = docker_host_resources(logger)
             runtime = _eval_task_runtime(
-                logger, task, container_env, runtime_defaults, runtime_cpu_max, runtime_memory_max
+                logger,
+                task,
+                container_env,
+                runtime_defaults,
+                runtime_cpu_max or host_cpus,
+                runtime_memory_max or host_memory,
             )
             container.image_tag = str(runtime.get("docker", container.image_tag))
             container.as_me = as_me
@@ -751,19 +759,14 @@ def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
     return ans
 
 
-_host_memory: Optional[int] = None
-
-
 def _eval_task_runtime(
     logger: logging.Logger,
     task: Tree.Task,
     env: Env.Bindings[Value.Base],
     runtime_defaults: Optional[Dict[str, Union[str, int]]],
-    runtime_cpu_max: Optional[int],
-    runtime_memory_max: Optional[int],
+    runtime_cpu_max: int,
+    runtime_memory_max: int,
 ) -> Dict[str, Union[int, str]]:
-    global _host_memory
-
     runtime_values = {}
     if runtime_defaults:
         for key, v in runtime_defaults.items():
@@ -784,7 +787,7 @@ def _eval_task_runtime(
     if "cpu" in runtime_values:
         cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
         assert isinstance(cpu_value, int)
-        cpu = max(1, min(runtime_cpu_max or multiprocessing.cpu_count(), cpu_value))
+        cpu = max(1, min(runtime_cpu_max, cpu_value))
         if cpu != cpu_value:
             logger.warning(
                 _("runtime.cpu adjusted to local limit", original=cpu_value, adjusted=cpu)
@@ -801,10 +804,6 @@ def _eval_task_runtime(
                 task.runtime["memory"], "invalid setting of runtime.memory, " + memory_str
             )
 
-        if not runtime_memory_max:
-            _host_memory = _host_memory or psutil.virtual_memory().total
-            runtime_memory_max = _host_memory
-        assert isinstance(runtime_memory_max, int)
         if memory_bytes > runtime_memory_max:
             logger.warning(
                 _(

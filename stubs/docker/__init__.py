@@ -15,6 +15,9 @@ class Container:
     def remove(self, force: bool = False) -> None:
         ...
 
+    def logs(self, stdout: bool = False) -> bytes:
+        ...
+
 class Containers:
     def run(self, image_tag: str, **kwargs) -> Container:
         ...

@@ -545,3 +545,51 @@ class AtomicCounter:
         with self._lock:
             self._value += 1
             return self._value
+
+
+_docker_cpu_mem: Optional[Tuple[int, int]] = None
+_docker_cpu_mem_lock: threading.Lock = threading.Lock()
+
+
+@export
+def docker_host_resources(logger: logging.Logger) -> Tuple[int, int]:
+    """
+    Detect maximum CPUs & memory (bytes) available to Docker containers on the local host
+
+    This may differ from multiprocessing.cpu_count() and psutil.virtual_memory().total; in
+    particular on Mac, where Docker containers run in a virtual machine with limited resources.
+    """
+    with _docker_cpu_mem_lock:
+        global _docker_cpu_mem
+        if _docker_cpu_mem:
+            return _docker_cpu_mem
+
+        logger.debug("detecting host resources available for Docker containers")
+        client = docker.from_env()
+        detector = None
+        try:
+            detector = client.containers.run(
+                "alpine:3",
+                name=f"wdl-detector-{os.getpid()}",
+                command=["/bin/ash", "-c", "nproc && free -b | awk '/^Mem:/{print $2}'"],
+                detach=True,
+            )
+            status = detector.wait()
+            assert isinstance(status, dict) and status.get("StatusCode", -1) == 0, str(status)
+            stdout = detector.logs(stdout=True)
+            logger.debug(StructuredLogMessage("detector output", stdout=stdout))
+            stdout = stdout.decode("utf-8").strip().split("\n")
+            assert len(stdout) == 2
+            ans = (int(stdout[0]), int(stdout[1]))
+            logger.info(
+                StructuredLogMessage(
+                    "detected host resources available for Docker containers",
+                    cpu=ans[0],
+                    mem_bytes=ans[1],
+                )
+            )
+            _docker_cpu_mem = ans
+            return ans
+        finally:
+            if detector:
+                detector.remove()
