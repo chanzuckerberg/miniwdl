@@ -25,7 +25,7 @@ The Makefile has a few typical flows:
 
 To quickly run only a relevant subset of the tests, you can e.g. `python3 -m unittest -f tests/test_5stdlib.py` or `python3 -m unittest -f tests.test_5stdlib.TestStdLib.test_glob`.
 
-**macOS:** isn't preferred for miniwdl development due to some [compatibility problems](https://github.com/chanzuckerberg/miniwdl/issues/145) with test suite; but certainly simple changes can be prototyped under macOS.
+**macOS:** isn't preferred for miniwdl development due to some [test suite incompatibilities](https://github.com/chanzuckerberg/miniwdl/issues/145); but at least simple changes can be prototyped under macOS.
 
 ## Security
 
