@@ -202,13 +202,16 @@ class Map(Base):
         self.type = Type.Map(item_type)
         super().__init__(self.type, value, expr)
 
+    def __str__(self) -> str:
+        return json.dumps(self.json)
+
     @property
     def json(self) -> Any:
         ""
         ans = {}
         for k, v in self.value:
             assert isinstance(k, String)  # TODO
-            ans[k.value] = v.json
+            ans[k.json] = v.json
         return ans
 
     @property

@@ -479,6 +479,21 @@ class TestTypes(unittest.TestCase):
                 check(t,"draft-2")
                 check(t,"1.0")
 
+    def test_unify(self):
+        doc = WDL.parse_document("""
+        workflow unify {
+            String s
+            File? f2
+
+            output {
+                Array[File?] a = [s, f2]
+                Map[String, File?] m = { "foo": s, "bar": f2 }
+                Map[Float, File?] m2 = { 1: s, 2.0: f2 }
+            }
+        }
+        """)
+        doc.typecheck()
+
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
         doc = r"""

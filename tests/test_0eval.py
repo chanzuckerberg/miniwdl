@@ -109,11 +109,8 @@ class TestEval(unittest.TestCase):
                 with self.assertRaises(exn, msg=expected):
                     x = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env)
             else:
-                try:
-                    v = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env).expect(expected_type)
-                    self.assertEqual(str(v), expected)
-                except:
-                    assert False, str(expr)
+                v = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env).expect(expected_type)
+                self.assertEqual(str(v), expected, str(expr))
 
     def test_logic(self):
         self._test_tuples(
@@ -206,7 +203,7 @@ class TestEval(unittest.TestCase):
             ("(if 1>0 then 1+1 else 1)+1","3"),
             ("if 1>0 then if true then 1 else 2 else 3","1"),            
             ("if 3.14 then 0 else 1", "(Ln 1, Col 1) Expected Boolean instead of Float; in if condition", WDL.Error.StaticTypeMismatch),
-            ("if 0 < 1 then 0 else false", "(Ln 1, Col 1) Expected Int instead of Boolean; if consequent & alternative must have the same type", WDL.Error.StaticTypeMismatch),
+            ("if 0 < 1 then 0 else false", "(Ln 1, Col 1) Expected Int instead of Boolean (unable to unify consequent & alternative types)", WDL.Error.StaticTypeMismatch),
             ("if true then 1 else 2.0", "1.0", WDL.Type.Float()),
             ("if false then 1 else 2.0", "2.0", WDL.Type.Float()),
             ("if true then 1.0 else 2", "1.0", WDL.Type.Float()),
@@ -329,11 +326,12 @@ class TestEval(unittest.TestCase):
     def test_map(self):
         self._test_tuples(
             ("{'foo': 1, 'bar': 2}['bar']", "2"),
+            ("{'foo': 1, 'bar': 2, 'baz': 3.0}['bar']", "2.0", WDL.Type.Float()),
             ("{0: 1, 2: 3}[false]", "", WDL.Error.StaticTypeMismatch),
             ("{0: 1, 2: 3}['foo']", "", WDL.Error.EvalError),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
             ("{3: 1, false: 2}", "", WDL.Error.StaticTypeMismatch),
-            ("{'foo': true, 'bar': 0,}", "", WDL.Error.StaticTypeMismatch)
+            ("{'foo': true, 'bar': 0,}", '{"foo": true, "bar": 0}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String())))
         )
 
     def test_errors(self):
