@@ -46,9 +46,7 @@ class Base(CustomDeepCopyMixin, ABC):
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> "Base":
         """
-        Coerce the value to the desired type and return it
-
-        The result is undefined if the coercion is not valid. Types should be
+        Coerce the value to the desired type and return it. Types should be
         checked statically on ``WDL.Expr.Base`` prior to evaluation.
 
         :raises: ReferenceError for a null value and non-optional type
@@ -61,6 +59,9 @@ class Base(CustomDeepCopyMixin, ABC):
             # coercion of T to Array[T] (x to [x])
             # if self is an Array, then Array.coerce precludes this path
             return Array(desired_type, [self.coerce(desired_type.item_type)], self.expr)
+        if desired_type and not self.type.coerces(desired_type):
+            # owing to static type-checking, this path should arise only rarely e.g. read_json()
+            raise Error.InputError(f"cannot coerce {str(self.type)} to {str(desired_type)}")
         return self
 
     def expect(self, desired_type: Optional[Type.Base] = None) -> "Base":
@@ -360,15 +361,15 @@ def from_json(type: Type.Base, value: Any) -> Base:
 
     :raise WDL.Error.InputError: if the given value isn't coercible to the specified type
     """
-    if isinstance(type, Type.Boolean) and value in [True, False]:
+    if isinstance(type, (Type.Boolean, Type.Any)) and value in [True, False]:
         return Boolean(value)
-    if isinstance(type, Type.Int) and isinstance(value, int):
+    if isinstance(type, (Type.Int, Type.Any)) and isinstance(value, int):
         return Int(value)
-    if isinstance(type, Type.Float) and isinstance(value, (float, int)):
+    if isinstance(type, (Type.Float, Type.Any)) and isinstance(value, (float, int)):
         return Float(float(value))
     if isinstance(type, Type.File) and isinstance(value, str):
         return File(value)
-    if isinstance(type, Type.String) and isinstance(value, str):
+    if isinstance(type, (Type.String, Type.Any)) and isinstance(value, str):
         return String(value)
     if isinstance(type, Type.Array) and isinstance(value, list):
         return Array(type, [from_json(type.item_type, item) for item in value])

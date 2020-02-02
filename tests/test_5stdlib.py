@@ -481,7 +481,7 @@ class TestStdLib(unittest.TestCase):
         task hello {
             command <<<
                 echo '{"foo": "bar", "bas": "baz"}' > object.json
-                echo '["foo", "bar", "bas", "baz"]' > list.json
+                echo '[1, 2, 3, 4, 5]' > list.json
                 echo 42 > int.json
                 echo 3.14159 > float.json
                 echo true > bool.json
@@ -489,20 +489,96 @@ class TestStdLib(unittest.TestCase):
             >>>
             output {
                 Map[String,String] map = read_json("object.json")
-                Array[String] array = read_json("list.json")
+                Array[Int] array = read_json("list.json")
                 Int int = read_json("int.json")
                 Float float = read_json("float.json")
                 Boolean bool = read_json("bool.json")
                 String? null = read_json("null.json")
+
+                # issue #320
+                String baz1 = read_json("object.json")["bas"]
+                Int three = read_json("list.json")[2]
             }
         }
         """)
         self.assertEqual(outputs["map"], {"foo": "bar", "bas": "baz"})
-        self.assertEqual(outputs["array"], ["foo", "bar", "bas", "baz"])
+        self.assertEqual(outputs["array"], [1, 2, 3, 4, 5])
         self.assertEqual(outputs["int"], 42)
         self.assertAlmostEqual(outputs["float"], 3.14159)
         self.assertEqual(outputs["bool"], True)
         self.assertEqual(outputs["null"], None)
+        self.assertEqual(outputs["baz1"], "baz")
+        self.assertEqual(outputs["three"], 3)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task test {
+            command <<<
+                echo '["foo", "bar"]'
+            >>>
+            output {
+                Array[String] my_array = read_json(stdout())
+            }
+        }
+        """)
+        self.assertEqual(outputs["my_array"], ["foo", "bar"])
+
+        self._test_task(R"""
+        version 1.0
+        task test {
+            command <<<
+                echo '{"foo":"bar"}'
+            >>>
+            output {
+                Array[String] my_array = read_json(stdout())
+            }
+        }
+        """, expected_exception=WDL.Error.InputError)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task test {
+            command <<<
+                echo '{"foo":"bar"}'
+            >>>
+            output {
+                Map[String, String] my_map = read_json(stdout())
+            }
+        }
+        """)
+        self.assertEqual(outputs["my_map"], {"foo": "bar"})
+
+        self._test_task(R"""
+        version 1.0
+        task test {
+            command <<<
+                echo '["foo", "bar"]'
+            >>>
+            output {
+                Map[String, String] my_map = read_json(stdout())
+            }
+        }
+        """, expected_exception=WDL.Error.InputError)
+
+    def test_read_map_ints(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task test {
+            command <<<
+                python <<CODE
+                for i in range(3):
+                    print("key_{idx}\t{idx}".format(idx=i))
+                CODE
+            >>>
+            output {
+                Map[String, Int] my_ints = read_map(stdout())
+            }
+            runtime {
+                docker: "continuumio/miniconda3"
+            }
+        }
+        """)
+        self.assertEqual(outputs["my_ints"], {"key_0": 0, "key_1": 1, "key_2": 2})
 
     def test_write(self):
         outputs = self._test_task(R"""

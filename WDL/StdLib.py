@@ -328,15 +328,15 @@ def _parse_map(s: str) -> Value.Map:
 
 
 def _parse_json(s: str) -> Value.Base:
-    # TODO: parse int/float/boolean inside map or list as such
+    # TODO: handle nested map/array types...tricky as don't know the expected WDL type
     j = json.loads(s)
     if isinstance(j, dict):
         ans = []
         for k in j:
-            ans.append((Value.String(str(k)), Value.String(str(j[k]))))
-        return Value.Map((Type.String(), Type.String()), ans)
+            ans.append((Value.String(str(k)), Value.from_json(Type.Any(), j[k])))
+        return Value.Map((Type.String(), Type.Any()), ans)
     if isinstance(j, list):
-        return Value.Array(Type.String(), [Value.String(str(v)) for v in j])
+        return Value.Array(Type.Any(), [Value.from_json(Type.Any(), v) for v in j])
     if isinstance(j, bool):
         return Value.Boolean(j)
     if isinstance(j, int):
@@ -407,6 +407,9 @@ class _At(EagerFunction):
                     rhs, lhs.type.item_type[0], rhs.type, "Map key"
                 ) from None
             return lhs.type.item_type[1]
+        if isinstance(lhs.type, Type.Any):
+            # e.g. read_json(): assume lhs is Array[Any] or Map[String,Any]
+            return Type.Any()
         raise Error.NotAnArray(lhs)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
@@ -415,11 +418,12 @@ class _At(EagerFunction):
         rhs = arguments[1]
         if isinstance(lhs, Value.Map):
             mty = expr.arguments[0].type
-            assert isinstance(mty, Type.Map)
-            key = rhs.coerce(mty.item_type[0])
+            key = rhs
+            if isinstance(mty, Type.Map):
+                key = key.coerce(mty.item_type[0])
             ans = None
             for k, v in lhs.value:
-                if rhs == k:
+                if key == k:
                     ans = v
             if ans is None:
                 raise Error.OutOfBounds(expr.arguments[1])  # TODO: KeyNotFound
@@ -427,7 +431,12 @@ class _At(EagerFunction):
         else:
             lhs = lhs.coerce(Type.Array(Type.Any()))
             rhs = rhs.coerce(Type.Int())
-            if rhs.value < 0 or rhs.value >= len(lhs.value):
+            if (
+                not isinstance(lhs, Value.Array)
+                or not isinstance(rhs, Value.Int)
+                or rhs.value < 0
+                or rhs.value >= len(lhs.value)
+            ):
                 raise Error.OutOfBounds(expr.arguments[1])
             return lhs.value[rhs.value]
 
