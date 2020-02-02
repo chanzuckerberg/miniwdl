@@ -710,7 +710,9 @@ def _workflow_main_loop(
     call_futures = {}
     try:
         # download input files, if needed
-        posix_inputs = _download_input_files(logger, logger_id, run_dir, inputs, thread_pools[0])
+        posix_inputs = _download_input_files(
+            logger, logger_id, run_dir, inputs, thread_pools[0], **task_args
+        )
 
         # run workflow state machine to completion
         state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
@@ -785,6 +787,7 @@ def _download_input_files(
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
     thread_pool: futures.ThreadPoolExecutor,
+    **task_args,  # pyre-ignore
 ) -> Env.Bindings[Value.Base]:
     """
     Find all File values in the inputs (including any nested within compound values) that need
@@ -806,6 +809,7 @@ def _download_input_files(
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
                     logger_prefix=logger_prefix + [f"download{len(ops)}"],
+                    **task_args,
                 )
                 ops[future] = v.value
         for ch in v.children:

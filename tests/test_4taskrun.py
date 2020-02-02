@@ -10,12 +10,15 @@ from testfixtures import log_capture
 
 class TestTaskRunner(unittest.TestCase):
 
+    @classmethod
+    def setUpClass(cls):
+        cls._host_limits = WDL._util.initialize_local_docker(logging.getLogger(cls.__name__))
+
     def setUp(self):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
 
     def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, **kwargs):
-        WDL._util.ensure_swarm(logging.getLogger("test_task"))
         try:
             doc = WDL.parse_document(wdl)
             assert len(doc.tasks) == 1
@@ -23,7 +26,9 @@ class TestTaskRunner(unittest.TestCase):
             assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs)
+            kwargs2 = dict(**self._host_limits)
+            kwargs2.update(kwargs)
+            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs2)
         except WDL.runtime.RunFailed as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)

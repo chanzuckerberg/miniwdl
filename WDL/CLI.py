@@ -4,6 +4,7 @@ miniwdl command-line interface
 # PYTHON_ARGCOMPLETE_OK
 import sys
 import os
+import platform
 import subprocess
 import tempfile
 import glob
@@ -26,8 +27,8 @@ from ._util import (
     VERBOSE_LEVEL,
     NOTICE_LEVEL,
     install_coloredlogs,
-    ensure_swarm,
     parse_byte_size,
+    initialize_local_docker,
 )
 from ._util import StructuredLogMessage as _
 
@@ -438,12 +439,19 @@ def runner(
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
 
+    versionlog = {}
     for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
         try:
-            logger.debug(importlib_metadata.version(pkg))
+            versionlog[pkg] = str(importlib_metadata.version(pkg))
         except importlib_metadata.PackageNotFoundError:
-            logger.debug(f"{pkg} UNKNOWN")
-    logger.debug("dockerd: " + str(docker.from_env().version()))
+            versionlog[pkg] = "UNKNOWN"
+    logger.debug(_("package versions", **versionlog))
+
+    envlog = {}
+    for k in ["LANG", "SHELL", "USER", "HOME", "PWD", "TMPDIR"]:
+        if k in os.environ:
+            envlog[k] = os.environ[k]
+    logger.debug(_("environment", **envlog))
 
     rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
@@ -452,7 +460,7 @@ def runner(
         (k, kwargs[k])
         for k in ["copy_input_files", "run_dir", "runtime_cpu_max", "as_me", "max_tasks"]
     )
-    if runtime_memory_max:
+    if runtime_memory_max is not None:
         run_kwargs["runtime_memory_max"] = parse_byte_size(runtime_memory_max)
     if runtime_defaults:
         if runtime_defaults.lstrip()[0] == "{":
@@ -461,7 +469,18 @@ def runner(
             with open(runtime_defaults, "r") as infile:
                 run_kwargs["runtime_defaults"] = json.load(infile)
 
-    ensure_swarm(logger)
+    # initialize Docker
+    client = docker.from_env()
+    try:
+        logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
+        host_limits = initialize_local_docker(logger, client)
+    finally:
+        client.close()
+    if not isinstance(run_kwargs.get("runtime_cpu_max", None), int):
+        run_kwargs["runtime_cpu_max"] = host_limits["runtime_cpu_max"]
+    if not isinstance(run_kwargs.get("runtime_memory_max", None), int):
+        run_kwargs["runtime_memory_max"] = host_limits["runtime_memory_max"]
+    logger.debug(_("run_kwargs", **run_kwargs))
 
     # run & handle any errors
     try:
@@ -851,7 +870,12 @@ def run_self_test(**kwargs):
     except:
         atexit.register(
             lambda: print(
-                "* Hint: ensure Docker is installed, running, and user has permission to control it per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+                "* Hint: ensure Docker is installed & running"
+                + (
+                    ", and user has permission to control it per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
+                    if platform.system() != "Darwin"
+                    else "; and on macOS override the environment variable TMPDIR=/tmp/"
+                ),
                 file=sys.stderr,
             )
         )
@@ -1177,6 +1201,13 @@ def localize(
 
     if uris:
         logging.basicConfig(level=NOTICE_LEVEL)
+        # initialize Docker
+        logger = logging.getLogger("miniwdl-localize")
+        client = docker.from_env()
+        try:
+            host_limits = initialize_local_docker(logger, client)
+        finally:
+            client.close()
 
         # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
         # runtime to download them
@@ -1199,7 +1230,7 @@ def localize(
         subdir, outputs = runtime.run(
             localizer.workflow,
             values_from_json({"uris": list(uris)}, localizer.workflow.available_inputs),
-            **kwargs,
+            **host_limits,
         )
 
         # recover the mapping of URIs to downloaded files

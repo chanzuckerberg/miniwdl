@@ -4,9 +4,14 @@ import tempfile
 import os
 import time
 import sys
+import docker
 from .context import WDL
 
 class TestWorkflowRunner(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls._host_limits = WDL._util.initialize_local_docker(logging.getLogger(cls.__name__))
 
     def setUp(self):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
@@ -16,7 +21,6 @@ class TestWorkflowRunner(unittest.TestCase):
         sys.setrecursionlimit(180)  # set artificially low in unit tests to detect excessive recursion (issue #239)
         logger = logging.getLogger("test_workflow")
         WDL._util.install_coloredlogs(logger)
-        WDL._util.ensure_swarm(logger)
         try:
             with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:
                 outfile.write(wdl.encode("utf-8"))
@@ -25,7 +29,7 @@ class TestWorkflowRunner(unittest.TestCase):
             assert len(doc.workflow.required_inputs.subtract(doc.workflow.available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
-            rundir, outputs = WDL.runtime.run(doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
+            rundir, outputs = WDL.runtime.run(doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True, **self._host_limits)
         except WDL.runtime.RunFailed as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
                 exn = exn.__context__

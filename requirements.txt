@@ -6,6 +6,5 @@ docker>=3.4.0
 argcomplete
 pygtail>=0.11.0
 coloredlogs
-psutil
 importlib-metadata
 regex
