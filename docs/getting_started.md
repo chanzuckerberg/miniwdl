@@ -7,7 +7,7 @@ the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.
 
 Requirements:
 
-1. Linux or Mac OS X
+1. Linux or [macOS (limited support)](https://github.com/chanzuckerberg/miniwdl/issues/145)
 2. Python 3.6 or higher
 3. [Docker Engine](https://docs.docker.com/install/) 17 or higher
 4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
