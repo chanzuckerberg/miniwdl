@@ -211,7 +211,7 @@ class Map(Base):
         ans = {}
         for k, v in self.value:
             assert isinstance(k, String)  # TODO
-            ans[k.json] = v.json
+            ans[k.value] = v.json
         return ans
 
     @property
