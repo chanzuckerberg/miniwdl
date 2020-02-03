@@ -412,43 +412,13 @@ class Array(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if not self.items:
             return Type.Array(Type.Any())
-        # Start by assuming the type of the first item is the item type
-        item_type: Type.Base = self.items[0].type
-        # Allow a mixture of Int and Float to construct Array[Float]
-        if isinstance(item_type, Type.Int):
-            for item in self.items:
-                if isinstance(item.type, Type.Float):
-                    item_type = Type.Float()
-        # If any item is String, assume item type is String
-        # If any item has optional quantifier, assume item type is optional
-        # If all items have nonempty quantifier, assume item type is nonempty
-        all_nonempty = len(self.items) > 0
-        all_stringifiable = True
-        for item in self.items:
-            if isinstance(item.type, Type.String):
-                item_type = Type.String(optional=item_type.optional)
-            if item.type.optional:
-                item_type = item_type.copy(optional=True)
-            if isinstance(item.type, Type.Array) and not item.type.nonempty:
-                all_nonempty = False
-            if not item.type.coerces(Type.String(optional=True)):
-                all_stringifiable = False
-        if isinstance(item_type, Type.Array):
-            item_type = item_type.copy(nonempty=all_nonempty)
-        # Check all items are coercible to item_type
-        for item in self.items:
-            try:
-                item.typecheck(item_type)
-            except Error.StaticTypeMismatch:
-                if all_stringifiable:
-                    # Last resort: coerce all to strings if possible
-                    return Type.Array(
-                        Type.String(optional=item_type.optional), optional=False, nonempty=True
-                    )
-                self._type = Type.Array(item_type, optional=False, nonempty=True)
-                raise Error.StaticTypeMismatch(
-                    self, item_type, item.type, "(inconsistent types within array)"
-                ) from None
+        item_type = _unify_types(
+            [item.type for item in self.items],
+            self._check_quant,
+            self,
+            "(unable to unify array item types)",
+            all_stringifiable=True,
+        )
         return Type.Array(item_type, optional=False, nonempty=True)
 
     def typecheck(self, expected: Optional[Type.Base]) -> Base:
@@ -542,24 +512,21 @@ class Map(Base):
             yield v
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
-        kty = None
-        vty = None
-        for k, v in self.items:
-            if kty is None:
-                kty = k.type
-            else:
-                k.typecheck(kty)
-            if (
-                vty is None
-                or vty == Type.Array(Type.Any())
-                or vty == Type.Map((Type.Any(), Type.Any()))
-            ):
-                vty = v.type
-            else:
-                v.typecheck(vty)
-        if kty is None:
+        if not self.items:
             return Type.Map((Type.Any(), Type.Any()), literal_keys=set())
-        assert vty is not None
+        kty = _unify_types(
+            [k.type for (k, _) in self.items],
+            self._check_quant,
+            self,
+            "(unable to unify map key types)",
+        )
+        vty = _unify_types(
+            [v.type for (_, v) in self.items],
+            self._check_quant,
+            self,
+            "(unable to unify map value types)",
+            all_stringifiable=True,
+        )
         literal_keys = None
         if kty == Type.String():
             # If the keys are string constants, record them in the Type object
@@ -689,36 +656,12 @@ class IfThenElse(Base):
             raise Error.StaticTypeMismatch(
                 self, Type.Boolean(), self.condition.type, "in if condition"
             )
-        # Unify consequent & alternative types. Subtleties:
-        # 1. If either is optional, unify to optional
-        # 2. If one is Int and the other is Float, unify to Float
-        # 3. If one is a nonempty array and the other is a possibly empty
-        #    array, unify to possibly empty array
-        self_type = self.consequent.type
-        assert isinstance(self_type, Type.Base)
-        if isinstance(self_type, Type.Int) and isinstance(self.alternative.type, Type.Float):
-            self_type = Type.Float(optional=self_type.optional)
-        if self.alternative.type.optional:
-            self_type = self_type.copy(optional=True)
-        if (
-            isinstance(self_type, Type.Array)
-            and isinstance(self.consequent.type, Type.Array)
-            and isinstance(self.alternative.type, Type.Array)
-        ):
-            self_type = self_type.copy(
-                nonempty=(self.consequent.type.nonempty and self.alternative.type.nonempty)
-            )
-        try:
-            self.consequent.typecheck(self_type)
-            self.alternative.typecheck(self_type)
-        except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(
-                self,
-                self.consequent.type,
-                self.alternative.type,
-                " (if consequent & alternative must have the same type)",
-            ) from None
-        return self_type
+        return _unify_types(
+            [self.consequent.type, self.alternative.type],
+            self._check_quant,
+            self,
+            "(unable to unify consequent & alternative types)",
+        )
 
     def _eval(
         self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
@@ -1068,3 +1011,63 @@ class Apply(Base):
         f = getattr(stdlib, self.function_name, None)
         assert isinstance(f, StdLib.Function)
         return f(self, env, stdlib)
+
+
+def _unify_types(
+    types: List[Type.Base],
+    check_quant: bool,
+    node: SourceNode,
+    message: str,
+    all_stringifiable: bool = False,
+) -> Type.Base:
+    """
+    Given a nonempty list of types, compute a type to which they're all coercible (or raise
+    StaticTypeMismatch)
+
+    all_stringifiable: permit unification to String even if no item is a String (but all can be
+    coerced)
+    """
+    assert types
+
+    # begin with first type; or if --no-quant-check, the first array type (as we can try to promote
+    # other T to Array[T])
+    t = types[0]
+    if not check_quant:
+        t = next((a for a in types if isinstance(a, Type.Array)), t)
+
+    # potentially promote/generalize t to other types seen
+    optional = False
+    all_nonempty = True
+    for t2 in types:
+        if isinstance(t, Type.Int) and isinstance(t2, Type.Float):
+            t = Type.Float()
+        if isinstance(t, Type.String) and isinstance(t2, Type.File):
+            t = Type.File()
+
+        if (
+            isinstance(t2, Type.String)
+            and not isinstance(t2, Type.File)
+            and not isinstance(t, Type.File)
+            and (not check_quant or not isinstance(t, Type.Array))
+        ):
+            t = Type.String()
+        if not t2.coerces(Type.String(optional=True), check_quant=check_quant):
+            all_stringifiable = False
+
+        if t2.optional:
+            optional = True
+        if isinstance(t2, Type.Array) and not t2.nonempty:
+            all_nonempty = False
+
+    if isinstance(t, Type.Array):
+        t = t.copy(nonempty=all_nonempty)
+    t = t.copy(optional=optional)
+
+    # check all types are coercible to t
+    for t2 in types:
+        if not t2.coerces(t, check_quant=check_quant):
+            if all_stringifiable:
+                return Type.String(optional=optional)
+            raise Error.StaticTypeMismatch(node, t, t2, message)
+
+    return t

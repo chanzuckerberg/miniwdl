@@ -203,6 +203,9 @@ class Map(Base):
         self.type = Type.Map(item_type)
         super().__init__(self.type, value, expr)
 
+    def __str__(self) -> str:
+        return json.dumps(self.json)
+
     @property
     def json(self) -> Any:
         ""
