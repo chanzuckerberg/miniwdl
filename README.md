@@ -9,13 +9,13 @@
 
 <!-- TOC generator tool: https://magnetikonline.github.io/markdown-toc-generate/ -->
 - [Getting Started](#getting-started)
+- [Contributing](#contributing)
 - [Command-line tools](#command-line-tools)
   - [miniwdl check](#miniwdl-check)
   - [miniwdl run](#miniwdl-run)
   - [miniwdl cromwell](#miniwdl-cromwell)
 - [WDL Python library](#wdl-python-library)
   - [API documentation](#api-documentation)
-- [Contributing](#contributing)
 - [Security](#security)
 
 ## Getting Started
@@ -28,7 +28,11 @@
 
 Source install: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) for dependencies to run `setup.py`
 
-See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) reflects the near-term roadmap.
+See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows the current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues).
+
+## [Contributing](https://github.com/chanzuckerberg/miniwdl/blob/master/CONTRIBUTING.md)
+
+Feedback and contributions to miniwdl are welcome, via issues and pull requests on this repository. See [CONTRIBUTING.md](https://github.com/chanzuckerberg/miniwdl/blob/master/CONTRIBUTING.md) for guidelines and instructions to set up your development environment.
 
 ## Command-line tools
 
@@ -195,13 +199,9 @@ File barcoded_bam
 
 Online Python developer documentation for the `WDL` package: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/WDL.html)
 
-(Read the Docs currently builds from the [mlin/miniwdl](https://github.com/mlin/miniwdl) fork of this repository.)
+The documentation includes several Python [Codelabs](https://miniwdl.readthedocs.io/en/latest/WDL.html#python-codelabs) to get started.
 
-Locally, `make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate the docs under `docs/_build/html/`. Or, after building the docker image, copy them out with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
-
-## [Contributing](https://github.com/chanzuckerberg/miniwdl/blob/master/CONTRIBUTING.md)
-
-Feedback and contributions to miniwdl are welcome, via issues and pull requests on this repository. See [CONTRIBUTING.md](https://github.com/chanzuckerberg/miniwdl/blob/master/CONTRIBUTING.md) for guidelines and instructions to set up your development environment.
+Read the Docs currently builds from the [mlin/miniwdl](https://github.com/mlin/miniwdl) fork of this repository. Locally, `make doc` triggers [Sphinx](http://www.sphinx-doc.org/en/stable/) to generate the docs under `docs/_build/html/`. Or, after building the docker image, copy them out with `docker run --rm -v ~/Desktop:/io miniwdl cp -r /miniwdl/docs/_build/html /io/miniwdl_docs`.
 
 ## Security
 
