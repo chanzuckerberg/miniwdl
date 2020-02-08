@@ -33,6 +33,7 @@ from .._util import (
     AtomicCounter,
 )
 from .._util import StructuredLogMessage as _
+from . import config
 from .download import able as downloadable, run as download
 from .error import *
 
@@ -524,12 +525,11 @@ class TaskDockerContainer(TaskContainer):
 
 
 def run_local_task(
+    cfg: config.Loader,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
-    copy_input_files: bool = False,
-    runtime_defaults: Optional[Dict[str, Union[str, int]]] = None,
     runtime_cpu_max: int = 0,
     runtime_memory_max: int = 0,
     logger_prefix: Optional[List[str]] = None,
@@ -545,8 +545,6 @@ def run_local_task(
     :param run_dir: directory under which to create a timestamp-named subdirectory for this run
                     (defaults to current working directory).
                     If the final path component is ".", then operate in run_dir directly.
-    :param copy_input_files: copy input files and mount them read/write instead of read-only
-    :param runtime_defaults: default values for runtime settings
     :param runtime_cpu_max: maximum effective runtime.cpu value (if positive)
     :param runtime_memory_max: maximum effective runtime.memory value in bytes (if positive)
     :param as_me: run container command using the current user uid:gid (may break commands that
@@ -577,11 +575,11 @@ def run_local_task(
         try:
             # download input files, if needed
             posix_inputs = _download_input_files(
+                cfg,
                 logger,
                 logger_prefix,
                 run_dir,
                 inputs,
-                runtime_defaults=runtime_defaults,
                 runtime_cpu_max=runtime_cpu_max,
                 runtime_memory_max=runtime_memory_max,
             )
@@ -595,7 +593,7 @@ def run_local_task(
 
             # evaluate runtime fields
             runtime = _eval_task_runtime(
-                logger, task, container_env, runtime_defaults, runtime_cpu_max, runtime_memory_max,
+                cfg, logger, task, container_env, runtime_cpu_max, runtime_memory_max,
             )
             container.image_tag = str(runtime.get("docker", container.image_tag))
             container.as_me = as_me
@@ -607,7 +605,7 @@ def run_local_task(
             logger.debug(_("command", command=command.strip()))
 
             # start container & run command (and retry if needed)
-            _try_task(logger, container, command, runtime, copy_input_files)
+            _try_task(cfg, logger, container, command, runtime)
 
             # evaluate output declarations
             outputs = _eval_task_outputs(logger, task, container_env, container)
@@ -636,6 +634,7 @@ def run_local_task(
 
 
 def _download_input_files(
+    cfg: config.Loader,
     logger: logging.Logger,
     logger_prefix: List[str],
     run_dir: str,
@@ -657,6 +656,7 @@ def _download_input_files(
             if downloadable(v.value):
                 logger.info(_("download input file", uri=v.value))
                 v.value = download(
+                    cfg,
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(downloads), "."),
                     logger_prefix=logger_prefix + [f"download{downloads}"],
@@ -765,22 +765,21 @@ def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
 
 
 def _eval_task_runtime(
+    cfg: config.Loader,
     logger: logging.Logger,
     task: Tree.Task,
     env: Env.Bindings[Value.Base],
-    runtime_defaults: Optional[Dict[str, Union[str, int]]],
     runtime_cpu_max: int,
     runtime_memory_max: int,
 ) -> Dict[str, Union[int, str]]:
     runtime_values = {}
-    if runtime_defaults:
-        for key, v in runtime_defaults.items():
-            if isinstance(v, str):
-                runtime_values[key] = Value.String(v)
-            elif isinstance(v, int):
-                runtime_values[key] = Value.Int(v)
-            else:
-                raise Error.InputError(f"invalid default runtime setting {key} = {v}")
+    for key, v in cfg["task_runtime"].get_dict("defaults").items():
+        if isinstance(v, str):
+            runtime_values[key] = Value.String(v)
+        elif isinstance(v, int):
+            runtime_values[key] = Value.Int(v)
+        else:
+            raise Error.InputError(f"invalid default runtime setting {key} = {v}")
     for key, expr in task.runtime.items():
         runtime_values[key] = expr.eval(env)
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
@@ -836,11 +835,11 @@ def _eval_task_runtime(
 
 
 def _try_task(
+    cfg: config.Loader,
     logger: logging.Logger,
     container: TaskContainer,
     command: str,
     runtime: Dict[str, Union[int, str]],
-    copy_input_files: bool,
 ) -> None:
     """
     Run the task command in the container, with up to runtime.maxRetries
@@ -850,7 +849,7 @@ def _try_task(
 
     while True:
         # copy input files, if needed
-        if copy_input_files:
+        if cfg["task_io"].get_bool("copy_input_files"):
             container.copy_input_files(logger)
 
         try:

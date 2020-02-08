@@ -5,6 +5,7 @@ import os
 import docker
 import signal
 import time
+import json
 from .context import WDL
 from testfixtures import log_capture
 
@@ -18,7 +19,8 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
 
-    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, **kwargs):
+    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None, **kwargs):
+        cfg = cfg or WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         try:
             doc = WDL.parse_document(wdl)
             assert len(doc.tasks) == 1
@@ -28,7 +30,7 @@ class TestTaskRunner(unittest.TestCase):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
             kwargs2 = dict(**self._host_limits)
             kwargs2.update(kwargs)
-            rundir, outputs = WDL.runtime.run_local_task(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs2)
+            rundir, outputs = WDL.runtime.run_local_task(cfg, doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs2)
         except WDL.runtime.RunFailed as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
@@ -641,7 +643,9 @@ class TestTaskRunner(unittest.TestCase):
 
         outputs = self._test_task(txt, inp)
         chk(outputs["outfiles"])
-        outputs = self._test_task(txt, inp, copy_input_files=True)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_io": {"copy_input_files": True}})
+        outputs = self._test_task(txt, inp, cfg=cfg)
         chk(outputs["outfiles"])
 
     def test_topsort(self):
@@ -759,7 +763,9 @@ class TestTaskRunner(unittest.TestCase):
         """
         self._test_task(txt, {"memory": "100000000"})
         self._test_task(txt, {"memory": "1G"})
-        self._test_task(txt, {"memory": "99T"}, runtime_defaults={"docker":"ubuntu:18.10","cpu":1})
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"defaults": json.dumps({"docker":"ubuntu:18.10","cpu":1})}})
+        self._test_task(txt, {"memory": "99T"}, cfg=cfg)
         self._test_task(txt, {"memory": "99T"}, runtime_memory_max=WDL._util.parse_byte_size(" 123.45 MiB "))
         self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
@@ -791,8 +797,9 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
                         expected_exception=WDL.runtime.task.CommandFailed)
 
-        outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
-                                  copy_input_files=True)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_io": {"copy_input_files": True}})
+        outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]}, cfg=cfg)
         self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))
 
         self._test_task(R"""

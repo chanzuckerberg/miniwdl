@@ -16,7 +16,8 @@ class TestStdLib(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_stdlib_")
 
-    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None):
+    def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
+        cfg = cfg or WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         try:
             doc = WDL.parse_document(wdl)
             assert len(doc.tasks) == 1
@@ -24,7 +25,7 @@ class TestStdLib(unittest.TestCase):
             assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run(doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, max_tasks=1, **self._host_limits)
+            rundir, outputs = WDL.runtime.run(cfg, doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, max_tasks=1, **self._host_limits)
         except WDL.runtime.RunFailed as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
