@@ -28,7 +28,6 @@ from ._util import (
     NOTICE_LEVEL,
     install_coloredlogs,
     parse_byte_size,
-    initialize_local_docker,
 )
 from ._util import StructuredLogMessage as _
 
@@ -410,10 +409,15 @@ def runner(
     input_file=None,
     empty=[],
     json_only=False,
-    runtime_defaults=None,
-    runtime_memory_max=None,
+    run_dir=None,
     path=None,
     check_quant=True,
+    runtime_cpu_max=None,
+    runtime_memory_max=None,
+    runtime_defaults=None,
+    max_tasks=None,
+    copy_input_files=False,
+    as_me=False,
     **kwargs,
 ):
     # load WDL document
@@ -465,37 +469,40 @@ def runner(
     # configuration
     cfg = runtime.config.Loader(logger)
     cfg_overrides = {
-        "task_io": {"copy_input_files": kwargs["copy_input_files"]},
+        "scheduler": {},
+        "task_io": {},
         "task_runtime": {},
     }
+    if max_tasks is not None:
+        cfg_overrides["call_concurrency"] = max_tasks
+    if copy_input_files:
+        cfg_overrides["task_io"]["copy_input_files"] = copy_input_files
+    if as_me:
+        cfg_overrides["task_runtime"]["as_user"] = as_me
     if runtime_defaults:
         if runtime_defaults.lstrip()[0] == "{":
+            json.loads(runtime_defaults)
             cfg_overrides["task_runtime"]["defaults"] = runtime_defaults
         else:
             with open(runtime_defaults, "r") as infile:
                 cfg_overrides["task_runtime"]["defaults"] = infile.read()
-    cfg.override(cfg_overrides)
-
-    run_kwargs = dict((k, kwargs[k]) for k in ["run_dir", "runtime_cpu_max", "as_me", "max_tasks"])
+    if runtime_cpu_max is not None:
+        cfg_overrides["task_runtime"]["cpu_max"] = runtime_cpu_max
     if runtime_memory_max is not None:
-        run_kwargs["runtime_memory_max"] = parse_byte_size(runtime_memory_max)
+        runtime_memory_max = (
+            -1 if runtime_memory_max.strip() == "-1" else parse_byte_size(runtime_memory_max)
+        )
+        cfg_overrides["task_runtime"]["memory_max"] = runtime_memory_max
 
-    # initialize Docker
-    client = docker.from_env()
-    try:
-        logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
-        host_limits = initialize_local_docker(logger, client)
-    finally:
-        client.close()
-    if not isinstance(run_kwargs.get("runtime_cpu_max", None), int):
-        run_kwargs["runtime_cpu_max"] = host_limits["runtime_cpu_max"]
-    if not isinstance(run_kwargs.get("runtime_memory_max", None), int):
-        run_kwargs["runtime_memory_max"] = host_limits["runtime_memory_max"]
-    logger.debug(_("run_kwargs", **run_kwargs))
+    cfg.override(cfg_overrides)
+    cfg.log_all()
+
+    # initialize local Docker Swarm
+    runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 
     # run & handle any errors
     try:
-        rundir, output_env = runtime.run(cfg, target, input_env, **run_kwargs)
+        rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir)
     except Exception as exn:
         outer_rundir = None
         inner_rundir = None
@@ -1216,11 +1223,9 @@ def localize(
         logging.basicConfig(level=NOTICE_LEVEL)
         # initialize Docker
         logger = logging.getLogger("miniwdl-localize")
-        client = docker.from_env()
-        try:
-            host_limits = initialize_local_docker(logger, client)
-        finally:
-            client.close()
+        cfg = runtime.config.Loader(logger)
+        # initialize local Docker Swarm
+        runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 
         # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
         # runtime to download them
@@ -1245,7 +1250,6 @@ def localize(
             cfg,
             localizer.workflow,
             values_from_json({"uris": list(uris)}, localizer.workflow.available_inputs),
-            **host_limits,
         )
 
         # recover the mapping of URIs to downloaded files

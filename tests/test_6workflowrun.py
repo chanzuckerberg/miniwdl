@@ -11,15 +11,17 @@ class TestWorkflowRunner(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._host_limits = WDL._util.initialize_local_docker(logging.getLogger(cls.__name__))
+        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+        logger = logging.getLogger(cls.__name__)
+        cfg = WDL.runtime.config.Loader(logger, [])
+        WDL.runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 
     def setUp(self):
-        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
 
     def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
         sys.setrecursionlimit(180)  # set artificially low in unit tests to detect excessive recursion (issue #239)
-        logger = logging.getLogger("test_workflow")
+        logger = logging.getLogger(self.id())
         WDL._util.install_coloredlogs(logger)
         cfg = cfg or WDL.runtime.config.Loader(logger, [])
         try:
@@ -30,7 +32,7 @@ class TestWorkflowRunner(unittest.TestCase):
             assert len(doc.workflow.required_inputs.subtract(doc.workflow.available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True, **self._host_limits)
+            rundir, outputs = WDL.runtime.run(cfg, doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
         except WDL.runtime.RunFailed as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
                 exn = exn.__context__

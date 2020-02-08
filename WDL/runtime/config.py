@@ -1,16 +1,21 @@
 """
-miniwdl runtime configuration loader, sourcing section+key options from (in priority order):
+miniwdl runtime configuration loader
 
-1. dict of overrides (e.g. derived from command-line options)
-2. environment variables MINIWDL__{SECTION}__{KEY} (note double underscores)
-3. miniwdl.cfg file in XDG_CONFIG_HOME or XDG_CONFIG_DIRS
-4. ./config_templates/default.cfg
+Options (section & key) are sourced in the following priority order:
 
-Portions copied from AirflowConfigParser --
-  https://github.com/apache/airflow/blob/master/airflow/configuration.py
-Exposition --
-  https://medium.com/@tszumowski/delightful-designs-airflows-configuration-parser-1ef1a6b3d03c
+1. dict of overrides (e.g. built from command-line arguments)
+2. environment variables MINIWDL__SECTION__KEY (uppercased with double-underscores)
+3. custom configuration file (mutually exclusive):
+   a) filename given to ``__init__``
+   b) file named by environment variable MINIWDL_CFG
+   c) miniwdl.cfg in XDG_CONFIG_HOME & XDG_CONFIG_DIRS
+4. WDL/runtime/config_templates/default.cfg
 """
+
+# Portions copied from AirflowConfigParser --
+#  https://github.com/apache/airflow/blob/master/airflow/configuration.py
+# Exposition --
+#  https://medium.com/@tszumowski/delightful-designs-airflows-configuration-parser-1ef1a6b3d03c
 
 
 import os
@@ -111,10 +116,20 @@ class Loader:
         if overrides:
             self.override(overrides)
 
-    def override(self, options: Dict[str, Dict[str, str]]) -> None:
-        if options:
-            self._logger.debug(_("applying configuration overrides", **options))
-            self._overrides.read_dict(options)
+    def override(self, options: Dict[str, Dict[str, Any]]) -> None:
+        options2 = {}
+        for section in options:
+            if options[section]:
+                options2[section] = {}
+                for key in options[section]:
+                    v = options[section][key]
+                    if isinstance(v, (list, dict, bool)) or v is None:
+                        options2[section][key] = json.dumps(v)
+                    else:
+                        options2[section][key] = str(v)
+        if options2:
+            self._logger.debug(_("applying configuration overrides", **options2))
+            self._overrides.read_dict(options2)
 
     def get(self, section: str, key: str) -> str:
         section = str(section).lower()
@@ -187,6 +202,25 @@ class Loader:
 
     def get_dict(self, section: str, key: str) -> Dict[str, Any]:
         return self._parse(section, key, "JSON list", _parse_dict)
+
+    def log_all(self):
+        """
+        Write a debug log message with all options
+        """
+        options = set()
+        for section in self._overrides.sections():
+            options |= set((section, key) for key in self._overrides.options(section))
+        for section in self._options.sections():
+            options |= set((section, key) for key in self._options.options(section))
+        for section in self._defaults.sections():
+            options |= set((section, key) for key in self._defaults.options(section))
+
+        all = {}
+        for (section, key) in options:
+            all[section] = all.get(section, dict())
+            all[section][key] = self.get(section, key)
+
+        self._logger.debug(_("configuration", **all))
 
     def log_unused_options(self):
         """

@@ -14,10 +14,12 @@ class TestTaskRunner(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._host_limits = WDL._util.initialize_local_docker(logging.getLogger(cls.__name__))
+        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+        logger = logging.getLogger(cls.__name__)
+        cfg = WDL.runtime.config.Loader(logger, [])
+        WDL.runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 
     def setUp(self):
-        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
 
     def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None, **kwargs):
@@ -29,9 +31,7 @@ class TestTaskRunner(unittest.TestCase):
             assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            kwargs2 = dict(**self._host_limits)
-            kwargs2.update(kwargs)
-            rundir, outputs = WDL.runtime.run_local_task(cfg, doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs2)
+            rundir, outputs = WDL.runtime.run_local_task(cfg, doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs)
         except WDL.runtime.RunFailed as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
@@ -68,14 +68,14 @@ class TestTaskRunner(unittest.TestCase):
                 cat /etc/issue
             >>>
             runtime {
-                docker: "ubuntu:18.10"
+                docker: "ubuntu:19.10"
             }
             output {
                 String issue = read_string(stdout())
             }
         }
         """)
-        self.assertTrue("18.10" in outputs["issue"])
+        self.assertTrue("19.10" in outputs["issue"])
 
         outputs = self._test_task(R"""
         version 1.0
@@ -91,8 +91,8 @@ class TestTaskRunner(unittest.TestCase):
                 String issue = read_string(stdout())
             }
         }
-        """, {"version": "18.10"})
-        self.assertTrue("18.10" in outputs["issue"])
+        """, {"version": "19.10"})
+        self.assertTrue("19.10" in outputs["issue"])
 
         self._test_task(R"""
         version 1.0
@@ -743,7 +743,7 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
         self.assertLess(outputs["wall_seconds"], 8)
         # check runtime_cpu_max set to 1 causes serialization
-        outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, runtime_cpu_max=1)
+        outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, cfg=WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides={"task_runtime": {"cpu_max": 1}}))
         self.assertGreaterEqual(outputs["wall_seconds"], 8)
 
     def test_runtime_memory(self):
@@ -767,7 +767,8 @@ class TestTaskRunner(unittest.TestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"task_runtime": {"defaults": json.dumps({"docker":"ubuntu:18.10","cpu":1})}})
         self._test_task(txt, {"memory": "99T"}, cfg=cfg)
-        self._test_task(txt, {"memory": "99T"}, runtime_memory_max=WDL._util.parse_byte_size(" 123.45 MiB "))
+        cfg.override({"task_runtime": {"memory_max": " 123.45 MiB "}})
+        self._test_task(txt, {"memory": "99T"}, cfg=cfg)
         self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)
@@ -849,7 +850,8 @@ class TestTaskRunner(unittest.TestCase):
                 Int count = read_int(stdout())
             }
         }
-        """, {"file": "https://google.com/robots.txt"}, as_me=True)
+        """, {"file": "https://google.com/robots.txt"},
+        cfg=WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"task_runtime":{"as_user": True}}))
 
     def test_workdir_ownership(self):
         # verify that everything within working directory is owned by the invoking user
@@ -879,16 +881,20 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(outputs["uids"][0], os.geteuid())
 
 class TestConfigLoader(unittest.TestCase):
-    # trigger various codepaths of the config loader that wouldn't be exercised otherwise
-    def setUp(self):
+    @classmethod
+    def setUpClass(cls):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+        logger = logging.getLogger(cls.__name__)
+        cfg = WDL.runtime.config.Loader(logger, [])
+        WDL.runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 
+    # trigger various codepaths of the config loader that wouldn't be exercised otherwise
     def test_basic(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         self.assertEqual(cfg["task_io"]["copy_input_files"], "false")
         self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), False)
 
-        self.assertEqual(cfg["scheduler_common"].get_int("call_concurrency"), 0)
+        self.assertEqual(cfg["scheduler"].get_int("call_concurrency"), 0)
 
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"task_io":{"copy_input_files": "true"}})
         self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), True)
@@ -916,11 +922,12 @@ class TestConfigLoader(unittest.TestCase):
             """, file=tmp)
             tmp.flush()
             os.environ["MINIWDL_CFG"] = tmp.name
-            os.environ["MINIWDL__SCHEDULER_COMMON__CALL_CONCURRENCY"] = "4"
+            os.environ["MINIWDL__SCHEDULER__CALL_CONCURRENCY"] = "4"
             os.environ["MINIWDL__BOGUS__OPTION"] = "42"
             cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
             cfg.override({"bogus": {"option2": "42"}})
-            self.assertEqual(cfg["scheduler_common"].get_int("call_concurrency"), 4)
+            self.assertEqual(cfg["scheduler"].get_int("call_concurrency"), 4)
             self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), True)
+            cfg.log_all()
             cfg.log_unused_options()
             self.assertTrue(os.path.isabs(cfg["task_io"]["expansion"]))

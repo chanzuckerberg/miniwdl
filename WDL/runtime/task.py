@@ -40,9 +40,31 @@ from .error import *
 
 class TaskContainer(ABC):
     """
-    Base class for task containers, subclassed by runtime-specific
-    implementations (e.g. Docker).
+    Base class for task containers, subclassed by runtime-specific implementations (e.g. Docker).
     """
+
+    # class stuff
+
+    @classmethod
+    def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
+        """
+        Perform any necessary one-time initialization of the underlying container runtime. Must be
+        invoked once per process prior to any instantiation of the class.
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+        """
+        Detect the maximum resources (cpu and mem_bytes) that the underlying container runtime
+        would be able to provision.
+
+        If determining this is at all costly, then implementation should memoize (thread-safely and
+        perhaps front-loaded in global_init).
+        """
+        raise NotImplementedError()
+
+    # instance stuff
 
     run_id: str
 
@@ -74,7 +96,8 @@ class TaskContainer(ABC):
 
     _running: bool
 
-    def __init__(self, run_id: str, host_dir: str) -> None:
+    def __init__(self, cfg: config.Loader, run_id: str, host_dir: str) -> None:
+        self.cfg = cfg
         self.run_id = run_id
         self.host_dir = host_dir
         self.container_dir = "/mnt/miniwdl_task_container"
@@ -235,10 +258,88 @@ class TaskContainer(ABC):
         return None
 
 
-class TaskDockerContainer(TaskContainer):
+class LocalSwarmContainer(TaskContainer):
     """
     TaskContainer docker (swarm) runtime
     """
+
+    _limits: Dict[str, int] = {}
+    _id_counter: AtomicCounter = AtomicCounter()
+
+    @classmethod
+    def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
+        client = docker.from_env()
+        detector = None
+        try:
+            logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
+
+            # initialize swarm
+            state = "(unknown)"
+            while True:
+                info = client.info()
+                if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
+                    state = info["Swarm"]["LocalNodeState"]
+
+                # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
+                if state == "inactive":
+                    logger.warning(
+                        "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
+                    )
+                    client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
+                elif state == "active":
+                    break
+                else:
+                    logger.notice(  # pyre-ignore
+                        _("waiting for docker swarm to become active", state=state)
+                    )
+                    time.sleep(2)
+
+            miniwdl_services = [
+                d
+                for d in [s.attrs for s in client.services.list()]
+                if "Spec" in d and "Labels" in d["Spec"] and "miniwdl_run_id" in d["Spec"]["Labels"]
+            ]
+            if miniwdl_services:
+                logger.warning(
+                    "docker swarm lists existing miniwdl-related services. This is normal if other miniwdl processes are running concurrently; otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
+                )
+
+            # Detect CPUs & memory available to Docker containers on the local host. These limits
+            # may be less than multiprocessing.cpu_count() and psutil.virtual_memory().total; in
+            # particular on macOS, where Docker containers run in a virtual machine with limited
+            # resources.
+            detector = client.containers.run(
+                "alpine:3",
+                name=f"wdl-detector-{os.getpid()}",
+                command=["/bin/ash", "-c", "nproc && free -b | awk '/^Mem:/{print $2}'"],
+                detach=True,
+            )
+            status = detector.wait()
+            assert (
+                isinstance(status, dict) and status.get("StatusCode", -1) == 0
+            ), f"failed to detect host docker limits: f{str(status)}"
+            stdout = detector.logs(stdout=True)
+            logger.debug(_("docker resource detection", stdout=str(stdout)))
+            stdout = stdout.decode("utf-8").strip().split("\n")
+            assert len(stdout) == 2
+            ans = (int(stdout[0]), int(stdout[1]))
+            logger.info(
+                _(
+                    "detected host resources available for Docker containers",
+                    cpu=ans[0],
+                    mem_bytes=ans[1],
+                )
+            )
+            cls._limits = {"cpu": ans[0], "mem_bytes": ans[1]}
+        finally:
+            if detector:
+                detector.remove()
+            client.close()
+
+    @classmethod
+    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+        assert cls._limits, f"{cls.__name__}.global_init"
+        return cls._limits
 
     image_tag: str = "ubuntu:18.04"
     """
@@ -247,17 +348,8 @@ class TaskDockerContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
-    as_me: bool = False
-    """
-    :type: bool
-
-    If so then run command inside the container using the uid:gid of the invoking user. Otherwise
-    don't override container user (=> it'll often run as root).
-    """
-
     _bind_input_files: Optional[str] = "ro"
     _observed_states: Optional[Set[str]] = None
-    _id_counter: AtomicCounter = AtomicCounter()
 
     def copy_input_files(self, logger: logging.Logger) -> None:
         assert self._bind_input_files
@@ -289,10 +381,9 @@ class TaskDockerContainer(TaskContainer):
         # configure docker to make the container a member of the invoking user's primary group)
         chmod_R_plus(self.host_dir, file_bits=0o660, dir_bits=0o770)
 
-        resources, user, groups = self.misc_config(logger, cpu, memory)
-
         # connect to dockerd
         client = docker.from_env(timeout=900)
+        resources, user, groups = self.misc_config(logger, client, cpu, memory)
         svc = None
         try:
             # run container as a transient docker swarm service, letting docker handle the resource
@@ -300,7 +391,7 @@ class TaskDockerContainer(TaskContainer):
             svc = client.services.create(
                 self.image_tag,
                 # unique name with some human readability; docker limits to 63 chars (issue #327)
-                name=f"wdl-{os.getpid()}-{TaskDockerContainer._id_counter.next()}-{self.run_id}"[
+                name=f"wdl-{os.getpid()}-{LocalSwarmContainer._id_counter.next()}-{self.run_id}"[
                     :63
                 ],
                 command=[
@@ -406,14 +497,14 @@ class TaskDockerContainer(TaskContainer):
         return mounts
 
     def misc_config(
-        self, logger: logging.Logger, cpu: int, memory: int
+        self, logger: logging.Logger, client: docker.DockerClient, cpu: int, memory: int
     ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
         resources = {}
-        if cpu:
+        if cpu > 0:
             # the cpu unit expected by swarm is "NanoCPUs"
             resources["cpu_limit"] = cpu * 1_000_000_000
             resources["cpu_reservation"] = cpu * 1_000_000_000
-        if memory:
+        if memory > 0:
             resources["mem_reservation"] = memory
         if resources:
             logger.debug(_("docker resources", **resources))
@@ -421,7 +512,7 @@ class TaskDockerContainer(TaskContainer):
         else:
             resources = None
         user = None
-        if self.as_me:
+        if self.cfg["task_runtime"].get_bool("as_user"):
             user = f"{os.geteuid()}:{os.getegid()}"
             logger.info(_("docker user", uid_gid=user))
             if os.geteuid() == 0:
@@ -484,7 +575,7 @@ class TaskDockerContainer(TaskContainer):
         dependent). We do this in a funny way via Docker; see GitHub issue #271 for discussion of
         alternatives and their problems.
         """
-        if not self.as_me and (os.geteuid() or os.getegid()):
+        if not self.cfg["task_runtime"].get_bool("as_user") and (os.geteuid() or os.getegid()):
             t_0 = time.monotonic()
             script = f"""
             chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
@@ -496,7 +587,7 @@ class TaskDockerContainer(TaskContainer):
                 try:
                     chowner = client.containers.run(
                         "alpine:3",
-                        name=f"wdl-chown-{os.getpid()}-{TaskDockerContainer._id_counter.next()}-{self.run_id}"[
+                        name=f"wdl-chown-{os.getpid()}-{LocalSwarmContainer._id_counter.next()}-{self.run_id}"[
                             :63
                         ],
                         command=["/bin/ash", "-c", script],
@@ -530,10 +621,7 @@ def run_local_task(
     inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
-    runtime_cpu_max: int = 0,
-    runtime_memory_max: int = 0,
     logger_prefix: Optional[List[str]] = None,
-    as_me: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -545,10 +633,6 @@ def run_local_task(
     :param run_dir: directory under which to create a timestamp-named subdirectory for this run
                     (defaults to current working directory).
                     If the final path component is ".", then operate in run_dir directly.
-    :param runtime_cpu_max: maximum effective runtime.cpu value (if positive)
-    :param runtime_memory_max: maximum effective runtime.memory value in bytes (if positive)
-    :param as_me: run container command using the current user uid:gid (may break commands that
-                  assume root access, e.g. apt-get)
     """
 
     # provision run directory and log file
@@ -574,29 +658,18 @@ def run_local_task(
 
         try:
             # download input files, if needed
-            posix_inputs = _download_input_files(
-                cfg,
-                logger,
-                logger_prefix,
-                run_dir,
-                inputs,
-                runtime_cpu_max=runtime_cpu_max,
-                runtime_memory_max=runtime_memory_max,
-            )
+            posix_inputs = _download_input_files(cfg, logger, logger_prefix, run_dir, inputs)
 
             # create appropriate TaskContainer
-            container = TaskDockerContainer(run_id, run_dir)
+            container = LocalSwarmContainer(cfg, run_id, run_dir)
 
             # evaluate input/postinput declarations, including mapping from host to
             # in-container file paths
             container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
             # evaluate runtime fields
-            runtime = _eval_task_runtime(
-                cfg, logger, task, container_env, runtime_cpu_max, runtime_memory_max,
-            )
+            runtime = _eval_task_runtime(cfg, logger, task, container_env,)
             container.image_tag = str(runtime.get("docker", container.image_tag))
-            container.as_me = as_me
 
             # interpolate command
             command = _util.strip_leading_whitespace(
@@ -639,7 +712,6 @@ def _download_input_files(
     logger_prefix: List[str],
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
-    **task_args,  # pyre-ignore
 ) -> Env.Bindings[Value.Base]:
     """
     Find all File values in the inputs (including any nested within compound values) that need
@@ -660,7 +732,6 @@ def _download_input_files(
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(downloads), "."),
                     logger_prefix=logger_prefix + [f"download{downloads}"],
-                    **task_args,
                 )
                 sz = os.path.getsize(v.value)
                 logger.info(_("downloaded input file", uri=v.value, file=v.value, bytes=sz))
@@ -765,12 +836,7 @@ def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
 
 
 def _eval_task_runtime(
-    cfg: config.Loader,
-    logger: logging.Logger,
-    task: Tree.Task,
-    env: Env.Bindings[Value.Base],
-    runtime_cpu_max: int,
-    runtime_memory_max: int,
+    cfg: config.Loader, logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base],
 ) -> Dict[str, Union[int, str]]:
     runtime_values = {}
     for key, v in cfg["task_runtime"].get_dict("defaults").items():
@@ -788,13 +854,14 @@ def _eval_task_runtime(
     if "docker" in runtime_values:
         ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
 
+    host_limits = LocalSwarmContainer.detect_resource_limits(cfg, logger)
     if "cpu" in runtime_values:
         cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
         assert isinstance(cpu_value, int)
-        cpu = max(
-            1,
-            cpu_value if runtime_cpu_max <= 0 or cpu_value <= runtime_cpu_max else runtime_cpu_max,
-        )
+        cpu_max = cfg["task_runtime"].get_int("cpu_max")
+        if cpu_max == 0:
+            cpu_max = host_limits["cpu"]
+        cpu = max(1, cpu_value if cpu_value <= cpu_max or cpu_max < 0 else cpu_max,)
         if cpu != cpu_value:
             logger.warning(
                 _("runtime.cpu adjusted to host limit", original=cpu_value, adjusted=cpu)
@@ -811,15 +878,19 @@ def _eval_task_runtime(
                 task.runtime["memory"], "invalid setting of runtime.memory, " + memory_str
             )
 
-        if runtime_memory_max > 0 and memory_bytes > runtime_memory_max:
+        memory_max = cfg["task_runtime"]["memory_max"].strip()
+        memory_max = -1 if memory_max == "-1" else parse_byte_size(memory_max)
+        if memory_max == 0:
+            memory_max = host_limits["mem_bytes"]
+        if memory_max > 0 and memory_bytes > memory_max:
             logger.warning(
                 _(
                     "runtime.memory adjusted to host limit",
                     original=memory_bytes,
-                    adjusted=runtime_memory_max,
+                    adjusted=memory_max,
                 )
             )
-            memory_bytes = runtime_memory_max
+            memory_bytes = memory_max
         ans["memory"] = memory_bytes
 
     if "maxRetries" in runtime_values:

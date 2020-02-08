@@ -15,7 +15,9 @@ class RunnerTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
-        cls._host_limits = WDL._util.initialize_local_docker(logging.getLogger(cls.__name__))
+        logger = logging.getLogger(cls.__name__)
+        cfg = WDL.runtime.config.Loader(logger, [])
+        WDL.runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 
     def setUp(self):
         """
@@ -41,8 +43,7 @@ class RunnerTestCase(unittest.TestCase):
             target = doc.workflow or doc.tasks[0]
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, target.available_inputs, target.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir,
-                                              **self._host_limits)
+            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir)
         except Exception as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
                 exn = exn.__context__
