@@ -44,9 +44,6 @@ class Section:
     def get_bool(self, key: str) -> bool:
         return self._parent.get_bool(self._section, key)
 
-    def get_json(self, key: str) -> Any:
-        return self._parent.get_json(self._section, key)
-
     def get_dict(self, key: str) -> Dict[str, Any]:
         return self._parent.get_dict(self._section, key)
 
@@ -187,9 +184,6 @@ class Loader:
 
     def get_bool(self, section: str, key: str) -> bool:
         return self._parse(section, key, "bool", _parse_bool)
-
-    def get_json(self, section: str, key: str) -> Any:
-        return self._parse(section, key, "JSON", json.loads)
 
     def get_dict(self, section: str, key: str) -> Dict[str, Any]:
         return self._parse(section, key, "JSON list", _parse_dict)

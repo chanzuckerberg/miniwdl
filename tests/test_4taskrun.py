@@ -879,6 +879,7 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(outputs["uids"][0], os.geteuid())
 
 class TestConfigLoader(unittest.TestCase):
+    # trigger various codepaths of the config loader that wouldn't be exercised otherwise
     def setUp(self):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
 
@@ -918,6 +919,7 @@ class TestConfigLoader(unittest.TestCase):
             os.environ["MINIWDL__SCHEDULER_COMMON__CALL_CONCURRENCY"] = "4"
             os.environ["MINIWDL__BOGUS__OPTION"] = "42"
             cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+            cfg.override({"bogus": {"option2": "42"}})
             self.assertEqual(cfg["scheduler_common"].get_int("call_concurrency"), 4)
             self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), True)
             cfg.log_unused_options()
