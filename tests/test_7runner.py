@@ -53,7 +53,6 @@ class RunnerTestCase(unittest.TestCase):
         self.assertIsNone(expected_exception, str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
 
-
 class TestDownload(RunnerTestCase):
 
     def test_download_input_files(self):

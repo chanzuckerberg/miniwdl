@@ -6,6 +6,7 @@ import docker
 import signal
 import time
 import json
+import configparser
 from .context import WDL
 from testfixtures import log_capture
 
@@ -876,3 +877,48 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]})
         self.assertEqual(len(outputs["uids"]), 1)
         self.assertEqual(outputs["uids"][0], os.geteuid())
+
+class TestConfigLoader(unittest.TestCase):
+    def setUp(self):
+        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+
+    def test_basic(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        self.assertEqual(cfg["task_io"]["copy_input_files"], "false")
+        self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), False)
+
+        self.assertEqual(cfg["scheduler_common"].get_int("call_concurrency"), 0)
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"task_io":{"copy_input_files": "true"}})
+        self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), True)
+
+        with self.assertRaises(configparser.NoSectionError):
+            cfg.get("bogus", "key")
+        with self.assertRaises(configparser.NoOptionError):
+            cfg.get("task_io", "bogus")
+        self.assertTrue(cfg.has_option("task_io", "copy_input_files"))
+        self.assertFalse(cfg.has_option("bogus", "key"))
+        self.assertFalse(cfg.has_option("task_io", "bogus"))
+
+        with self.assertRaises(ValueError):
+            cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"task_io":{"copy_input_files": "bogus123"}})
+            cfg.get_bool("task_io", "copy_input_files")
+
+    def test_env(self):
+        with tempfile.NamedTemporaryFile(mode="w+", delete=False) as tmp:
+            assert(os.path.isabs(tmp.name))
+            print("""
+            [task_io]
+            copy_input_files = true
+            expansion = $HOME
+            made_up = 42
+            """, file=tmp)
+            tmp.flush()
+            os.environ["MINIWDL_CFG"] = tmp.name
+            os.environ["MINIWDL__SCHEDULER_COMMON__CALL_CONCURRENCY"] = "4"
+            os.environ["MINIWDL__BOGUS__OPTION"] = "42"
+            cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+            self.assertEqual(cfg["scheduler_common"].get_int("call_concurrency"), 4)
+            self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), True)
+            cfg.log_unused_options()
+            self.assertTrue(os.path.isabs(cfg["task_io"]["expansion"]))
