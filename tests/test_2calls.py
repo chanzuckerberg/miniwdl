@@ -473,6 +473,19 @@ class TestCalls(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
+    def test_recursion(self):
+        txt = r"""
+        workflow self {
+            call self as c
+            output {
+                String s = "t"
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            doc.typecheck()
+
     def test_io_propagation(self):
         # should not be able to call a workflow containing an incomplete call
         with self.assertRaises(WDL.Error.UncallableWorkflow):
