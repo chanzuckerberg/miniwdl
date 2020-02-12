@@ -312,6 +312,7 @@ class LocalSwarmContainer(TaskContainer):
                 "alpine:3",
                 name=f"wdl-detector-{os.getpid()}",
                 command=["/bin/ash", "-c", "nproc && free -b | awk '/^Mem:/{print $2}'"],
+                log_config=docker.types.LogConfig(type=docker.types.LogConfig.types.JSON),
                 detach=True,
             )
             status = detector.wait()

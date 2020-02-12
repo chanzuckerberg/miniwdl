@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Iterable
 
 class Container:
     @property
@@ -61,6 +61,13 @@ class types:
 
     def Resources(**kwargs) -> Any:
         ...
+
+    class LogConfig:
+        class types:
+            JSON: str
+
+        def __init__(self, type: str):
+            ...
 
 class DockerClient:
     @property

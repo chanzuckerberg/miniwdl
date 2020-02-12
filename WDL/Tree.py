@@ -474,6 +474,8 @@ class Call(WorkflowNode):
             assert isinstance(callee_doc, Document)
             wf = callee_doc.workflow
             if isinstance(wf, Workflow) and wf.name == self.callee_id[-1]:
+                if callee_doc is doc:
+                    raise Error.CircularDependencies(self)
                 if not wf.complete_calls or (wf.outputs is None and wf.effective_outputs):
                     raise Error.UncallableWorkflow(self, ".".join(self.callee_id))
                 self.callee = wf
