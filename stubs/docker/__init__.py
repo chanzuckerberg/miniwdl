@@ -81,6 +81,9 @@ class DockerClient:
     def services(self) -> Services:
         ...
 
+    def version(self) -> Dict[str, Any]:
+        ...
+
 def from_env(timeout: Optional[int] = None) -> DockerClient:
     ...
 

@@ -14,24 +14,27 @@ class RunnerTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls._host_limits = WDL._util.initialize_local_docker(logging.getLogger(cls.__name__))
+        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+        logger = logging.getLogger(cls.__name__)
+        cfg = WDL.runtime.config.Loader(logger, [])
+        WDL.runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 
     def setUp(self):
         """
         initialize docker & provision temporary directory for a test (self._dir)
         """
-        self._dir = tempfile.mkdtemp(prefix="miniwdl_runner_test_")
+        self._dir = tempfile.mkdtemp(prefix=f"miniwdl_test_{self.id()}_")
 
     def tearDown(self):
         shutil.rmtree(self._dir)
 
-    def _run(self, wdl:str, inputs = None, expected_exception: Exception = None):
+    def _run(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
         """
         run workflow/task & return outputs dict
         """
-        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
-        logger = logging.getLogger("test_workflow")
+        logger = logging.getLogger(self.id())
         WDL._util.install_coloredlogs(logger)
+        cfg = cfg or WDL.runtime.config.Loader(logger, [])
         try:
             with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:
                 outfile.write(wdl.encode("utf-8"))
@@ -40,8 +43,7 @@ class RunnerTestCase(unittest.TestCase):
             target = doc.workflow or doc.tasks[0]
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, target.available_inputs, target.required_inputs)
-            rundir, outputs = WDL.runtime.run(target, (inputs or WDL.Env.Bindings()), run_dir=self._dir,
-                                              **self._host_limits)
+            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir)
         except Exception as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
                 exn = exn.__context__
@@ -51,7 +53,6 @@ class RunnerTestCase(unittest.TestCase):
             raise
         self.assertIsNone(expected_exception, str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
-
 
 class TestDownload(RunnerTestCase):
 

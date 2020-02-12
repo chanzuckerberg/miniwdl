@@ -17,6 +17,7 @@ security credentials.
 """
 import os
 import importlib_metadata
+from . import config
 from typing import Optional, List, Iterable, Iterator, Dict, Any, Tuple, ContextManager, Callable
 from contextlib import contextmanager
 
@@ -85,7 +86,7 @@ def able(uri: str) -> bool:
     return _downloader(uri) is not None
 
 
-def run(uri: str, **kwargs) -> str:
+def run(cfg: config.Loader, uri: str, **kwargs) -> str:
     """
     Download the URI and return the local filename.
 
@@ -102,7 +103,7 @@ def run(uri: str, **kwargs) -> str:
             task = parse_tasks(downloader_wdl, version="1.0")[0]  # pyre-ignore
             task.typecheck()
             inputs = values_from_json(downloader_inputs, task.available_inputs)  # pyre-ignore
-            subdir, outputs = run_local_task(task, inputs, **kwargs)
+            subdir, outputs = run_local_task(cfg, task, inputs, **kwargs)
             return outputs["file"].value
     except RunFailed as exn:
         if isinstance(exn.__cause__, Terminated):

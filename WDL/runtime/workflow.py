@@ -55,6 +55,7 @@ from .._util import (
     LoggingFileHandler,
 )
 from .._util import StructuredLogMessage as _
+from . import config
 from .error import RunFailed, Terminated
 
 
@@ -596,15 +597,14 @@ class _StdLib(StdLib.Base):
 
 
 def run_local_workflow(
+    cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
-    max_tasks: Optional[int] = None,
     _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
     _test_pickle: bool = False,
-    **task_args,  # pyre-ignore
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
@@ -656,12 +656,17 @@ def run_local_workflow(
             # There's still a minor risk of deadlock if sub-workflow nesting is deeper than the
             # subworkflow thread pool size.
             thread_pools = (
-                futures.ThreadPoolExecutor(max_workers=(max_tasks or multiprocessing.cpu_count())),
+                futures.ThreadPoolExecutor(
+                    max_workers=(
+                        cfg["scheduler"].get_int("call_concurrency") or multiprocessing.cpu_count()
+                    )
+                ),
                 futures.ThreadPoolExecutor(max_workers=16),
             )
         try:
             # run workflow state machine
             outputs = _workflow_main_loop(
+                cfg,
                 workflow,
                 inputs,
                 run_id,
@@ -671,7 +676,6 @@ def run_local_workflow(
                 thread_pools,
                 terminating,
                 _test_pickle,
-                **task_args,
             )
         except:
             if not _thread_pools:
@@ -696,6 +700,7 @@ def run_local_workflow(
 
 
 def _workflow_main_loop(
+    cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
     run_id: str,
@@ -705,13 +710,13 @@ def _workflow_main_loop(
     thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]],
     terminating: Callable[[], bool],
     _test_pickle: bool,
-    **task_args,
 ) -> Env.Bindings[Value.Base]:
+    assert isinstance(cfg, config.Loader)
     call_futures = {}
     try:
         # download input files, if needed
         posix_inputs = _download_input_files(
-            logger, logger_id, run_dir, inputs, thread_pools[0], **task_args
+            cfg, logger, logger_id, run_dir, inputs, thread_pools[0]
         )
 
         # run workflow state machine to completion
@@ -729,7 +734,7 @@ def _workflow_main_loop(
                     logger.warning(
                         _("call subdirectory already exists, conflict likely", dir=call_dir)
                     )
-                sub_args = (next_call.callee, next_call.inputs)
+                sub_args = (cfg, next_call.callee, next_call.inputs)
                 sub_kwargs = {
                     "run_id": next_call.id,
                     "run_dir": os.path.join(call_dir, "."),
@@ -737,16 +742,10 @@ def _workflow_main_loop(
                 }
                 # submit to appropriate thread pool
                 if isinstance(next_call.callee, Tree.Task):
-                    future = thread_pools[0].submit(
-                        run_local_task, *sub_args, **sub_kwargs, **task_args
-                    )
+                    future = thread_pools[0].submit(run_local_task, *sub_args, **sub_kwargs)
                 elif isinstance(next_call.callee, Tree.Workflow):
                     future = thread_pools[1].submit(
-                        run_local_workflow,
-                        *sub_args,
-                        **sub_kwargs,
-                        _thread_pools=thread_pools,
-                        **task_args,
+                        run_local_workflow, *sub_args, **sub_kwargs, _thread_pools=thread_pools,
                     )
                 else:
                     assert False
@@ -782,12 +781,12 @@ def _workflow_main_loop(
 
 
 def _download_input_files(
+    cfg: config.Loader,
     logger: logging.Logger,
     logger_prefix: List[str],
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
     thread_pool: futures.ThreadPoolExecutor,
-    **task_args,  # pyre-ignore
 ) -> Env.Bindings[Value.Base]:
     """
     Find all File values in the inputs (including any nested within compound values) that need
@@ -806,10 +805,10 @@ def _download_input_files(
                 logger.info(_("schedule input file download", uri=v.value))
                 future = thread_pool.submit(
                     download,
+                    cfg,
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
                     logger_prefix=logger_prefix + [f"download{len(ops)}"],
-                    **task_args,
                 )
                 ops[future] = v.value
         for ch in v.children:
