@@ -46,7 +46,7 @@ import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .task import run_local_task, _filenames, link_outputs
-from .download import able as downloadable, run as download
+from .download import able as downloadable, run_cached as download
 from .._util import (
     write_values_json,
     provision_run_dir,
@@ -56,6 +56,7 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config
+from .call_cache import CallCache, DownloadCache
 from .error import RunFailed, Terminated
 
 
@@ -604,6 +605,7 @@ def run_local_workflow(
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
     _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
+    _caches: Optional[Tuple[CallCache, DownloadCache]] = None,
     _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -663,6 +665,7 @@ def run_local_workflow(
                 ),
                 futures.ThreadPoolExecutor(max_workers=16),
             )
+        caches = _caches or (CallCache(cfg), DownloadCache(cfg))
         try:
             # run workflow state machine
             outputs = _workflow_main_loop(
@@ -674,6 +677,7 @@ def run_local_workflow(
                 logger,
                 logger_id,
                 thread_pools,
+                caches,
                 terminating,
                 _test_pickle,
             )
@@ -707,7 +711,8 @@ def _workflow_main_loop(
     run_dir: str,
     logger: logging.Logger,
     logger_id: List[str],
-    thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]],
+    thread_pools: Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor],
+    caches: Tuple[CallCache, DownloadCache],
     terminating: Callable[[], bool],
     _test_pickle: bool,
 ) -> Env.Bindings[Value.Base]:
@@ -716,7 +721,7 @@ def _workflow_main_loop(
     try:
         # download input files, if needed
         posix_inputs = _download_input_files(
-            cfg, logger, logger_id, run_dir, inputs, thread_pools[0]
+            cfg, logger, logger_id, run_dir, inputs, thread_pools[0], caches[1]
         )
 
         # run workflow state machine to completion
@@ -739,6 +744,7 @@ def _workflow_main_loop(
                     "run_id": next_call.id,
                     "run_dir": os.path.join(call_dir, "."),
                     "logger_prefix": logger_id,
+                    "_caches": caches,
                 }
                 # submit to appropriate thread pool
                 if isinstance(next_call.callee, Tree.Task):
@@ -787,6 +793,7 @@ def _download_input_files(
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
     thread_pool: futures.ThreadPoolExecutor,
+    cache: DownloadCache,
 ) -> Env.Bindings[Value.Base]:
     """
     Find all File values in the inputs (including any nested within compound values) that need
@@ -806,6 +813,7 @@ def _download_input_files(
                 future = thread_pool.submit(
                     download,
                     cfg,
+                    cache,
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
                     logger_prefix=logger_prefix + [f"download{len(ops)}"],

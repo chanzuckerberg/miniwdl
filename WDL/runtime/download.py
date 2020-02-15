@@ -17,9 +17,10 @@ security credentials.
 """
 import os
 import importlib_metadata
-from . import config
 from typing import Optional, List, Iterable, Iterator, Dict, Any, Tuple, ContextManager, Callable
 from contextlib import contextmanager
+from . import config
+from .call_cache import DownloadCache
 
 # WDL tasks for downloading a file based on its URI scheme
 
@@ -93,6 +94,7 @@ def run(cfg: config.Loader, uri: str, **kwargs) -> str:
     kwargs are passed through to ``run_local_task``, so ``run_dir`` and ``logger_prefix`` may be
     useful in particular.
     """
+
     from . import run_local_task, RunFailed, DownloadFailed, Terminated
     from .. import parse_tasks, values_from_json
 
@@ -111,6 +113,23 @@ def run(cfg: config.Loader, uri: str, **kwargs) -> str:
         raise DownloadFailed(uri) from exn.__cause__
     except:
         raise DownloadFailed(uri)
+
+
+def run_cached(cfg, cache: DownloadCache, uri: str, run_dir: str, **kwargs) -> str:
+    """
+    Cached download logic: returns the file from the cache if available; otherwise, runs the
+    download and puts it into the cache before returning
+    """
+    if cfg["download_cache"].get_bool("get"):
+        cached = cache.get(uri)
+        if cached:
+            return cached["file"]
+    if not cfg["download_cache"].get_bool("put") or not cache.cache_path(uri):
+        return run(cfg, uri, run_dir=run_dir, **kwargs)
+    # run the download within the cache directory
+    run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
+    filename = run(cfg, uri, run_dir=run_dir, **kwargs)
+    return cache.put_download(uri, os.path.realpath(filename))
 
 
 @contextmanager

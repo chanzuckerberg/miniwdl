@@ -8,6 +8,7 @@ import logging
 import signal
 import threading
 import copy
+import fcntl
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager
