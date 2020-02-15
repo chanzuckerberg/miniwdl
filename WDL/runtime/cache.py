@@ -8,7 +8,8 @@ import logging
 import threading
 from typing import Iterator, Dict, Any, Optional, Set, List, IO
 from contextlib import contextmanager, ExitStack
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
+from fnmatch import fnmatchcase
 from . import config
 from .._util import StructuredLogMessage as _
 
@@ -69,22 +70,23 @@ class CallCache:
         Based on the uri, compute the local file path at which the cached copy should exist (or
         None if the uri is not cacheable)
         """
-        # check if URI is properly formatted
+        # check if URI is properly formatted & normalize
         parts = urlparse(uri)
         if not (
             parts.scheme
             and parts.netloc
             and (
                 self._cfg["download_cache"].get_bool("disregard_query")
-                or not (parts.params or parts.query)
+                or not (parts.params or parts.query or parts.fragment)
             )
         ):
             return None
-        # check allow and deny lists
-        allow = self._cfg["download_cache"].get_list("allow_prefix")
-        deny = self._cfg["download_cache"].get_list("deny_prefix")
-        if (allow and not next((pfx for pfx in allow if uri.startswith(pfx)), False)) or next(
-            (pfx for pfx in deny if uri.startswith(pfx)), False
+        uri = urlunparse((parts.scheme, parts.netloc, parts.path, "", "", ""))
+        # check allow and deny patterns
+        allow = self._cfg["download_cache"].get_list("allow_patterns") or ["*"]
+        deny = self._cfg["download_cache"].get_list("deny_patterns")
+        if not next((pat for pat in allow if fnmatchcase(uri, pat)), False) or next(
+            (pat for pat in deny if fnmatchcase(uri, pat)), False
         ):
             return None
         # formulate path
