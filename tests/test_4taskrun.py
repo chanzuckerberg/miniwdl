@@ -853,6 +853,37 @@ class TestTaskRunner(unittest.TestCase):
         """, {"file": "https://google.com/robots.txt"},
         cfg=WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"task_runtime":{"as_user": True}}))
 
+    @log_capture()
+    def test_download_cache(self, capture):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({
+            "download_cache": {
+                "put": True,
+                "get": True,
+                "dir": os.path.join(self._dir, "cache")
+            }
+        })
+        txt = R"""
+        version 1.0
+        task lines {
+            input {
+                File file
+            }
+            command {
+                cat "~{file}" | wc -l
+            }
+            output {
+                Int count = read_int(stdout())
+            }
+        }
+        """
+        inp = {"file": "https://google.com/robots.txt"}
+        self._test_task(txt, inp, cfg=cfg)
+        self._test_task(txt, inp, cfg=cfg)
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        self.assertTrue("downloaded: 1" in logs[0])
+        self.assertTrue("cached: 1" in logs[1])
+
     def test_workdir_ownership(self):
         # verify that everything within working directory is owned by the invoking user
         txt = R"""

@@ -118,7 +118,7 @@ def run(cfg: config.Loader, uri: str, **kwargs) -> str:
 
 def run_cached(
     cfg, logger: logging.Logger, cache: CallCache, uri: str, run_dir: str, **kwargs
-) -> str:
+) -> Tuple[bool, str]:
     """
     Cached download logic: returns the file from the cache if available; otherwise, runs the
     download and puts it into the cache before returning
@@ -126,13 +126,13 @@ def run_cached(
     if cfg["download_cache"].get_bool("get"):
         cached = cache.get_download(logger, uri)
         if cached:
-            return cached
+            return True, cached
     if not cfg["download_cache"].get_bool("put") or not cache.download_path(uri):
-        return run(cfg, uri, run_dir=run_dir, **kwargs)
+        return False, run(cfg, uri, run_dir=run_dir, **kwargs)
     # run the download within the cache directory
     run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
     filename = run(cfg, uri, run_dir=run_dir, **kwargs)
-    return cache.put_download(logger, uri, os.path.realpath(filename))
+    return False, cache.put_download(logger, uri, os.path.realpath(filename))
 
 
 @contextmanager

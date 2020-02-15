@@ -34,11 +34,12 @@ class CallCache:
             filenames2 = filenames2 - self._flocked_files
             if filenames2:
                 with ExitStack() as stack:
-                    assert isinstance(stack, ExitStack)
                     for fn in filenames2:
-                        stack.enter_context(_open_and_flock(fn, nonblocking=True))
+                        stack.enter_context(  # pylint: disable=no-member
+                            _open_and_flock(fn, nonblocking=True)
+                        )
                     self._flocked_files |= filenames2
-                    self._flocks.append(stack.pop_all())
+                    self._flocks.append(stack.pop_all())  # pylint: disable=no-member
 
     def __del__(self):
         for lock in self._flocks:
@@ -132,7 +133,7 @@ class CallCache:
             return filename
         logger.info(_("storing in download cache", uri=uri, cache_path=p))
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        os.rename(filename, p)
+        os.rename(filename, p)  # this had better be atomic!
         self._flock([p])
         return p
 

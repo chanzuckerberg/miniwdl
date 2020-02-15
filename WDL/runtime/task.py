@@ -725,14 +725,16 @@ def _download_input_files(
     """
 
     downloads = 0
-    total_bytes = 0
+    download_bytes = 0
+    cached_hits = 0
+    cached_bytes = 0
 
     def map_files(v: Value.Base) -> Value.Base:
-        nonlocal downloads, total_bytes
+        nonlocal downloads, download_bytes, cached_hits, cached_bytes
         if isinstance(v, Value.File):
             if downloadable(v.value):
                 logger.info(_("download input file", uri=v.value))
-                v.value = download(
+                cached, filename = download(
                     cfg,
                     logger,
                     cache,
@@ -740,10 +742,15 @@ def _download_input_files(
                     run_dir=os.path.join(run_dir, "download", str(downloads), "."),
                     logger_prefix=logger_prefix + [f"download{downloads}"],
                 )
+                v.value = filename
                 sz = os.path.getsize(v.value)
-                logger.info(_("downloaded input file", uri=v.value, file=v.value, bytes=sz))
-                downloads += 1
-                total_bytes += sz
+                if cached:
+                    cached_hits += 1
+                    cached_bytes += sz
+                else:
+                    logger.info(_("downloaded input file", uri=v.value, file=v.value, bytes=sz))
+                    downloads += 1
+                    download_bytes += sz
         for ch in v.children:
             map_files(ch)
         return v
@@ -751,9 +758,15 @@ def _download_input_files(
     ans = inputs.map(
         lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
     )
-    if downloads:
+    if downloads or cached_hits:
         logger.notice(  # pyre-fixme
-            _("downloaded input files", count=downloads, total_bytes=total_bytes)
+            _(
+                "downloaded input files",
+                downloaded=downloads,
+                downloaded_bytes=download_bytes,
+                cached=cached_hits,
+                cached_bytes=cached_bytes,
+            )
         )
     return ans
 

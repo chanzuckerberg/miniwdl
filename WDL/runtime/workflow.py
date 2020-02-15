@@ -831,7 +831,9 @@ def _download_input_files(
     # collect the results, with "clean" fail-fast
     outstanding = ops.keys()
     downloaded = {}
-    total_bytes = 0
+    downloaded_bytes = 0
+    cached_hits = 0
+    cached_bytes = 0
     exn = None
     while outstanding:
         just_finished, still_outstanding = futures.wait(
@@ -845,10 +847,15 @@ def _download_input_files(
                 future_exn = Terminated()
             if not future_exn:
                 uri = ops[future]
-                downloaded[uri] = future.result()
-                sz = os.path.getsize(downloaded[uri])
-                logger.info(_("downloaded input file", uri=uri, file=downloaded[uri], bytes=sz))
-                total_bytes += sz
+                cached, filename = future.result()
+                downloaded[uri] = filename
+                sz = os.path.getsize(filename)
+                if cached:
+                    cached_hits += 1
+                    cached_bytes += sz
+                else:
+                    logger.info(_("downloaded input file", uri=uri, file=filename, bytes=sz))
+                    downloaded_bytes += sz
             elif not exn:
                 # cancel pending ops and signal running ones to abort
                 for outsfut in outstanding:
@@ -858,7 +865,13 @@ def _download_input_files(
     if exn:
         raise exn
     logger.notice(  # pyre-fixme
-        _("downloaded input files", count=len(downloaded), total_bytes=total_bytes)
+        _(
+            "downloaded input files",
+            downloaded=(len(downloaded) - cached_hits),
+            downloaded_bytes=downloaded_bytes,
+            cached=cached_hits,
+            cached_bytes=cached_bytes,
+        )
     )
 
     # rewrite the input URIs to the downloaded filenames
