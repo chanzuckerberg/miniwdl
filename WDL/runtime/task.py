@@ -35,7 +35,7 @@ from .._util import (
 from .._util import StructuredLogMessage as _
 from . import config
 from .download import able as downloadable, run_cached as download
-from .call_cache import CallCache, DownloadCache
+from .cache import CallCache
 from .error import *
 
 
@@ -624,7 +624,7 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
-    _caches: Optional[Tuple[CallCache, DownloadCache]] = None,
+    _cache: Optional[CallCache] = None,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -639,7 +639,6 @@ def run_local_task(
     """
 
     # provision run directory and log file
-    caches = _caches or (CallCache(cfg), DownloadCache(cfg))
     run_id = run_id or task.name
     run_dir = provision_run_dir(task.name, run_dir)
     write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
@@ -659,12 +658,11 @@ def run_local_task(
             )
         )
         logger.info(_("thread", ident=threading.get_ident()))
+        cache = _cache or CallCache(cfg)
 
         try:
             # download input files, if needed
-            posix_inputs = _download_input_files(
-                cfg, logger, logger_prefix, run_dir, inputs, caches[1]
-            )
+            posix_inputs = _download_input_files(cfg, logger, logger_prefix, run_dir, inputs, cache)
 
             # create appropriate TaskContainer
             container = LocalSwarmContainer(cfg, run_id, run_dir)
@@ -718,7 +716,7 @@ def _download_input_files(
     logger_prefix: List[str],
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
-    cache: DownloadCache,
+    cache: CallCache,
 ) -> Env.Bindings[Value.Base]:
     """
     Find all File values in the inputs (including any nested within compound values) that need
@@ -736,6 +734,7 @@ def _download_input_files(
                 logger.info(_("download input file", uri=v.value))
                 v.value = download(
                     cfg,
+                    logger,
                     cache,
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(downloads), "."),

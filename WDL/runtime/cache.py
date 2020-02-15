@@ -5,7 +5,8 @@ framework for caching outputs of calls to tasks (incl. file URI downloader tasks
 import os
 import fcntl
 import logging
-from typing import Iterator, Iterable, Union, TextIO, BinaryIO, Dict, Any, Optional, Set, List, IO
+import threading
+from typing import Iterator, Dict, Any, Optional, Set, List, IO
 from contextlib import contextmanager, ExitStack
 from urllib.parse import urlparse
 from . import config
@@ -13,62 +14,56 @@ from .._util import StructuredLogMessage as _
 
 
 class CallCache:
-    cfg: config.Loader
-    logger: logging.Logger
-    locked_files: Set[str]
-    locks: List[ExitStack]
+    _cfg: config.Loader
+    _lock: threading.Lock
+    _flocked_files: Set[str]
+    _flocks: List[ExitStack]
 
     def __init__(self, cfg: config.Loader):
-        self.cfg = cfg
-        self.logger = logging.getLogger("miniwdl.CallCache")
-        self.locked_files = set()
-        self.locks = []
+        self._cfg = cfg
+        self._lock = threading.Lock()
+        self._flocked_files = set()
+        self._flocks = []
 
     def _flock(self, filenames: List[str]) -> None:
         """
         open shared flocks on the specified filenames (all or none)
         """
-        filenames2 = set(filenames) - self.locked_files
-        if filenames2:
-            with ExitStack() as stack:
-                for fn in filenames2:
-                    stack.enter_context(_open_and_flock(fn, nonblocking=True))
-                self.locked_files |= filenames2
-                self.locks.append(stack.pop_all())
+        filenames2 = set(os.path.realpath(fn) for fn in filenames)
+        with self._lock:
+            filenames2 = filenames2 - self._flocked_files
+            if filenames2:
+                with ExitStack() as stack:
+                    assert isinstance(stack, ExitStack)
+                    for fn in filenames2:
+                        stack.enter_context(_open_and_flock(fn, nonblocking=True))
+                    self._flocked_files |= filenames2
+                    self._flocks.append(stack.pop_all())
 
     def __del__(self):
-        for lock in self.locks:
+        for lock in self._flocks:
             lock.close()
-        if self.locks:
-            self.logger.debug(_("released flocks", filenames=list(self.locked_files)))
+        if self._flocked_files:
+            logging.getLogger("miniwdl-run").debug(
+                _("released flocks", filenames=list(self._flocked_files))
+            )
 
-    def get(self, key: str) -> Optional[Dict[str, Any]]:
+    def get(self, logger: logging.Logger, key: str) -> Optional[Dict[str, Any]]:
         """
         Resolve cache key to call outputs, if available, or None
 
         When matching outputs are found, shared flocks are automatically opened on all files
         referenced therein, and held open for the life of the CallCache object.
         """
-        return None
+        raise NotImplementedError()
 
-    def put(self, key: str, outputs: Dict[str, Any]) -> None:
-        pass
+    def put(self, logger: logging.Logger, key: str, outputs: Dict[str, Any]) -> None:
+        raise NotImplementedError()
 
+    # specialized caching logic for file downloads (not sensitive to the downloader task details,
+    # and looked up in URI-derived folder structure instead of sqlite db)
 
-class DownloadCache(CallCache):
-    """
-    specializes for file downloads:
-
-    - keyed by URI, disregarding the downloader task details
-    - no sqlite db; directory structure reflects cached URIs
-    - expectation is that new downloaded files will be deposited there
-    """
-
-    def __init__(self, cfg: config.Loader):
-        super().__init__(cfg)
-        self.logger = logging.getLogger("miniwdl.DownloadCache")
-
-    def cache_path(self, uri: str) -> Optional[str]:
+    def download_path(self, uri: str) -> Optional[str]:
         """
         Based on the uri, compute the local file path at which the cached copy should exist (or
         None if the uri is not cacheable)
@@ -79,14 +74,14 @@ class DownloadCache(CallCache):
             parts.scheme
             and parts.netloc
             and (
-                self.cfg["download_cache"].get_bool("disregard_query")
+                self._cfg["download_cache"].get_bool("disregard_query")
                 or not (parts.params or parts.query)
             )
         ):
             return None
         # check allow and deny lists
-        allow = self.cfg["download_cache"].get_list("allow_prefix")
-        deny = self.cfg["download_cache"].get_list("deny_prefix")
+        allow = self._cfg["download_cache"].get_list("allow_prefix")
+        deny = self._cfg["download_cache"].get_list("deny_prefix")
         if (allow and not next((pfx for pfx in allow if uri.startswith(pfx)), False)) or next(
             (pfx for pfx in deny if uri.startswith(pfx)), False
         ):
@@ -100,46 +95,45 @@ class DownloadCache(CallCache):
             dn = dn.replace("_", "__")
             dn = dn.replace("/", "_")
         return os.path.join(
-            self.cfg["download_cache"]["dir"], "files", parts.scheme, parts.netloc, dn, fn
+            self._cfg["download_cache"]["dir"], "files", parts.scheme, parts.netloc, dn, fn
         )
 
-    def get(self, key: str) -> Optional[Dict[str, Any]]:
-        p = self.cache_path(key)
+    def get_download(self, logger: logging.Logger, uri: str) -> Optional[str]:
+        """
+        Return filename of the cached download of uri, if available
+        """
+        p = self.download_path(uri)
         if not (p and os.path.isfile(p)):
-            self.logger.debug(_("no download cache hit", uri=key, cache_path=p))
+            logger.debug(_("no download cache hit", uri=uri, cache_path=p))
             return None
         try:
             self._flock([p])
-            self.logger.info(_("found in download cache and flocked", uri=key, cache_path=p))
+            logger.info(_("found in download cache", uri=uri, cache_path=p))
             # TODO: touch with os.utime?
-            return {"file": p}
+            return p
         except Exception as exn:
-            self.logger.warning(
+            logger.warning(
                 _(
-                    "download cache hit found but unable to flock",
-                    uri=key,
+                    "found in download cache, but unable to flock",
+                    uri=uri,
                     cache_path=p,
                     exception=str(exn),
                 )
             )
             return None
 
-    def put(self, key: str, outputs: Dict[str, Any]) -> None:
+    def put_download(self, logger: logging.Logger, uri: str, filename: str) -> str:
         """
-        use put_download specialized for DownloadCache
-        """
-        raise NotImplementedError()
-
-    def put_download(self, uri: str, filename: str) -> str:
-        """
-        move the file to the cache location & return the new path
+        Move the downloaded file to the cache location & return the new path
         or if the uri isn't cacheable, return the old path.
         """
-        p = self.cache_path(uri)
+        p = self.download_path(uri)
         if not p:
             return filename
+        logger.info(_("storing in download cache", uri=uri, cache_path=p))
         os.makedirs(os.path.dirname(p), exist_ok=True)
         os.rename(filename, p)
+        self._flock([p])
         return p
 
 
