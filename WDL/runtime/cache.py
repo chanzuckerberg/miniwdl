@@ -148,9 +148,7 @@ def _open_and_flock(
     context manager yields an open BinaryIO/TextIO with a flock on the file
     """
     with open(filename, mode) as openfile:
-        op = fcntl.LOCK_SH
-        if exclusive:
-            op = fcntl.LOCK_EX
+        op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
         if nonblocking:
             op |= fcntl.LOCK_NB
         fcntl.flock(openfile, op)
