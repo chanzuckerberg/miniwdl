@@ -352,7 +352,7 @@ def fill_run_subparser(subparsers):
         metavar="FILE",
         type=str,
         default=None,
-        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"
+        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
     )
     group.add_argument(
         "-@",
@@ -834,7 +834,7 @@ def fill_run_self_test_subparser(subparsers):
         metavar="FILE",
         type=str,
         default=None,
-        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"
+        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
     )
     run_parser.add_argument(
         "--as-me", action="store_true", help="run all containers as the current user uid:gid"
