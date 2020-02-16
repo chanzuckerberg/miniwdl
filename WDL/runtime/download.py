@@ -123,10 +123,9 @@ def run_cached(
     Cached download logic: returns the file from the cache if available; otherwise, runs the
     download and puts it into the cache before returning
     """
-    if cfg["download_cache"].get_bool("get"):
-        cached = cache.get_download(logger, uri)
-        if cached:
-            return True, cached
+    cached = cache.get_download(logger, uri)
+    if cached:
+        return True, cached
     if not cfg["download_cache"].get_bool("put") or not cache.download_path(uri):
         return False, run(cfg, uri, run_dir=run_dir, **kwargs)
     # run the download within the cache directory
