@@ -289,6 +289,7 @@ class TestStdLib(unittest.TestCase):
         version 1.0
         task hello {
             Array[File] files
+            File? nullfile
             Array[Float] sizes_ = [
                 size(files[0]),
                 size(files),
@@ -301,6 +302,8 @@ class TestStdLib(unittest.TestCase):
             output {
                 Array[Float] sizes = flatten([sizes_, [size(files, "GB"), size(files, "Gi")]])
                 Float size2 = size("alyssa_ben.txt", "KiB")
+                Float nosize1 = size(nullfile)
+                Float nosize2 = size([files[0], nullfile])
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
@@ -313,6 +316,8 @@ class TestStdLib(unittest.TestCase):
         self.assertAlmostEqual(outputs["sizes"][4], 11/1000000000)
         self.assertAlmostEqual(outputs["sizes"][5], 11/1073741824)
         self.assertAlmostEqual(outputs["size2"], 11/1024)
+        self.assertEqual(outputs["nosize1"], 0)
+        self.assertEqual(outputs["nosize2"], 7)
 
         self._test_task(R"""
         version 1.0
