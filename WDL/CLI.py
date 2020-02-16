@@ -346,7 +346,14 @@ def fill_run_subparser(subparsers):
         dest="run_dir",
         help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly",
     )
-    group = run_parser.add_argument_group("task runtime")
+    group = run_parser.add_argument_group("configuration")
+    group.add_argument(
+        "--cfg",
+        metavar="FILE",
+        type=str,
+        default=None,
+        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
+    )
     group.add_argument(
         "-@",
         metavar="N",
@@ -412,6 +419,7 @@ def runner(
     run_dir=None,
     path=None,
     check_quant=True,
+    cfg=None,
     runtime_cpu_max=None,
     runtime_memory_max=None,
     runtime_defaults=None,
@@ -467,7 +475,11 @@ def runner(
     rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
     # configuration
-    cfg = runtime.config.Loader(logger)
+    cfg_arg = None
+    if cfg:
+        assert os.path.isfile(cfg), "--cfg file not found"
+        cfg_arg = [cfg]
+    cfg = runtime.config.Loader(logger, filenames=cfg_arg)
     cfg_overrides = {
         "scheduler": {},
         "task_io": {},
@@ -818,6 +830,13 @@ def fill_run_self_test_subparser(subparsers):
         help="run the test in specified directory, instead of some new temporary directory",
     )
     run_parser.add_argument(
+        "--cfg",
+        metavar="FILE",
+        type=str,
+        default=None,
+        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
+    )
+    run_parser.add_argument(
         "--as-me", action="store_true", help="run all containers as the current user uid:gid"
     )
     return run_parser
@@ -880,6 +899,9 @@ def run_self_test(**kwargs):
     ]
     if kwargs["as_me"]:
         argv.append("--as-me")
+    if kwargs["cfg"]:
+        argv.append("--cfg")
+        argv.append(kwargs["cfg"])
     try:
         outputs = main(argv)["outputs"]
         assert len(outputs["hello_caller.messages"]) == 2
