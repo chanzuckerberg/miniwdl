@@ -657,12 +657,17 @@ class _Size(EagerFunction):
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         # this default implementation attempts os.path.getsize() on the argument(s)
-        files = arguments[0].coerce(Type.Array(Type.File()))
+        files = arguments[0].coerce(Type.Array(Type.File(optional=True)))
         unit = arguments[1].coerce(Type.String()) if len(arguments) > 1 else None
 
         ans = []
         for file in files.value:
-            ans.append(os.path.getsize(self.stdlib._devirtualize_filename(file.value)))
+            if isinstance(file, Value.File):
+                ans.append(os.path.getsize(self.stdlib._devirtualize_filename(file.value)))
+            elif isinstance(file, Value.Null):
+                ans.append(0)
+            else:
+                assert False
         ans = float(sum(ans))
 
         if unit:

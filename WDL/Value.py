@@ -301,6 +301,8 @@ class Null(Base):
             # had check_quant=False
             if isinstance(desired_type, Type.String):
                 return String("", self.expr)
+            if isinstance(desired_type, Type.Array) and desired_type.item_type.optional:
+                return Array(desired_type, [self.coerce(desired_type.item_type)], self.expr)
             if self.expr:
                 raise Error.NullValue(self.expr)
             raise Error.InputError("'None' for non-optional input/declaration")
