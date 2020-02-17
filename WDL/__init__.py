@@ -131,6 +131,45 @@ async def resolve_file_import(uri: str, path: List[str], importer: Optional[Docu
     return await Tree.resolve_file_import(uri, path, importer)
 
 
+def copy_source(doc: Document, dir: str) -> str:
+    ""
+    """
+    Copy the original WDL document source, and any imports, into the specified directory. Ignores
+    any imports using absolute file paths or URIs.
+
+    Returns the path to the copy of the given document, which possibly could be nested in a
+    subdirectory if it uses .. relative imports.
+    """
+    # make list of all docs to save
+    docs = []
+    queue = [doc]
+    while queue:
+        a_doc = queue.pop()
+        docs.append(a_doc)
+        for imp in a_doc.imports:
+            if (
+                not imp.uri.startswith("http:")
+                and not imp.uri.startswith("https:")
+                and not os.path.isabs(imp.uri)
+            ):
+                queue.append(imp.doc)
+    # find longest common prefix (up to a '/') among docs' pos.abspath (note these could be URIs!)
+    lcp = os.path.dirname(os.path.commonprefix([a_doc.pos.abspath for a_doc in docs]))
+    # write each doc text out under dir, its abspath without lcp
+    ans = None
+    for a_doc in docs:
+        assert a_doc.pos.abspath.startswith(lcp)
+        rp = a_doc.pos.abspath[len(lcp) :].lstrip("/")
+        fn = os.path.join(dir, rp)
+        os.makedirs(os.path.dirname(fn), exist_ok=True)
+        _util.write_atomic(a_doc.source_text, fn, end="")
+        if a_doc is doc:
+            assert not ans
+            ans = fn
+    assert ans
+    return ans
+
+
 def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:
     ""
     """
@@ -224,43 +263,4 @@ def values_to_json(values_env: Env.Bindings[Value.Base], namespace: str = "") ->
             assert isinstance(item.value, Type.Base)
             j = str(item.value)
         ans[namespace + item.name] = j
-    return ans
-
-
-def copy_source(doc: Document, dir: str) -> str:
-    """
-    Copy the original WDL document source, and any imports, into the specified directory. Ignores
-    import statements that use absolute file paths or URIs.
-
-    Returns the path to the copy of the document, which possibly could be nested in a subdirectory
-    if it uses .. relative imports.
-    """
-    # make list of all docs to save
-    docs = []
-    queue = [doc]
-    while queue:
-        a_doc = queue.pop()
-        docs.append(a_doc)
-        for imp in a_doc.imports:
-            if (
-                not imp.uri.startswith("http:")
-                and not imp.uri.startswith("https:")
-                and not os.path.isabs(imp.uri)
-            ):
-                queue.append(imp.doc)
-    # find longest common prefix (up to a '/') among docs' pos.abspath (note these could be URIs!)
-    lcp = os.path.dirname(os.path.commonprefix([a_doc.pos.abspath for a_doc in docs]))
-    ans = None
-    # write each doc text out under dir, its abspath without lcp
-    for a_doc in docs:
-        assert a_doc.pos.abspath.startswith(lcp)
-        rp = a_doc.pos.abspath[len(lcp) :].lstrip("/")
-        fn = os.path.join(dir, rp)
-        os.makedirs(os.path.dirname(fn), exist_ok=True)
-        with open(fn, "w") as outfile:
-            print(a_doc.source_text, file=outfile, end="")
-        if a_doc is doc:
-            assert not ans
-            ans = fn
-    assert ans
     return ans

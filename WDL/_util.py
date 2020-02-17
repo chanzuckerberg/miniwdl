@@ -159,10 +159,10 @@ def topsort(adj: AdjM[T]) -> List[T]:
 
 
 @export
-def write_atomic(contents: str, filename: str) -> None:
+def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
     tn = filename + ".tmp"
     with open(tn, "x") as outfile:
-        print(contents, file=outfile)
+        print(contents, file=outfile, end=end)
     os.rename(tn, filename)
 
 
