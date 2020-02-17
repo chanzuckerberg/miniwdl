@@ -1156,6 +1156,13 @@ class Document(SourceNode):
     :func:`~WDL.load`.
     """
 
+    source_text: str
+    """
+    :type: str
+
+    Original WDL source code text
+    """
+
     imports: List[DocImport]
     """
     :type: List[DocImport]
@@ -1170,6 +1177,7 @@ class Document(SourceNode):
 
     def __init__(
         self,
+        source_text: str,
         pos: SourcePosition,
         imports: List[DocImport],
         struct_typedefs: Dict[str, StructTypeDef],
@@ -1177,6 +1185,7 @@ class Document(SourceNode):
         workflow: Optional[Workflow],
     ) -> None:
         super().__init__(pos)
+        self.source_text = source_text
         self.imports = imports
         self.struct_typedefs = Env.Bindings()
         for name, struct_typedef in struct_typedefs.items():

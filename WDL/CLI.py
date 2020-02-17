@@ -546,6 +546,7 @@ def runner(
         if outer_rundir:
             with open(os.path.join(outer_rundir, "rerun"), "w") as rerunfile:
                 print(rerun_sh, file=rerunfile)
+            copy_source(doc, os.path.join(outer_rundir, "wdl"))
         cfg.log_unused_options()
         if kwargs["debug"]:
             raise
@@ -554,6 +555,7 @@ def runner(
     # report
     with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
         print(rerun_sh, file=rerunfile)
+    copy_source(doc, os.path.join(rundir, "wdl"))
     outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
     print(json.dumps(outputs_json, indent=2))
     cfg.log_unused_options()
