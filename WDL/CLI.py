@@ -393,6 +393,11 @@ def fill_run_subparser(subparsers):
         action="store_true",
         help="run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. apt-get)",
     )
+    group.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="override any configuration enabling cache lookup for call outputs & downloaded files",
+    )
     run_parser.add_argument(
         "-v",
         "--verbose",
@@ -426,6 +431,7 @@ def runner(
     max_tasks=None,
     copy_input_files=False,
     as_me=False,
+    no_cache=False,
     **kwargs,
 ):
     # load WDL document
@@ -484,6 +490,7 @@ def runner(
         "scheduler": {},
         "task_io": {},
         "task_runtime": {},
+        "download_cache": {},
     }
     if max_tasks is not None:
         cfg_overrides["call_concurrency"] = max_tasks
@@ -505,6 +512,8 @@ def runner(
             -1 if runtime_memory_max.strip() == "-1" else parse_byte_size(runtime_memory_max)
         )
         cfg_overrides["task_runtime"]["memory_max"] = runtime_memory_max
+    if no_cache:
+        cfg_overrides["download_cache"]["get"] = False
 
     cfg.override(cfg_overrides)
     cfg.log_all()

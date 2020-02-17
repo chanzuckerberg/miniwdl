@@ -2,11 +2,11 @@
 
 The miniwdl runner's configuration loader sources from command-line options, environment variables, and a configuration file, in that priority order. The available configuration is divided into *sections* for organization, and one or more *keys* in each section naming individual options.
 
-### default.cfg
+**default.cfg**
 
 The configuration file format and the available options are exemplified in [`WDL/runtime/config_templates/default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/runtime/config_templates/default.cfg). Miniwdl loads these defaults from the locally installed copy of that file.  The file is organized into `[SECTION]` headings and `KEY = VALUE` entries in each section.
 
-### Custom configuration files
+**Custom configuration files**
 
 Miniwdl looks for a configuration file overriding selected options in the following priority order:
 
@@ -17,9 +17,20 @@ Miniwdl looks for a configuration file overriding selected options in the follow
 
 Miniwdl loads the first such file found and merges the options into the defaults. It does *not* merge options from multiple non-default configuration files.
 
-### Environment variables
+**Environment variables**
 
 Environment variables can override individual options with the convention `MINIWDL__SECTION__KEY=VALUE`. Note the variable name is all-uppercase and delimited with double underscores (as section and key names may have underscores).
 
 Environment variables override any options loaded from a configuration file, and in turn command-line options to `miniwdl run` override all other configuration sources. If in doubt, running with `--debug` logs the effective configuration and sources.
 
+### File download cache
+
+Miniwdl automatically downloads input files supplied as URIs. It's also able to cache these downloads in a local directory, so that multiple workflow runs can reference files by URI without the need to re-download them each time. This can be used by portable WDL input templates to refer to public databases (e.g. reference genomes, sequence databases, interval lists) without having to manually stage them for efficient local reuse.
+
+The download cache functionality must be enabled in the configuration. The relevant options, exemplified in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/runtime/config_templates/default.cfg) template, are in the `download_cache` section, especially `put = true`, `get = true`, and `dir`. Additional options such as `disregard_query`, `allow_patterns`, and `deny_patterns` provide control over which URIs will be cached.
+
+Details about the file download cache:
+
+* The cache is keyed by URI: when a workflow starts with a URI file input, a cached file is used if previously stored for the same URI. This does not depend on the task/workflow being run, and it does not use checksums of the file content, nor file timestamps. Therefore, the cache is not suitable if coherence is needed with changes to the remote URI file contents.
+* Enabling the cache changes where downloaded files are stored: if the cache is enabled, they're stored in the cache directory; otherwise, they're stored under the triggering run directory.
+* When miniwdl uses a file in the cache, it opens a shared advisory lock (using the `flock()` syscall) and holds it through the end of the workflow. Therefore, a concurrent process to clear out the cache can avoid interfering with a running workflow by only deleting files for which it can obtain an exclusive flock.
