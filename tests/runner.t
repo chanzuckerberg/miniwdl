@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 46
+plan tests 48
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -180,6 +180,10 @@ task failer {
 EOF
 $miniwdl run --dir failer2000/. --verbose failer2000.wdl 2> failer2000.log.txt
 is "$?" "2" "failer2000"
+grep -q "exit status 1" failer2000/error
+is "$?" "0" "failer2000 error file"
+grep -q "exit status 1" failer2000/call-failer/error
+is "$?" "0" "failer2000 call error file"
 grep -q beautiful failer2000/call-failer/stderr.txt
 is "$?" "0" "failer2000 stderr"
 grep -q beautiful failer2000.log.txt

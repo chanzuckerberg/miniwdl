@@ -48,6 +48,7 @@ from ..Error import InputError
 from .task import run_local_task, _filenames, link_outputs
 from .download import able as downloadable, run as download
 from .._util import (
+    write_atomic,
     write_values_json,
     provision_run_dir,
     LOGGING_FORMAT,
@@ -690,12 +691,6 @@ def run_local_workflow(
                 for tp in thread_pools:
                     tp.shutdown()
 
-    outputs = link_outputs(outputs, run_dir)
-    write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
-
-    from .. import values_to_json
-
-    logger.notice("done")  # pyre-fixme
     return (run_dir, outputs)
 
 
@@ -761,9 +756,16 @@ def _workflow_main_loop(
             else:
                 assert state.outputs is not None
 
-        return state.outputs
+        outputs = link_outputs(state.outputs, run_dir)
+        write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
+        logger.notice("done")
+        return outputs
     except Exception as exn:
         logger.debug(traceback.format_exc())
+        cause = exn
+        while isinstance(cause, RunFailed) and cause.__cause__:
+            cause = cause.__cause__
+        write_atomic(str(cause), os.path.join(run_dir, "error"))
         wrapper = RunFailed(workflow, run_id, run_dir)
         if isinstance(exn, RunFailed):
             logger.error(_("run failure propagating", inner=getattr(exn, "run_id"), outer=run_id))

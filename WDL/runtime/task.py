@@ -21,6 +21,7 @@ from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 import docker
 from .. import Error, Type, Env, Value, StdLib, Tree, _util
 from .._util import (
+    write_atomic,
     write_values_json,
     provision_run_dir,
     LOGGING_FORMAT,
@@ -704,6 +705,7 @@ def run_local_task(
             if hasattr(exn, "job_id"):
                 info["node"] = getattr(exn, "job_id")
             logger.error(_(str(wrapper), **info))
+            write_atomic(str(exn), os.path.join(run_dir, "error"))
             raise wrapper from exn
 
 

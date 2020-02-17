@@ -159,16 +159,23 @@ def topsort(adj: AdjM[T]) -> List[T]:
 
 
 @export
+def write_atomic(contents: str, filename: str) -> None:
+    tn = filename + ".tmp"
+    with open(tn, "x") as outfile:
+        print(contents, file=outfile)
+    os.rename(tn, filename)
+
+
+@export
 def write_values_json(
     values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""
 ) -> None:
     from . import values_to_json
 
-    with open(filename, "w") as outfile:
-        print(
-            json.dumps(values_to_json(values_env, namespace=namespace), indent=2),  # pyre-ignore
-            file=outfile,
-        )
+    write_atomic(
+        json.dumps(values_to_json(values_env, namespace=namespace), indent=2),  # pyre-ignore
+        filename,
+    )
 
 
 @export
