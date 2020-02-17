@@ -227,9 +227,11 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     # pylint: disable=no-self-use,unused-argument
 
     _keywords: Set[str]
+    _source_text: str
 
-    def __init__(self, keywords: Set[str], *args, **kwargs):
+    def __init__(self, source_text: str, keywords: Set[str], *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self._source_text = source_text
         self._keywords = keywords
 
     def _check_keyword(self, pos, name):
@@ -497,7 +499,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 imports.append(item)
             else:
                 assert False
-        return Tree.Document(self._sp(meta), imports, structs, tasks, workflow)
+        return Tree.Document(self._source_text, self._sp(meta), imports, structs, tasks, workflow)
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
@@ -527,7 +529,9 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
 def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
     try:
         (grammar, keywords) = _grammar.get(version)
-        return _DocTransformer(keywords).transform(parse(grammar, txt, "tasks"))
+        return _DocTransformer(source_text=txt, keywords=keywords).transform(
+            parse(grammar, txt, "tasks")
+        )
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
 
@@ -537,7 +541,7 @@ def parse_document(
 ) -> Tree.Document:
     npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
     if not txt.strip():
-        return Tree.Document(npos, [], {}, [], None,)
+        return Tree.Document(txt, npos, [], {}, [], None,)
     if version is None:
         # for now assume the version is 1.0 if the first line is "version <number>"
         # otherwise draft-2
@@ -553,9 +557,9 @@ def parse_document(
     except KeyError:
         raise Error.SyntaxError(npos, "unknown WDL version " + version) from None
     try:
-        return _DocTransformer(uri=uri, abspath=abspath, keywords=keywords).transform(
-            parse(grammar, txt, "document")
-        )
+        return _DocTransformer(
+            source_text=txt, uri=uri, abspath=abspath, keywords=keywords
+        ).transform(parse(grammar, txt, "document"))
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
             uri=(uri if uri else "(buffer)"),

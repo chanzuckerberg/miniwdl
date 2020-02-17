@@ -73,6 +73,7 @@ def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                         test_klass._lint_count[linter] = 1 + test_klass._lint_count.get(linter, 0)
                     print("\n" + os.path.basename(fn))
                     WDL.CLI.outline(doc, 0, show_called=(doc.workflow is not None))
+                    WDL.copy_source(doc, tempfile.mkdtemp(prefix=f"miniwdl_test_copy_source_{prefix}"))
 
                     if doc.workflow:
                         validate_workflow_graph(doc.workflow)
