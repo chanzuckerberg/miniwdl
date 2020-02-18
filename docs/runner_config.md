@@ -31,6 +31,6 @@ The download cache functionality must be enabled in the configuration. The relev
 
 Details about the file download cache:
 
-* The cache is keyed by URI: when a workflow starts with a URI file input, a cached file is used if previously stored for the same URI. This does not depend on the task/workflow being run, and it does not use checksums of the file content, nor file timestamps. Therefore, the cache is not suitable if coherence is needed with changes to the remote URI file contents.
 * Enabling the cache changes where downloaded files are stored: if the cache is enabled, they're stored in the cache directory; otherwise, they're stored under the triggering run directory.
-* When miniwdl uses a file in the cache, it opens a shared advisory lock (using the `flock()` syscall) and holds it through the end of the workflow. Therefore, a concurrent process to clear out the cache can avoid interfering with a running workflow by only deleting files for which it can obtain an exclusive flock.
+* The cache is keyed by URI: when a workflow starts with a URI file input, a cached file is used if previously stored for the same URI. This does not depend on the task/workflow being run, and it does not use checksums of the file content, nor file timestamps. Therefore, the cache should only be used with immutable remote files, or if there's no need for immediate coherence with remote content changes.
+* When miniwdl uses a file in the cache, it opens a shared advisory lock (using the `flock()` syscall) and holds it through the end of the workflow. Therefore, a concurrent cache-cleaner process can avoid interfering with any running workflow by taking exclusive flocks on files before deleting them. (If it can't simply operate in between workflow runs.)

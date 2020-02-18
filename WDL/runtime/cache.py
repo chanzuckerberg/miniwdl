@@ -37,9 +37,7 @@ class CallCache:
             if filenames2:
                 with ExitStack() as stack:
                     for fn in filenames2:
-                        stack.enter_context(  # pylint: disable=no-member
-                            _open_and_flock(fn, nonblocking=True)
-                        )
+                        stack.enter_context(_open_and_flock(fn))  # pylint: disable=no-member
                     self._flocked_files |= filenames2
                     self._flocks.append(stack.pop_all())  # pylint: disable=no-member
 
@@ -134,36 +132,37 @@ class CallCache:
     def put_download(self, logger: logging.Logger, uri: str, filename: str) -> str:
         """
         Move the downloaded file to the cache location & return the new path; or if the uri isn't
-        cacheable, return the old path.
+        cacheable, return the given path.
         """
-        p = self.download_path(uri)
-        if not (self._cfg["download_cache"].get_bool("put") and p):
-            return filename
-        logger.info(_("storing in download cache", uri=uri, cache_path=p))
-        os.makedirs(os.path.dirname(p), exist_ok=True)
-        os.rename(filename, p)  # this had better be atomic!
-        self._flock([p])
-        return p
+        ans = filename
+        if self._cfg["download_cache"].get_bool("put"):
+            p = self.download_path(uri)
+            if p:
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                os.rename(filename, p)
+                logger.info(_("stored in download cache", uri=uri, cache_path=p))
+                ans = p
+        self._flock([ans])
+        return ans
 
 
 @contextmanager
 def _open_and_flock(
-    filename: str, mode: str = "rb", exclusive: bool = False, nonblocking: bool = False
+    filename: str, mode: str = "rb", exclusive: bool = False, wait: bool = False
 ) -> Iterator[IO[Any]]:
     """
     context manager yields an open BinaryIO/TextIO with a flock on the file
     """
-    with open(filename, mode) as openfile:
-        op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-        if nonblocking:
-            op |= fcntl.LOCK_NB
-        fcntl.flock(openfile, op)
-        try:
+    while True:
+        with open(filename, mode) as openfile:
+            op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+            if not wait:
+                op |= fcntl.LOCK_NB
+            fcntl.flock(openfile, op)
             # verify the hardlink didn't change in between our open & flock syscalls
             filename_st = os.stat(filename)
             file_st = os.stat(openfile.fileno())
-            if filename_st.st_dev != file_st.st_dev or filename_st.st_ino != file_st.st_ino:
-                raise RuntimeError("concurrent file change")
-            yield openfile
-        finally:
-            fcntl.flock(openfile, fcntl.LOCK_UN)
+            if filename_st.st_dev == file_st.st_dev and filename_st.st_ino == file_st.st_ino:
+                yield openfile
+                return
+        # the flock should expire automatically when we close openfile
