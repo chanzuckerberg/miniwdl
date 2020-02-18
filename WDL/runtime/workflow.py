@@ -46,7 +46,7 @@ import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .task import run_local_task, _filenames, link_outputs
-from .download import able as downloadable, run as download
+from .download import able as downloadable, run_cached as download
 from .._util import (
     write_atomic,
     write_values_json,
@@ -57,6 +57,7 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config
+from .cache import CallCache
 from .error import RunFailed, Terminated
 
 
@@ -605,6 +606,7 @@ def run_local_workflow(
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
     _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
+    _cache: Optional[CallCache] = None,
     _test_pickle: bool = False,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -664,6 +666,7 @@ def run_local_workflow(
                 ),
                 futures.ThreadPoolExecutor(max_workers=16),
             )
+        cache = _cache or CallCache(cfg)
         try:
             # run workflow state machine
             outputs = _workflow_main_loop(
@@ -675,6 +678,7 @@ def run_local_workflow(
                 logger,
                 logger_id,
                 thread_pools,
+                cache,
                 terminating,
                 _test_pickle,
             )
@@ -702,7 +706,8 @@ def _workflow_main_loop(
     run_dir: str,
     logger: logging.Logger,
     logger_id: List[str],
-    thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]],
+    thread_pools: Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor],
+    cache: CallCache,
     terminating: Callable[[], bool],
     _test_pickle: bool,
 ) -> Env.Bindings[Value.Base]:
@@ -711,7 +716,7 @@ def _workflow_main_loop(
     try:
         # download input files, if needed
         posix_inputs = _download_input_files(
-            cfg, logger, logger_id, run_dir, inputs, thread_pools[0]
+            cfg, logger, logger_id, run_dir, inputs, thread_pools[0], cache
         )
 
         # run workflow state machine to completion
@@ -734,6 +739,7 @@ def _workflow_main_loop(
                     "run_id": next_call.id,
                     "run_dir": os.path.join(call_dir, "."),
                     "logger_prefix": logger_id,
+                    "_cache": cache,
                 }
                 # submit to appropriate thread pool
                 if isinstance(next_call.callee, Tree.Task):
@@ -789,6 +795,7 @@ def _download_input_files(
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
     thread_pool: futures.ThreadPoolExecutor,
+    cache: CallCache,
 ) -> Env.Bindings[Value.Base]:
     """
     Find all File values in the inputs (including any nested within compound values) that need
@@ -808,6 +815,8 @@ def _download_input_files(
                 future = thread_pool.submit(
                     download,
                     cfg,
+                    logger,
+                    cache,
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
                     logger_prefix=logger_prefix + [f"download{len(ops)}"],
@@ -824,7 +833,9 @@ def _download_input_files(
     # collect the results, with "clean" fail-fast
     outstanding = ops.keys()
     downloaded = {}
-    total_bytes = 0
+    downloaded_bytes = 0
+    cached_hits = 0
+    cached_bytes = 0
     exn = None
     while outstanding:
         just_finished, still_outstanding = futures.wait(
@@ -838,10 +849,15 @@ def _download_input_files(
                 future_exn = Terminated()
             if not future_exn:
                 uri = ops[future]
-                downloaded[uri] = future.result()
-                sz = os.path.getsize(downloaded[uri])
-                logger.info(_("downloaded input file", uri=uri, file=downloaded[uri], bytes=sz))
-                total_bytes += sz
+                cached, filename = future.result()
+                downloaded[uri] = filename
+                sz = os.path.getsize(filename)
+                if cached:
+                    cached_hits += 1
+                    cached_bytes += sz
+                else:
+                    logger.info(_("downloaded input file", uri=uri, file=filename, bytes=sz))
+                    downloaded_bytes += sz
             elif not exn:
                 # cancel pending ops and signal running ones to abort
                 for outsfut in outstanding:
@@ -851,7 +867,13 @@ def _download_input_files(
     if exn:
         raise exn
     logger.notice(  # pyre-fixme
-        _("downloaded input files", count=len(downloaded), total_bytes=total_bytes)
+        _(
+            "downloaded input files",
+            downloaded=(len(downloaded) - cached_hits),
+            downloaded_bytes=downloaded_bytes,
+            cached=cached_hits,
+            cached_bytes=cached_bytes,
+        )
     )
 
     # rewrite the input URIs to the downloaded filenames

@@ -35,7 +35,8 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config
-from .download import able as downloadable, run as download
+from .download import able as downloadable, run_cached as download
+from .cache import CallCache
 from .error import *
 
 
@@ -624,6 +625,7 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
+    _cache: Optional[CallCache] = None,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -657,10 +659,11 @@ def run_local_task(
             )
         )
         logger.info(_("thread", ident=threading.get_ident()))
+        cache = _cache or CallCache(cfg)
 
         try:
             # download input files, if needed
-            posix_inputs = _download_input_files(cfg, logger, logger_prefix, run_dir, inputs)
+            posix_inputs = _download_input_files(cfg, logger, logger_prefix, run_dir, inputs, cache)
 
             # create appropriate TaskContainer
             container = LocalSwarmContainer(cfg, run_id, run_dir)
@@ -715,6 +718,7 @@ def _download_input_files(
     logger_prefix: List[str],
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
+    cache: CallCache,
 ) -> Env.Bindings[Value.Base]:
     """
     Find all File values in the inputs (including any nested within compound values) that need
@@ -723,23 +727,32 @@ def _download_input_files(
     """
 
     downloads = 0
-    total_bytes = 0
+    download_bytes = 0
+    cached_hits = 0
+    cached_bytes = 0
 
     def map_files(v: Value.Base) -> Value.Base:
-        nonlocal downloads, total_bytes
+        nonlocal downloads, download_bytes, cached_hits, cached_bytes
         if isinstance(v, Value.File):
             if downloadable(v.value):
                 logger.info(_("download input file", uri=v.value))
-                v.value = download(
+                cached, filename = download(
                     cfg,
+                    logger,
+                    cache,
                     v.value,
                     run_dir=os.path.join(run_dir, "download", str(downloads), "."),
                     logger_prefix=logger_prefix + [f"download{downloads}"],
                 )
+                v.value = filename
                 sz = os.path.getsize(v.value)
-                logger.info(_("downloaded input file", uri=v.value, file=v.value, bytes=sz))
-                downloads += 1
-                total_bytes += sz
+                if cached:
+                    cached_hits += 1
+                    cached_bytes += sz
+                else:
+                    logger.info(_("downloaded input file", uri=v.value, file=v.value, bytes=sz))
+                    downloads += 1
+                    download_bytes += sz
         for ch in v.children:
             map_files(ch)
         return v
@@ -747,9 +760,15 @@ def _download_input_files(
     ans = inputs.map(
         lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
     )
-    if downloads:
+    if downloads or cached_hits:
         logger.notice(  # pyre-fixme
-            _("downloaded input files", count=downloads, total_bytes=total_bytes)
+            _(
+                "downloaded input files",
+                downloaded=downloads,
+                downloaded_bytes=download_bytes,
+                cached=cached_hits,
+                cached_bytes=cached_bytes,
+            )
         )
     return ans
 

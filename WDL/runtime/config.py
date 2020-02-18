@@ -52,6 +52,9 @@ class Section:
     def get_dict(self, key: str) -> Dict[str, Any]:
         return self._parent.get_dict(self._section, key)
 
+    def get_list(self, key: str) -> List[Any]:
+        return self._parent.get_list(self._section, key)
+
 
 class Loader:
     _logger: logging.Logger
@@ -201,7 +204,10 @@ class Loader:
         return self._parse(section, key, "bool", _parse_bool)
 
     def get_dict(self, section: str, key: str) -> Dict[str, Any]:
-        return self._parse(section, key, "JSON list", _parse_dict)
+        return self._parse(section, key, "JSON dict", _parse_dict)
+
+    def get_list(self, section: str, key: str) -> List[Any]:
+        return self._parse(section, key, "JSON list", _parse_list)
 
     def log_all(self):
         """
@@ -275,4 +281,10 @@ def _parse_bool(v: str) -> bool:
 def _parse_dict(v: str) -> Dict[str, Any]:
     ans = json.loads(v)
     assert isinstance(ans, dict)
+    return ans
+
+
+def _parse_list(v: str) -> List[Any]:
+    ans = json.loads(v)
+    assert isinstance(ans, list)
     return ans

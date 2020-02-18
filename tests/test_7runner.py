@@ -4,6 +4,7 @@ import tempfile
 import os
 import shutil
 import docker
+from testfixtures import log_capture
 from .context import WDL
 
 
@@ -55,9 +56,7 @@ class RunnerTestCase(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
 class TestDownload(RunnerTestCase):
-
-    def test_download_input_files(self):
-        count = R"""
+    count_wdl: str = R"""
         version 1.0
         workflow count {
             input {
@@ -71,6 +70,85 @@ class TestDownload(RunnerTestCase):
             }
         }
         """
-        self._run(count, {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]})
-        self._run(count, {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/nonexistent12345.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]},
+
+    def test_download_input_files(self):
+        self._run(self.count_wdl, {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]})
+        self._run(self.count_wdl, {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/nonexistent12345.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]},
                   expected_exception=WDL.runtime.DownloadFailed)
+
+    @log_capture()
+    def test_download_cache1(self, capture):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({
+            "download_cache": {
+                "put": True,
+                "get": True,
+                "dir": os.path.join(self._dir, "cache"),
+                "deny_patterns": ["https://google.com/*"]
+            }
+        })
+        inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
+        self._run(self.count_wdl, inp, cfg=cfg)
+        self._run(self.count_wdl, inp, cfg=cfg)
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        self.assertTrue("downloaded: 2" in logs[0])
+        # alyssa_ben.txt is cached on second run through (robots.txt not due to deny_patterns)
+        self.assertTrue("downloaded: 1" in logs[1])
+        self.assertTrue("cached: 1" in logs[1])
+
+    @log_capture()
+    def test_download_cache2(self, capture):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({
+            "download_cache": {
+                "put": True,
+                "get": True,
+                "dir": os.path.join(self._dir, "cache2"),
+                "allow_patterns": ["https://raw.githubusercontent.com/chanzuckerberg/*"]
+            }
+        })
+        inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
+        self._run(self.count_wdl, inp, cfg=cfg)
+        self._run(self.count_wdl, inp, cfg=cfg)
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        self.assertTrue("downloaded: 2" in logs[0])
+        # alyssa_ben.txt is cached on second run through
+        self.assertTrue("downloaded: 1" in logs[1])
+        self.assertTrue("cached: 1" in logs[1])
+
+    @log_capture()
+    def test_download_cache3(self, capture):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({
+            "download_cache": {
+                "put": True,
+                "get": True,
+                "dir": os.path.join(self._dir, "cache"),
+            }
+        })
+        inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt?xxx"]}
+        self._run(self.count_wdl, inp, cfg=cfg)
+        self._run(self.count_wdl, inp, cfg=cfg)
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        # cache isn't used due to presence of query string
+        self.assertTrue("downloaded: 1" in logs[0])
+        self.assertTrue("downloaded: 1" in logs[1])
+
+    @log_capture()
+    def test_download_cache4(self, capture):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({
+            "download_cache": {
+                "put": True,
+                "get": True,
+                "dir": os.path.join(self._dir, "cache4"),
+                "disregard_query": True
+            }
+        })
+        inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt?xxx"]}
+        self._run(self.count_wdl, inp, cfg=cfg)
+        self._run(self.count_wdl, inp, cfg=cfg)
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        # cache used with disregard_query
+        self.assertTrue("downloaded: 1" in logs[0])
+        self.assertTrue("downloaded: 0" in logs[1])
