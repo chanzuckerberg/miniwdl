@@ -702,13 +702,11 @@ def run_local_task(
         except Exception as exn:
             logger.debug(traceback.format_exc())
             wrapper = RunFailed(task, run_id, run_dir)
-            info = {"error": exn.__class__.__name__}
-            if str(exn):
-                info["message"] = str(exn)
-            if hasattr(exn, "job_id"):
-                info["node"] = getattr(exn, "job_id")
-            logger.error(_(str(wrapper), **info))
-            write_atomic(str(exn), os.path.join(run_dir, "error"))
+            logger.error(_(str(wrapper), dir=run_dir, **error_json(exn)))
+            write_atomic(
+                json.dumps(error_json(wrapper, cause=exn), indent=2),
+                os.path.join(run_dir, "error.json"),
+            )
             raise wrapper from exn
 
 

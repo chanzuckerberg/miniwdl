@@ -480,7 +480,7 @@ def runner(
 
     rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
-    # configuration
+    # load configuration & apply command-line overrides
     cfg_arg = None
     if cfg:
         assert os.path.isfile(cfg), "--cfg file not found"
@@ -521,53 +521,54 @@ def runner(
     # initialize local Docker Swarm
     runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 
-    # run & handle any errors
+    # run & log any errors
+    rundir = None
     try:
         rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir)
     except Exception as exn:
-        outer_rundir = None
-        inner_rundir = None
+        exit_status = 2
+        pos = None
+        msg = None
+        from_rundir = None
         while isinstance(exn, runtime.RunFailed):
             exn_rundir = getattr(exn, "run_dir")
-            logger.error(_(str(exn), dir=exn_rundir))
-            outer_rundir = outer_rundir or exn_rundir
-            inner_rundir = exn_rundir
+            rundir = rundir or exn_rundir
+            from_rundir = exn_rundir
+            exn_pos = getattr(exn, "pos", None)
+            if isinstance(exn_pos, SourcePosition):
+                pos = exn_pos
+            msg = str(msg)
             exn = exn.__cause__
-            assert exn
-        if isinstance(exn, runtime.task.CommandFailed) and not (
-            kwargs["verbose"] or kwargs["debug"]
-        ):
-            logger.notice(_("standard error", file=getattr(exn, "stderr_file")))
-            logger.notice("run with --verbose to include task standard error streams in this log")
-        if isinstance(getattr(exn, "pos", None), SourcePosition):
-            pos = getattr(exn, "pos")
-            logger.error(
-                "({} Ln {} Col {}) {}{}".format(
-                    pos.uri,
-                    pos.line,
-                    pos.column,
-                    exn.__class__.__name__,
-                    (", " + str(exn) if str(exn) else ""),
+        if isinstance(exn, runtime.CommandFailed):
+            exit_status = (lambda v: v if v else exit_status)(getattr(exn, "exit_status", 0))
+            if not (kwargs["verbose"] or kwargs["debug"]):
+                logger.notice(
+                    "run with --verbose to include task standard error streams in this log"
                 )
-            )
-        else:
-            logger.error(f"{exn.__class__.__name__}{(', ' + str(exn) if str(exn) else '')}")
-        if outer_rundir:
-            with open(os.path.join(outer_rundir, "rerun"), "w") as rerunfile:
-                print(rerun_sh, file=rerunfile)
-            copy_source(doc, os.path.join(outer_rundir, "wdl"))
-        cfg.log_unused_options()
+        info = runtime.error_json(exn)
+        if rundir:
+            info["dir"] = rundir
+        if from_rundir and from_rundir != rundir:
+            info["from_dir"] = from_rundir
+        if not msg:
+            msg = str(exn)
+            if "message" in info:
+                del info["message"]  # redundant
+        logger.error(_(msg, **info))
         if kwargs["debug"]:
             raise
-        sys.exit(2)
+        sys.exit(exit_status)
+    finally:
+        if rundir:
+            # whether success or fail, leave some artifacts
+            with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
+                print(rerun_sh, file=rerunfile)
+            copy_source(doc, os.path.join(rundir, "wdl"))
+        cfg.log_unused_options()
 
     # report
-    with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
-        print(rerun_sh, file=rerunfile)
-    copy_source(doc, os.path.join(rundir, "wdl"))
     outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
     print(json.dumps(outputs_json, indent=2))
-    cfg.log_unused_options()
     return outputs_json
 
 
