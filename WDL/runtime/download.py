@@ -30,7 +30,9 @@ _downloaders = {}
 
 
 @contextmanager
-def aria2c_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
+def aria2c_downloader(
+    cfg: config.Loader, logger: logging.Logger, uri: str
+) -> Iterator[Tuple[str, Dict[str, Any]]]:
     wdl = r"""
     task aria2c {
         input {
@@ -131,7 +133,7 @@ def run_cached(
     if cached:
         return True, cached
     if not cfg["download_cache"].get_bool("put") or not cache.download_path(uri):
-        return False, run(cfg, uri, run_dir=run_dir, **kwargs)
+        return False, run(cfg, logger, uri, run_dir=run_dir, **kwargs)
     # run the download within the cache directory
     run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
     filename = run(cfg, logger, uri, run_dir=run_dir, **kwargs)
