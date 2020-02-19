@@ -29,7 +29,17 @@ import boto3
 
 
 @contextmanager
-def main(uri):
+def main(cfg, logger, uri):
+    """
+    Download plugin entry point, a context manager yielding Tuple[str, Dict[str,Any]] with WDL task
+    source code and inputs
+
+    :param cfg: the effective miniwdl configuration; see WDL/runtime/config.py
+    :param logger: logging.Logger for the triggering task/workflow; plugin might write directly
+                   into this logger, or use its getChild() method
+    :param uri: string uri to be downloaded
+    """
+
     # get AWS credentials from boto3
     b3 = boto3.session.Session()
     b3creds = b3.get_credentials()
