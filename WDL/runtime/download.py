@@ -30,7 +30,9 @@ _downloaders = {}
 
 
 @contextmanager
-def aria2c_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
+def aria2c_downloader(
+    cfg: config.Loader, logger: logging.Logger, uri: str
+) -> Iterator[Tuple[str, Dict[str, Any]]]:
     wdl = r"""
     task aria2c {
         input {
@@ -72,7 +74,11 @@ def _load():
         _downloaders[plugin.name] = plugin.load()
 
 
-def _downloader(uri: str,) -> Optional[Callable[[str], ContextManager[Tuple[str, Dict[str, Any]]]]]:
+def _downloader(
+    uri: str,
+) -> Optional[
+    Callable[[config.Loader, logging.Logger, str], ContextManager[Tuple[str, Dict[str, Any]]]]
+]:
     _load()
     colon = uri.find(":")
     if colon <= 0:
@@ -88,7 +94,7 @@ def able(uri: str) -> bool:
     return _downloader(uri) is not None
 
 
-def run(cfg: config.Loader, uri: str, **kwargs) -> str:
+def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
     """
     Download the URI and return the local filename.
 
@@ -102,7 +108,7 @@ def run(cfg: config.Loader, uri: str, **kwargs) -> str:
     downloader_ctx = _downloader(uri)
     assert downloader_ctx
     try:
-        with downloader_ctx(uri) as (downloader_wdl, downloader_inputs):
+        with downloader_ctx(cfg, logger, uri) as (downloader_wdl, downloader_inputs):
             task = parse_tasks(downloader_wdl, version="1.0")[0]  # pyre-ignore
             task.typecheck()
             inputs = values_from_json(downloader_inputs, task.available_inputs)  # pyre-ignore
@@ -127,15 +133,17 @@ def run_cached(
     if cached:
         return True, cached
     if not cfg["download_cache"].get_bool("put") or not cache.download_path(uri):
-        return False, run(cfg, uri, run_dir=run_dir, **kwargs)
+        return False, run(cfg, logger, uri, run_dir=run_dir, **kwargs)
     # run the download within the cache directory
     run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
-    filename = run(cfg, uri, run_dir=run_dir, **kwargs)
+    filename = run(cfg, logger, uri, run_dir=run_dir, **kwargs)
     return False, cache.put_download(logger, uri, os.path.realpath(filename))
 
 
 @contextmanager
-def gsutil_downloader(uri: str) -> Iterator[Tuple[str, Dict[str, Any]]]:
+def gsutil_downloader(
+    cfg: config.Loader, logger: logging.Logger, uri: str
+) -> Iterator[Tuple[str, Dict[str, Any]]]:
     """
     Built-in downloader plugin for public gs:// URIs; registered by setup.cfg entry_points section
 
