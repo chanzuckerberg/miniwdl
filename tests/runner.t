@@ -175,7 +175,7 @@ task failer {
     File messagefile = write_lines([message])
     command {
         cat "~{messagefile}" | tee iwuzhere > /dev/stderr
-        exit 1
+        exit 42
     }
     runtime {
         maxRetries: 2
@@ -183,11 +183,9 @@ task failer {
 }
 EOF
 $miniwdl run --dir failer2000/. --verbose failer2000.wdl 2> failer2000.log.txt
-is "$?" "2" "failer2000"
-grep -q "exit status 1" failer2000/error
-is "$?" "0" "failer2000 error file"
-grep -q "exit status 1" failer2000/call-failer/error
-is "$?" "0" "failer2000 call error file"
+is "$?" "42" "failer2000"
+is "$(jq '.cause.exit_status' failer2000/error.json)" "42" "workflow error.json"
+is "$(jq '.cause.exit_status' failer2000/call-failer/error.json)" "42" "task error.json"
 grep -q beautiful failer2000/call-failer/stderr.txt
 is "$?" "0" "failer2000 stderr"
 grep -q beautiful failer2000.log.txt

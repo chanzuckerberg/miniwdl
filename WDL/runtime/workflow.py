@@ -58,7 +58,7 @@ from .._util import (
 from .._util import StructuredLogMessage as _
 from . import config
 from .cache import CallCache
-from .error import RunFailed, Terminated
+from .error import RunFailed, Terminated, error_json
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -771,17 +771,22 @@ def _workflow_main_loop(
         cause = exn
         while isinstance(cause, RunFailed) and cause.__cause__:
             cause = cause.__cause__
-        write_atomic(str(cause), os.path.join(run_dir, "error"))
         wrapper = RunFailed(workflow, run_id, run_dir)
+        write_atomic(
+            json.dumps(error_json(wrapper, cause=exn), indent=2),
+            os.path.join(run_dir, "error.json"),
+        )
         if isinstance(exn, RunFailed):
-            logger.error(_("run failure propagating", inner=getattr(exn, "run_id"), outer=run_id))
+            logger.error(
+                _("call failure propagating", **{"from": getattr(exn, "run_id"), "dir": run_dir})
+            )
         else:
-            info = {"error": exn.__class__.__name__}
+            info = {"error": exn.__class__.__name__, "dir": run_dir}
             if str(exn):
                 info["message"] = str(exn)
             if hasattr(exn, "job_id"):
                 info["node"] = getattr(exn, "job_id")
-            logger.error(_(str(wrapper), **info))
+            logger.error(_(str(wrapper), dir=run_dir, **error_json(exn)))
         # Cancel all future tasks that havent started
         for key in call_futures:
             key.cancel()
