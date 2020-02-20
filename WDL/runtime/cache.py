@@ -1,10 +1,11 @@
 """
 Caching outputs of task/workflow calls (incl. file URI downloader tasks) based on source code and
 inputs. When cached outputs are found for reuse, opens advisory locks (flocks) on any local files
-referenced therein.
+referenced therein, and updates their access timestamps (atime).
 """
 
 import os
+import time
 import fcntl
 import logging
 import threading
@@ -116,7 +117,6 @@ class CallCache:
         try:
             self._flock([p])
             logger.info(_("found in download cache", uri=uri, cache_path=p))
-            # TODO: touch with os.utime?
             return p
         except Exception as exn:
             logger.warning(
@@ -151,7 +151,7 @@ def _open_and_flock(
     filename: str, mode: str = "rb", exclusive: bool = False, wait: bool = False
 ) -> Iterator[IO[Any]]:
     """
-    context manager yields an open BinaryIO/TextIO with a flock on the file
+    context manager yields an open BinaryIO/TextIO with a flock on the file, also updating atime
     """
     while True:
         with open(filename, mode) as openfile:
@@ -163,6 +163,8 @@ def _open_and_flock(
             filename_st = os.stat(filename)
             file_st = os.stat(openfile.fileno())
             if filename_st.st_dev == file_st.st_dev and filename_st.st_ino == file_st.st_ino:
+                # touch -a
+                os.utime(openfile.fileno(), ns=(int(time.time() * 1e9), file_st.st_mtime_ns))
                 yield openfile
                 return
         # the flock should expire automatically when we close openfile
