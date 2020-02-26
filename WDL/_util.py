@@ -521,7 +521,7 @@ class AtomicCounter:
             return self._value
 
 
-def chain_coroutines(
+def chain_coroutines(  # pyre-fixme
     generators: List[Callable[[Any], Generator[Any, Any, None]]], x: Any  # pyre-fixme
 ) -> Generator[Any, Any, None]:
     """
@@ -534,30 +534,34 @@ def chain_coroutines(
     """
     # start the coroutines by invoking each generator and taking the first value it yields
     cors = []
-    for gen in generators:
-        cor = gen(x)
-        x = next(cor)
-        cors.append(cor)
-    while True:  # GeneratorExit will break
-        # yield to caller and get updated value back
-        try:
-            x = yield x
-        except Exception as exn:
+    try:
+        for gen in generators:
+            cor = gen(x)
+            x = next(cor)
+            cors.append(cor)
+        while True:  # GeneratorExit will break
+            # yield to caller and get updated value back
+            try:
+                x = yield x
+            except Exception as exn:
+                for cor in cors:
+                    try:
+                        cor.throw(exn)
+                    except Exception as exn2:
+                        exn = exn2
+                raise exn
+            # pass value through coroutines
+            exn = None
             for cor in cors:
                 try:
-                    cor.throw(exn)
+                    if not exn:
+                        x = cor.send(x)
+                    else:
+                        cor.throw(exn)
                 except Exception as exn2:
                     exn = exn2
-            raise exn
-        # pass value through coroutines
-        exn = None
+            if exn:
+                raise exn
+    finally:
         for cor in cors:
-            try:
-                if not exn:
-                    x = cor.send(x)
-                else:
-                    cor.throw(exn)
-            except Exception as exn2:
-                exn = exn2
-        if exn:
-            raise exn
+            cor.close()

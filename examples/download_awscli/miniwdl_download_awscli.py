@@ -7,37 +7,39 @@ the runner's environment (as detected by boto3).
         'miniwdl.plugin.file_download': ['s3 = miniwdl_download_awscli:main'],
     }
 miniwdl discovers this entry point and loads the plugin to handle the s3:// URI scheme.
-`miniwdl --version` will list the discovered plugins.
+`miniwdl --version` will list the discovered plugins. Furthermore, the configuration section
+[plugins] has options to enable/disable installed plugins based on glob patterns on the
+module/function name.
 
-The plugin entry point should be a context manager, which the runtime keeps open for the duration of
-the download operation. Given the desired URI, it should quickly yield a tuple with:
-    1. source code of a WDL 1.0 task to perform the download
-    2. dict of Cromwell-style JSON inputs to give to the task
+The plugin entry point is a generator function which is used as a "coroutine" for the download
+operation. Given the desired URI, it should first quickly yield a dict with:
+    1. "task_wdl": source code of a WDL 1.0 task to perform the download
+    2. "inputs": dict of Cromwell-style JSON inputs to give to the task
 miniwdl then executes this specified operation, expecting it to produce an output "File file" with
 the downloaded file. By doing all the heavy lifting in a WDL task, the operation gets to inherit
 all the functionality of miniwdl's task runtime, e.g. pulling docker image with binary
 dependencies, resource scheduling & isolation, logging, error/signal handling, retry, etc.
 
-The Python context manager itself might be used to obtain and manage the lifetime of any
-necessary security credentials, as illustrated here.
+Following completion of the WDL task, the coroutine is sent back a dict with "outputs", which it
+must yield back in turn (possibly manipulating it if needed).
 """
 
 import os
 import tempfile
-from contextlib import contextmanager
 import boto3
 
 
-@contextmanager
-def main(cfg, logger, uri):
+def main(cfg, logger, uri, **kwargs):
     """
-    Download plugin entry point, a context manager yielding Tuple[str, Dict[str,Any]] with WDL task
-    source code and inputs
+    Download plugin entry point, a generator/coroutine with two rounds:
+    1. yields WDL task and inputs
+    2. receives outputs & yields outputs
 
     :param cfg: the effective miniwdl configuration; see WDL/runtime/config.py
     :param logger: logging.Logger for the triggering task/workflow; plugin might write directly
                    into this logger, or use its getChild() method
     :param uri: string uri to be downloaded
+    :param kwargs: for forward-compatibility
     """
 
     # get AWS credentials from boto3
@@ -53,17 +55,23 @@ def main(cfg, logger, uri):
     # format them as env vars to be sourced in the WDL task command
     aws_credentials = "\n".join(f"export {k}='{v}'" for (k, v) in aws_credentials.items())
 
-    # write them to a temp file that'll delete automatically when done
+    # write them to a temp file that'll self-destruct afterwards (success or fail)
     with tempfile.NamedTemporaryFile(
         prefix="miniwdl_download_awscli_credentials_", delete=True, mode="w"
     ) as aws_credentials_file:
         print(aws_credentials, file=aws_credentials_file, flush=True)
-        # make file group-readable so that miniwdl doesn't warn about potential incompatibility
-        # with docker images that drop privileges to a non-root user
+        # make file group-readable to ensure it'll be usable if the docker image runs as non-root
         os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
 
         # yield WDL task and inputs
-        yield wdl, {"uri": uri, "aws_credentials": aws_credentials_file.name}
+        recv = yield {
+            "task_wdl": wdl,
+            "inputs": {"uri": uri, "aws_credentials": aws_credentials_file.name},
+        }
+
+    # we've been given back recv with key "outputs" containing the results of the task; we now have
+    # the opportunity to manipulate it, but no need, so just yield it back.
+    yield recv
 
 
 # WDL task source code
@@ -95,4 +103,27 @@ task awscli_s3 {
         docker: "ubuntu:19.10"
     }
 }
+"""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"""
+quick-and-dirty test:
+
+pip3 install examples/download_awscli
+echo -e 'version 1.0\ntask cat { input { File in } command { cat ~{in} } output { String out=read_string(stdout()) } }' > /tmp/cat.wdl
+python3 -m WDL run /tmp/cat.wdl in=s3://mlin-west/alyssa_ben.txt --dir=/tmp --verbose
 """

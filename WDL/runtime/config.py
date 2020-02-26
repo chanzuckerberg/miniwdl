@@ -293,13 +293,24 @@ def _parse_list(v: str) -> List[Any]:
 
 
 PLUGIN_GROUPS = ["file_download", "task"]
+DEFAULT_PLUGINS = {
+    "miniwdl.plugin.file_download": [
+        importlib_metadata.EntryPoint(
+            group="miniwdl.plugin.file_download",
+            name="gs",
+            value="WDL.runtime.download:gsutil_downloader",
+        )
+    ],
+    "miniwdl.plugin.task": [],
+}
 
 
 def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
     assert group in PLUGIN_GROUPS, group
+    group = f"miniwdl.plugin.{group}"
     enable_patterns = cfg["plugins"].get_list("enable_patterns")
     disable_patterns = cfg["plugins"].get_list("disable_patterns")
-    for plugin in importlib_metadata.entry_points().get(f"miniwdl.plugin.{group}", []):
+    for plugin in importlib_metadata.entry_points().get(group, DEFAULT_PLUGINS[group]):
         enabled = next(
             (pat for pat in enable_patterns if fnmatchcase(plugin.value, pat)), False
         ) and not next((pat for pat in disable_patterns if fnmatchcase(plugin.value, pat)), False)

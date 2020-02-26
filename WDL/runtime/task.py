@@ -667,54 +667,63 @@ def run_local_task(
             plugins = chain_coroutines(
                 [
                     (lambda kwargs: cor(cfg, logger, run_id, run_dir, task, **kwargs))
-                    for _, cor in config.load_plugins(cfg, "task")
+                    for _, cor in sorted(config.load_plugins(cfg, "task"))
                 ],
                 {"inputs": inputs},
             )
-            recv = next(plugins)
-            inputs = recv["inputs"]
+            try:
+                recv = next(plugins)
+                inputs = recv["inputs"]
 
-            # download input files, if needed
-            posix_inputs = _download_input_files(cfg, logger, logger_prefix, run_dir, inputs, cache)
+                # download input files, if needed
+                posix_inputs = _download_input_files(
+                    cfg, logger, logger_prefix, run_dir, inputs, cache
+                )
 
-            # create appropriate TaskContainer
-            container = LocalSwarmContainer(cfg, run_id, run_dir)
+                # create appropriate TaskContainer
+                container = LocalSwarmContainer(cfg, run_id, run_dir)
 
-            # evaluate input/postinput declarations, including mapping from host to
-            # in-container file paths
-            container_env = _eval_task_inputs(logger, task, posix_inputs, container)
+                # evaluate input/postinput declarations, including mapping from host to
+                # in-container file paths
+                container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
-            # evaluate runtime fields
-            runtime = _eval_task_runtime(cfg, logger, task, container_env,)
-            container.image_tag = str(runtime.get("docker", container.image_tag))
+                # evaluate runtime fields
+                runtime = _eval_task_runtime(cfg, logger, task, container_env,)
+                container.image_tag = str(runtime.get("docker", container.image_tag))
 
-            # interpolate command
-            command = _util.strip_leading_whitespace(
-                task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
-            )[1]
-            logger.debug(_("command", command=command.strip()))
+                # interpolate command
+                command = _util.strip_leading_whitespace(
+                    task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
+                )[1]
+                logger.debug(_("command", command=command.strip()))
 
-            # process command/runtime/container through plugins
-            recv = plugins.send({"command": command, "runtime": runtime, "container": container})
-            command, runtime, container = (recv[k] for k in ("command", "runtime", "container"))
+                # process command/runtime/container through plugins
+                recv = plugins.send(
+                    {"command": command, "runtime": runtime, "container": container}
+                )
+                command, runtime, container = (recv[k] for k in ("command", "runtime", "container"))
 
-            # start container & run command (and retry if needed)
-            _try_task(cfg, logger, container, command, runtime)
+                # start container & run command (and retry if needed)
+                _try_task(cfg, logger, container, command, runtime)
 
-            # make sure everything will be accessible to downstream tasks
-            chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
+                # make sure everything will be accessible to downstream tasks
+                chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
 
-            # evaluate output declarations & set up output_links
-            outputs = _eval_task_outputs(logger, task, container_env, container)
+                # evaluate output declarations & set up output_links
+                outputs = _eval_task_outputs(logger, task, container_env, container)
 
-            # process outputs through plugins & create output_links
-            recv = plugins.send({"outputs": outputs})
-            outputs = link_outputs(recv["outputs"], run_dir)
+                # process outputs through plugins & create output_links
+                recv = plugins.send({"outputs": outputs})
+                outputs = link_outputs(recv["outputs"], run_dir)
 
-            # write outputs.json
-            write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
-            logger.notice("done")  # pyre-fixme
-            return (run_dir, outputs)
+                # write outputs.json
+                write_values_json(
+                    outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
+                )
+                logger.notice("done")  # pyre-fixme
+                return (run_dir, outputs)
+            finally:
+                plugins.close()
         except Exception as exn:
             logger.debug(traceback.format_exc())
             wrapper = RunFailed(task, run_id, run_dir)
