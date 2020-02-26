@@ -22,7 +22,9 @@ import os
 import configparser
 import logging
 import json
-from typing import Optional, List, Dict, Any, Callable, TypeVar, Set, Tuple
+import importlib_metadata
+from fnmatch import fnmatchcase
+from typing import Optional, List, Dict, Any, Callable, TypeVar, Set, Tuple, Iterable
 from xdg import XDG_CONFIG_DIRS, XDG_CONFIG_HOME
 from .._util import StructuredLogMessage as _
 
@@ -288,3 +290,23 @@ def _parse_list(v: str) -> List[Any]:
     ans = json.loads(v)
     assert isinstance(ans, list)
     return ans
+
+
+PLUGIN_GROUPS = ["file_download", "task"]
+
+
+def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
+    assert group in PLUGIN_GROUPS, group
+    enable_patterns = cfg["plugins"].get_list("enable_patterns")
+    disable_patterns = cfg["plugins"].get_list("disable_patterns")
+    for plugin in importlib_metadata.entry_points().get(f"miniwdl.plugin.{group}", []):
+        enabled = next(
+            (pat for pat in enable_patterns if fnmatchcase(plugin.value, pat)), False
+        ) and not next((pat for pat in disable_patterns if fnmatchcase(plugin.value, pat)), False)
+        yield (enabled, plugin)
+
+
+def load_plugins(cfg: Loader, group: str) -> Iterable[Tuple[str, Callable[..., Any]]]:
+    yield from (
+        (plugin.name, plugin.load()) for enabled, plugin in load_all_plugins(cfg, group) if enabled
+    )

@@ -102,9 +102,10 @@ class PipVersionAction(Action):
         # that they give inconsistent results?
         import pkg_resources
 
-        for plugin_group in ["miniwdl.plugin.file_download"]:
-            for plugin in pkg_resources.iter_entry_points(group=plugin_group):
-                print(f"{plugin_group}\t{plugin}\t{plugin.dist}")
+        for group in runtime.config.PLUGIN_GROUPS:
+            group = f"miniwdl.plugin.{group}"
+            for plugin in pkg_resources.iter_entry_points(group=group):
+                print(f"{group}\t{plugin}\t{plugin.dist}")
         print("Cromwell " + CROMWELL_VERSION)
         sys.exit(0)
 
@@ -434,16 +435,6 @@ def runner(
     no_cache=False,
     **kwargs,
 ):
-    # load WDL document
-    doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
-
-    # parse and validate the provided inputs
-    target, input_env, input_json = runner_input(doc, inputs, input_file, empty, task=task)
-
-    if json_only:
-        print(json.dumps(input_json, indent=2))
-        sys.exit(0)
-
     # set up logging
     level = NOTICE_LEVEL
     if kwargs["verbose"]:
@@ -456,29 +447,6 @@ def runner(
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
-
-    versionlog = {}
-    for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
-        try:
-            versionlog[pkg] = str(importlib_metadata.version(pkg))
-        except importlib_metadata.PackageNotFoundError:
-            versionlog[pkg] = "UNKNOWN"
-    logger.debug(_("package versions", **versionlog))
-
-    envlog = {}
-    for k in os.environ:
-        if k.upper().startswith("MINIWDL") or k in [
-            "LANG",
-            "SHELL",
-            "USER",
-            "HOME",
-            "PWD",
-            "TMPDIR",
-        ]:
-            envlog[k] = os.environ[k]
-    logger.debug(_("environment", **envlog))
-
-    rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
     # load configuration & apply command-line overrides
     cfg_arg = None
@@ -517,6 +485,55 @@ def runner(
 
     cfg.override(cfg_overrides)
     cfg.log_all()
+
+    # load WDL document
+    doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
+
+    # parse and validate the provided inputs
+    def file_found(fn):
+        return runtime.download.able(cfg, fn) or os.path.isfile(fn)
+
+    target, input_env, input_json = runner_input(
+        doc, inputs, input_file, empty, task=task, file_found=file_found
+    )
+
+    if json_only:
+        print(json.dumps(input_json, indent=2))
+        sys.exit(0)
+
+    # debug logging
+    versionlog = {}
+    for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
+        try:
+            versionlog[pkg] = str(importlib_metadata.version(pkg))
+        except importlib_metadata.PackageNotFoundError:
+            versionlog[pkg] = "UNKNOWN"
+    logger.debug(_("package versions", **versionlog))
+
+    envlog = {}
+    for k in os.environ:
+        if k.upper().startswith("MINIWDL") or k in [
+            "LANG",
+            "SHELL",
+            "USER",
+            "HOME",
+            "PWD",
+            "TMPDIR",
+        ]:
+            envlog[k] = os.environ[k]
+    logger.debug(_("environment", **envlog))
+
+    enabled_plugins = []
+    disabled_plugins = []
+    for group in runtime.config.PLUGIN_GROUPS:
+        for enabled, plugin in runtime.config.load_all_plugins(cfg, group):
+            (enabled_plugins if enabled else disabled_plugins).append(
+                f"{plugin.name} = {plugin.value}"
+            )
+    if enabled_plugins or disabled_plugins:
+        logger.debug(_("plugin configuration", enabled=enabled_plugins, disabled=disabled_plugins))
+
+    rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
     # initialize local Docker Swarm
     runtime.task.LocalSwarmContainer.global_init(cfg, logger)
@@ -578,7 +595,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         # load document. in the completer setting, we need to substitute the home directory
         # and environment variables
         uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
-        if not (runtime.download.able(uri) or os.path.exists(uri)):
+        if not (uri.startswith("http:") or uri.startswith("https:") or os.path.exists(uri)):
             argcomplete.warn("file not found: " + uri)
             return []
         try:
@@ -616,7 +633,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         return available_input_names
 
 
-def runner_input(doc, inputs, input_file, empty, task=None, check_required=True):
+def runner_input(doc, inputs, input_file, empty, task=None, check_required=True, file_found=None):
     """
     - Determine the target workflow/task
     - Check types of supplied inputs
@@ -683,7 +700,7 @@ def runner_input(doc, inputs, input_file, empty, task=None, check_required=True)
             )
 
         # create a Value based on the expected type
-        v = runner_input_value(s_value, decl.type)
+        v = runner_input_value(s_value, decl.type, file_found)
 
         # insert value into input_env
         try:
@@ -794,7 +811,7 @@ def is_constant_expr(expr):
     return False
 
 
-def runner_input_value(s_value, ty):
+def runner_input_value(s_value, ty, file_found):
     """
     Given an input value from the command line (right-hand side of =) and the
     WDL type of the corresponding input decl, create an appropriate Value.
@@ -802,12 +819,12 @@ def runner_input_value(s_value, ty):
     if isinstance(ty, Type.String):
         return Value.String(s_value)
     if isinstance(ty, Type.File):
-        downloadable = runtime.download.able(s_value)
-        if not (downloadable or os.path.isfile(s_value)):
-            die("File not found: " + s_value)
-        return Value.File(
-            os.path.abspath(os.path.expanduser(s_value)) if not downloadable else s_value
-        )
+        fn = os.path.expanduser(s_value)
+        if os.path.isfile(fn):
+            fn = os.path.abspath(fn)
+        elif not (file_found and file_found(fn)):  # maybe URI
+            die("File not found: " + fn)
+        return Value.File(fn)
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
@@ -822,7 +839,7 @@ def runner_input_value(s_value, ty):
         ty.item_type, (Type.String, Type.File, Type.Int, Type.Float)
     ):
         # just produce a length-1 array, to be combined ex post facto
-        return Value.Array(ty.item_type, [runner_input_value(s_value, ty.item_type)])
+        return Value.Array(ty.item_type, [runner_input_value(s_value, ty.item_type, file_found)])
     return die(
         "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
             str(ty)
@@ -1235,8 +1252,15 @@ def localize(
     doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
 
     # parse the provided input JSON
+    logging.basicConfig(level=NOTICE_LEVEL)
+    logger = logging.getLogger("miniwdl-localize")
+    cfg = runtime.config.Loader(logger)
+
+    def file_found(fn):
+        return runtime.download.able(cfg, fn) or os.path.isfile(fn)
+
     target, input_env, input_json = runner_input(
-        doc, [], infile, [], task=task, check_required=False
+        doc, [], infile, [], task=task, check_required=False, file_found=file_found
     )
 
     # read input JSON
@@ -1244,7 +1268,7 @@ def localize(
 
     # scan for Files that appear to be downloadable URIs
     def scan(x):
-        if isinstance(x, Value.File) and runtime.download.able(x.value):
+        if isinstance(x, Value.File) and runtime.download.able(cfg, x.value):
             yield x.value
         for y in x.children:
             yield from scan(y)
@@ -1254,10 +1278,6 @@ def localize(
         uris |= set(scan(b.value))
 
     if uris:
-        logging.basicConfig(level=NOTICE_LEVEL)
-        # initialize Docker
-        logger = logging.getLogger("miniwdl-localize")
-        cfg = runtime.config.Loader(logger)
         # initialize local Docker Swarm
         runtime.task.LocalSwarmContainer.global_init(cfg, logger)
 

@@ -32,6 +32,7 @@ from .._util import (
     path_really_within,
     LoggingFileHandler,
     AtomicCounter,
+    chain_coroutines,
 )
 from .._util import StructuredLogMessage as _
 from . import config
@@ -662,6 +663,17 @@ def run_local_task(
         cache = _cache or CallCache(cfg)
 
         try:
+            # start plugin coroutines and process inputs through them
+            plugins = chain_coroutines(
+                [
+                    (lambda kwargs: cor(cfg, logger, run_id, run_dir, task, **kwargs))
+                    for _, cor in config.load_plugins(cfg, "task")
+                ],
+                {"inputs": inputs},
+            )
+            recv = next(plugins)
+            inputs = recv["inputs"]
+
             # download input files, if needed
             posix_inputs = _download_input_files(cfg, logger, logger_prefix, run_dir, inputs, cache)
 
@@ -682,21 +694,25 @@ def run_local_task(
             )[1]
             logger.debug(_("command", command=command.strip()))
 
+            # process command/runtime/container through plugins
+            recv = plugins.send({"command": command, "runtime": runtime, "container": container})
+            command, runtime, container = (recv[k] for k in ("command", "runtime", "container"))
+
             # start container & run command (and retry if needed)
             _try_task(cfg, logger, container, command, runtime)
-
-            # evaluate output declarations
-            outputs = _eval_task_outputs(logger, task, container_env, container)
-
-            # write and link outputs
-            from .. import values_to_json
-
-            outputs = link_outputs(outputs, run_dir)
-            write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
 
             # make sure everything will be accessible to downstream tasks
             chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
 
+            # evaluate output declarations & set up output_links
+            outputs = _eval_task_outputs(logger, task, container_env, container)
+
+            # process outputs through plugins & create output_links
+            recv = plugins.send({"outputs": outputs})
+            outputs = link_outputs(recv["outputs"], run_dir)
+
+            # write outputs.json
+            write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
             logger.notice("done")  # pyre-fixme
             return (run_dir, outputs)
         except Exception as exn:
@@ -732,7 +748,7 @@ def _download_input_files(
     def map_files(v: Value.Base) -> Value.Base:
         nonlocal downloads, download_bytes, cached_hits, cached_bytes
         if isinstance(v, Value.File):
-            if downloadable(v.value):
+            if downloadable(cfg, v.value):
                 logger.info(_("download input file", uri=v.value))
                 cached, filename = download(
                     cfg,
@@ -1040,12 +1056,13 @@ def link_outputs(outputs: Env.Bindings[Value.Base], run_dir: str) -> Env.Binding
 
     def map_files(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, Value.File):
-            hardlink = os.path.realpath(v.value)
-            assert os.path.isfile(hardlink)
-            symlink = os.path.join(dn, os.path.basename(v.value))
-            os.makedirs(dn, exist_ok=False)
-            os.symlink(hardlink, symlink)
-            v.value = symlink
+            if os.path.isfile(v.value):
+                hardlink = os.path.realpath(v.value)
+                assert os.path.isfile(hardlink)
+                symlink = os.path.join(dn, os.path.basename(v.value))
+                os.makedirs(dn, exist_ok=False)
+                os.symlink(hardlink, symlink)
+                v.value = symlink
         # recurse into compound values
         elif isinstance(v, Value.Array) and v.value:
             d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed

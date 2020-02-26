@@ -26,9 +26,6 @@ from .cache import CallCache
 # WDL tasks for downloading a file based on its URI scheme
 
 
-_downloaders = {}
-
-
 @contextmanager
 def aria2c_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str
@@ -60,38 +57,40 @@ def aria2c_downloader(
     yield wdl, {"uri": uri}
 
 
-def _load():
-    if _downloaders:
-        return
+def _load(cfg: config.Loader):
+    table = getattr(cfg, "_downloaders", None)
+    if table:
+        return table
 
     # default public URI downloaders
-    _downloaders["https"] = aria2c_downloader
-    _downloaders["http"] = aria2c_downloader
-    _downloaders["ftp"] = aria2c_downloader
+    table = {"https": aria2c_downloader, "http": aria2c_downloader, "ftp": aria2c_downloader}
 
     # plugins
-    for plugin in importlib_metadata.entry_points().get("miniwdl.plugin.file_download", []):
-        _downloaders[plugin.name] = plugin.load()
+    for plugin_name, plugin_fn in config.load_plugins(cfg, "file_download"):
+        table[plugin_name] = plugin_fn
+
+    setattr(cfg, "_downloaders", table)
+    return table
 
 
 def _downloader(
-    uri: str,
+    cfg: config.Loader, uri: str,
 ) -> Optional[
     Callable[[config.Loader, logging.Logger, str], ContextManager[Tuple[str, Dict[str, Any]]]]
 ]:
-    _load()
+    _load(cfg)
     colon = uri.find(":")
     if colon <= 0:
         return None
     scheme = uri[:colon]
-    return _downloaders.get(scheme, None)
+    return getattr(cfg, "_downloaders").get(scheme, None)
 
 
-def able(uri: str) -> bool:
+def able(cfg: config.Loader, uri: str) -> bool:
     """
     Returns True if uri appears to be a URI we know how to download
     """
-    return _downloader(uri) is not None
+    return _downloader(cfg, uri) is not None
 
 
 def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
@@ -105,7 +104,7 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
     from . import run_local_task, RunFailed, DownloadFailed, Terminated
     from .. import parse_tasks, values_from_json
 
-    downloader_ctx = _downloader(uri)
+    downloader_ctx = _downloader(cfg, uri)
     assert downloader_ctx
     try:
         with downloader_ctx(cfg, logger, uri) as (downloader_wdl, downloader_inputs):
