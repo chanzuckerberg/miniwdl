@@ -919,10 +919,17 @@ class TestTaskRunner(unittest.TestCase):
                 xv = recv["inputs"].resolve_binding("x")
                 xv.value.value += 1
                 recv = yield recv
+                if xv.value.value == 43:
+                    raise RuntimeError("oh no you don't!")
                 recv = yield recv
                 yv = recv["outputs"].resolve_binding("y")
                 yv.value.value += 1
                 yield recv
+            except WDL.runtime.error.CommandFailed as exn:
+                logger.error(exn)
+                exn.args = ("i was here",)
+                exn.exit_status = 42
+                raise
             finally:
                 logger.critical("goodbye")
         txt = R"""
@@ -939,6 +946,42 @@ class TestTaskRunner(unittest.TestCase):
         """
         outputs = self._test_task(txt, {"x": 1}, _plugins=[my_plugin])
         self.assertEqual(outputs["y"], 4)
+
+        txt = R"""
+        version 1.0
+        task failer2000 {
+            input {
+                Int x
+            }
+            command {
+                exit 1
+            }
+            output {
+                Int y = x+1
+            }
+        }
+        """
+        try:
+            self._test_task(txt, {"x": 1}, _plugins=[my_plugin])
+        except WDL.runtime.error.CommandFailed as exn:
+            self.assertEqual(exn.exit_status, 42)
+
+        txt = R"""
+        version 1.0
+        task inc {
+            input {
+                Int x
+            }
+            command {}
+            output {
+                Int y = x+1
+            }
+        }
+        """
+        try:
+            self._test_task(txt, {"x": 42}, _plugins=[my_plugin])
+        except RuntimeError as exn:
+            assert exn.args[0] == "oh no you don't!"
 
 class TestConfigLoader(unittest.TestCase):
     @classmethod

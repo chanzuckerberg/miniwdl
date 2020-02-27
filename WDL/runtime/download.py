@@ -123,6 +123,8 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
             ans = recv["outputs"]["file"]
             assert isinstance(ans, str) and os.path.isfile(ans)
             return ans
+        except Exception as exn:
+            cor.throw(exn)
         finally:
             cor.close()
 

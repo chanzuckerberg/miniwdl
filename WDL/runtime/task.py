@@ -726,6 +726,8 @@ def run_local_task(
                 )
                 logger.notice("done")  # pyre-fixme
                 return (run_dir, outputs)
+            except Exception as exn:
+                plugins.throw(exn)
             finally:
                 plugins.close()
         except Exception as exn:
