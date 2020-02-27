@@ -32,7 +32,7 @@ from .._util import (
     path_really_within,
     LoggingFileHandler,
     AtomicCounter,
-    chain_coroutines,
+    compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
 from . import config
@@ -665,7 +665,7 @@ def run_local_task(
 
         try:
             # start plugin coroutines and process inputs through them
-            plugins = chain_coroutines(
+            with compose_coroutines(
                 [
                     (lambda kwargs: cor(cfg, logger, run_id, run_dir, task, **kwargs))
                     for cor in (
@@ -674,8 +674,7 @@ def run_local_task(
                     )
                 ],
                 {"inputs": inputs},
-            )
-            try:
+            ) as plugins:
                 recv = next(plugins)
                 inputs = recv["inputs"]
 
@@ -726,10 +725,6 @@ def run_local_task(
                 )
                 logger.notice("done")  # pyre-fixme
                 return (run_dir, outputs)
-            except Exception as exn:
-                plugins.throw(exn)
-            finally:
-                plugins.close()
         except Exception as exn:
             logger.debug(traceback.format_exc())
             wrapper = RunFailed(task, run_id, run_dir)

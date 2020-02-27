@@ -21,6 +21,7 @@ import importlib_metadata
 from typing import Optional, List, Generator, Dict, Any, Tuple, Callable
 from . import config
 from .cache import CallCache
+from .._util import compose_coroutines
 
 # WDL tasks for downloading a file based on its URI scheme
 
@@ -104,10 +105,9 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
     gen = _downloader(cfg, uri)
     assert gen
     try:
-        cor = gen(cfg, logger, uri=uri)
-        recv = next(cor)
+        with compose_coroutines([lambda kwargs: gen(cfg, logger, **kwargs)], {"uri": uri}) as cor:
+            recv = next(cor)
 
-        try:
             if "task_wdl" in recv:
                 task_wdl, inputs = (recv[k] for k in ["task_wdl", "inputs"])
 
@@ -123,10 +123,6 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
             ans = recv["outputs"]["file"]
             assert isinstance(ans, str) and os.path.isfile(ans)
             return ans
-        except Exception as exn:
-            cor.throw(exn)
-        finally:
-            cor.close()
 
     except RunFailed as exn:
         if isinstance(exn.__cause__, Terminated):

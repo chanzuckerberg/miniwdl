@@ -521,47 +521,69 @@ class AtomicCounter:
             return self._value
 
 
-def chain_coroutines(  # pyre-fixme
+@export
+@contextmanager
+def compose_coroutines(  # pyre-fixme
     generators: List[Callable[[Any], Generator[Any, Any, None]]], x: Any  # pyre-fixme
-) -> Generator[Any, Any, None]:
+) -> Iterator[Generator[Any, Any, None]]:
     """
-    Coroutine (generator) which chains several other coroutines to run in lockstep for one or more
-    "rounds." On each round, caller sends a value, which is sent to the first coroutine; the value
-    it yields is sent to the second coroutine; and so on until finally the value yielded by the
-    last coroutine is yielded back to the caller. Exceptions propagate in the same way, so a
-    coroutine can catch and modify (but not suppress) an exception raised by the caller or by one
-    of the other coroutines.
+    Coroutine (generator) which composes several other coroutines to run in lockstep for one or
+    more "rounds." On each round, caller sends a value, which is sent to the first coroutine; the
+    value it yields is sent to the second coroutine; and so on until finally the value yielded by
+    the last coroutine is yielded back to the caller. Exceptions propagate in the same way, so a
+    coroutine can catch and manipulate (but not suppress) an exception raised by the caller or by
+    one of the other coroutines.
     """
-    # start the coroutines by invoking each generator and taking the first value it yields
-    cors = []
-    try:
-        for gen in generators:
-            cor = gen(x)
-            x = next(cor)
-            cors.append(cor)
-        while True:  # GeneratorExit will break
-            # yield to caller and get updated value back
-            try:
-                x = yield x
-            except Exception as exn:
+
+    def _impl() -> Generator[Any, Any, None]:  # pyre-fixme
+        # start the coroutines by invoking each generator and taking the first value it yields
+        nonlocal x
+        cors = []
+        try:
+            for gen in generators:
+                cor = gen(x)
+                x = next(cor)
+                cors.append(cor)
+            while True:  # GeneratorExit will break
+                # yield to caller and get updated value back
+                try:
+                    x = yield x
+                except Exception as exn:
+                    for cor in cors:
+                        try:
+                            cor.throw(exn)
+                        except Exception as exn2:
+                            exn = exn2
+                    raise exn
+                # pass value through coroutines
+                exn = None
                 for cor in cors:
                     try:
-                        cor.throw(exn)
+                        if not exn:
+                            x = cor.send(x)
+                        else:
+                            cor.throw(exn)
                     except Exception as exn2:
                         exn = exn2
-                raise exn
-            # pass value through coroutines
-            exn = None
+                if exn:
+                    raise exn
+        finally:
+            close_exn = None
             for cor in cors:
                 try:
-                    if not exn:
-                        x = cor.send(x)
-                    else:
-                        cor.throw(exn)
+                    cor.close()
                 except Exception as exn2:
-                    exn = exn2
-            if exn:
-                raise exn
+                    close_exn = close_exn or exn2
+            if close_exn:
+                raise close_exn
+
+    # this outer contextmanager is for closing the coroutines promptly and propagating any caller
+    # exceptions back through them. see: https://stackoverflow.com/a/58854646
+    chain = _impl()
+    try:
+        yield chain
+    except Exception as exn:
+        chain.throw(exn)  # pyre-ignore
+        raise
     finally:
-        for cor in cors:
-            cor.close()
+        chain.close()
