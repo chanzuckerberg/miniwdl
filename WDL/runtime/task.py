@@ -627,6 +627,7 @@ def run_local_task(
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
     _cache: Optional[CallCache] = None,
+    _plugins: Optional[List[Callable[..., Any]]] = None,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -667,7 +668,10 @@ def run_local_task(
             plugins = chain_coroutines(
                 [
                     (lambda kwargs: cor(cfg, logger, run_id, run_dir, task, **kwargs))
-                    for _, cor in sorted(config.load_plugins(cfg, "task"))
+                    for cor in (
+                        [cor for _, cor in sorted(config.load_plugins(cfg, "task"))]
+                        + (_plugins or [])
+                    )
                 ],
                 {"inputs": inputs},
             )

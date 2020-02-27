@@ -910,6 +910,35 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]})
         self.assertEqual(len(outputs["uids"]), 1)
         self.assertEqual(outputs["uids"][0], os.geteuid())
+    
+    def test_plugins(self):
+        def my_plugin(cfg, logger, task, run_id, run_dir, **recv):
+            logger = logger.getChild("my_plugin")
+            logger.critical("hello")
+            try:
+                xv = recv["inputs"].resolve_binding("x")
+                xv.value.value += 1
+                recv = yield recv
+                recv = yield recv
+                yv = recv["outputs"].resolve_binding("y")
+                yv.value.value += 1
+                yield recv
+            finally:
+                logger.critical("goodbye")
+        txt = R"""
+        version 1.0
+        task inc {
+            input {
+                Int x
+            }
+            command {}
+            output {
+                Int y = x+1
+            }
+        }
+        """
+        outputs = self._test_task(txt, {"x": 1}, _plugins=[my_plugin])
+        self.assertEqual(outputs["y"], 4)
 
 class TestConfigLoader(unittest.TestCase):
     @classmethod
