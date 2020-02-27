@@ -709,11 +709,11 @@ def run_local_task(
                 # start container & run command (and retry if needed)
                 _try_task(cfg, logger, container, command, runtime)
 
+                # evaluate output declarations
+                outputs = _eval_task_outputs(logger, task, container_env, container)
+
                 # make sure everything will be accessible to downstream tasks
                 chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
-
-                # evaluate output declarations & set up output_links
-                outputs = _eval_task_outputs(logger, task, container_env, container)
 
                 # process outputs through plugins & create output_links
                 recv = plugins.send({"outputs": outputs})
