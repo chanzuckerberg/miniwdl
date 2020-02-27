@@ -915,6 +915,7 @@ class TestTaskRunner(unittest.TestCase):
         def my_plugin(cfg, logger, task, run_id, run_dir, **recv):
             logger = logger.getChild("my_plugin")
             logger.critical("hello")
+            yv = None
             try:
                 xv = recv["inputs"].resolve_binding("x")
                 xv.value.value += 1
@@ -932,6 +933,8 @@ class TestTaskRunner(unittest.TestCase):
                 raise
             finally:
                 logger.critical("goodbye")
+                if yv and yv.value.value == 43:
+                    raise RuntimeError("goodbye")
         txt = R"""
         version 1.0
         task inc {
@@ -946,6 +949,16 @@ class TestTaskRunner(unittest.TestCase):
         """
         outputs = self._test_task(txt, {"x": 1}, _plugins=[my_plugin])
         self.assertEqual(outputs["y"], 4)
+
+        try:
+            self._test_task(txt, {"x": 42}, _plugins=[my_plugin])
+        except RuntimeError as exn:
+            assert exn.args[0] == "oh no you don't!"
+
+        try:
+            self._test_task(txt, {"x": 40}, _plugins=[my_plugin])
+        except RuntimeError as exn:
+            assert exn.args[0] == "goodbye"
 
         txt = R"""
         version 1.0
@@ -966,22 +979,6 @@ class TestTaskRunner(unittest.TestCase):
         except WDL.runtime.error.CommandFailed as exn:
             self.assertEqual(exn.exit_status, 42)
 
-        txt = R"""
-        version 1.0
-        task inc {
-            input {
-                Int x
-            }
-            command {}
-            output {
-                Int y = x+1
-            }
-        }
-        """
-        try:
-            self._test_task(txt, {"x": 42}, _plugins=[my_plugin])
-        except RuntimeError as exn:
-            assert exn.args[0] == "oh no you don't!"
 
 class TestConfigLoader(unittest.TestCase):
     @classmethod
