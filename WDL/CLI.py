@@ -526,6 +526,7 @@ def runner(
     try:
         rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir)
     except Exception as exn:
+        print(json.dumps(runtime.error_json(exn), indent=2))
         exit_status = 2
         pos = None
         msg = None
