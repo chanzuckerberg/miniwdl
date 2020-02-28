@@ -9,19 +9,21 @@ the runner's environment (as detected by boto3).
 miniwdl discovers this entry point and loads the plugin to handle the s3:// URI scheme.
 `miniwdl --version` will list the discovered plugins. Furthermore, the configuration section
 [plugins] has options to enable/disable installed plugins based on glob patterns on the
-module/function name.
+module/function name ("miniwdl_download_awscli:main" in this case).
 
-The plugin entry point is a generator function which is used as a "coroutine" for the download
-operation. Given the desired URI, it should first quickly yield a dict with:
-    1. "task_wdl": source code of a WDL 1.0 task to perform the download
-    2. "inputs": dict of Cromwell-style JSON inputs to give to the task
-miniwdl then executes this specified operation, expecting it to produce an output "File file" with
-the downloaded file. By doing all the heavy lifting in a WDL task, the operation gets to inherit
-all the functionality of miniwdl's task runtime, e.g. pulling docker image with binary
-dependencies, resource scheduling & isolation, logging, error/signal handling, retry, etc.
+The plugin entry point is a generator function which operates as as a "coroutine" for the download
+operation. Given the desired URI, it first yields the source code of a WDL 1.0 task and inputs to
+perform the download. miniwdl then executes this specified operation, expecting it to produce an
+output "File file" with the downloaded file.
+
+In general, any time- or resource-intensive activities should be performed in the WDL task rather
+than the Python coroutine code. This way the operation gets to inherit all the functionality of
+miniwdl's runtime, e.g. pulling docker image with binary dependencies, resource scheduling &
+isolation, logging, error/signal handling, retry, etc.
 
 Following completion of the WDL task, the coroutine is sent back a dict with "outputs", which it
-must yield back in turn (possibly manipulating it if needed).
+must yield back in turn (manipulating it if needed). It's also thrown and may manipulate (but not
+suppress) an exception upon task failure.
 """
 
 import os
@@ -31,9 +33,10 @@ import boto3
 
 def main(cfg, logger, uri, **kwargs):
     """
-    Download plugin entry point, a generator/coroutine with two rounds:
+    Download plugin entry point, a generator/coroutine following this protocol:
     1. yields WDL task and inputs
-    2. receives outputs & yields outputs
+    2. receives outputs of the specified task
+    3. yields (possibly manipulated) outputs
 
     :param cfg: the effective miniwdl configuration; see WDL/runtime/config.py
     :param logger: logging.Logger for the triggering task/workflow; plugin might write directly
@@ -63,15 +66,18 @@ def main(cfg, logger, uri, **kwargs):
         # make file group-readable to ensure it'll be usable if the docker image runs as non-root
         os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
 
-        # yield WDL task and inputs
+        # yield WDL task source code and inputs (Cromwell-style JSON dict)
         recv = yield {
             "task_wdl": wdl,
             "inputs": {"uri": uri, "aws_credentials": aws_credentials_file.name},
         }
 
-    # we've been given back recv with key "outputs" containing the results of the task; we now have
-    # the opportunity to manipulate it, but no need, so just yield it back.
+    # recv is a dict with key "outputs" containing the task outputs (Cromwell-style JSON dict).
+    # We now have the opportunity to manipulate it, but no need; so just yield it back.
     yield recv
+
+    # If needed, we could've wrapped the yield statements with an exception handler to do something
+    # if the task fails; including manipulate or replace (but not suppress) the raised exception.
 
 
 # WDL task source code
@@ -106,24 +112,10 @@ task awscli_s3 {
 """
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 """
 quick-and-dirty test:
 
-pip3 install examples/download_awscli
+pip3 install examples/plugin_download_awscli
 echo -e 'version 1.0\ntask cat { input { File in } command { cat ~{in} } output { String out=read_string(stdout()) } }' > /tmp/cat.wdl
 python3 -m WDL run /tmp/cat.wdl in=s3://mlin-west/alyssa_ben.txt --dir=/tmp --verbose
 """

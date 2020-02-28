@@ -554,7 +554,7 @@ def runner(
             exn_pos = getattr(exn, "pos", None)
             if isinstance(exn_pos, SourcePosition):
                 pos = exn_pos
-            msg = str(msg)
+            msg = str(exn)
             exn = exn.__cause__
         if isinstance(exn, runtime.CommandFailed):
             exit_status = (lambda v: v if v else exit_status)(getattr(exn, "exit_status", 0))
