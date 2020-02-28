@@ -81,6 +81,7 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
 
     info: Dict[str, Any] = {"error": exn.__class__.__name__}
     pos = None
+    from_pos = None
     if isinstance(exn, RunFailed):
         exe = getattr(exn, "exe")
         pos = getattr(exe, "pos")
@@ -90,7 +91,6 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
         # follow __cause__s to find the original triggering exception
         from_exn = exn
         from_run = None
-        from_pos = None
         from_dir = dir
         while isinstance(from_exn, RunFailed):
             from_dir = getattr(from_exn, "run_dir")
