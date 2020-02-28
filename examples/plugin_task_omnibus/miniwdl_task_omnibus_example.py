@@ -29,9 +29,6 @@ thread, and doesn't reserve any cpu/memory. Therefore, it should usually avoid o
 or resource-intensive activities.
 """
 
-import os
-import tempfile
-import boto3
 import WDL
 
 
