@@ -346,6 +346,11 @@ def fill_run_subparser(subparsers):
         dest="run_dir",
         help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly",
     )
+    group.add_argument(
+        "--error-json",
+        action="store_true",
+        help="upon failure, print error information JSON to standard output (in addition to standard error logging)",
+    )
     group = run_parser.add_argument_group("configuration")
     group.add_argument(
         "--cfg",
@@ -432,6 +437,7 @@ def runner(
     copy_input_files=False,
     as_me=False,
     no_cache=False,
+    error_json=False,
     **kwargs,
 ):
     # load WDL document
@@ -526,7 +532,8 @@ def runner(
     try:
         rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir)
     except Exception as exn:
-        print(json.dumps(runtime.error_json(exn), indent=2))
+        if error_json:
+            print(json.dumps(runtime.error_json(exn), indent=2))
         exit_status = 2
         pos = None
         msg = None

@@ -111,6 +111,6 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
     if hasattr(exn, "job_id"):
         info["node"] = getattr(exn, "job_id")
     pos = pos or getattr(exn, "pos", None)
-    if isinstance(pos, SourcePosition) and pos != from_pos:
+    if isinstance(pos, SourcePosition):
         info["pos"] = pos_json(pos)
     return info

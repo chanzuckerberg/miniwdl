@@ -182,7 +182,7 @@ task failer {
     }
 }
 EOF
-$miniwdl run --dir failer2000/. --verbose failer2000.wdl > failer2000.stdout 2> failer2000.log.txt
+$miniwdl run --dir failer2000/. --verbose --error-json failer2000.wdl > failer2000.stdout 2> failer2000.log.txt
 is "$?" "42" "failer2000"
 is "$(jq '.cause.exit_status' failer2000.stdout)" "42" "workflow error stdout"
 is "$(jq '.cause.exit_status' failer2000/error.json)" "42" "workflow error.json"
