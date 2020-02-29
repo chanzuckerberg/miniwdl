@@ -10,23 +10,24 @@ the configuration section [plugins] has options to enable/disable installed plug
 patterns on the module/function name ("miniwdl_task_omnibus_example:main" in this case).
 
 The plugin entry point is a generator function which operates as a "coroutine" communicating
-bidirectionally with the runtime at a few key points during the task's lifecycle. (Note: we use the
-term "coroutine" to mean the general concept, not Python's async/await, which aren't involved.)
-It operates as follows:
+bidirectionally with the runtime at a few key points during the task's lifecycle. (We use the term
+"coroutine" in the general sense of PEP 342, not the more-recent async/await constructs, which
+aren't involved here.) The coroutine operates as follows:
 
 1. First, it's given information about the requested task and the provided inputs, which it may
-   manipulate, and yields back the inputs to use.
+   manipulate, and yields back the inputs to use (possibly transformed).
 2. Just before scheduling the task container, it's shown the task command, runtime.* values, and
-   WDL.runtime.task.TaskContainer object, which it yields back (manipulated as needed).
+   WDL.runtime.task.TaskContainer object, and yields them back, manipulated as needed.
 3. Lastly it's shown the task's evaluated outputs, and yields back the outputs to return.
 
-If the task fails at any stage (after the coroutine is initially started), the coroutine is thrown
-the relevant exception, which it may manipulate or replace (but not suppress). Conversely, the
-coroutine can raise an exception at any point, causing the task to fail.
+If the task fails once the coroutine has started, then the coroutine is thrown the relevant
+exception, which it may manipulate or replace (but not suppress). Conversely, the coroutine can
+raise an exception at any point, causing the task to fail.
 
 The plugin coroutine is intended for quick manipulation/reconfiguration; it blocks the task runtime
 thread, and doesn't reserve any cpu/memory. Therefore, it should usually avoid or offload any time-
-or resource-intensive activities.
+or resource-intensive activities. As tasks may run concurrently on different threads, so too may
+they start concurrent invocations of plugin coroutines.
 """
 
 import WDL
@@ -50,6 +51,8 @@ def main(cfg, logger, run_id, run_dir, task, **recv):
     logger.critical(f"HELLO {task.name} {run_dir}")
     try:
         # recv["inputs"] is a WDL.Env.Bindings[WDL.Value.Base] of the provided task inputs.
+        # See relevant documentation for these data structures:
+        #   https://miniwdl.readthedocs.io/en/latest/WDL.html#
         # Here we'll map the inputs to add 42 to any (top-level) integer, just to show we can.
         recv["inputs"] = recv["inputs"].map(
             lambda binding: WDL.Env.Binding(binding.name, WDL.Value.Int(binding.value.value + 42))
@@ -64,9 +67,9 @@ def main(cfg, logger, run_id, run_dir, task, **recv):
         #     ...
         #     recv["inputs"] = WDL.values_from_json(inputs_dict, task.available_inputs)
         #
-        # However, notice the JSON representation tends to conflate String and File inputs (you
-        # have to consult the type information in task.available_inputs, which might involve
-        # nested/compound types).
+        # However, notice the JSON representation tends to conflate String and File values -- to
+        # distinguish them precisely, you have to consult the type information in
+        # task.available_inputs, recursing into nested/compound types e.g. Array[Pair[Int,File]].
 
         # Now we yield the manipulated inputs, which the runner uses for evaluation of WDL
         # expressions and the task command.
@@ -75,8 +78,7 @@ def main(cfg, logger, run_id, run_dir, task, **recv):
         # We receive back a dict with the following keys:
         #   "command" : str, the evaluated task command
         #   "runtime" : Dict[str, Any], the evaluated task runtime section
-        #   "container" : WDL.runtime.task.TaskContainer, interface to the task container
-        #                 backend implementation
+        #   "container" : WDL.runtime.task.TaskContainer, interface to the container implementation
 
         # Let's prepend "set -euxo pipefail" to all task commands, which isn't a bad idea actually!
         recv["command"] = "set -euxo pipefail\n\n" + recv["command"]
@@ -96,8 +98,9 @@ def main(cfg, logger, run_id, run_dir, task, **recv):
         # a given round, it should just yield back what it was given.
 
     except WDL.runtime.CommandFailed as exn:
-        # Here we're notified upon failure of the task command. We can manipulate the exception or
-        # reraise a different one (but we must propagate some exception).
+        # Here we're notified that the task command exited with a nonzero status code (the most
+        # common, but not only, cause of task failure). We can manipulate the exception or reraise
+        # a different one (but we can't suppress the exception altogether).
         raise RuntimeError("never gonna give you up")
     finally:
         logger.critical(f"GOODBYE {task.name} {run_dir}")

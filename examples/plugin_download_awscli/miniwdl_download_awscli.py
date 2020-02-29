@@ -73,7 +73,8 @@ def main(cfg, logger, uri, **kwargs):
         }
 
     # recv is a dict with key "outputs" containing the task outputs (Cromwell-style JSON dict).
-    # We now have the opportunity to manipulate it, but no need; so just yield it back.
+    # We now have the opportunity to manipulate it, but no need; so just yield it back. The second
+    # yield is required in any case.
     yield recv
 
     # If needed, we could've wrapped the yield statements with an exception handler to do something

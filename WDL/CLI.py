@@ -102,7 +102,7 @@ class PipVersionAction(Action):
         # that they give inconsistent results?
         import pkg_resources
 
-        for group in runtime.config.PLUGIN_GROUPS:
+        for group in runtime.config.DEFAULT_PLUGINS.keys():
             group = f"miniwdl.plugin.{group}"
             for plugin in pkg_resources.iter_entry_points(group=group):
                 print(f"{group}\t{plugin}\t{plugin.dist}")
@@ -531,7 +531,7 @@ def runner(
 
     enabled_plugins = []
     disabled_plugins = []
-    for group in runtime.config.PLUGIN_GROUPS:
+    for group in runtime.config.DEFAULT_PLUGINS.keys():
         for enabled, plugin in runtime.config.load_all_plugins(cfg, group):
             (enabled_plugins if enabled else disabled_plugins).append(
                 f"{plugin.name} = {plugin.value}"
