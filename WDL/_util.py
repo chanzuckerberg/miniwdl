@@ -22,6 +22,7 @@ from typing import (
     Generic,
     Optional,
     Callable,
+    Generator,
     Any,
 )
 from types import FrameType
@@ -518,3 +519,71 @@ class AtomicCounter:
         with self._lock:
             self._value += 1
             return self._value
+
+
+@export
+@contextmanager
+def compose_coroutines(  # pyre-fixme
+    generators: List[Callable[[Any], Generator[Any, Any, None]]], x: Any  # pyre-fixme
+) -> Iterator[Generator[Any, Any, None]]:
+    """
+    Coroutine (generator) which composes several other coroutines to run in lockstep for one or
+    more "rounds." On each round, caller sends a value, which is sent to the first coroutine; the
+    value it yields is sent to the second coroutine; and so on until finally the value yielded by
+    the last coroutine is yielded back to the caller. Exceptions propagate in the same way, so a
+    coroutine can catch and manipulate (but not suppress) an exception raised by the caller or by
+    one of the other coroutines.
+    """
+
+    def _impl() -> Generator[Any, Any, None]:  # pyre-fixme
+        # start the coroutines by invoking each generator and taking the first value it yields
+        nonlocal x
+        cors = []
+        try:
+            for gen in generators:
+                cor = gen(x)
+                x = next(cor)
+                cors.append(cor)
+            while True:  # GeneratorExit will break
+                # yield to caller and get updated value back
+                try:
+                    x = yield x
+                except Exception as exn:
+                    for cor in cors:
+                        try:
+                            cor.throw(exn)
+                        except Exception as exn2:
+                            exn = exn2
+                    raise exn
+                # pass value through coroutines
+                exn = None
+                for cor in cors:
+                    try:
+                        if not exn:
+                            x = cor.send(x)
+                        else:
+                            cor.throw(exn)
+                    except Exception as exn2:
+                        exn = exn2
+                if exn:
+                    raise exn
+        finally:
+            close_exn = None
+            for cor in cors:
+                try:
+                    cor.close()
+                except Exception as exn2:
+                    close_exn = close_exn or exn2
+            if close_exn:
+                raise close_exn
+
+    # this outer contextmanager is for closing the coroutines promptly and propagating any caller
+    # exceptions back through them. see: https://stackoverflow.com/a/58854646
+    chain = _impl()
+    try:
+        yield chain
+    except Exception as exn:
+        chain.throw(exn)  # pyre-ignore
+        raise
+    finally:
+        chain.close()

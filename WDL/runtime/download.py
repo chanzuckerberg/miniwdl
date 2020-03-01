@@ -18,21 +18,17 @@ security credentials.
 import os
 import logging
 import importlib_metadata
-from typing import Optional, List, Iterable, Iterator, Dict, Any, Tuple, ContextManager, Callable
-from contextlib import contextmanager
+from typing import Optional, List, Generator, Dict, Any, Tuple, Callable
 from . import config
 from .cache import CallCache
+from .._util import compose_coroutines
 
 # WDL tasks for downloading a file based on its URI scheme
 
 
-_downloaders = {}
-
-
-@contextmanager
 def aria2c_downloader(
-    cfg: config.Loader, logger: logging.Logger, uri: str
-) -> Iterator[Tuple[str, Dict[str, Any]]]:
+    cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
+) -> Generator[Dict[str, Any], Dict[str, Any], None]:
     wdl = r"""
     task aria2c {
         input {
@@ -57,41 +53,42 @@ def aria2c_downloader(
         }
     }
     """
-    yield wdl, {"uri": uri}
+    recv = yield {"task_wdl": wdl, "inputs": {"uri": uri}}
+    yield recv  # pyre-ignore
 
 
-def _load():
-    if _downloaders:
-        return
+def _load(cfg: config.Loader):
+    table = getattr(cfg, "_downloaders", None)
+    if table:
+        return table
 
     # default public URI downloaders
-    _downloaders["https"] = aria2c_downloader
-    _downloaders["http"] = aria2c_downloader
-    _downloaders["ftp"] = aria2c_downloader
+    table = {"https": aria2c_downloader, "http": aria2c_downloader, "ftp": aria2c_downloader}
 
     # plugins
-    for plugin in importlib_metadata.entry_points().get("miniwdl.plugin.file_download", []):
-        _downloaders[plugin.name] = plugin.load()
+    for plugin_name, plugin_fn in config.load_plugins(cfg, "file_download"):
+        table[plugin_name] = plugin_fn
+
+    setattr(cfg, "_downloaders", table)
+    return table
 
 
 def _downloader(
-    uri: str,
-) -> Optional[
-    Callable[[config.Loader, logging.Logger, str], ContextManager[Tuple[str, Dict[str, Any]]]]
-]:
-    _load()
+    cfg: config.Loader, uri: str,
+) -> Optional[Callable[..., Generator[Dict[str, Any], Dict[str, Any], None]]]:
+    _load(cfg)
     colon = uri.find(":")
     if colon <= 0:
         return None
     scheme = uri[:colon]
-    return _downloaders.get(scheme, None)
+    return getattr(cfg, "_downloaders").get(scheme, None)
 
 
-def able(uri: str) -> bool:
+def able(cfg: config.Loader, uri: str) -> bool:
     """
     Returns True if uri appears to be a URI we know how to download
     """
-    return _downloader(uri) is not None
+    return _downloader(cfg, uri) is not None
 
 
 def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
@@ -103,17 +100,30 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
     """
 
     from . import run_local_task, RunFailed, DownloadFailed, Terminated
-    from .. import parse_tasks, values_from_json
+    from .. import parse_tasks, values_from_json, values_to_json
 
-    downloader_ctx = _downloader(uri)
-    assert downloader_ctx
+    gen = _downloader(cfg, uri)
+    assert gen
     try:
-        with downloader_ctx(cfg, logger, uri) as (downloader_wdl, downloader_inputs):
-            task = parse_tasks(downloader_wdl, version="1.0")[0]  # pyre-ignore
-            task.typecheck()
-            inputs = values_from_json(downloader_inputs, task.available_inputs)  # pyre-ignore
-            subdir, outputs = run_local_task(cfg, task, inputs, **kwargs)
-            return outputs["file"].value
+        with compose_coroutines([lambda kwargs: gen(cfg, logger, **kwargs)], {"uri": uri}) as cor:
+            recv = next(cor)
+
+            if "task_wdl" in recv:
+                task_wdl, inputs = (recv[k] for k in ["task_wdl", "inputs"])
+
+                task = parse_tasks(task_wdl, version="1.0")[0]  # pyre-ignore
+                task.typecheck()
+                inputs = values_from_json(inputs, task.available_inputs)  # pyre-ignore
+                subdir, outputs_env = run_local_task(cfg, task, inputs, **kwargs)
+
+                recv = cor.send(
+                    {"outputs": values_to_json(outputs_env), "dir": subdir}  # pyre-ignore
+                )
+
+            ans = recv["outputs"]["file"]
+            assert isinstance(ans, str) and os.path.isfile(ans)
+            return ans
+
     except RunFailed as exn:
         if isinstance(exn.__cause__, Terminated):
             raise exn.__cause__ from None
@@ -140,16 +150,15 @@ def run_cached(
     return False, cache.put_download(logger, uri, os.path.realpath(filename))
 
 
-@contextmanager
 def gsutil_downloader(
-    cfg: config.Loader, logger: logging.Logger, uri: str
-) -> Iterator[Tuple[str, Dict[str, Any]]]:
+    cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
+) -> Generator[Dict[str, Any], Dict[str, Any], None]:
     """
     Built-in downloader plugin for public gs:// URIs; registered by setup.cfg entry_points section
 
     TODO: adopt security credentials from runtime environment
     """
-    yield r"""
+    wdl = r"""
     task gsutil_cp {
         input {
             String uri
@@ -168,6 +177,5 @@ def gsutil_downloader(
             docker: "google/cloud-sdk:slim"
         }
     }
-    """, {
-        "uri": uri
-    }
+    """
+    yield (yield {"task_wdl": wdl, "inputs": {"uri": uri}})  # pyre-ignore

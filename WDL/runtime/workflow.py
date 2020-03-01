@@ -225,7 +225,7 @@ class StateMachine:
     :param inputs: ``WDL.Env.Bindings[Value.Base]`` of call inputs
     """
 
-    def step(self) -> "Optional[StateMachine.CallInstructions]":
+    def step(self, cfg: config.Loader) -> "Optional[StateMachine.CallInstructions]":
         """
         Advance the workflow state machine, returning the next call to initiate.
 
@@ -261,7 +261,7 @@ class StateMachine:
 
             # do the job
             try:
-                res = self._do_job(job)
+                res = self._do_job(cfg, job)
             except Exception as exn:
                 setattr(exn, "job_id", job.id)
                 raise exn
@@ -311,7 +311,7 @@ class StateMachine:
         self.waiting.add(job.id)
 
     def _do_job(
-        self, job: _Job
+        self, cfg: config.Loader, job: _Job
     ) -> "Union[StateMachine.CallInstructions, Env.Bindings[Value.Base]]":
         if isinstance(job.node, Tree.Gather):
             return _gather(
@@ -377,7 +377,9 @@ class StateMachine:
             )
             # check input files against whitelist
             disallowed_filenames = _filenames(call_inputs) - self.filename_whitelist
-            disallowed_filenames = set(fn for fn in disallowed_filenames if not downloadable(fn))
+            disallowed_filenames = set(
+                fn for fn in disallowed_filenames if not downloadable(cfg, fn)
+            )
             if disallowed_filenames:
                 raise InputError(
                     f"call {job.node.name} inputs use unknown file: {next(iter(disallowed_filenames))}"
@@ -727,7 +729,7 @@ def _workflow_main_loop(
             if terminating():
                 raise Terminated()
             # schedule all runnable calls
-            next_call = state.step()
+            next_call = state.step(cfg)
             while next_call:
                 call_dir = os.path.join(run_dir, next_call.id)
                 if os.path.exists(call_dir):
@@ -751,7 +753,7 @@ def _workflow_main_loop(
                 else:
                     assert False
                 call_futures[future] = next_call.id
-                next_call = state.step()
+                next_call = state.step(cfg)
             # no more calls to launch right now; wait for an outstanding call to finish
             future = next(futures.as_completed(call_futures), None)
             if future:
@@ -815,7 +817,7 @@ def _download_input_files(
     def schedule_downloads(v: Value.Base) -> None:
         nonlocal ops
         if isinstance(v, Value.File):
-            if v.value not in ops and downloadable(v.value):
+            if v.value not in ops and downloadable(cfg, v.value):
                 logger.info(_("schedule input file download", uri=v.value))
                 future = thread_pool.submit(
                     download,

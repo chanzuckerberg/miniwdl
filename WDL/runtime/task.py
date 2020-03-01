@@ -32,6 +32,7 @@ from .._util import (
     path_really_within,
     LoggingFileHandler,
     AtomicCounter,
+    compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
 from . import config
@@ -626,6 +627,7 @@ def run_local_task(
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
     _cache: Optional[CallCache] = None,
+    _plugins: Optional[List[Callable[..., Any]]] = None,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
@@ -662,43 +664,67 @@ def run_local_task(
         cache = _cache or CallCache(cfg)
 
         try:
-            # download input files, if needed
-            posix_inputs = _download_input_files(cfg, logger, logger_prefix, run_dir, inputs, cache)
+            # start plugin coroutines and process inputs through them
+            with compose_coroutines(
+                [
+                    (lambda kwargs: cor(cfg, logger, run_id, run_dir, task, **kwargs))
+                    for cor in (
+                        [cor for _, cor in sorted(config.load_plugins(cfg, "task"))]
+                        + (_plugins or [])
+                    )
+                ],
+                {"inputs": inputs},
+            ) as plugins:
+                recv = next(plugins)
+                inputs = recv["inputs"]
 
-            # create appropriate TaskContainer
-            container = LocalSwarmContainer(cfg, run_id, run_dir)
+                # download input files, if needed
+                posix_inputs = _download_input_files(
+                    cfg, logger, logger_prefix, run_dir, inputs, cache
+                )
 
-            # evaluate input/postinput declarations, including mapping from host to
-            # in-container file paths
-            container_env = _eval_task_inputs(logger, task, posix_inputs, container)
+                # create appropriate TaskContainer
+                container = LocalSwarmContainer(cfg, run_id, run_dir)
 
-            # evaluate runtime fields
-            runtime = _eval_task_runtime(cfg, logger, task, container_env,)
-            container.image_tag = str(runtime.get("docker", container.image_tag))
+                # evaluate input/postinput declarations, including mapping from host to
+                # in-container file paths
+                container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
-            # interpolate command
-            command = _util.strip_leading_whitespace(
-                task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
-            )[1]
-            logger.debug(_("command", command=command.strip()))
+                # evaluate runtime fields
+                runtime = _eval_task_runtime(cfg, logger, task, container_env,)
+                container.image_tag = str(runtime.get("docker", container.image_tag))
 
-            # start container & run command (and retry if needed)
-            _try_task(cfg, logger, container, command, runtime)
+                # interpolate command
+                command = _util.strip_leading_whitespace(
+                    task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
+                )[1]
+                logger.debug(_("command", command=command.strip()))
 
-            # evaluate output declarations
-            outputs = _eval_task_outputs(logger, task, container_env, container)
+                # process command/runtime/container through plugins
+                recv = plugins.send(
+                    {"command": command, "runtime": runtime, "container": container}
+                )
+                command, runtime, container = (recv[k] for k in ("command", "runtime", "container"))
 
-            # write and link outputs
-            from .. import values_to_json
+                # start container & run command (and retry if needed)
+                _try_task(cfg, logger, container, command, runtime)
 
-            outputs = link_outputs(outputs, run_dir)
-            write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name)
+                # evaluate output declarations
+                outputs = _eval_task_outputs(logger, task, container_env, container)
 
-            # make sure everything will be accessible to downstream tasks
-            chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
+                # make sure everything will be accessible to downstream tasks
+                chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
 
-            logger.notice("done")  # pyre-fixme
-            return (run_dir, outputs)
+                # process outputs through plugins & create output_links
+                recv = plugins.send({"outputs": outputs})
+                outputs = link_outputs(recv["outputs"], run_dir)
+
+                # write outputs.json
+                write_values_json(
+                    outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
+                )
+                logger.notice("done")  # pyre-fixme
+                return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())
             wrapper = RunFailed(task, run_id, run_dir)
@@ -732,7 +758,7 @@ def _download_input_files(
     def map_files(v: Value.Base) -> Value.Base:
         nonlocal downloads, download_bytes, cached_hits, cached_bytes
         if isinstance(v, Value.File):
-            if downloadable(v.value):
+            if downloadable(cfg, v.value):
                 logger.info(_("download input file", uri=v.value))
                 cached, filename = download(
                     cfg,
@@ -1040,12 +1066,13 @@ def link_outputs(outputs: Env.Bindings[Value.Base], run_dir: str) -> Env.Binding
 
     def map_files(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, Value.File):
-            hardlink = os.path.realpath(v.value)
-            assert os.path.isfile(hardlink)
-            symlink = os.path.join(dn, os.path.basename(v.value))
-            os.makedirs(dn, exist_ok=False)
-            os.symlink(hardlink, symlink)
-            v.value = symlink
+            if os.path.isfile(v.value):
+                hardlink = os.path.realpath(v.value)
+                assert os.path.isfile(hardlink)
+                symlink = os.path.join(dn, os.path.basename(v.value))
+                os.makedirs(dn, exist_ok=False)
+                os.symlink(hardlink, symlink)
+                v.value = symlink
         # recurse into compound values
         elif isinstance(v, Value.Array) and v.value:
             d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
