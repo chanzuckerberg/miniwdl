@@ -1051,6 +1051,10 @@ def cromwell(
     path=None,
     **kwargs,
 ):
+    print(
+        "DEPRECATION NOTICE: `miniwdl cromwell` may be removed in the future; see and comment on https://github.com/chanzuckerberg/miniwdl/issues/351",
+        file=sys.stderr,
+    )
     path = path or []
 
     # load WDL document
@@ -1262,6 +1266,9 @@ def localize(
     # parse the provided input JSON
     logging.basicConfig(level=NOTICE_LEVEL)
     logger = logging.getLogger("miniwdl-localize")
+    logger.critical(
+        "DEPRECATION NOTICE: `miniwdl localize` will be removed soon, superseded by the configurable URI download cache in >= v0.7.x"
+    )
     cfg = runtime.config.Loader(logger)
 
     def file_found(fn):
