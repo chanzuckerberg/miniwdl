@@ -774,10 +774,14 @@ def _workflow_main_loop(
         while isinstance(cause, RunFailed) and cause.__cause__:
             cause = cause.__cause__
         wrapper = RunFailed(workflow, run_id, run_dir)
-        write_atomic(
-            json.dumps(error_json(wrapper, cause=exn), indent=2),
-            os.path.join(run_dir, "error.json"),
-        )
+        try:
+            write_atomic(
+                json.dumps(error_json(wrapper, cause=exn), indent=2),
+                os.path.join(run_dir, "error.json"),
+            )
+        except Exception as exn2:
+            logger.debug(traceback.format_exc())
+            logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
         if isinstance(exn, RunFailed):
             logger.error(
                 _("call failure propagating", **{"from": getattr(exn, "run_id"), "dir": run_dir})

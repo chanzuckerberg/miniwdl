@@ -733,10 +733,14 @@ def run_local_task(
             logger.debug(traceback.format_exc())
             wrapper = RunFailed(task, run_id, run_dir)
             logger.error(_(str(wrapper), dir=run_dir, **error_json(exn)))
-            write_atomic(
-                json.dumps(error_json(wrapper, cause=exn), indent=2),
-                os.path.join(run_dir, "error.json"),
-            )
+            try:
+                write_atomic(
+                    json.dumps(error_json(wrapper, cause=exn), indent=2),
+                    os.path.join(run_dir, "error.json"),
+                )
+            except Exception as exn2:
+                logger.debug(traceback.format_exc())
+                logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
             raise wrapper from exn
 
 

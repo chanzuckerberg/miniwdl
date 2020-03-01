@@ -154,8 +154,6 @@ $ tree 20191012_120816_scATAC/output_links
 │   └── output.snap -> /tmp/snap-atac/20191012_120816_scATAC/call-SnapCellByBin/work/output.snap
 └── scATAC.output_snap_qc
     └── output.snap.qc -> /tmp/snap-atac/20191012_120816_scATAC/call-SnapPre/work/output.snap.qc
-
-8 directories, 8 files
 ```
 
 Individual tasks and sub-workflows run in their own nested subdirectories, each with a similar structure.

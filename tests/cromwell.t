@@ -70,7 +70,7 @@ touch quick brown fox
 
 $miniwdl cromwell echo_task.wdl 2> >(tee stderr >&2)
 is "$?" "2" "help status"
-is "$(cat stderr | wc -l)" "19" "help lines"
+is "$(cat stderr | wc -l)" "20" "help lines"
 
 $miniwdl cromwell --json echo_task.wdl s=foo i=42 f=quick a_s=bar a_s=baz a_f=brown > task_inputs.json
 is "$?" "0" "task json status"
@@ -114,7 +114,7 @@ workflow echo {
 EOF
 $miniwdl cromwell echo.wdl 2> >(tee stderr >&2)
 is "$?" "2" "help status"
-is "$(cat stderr | wc -l)" "19" "help lines"
+is "$(cat stderr | wc -l)" "20" "help lines"
 
 $miniwdl cromwell echo.wdl t.s=foo t.f=quick t.a_s=bar t.a_f=brown --empty a_s --json > workflow_inputs.json
 is "$?" "0" "workflow json status"

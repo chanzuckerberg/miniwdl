@@ -390,6 +390,11 @@ def fill_run_subparser(subparsers):
         help="""default runtime settings for all tasks (JSON filename or literal object e.g. '{"maxRetries":2}')""",
     )
     group.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="override any configuration enabling cache lookup for call outputs & downloaded files",
+    )
+    group.add_argument(
         "--copy-input-files",
         action="store_true",
         help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write them)",
@@ -398,11 +403,6 @@ def fill_run_subparser(subparsers):
         "--as-me",
         action="store_true",
         help="run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. apt-get)",
-    )
-    group.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="override any configuration enabling cache lookup for call outputs & downloaded files",
     )
     run_parser.add_argument(
         "-v",
@@ -1052,7 +1052,7 @@ def cromwell(
     **kwargs,
 ):
     print(
-        "DEPRECATION NOTICE: `miniwdl cromwell` may be removed in the future; see and comment on https://github.com/chanzuckerberg/miniwdl/issues/351",
+        "DEPRECATION NOTICE: `miniwdl cromwell` may be retired in the future; see and comment on https://github.com/chanzuckerberg/miniwdl/issues/351",
         file=sys.stderr,
     )
     path = path or []
@@ -1267,7 +1267,7 @@ def localize(
     logging.basicConfig(level=NOTICE_LEVEL)
     logger = logging.getLogger("miniwdl-localize")
     logger.critical(
-        "DEPRECATION NOTICE: `miniwdl localize` will be removed soon, superseded by the configurable URI download cache in >= v0.7.x"
+        "DEPRECATION NOTICE: `miniwdl localize` will soon be retired, superseded by the configurable URI download cache in >= v0.7.x"
     )
     cfg = runtime.config.Loader(logger)
 

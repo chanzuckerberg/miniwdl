@@ -8,7 +8,7 @@ the bioinformatics-focused `Workflow Description Language (WDL) <http://openwdl.
    :maxdepth: 2
 
    getting_started.md
-   runner_config.md
+   runner_reference.md
    runner_advanced.md
    WDL.rst
 

@@ -1,4 +1,4 @@
-# Advanced runner guide
+# Runner advanced guidelines
 
 Follow these guidelines for optimal performance and reliability from `miniwdl run`.
 
