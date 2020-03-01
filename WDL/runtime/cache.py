@@ -77,16 +77,16 @@ class CallCache:
             parts.scheme
             and parts.netloc
             and (
-                self._cfg["download_cache"].get_bool("disregard_query")
+                self._cfg["download_cache"].get_bool("ignore_query")
                 or not (parts.params or parts.query or parts.fragment)
             )
         ):
             uri = urlunparse((parts.scheme, parts.netloc, parts.path, "", "", ""))
-            # check allow & deny patterns
-            allow = self._cfg["download_cache"].get_list("allow_patterns") or ["*"]
-            deny = self._cfg["download_cache"].get_list("deny_patterns")
-            if next((pat for pat in allow if fnmatchcase(uri, pat)), False) and not next(
-                (pat for pat in deny if fnmatchcase(uri, pat)), False
+            # check enable/disable patterns
+            enable = self._cfg["download_cache"].get_list("enable_patterns") or ["*"]
+            disable = self._cfg["download_cache"].get_list("disable_patterns")
+            if next((pat for pat in enable if fnmatchcase(uri, pat)), False) and not next(
+                (pat for pat in disable if fnmatchcase(uri, pat)), False
             ):
                 (dn, fn) = os.path.split(parts.path)
                 if fn:

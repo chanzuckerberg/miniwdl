@@ -89,7 +89,7 @@ class TestDownload(RunnerTestCase):
                 "put": True,
                 "get": True,
                 "dir": os.path.join(self._dir, "cache"),
-                "deny_patterns": ["https://google.com/*"]
+                "disable_patterns": ["https://google.com/*"]
             }
         })
         inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
@@ -97,7 +97,7 @@ class TestDownload(RunnerTestCase):
         self._run(self.count_wdl, inp, cfg=cfg)
         logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
         self.assertTrue("downloaded: 2" in logs[0])
-        # alyssa_ben.txt is cached on second run through (robots.txt not due to deny_patterns)
+        # alyssa_ben.txt is cached on second run through (robots.txt not due to disable_patterns)
         self.assertTrue("downloaded: 1" in logs[1])
         self.assertTrue("cached: 1" in logs[1])
 
@@ -109,7 +109,7 @@ class TestDownload(RunnerTestCase):
                 "put": True,
                 "get": True,
                 "dir": os.path.join(self._dir, "cache2"),
-                "allow_patterns": ["https://raw.githubusercontent.com/chanzuckerberg/*"]
+                "enable_patterns": ["https://raw.githubusercontent.com/chanzuckerberg/*"]
             }
         })
         inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
@@ -147,13 +147,13 @@ class TestDownload(RunnerTestCase):
                 "put": True,
                 "get": True,
                 "dir": os.path.join(self._dir, "cache4"),
-                "disregard_query": True
+                "ignore_query": True
             }
         })
         inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt?xxx"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
         logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
-        # cache used with disregard_query
+        # cache used with ignore_query
         self.assertTrue("downloaded: 1" in logs[0])
         self.assertTrue("downloaded: 0" in logs[1])
