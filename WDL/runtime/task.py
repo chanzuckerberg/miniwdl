@@ -352,6 +352,9 @@ class LocalSwarmContainer(TaskContainer):
     docker image tag (set as desired before running)
     """
 
+    create_service_kwargs: Optional[Dict[str, Any]] = None
+    # override kwargs to docker service create() (may be set by plugins)
+
     _bind_input_files: Optional[str] = "ro"
     _observed_states: Optional[Set[str]] = None
 
@@ -392,27 +395,29 @@ class LocalSwarmContainer(TaskContainer):
         try:
             # run container as a transient docker swarm service, letting docker handle the resource
             # scheduling (waiting until requested # of CPUs are available).
-            svc = client.services.create(
-                self.image_tag,
+            kwargs = {
                 # unique name with some human readability; docker limits to 63 chars (issue #327)
-                name=f"wdl-{os.getpid()}-{LocalSwarmContainer._id_counter.next()}-{self.run_id}"[
+                "name": f"wdl-{os.getpid()}-{LocalSwarmContainer._id_counter.next()}-{self.run_id}"[
                     :63
                 ],
-                command=[
+                "command": [
                     "/bin/bash",
                     "-c",
                     "id; ls -Rl ..; bash ../command >> ../stdout.txt 2>> ../stderr.txt",
                 ],
                 # restart_policy 'none' so that swarm runs the container just once
-                restart_policy=docker.types.RestartPolicy("none"),
-                workdir=os.path.join(self.container_dir, "work"),
-                mounts=mounts,
-                resources=resources,
-                user=user,
-                groups=groups,
-                labels={"miniwdl_run_id": self.run_id},
-                container_labels={"miniwdl_run_id": self.run_id},
-            )
+                "restart_policy": docker.types.RestartPolicy("none"),
+                "workdir": os.path.join(self.container_dir, "work"),
+                "mounts": mounts,
+                "resources": resources,
+                "user": user,
+                "groups": groups,
+                "labels": {"miniwdl_run_id": self.run_id},
+                "container_labels": {"miniwdl_run_id": self.run_id},
+            }
+            kwargs.update(self.create_service_kwargs or {})
+            logger.debug(_("docker create service kwargs", **kwargs))
+            svc = client.services.create(self.image_tag, **kwargs)
             logger.debug(_("docker service", name=svc.name, id=svc.short_id))
 
             exit_code = None
@@ -497,7 +502,6 @@ class LocalSwarmContainer(TaskContainer):
         mounts.append(
             f"{os.path.join(self.host_dir, 'work')}:{os.path.join(self.container_dir, 'work')}:rw"
         )
-        logger.debug(_("docker mounts", mounts=mounts))
         return mounts
 
     def misc_config(
