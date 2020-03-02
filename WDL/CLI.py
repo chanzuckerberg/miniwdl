@@ -552,16 +552,12 @@ def runner(
         if error_json:
             print(json.dumps(runtime.error_json(exn), indent=2))
         exit_status = 2
-        pos = None
         msg = None
         from_rundir = None
         while isinstance(exn, runtime.RunFailed):
             exn_rundir = getattr(exn, "run_dir")
             rundir = rundir or exn_rundir
             from_rundir = exn_rundir
-            exn_pos = getattr(exn, "pos", None)
-            if isinstance(exn_pos, SourcePosition):
-                pos = exn_pos
             msg = str(exn)
             exn = exn.__cause__
         if isinstance(exn, runtime.CommandFailed):
