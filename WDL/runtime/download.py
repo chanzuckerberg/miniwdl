@@ -17,11 +17,13 @@ security credentials.
 """
 import os
 import logging
+import traceback
 import importlib_metadata
 from typing import Optional, List, Generator, Dict, Any, Tuple, Callable
 from . import config
 from .cache import CallCache
 from .._util import compose_coroutines
+from .._util import StructuredLogMessage as _
 
 # WDL tasks for downloading a file based on its URI scheme
 
@@ -99,7 +101,7 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
     useful in particular.
     """
 
-    from . import run_local_task, RunFailed, DownloadFailed, Terminated
+    from . import run_local_task, RunFailed, DownloadFailed, Terminated, error_json
     from .. import parse_tasks, values_from_json, values_to_json
 
     gen = _downloader(cfg, uri)
@@ -128,8 +130,10 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
         if isinstance(exn.__cause__, Terminated):
             raise exn.__cause__ from None
         raise DownloadFailed(uri) from exn.__cause__
-    except:
-        raise DownloadFailed(uri)
+    except Exception as exn:
+        logger.debug(traceback.format_exc())
+        logger.error(_("downloader error", uri=uri, **error_json(exn)))
+        raise DownloadFailed(uri) from exn
 
 
 def run_cached(

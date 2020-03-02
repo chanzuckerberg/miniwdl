@@ -552,13 +552,11 @@ def runner(
         if error_json:
             print(json.dumps(runtime.error_json(exn), indent=2))
         exit_status = 2
-        msg = None
         from_rundir = None
         while isinstance(exn, runtime.RunFailed):
             exn_rundir = getattr(exn, "run_dir")
             rundir = rundir or exn_rundir
             from_rundir = exn_rundir
-            msg = str(exn)
             exn = exn.__cause__
         if isinstance(exn, runtime.CommandFailed):
             exit_status = (lambda v: v if v else exit_status)(getattr(exn, "exit_status", 0))
@@ -571,10 +569,10 @@ def runner(
             info["dir"] = rundir
         if from_rundir and from_rundir != rundir:
             info["from_dir"] = from_rundir
-        if not msg:
-            msg = str(exn)
-            if "message" in info:
-                del info["message"]  # redundant
+        msg = str(exn)
+        if "message" in info:
+            msg = info["message"]
+            del info["message"]
         logger.error(_(msg, **info))
         if kwargs["debug"]:
             raise
