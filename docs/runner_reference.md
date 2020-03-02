@@ -2,9 +2,9 @@
 
 ## I/O and run directory structure
 
-By default `miniwdl run` creates a new subdirectory of the current working directory for each run, timestamp-named so that a series of them sorts in order of invocation. A different root directory can be specified with e.g. `--dir /my/runs`, while timestamp-named subdirectory creation can be suppressed with e.g. `--dir myrun/.`; in the latter case, the given directory should be nonexistent or empty.
+By default `miniwdl run` creates a new subdirectory of the current working directory for each run, timestamp-named so that a series of them sorts in order of invocation. A different root directory can be specified with `--dir /my/runs`, while timestamp-named subdirectory creation can be prevented with `--dir myrun/.`; in the latter case, the given directory should be nonexistent or empty.
 
-Upon run success, the JSON outputs are written to `outputs.json` in the run directory and printed to standard output (including a key providing the run directory path). Upon failure, the process exits with a non-zero status code and JSON error information is written to `error.json` in the run directory; if `--error-json` is supplied, this information is also printed to standard output. The existence of `outputs.json` is a reliable indicator of success; `error.json` indicates failure, but may not appear if miniwdl is force-killed (e.g. by `kill -9` or the out-of-memory killer), or if writing the file fails for any reason.
+Upon run success, the JSON outputs are written to `outputs.json` in the run directory and printed to standard output (including a key providing the run directory path). Upon failure, the process exits with a non-zero status code and JSON error information is written to `error.json` in the run directory; if `--error-json` is supplied, this information is also printed to standard output. The existence of `outputs.json` is a reliable indicator of success; `error.json` indicates failure, but may not appear if miniwdl is force-killed (by SIGKILL, such as the out-of-memory killer), or if writing the file fails for any reason.
 
 For tasks, the run directory also contains:
 
@@ -22,7 +22,12 @@ For workflows,
 * subdirectories for each call to a task or sub-workflow, each structured similarly
 * `output_links/` with links reaching into the call subdirectories where each output file was generated
 
-The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/tree/master/examples) illustrating production automation techniques (e.g. retrieving error messages, uploading output files) using these byproducts.
+The top-level run directory also contains:
+
+* `wdl/` a copy of the original WDL that was run, including imported documents (except any referenced by URI or absolute path)
+* `rerun` can be "sourced" to run the WDL (as found in the original location, possibly updated) using the same inputs
+
+The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/tree/master/examples) illustrating how this structure can inform production automation (e.g. retrieving error messages, uploading output files).
 
 ## Configuration
 
