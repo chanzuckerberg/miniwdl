@@ -162,6 +162,9 @@ def gsutil_downloader(
 
     TODO: adopt security credentials from runtime environment
     """
+    if uri == "gs://8675309":
+        # hook for test coverage of exception handler
+        raise RuntimeError("don't change your number")
     wdl = r"""
     task gsutil_cp {
         input {
