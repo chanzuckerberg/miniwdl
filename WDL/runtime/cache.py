@@ -5,47 +5,41 @@ referenced therein, and updates their access timestamps (atime).
 """
 
 import os
-import time
-import fcntl
 import logging
 import threading
 from typing import Iterator, Dict, Any, Optional, Set, List, IO
-from contextlib import contextmanager, ExitStack
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
 from . import config
 from .. import Env, Value, Type
-from .._util import StructuredLogMessage as _
+from .._util import StructuredLogMessage as _, FlockHolder
 
 
 class CallCache:
     _cfg: config.Loader
     _lock: threading.Lock
     _flocked_files: Set[str]
-    _flocks: List[ExitStack]
+    _flocker: FlockHolder
 
     def __init__(self, cfg: config.Loader):
         self._cfg = cfg
         self._lock = threading.Lock()
         self._flocked_files = set()
-        self._flocks = []
+        self._flocker = FlockHolder()
+        self._flocker.__enter__()
 
     def _flock(self, filenames: List[str]) -> None:
-        # open shared flocks on the specified filenames (all or none)
+        # open shared flocks on the specified filenames
         filenames2 = set(os.path.realpath(fn) for fn in filenames)
         with self._lock:
             filenames2 = filenames2 - self._flocked_files
             if filenames2:
-                with ExitStack() as stack:
-                    for fn in filenames2:
-                        stack.enter_context(_open_and_flock(fn))  # pylint: disable=no-member
-                    self._flocked_files |= filenames2
-                    self._flocks.append(stack.pop_all())  # pylint: disable=no-member
+                for fn in filenames2:
+                    self._flocker.flock(fn, update_atime=True)
+                    self._flocked_files.add(fn)
 
     def __del__(self):
-        with self._lock:
-            for lock in self._flocks:
-                lock.close()
+        self._flocker.__exit__()
 
     def get(
         self, logger: logging.Logger, key: str, output_types: Env.Bindings[Type.Base]
@@ -144,27 +138,3 @@ class CallCache:
                 ans = p
         self._flock([ans])
         return ans
-
-
-@contextmanager
-def _open_and_flock(
-    filename: str, mode: str = "rb", exclusive: bool = False, wait: bool = False
-) -> Iterator[IO[Any]]:
-    """
-    context manager yields an open BinaryIO/TextIO with a flock on the file, also updating atime
-    """
-    while True:
-        with open(filename, mode) as openfile:
-            op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
-            if not wait:
-                op |= fcntl.LOCK_NB
-            fcntl.flock(openfile, op)
-            # verify the hardlink didn't change in between our open & flock syscalls
-            filename_st = os.stat(filename)
-            file_st = os.stat(openfile.fileno())
-            if filename_st.st_dev == file_st.st_dev and filename_st.st_ino == file_st.st_ino:
-                # touch -a
-                os.utime(openfile.fileno(), ns=(int(time.time() * 1e9), file_st.st_mtime_ns))
-                yield openfile
-                return
-        # the flock should expire automatically when we close openfile

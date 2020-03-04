@@ -7,10 +7,12 @@ import json
 import logging
 import signal
 import threading
+import time
 import copy
+import fcntl
 from time import sleep
 from datetime import datetime
-from contextlib import contextmanager
+from contextlib import contextmanager, AbstractContextManager
 from typing import (
     Tuple,
     Dict,
@@ -23,6 +25,7 @@ from typing import (
     Optional,
     Callable,
     Generator,
+    IO,
     Any,
 )
 from types import FrameType
@@ -587,3 +590,88 @@ def compose_coroutines(  # pyre-fixme
         raise
     finally:
         chain.close()
+
+
+@export
+class FlockHolder(AbstractContextManager):
+    """
+    Context manager exposing a method to take an advisory lock on a file (flock) and hold it until
+    context exit. The context manager is reentrant; locks are released upon exit of the outermost
+    nested context.
+    """
+
+    _locked_files: List[Tuple[str, bool, IO[Any]]]  # pyre-fixme
+    _entries: int
+
+    def __init__(self) -> None:
+        self._locked_files = []
+        self._entries = 0
+
+    def __enter__(self) -> "FlockHolder":
+        assert self._entries > 0 or not self._locked_files
+        self._entries += 1
+        return self
+
+    def __exit__(self, *exc_details) -> None:  # pyre-fixme
+        assert self._entries > 0, "FlockHolder context exited prematurely"
+        self._entries -= 1
+        if self._entries == 0:
+            exn = None
+            for _, _, openfile in self._locked_files:
+                try:
+                    openfile.close()
+                except Exception as exn2:
+                    exn = exn or exn2
+            self._locked_files = []
+            if exn:
+                raise exn
+
+    def __del__(self) -> None:
+        assert self._entries == 0 and not self._locked_files, "FlockHolder context was not exited"
+
+    def flock(  # pyre-fixme
+        self,
+        filename: str,
+        mode: str = "rb",
+        exclusive: bool = False,
+        wait: bool = False,
+        update_atime: bool = False,
+    ) -> IO[Any]:
+        """
+        Open a file and an advisory lock on it. The file is closed and the lock released upon exit
+        of the outermost context. Returns the open file.
+
+        :param filename: file to open & lock
+        :param mode: open() mode
+        :param exclusive: True to open an exclusive lock (default: shared lock)p
+        :param wait: True to wait as long as needed to obtain the lock (self-deadlock is possible).
+                     Otherwise raise OSError EACCES/EAGAIN if the lock isn't available immediately.
+        :param atime: True to 'touch -a' the file after obtaining the lock
+        """
+        assert self._entries, "FlockHolder.flock() used out of context"
+        while True:
+            openfile = open(filename, mode)
+            try:
+                op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+                if not wait:
+                    op |= fcntl.LOCK_NB
+                fcntl.flock(openfile, op)
+
+                file_st = os.stat(openfile.fileno())
+                if update_atime:
+                    os.utime(openfile.fileno(), ns=(int(time.time() * 1e9), file_st.st_mtime_ns))
+
+                # The filename link could have been replaced or removed in the instant between our
+                # open() and flock() syscalls.
+                # - if it was removed, the following os.stat will trigger FileNotFoundError, which
+                #   is fine to propagate.
+                # - if it was replaced, the subsequent condition won't hold, and we'll loop around
+                #   to try again on the replacement file.
+                filename_st = os.stat(filename)
+                if filename_st.st_dev == file_st.st_dev and filename_st.st_ino == file_st.st_ino:
+                    self._locked_files.append((filename, exclusive, openfile))
+                    return openfile
+            except:
+                openfile.close()
+                raise
+            openfile.close()
