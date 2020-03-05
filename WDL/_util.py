@@ -602,10 +602,14 @@ class FlockHolder(AbstractContextManager):
 
     _locked_files: List[Tuple[str, bool, IO[Any]]]  # pyre-fixme
     _entries: int
+    _logger: logging.Logger
 
-    def __init__(self) -> None:
+    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
         self._locked_files = []
         self._entries = 0
+        self._logger = (
+            logger.getChild("FlockHolder") if logger else logging.getLogger("FlockHolder")
+        )
 
     def __enter__(self) -> "FlockHolder":
         assert self._entries > 0 or not self._locked_files
@@ -617,7 +621,8 @@ class FlockHolder(AbstractContextManager):
         self._entries -= 1
         if self._entries == 0:
             exn = None
-            for _, _, openfile in self._locked_files:
+            for fn, exclusive, openfile in self._locked_files:
+                self._logger.debug(StructuredLogMessage("close", file=fn, exclusive=exclusive))
                 try:
                     openfile.close()
                 except Exception as exn2:
@@ -655,6 +660,9 @@ class FlockHolder(AbstractContextManager):
                 op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
                 if not wait:
                     op |= fcntl.LOCK_NB
+                self._logger.debug(
+                    StructuredLogMessage("flock", file=filename, exclusive=exclusive, wait=wait,)
+                )
                 fcntl.flock(openfile, op)
 
                 file_st = os.stat(openfile.fileno())
@@ -668,6 +676,15 @@ class FlockHolder(AbstractContextManager):
                 # - if it was replaced, the subsequent condition won't hold, and we'll loop around
                 #   to try again on the replacement file.
                 filename_st = os.stat(filename)
+                self._logger.debug(
+                    StructuredLogMessage(
+                        "flocked",
+                        file=filename,
+                        exclusive=exclusive,
+                        name_inode=filename_st.st_ino,
+                        fd_inode=file_st.st_ino,
+                    )
+                )
                 if filename_st.st_dev == file_st.st_dev and filename_st.st_ino == file_st.st_ino:
                     self._locked_files.append((filename, exclusive, openfile))
                     return openfile
