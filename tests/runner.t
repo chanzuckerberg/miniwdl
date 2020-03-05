@@ -255,10 +255,7 @@ workflow my_workflow {
     }
 }
 EOF
-$miniwdl localize -o local_inputs.json localize_me.wdl uri_inputs.json
-fn=$(jq -r '.["my_workflow.files"][0]' local_inputs.json)
-test -f "$fn"
-is "$?" "0" "localized robots.txt"
-fn=$(jq -r '.["my_workflow.files"][1]' local_inputs.json)
-test -f "$fn"
-is "$?" "0" "localized alyssa_ben.txt"
+MINIWDL__DOWNLOAD_CACHE__PUT=true MINIWDL__DOWNLOAD_CACHE__DIR="${DN}/test_localize/cache" MINIWDL__DOWNLOAD_CACHE__ENABLE_PATTERNS='["*"]' MINIWDL__DOWNLOAD_CACHE__DISABLE_PATTERNS='["*/alyssa_ben.txt"]' \
+    $miniwdl localize localize_me.wdl uri_inputs.json --uri gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt > localize.stdout
+is "$?" "0" "localize exit code"
+is "$(find "${DN}/test_localize/cache/files" -type f | wc -l)" "2" "localize cache"

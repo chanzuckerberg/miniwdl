@@ -1209,138 +1209,168 @@ def ensure_cromwell_jar(jarfile=None):
 def fill_localize_subparser(subparsers):
     localize_parser = subparsers.add_parser(
         "localize",
-        help="Download URIs found in Cromwell-style input JSON and rewrite",
-        description=f"Download URIs found in Cromwell-style input JSON, and rewrite it with the local filenames.",
+        help="Download URI input files to local cache",
+        description=f"Prime the local file download cache with URI File inputs found in Cromwell-style input JSON",
     )
     localize_parser.add_argument(
-        "wdlfile", metavar="DOC.wdl", type=str, help="WDL document filename/URI"
+        "wdlfile",
+        metavar="DOC.wdl",
+        type=str,
+        help="WDL document filename/URI",
+        default=None,
+        nargs="?",
     )
     localize_parser.add_argument(
         "infile",
         metavar="INPUT.json",
         type=str,
         help="input JSON filename (- for standard input) or literal object",
-    )
-    localize_parser.add_argument(
-        "name",
-        metavar="NAME",
-        type=str,
-        nargs="?",
         default=None,
-        help="short name to include in local paths (default: basename of JSON file)",
-    )
-    localize_parser.add_argument(
-        "-d",
-        "--dir",
-        metavar="DIR",
-        dest="run_dir",
-        help="base directory in which to store downloaded files",
-    )
-    localize_parser.add_argument(
-        "-o",
-        metavar="LOCAL.json",
-        type=str,
-        dest="outfile",
-        help="write transformed JSON to file instead of standard output",
+        nargs="?",
     )
     localize_parser.add_argument(
         "--task",
         metavar="TASK_NAME",
         help="name of task (for WDL documents with multiple tasks & no workflow)",
     )
+    localize_parser.add_argument(
+        "--uri",
+        metavar="URI",
+        action="append",
+        help="additional URI to process; or, omit WDL & JSON and just specify one or more --uri",
+    )
+    localize_parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="if a URI is already cached, re-download and replace it",
+    )
+    localize_parser.add_argument(
+        "--cfg",
+        metavar="FILE",
+        type=str,
+        default=None,
+        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
+    )
     return localize_parser
 
 
 def localize(
-    wdlfile, infile, name=None, outfile=None, task=None, path=None, check_quant=True, **kwargs
+    wdlfile=None,
+    infile=None,
+    uri=None,
+    no_cache=False,
+    task=None,
+    cfg=None,
+    path=None,
+    check_quant=True,
+    **kwargs,
 ):
-    # load WDL document
-    doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
-
-    # parse the provided input JSON
     logging.basicConfig(level=NOTICE_LEVEL)
     logger = logging.getLogger("miniwdl-localize")
-    logger.critical(
-        "DEPRECATION NOTICE: `miniwdl localize` will soon be retired, superseded by the configurable URI download cache in >= v0.7.x"
-    )
-    cfg = runtime.config.Loader(logger)
+    install_coloredlogs(logger)
 
-    def file_found(fn):
-        return runtime.download.able(cfg, fn) or os.path.isfile(fn)
-
-    target, input_env, input_json = runner_input(
-        doc, [], infile, [], task=task, check_required=False, file_found=file_found
-    )
-
-    # read input JSON
-    name = name or os.path.basename(infile).split(".")[0]
-
-    # scan for Files that appear to be downloadable URIs
-    def scan(x):
-        if isinstance(x, Value.File) and runtime.download.able(cfg, x.value):
-            yield x.value
-        for y in x.children:
-            yield from scan(y)
-
-    uris = set()
-    for b in input_env:
-        uris |= set(scan(b.value))
-
-    if uris:
-        # initialize local Docker Swarm
-        runtime.task.LocalSwarmContainer.global_init(cfg, logger)
-
-        # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
-        # runtime to download them
-        localizer_wdl = (
-            """
-            version 1.0
-            workflow localize_%s {
-                input {
-                    Array[File] uris
-                }
-                output {
-                    Array[File] files = uris
-                }
-            }
-            """
-            % name
+    cfg_arg = None
+    if cfg:
+        assert os.path.isfile(cfg), "--cfg file not found"
+        cfg_arg = [cfg]
+    cfg = runtime.config.Loader(logger, filenames=cfg_arg)
+    cache_cfg = cfg["download_cache"]
+    original_get = cache_cfg.get_bool("get")
+    if original_get and no_cache:
+        cfg.override({"download_cache": {"get": False}})
+    logger.notice(
+        _(
+            "effective configuration",
+            put=cache_cfg.get_bool("put"),
+            get=cache_cfg.get_bool("get"),
+            dir=cache_cfg["dir"],
+            ignore_query=cache_cfg.get_bool("ignore_query"),
+            enable_patterns=cache_cfg.get_list("enable_patterns"),
+            disable_patterns=cache_cfg.get_list("disable_patterns"),
         )
-        localizer = parse_document(localizer_wdl)
-        localizer.typecheck()
-        cfg = runtime.config.Loader(logger)
-        subdir, outputs = runtime.run(
-            cfg,
-            localizer.workflow,
-            values_from_json({"uris": list(uris)}, localizer.workflow.available_inputs),
+    )
+
+    uri = uri or []
+    uri = set(uri)
+
+    if infile:
+        # load WDL document
+        doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
+
+        def file_found(fn):
+            return runtime.download.able(cfg, fn) or os.path.isfile(fn)
+
+        target, input_env, input_json = runner_input(
+            doc, [], infile, [], task=task, check_required=False, file_found=file_found
         )
 
-        # recover the mapping of URIs to downloaded files
-        uri_to_file = {}
-        assert isinstance(outputs["files"], Value.Array)
-        for uri, elt in zip(uris, outputs["files"].value):
-            assert isinstance(elt, Value.File) and os.path.isfile(elt.value)
-            uri_to_file[uri] = elt.value
-
-        # rewrite the input Env to replace URIs with filenames
-        def rewrite(x):
-            if isinstance(x, Value.File) and x.value in uri_to_file:
-                x.value = uri_to_file[x.value]
+        # scan for Files that appear to be downloadable URIs
+        def scan(x):
+            if isinstance(x, Value.File) and runtime.download.able(cfg, x.value):
+                yield x.value
             for y in x.children:
-                rewrite(y)
+                yield from scan(y)
 
         for b in input_env:
-            rewrite(b.value)
+            uri |= set(scan(b.value))
 
-    # write out the possibly-modified JSON
-    result_json = values_to_json(
-        input_env, namespace=(target.name if isinstance(target, Workflow) else "")
+    if not uri:
+        logger.warning(
+            "nothing to do; if inputs use special URI schemes, make sure necessary downloader plugin(s) are installed and enabled"
+        )
+        sys.exit(0)
+
+    if not cache_cfg.get_bool("put"):
+        logger.error(
+            'configuration section "download_cache", option "put" (env MINIWDL__DOWNLOAD_CACHE__PUT) must be true for this operation to be effective'
+        )
+        sys.exit(2)
+
+    cache = runtime.cache.CallCache(cfg)
+    disabled = [u for u in uri if not cache.download_path(u)]
+    if disabled:
+        logger.notice(_("URIs found but not cacheable per configuration", uri=disabled))
+    uri = list(uri - set(disabled))
+
+    if not uri:
+        logger.warning("nothing to do; check configured enable_patterns and disable_patterns")
+        sys.exit(0)
+    logger.notice(_("starting downloads", uri=uri))
+
+    # initialize local Docker Swarm
+    runtime.task.LocalSwarmContainer.global_init(cfg, logger)
+
+    # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
+    # runtime to download & cache them
+    localizer_wdl = """
+        version 1.0
+        workflow localize {
+            input {
+                Array[File] uris
+            }
+            output {
+                Array[File] files = uris
+            }
+        }
+        """
+    localizer = parse_document(localizer_wdl)
+    localizer.typecheck()
+    cfg = runtime.config.Loader(logger)
+    subdir, outputs = runtime.run(
+        cfg,
+        localizer.workflow,
+        values_from_json({"uris": uri}, localizer.workflow.available_inputs),
+        run_dir=os.environ.get("TMPDIR", "/tmp"),
+        _cache=cache,
     )
-    if outfile in [None, "", "-"]:
-        print(json.dumps(result_json, indent=2))
-    else:
-        with open(outfile, "w") as outp:
-            print(json.dumps(result_json, indent=2), file=outp)
+
+    logger.notice(
+        _("success", files=[os.path.realpath(p) for p in values_to_json(outputs)["files"]])
+    )
+    if not original_get:
+        logger.warning(
+            """future runs won't use the cache unless configuration section "download_cache", key "get" (env MINIWDL__DOWNLOAD_CACHE__GET) is set to true"""
+        )
 
 
 def die(msg, status=2):
