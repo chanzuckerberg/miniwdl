@@ -671,9 +671,9 @@ def run_local_task(
             # start plugin coroutines and process inputs through them
             with compose_coroutines(
                 [
-                    (lambda kwargs: cor(cfg, logger, run_id, run_dir, task, **kwargs))
+                    (lambda kwargs, cor=cor: cor(cfg, logger, run_id, run_dir, task, **kwargs))
                     for cor in (
-                        [cor for _, cor in sorted(config.load_plugins(cfg, "task"))]
+                        [cor2 for _, cor2 in sorted(config.load_plugins(cfg, "task"))]
                         + (_plugins or [])
                     )
                 ],
