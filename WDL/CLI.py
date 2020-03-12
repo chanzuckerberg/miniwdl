@@ -447,6 +447,8 @@ def runner(
         level = VERBOSE_LEVEL
     if kwargs["debug"]:
         level = logging.DEBUG
+    else:
+        logging.raiseExceptions = False
     if kwargs["no_color"]:
         # picked up by _util.install_coloredlogs()
         os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
