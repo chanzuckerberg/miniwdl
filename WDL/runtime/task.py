@@ -281,6 +281,7 @@ class LocalSwarmContainer(TaskContainer):
             while True:
                 info = client.info()
                 if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
+                    logger.debug(_("swarm info", **info["Swarm"]))
                     state = info["Swarm"]["LocalNodeState"]
 
                 # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
