@@ -323,9 +323,9 @@ _terminating_lock: threading.Lock = threading.Lock()
 @contextmanager
 def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]]:
     """
-    Context manager installing termination signal handlers (SIGTERM, SIGQUIT, SIGINT, SIGHUP,
-    SIGPIPE) which set a global flag indicating whether such a signal has been received. Yields a
-    function which returns this flag.
+    Context manager installing termination signal handlers (SIGTERM, SIGQUIT, SIGINT, SIGHUP) which
+    set a global flag indicating whether such a signal has been received. Yields a function which
+    returns this flag.
 
     Should be opened on the main thread wrapping all the desired operations. Once this is so, more
     instances can be opened on any thread without interfering with each other, as long as they're
@@ -336,16 +336,16 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
         signal.SIGQUIT,
         signal.SIGINT,
         signal.SIGHUP,
-        signal.SIGPIPE,
-        signal.SIGALRM,
         signal.SIGUSR1,
+        signal.SIGALRM,  # used in unit test
+        # don't trap SIGPIPE -- Python has a default handler to generate BrokenPipeError
     ]
 
     def handle_signal(sig: int, frame: FrameType) -> None:
         global _terminating
         if not _terminating:
             if sig != signal.SIGUSR1:
-                logger.critical(StructuredLogMessage("ABORT", signal=sig))
+                logger.critical(StructuredLogMessage("aborting workflow", signal=sig))
             else:
                 # SIGUSR1 comes from ourselves, as the signal to abort after something else has
                 # already gone wrong
