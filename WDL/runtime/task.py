@@ -1120,6 +1120,7 @@ def link_outputs(
                 v.value[key] = map_files(v.value[key], os.path.join(dn, key))
         return v
 
+    os.makedirs(os.path.join(run_dir, "output_links"), exist_ok=False)
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
