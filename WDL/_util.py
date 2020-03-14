@@ -7,10 +7,12 @@ import json
 import logging
 import signal
 import threading
+import time
 import copy
+import fcntl
 from time import sleep
 from datetime import datetime
-from contextlib import contextmanager
+from contextlib import contextmanager, AbstractContextManager
 from typing import (
     Tuple,
     Dict,
@@ -23,6 +25,7 @@ from typing import (
     Optional,
     Callable,
     Generator,
+    IO,
     Any,
 )
 from types import FrameType
@@ -587,3 +590,136 @@ def compose_coroutines(  # pyre-fixme
         raise
     finally:
         chain.close()
+
+
+@export
+class FlockHolder(AbstractContextManager):
+    """
+    Context manager exposing a method to take an advisory lock on a file (flock) and hold it until
+    context exit. The context manager is reentrant; locks are released upon exit of the outermost
+    nested context.
+    """
+
+    _lock: threading.Lock
+    _flocks: Dict[str, Tuple[IO[Any], bool]]
+    _entries: int
+    _logger: logging.Logger
+
+    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+        self._lock = threading.Lock()
+        self._flocks = {}
+        self._entries = 0
+        self._logger = (
+            logger.getChild("FlockHolder") if logger else logging.getLogger("FlockHolder")
+        )
+
+    def __enter__(self) -> "FlockHolder":
+        assert self._entries > 0 or not self._flocks
+        self._entries += 1
+        return self
+
+    def __exit__(self, *exc_details) -> None:  # pyre-fixme
+        assert self._entries > 0, "FlockHolder context exited prematurely"
+        self._entries -= 1
+        if self._entries == 0:
+            exn = None
+            with self._lock:
+                for fn, (fh, exclusive) in self._flocks.items():
+                    self._logger.debug(StructuredLogMessage("close", file=fn, exclusive=exclusive))
+                    try:
+                        fh.close()
+                    except Exception as exn2:
+                        exn = exn or exn2
+                self._flocks = {}
+            if exn:
+                raise exn
+
+    def __del__(self) -> None:
+        assert self._entries == 0 and not self._flocks, "FlockHolder context was not exited"
+
+    def flock(  # pyre-fixme
+        self,
+        filename: str,
+        mode: str = "rb",
+        exclusive: bool = False,
+        wait: bool = False,
+        update_atime: bool = False,
+    ) -> IO[Any]:
+        """
+        Open a file and an advisory lock on it. The file is closed and the lock released upon exit
+        of the outermost context. Returns the open file, which the caller shouldn't close (this is
+        taken care of).
+
+        :param filename: file to open & lock
+        :param mode: open() mode
+        :param exclusive: True to open an exclusive lock (default: shared lock)p
+        :param wait: True to wait as long as needed to obtain the lock, otherwise (default) raise
+                     OSError if the lock isn't available immediately. Self-deadlock is possible;
+                     see Python fcntl.flock docs for further details.
+        :param update_atime: True to 'touch -a' the file after obtaining the lock
+        """
+        assert self._entries, "FlockHolder.flock() used out of context"
+        while True:
+            realfilename = os.path.realpath(filename)
+            with self._lock:  # only needed to synchronize self._flocks
+                if realfilename in self._flocks and not exclusive:
+                    self._logger.debug(
+                        StructuredLogMessage(
+                            "reuse prior flock",
+                            filename=filename,
+                            realpath=realfilename,
+                            exclusive=self._flocks[realfilename][1],
+                        )
+                    )
+                    return self._flocks[realfilename][0]
+                openfile = open(realfilename, mode)
+                try:
+                    op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+                    if not wait:
+                        op |= fcntl.LOCK_NB
+                    self._logger.debug(
+                        StructuredLogMessage(
+                            "flock",
+                            file=filename,
+                            realpath=realfilename,
+                            exclusive=exclusive,
+                            wait=wait,
+                        )
+                    )
+                    fcntl.flock(openfile, op)
+                    # the flock will release whenever we ultimately openfile.close()
+
+                    file_st = os.stat(openfile.fileno())
+                    if update_atime:
+                        os.utime(
+                            openfile.fileno(), ns=(int(time.time() * 1e9), file_st.st_mtime_ns)
+                        )
+
+                    # The filename link could have been replaced or removed in the instant between
+                    # our open() and flock() syscalls.
+                    # - if it was removed, the following os.stat will trigger FileNotFoundError,
+                    #   which is reasonable to propagate.
+                    # - if it was replaced, the subsequent condition won't hold, and we'll loop
+                    #   around to try again on the replacement file.
+                    filename_st = os.stat(realfilename)
+                    self._logger.debug(
+                        StructuredLogMessage(
+                            "flocked",
+                            file=filename,
+                            realpath=realfilename,
+                            exclusive=exclusive,
+                            name_inode=filename_st.st_ino,
+                            fd_inode=file_st.st_ino,
+                        )
+                    )
+                    if (
+                        filename_st.st_dev == file_st.st_dev
+                        and filename_st.st_ino == file_st.st_ino
+                    ):
+                        assert realfilename not in self._flocks
+                        self._flocks[realfilename] = (openfile, exclusive)
+                        return openfile
+                except:
+                    openfile.close()
+                    raise
+                openfile.close()

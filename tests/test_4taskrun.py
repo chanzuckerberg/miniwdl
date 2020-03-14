@@ -855,7 +855,8 @@ class TestTaskRunner(unittest.TestCase):
 
     @log_capture()
     def test_download_cache(self, capture):
-        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        logger = logging.getLogger(self.id())
+        cfg = WDL.runtime.config.Loader(logger)
         cfg.override({
             "download_cache": {
                 "put": True,
@@ -883,6 +884,15 @@ class TestTaskRunner(unittest.TestCase):
         logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
         self.assertTrue("downloaded: 1" in logs[0])
         self.assertTrue("cached: 1" in logs[1])
+
+        # quick test CallCache reentrancy
+        cache = WDL.runtime.cache.CallCache(cfg, logger)
+        self.assertIsNotNone(cache.get_download("https://google.com/robots.txt", logger=logger))
+        self.assertIsNotNone(cache.get_download("https://google.com/robots.txt", logger=logger))
+        self.assertEqual(len(cache._flocker._flocks), 1)
+        with self.assertRaises(OSError):
+            cache._flocker.flock(cache.download_path("https://google.com/robots.txt"), exclusive=True)
+        del cache
 
     def test_workdir_ownership(self):
         # verify that everything within working directory is owned by the invoking user

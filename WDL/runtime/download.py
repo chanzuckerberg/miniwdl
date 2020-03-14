@@ -143,7 +143,7 @@ def run_cached(
     Cached download logic: returns the file from the cache if available; otherwise, runs the
     download and puts it into the cache before returning
     """
-    cached = cache.get_download(logger, uri)
+    cached = cache.get_download(uri, logger=logger)
     if cached:
         return True, cached
     if not cfg["download_cache"].get_bool("put") or not cache.download_path(uri):
@@ -151,7 +151,7 @@ def run_cached(
     # run the download within the cache directory
     run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
     filename = run(cfg, logger, uri, run_dir=run_dir, **kwargs)
-    return False, cache.put_download(logger, uri, os.path.realpath(filename))
+    return False, cache.put_download(uri, os.path.realpath(filename), logger=logger)
 
 
 def gsutil_downloader(

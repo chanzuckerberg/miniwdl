@@ -666,7 +666,7 @@ def run_local_task(
             )
         )
         logger.info(_("thread", ident=threading.get_ident()))
-        cache = _cache or CallCache(cfg)
+        cache = _cache or CallCache(cfg, logger)
 
         try:
             # start plugin coroutines and process inputs through them
