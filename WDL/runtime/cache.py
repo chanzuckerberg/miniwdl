@@ -20,12 +20,14 @@ class CallCache:
     _lock: threading.Lock
     _flocked_files: Set[str]
     _flocker: FlockHolder
+    _logger: logging.Logger
 
-    def __init__(self, cfg: config.Loader):
+    def __init__(self, cfg: config.Loader, logger: logging.Logger):
         self._cfg = cfg
+        self._logger = logger.getChild("CallCache")
         self._lock = threading.Lock()
         self._flocked_files = set()
-        self._flocker = FlockHolder()
+        self._flocker = FlockHolder(self._logger)
         self._flocker.__enter__()
 
     def _flock(self, filenames: List[str]) -> None:
@@ -42,7 +44,10 @@ class CallCache:
         self._flocker.__exit__()
 
     def get(
-        self, logger: logging.Logger, key: str, output_types: Env.Bindings[Type.Base]
+        self,
+        key: str,
+        output_types: Env.Bindings[Type.Base],
+        logger: Optional[logging.Logger] = None,
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found,
@@ -51,7 +56,9 @@ class CallCache:
         """
         raise NotImplementedError()
 
-    def put(self, logger: logging.Logger, key: str, outputs: Env.Bindings[Value.Base]) -> None:
+    def put(
+        self, key: str, outputs: Env.Bindings[Value.Base], logger: Optional[logging.Logger] = None,
+    ) -> None:
         """
         Store call outputs for future reuse
         """
@@ -99,11 +106,12 @@ class CallCache:
                     )
         return None
 
-    def get_download(self, logger: logging.Logger, uri: str) -> Optional[str]:
+    def get_download(self, uri: str, logger: Optional[logging.Logger] = None,) -> Optional[str]:
         """
         Return filename of the cached download of uri, if available. If so then opens a shared
         flock on the local file, which will remain for the life of the CallCache object.
         """
+        logger = logger.getChild("CallCache") if logger else self._logger
         p = self.download_path(uri)
         if not (self._cfg["download_cache"].get_bool("get") and p and os.path.isfile(p)):
             logger.debug(_("no download cache hit", uri=uri, cache_path=p))
@@ -123,11 +131,14 @@ class CallCache:
             )
             return None
 
-    def put_download(self, logger: logging.Logger, uri: str, filename: str) -> str:
+    def put_download(
+        self, uri: str, filename: str, logger: Optional[logging.Logger] = None,
+    ) -> str:
         """
         Move the downloaded file to the cache location & return the new path; or if the uri isn't
         cacheable, return the given path.
         """
+        logger = logger.getChild("CallCache") if logger else self._logger
         ans = filename
         if self._cfg["download_cache"].get_bool("put"):
             p = self.download_path(uri)

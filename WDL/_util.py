@@ -649,9 +649,10 @@ class FlockHolder(AbstractContextManager):
         :param filename: file to open & lock
         :param mode: open() mode
         :param exclusive: True to open an exclusive lock (default: shared lock)p
-        :param wait: True to wait as long as needed to obtain the lock (self-deadlock is possible).
-                     Otherwise raise OSError EACCES/EAGAIN if the lock isn't available immediately.
-        :param atime: True to 'touch -a' the file after obtaining the lock
+        :param wait: True to wait as long as needed to obtain the lock, otherwise (default) raise
+                     OSError if the lock isn't available immediately. Self-deadlock is possible;
+                     see Python fcntl.flock docs for further details.
+        :param update_atime: True to 'touch -a' the file after obtaining the lock
         """
         assert self._entries, "FlockHolder.flock() used out of context"
         while True:
@@ -664,6 +665,7 @@ class FlockHolder(AbstractContextManager):
                     StructuredLogMessage("flock", file=filename, exclusive=exclusive, wait=wait,)
                 )
                 fcntl.flock(openfile, op)
+                # the flock will release whenever we ultimately openfile.close()
 
                 file_st = os.stat(openfile.fileno())
                 if update_atime:
