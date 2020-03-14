@@ -17,28 +17,14 @@ from .._util import StructuredLogMessage as _, FlockHolder
 
 class CallCache:
     _cfg: config.Loader
-    _lock: threading.Lock
-    _flocked_files: Set[str]
     _flocker: FlockHolder
     _logger: logging.Logger
 
     def __init__(self, cfg: config.Loader, logger: logging.Logger):
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
-        self._lock = threading.Lock()
-        self._flocked_files = set()
         self._flocker = FlockHolder(self._logger)
         self._flocker.__enter__()
-
-    def _flock(self, filenames: List[str]) -> None:
-        # open shared flocks on the specified filenames
-        filenames2 = set(os.path.realpath(fn) for fn in filenames)
-        with self._lock:
-            filenames2 = filenames2 - self._flocked_files
-            if filenames2:
-                for fn in filenames2:
-                    self._flocker.flock(fn, update_atime=True)
-                    self._flocked_files.add(fn)
 
     def __del__(self):
         self._flocker.__exit__()
@@ -117,7 +103,7 @@ class CallCache:
             logger.debug(_("no download cache hit", uri=uri, cache_path=p))
             return None
         try:
-            self._flock([p])
+            self._flocker.flock(p, update_atime=True)
             logger.info(_("found in download cache", uri=uri, cache_path=p))
             return p
         except Exception as exn:
@@ -147,5 +133,5 @@ class CallCache:
                 os.rename(filename, p)
                 logger.info(_("stored in download cache", uri=uri, cache_path=p))
                 ans = p
-        self._flock([ans])
+        self._flocker.flock(ans, update_atime=True)
         return ans
