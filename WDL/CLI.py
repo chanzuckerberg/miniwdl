@@ -1328,7 +1328,7 @@ def localize(
         )
         sys.exit(2)
 
-    cache = runtime.cache.CallCache(cfg)
+    cache = runtime.cache.CallCache(cfg, logger)
     disabled = [u for u in uri if not cache.download_path(u)]
     if disabled:
         logger.notice(_("URIs found but not cacheable per configuration", uri=disabled))
