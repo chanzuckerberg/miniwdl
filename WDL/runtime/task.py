@@ -722,7 +722,9 @@ def run_local_task(
 
                 # process outputs through plugins & create output_links
                 recv = plugins.send({"outputs": outputs})
-                outputs = link_outputs(recv["outputs"], run_dir)
+                outputs = link_outputs(
+                    recv["outputs"], run_dir, hardlinks=cfg["task_io"].get_bool("output_hardlinks")
+                )
 
                 # write outputs.json
                 write_values_json(
@@ -1065,7 +1067,9 @@ def _eval_task_outputs(
     return outputs
 
 
-def link_outputs(outputs: Env.Bindings[Value.Base], run_dir: str) -> Env.Bindings[Value.Base]:
+def link_outputs(
+    outputs: Env.Bindings[Value.Base], run_dir: str, hardlinks: bool = False
+) -> Env.Bindings[Value.Base]:
     """
     Following a successful run, the output files may be scattered throughout a complex directory
     tree used for execution. To help navigating this, generate a subdirectory of the run directory
@@ -1078,10 +1082,10 @@ def link_outputs(outputs: Env.Bindings[Value.Base], run_dir: str) -> Env.Binding
             if os.path.isfile(v.value):
                 hardlink = os.path.realpath(v.value)
                 assert os.path.isfile(hardlink)
-                symlink = os.path.join(dn, os.path.basename(v.value))
+                newlink = os.path.join(dn, os.path.basename(v.value))
                 os.makedirs(dn, exist_ok=False)
-                os.symlink(hardlink, symlink)
-                v.value = symlink
+                (os.link if hardlinks else os.symlink)(hardlink, newlink)
+                v.value = newlink
         # recurse into compound values
         elif isinstance(v, Value.Array) and v.value:
             d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
@@ -1120,7 +1124,7 @@ def link_outputs(outputs: Env.Bindings[Value.Base], run_dir: str) -> Env.Binding
         lambda binding: Env.Binding(
             binding.name,
             map_files(
-                copy.deepcopy(binding.value), os.path.join(run_dir, "output_links", binding.name)
+                copy.deepcopy(binding.value), os.path.join(run_dir, "output_links", binding.name),
             ),
         )
     )

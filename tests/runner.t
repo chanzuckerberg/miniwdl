@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 51
+plan tests 52
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -147,10 +147,11 @@ workflow echo {
     }
 }
 EOF
-$miniwdl run --dir scatterrun/. scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
+MINIWDL__TASK_IO__OUTPUT_HARDLINKS=true $miniwdl run --dir scatterrun/. scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
 is "$?" "0" "scatter run"
 is "$(ls scatterrun/output_links/t.out_f/0/2)" "fox" "scatter product 0 fox link"
 is "$(ls scatterrun/output_links/t.out_f/1/2)" "fox" "scatter product 1 fox link"
+is "$(find scatterrun/output_links -type l | wc -l)" "0" "scatter product hardlinks"
 is "$(find scatterrun/ | xargs -n 1 stat -c %U | sort | uniq)" "$(whoami)" "scatter files all owned by $(whoami)"
 cmp -s scatter_echo.wdl scatterrun/wdl/scatter_echo.wdl
 is "$?" "0" "copy_source scatter_echo.wdl"
