@@ -43,7 +43,7 @@ class CallCache:
         raise NotImplementedError()
 
     def put(
-        self, key: str, outputs: Env.Bindings[Value.Base], logger: Optional[logging.Logger] = None,
+        self, key: str, outputs: Env.Bindings[Value.Base], logger: Optional[logging.Logger] = None
     ) -> None:
         """
         Store call outputs for future reuse
@@ -92,7 +92,7 @@ class CallCache:
                     )
         return None
 
-    def get_download(self, uri: str, logger: Optional[logging.Logger] = None,) -> Optional[str]:
+    def get_download(self, uri: str, logger: Optional[logging.Logger] = None) -> Optional[str]:
         """
         Return filename of the cached download of uri, if available. If so then opens a shared
         flock on the local file, which will remain for the life of the CallCache object.

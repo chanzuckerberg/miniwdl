@@ -662,7 +662,15 @@ class FlockHolder(AbstractContextManager):
         while True:
             realfilename = os.path.realpath(filename)
             with self._lock:  # only needed to synchronize self._flocks
-                if realfilename in self._flocks:
+                if realfilename in self._flocks and not exclusive:
+                    self._logger.debug(
+                        StructuredLogMessage(
+                            "reuse prior flock",
+                            filename=filename,
+                            realpath=realfilename,
+                            exclusive=self._flocks[realfilename][1],
+                        )
+                    )
                     return self._flocks[realfilename][0]
                 openfile = open(realfilename, mode)
                 try:
@@ -671,7 +679,11 @@ class FlockHolder(AbstractContextManager):
                         op |= fcntl.LOCK_NB
                     self._logger.debug(
                         StructuredLogMessage(
-                            "flock", file=filename, exclusive=exclusive, wait=wait,
+                            "flock",
+                            file=filename,
+                            realpath=realfilename,
+                            exclusive=exclusive,
+                            wait=wait,
                         )
                     )
                     fcntl.flock(openfile, op)
@@ -694,6 +706,7 @@ class FlockHolder(AbstractContextManager):
                         StructuredLogMessage(
                             "flocked",
                             file=filename,
+                            realpath=realfilename,
                             exclusive=exclusive,
                             name_inode=filename_st.st_ino,
                             fd_inode=file_st.st_ino,
@@ -703,6 +716,7 @@ class FlockHolder(AbstractContextManager):
                         filename_st.st_dev == file_st.st_dev
                         and filename_st.st_ino == file_st.st_ino
                     ):
+                        assert realfilename not in self._flocks
                         self._flocks[realfilename] = (openfile, exclusive)
                         return openfile
                 except:
