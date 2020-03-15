@@ -28,6 +28,7 @@ from ._util import (
     NOTICE_LEVEL,
     install_coloredlogs,
     parse_byte_size,
+    path_really_within,
 )
 from ._util import StructuredLogMessage as _
 
@@ -464,14 +465,14 @@ def runner(
     cfg = runtime.config.Loader(logger, filenames=cfg_arg)
     cfg_overrides = {
         "scheduler": {},
-        "task_io": {},
+        "file_io": {},
         "task_runtime": {},
         "download_cache": {},
     }
     if max_tasks is not None:
         cfg_overrides["call_concurrency"] = max_tasks
     if copy_input_files:
-        cfg_overrides["task_io"]["copy_input_files"] = copy_input_files
+        cfg_overrides["file_io"]["copy_input_files"] = copy_input_files
     if as_me:
         cfg_overrides["task_runtime"]["as_user"] = as_me
     if runtime_defaults:
@@ -494,6 +495,28 @@ def runner(
     cfg.override(cfg_overrides)
     cfg.log_all()
 
+    # check root
+    if not path_really_within((run_dir or os.getcwd()), cfg["file_io"]["root"]):
+        logger.error(
+            _(
+                "working directory or --dir must be within the configured `file_io.root' directory",
+                dir=(run_dir or os.getcwd()),
+                root=cfg["file_io"]["root"],
+            )
+        )
+        sys.exit(2)
+    if (
+        cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put")
+    ) and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+        logger.error(
+            _(
+                "configuration error: 'download_cache.dir' must be within the `file_io.root' directory",
+                dir=cfg["download_cache"]["dir"],
+                root=cfg["file_io"]["root"],
+            )
+        )
+        sys.exit(2)
+
     # load WDL document
     doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
@@ -501,8 +524,16 @@ def runner(
     def file_found(fn):
         return runtime.download.able(cfg, fn) or os.path.isfile(fn)
 
+    eff_root = cfg["file_io"]["root"] if not cfg["file_io"].get_bool("copy_input_files") else "/"
+
     target, input_env, input_json = runner_input(
-        doc, inputs, input_file, empty, task=task, file_found=file_found
+        doc,
+        inputs,
+        input_file,
+        empty,
+        task=task,
+        file_found=file_found,
+        root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
     )
 
     if json_only:
@@ -544,7 +575,7 @@ def runner(
     rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
     # initialize local Docker Swarm
-    runtime.task.LocalSwarmContainer.global_init(cfg, logger)
+    runtime.task.SwarmContainer.global_init(cfg, logger)
 
     # run & log any errors
     rundir = None
@@ -637,7 +668,9 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         return available_input_names
 
 
-def runner_input(doc, inputs, input_file, empty, task=None, check_required=True, file_found=None):
+def runner_input(
+    doc, inputs, input_file, empty, task=None, check_required=True, file_found=None, root="/"
+):
     """
     - Determine the target workflow/task
     - Check types of supplied inputs
@@ -664,7 +697,7 @@ def runner_input(doc, inputs, input_file, empty, task=None, check_required=True,
     # build up an values env of the provided inputs
     available_inputs = target.available_inputs
     input_env = runner_input_json_file(
-        available_inputs, (target.name if isinstance(target, Workflow) else ""), input_file
+        available_inputs, (target.name if isinstance(target, Workflow) else ""), input_file, root
     )
 
     # set explicitly empty arrays
@@ -704,7 +737,7 @@ def runner_input(doc, inputs, input_file, empty, task=None, check_required=True,
             )
 
         # create a Value based on the expected type
-        v = runner_input_value(s_value, decl.type, file_found)
+        v = runner_input_value(s_value, decl.type, file_found, root)
 
         # insert value into input_env
         try:
@@ -738,7 +771,7 @@ def runner_input(doc, inputs, input_file, empty, task=None, check_required=True,
     )
 
 
-def runner_input_json_file(available_inputs, namespace, input_file):
+def runner_input_json_file(available_inputs, namespace, input_file, root):
     """
     Load user-supplied inputs JSON file, if any
     """
@@ -763,8 +796,14 @@ def runner_input_json_file(available_inputs, namespace, input_file):
 
         def absolutify_files(v: Value.Base) -> Value.Base:
             if isinstance(v, Value.File):
-                if "://" not in v.value and not os.path.isabs(v.value):
-                    v.value = os.path.normpath(os.path.join(os.getcwd(), v.value))
+                if "://" not in v.value:
+                    if not os.path.isabs(v.value):
+                        v.value = os.path.normpath(os.path.join(os.getcwd(), v.value))
+                    if not path_really_within(v.value, root):
+                        die(
+                            f"all input files must be located within the configured `file_io.root' directory `{root}' unlike `{v.value}'"
+                        )
+                        sys.exit(2)
             for ch in v.children:
                 absolutify_files(ch)
             return v
@@ -815,7 +854,7 @@ def is_constant_expr(expr):
     return False
 
 
-def runner_input_value(s_value, ty, file_found):
+def runner_input_value(s_value, ty, file_found, root):
     """
     Given an input value from the command line (right-hand side of =) and the
     WDL type of the corresponding input decl, create an appropriate Value.
@@ -826,6 +865,10 @@ def runner_input_value(s_value, ty, file_found):
         fn = os.path.expanduser(s_value)
         if os.path.isfile(fn):
             fn = os.path.abspath(fn)
+            if not path_really_within(fn, root):
+                die(
+                    f"all input files must be located within the configured `file_io.root' directory `{root}' unlike `{fn}'"
+                )
         elif not (file_found and file_found(fn)):  # maybe URI
             die("File not found: " + fn)
         return Value.File(fn)
@@ -843,7 +886,9 @@ def runner_input_value(s_value, ty, file_found):
         ty.item_type, (Type.String, Type.File, Type.Int, Type.Float)
     ):
         # just produce a length-1 array, to be combined ex post facto
-        return Value.Array(ty.item_type, [runner_input_value(s_value, ty.item_type, file_found)])
+        return Value.Array(
+            ty.item_type, [runner_input_value(s_value, ty.item_type, file_found, root)]
+        )
     return die(
         "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
             str(ty)
@@ -1328,6 +1373,16 @@ def localize(
         )
         sys.exit(2)
 
+    if not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+        logger.error(
+            _(
+                "configuration error: `download_cache.dir' must be within the `file_io.root' directory",
+                dir=cfg["download_cache"]["dir"],
+                root=cfg["file_io"]["root"],
+            )
+        )
+        sys.exit(2)
+
     cache = runtime.cache.CallCache(cfg, logger)
     disabled = [u for u in uri if not cache.download_path(u)]
     if disabled:
@@ -1340,7 +1395,7 @@ def localize(
     logger.notice(_("starting downloads", uri=uri))
 
     # initialize local Docker Swarm
-    runtime.task.LocalSwarmContainer.global_init(cfg, logger)
+    runtime.task.SwarmContainer.global_init(cfg, logger)
 
     # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
     # runtime to download & cache them

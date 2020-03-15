@@ -17,7 +17,7 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
-        WDL.runtime.task.LocalSwarmContainer.global_init(cfg, logger)
+        WDL.runtime.task.SwarmContainer.global_init(cfg, logger)
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
@@ -645,7 +645,7 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, inp)
         chk(outputs["outfiles"])
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override({"task_io": {"copy_input_files": True}})
+        cfg.override({"file_io": {"copy_input_files": True}})
         outputs = self._test_task(txt, inp, cfg=cfg)
         chk(outputs["outfiles"])
 
@@ -800,7 +800,7 @@ class TestTaskRunner(unittest.TestCase):
                         expected_exception=WDL.runtime.task.CommandFailed)
 
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override({"task_io": {"copy_input_files": True}})
+        cfg.override({"file_io": {"copy_input_files": True}})
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]}, cfg=cfg)
         self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))
 
@@ -996,36 +996,36 @@ class TestConfigLoader(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
-        WDL.runtime.task.LocalSwarmContainer.global_init(cfg, logger)
+        WDL.runtime.task.SwarmContainer.global_init(cfg, logger)
 
     # trigger various codepaths of the config loader that wouldn't be exercised otherwise
     def test_basic(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        self.assertEqual(cfg["task_io"]["copy_input_files"], "false")
-        self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), False)
+        self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
+        self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), False)
 
         self.assertEqual(cfg["scheduler"].get_int("call_concurrency"), 0)
 
-        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"task_io":{"copy_input_files": "true"}})
-        self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), True)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"file_io":{"copy_input_files": "true"}})
+        self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
 
         with self.assertRaises(configparser.NoSectionError):
             cfg.get("bogus", "key")
         with self.assertRaises(configparser.NoOptionError):
-            cfg.get("task_io", "bogus")
-        self.assertTrue(cfg.has_option("task_io", "copy_input_files"))
+            cfg.get("file_io", "bogus")
+        self.assertTrue(cfg.has_option("file_io", "copy_input_files"))
         self.assertFalse(cfg.has_option("bogus", "key"))
-        self.assertFalse(cfg.has_option("task_io", "bogus"))
+        self.assertFalse(cfg.has_option("file_io", "bogus"))
 
         with self.assertRaises(ValueError):
-            cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"task_io":{"copy_input_files": "bogus123"}})
-            cfg.get_bool("task_io", "copy_input_files")
+            cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"file_io":{"copy_input_files": "bogus123"}})
+            cfg.get_bool("file_io", "copy_input_files")
 
     def test_env(self):
         with tempfile.NamedTemporaryFile(mode="w+", delete=False) as tmp:
             assert(os.path.isabs(tmp.name))
             print("""
-            [task_io]
+            [file_io]
             copy_input_files = true
             expansion = $HOME
             made_up = 42
@@ -1037,7 +1037,7 @@ class TestConfigLoader(unittest.TestCase):
             cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
             cfg.override({"bogus": {"option2": "42"}})
             self.assertEqual(cfg["scheduler"].get_int("call_concurrency"), 4)
-            self.assertEqual(cfg["task_io"].get_bool("copy_input_files"), True)
+            self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
             cfg.log_all()
             cfg.log_unused_options()
-            self.assertTrue(os.path.isabs(cfg["task_io"]["expansion"]))
+            self.assertTrue(os.path.isabs(cfg["file_io"]["expansion"]))

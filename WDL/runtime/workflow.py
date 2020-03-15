@@ -765,7 +765,7 @@ def _workflow_main_loop(
                 assert state.outputs is not None
 
         outputs = link_outputs(
-            state.outputs, run_dir, hardlinks=cfg["task_io"].get_bool("output_hardlinks")
+            state.outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
         )
         write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
         logger.notice("done")
