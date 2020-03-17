@@ -985,21 +985,20 @@ def run_self_test(**kwargs):
         assert len(outputs["hello_caller.messages"]) == 2
         assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
         assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"
-    except SystemExit as exn:
-        assert getattr(exn, "code") == 0  # because of --debug
-    except:
-        atexit.register(
-            lambda: print(
-                "* Hint: ensure Docker is installed & running"
-                + (
-                    ", and user has permission to control it per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
-                    if platform.system() != "Darwin"
-                    else "; and on macOS override the environment variable TMPDIR=/tmp/"
-                ),
-                file=sys.stderr,
+    except BaseException as exn:
+        if not (isinstance(exn, SystemExit) and getattr(exn, "code") == 0):
+            atexit.register(
+                lambda: print(
+                    "* Hint: ensure Docker is installed & running"
+                    + (
+                        ", and user has permission to control it per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
+                        if platform.system() != "Darwin"
+                        else "; and on macOS override the environment variable TMPDIR=/tmp/"
+                    ),
+                    file=sys.stderr,
+                )
             )
-        )
-        raise
+            raise exn
 
     print("miniwdl run_self_test OK", file=sys.stderr)
     if os.geteuid() == 0:

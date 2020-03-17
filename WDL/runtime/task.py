@@ -296,8 +296,6 @@ class SwarmContainer(TaskContainer):
                         ]
                         if worker_nodes:
                             break
-                        else:
-                            logger.warning("docker swarm enabled but lacking active workers")
                     else:
                         logging.warning(
                             "this host is a docker swarm worker but not a manager; WDL task scheduling requires manager access"
@@ -310,8 +308,9 @@ class SwarmContainer(TaskContainer):
 
                 logger.notice(  # pyre-fixme
                     _(
-                        "waiting for local docker swarm manager & worker(s) to become active",
-                        state=state,
+                        "waiting for local docker swarm manager & worker(s)",
+                        manager=state,
+                        workers=len(worker_nodes),
                     )
                 )
                 time.sleep(2)
@@ -341,6 +340,7 @@ class SwarmContainer(TaskContainer):
                     "swarm worker",
                     ID=node.attrs["ID"],
                     Spec=node.attrs["Spec"],
+                    Hostname=node.attrs["Description"]["Hostname"],
                     Resources=node.attrs["Description"]["Resources"],
                     Status=node.attrs["Status"],
                 )
@@ -350,7 +350,7 @@ class SwarmContainer(TaskContainer):
             total_MemoryBytes += resources["MemoryBytes"]
             if (
                 not resources_max_mem
-                or resources["MemoryBytes"] > resources_max_mem
+                or resources["MemoryBytes"] > resources_max_mem["MemoryBytes"]
                 or (
                     resources["MemoryBytes"] == resources_max_mem["MemoryBytes"]
                     and resources["NanoCPUs"] > resources_max_mem["NanoCPUs"]
