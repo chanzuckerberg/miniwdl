@@ -254,7 +254,7 @@ def notice(self, message, *args, **kws):  # pyre-fixme
 
 logging.Logger.notice = notice
 
-LOGGING_FORMAT = "%(asctime)s,%(msecs)03d %(name)s %(levelname)s %(message)s"
+LOGGING_FORMAT = "%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(message)s"
 __all__.append("LOGGING_FORMAT")
 
 
@@ -266,9 +266,13 @@ def install_coloredlogs(logger: logging.Logger) -> None:
     if sys.stderr.isatty() and "NO_COLOR" not in os.environ:
         level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
         level_styles["debug"]["color"] = 242
-        level_styles["notice"] = {"color": "magenta"}
+        level_styles["notice"] = {"color": "green", "bold": True}
+        level_styles["error"]["bold"] = True
+        level_styles["warning"]["bold"] = True
         level_styles["info"] = {}
-        field_styles = None
+        field_styles = dict(coloredlogs.DEFAULT_FIELD_STYLES)
+        field_styles["asctime"] = {"color": "blue"}
+        field_styles["name"] = {"color": "magenta"}
 
     coloredlogs.install(
         level=logger.getEffectiveLevel(),
