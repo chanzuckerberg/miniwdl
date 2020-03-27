@@ -22,6 +22,9 @@ class Containers:
     def run(self, image_tag: str, **kwargs) -> Container:
         ...
 
+class Node:
+    attrs: Dict[str,Any]
+
 class Swarm:
     def init(self, **kwargs) -> str:
         ...
@@ -53,6 +56,10 @@ class Services:
         ...
 
     def list(**kwargs) -> List[models.services.Service]:
+        ...
+
+class Nodes:
+    def list(**kwargs) -> List[Node]:
         ...
 
 class types:
@@ -89,6 +96,10 @@ class DockerClient:
         ...
 
     def version(self) -> Dict[str, Any]:
+        ...
+
+    @property
+    def nodes(self) -> Nodes:
         ...
 
 def from_env(timeout: Optional[int] = None) -> DockerClient:

@@ -147,7 +147,7 @@ workflow echo {
     }
 }
 EOF
-MINIWDL__TASK_IO__OUTPUT_HARDLINKS=true $miniwdl run --dir scatterrun/. scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
+MINIWDL__FILE_IO__OUTPUT_HARDLINKS=true $miniwdl run --dir scatterrun/. scatter_echo.wdl n=2 t.s=foo t.f=quick t.a_s=bar t.a_f=brown | tee stdout
 is "$?" "0" "scatter run"
 is "$(ls scatterrun/output_links/t.out_f/0/2)" "fox" "scatter product 0 fox link"
 is "$(ls scatterrun/output_links/t.out_f/1/2)" "fox" "scatter product 1 fox link"

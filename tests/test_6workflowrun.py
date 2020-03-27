@@ -14,7 +14,7 @@ class TestWorkflowRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
-        WDL.runtime.task.LocalSwarmContainer.global_init(cfg, logger)
+        WDL.runtime.task.SwarmContainer.global_init(cfg, logger)
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")

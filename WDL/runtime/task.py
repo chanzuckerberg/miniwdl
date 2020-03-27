@@ -16,6 +16,7 @@ import threading
 import shutil
 import shlex
 import re
+import socket
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 import docker
@@ -261,7 +262,7 @@ class TaskContainer(ABC):
         return None
 
 
-class LocalSwarmContainer(TaskContainer):
+class SwarmContainer(TaskContainer):
     """
     TaskContainer docker (swarm) runtime
     """
@@ -272,7 +273,7 @@ class LocalSwarmContainer(TaskContainer):
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
         client = docker.from_env()
-        detector = None
+        worker_nodes = []
         try:
             logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
 
@@ -285,61 +286,91 @@ class LocalSwarmContainer(TaskContainer):
                     state = info["Swarm"]["LocalNodeState"]
 
                 # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
-                if state == "inactive":
+                if state == "active":
+                    if info["Swarm"]["ControlAvailable"]:
+                        worker_nodes = [
+                            node
+                            for node in client.nodes.list()
+                            if node.attrs["Spec"]["Availability"] == "active"
+                            and node.attrs["Status"]["State"] == "ready"
+                        ]
+                        if worker_nodes:
+                            break
+                    else:
+                        logging.warning(
+                            "this host is a docker swarm worker but not a manager; WDL task scheduling requires manager access"
+                        )
+                elif state == "inactive" and cfg["docker_swarm"].get_bool("auto_init"):
                     logger.warning(
                         "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
                     )
                     client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
-                elif state == "active":
-                    break
-                else:
-                    logger.notice(  # pyre-ignore
-                        _("waiting for docker swarm to become active", state=state)
+
+                logger.notice(  # pyre-fixme
+                    _(
+                        "waiting for local docker swarm manager & worker(s)",
+                        manager=state,
+                        workers=len(worker_nodes),
                     )
-                    time.sleep(2)
+                )
+                time.sleep(2)
 
             miniwdl_services = [
                 d
                 for d in [s.attrs for s in client.services.list()]
                 if "Spec" in d and "Labels" in d["Spec"] and "miniwdl_run_id" in d["Spec"]["Labels"]
             ]
-            if miniwdl_services:
+            if miniwdl_services and cfg["docker_swarm"].get_bool("auto_init"):
                 logger.warning(
                     "docker swarm lists existing miniwdl-related services. This is normal if other miniwdl processes are running concurrently; otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
                 )
+        finally:
+            client.close()
 
-            # Detect CPUs & memory available to Docker containers on the local host. These limits
-            # may be less than multiprocessing.cpu_count() and psutil.virtual_memory().total; in
-            # particular on macOS, where Docker containers run in a virtual machine with limited
-            # resources.
-            detector = client.containers.run(
-                "alpine:3",
-                name=f"wdl-detector-{os.getpid()}",
-                command=["/bin/ash", "-c", "nproc && free -b | awk '/^Mem:/{print $2}'"],
-                log_config=docker.types.LogConfig(type=docker.types.LogConfig.types.JSON),
-                detach=True,
-            )
-            status = detector.wait()
-            assert (
-                isinstance(status, dict) and status.get("StatusCode", -1) == 0
-            ), f"failed to detect host docker limits: f{str(status)}"
-            stdout = detector.logs(stdout=True)
-            logger.debug(_("docker resource detection", stdout=str(stdout)))
-            stdout = stdout.decode("utf-8").strip().split("\n")
-            assert len(stdout) == 2
-            ans = (int(stdout[0]), int(stdout[1]))
-            logger.info(
+        # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
+        # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
+        # where Docker containers run in a virtual machine with limited resources.
+        resources_max_mem = {}
+        total_NanoCPUs = 0
+        total_MemoryBytes = 0
+
+        for node in worker_nodes:
+            logger.debug(
                 _(
-                    "detected host resources available for Docker containers",
-                    cpu=ans[0],
-                    mem_bytes=ans[1],
+                    "swarm worker",
+                    ID=node.attrs["ID"],
+                    Spec=node.attrs["Spec"],
+                    Hostname=node.attrs["Description"]["Hostname"],
+                    Resources=node.attrs["Description"]["Resources"],
+                    Status=node.attrs["Status"],
                 )
             )
-            cls._limits = {"cpu": ans[0], "mem_bytes": ans[1]}
-        finally:
-            if detector:
-                detector.remove()
-            client.close()
+            resources = node.attrs["Description"]["Resources"]
+            total_NanoCPUs += resources["NanoCPUs"]
+            total_MemoryBytes += resources["MemoryBytes"]
+            if (
+                not resources_max_mem
+                or resources["MemoryBytes"] > resources_max_mem["MemoryBytes"]
+                or (
+                    resources["MemoryBytes"] == resources_max_mem["MemoryBytes"]
+                    and resources["NanoCPUs"] > resources_max_mem["NanoCPUs"]
+                )
+            ):
+                resources_max_mem = resources
+
+        max_cpu = int(resources_max_mem["NanoCPUs"] / 1_000_000_000)
+        max_mem = resources_max_mem["MemoryBytes"]
+        logger.notice(  # pyre-ignore
+            _(
+                "docker swarm resources",
+                workers=len(worker_nodes),
+                max_cpus=max_cpu,
+                max_mem_bytes=max_mem,
+                total_cpus=int(total_NanoCPUs / 1_000_000_000),
+                total_mem_bytes=total_MemoryBytes,
+            )
+        )
+        cls._limits = {"cpu": max_cpu, "mem_bytes": max_mem}
 
     @classmethod
     def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
@@ -398,9 +429,7 @@ class LocalSwarmContainer(TaskContainer):
             # scheduling (waiting until requested # of CPUs are available).
             kwargs = {
                 # unique name with some human readability; docker limits to 63 chars (issue #327)
-                "name": f"wdl-{os.getpid()}-{LocalSwarmContainer._id_counter.next()}-{self.run_id}"[
-                    :63
-                ],
+                "name": f"wdl-{os.getpid()}-{SwarmContainer._id_counter.next()}-{self.run_id}"[:63],
                 "command": [
                     "/bin/bash",
                     "-c",
@@ -431,9 +460,7 @@ class LocalSwarmContainer(TaskContainer):
                     if terminating():
                         raise Terminated() from None
                     if "running" in self._observed_states:
-                        if not running:
-                            logger.notice("container running")  # pyre-fixme
-                            running = True
+                        running = True
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
                 logger.debug(
@@ -443,7 +470,6 @@ class LocalSwarmContainer(TaskContainer):
                         stderr=list(msg.decode().rstrip() for msg in svc.logs(stderr=True)),
                     )
                 )
-                logger.info(_("docker exit", code=exit_code))
 
             # retrieve and check container exit status
             assert isinstance(exit_code, int)
@@ -548,7 +574,7 @@ class LocalSwarmContainer(TaskContainer):
         if tasks:
             assert len(tasks) == 1, "docker service should have at most 1 task"
             status = tasks[0]["Status"]
-            logger.debug(_("docker task", id=tasks[0]["ID"], status=status))
+            logger.debug(_("docker task status", **status))
         else:
             assert (
                 len(self._observed_states or []) <= 1
@@ -557,7 +583,13 @@ class LocalSwarmContainer(TaskContainer):
         # log each new state
         assert isinstance(self._observed_states, set)
         if status["State"] not in self._observed_states:
-            logger.info(_("docker task transition", state=status["State"]))
+            loginfo = {"service": svc.short_id}
+            if tasks:
+                loginfo["task"] = tasks[0]["ID"][:10]
+                if "NodeID" in tasks[0]:
+                    loginfo["node"] = tasks[0]["NodeID"][:10]
+            method = logger.notice if status["State"] == "running" else logger.info  # pyre-fixme
+            method(_(f"docker task {status['State']}", **loginfo))
             self._observed_states.add(status["State"])
 
         # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
@@ -566,7 +598,9 @@ class LocalSwarmContainer(TaskContainer):
             exit_code = status["ContainerStatus"]["ExitCode"]
             assert isinstance(exit_code, int)
             if exit_code != 0 or status["State"] == "complete":
-                logger.info(_("docker task exit", state=status["State"], exit_code=exit_code))
+                logger.notice(  # pyre-fixme
+                    _("docker task exit", state=status["State"], exit_code=exit_code)
+                )
                 return exit_code
 
         if status["State"] in ["failed", "rejected", "orphaned", "remove"]:
@@ -596,7 +630,7 @@ class LocalSwarmContainer(TaskContainer):
                 try:
                     chowner = client.containers.run(
                         "alpine:3",
-                        name=f"wdl-chown-{os.getpid()}-{LocalSwarmContainer._id_counter.next()}-{self.run_id}"[
+                        name=f"wdl-chown-{os.getpid()}-{SwarmContainer._id_counter.next()}-{self.run_id}"[
                             :63
                         ],
                         command=["/bin/ash", "-c", script],
@@ -689,7 +723,7 @@ def run_local_task(
                 )
 
                 # create appropriate TaskContainer
-                container = LocalSwarmContainer(cfg, run_id, run_dir)
+                container = SwarmContainer(cfg, run_id, run_dir)
 
                 # evaluate input/postinput declarations, including mapping from host to
                 # in-container file paths
@@ -723,7 +757,7 @@ def run_local_task(
                 # process outputs through plugins & create output_links
                 recv = plugins.send({"outputs": outputs})
                 outputs = link_outputs(
-                    recv["outputs"], run_dir, hardlinks=cfg["task_io"].get_bool("output_hardlinks")
+                    recv["outputs"], run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
                 )
 
                 # write outputs.json
@@ -911,7 +945,7 @@ def _eval_task_runtime(
     if "docker" in runtime_values:
         ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
 
-    host_limits = LocalSwarmContainer.detect_resource_limits(cfg, logger)
+    host_limits = SwarmContainer.detect_resource_limits(cfg, logger)
     if "cpu" in runtime_values:
         cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
         assert isinstance(cpu_value, int)
@@ -977,7 +1011,7 @@ def _try_task(
 
     while True:
         # copy input files, if needed
-        if cfg["task_io"].get_bool("copy_input_files"):
+        if cfg["file_io"].get_bool("copy_input_files"):
             container.copy_input_files(logger)
 
         try:
