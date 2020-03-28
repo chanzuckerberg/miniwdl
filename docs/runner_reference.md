@@ -9,10 +9,10 @@ Upon run success, the JSON outputs are written to `outputs.json` in the run dire
 For tasks, the run directory also contains:
 
 * `task.log`
-* `stdout.txt` and `stderr.txt` if the task container started. These files are streamed "live" as the task runs.
 * `write_/` with any files written during the evaluation of WDL expressions (e.g. `write_lines()`)
 * `download/` with any files downloaded from URIs in task inputs
 * `work/` the working directory mounted into the task container, where the command leaves its output files
+* `stdout.txt` and `stderr.txt` from the task command, streamed as it runs.
 * `output_links/` if the task succeeded, symbolic links to the individual output files, organized in a directory tree mirroring the WDL output values & associated JSON structure
 
 For workflows,
