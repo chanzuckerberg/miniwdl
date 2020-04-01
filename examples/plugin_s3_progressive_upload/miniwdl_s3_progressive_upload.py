@@ -3,13 +3,13 @@ Plugin for uploading output files to S3 "progressively," meaning to upload each 
 immediately upon task completion, instead of waiting for the whole workflow to finish. (The latter
 technique, which doesn't need a plugin at all, is illustrated in ../upload_output_files.sh)
 
-To enable, install this plugin (pip3 install .) and set the environment variable
-MINIWDL__S3_PROGRESSIVE_UPLOAD__URI_PREFIX to a S3 URI prefix under which to store the output files
-(e.g. "s3://my_bucket/workflow123_outputs"). The prefix should be set uniquely for each run, to
-prevent different runs from overwriting each others' outputs.
+To enable, install this plugin (`pip3 install .` & confirm listed by `miniwdl --version`) and set
+the environment variable MINIWDL__S3_PROGRESSIVE_UPLOAD__URI_PREFIX to a S3 URI prefix under which
+to store the output files (e.g. "s3://my_bucket/workflow123_outputs"). The prefix should be set
+uniquely for each run, to prevent different runs from overwriting each others' outputs.
 
 Shells out to the AWS CLI, which must be pre-configured so that "aws s3 cp ..." into the specified
-bucket works (without auth-related command line arguments).
+bucket works (without adding any auth-related arguments).
 
 Deposits into each successful task/workflow run directory and S3 folder, an additional file
 outputs.s3.json which copies outputs.json replacing local file paths with the uploaded S3 URIs.
@@ -37,7 +37,6 @@ _uploaded_files_lock = threading.Lock()
 
 
 def task(cfg, logger, run_id, run_dir, task, **recv):
-    # TODO: skip for downloader tasks
     """
     on completion of any task, upload its output files to S3, and record the S3 URI corresponding
     to each local filename (realpath) in _uploaded_files
@@ -85,7 +84,7 @@ def workflow(cfg, logger, run_id, run_dir, workflow, **recv):
     """
     on workflow completion, add a file outputs.s3.json to the run directory, which is outputs.json
     with local filenames rewritten to the uploaded S3 URIs (as previously recorded on completion of
-    each task.
+    each task).
     """
     logger = logger.getChild("s3_progressive_upload")
 
