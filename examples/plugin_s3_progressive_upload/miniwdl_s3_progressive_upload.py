@@ -1,6 +1,6 @@
 """
-Plugin for uploading output files to S3 "progressively," meaning upload each task's output files
-immediately upon task completion, instead of waiting for the whole workflow. (The simpler latter
+Plugin for uploading output files to S3 "progressively," meaning to upload each task's output files
+immediately upon task completion, instead of waiting for the whole workflow to finish. (The latter
 technique, which doesn't need a plugin at all, is illustrated in ../upload_output_files.sh)
 
 To enable, install this plugin (pip3 install .) and set the environment variable
@@ -9,11 +9,11 @@ MINIWDL__S3_PROGRESSIVE_UPLOAD__URI_PREFIX to a S3 URI prefix under which to sto
 prevent different runs from overwriting each others' outputs.
 
 Shells out to the AWS CLI, which must be pre-configured so that "aws s3 cp ..." into the specified
-bucket works without auth arguments.
+bucket works (without auth-related command line arguments).
 
-Deposits into each successful task/workflow run directory, an additional file outputs.s3.json which
-copies outputs.json replacing local file paths with the uploaded S3 URIs. (The JSON printed to
-miniwdl standard output keeps local paths.)
+Deposits into each successful task/workflow run directory and S3 folder, an additional file
+outputs.s3.json which copies outputs.json replacing local file paths with the uploaded S3 URIs.
+(The JSON printed to miniwdl standard output keeps local paths.)
 
 Limitations:
 1) All task output files are uploaded, even ones that aren't top-level workflow outputs. (We can't,
@@ -63,31 +63,20 @@ def task(cfg, logger, run_id, run_dir, task, **recv):
         for (dn, subdirs, files) in os.walk(links_dir, onerror=_raise):
             assert dn == links_dir or dn.startswith(links_dir + "/")
             for fn in files:
-                # upload to S3, by shelling out to `aws s3 cp` (calling boto3 directly would add
-                # contention to miniwdl's GIL)
+                # upload to S3
                 abs_fn = os.path.join(dn, fn)
-                s3uri = os.path.join(s3prefix, *run_id, dn[(len(links_dir) + 1) :], fn)
-                cmd = ["aws", "s3", "cp", abs_fn, s3uri, "--follow-symlinks", "--only-show-errors"]
-                logger.debug(" ".join(cmd))
-                rslt = subprocess.run(cmd, stderr=subprocess.PIPE)
-                if rslt.returncode != 0:
-                    logger.error(
-                        _(
-                            "failed uploading task output file",
-                            cmd=" ".join(cmd),
-                            exit_status=rslt.returncode,
-                            stderr=rslt.stderr.decode("utf-8"),
-                        )
-                    )
-                    raise WDL.Error.RuntimeError("failed: " + " ".join(cmd))
+                s3uri = os.path.join(s3prefix, *run_id[1:], dn[(len(links_dir) + 1) :], fn)
+                s3cp(logger, abs_fn, s3uri)
                 # record in _uploaded_files (keyed by inode, so that it can be found from any
                 # symlink or hardlink)
                 with _uploaded_files_lock:
                     _uploaded_files[inode(abs_fn)] = s3uri
-                logger.info(_("uploaded task output file", file=abs_fn, uri=s3uri))
+                logger.info(_("task output uploaded", file=abs_fn, uri=s3uri))
 
         # write outputs_s3.json using _uploaded_files
-        write_outputs_s3_json(logger, recv["outputs"], run_dir, task.name)
+        write_outputs_s3_json(
+            logger, recv["outputs"], run_dir, os.path.join(s3prefix, *run_id[1:]), task.name
+        )
 
     yield recv
 
@@ -105,19 +94,34 @@ def workflow(cfg, logger, run_id, run_dir, workflow, **recv):
 
     if cfg.has_option("s3_progressive_upload", "uri_prefix"):
         # write outputs.s3.json using _uploaded_files
-        write_outputs_s3_json(logger, recv["outputs"], run_dir, workflow.name)
+        write_outputs_s3_json(
+            logger,
+            recv["outputs"],
+            run_dir,
+            os.path.join(cfg["s3_progressive_upload"]["uri_prefix"], *run_id[1:]),
+            workflow.name,
+        )
 
     yield recv
 
 
-def write_outputs_s3_json(logger, outputs, run_dir, namespace):
+def write_outputs_s3_json(logger, outputs, run_dir, s3prefix, namespace):
     # get json of output env
     outputs_json = WDL.values_to_json(outputs, namespace=namespace)
 
     # rewrite uploaded files to their S3 URIs
     def rewrite(v):
         if isinstance(v, str) and v.startswith(run_dir) and os.path.isfile(v):
-            return _uploaded_files.get(inode(v), v)
+            ino = inode(v)
+            if ino in _uploaded_files:
+                return _uploaded_files[ino]
+            else:
+                logger.warning(
+                    _(
+                        "output file wasn't uploaded to S3; keeping local path in outputs.s3.json",
+                        file=v,
+                    )
+                )
         if isinstance(v, list):
             return [rewrite(u) for u in v]
         if isinstance(v, dict):
@@ -133,9 +137,29 @@ def write_outputs_s3_json(logger, outputs, run_dir, namespace):
     # the outputs WDL.Env before generating JSON, but rewriting the JSON is just easier.
 
     # write to outputs.s3.json
-    with open(os.path.join(run_dir, "outputs.s3.json"), "w") as outfile:
+    fn = os.path.join(run_dir, "outputs.s3.json")
+    with open(fn, "w") as outfile:
         json.dump(outputs_s3_json, outfile, indent=2)
         outfile.write("\n")
+    s3cp(logger, fn, os.path.join(s3prefix, "outputs.s3.json"))
+
+
+def s3cp(logger, fn, s3uri):
+    # shell out to `aws s3 cp` instead of calling boto3 directly, to minimize contention added to
+    # miniwdl's GIL
+    cmd = ["aws", "s3", "cp", fn, s3uri, "--follow-symlinks", "--only-show-errors"]
+    logger.debug(" ".join(cmd))
+    rslt = subprocess.run(cmd, stderr=subprocess.PIPE)
+    if rslt.returncode != 0:
+        logger.error(
+            _(
+                "failed uploading output file",
+                cmd=" ".join(cmd),
+                exit_status=rslt.returncode,
+                stderr=rslt.stderr.decode("utf-8"),
+            )
+        )
+        raise WDL.Error.RuntimeError("failed: " + " ".join(cmd))
 
 
 def inode(link):
