@@ -40,7 +40,8 @@ def main(cfg, logger, run_id, run_dir, task, **recv):
     :param cfg: the effective miniwdl configuration; see WDL/runtime/config.py
     :param logger: task's logging.Logger instance; plugin might write directly into this logger,
                    or use its getChild() method
-    :param run_id: run ID unique within the current workflow
+    :param run_id: list of run ID strings; the last element identifies this run, while preceding
+                   elements capture the "stack" of the workflow run and nested calls, if any.
     :param run_dir: path to task run directory
     :param task: the WDL.Task object from the syntax tree
     :param recv: dict including key "inputs" : WDL.Env.Bindings[WDL.Value.Base]; and possibly other
