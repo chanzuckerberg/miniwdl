@@ -301,6 +301,7 @@ DEFAULT_PLUGINS = {
         )
     ],
     "task": [],
+    "workflow": [],
 }
 
 
