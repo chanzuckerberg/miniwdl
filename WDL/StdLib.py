@@ -328,24 +328,7 @@ def _parse_map(s: str) -> Value.Map:
 
 
 def _parse_json(s: str) -> Value.Base:
-    # TODO: handle nested map/array types...tricky as don't know the expected WDL type
-    j = json.loads(s)
-    if isinstance(j, dict):
-        ans = []
-        for k in j:
-            ans.append((Value.String(str(k)), Value.from_json(Type.Any(), j[k])))
-        return Value.Map((Type.String(), Type.Any()), ans)
-    if isinstance(j, list):
-        return Value.Array(Type.Any(), [Value.from_json(Type.Any(), v) for v in j])
-    if isinstance(j, bool):
-        return Value.Boolean(j)
-    if isinstance(j, int):
-        return Value.Int(j)
-    if isinstance(j, float):
-        return Value.Float(j)
-    if j is None:
-        return Value.Null()
-    raise Error.InputError("parse_json()")
+    return Value.from_json(Type.Any(), json.loads(s))
 
 
 def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
