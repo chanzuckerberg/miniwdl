@@ -412,13 +412,11 @@ class Array(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if not self.items:
             return Type.Array(Type.Any())
-        item_type = _unify_types(
-            [item.type for item in self.items],
-            self._check_quant,
-            self,
-            "(unable to unify array item types)",
-            all_stringifiable=True,
+        item_type = Type.unify(
+            [item.type for item in self.items], check_quant=self._check_quant, force_string=True
         )
+        if isinstance(item_type, Type.Any):
+            raise Error.IndeterminateType(self, "unable to unify array item types")
         return Type.Array(item_type, optional=False, nonempty=True)
 
     def typecheck(self, expected: Optional[Type.Base]) -> Base:
@@ -514,19 +512,14 @@ class Map(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if not self.items:
             return Type.Map((Type.Any(), Type.Any()), literal_keys=set())
-        kty = _unify_types(
-            [k.type for (k, _) in self.items],
-            self._check_quant,
-            self,
-            "(unable to unify map key types)",
+        kty = Type.unify([k.type for (k, _) in self.items], check_quant=self._check_quant)
+        if isinstance(kty, Type.Any):
+            raise Error.IndeterminateType(self, "unable to unify map key types")
+        vty = Type.unify(
+            [v.type for (_, v) in self.items], check_quant=self._check_quant, force_string=True
         )
-        vty = _unify_types(
-            [v.type for (_, v) in self.items],
-            self._check_quant,
-            self,
-            "(unable to unify map value types)",
-            all_stringifiable=True,
-        )
+        if isinstance(vty, Type.Any):
+            raise Error.IndeterminateType(self, "unable to unify map value types")
         literal_keys = None
         if kty == Type.String():
             # If the keys are string constants, record them in the Type object
@@ -656,12 +649,17 @@ class IfThenElse(Base):
             raise Error.StaticTypeMismatch(
                 self, Type.Boolean(), self.condition.type, "in if condition"
             )
-        return _unify_types(
-            [self.consequent.type, self.alternative.type],
-            self._check_quant,
-            self,
-            "(unable to unify consequent & alternative types)",
+        ty = Type.unify(
+            [self.consequent.type, self.alternative.type], check_quant=self._check_quant
         )
+        if isinstance(ty, Type.Any):
+            raise Error.StaticTypeMismatch(
+                self,
+                self.consequent.type,
+                self.alternative.type,
+                "(unable to unify consequent & alternative types)",
+            )
+        return ty
 
     def _eval(
         self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
@@ -1011,63 +1009,3 @@ class Apply(Base):
         f = getattr(stdlib, self.function_name, None)
         assert isinstance(f, StdLib.Function)
         return f(self, env, stdlib)
-
-
-def _unify_types(
-    types: List[Type.Base],
-    check_quant: bool,
-    node: SourceNode,
-    message: str,
-    all_stringifiable: bool = False,
-) -> Type.Base:
-    """
-    Given a nonempty list of types, compute a type to which they're all coercible (or raise
-    StaticTypeMismatch)
-
-    all_stringifiable: permit unification to String even if no item is a String (but all can be
-    coerced)
-    """
-    assert types
-
-    # begin with first type; or if --no-quant-check, the first array type (as we can try to promote
-    # other T to Array[T])
-    t = types[0]
-    if not check_quant:
-        t = next((a for a in types if isinstance(a, Type.Array)), t)
-
-    # potentially promote/generalize t to other types seen
-    optional = False
-    all_nonempty = True
-    for t2 in types:
-        if isinstance(t, Type.Int) and isinstance(t2, Type.Float):
-            t = Type.Float()
-        if isinstance(t, Type.String) and isinstance(t2, Type.File):
-            t = Type.File()
-
-        if (
-            isinstance(t2, Type.String)
-            and not isinstance(t2, Type.File)
-            and not isinstance(t, Type.File)
-            and (not check_quant or not isinstance(t, Type.Array))
-        ):
-            t = Type.String()
-        if not t2.coerces(Type.String(optional=True), check_quant=check_quant):
-            all_stringifiable = False
-
-        if t2.optional:
-            optional = True
-        if isinstance(t2, Type.Array) and not t2.nonempty:
-            all_nonempty = False
-
-    if isinstance(t, Type.Array):
-        t = t.copy(nonempty=all_nonempty)
-    t = t.copy(optional=optional)
-
-    # check all types are coercible to t
-    for t2 in types:
-        if not t2.coerces(t, check_quant=check_quant):
-            if all_stringifiable:
-                return Type.String(optional=optional)
-            raise Error.StaticTypeMismatch(node, t, t2, message)
-
-    return t

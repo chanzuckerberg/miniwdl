@@ -40,7 +40,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
 """
 import copy
 from abc import ABC
-from typing import Optional, Tuple, Dict, Iterable, Set
+from typing import Optional, Tuple, Dict, Iterable, Set, List
 
 
 class Base(ABC):
@@ -481,3 +481,59 @@ class Object(Base):
         if isinstance(rhs, Any):
             return self._check_optional(rhs, check_quant)
         return False
+
+
+def unify(types: List[Base], check_quant: bool = True, force_string: bool = False,) -> Base:
+    """
+    Given a list of types, compute a type to which they're all coercible, or :class:`WDL.Type.Any`
+    if no more-specific inference is possible.
+
+    :param force_string: permit last-resort unification to ``String`` even if no item is currently
+                         a ``String``, but all can be coerced
+    """
+    if not types:
+        return Any()
+
+    # begin with first type; or if --no-quant-check, the first array type (as we can try to promote
+    # other T to Array[T])
+    t = types[0]
+    if not check_quant:
+        t = next((a for a in types if isinstance(a, Array)), t)
+
+    # potentially promote/generalize t to other types seen
+    optional = False
+    all_nonempty = True
+    all_stringifiable = True
+    for t2 in types:
+        if isinstance(t, Int) and isinstance(t2, Float):
+            t = Float()
+        if isinstance(t, String) and isinstance(t2, File):
+            t = File()
+
+        if (
+            isinstance(t2, String)
+            and not isinstance(t2, File)
+            and not isinstance(t, File)
+            and (not check_quant or not isinstance(t, Array))
+        ):
+            t = String()
+        if not t2.coerces(String(optional=True), check_quant=check_quant):
+            all_stringifiable = False
+
+        if t2.optional:
+            optional = True
+        if isinstance(t2, Array) and not t2.nonempty:
+            all_nonempty = False
+
+    if isinstance(t, Array):
+        t = t.copy(nonempty=all_nonempty)
+    t = t.copy(optional=optional)
+
+    # check all types are coercible to t
+    for t2 in types:
+        if not t2.coerces(t, check_quant=check_quant):
+            if all_stringifiable and force_string:
+                return String(optional=optional)
+            return Any()
+
+    return t
