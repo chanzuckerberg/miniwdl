@@ -657,6 +657,7 @@ def run_local_task(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
+    _run_id_stack: Optional[List[str]] = None,
     _cache: Optional[CallCache] = None,
     _plugins: Optional[List[Callable[..., Any]]] = None,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
@@ -674,6 +675,7 @@ def run_local_task(
 
     # provision run directory and log file
     run_id = run_id or task.name
+    run_id_stack = (_run_id_stack or []) + [run_id]
     run_dir = provision_run_dir(task.name, run_dir)
     write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
@@ -699,7 +701,11 @@ def run_local_task(
             # start plugin coroutines and process inputs through them
             with compose_coroutines(
                 [
-                    (lambda kwargs, cor=cor: cor(cfg, logger, run_id, run_dir, task, **kwargs))
+                    (
+                        lambda kwargs, cor=cor: cor(
+                            cfg, logger, run_id_stack, run_dir, task, **kwargs
+                        )
+                    )
                     for cor in (
                         [cor2 for _, cor2 in sorted(config.load_plugins(cfg, "task"))]
                         + (_plugins or [])
@@ -744,11 +750,14 @@ def run_local_task(
                 # evaluate output declarations
                 outputs = _eval_task_outputs(logger, task, container_env, container)
 
-                # process outputs through plugins & create output_links
-                recv = plugins.send({"outputs": outputs})
+                # create output_links
                 outputs = link_outputs(
-                    recv["outputs"], run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
                 )
+
+                # process outputs through plugins
+                recv = plugins.send({"outputs": outputs})
+                outputs = recv["outputs"]
 
                 # clean up, if so configured, and make sure output files will be accessible to
                 # downstream tasks

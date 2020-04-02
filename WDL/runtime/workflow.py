@@ -54,6 +54,7 @@ from .._util import (
     LOGGING_FORMAT,
     TerminationSignalFlag,
     LoggingFileHandler,
+    compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
 from . import config
@@ -610,6 +611,7 @@ def run_local_workflow(
     _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
     _cache: Optional[CallCache] = None,
     _test_pickle: bool = False,
+    _run_id_stack: Optional[List[str]] = None,
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
@@ -625,6 +627,7 @@ def run_local_workflow(
 
     # provision run directory and log file
     run_id = run_id or workflow.name
+    _run_id_stack = _run_id_stack or []
     run_dir = provision_run_dir(workflow.name, run_dir)
     write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
@@ -675,7 +678,7 @@ def run_local_workflow(
                 cfg,
                 workflow,
                 inputs,
-                run_id,
+                _run_id_stack + [run_id],
                 run_dir,
                 logger,
                 logger_id,
@@ -704,7 +707,7 @@ def _workflow_main_loop(
     cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
-    run_id: str,
+    run_id_stack: List[str],
     run_dir: str,
     logger: logging.Logger,
     logger_id: List[str],
@@ -716,66 +719,91 @@ def _workflow_main_loop(
     assert isinstance(cfg, config.Loader)
     call_futures = {}
     try:
-        # download input files, if needed
-        posix_inputs = _download_input_files(
-            cfg, logger, logger_id, run_dir, inputs, thread_pools[0], cache
-        )
+        # start plugin coroutines and process inputs through them
+        with compose_coroutines(
+            [
+                (
+                    lambda kwargs, cor=cor: cor(
+                        cfg, logger, run_id_stack, run_dir, workflow, **kwargs
+                    )
+                )
+                for cor in [cor2 for _, cor2 in sorted(config.load_plugins(cfg, "workflow"))]
+            ],
+            {"inputs": inputs},
+        ) as plugins:
+            recv = next(plugins)
+            inputs = recv["inputs"]
 
-        # run workflow state machine to completion
-        state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
-        while state.outputs is None:
-            if _test_pickle:
-                state = pickle.loads(pickle.dumps(state))
-            if terminating():
-                raise Terminated()
-            # schedule all runnable calls
-            next_call = state.step(cfg)
-            while next_call:
-                call_dir = os.path.join(run_dir, next_call.id)
-                if os.path.exists(call_dir):
-                    logger.warning(
-                        _("call subdirectory already exists, conflict likely", dir=call_dir)
-                    )
-                sub_args = (cfg, next_call.callee, next_call.inputs)
-                sub_kwargs = {
-                    "run_id": next_call.id,
-                    "run_dir": os.path.join(call_dir, "."),
-                    "logger_prefix": logger_id,
-                    "_cache": cache,
-                }
-                # submit to appropriate thread pool
-                if isinstance(next_call.callee, Tree.Task):
-                    future = thread_pools[0].submit(run_local_task, *sub_args, **sub_kwargs)
-                elif isinstance(next_call.callee, Tree.Workflow):
-                    future = thread_pools[1].submit(
-                        run_local_workflow, *sub_args, **sub_kwargs, _thread_pools=thread_pools,
-                    )
-                else:
-                    assert False
-                call_futures[future] = next_call.id
+            # download input files, if needed
+            posix_inputs = _download_input_files(
+                cfg, logger, logger_id, run_dir, inputs, thread_pools[0], cache
+            )
+
+            # run workflow state machine to completion
+            state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
+            while state.outputs is None:
+                if _test_pickle:
+                    state = pickle.loads(pickle.dumps(state))
+                if terminating():
+                    raise Terminated()
+                # schedule all runnable calls
                 next_call = state.step(cfg)
-            # no more calls to launch right now; wait for an outstanding call to finish
-            future = next(futures.as_completed(call_futures), None)
-            if future:
-                __, outputs = future.result()
-                call_id = call_futures[future]
-                state.call_finished(call_id, outputs)
-                call_futures.pop(future)
-            else:
-                assert state.outputs is not None
+                while next_call:
+                    call_dir = os.path.join(run_dir, next_call.id)
+                    if os.path.exists(call_dir):
+                        logger.warning(
+                            _("call subdirectory already exists, conflict likely", dir=call_dir)
+                        )
+                    sub_args = (cfg, next_call.callee, next_call.inputs)
+                    sub_kwargs = {
+                        "run_id": next_call.id,
+                        "run_dir": os.path.join(call_dir, "."),
+                        "logger_prefix": logger_id,
+                        "_cache": cache,
+                        "_run_id_stack": run_id_stack,
+                    }
+                    # submit to appropriate thread pool
+                    if isinstance(next_call.callee, Tree.Task):
+                        future = thread_pools[0].submit(run_local_task, *sub_args, **sub_kwargs)
+                    elif isinstance(next_call.callee, Tree.Workflow):
+                        future = thread_pools[1].submit(
+                            run_local_workflow, *sub_args, **sub_kwargs, _thread_pools=thread_pools,
+                        )
+                    else:
+                        assert False
+                    call_futures[future] = next_call.id
+                    next_call = state.step(cfg)
+                # no more calls to launch right now; wait for an outstanding call to finish
+                future = next(futures.as_completed(call_futures), None)
+                if future:
+                    __, outputs = future.result()
+                    call_id = call_futures[future]
+                    state.call_finished(call_id, outputs)
+                    call_futures.pop(future)
+                else:
+                    assert state.outputs is not None
 
-        outputs = link_outputs(
-            state.outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
-        )
-        write_values_json(outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name)
-        logger.notice("done")
-        return outputs
+            # create output_links
+            outputs = link_outputs(
+                state.outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+            )
+
+            # process outputs through plugins
+            recv = plugins.send({"outputs": outputs})
+            outputs = recv["outputs"]
+
+            # write outputs.json
+            write_values_json(
+                outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
+            )
+            logger.notice("done")
+            return outputs
     except Exception as exn:
         logger.debug(traceback.format_exc())
         cause = exn
         while isinstance(cause, RunFailed) and cause.__cause__:
             cause = cause.__cause__
-        wrapper = RunFailed(workflow, run_id, run_dir)
+        wrapper = RunFailed(workflow, run_id_stack[-1], run_dir)
         try:
             write_atomic(
                 json.dumps(error_json(wrapper, cause=exn), indent=2),

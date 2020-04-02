@@ -116,7 +116,9 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
                 task = parse_tasks(task_wdl, version="1.0")[0]  # pyre-ignore
                 task.typecheck()
                 inputs = values_from_json(inputs, task.available_inputs)  # pyre-ignore
-                subdir, outputs_env = run_local_task(cfg, task, inputs, **kwargs)
+                subdir, outputs_env = run_local_task(
+                    cfg, task, inputs, run_id=("download-" + task.name), **kwargs
+                )
 
                 recv = cor.send(
                     {"outputs": values_to_json(outputs_env), "dir": subdir}  # pyre-ignore
