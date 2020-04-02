@@ -494,6 +494,7 @@ class TestStdLib(unittest.TestCase):
                 echo 3.14159 > float.json
                 echo true > bool.json
                 echo null > null.json
+                echo '{"out": ["Element 1", "Element 2"]}' > out.txt
             >>>
             output {
                 Map[String,String] map = read_json("object.json")
@@ -506,6 +507,8 @@ class TestStdLib(unittest.TestCase):
                 # issue #320
                 String baz1 = read_json("object.json")["bas"]
                 Int three = read_json("list.json")[2]
+                Array[String] out1 = read_json('out.txt')["out"]
+                String out2 = read_json('out.txt')["out"][1]
             }
         }
         """)
@@ -517,6 +520,8 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["null"], None)
         self.assertEqual(outputs["baz1"], "baz")
         self.assertEqual(outputs["three"], 3)
+        self.assertEqual(outputs["out1"], ["Element 1", "Element 2"])
+        self.assertEqual(outputs["out2"], "Element 2")
 
         outputs = self._test_task(R"""
         version 1.0

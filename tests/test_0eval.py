@@ -230,7 +230,7 @@ class TestEval(unittest.TestCase):
             ("[]","[]", WDL.Type.Array(WDL.Type.Any())),
             ("[] == []","true"),
             ("[1, false]", '["1", "false"]', WDL.Type.Array(WDL.Type.String(), nonempty=True)),
-            ("[1, {}]", "(Ln 1, Col 1) Expected Int instead of Boolean; inconsistent types within array", WDL.Error.StaticTypeMismatch),
+            ("[1, {}]", "(Ln 1, Col 1) Expected Int instead of Boolean; inconsistent types within array", WDL.Error.IndeterminateType),
             ("1 + 2[3]", "(Ln 1, Col 5) Not an array", WDL.Error.NotAnArray),
             ("[1, 2, 3][true]", "(Ln 1, Col 11) Expected Int instead of Boolean; Array index", WDL.Error.StaticTypeMismatch),
             ("[1, 2, 3][4]", "(Ln 1, Col 11) Array index out of bounds", WDL.Error.OutOfBounds)
@@ -330,7 +330,7 @@ class TestEval(unittest.TestCase):
             ("{0: 1, 2: 3}[false]", "", WDL.Error.StaticTypeMismatch),
             ("{0: 1, 2: 3}['foo']", "", WDL.Error.EvalError),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
-            ("{3: 1, false: 2}", "", WDL.Error.StaticTypeMismatch),
+            ("{3: 1, false: 2}", "", WDL.Error.IndeterminateType),
             ("{'foo': true, 'bar': 0,}", '{"foo": true, "bar": 0}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String())))
         )
 

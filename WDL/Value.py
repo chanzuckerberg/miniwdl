@@ -362,10 +362,17 @@ class Struct(Base):
 
 def from_json(type: Type.Base, value: Any) -> Base:
     """
-    Instantiate a WDL value of the specified type from a parsed JSON value (str, int, float, list, dict, or null).
+    Instantiate a WDL value of the specified type from a parsed JSON value (str, int, float, list,
+    dict, or null).
+
+    If type is :class:`WDL.Type.Any`, attempts to infer a WDL type & value from the JSON's
+    intrinsic types. This isn't ideal; for example, Files can't be distinguished from Strings, and
+    JSON lists and dicts with heterogeneous item types may give undefined results.
 
     :raise WDL.Error.InputError: if the given value isn't coercible to the specified type
     """
+    if isinstance(type, Type.Any):
+        return _infer_from_json(value)
     if isinstance(type, (Type.Boolean, Type.Any)) and value in [True, False]:
         return Boolean(value)
     if isinstance(type, (Type.Int, Type.Any)) and isinstance(value, int):
@@ -401,6 +408,26 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return Struct(Type.Object(type.members), items)
     if type.optional and value is None:
         return Null()
-    raise Error.InputError(
-        "couldn't construct {} from input {}".format(str(type), json.dumps(value))
-    )
+    raise Error.InputError(f"couldn't construct {str(type)} from: {json.dumps(value)}")
+
+
+def _infer_from_json(j: Any) -> Base:
+    if isinstance(j, str):
+        return String(j)
+    if isinstance(j, bool):
+        return Boolean(j)
+    if isinstance(j, int):
+        return Int(j)
+    if isinstance(j, float):
+        return Float(j)
+    if j is None:
+        return Null()
+    if isinstance(j, list):
+        items = [_infer_from_json(v) for v in j]
+        item_type = Type.unify([item.type for item in items])
+        return Array(item_type, [item.coerce(item_type) for item in items])
+    if isinstance(j, dict):
+        items = [(String(str(k)), _infer_from_json(j[k])) for k in j]
+        value_type = Type.unify([v.type for _, v in items])
+        return Map((Type.String(), value_type), [(k, v.coerce(value_type)) for k, v in items])
+    raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
