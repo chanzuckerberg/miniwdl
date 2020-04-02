@@ -32,6 +32,7 @@ class TestTaskRunner(unittest.TestCase):
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
             rundir, outputs = WDL.runtime.run_local_task(cfg, doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs)
+            self._rundir = rundir
         except WDL.runtime.RunFailed as exn:
             if expected_exception:
                 self.assertIsInstance(exn.__context__, expected_exception)
@@ -920,7 +921,43 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]})
         self.assertEqual(len(outputs["uids"]), 1)
         self.assertEqual(outputs["uids"][0], os.geteuid())
-    
+
+    def test_delete_work(self):
+        txt = R"""
+        version 1.0
+        task xxx {
+            input {
+                Array[File] files
+            }
+            File written = write_lines(files)
+            command <<<
+                set -euxo pipefail
+                cp "~{written}" foo.txt
+                cp "~{files[0]}" bar.txt
+            >>>
+            output {
+                Array[File] outfiles = [write_lines(files), "foo.txt", "bar.txt"]
+            }
+        }
+        """
+        with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
+            outfile.write("Alyssa\n")
+        with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
+            outfile.write("Ben\n")
+        inputs = {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]}
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"output_hardlinks": True}, "task_runtime": {"delete_work": "success"}})
+        output = self._test_task(txt, inputs, cfg=cfg)
+        self.assertFalse(os.path.isdir(os.path.join(self._rundir, "work")))
+        self.assertFalse(os.path.isdir(os.path.join(self._rundir, "write_")))
+        for fn in output["outfiles"]:
+            self.assertTrue(os.path.isfile(fn) and not os.path.islink(fn))
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"output_hardlinks": False}, "task_runtime": {"delete_work": "success"}})
+        output = self._test_task(txt, inputs, cfg=cfg)
+        self.assertTrue(os.path.isfile(os.path.join(self._rundir, "work", "foo.txt")))
+
     def test_plugins(self):
         def my_plugin(cfg, logger, task, run_id, run_dir, **recv):
             logger = logger.getChild("my_plugin")

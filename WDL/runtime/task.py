@@ -1166,13 +1166,12 @@ def link_outputs(
 
 def _delete_work(cfg: config.Loader, logger: logging.Logger, run_dir: str, success: bool) -> None:
     opt = cfg["task_runtime"]["delete_work"].strip().lower()
-    if not (opt == "always" or (success and opt in ["true", "success"])):
-        return
-    if not cfg["file_io"].get_bool("output_hardlinks"):
-        logger.warning(
-            "ignoring configuration [task_runtime] delete_work because it requires [file_io] output_hardlinks = true"
-        )
-    else:
+    if opt == "always" or (success and opt == "success") or (not success and opt == "failure"):
+        if success and not cfg["file_io"].get_bool("output_hardlinks"):
+            logger.warning(
+                "ignoring configuration [task_runtime] delete_work because it requires [file_io] output_hardlinks = true"
+            )
+            return
         for dn in ["write_", "work"]:
             dn = os.path.join(run_dir, dn)
             if os.path.isdir(dn):
