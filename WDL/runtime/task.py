@@ -424,6 +424,7 @@ class SwarmContainer(TaskContainer):
         client = docker.from_env(timeout=900)
         resources, user, groups = self.misc_config(logger, client, cpu, memory)
         svc = None
+        exit_code = None
         try:
             # run container as a transient docker swarm service, letting docker handle the resource
             # scheduling (waiting until requested # of CPUs are available).
@@ -450,7 +451,6 @@ class SwarmContainer(TaskContainer):
             svc = client.services.create(self.image_tag, **kwargs)
             logger.debug(_("docker service", name=svc.name, id=svc.short_id))
 
-            exit_code = None
             # stream stderr into log
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
                 # poll for container exit
@@ -480,7 +480,7 @@ class SwarmContainer(TaskContainer):
                     svc.remove()
                 except:
                     logger.exception("failed to remove docker service")
-                self.chown(logger, client)
+                self.chown(logger, client, exit_code == 0)
             try:
                 client.close()
             except:
@@ -611,7 +611,7 @@ class SwarmContainer(TaskContainer):
 
         return None
 
-    def chown(self, logger: logging.Logger, client: docker.DockerClient) -> None:
+    def chown(self, logger: logging.Logger, client: docker.DockerClient, success: bool) -> None:
         """
         After task completion, chown all files in the working directory to the invoking user:group,
         instead of leaving them frequently owned by root or some other arbitrary user id (image-
@@ -619,7 +619,6 @@ class SwarmContainer(TaskContainer):
         alternatives and their problems.
         """
         if not self.cfg["task_runtime"].get_bool("as_user") and (os.geteuid() or os.getegid()):
-            t_0 = time.monotonic()
             script = f"""
             chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
             """.strip()
@@ -646,16 +645,9 @@ class SwarmContainer(TaskContainer):
                     if chowner:
                         chowner.remove()
             except:
-                logger.exception("post-task chown failed")
-            finally:
-                t_delta = time.monotonic() - t_0
-                if t_delta >= 60:
-                    logger.warning(
-                        _(
-                            "post-task chown was slow (may indicate excessive file count and/or IOPS exhaustion)",
-                            seconds=int(t_delta),
-                        )
-                    )
+                if success:
+                    raise
+                logger.exception("post-task chown also failed")
 
 
 def run_local_task(
@@ -700,9 +692,10 @@ def run_local_task(
             )
         )
         logger.info(_("thread", ident=threading.get_ident()))
-        cache = _cache or CallCache(cfg, logger)
 
         try:
+            cache = _cache or CallCache(cfg, logger)
+
             # start plugin coroutines and process inputs through them
             with compose_coroutines(
                 [
@@ -751,14 +744,16 @@ def run_local_task(
                 # evaluate output declarations
                 outputs = _eval_task_outputs(logger, task, container_env, container)
 
-                # make sure everything will be accessible to downstream tasks
-                chmod_R_plus(container.host_dir, file_bits=0o660, dir_bits=0o770)
-
                 # process outputs through plugins & create output_links
                 recv = plugins.send({"outputs": outputs})
                 outputs = link_outputs(
                     recv["outputs"], run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
                 )
+
+                # clean up, if so configured, and make sure output files will be accessible to
+                # downstream tasks
+                _delete_work(cfg, logger, run_dir, True)
+                chmod_R_plus(run_dir, file_bits=0o660, dir_bits=0o770)
 
                 # write outputs.json
                 write_values_json(
@@ -778,6 +773,10 @@ def run_local_task(
             except Exception as exn2:
                 logger.debug(traceback.format_exc())
                 logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
+            try:
+                _delete_work(cfg, logger, run_dir, False)
+            except:
+                logger.exception("delete_work also failed")
             raise wrapper from exn
 
 
@@ -1163,6 +1162,22 @@ def link_outputs(
             ),
         )
     )
+
+
+def _delete_work(cfg: config.Loader, logger: logging.Logger, run_dir: str, success: bool) -> None:
+    opt = cfg["task_runtime"]["delete_work"].strip().lower()
+    if not (opt == "always" or (success and opt in ["true", "success"])):
+        return
+    if not cfg["file_io"].get_bool("output_hardlinks"):
+        logger.warning(
+            "ignoring configuration [task_runtime] delete_work because it requires [file_io] output_hardlinks = true"
+        )
+    else:
+        for dn in ["write_", "work"]:
+            dn = os.path.join(run_dir, dn)
+            if os.path.isdir(dn):
+                shutil.rmtree(dn)
+                logger.info(_("deleted working directory", dir=dn))
 
 
 class _StdLib(StdLib.Base):
