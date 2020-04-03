@@ -1126,6 +1126,9 @@ def link_outputs(
                 assert os.path.isfile(hardlink)
                 newlink = os.path.join(dn, os.path.basename(v.value))
                 os.makedirs(dn, exist_ok=False)
+                if not hardlinks and path_really_within(hardlink, run_dir):
+                    # make symlink relative
+                    hardlink = os.path.relpath(hardlink, start=os.path.realpath(dn))
                 (os.link if hardlinks else os.symlink)(hardlink, newlink)
                 v.value = newlink
         # recurse into compound values
