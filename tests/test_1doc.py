@@ -293,6 +293,7 @@ class TestTasks(unittest.TestCase):
             parameter_meta {
                 b: { help: "it's a boolean" }
                 n: 'x'
+                IntKey: 999
             }
             command {
                 echo "~{true='yes' false='no' b}"
@@ -300,14 +301,19 @@ class TestTasks(unittest.TestCase):
             runtime {
                 memory: "1 GB"
                 cpu: 42
+                runtime_key: 123
+                meta_key: 321
             }
         }
         """)[0]
         task.typecheck()
         self.assertIsInstance(task.parameter_meta['b']['help'], str)
         self.assertEqual(task.parameter_meta['b']['help'], "it's a boolean")
+        self.assertIsInstance(task.parameter_meta['IntKey'], WDL.Expr.Int)
         self.assertIsInstance(task.runtime['cpu'], WDL.Expr.Int)
         self.assertEqual(task.runtime['cpu'].value, 42)
+        self.assertEqual(task.runtime['runtime_key'].value, 123)
+        self.assertEqual(task.runtime['meta_key'].value, 321)
         self.assertTrue(task.inputs[0].type.optional)
         self.assertFalse(task.inputs[1].type.optional)
         self.assertTrue(task.inputs[1].type.nonempty)

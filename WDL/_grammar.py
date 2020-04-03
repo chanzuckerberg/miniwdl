@@ -64,8 +64,7 @@ meta_kv: CNAME ":" meta_value
 ?meta_value: literal | string_literal
            | meta_object
            | "[" [meta_value ("," meta_value)*] "]" -> meta_array
-META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures higher priority than CNAME
-meta_section: META_KIND meta_object
+!meta_section: ("meta" | "parameter_meta") meta_object
 
 // task runtime section (key-expression pairs)
 runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
@@ -336,8 +335,7 @@ meta_kv: CNAME ":" meta_value
 ?meta_value: literal | string_literal
            | meta_object
            | "[" [meta_value ("," meta_value)*] "]" -> meta_array
-META_KIND.2: "meta" | "parameter_meta" | "runtime" // .2 ensures higher priority than CNAME
-meta_section: META_KIND meta_object
+!meta_section: ("meta" | "parameter_meta") meta_object
 
 // task runtime section (key-expression pairs)
 runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
