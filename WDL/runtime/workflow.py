@@ -42,6 +42,7 @@ import threading
 import copy
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
+from contextlib import ExitStack
 import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
@@ -629,20 +630,14 @@ def run_local_workflow(
     run_id = run_id or workflow.name
     _run_id_stack = _run_id_stack or []
     run_dir = provision_run_dir(workflow.name, run_dir)
-    write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
     logger_prefix = logger_prefix or ["wdl"]
     logger_id = logger_prefix + ["w:" + run_id]
     logger = logging.getLogger(".".join(logger_id))
     logfile = os.path.join(run_dir, "workflow.log")
-    with LoggingFileHandler(logger, logfile) as fh, TerminationSignalFlag(logger) as terminating:
+    with ExitStack() as cleanup:
+        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
-        if not _thread_pools:
-            try:
-                version = "v" + importlib_metadata.version("miniwdl")
-            except importlib_metadata.PackageNotFoundError:
-                version = "UNKNOWN"
-            logger.notice(_("miniwdl", version=version))  # pyre-fixme
         logger.notice(  # pyre-fixme
             _(
                 "workflow start",
@@ -653,11 +648,23 @@ def run_local_workflow(
                 dir=run_dir,
             )
         )
-        logger.info(_("thread", ident=threading.get_ident()))
+        logger.debug(_("thread", ident=threading.get_ident()))
+        write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
-        # if we're the top-level workflow, provision thread pools
-        thread_pools = _thread_pools
-        if not thread_pools:
+        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
+
+        # if we're the top-level workflow, provision CallCache and thread pools
+        if not _run_id_stack:
+            try:
+                version = "v" + importlib_metadata.version("miniwdl")
+            except importlib_metadata.PackageNotFoundError:
+                version = "UNKNOWN"
+            logger.notice(_("miniwdl", version=version))  # pyre-fixme
+            assert not _thread_pools and not _cache
+
+            cache = cleanup.enter_context(CallCache(cfg, logger))
+            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
+
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
             # be possible for all threads to be taken up by sub-workflows, deadlocking with no
             # threads available to actually run their tasks.
@@ -666,14 +673,16 @@ def run_local_workflow(
             max_workers = (
                 cfg["scheduler"].get_int("call_concurrency") or multiprocessing.cpu_count()
             )
-            thread_pools = (
-                futures.ThreadPoolExecutor(max_workers=max_workers),
-                futures.ThreadPoolExecutor(max_workers=max_workers),
-            )
-        cache = _cache or CallCache(cfg, logger)
-        if not _run_id_stack:
-            # flock top-level workflow.log
-            cache.flock(logfile)
+            task_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
+            cleanup.callback(futures.ThreadPoolExecutor.shutdown, task_pool)
+            subwf_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
+            cleanup.callback(futures.ThreadPoolExecutor.shutdown, subwf_pool)
+            thread_pools = (task_pool, subwf_pool)
+        else:
+            assert _thread_pools and _cache
+            thread_pools = _thread_pools
+            cache = _cache
+
         try:
             # run workflow state machine
             outputs = _workflow_main_loop(
@@ -690,17 +699,12 @@ def run_local_workflow(
                 _test_pickle,
             )
         except:
-            if not _thread_pools:
+            if not _run_id_stack:
                 # if we're the top-level worfklow, signal abort to anything still running
                 # concurrently on the thread pools (SIGUSR1 will be picked up by
                 # TerminationSignalFlag)
                 os.kill(os.getpid(), signal.SIGUSR1)
             raise
-        finally:
-            if not _thread_pools:
-                # thread pools are "ours", so wind them down
-                for tp in thread_pools:
-                    tp.shutdown()
 
     return (run_dir, outputs)
 

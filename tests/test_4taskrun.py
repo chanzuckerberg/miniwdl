@@ -887,13 +887,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertTrue("cached: 1" in logs[1])
 
         # quick test CallCache reentrancy
-        cache = WDL.runtime.cache.CallCache(cfg, logger)
-        self.assertIsNotNone(cache.get_download("https://google.com/robots.txt", logger=logger))
-        self.assertIsNotNone(cache.get_download("https://google.com/robots.txt", logger=logger))
-        self.assertEqual(len(cache._flocker._flocks), 1)
-        with self.assertRaises(OSError):
-            cache._flocker.flock(cache.download_path("https://google.com/robots.txt"), exclusive=True)
-        del cache
+        with WDL.runtime.cache.CallCache(cfg, logger) as cache:
+            self.assertIsNotNone(cache.get_download("https://google.com/robots.txt", logger=logger))
+            self.assertIsNotNone(cache.get_download("https://google.com/robots.txt", logger=logger))
+            self.assertEqual(len(cache._flocker._flocks), 1)
+            with self.assertRaises(OSError):
+                cache._flocker.flock(cache.download_path("https://google.com/robots.txt"), exclusive=True)
 
     def test_workdir_ownership(self):
         # verify that everything within working directory is owned by the invoking user

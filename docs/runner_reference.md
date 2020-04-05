@@ -26,6 +26,7 @@ The top-level run directory also contains:
 
 * `wdl/` a copy of the original WDL that was run, including imported documents (except any referenced by URI or absolute path)
 * `rerun` can be "sourced" to run the WDL (as found in the original location, possibly updated) using the same inputs
+* The top-level `workflow.log` file is "flocked" while `miniwdl run` is still in progress (`task.log` if running a task directly)
 
 The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/tree/master/examples) illustrating how this structure can inform production automation (e.g. retrieving error messages, uploading output files).
 

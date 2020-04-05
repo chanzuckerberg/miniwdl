@@ -644,7 +644,7 @@ class FlockHolder(AbstractContextManager):
     def flock(  # pyre-fixme
         self,
         filename: str,
-        mode: str = "rb",
+        mode: str = "",
         exclusive: bool = False,
         wait: bool = False,
         update_atime: bool = False,
@@ -655,7 +655,7 @@ class FlockHolder(AbstractContextManager):
         taken care of).
 
         :param filename: file to open & lock
-        :param mode: open() mode
+        :param mode: open() mode, default: "r+b" if exclusive else "rb"
         :param exclusive: True to open an exclusive lock (default: shared lock)p
         :param wait: True to wait as long as needed to obtain the lock, otherwise (default) raise
                      OSError if the lock isn't available immediately. Self-deadlock is possible;
@@ -676,7 +676,7 @@ class FlockHolder(AbstractContextManager):
                         )
                     )
                     return self._flocks[realfilename][0]
-                openfile = open(realfilename, mode)
+                openfile = open(realfilename, mode or ("r+b" if exclusive else "rb"))
                 try:
                     op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
                     if not wait:

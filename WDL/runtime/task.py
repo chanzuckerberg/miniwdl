@@ -19,6 +19,7 @@ import re
 import socket
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
+from contextlib import ExitStack
 import docker
 from .. import Error, Type, Env, Value, StdLib, Tree, _util
 from .._util import (
@@ -678,14 +679,14 @@ def run_local_task(
 
     # provision run directory and log file
     run_id = run_id or task.name
-    run_id_stack = (_run_id_stack or []) + [run_id]
+    _run_id_stack = _run_id_stack or []
     run_dir = provision_run_dir(task.name, run_dir)
-    write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
     logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
     logger = logging.getLogger(".".join(logger_prefix))
     logfile = os.path.join(run_dir, "task.log")
-    with LoggingFileHandler(logger, logfile) as fh:
+    with ExitStack() as cleanup:
+        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         logger.notice(  # pyre-fixme
             _(
@@ -698,19 +699,23 @@ def run_local_task(
             )
         )
         logger.info(_("thread", ident=threading.get_ident()))
+        write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
+
+        if not _run_id_stack:
+            assert not _cache
+            cache = cleanup.enter_context(CallCache(cfg, logger))
+            cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
+        else:
+            cache = _cache
+        assert cache
 
         try:
-            cache = _cache or CallCache(cfg, logger)
-            if len(run_id_stack) == 1:
-                # flock task.log if there's no outer workflow
-                cache.flock(logfile)
-
             # start plugin coroutines and process inputs through them
             with compose_coroutines(
                 [
                     (
                         lambda kwargs, cor=cor: cor(
-                            cfg, logger, run_id_stack, run_dir, task, **kwargs
+                            cfg, logger, _run_id_stack + [run_id], run_dir, task, **kwargs
                         )
                     )
                     for cor in (

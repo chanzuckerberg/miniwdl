@@ -1382,8 +1382,8 @@ def localize(
         )
         sys.exit(2)
 
-    cache = runtime.cache.CallCache(cfg, logger)
-    disabled = [u for u in uri if not cache.download_path(u)]
+    with runtime.cache.CallCache(cfg, logger) as cache:
+        disabled = [u for u in uri if not cache.download_path(u)]
     if disabled:
         logger.notice(_("URIs found but not cacheable per configuration", uri=disabled))
     uri = list(uri - set(disabled))
@@ -1393,7 +1393,7 @@ def localize(
         sys.exit(0)
     logger.notice(_("starting downloads", uri=uri))
 
-    # initialize local Docker Swarm
+    # initialize Docker Swarm
     runtime.task.SwarmContainer.global_init(cfg, logger)
 
     # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
@@ -1417,7 +1417,6 @@ def localize(
         localizer.workflow,
         values_from_json({"uris": uri}, localizer.workflow.available_inputs),
         run_dir=os.environ.get("TMPDIR", "/tmp"),
-        _cache=cache,
     )
 
     logger.notice(

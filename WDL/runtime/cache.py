@@ -8,6 +8,7 @@ import os
 import logging
 import threading
 from typing import Iterator, Dict, Any, Optional, Set, List, IO
+from contextlib import AbstractContextManager
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
 from . import config
@@ -15,7 +16,7 @@ from .. import Env, Value, Type
 from .._util import StructuredLogMessage as _, FlockHolder
 
 
-class CallCache:
+class CallCache(AbstractContextManager):
     _cfg: config.Loader
     _flocker: FlockHolder
     _logger: logging.Logger
@@ -24,10 +25,13 @@ class CallCache:
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
-        self._flocker.__enter__()
 
-    def __del__(self):
-        self._flocker.__exit__()
+    def __enter__(self) -> "CallCache":
+        self._flocker.__enter__()
+        return self
+
+    def __exit__(self, *args) -> None:
+        self._flocker.__exit__(*args)
 
     def get(
         self,
@@ -136,5 +140,5 @@ class CallCache:
         self.flock(ans)
         return ans
 
-    def flock(self, filename: str) -> None:
-        self._flocker.flock(filename, update_atime=True)
+    def flock(self, filename: str, exclusive: bool = False) -> None:
+        self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
