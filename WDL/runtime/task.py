@@ -456,7 +456,10 @@ class SwarmContainer(TaskContainer):
                 # poll for container exit
                 running = False
                 while exit_code is None:
-                    time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
+                    # spread out work over the GIL
+                    # TODO: adaptive interval before container starts running (poll less frequently
+                    # if it's already been waiting a long time)
+                    time.sleep(random.uniform(1.0, 2.0))
                     if terminating():
                         raise Terminated() from None
                     if "running" in self._observed_states:

@@ -663,13 +663,12 @@ def run_local_workflow(
             # threads available to actually run their tasks.
             # There's still a minor risk of deadlock if sub-workflow nesting is deeper than the
             # subworkflow thread pool size.
+            max_workers = (
+                cfg["scheduler"].get_int("call_concurrency") or multiprocessing.cpu_count()
+            )
             thread_pools = (
-                futures.ThreadPoolExecutor(
-                    max_workers=(
-                        cfg["scheduler"].get_int("call_concurrency") or multiprocessing.cpu_count()
-                    )
-                ),
-                futures.ThreadPoolExecutor(max_workers=16),
+                futures.ThreadPoolExecutor(max_workers=max_workers),
+                futures.ThreadPoolExecutor(max_workers=max_workers),
             )
         cache = _cache or CallCache(cfg, logger)
         if not _run_id_stack:

@@ -470,7 +470,7 @@ def runner(
         "download_cache": {},
     }
     if max_tasks is not None:
-        cfg_overrides["call_concurrency"] = max_tasks
+        cfg_overrides["scheduler"]["call_concurrency"] = max_tasks
     if copy_input_files:
         cfg_overrides["file_io"]["copy_input_files"] = copy_input_files
     if as_me:
