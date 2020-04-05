@@ -7,10 +7,11 @@ Each value is represented by an instance of a Python class inheriting from
 .. inheritance-diagram:: WDL.Value
    :top-classes: WDL.Value.Base
 """
-from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union
 import json
-from . import Error, Type
+import copy
+from abc import ABC
+from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
+from . import Error, Type, Env
 from ._util import CustomDeepCopyMixin
 
 
@@ -365,7 +366,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
     Instantiate a WDL value of the specified type from a parsed JSON value (str, int, float, list,
     dict, or null).
 
-    If type is :class:`WDL.Type.Any`, attempts to infer a WDL type & value from the JSON's
+    If type is :class:`WDL.Type.Any()`, attempts to infer a WDL type & value from the JSON's
     intrinsic types. This isn't ideal; for example, Files can't be distinguished from Strings, and
     JSON lists and dicts with heterogeneous item types may give undefined results.
 
@@ -431,3 +432,26 @@ def _infer_from_json(j: Any) -> Base:
         value_type = Type.unify([v.type for _, v in items])
         return Map((Type.String(), value_type), [(k, v.coerce(value_type)) for k, v in items])
     raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
+
+
+def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
+    """
+    Produce a deep copy of the given Value with all File names rewritten by the given function
+    (including Files nested inside compound Values).
+    """
+
+    def map_files(v2: Base) -> Base:
+        if isinstance(v2, File):
+            v2.value = f(v2.value)
+        for ch in v2.children:
+            map_files(ch)
+        return v2
+
+    return map_files(copy.deepcopy(v))
+
+
+def rewrite_env_files(env: Env.Bindings[Base], f: Callable[[str], str]) -> Env.Bindings[Base]:
+    """
+    Produce a deep copy of the given Value Env with all File names rewritten by the given function.
+    """
+    return env.map(lambda binding: Env.Binding(binding.name, rewrite_files(binding.value, f)))

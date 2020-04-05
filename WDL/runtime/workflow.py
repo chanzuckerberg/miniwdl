@@ -918,15 +918,4 @@ def _download_input_files(
     )
 
     # rewrite the input URIs to the downloaded filenames
-    def rewrite_downloaded(v: Value.Base) -> Value.Base:
-        nonlocal downloaded
-        if isinstance(v, Value.File) and v.value in downloaded:
-            v.value = downloaded[v.value]
-            assert os.path.isfile(v.value)
-        for ch in v.children:
-            rewrite_downloaded(ch)
-        return v
-
-    return inputs.map(
-        lambda binding: Env.Binding(binding.name, rewrite_downloaded(copy.deepcopy(binding.value)))
-    )
+    return Value.rewrite_env_files(inputs, lambda uri: downloaded.get(uri, uri))

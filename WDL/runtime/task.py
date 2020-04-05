@@ -808,35 +808,30 @@ def _download_input_files(
     cached_hits = 0
     cached_bytes = 0
 
-    def map_files(v: Value.Base) -> Value.Base:
+    def rewriter(uri: str) -> str:
         nonlocal downloads, download_bytes, cached_hits, cached_bytes
-        if isinstance(v, Value.File):
-            if downloadable(cfg, v.value):
-                logger.info(_("download input file", uri=v.value))
-                cached, filename = download(
-                    cfg,
-                    logger,
-                    cache,
-                    v.value,
-                    run_dir=os.path.join(run_dir, "download", str(downloads), "."),
-                    logger_prefix=logger_prefix + [f"download{downloads}"],
-                )
-                v.value = filename
-                sz = os.path.getsize(v.value)
-                if cached:
-                    cached_hits += 1
-                    cached_bytes += sz
-                else:
-                    logger.info(_("downloaded input file", uri=v.value, file=v.value, bytes=sz))
-                    downloads += 1
-                    download_bytes += sz
-        for ch in v.children:
-            map_files(ch)
-        return v
+        if downloadable(cfg, uri):
+            logger.info(_("download input file", uri=uri))
+            cached, filename = download(
+                cfg,
+                logger,
+                cache,
+                uri,
+                run_dir=os.path.join(run_dir, "download", str(downloads), "."),
+                logger_prefix=logger_prefix + [f"download{downloads}"],
+            )
+            sz = os.path.getsize(filename)
+            if cached:
+                cached_hits += 1
+                cached_bytes += sz
+            else:
+                logger.info(_("downloaded input file", uri=uri, file=filename, bytes=sz))
+                downloads += 1
+                download_bytes += sz
+            return filename
+        return uri
 
-    ans = inputs.map(
-        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
-    )
+    ans = Value.rewrite_env_files(inputs, rewriter)
     if downloads or cached_hits:
         logger.notice(  # pyre-fixme
             _(
