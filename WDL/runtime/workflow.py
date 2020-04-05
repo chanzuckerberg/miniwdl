@@ -672,6 +672,9 @@ def run_local_workflow(
                 futures.ThreadPoolExecutor(max_workers=16),
             )
         cache = _cache or CallCache(cfg, logger)
+        if not _run_id_stack:
+            # flock top-level workflow.log
+            cache.flock(logfile)
         try:
             # run workflow state machine
             outputs = _workflow_main_loop(

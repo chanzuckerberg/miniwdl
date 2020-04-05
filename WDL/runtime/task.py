@@ -681,7 +681,8 @@ def run_local_task(
 
     logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
     logger = logging.getLogger(".".join(logger_prefix))
-    with LoggingFileHandler(logger, os.path.join(run_dir, "task.log")) as fh:
+    logfile = os.path.join(run_dir, "task.log")
+    with LoggingFileHandler(logger, logfile) as fh:
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         logger.notice(  # pyre-fixme
             _(
@@ -697,6 +698,9 @@ def run_local_task(
 
         try:
             cache = _cache or CallCache(cfg, logger)
+            if len(run_id_stack) == 1:
+                # flock task.log if there's no outer workflow
+                cache.flock(logfile)
 
             # start plugin coroutines and process inputs through them
             with compose_coroutines(

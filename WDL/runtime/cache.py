@@ -103,7 +103,7 @@ class CallCache:
             logger.debug(_("no download cache hit", uri=uri, cache_path=p))
             return None
         try:
-            self._flocker.flock(p, update_atime=True)
+            self.flock(p)
             logger.info(_("found in download cache", uri=uri, cache_path=p))
             return p
         except Exception as exn:
@@ -133,5 +133,8 @@ class CallCache:
                 os.rename(filename, p)
                 logger.info(_("stored in download cache", uri=uri, cache_path=p))
                 ans = p
-        self._flocker.flock(ans, update_atime=True)
+        self.flock(ans)
         return ans
+
+    def flock(self, filename: str) -> None:
+        self._flocker.flock(filename, update_atime=True)
