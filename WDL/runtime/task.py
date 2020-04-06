@@ -686,7 +686,7 @@ def run_local_task(
     logger = logging.getLogger(".".join(logger_prefix))
     logfile = os.path.join(run_dir, "task.log")
     with ExitStack() as cleanup:
-        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
+        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))  # pylint: disable=no-member
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         logger.notice(  # pyre-fixme
             _(
@@ -703,7 +703,7 @@ def run_local_task(
 
         if not _run_id_stack:
             assert not _cache
-            cache = cleanup.enter_context(CallCache(cfg, logger))
+            cache = cleanup.enter_context(CallCache(cfg, logger))  # pylint: disable=no-member
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
         else:
             cache = _cache

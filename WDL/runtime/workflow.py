@@ -636,7 +636,7 @@ def run_local_workflow(
     logger = logging.getLogger(".".join(logger_id))
     logfile = os.path.join(run_dir, "workflow.log")
     with ExitStack() as cleanup:
-        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
+        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))  # pylint: disable=no-member
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         logger.notice(  # pyre-fixme
             _(
@@ -651,7 +651,9 @@ def run_local_workflow(
         logger.debug(_("thread", ident=threading.get_ident()))
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
-        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
+        terminating = cleanup.enter_context(  # pylint: disable=no-member
+            TerminationSignalFlag(logger)
+        )
 
         # if we're the top-level workflow, provision CallCache and thread pools
         if not _run_id_stack:
@@ -662,7 +664,7 @@ def run_local_workflow(
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
             assert not _thread_pools and not _cache
 
-            cache = cleanup.enter_context(CallCache(cfg, logger))
+            cache = cleanup.enter_context(CallCache(cfg, logger))  # pylint: disable=no-member
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
@@ -674,9 +676,13 @@ def run_local_workflow(
                 cfg["scheduler"].get_int("call_concurrency") or multiprocessing.cpu_count()
             )
             task_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
-            cleanup.callback(futures.ThreadPoolExecutor.shutdown, task_pool)
+            cleanup.callback(  # pylint: disable=no-member
+                futures.ThreadPoolExecutor.shutdown, task_pool
+            )
             subwf_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
-            cleanup.callback(futures.ThreadPoolExecutor.shutdown, subwf_pool)
+            cleanup.callback(  # pylint: disable=no-member
+                futures.ThreadPoolExecutor.shutdown, subwf_pool
+            )
             thread_pools = (task_pool, subwf_pool)
         else:
             assert _thread_pools and _cache
