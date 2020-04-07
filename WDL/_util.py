@@ -295,23 +295,24 @@ def PygtailLogger(
 
     Truncates lines at 4KB in case writer goes haywire.
     """
-    pygtail = Pygtail(filename, full_lines=True)
-    pygtail_ok = True
+    pygtail = None
+    if logger.getEffectiveLevel() <= VERBOSE_LEVEL:
+        pygtail = Pygtail(filename, full_lines=True)
 
     def poll() -> None:
-        nonlocal pygtail_ok
-        if pygtail_ok:
+        nonlocal pygtail
+        if pygtail:
             try:
                 for line in pygtail:
                     logger.verbose((prefix + line.rstrip())[:4096])  # pyre-ignore
             except:
-                pygtail_ok = False
                 # cf. https://github.com/bgreenlee/pygtail/issues/48
                 logger.verbose(  # pyre-ignore
                     "incomplete log stream due to the following exception; see %s",
                     filename,
                     exc_info=sys.exc_info(),
                 )
+                pygtail = None
 
     try:
         yield poll

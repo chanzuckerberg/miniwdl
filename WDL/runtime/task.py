@@ -455,7 +455,6 @@ class SwarmContainer(TaskContainer):
             # stream stderr into log
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
                 # poll for container exit
-                running = False
                 while exit_code is None:
                     # spread out work over the GIL
                     # TODO: adaptive interval before container starts running (poll less frequently
@@ -464,7 +463,6 @@ class SwarmContainer(TaskContainer):
                     if terminating():
                         raise Terminated() from None
                     if "running" in self._observed_states:
-                        running = True
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
                 logger.debug(
