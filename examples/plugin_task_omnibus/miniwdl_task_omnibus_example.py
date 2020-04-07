@@ -83,6 +83,10 @@ def main(cfg, logger, run_id, run_dir, task, **recv):
 
         # Let's prepend "set -euxo pipefail" to all task commands, which isn't a bad idea actually!
         recv["command"] = "set -euxo pipefail\n\n" + recv["command"]
+        # Set custom keyword arguments for the docker swarm service create() invocation. see:
+        #   https://docker-py.readthedocs.io/en/stable/services.html#docker.models.services.ServiceCollection.create
+        # the dict supplied here will be merged into the runner-generated dict of arguments
+        recv["container"].create_service_kwargs = {"env": ["OMNIBUS=123"]}
 
         # Yield this back, and the runner will start scheduling the container+command
         recv = yield recv
@@ -111,7 +115,7 @@ def main(cfg, logger, run_id, run_dir, task, **recv):
 quick test:
 
 pip3 install examples/plugin_task_omnibus/
-echo -e 'version 1.0\ntask omnibus { input { Int n } command { echo "~{n}"; if (( ~{n} == 43 )); then exit 1; fi } output { String out=read_string(stdout()) } }' > /tmp/omnibus.wdl
+echo -e 'version 1.0\ntask omnibus { input { Int n } command { echo "~{n}"; >&2 echo "OMNIBUS=$OMNIBUS"; if (( ~{n} == 43 )); then exit 1; fi } output { String out=read_string(stdout()) } }' > /tmp/omnibus.wdl
 MINIWDL__PLUGINS__DISABLE_PATTERNS=[] python3 -m WDL run /tmp/omnibus.wdl n=0 --dir=/tmp --verbose
 MINIWDL__PLUGINS__DISABLE_PATTERNS=[] python3 -m WDL run /tmp/omnibus.wdl n=1 --dir=/tmp --verbose
 

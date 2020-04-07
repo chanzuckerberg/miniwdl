@@ -9,7 +9,7 @@ to store the output files (e.g. "s3://my_bucket/workflow123_outputs"). The prefi
 uniquely for each run, to prevent different runs from overwriting each others' outputs.
 
 Shells out to the AWS CLI, which must be pre-configured so that "aws s3 cp ..." into the specified
-bucket works (without adding any auth-related arguments).
+bucket works (without explicit auth-related arguments).
 
 Deposits into each successful task/workflow run directory and S3 folder, an additional file
 outputs.s3.json which copies outputs.json replacing local file paths with the uploaded S3 URIs.
@@ -39,7 +39,7 @@ _uploaded_files_lock = threading.Lock()
 def task(cfg, logger, run_id, run_dir, task, **recv):
     """
     on completion of any task, upload its output files to S3, and record the S3 URI corresponding
-    to each local filename (realpath) in _uploaded_files
+    to each local file (keyed by inode) in _uploaded_files
     """
     logger = logger.getChild("s3_progressive_upload")
 
@@ -105,35 +105,24 @@ def workflow(cfg, logger, run_id, run_dir, workflow, **recv):
 
 
 def write_outputs_s3_json(logger, outputs, run_dir, s3prefix, namespace):
-    # get json of output env
-    outputs_json = WDL.values_to_json(outputs, namespace=namespace)
-
     # rewrite uploaded files to their S3 URIs
-    def rewrite(v):
-        if isinstance(v, str) and v.startswith(run_dir) and os.path.isfile(v):
-            ino = inode(v)
-            if ino in _uploaded_files:
-                return _uploaded_files[ino]
-            else:
-                logger.warning(
-                    _(
-                        "output file wasn't uploaded to S3; keeping local path in outputs.s3.json",
-                        file=v,
-                    )
+    def rewriter(fn):
+        try:
+            return _uploaded_files[inode(fn)]
+        except:
+            logger.warning(
+                _(
+                    "output file wasn't uploaded to S3; keeping local path in outputs.s3.json",
+                    file=fn,
                 )
-        if isinstance(v, list):
-            return [rewrite(u) for u in v]
-        if isinstance(v, dict):
-            return dict((k, rewrite(u)) for (k, u) in v.items())
-        return v
+            )
+            return fn
 
     with _uploaded_files_lock:
-        outputs_s3_json = rewrite(outputs_json)
+        outputs_s3 = WDL.Value.rewrite_env_files(outputs, rewriter)
 
-    # Because the JSON dict format doesn't distinguish String and File output values, we've risked
-    # erroneously rewriting a String value that happens to equal an output File path. This risk is
-    # small in practice because we look for absolute paths. We could avoid the problem by rewriting
-    # the outputs WDL.Env before generating JSON, but rewriting the JSON is just easier.
+    # get json dict of rewritten outputs
+    outputs_s3_json = WDL.values_to_json(outputs_s3, namespace=namespace)
 
     # write to outputs.s3.json
     fn = os.path.join(run_dir, "outputs.s3.json")

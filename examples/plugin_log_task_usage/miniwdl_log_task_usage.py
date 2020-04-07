@@ -1,9 +1,11 @@
 """
 miniwdl plugin instrumenting each task container to log its own CPU & memory resource usage
-periodically. The logs are written to the task's standard error stream.
+periodically. The logs are written to the task's standard error stream, so they'll appear on the
+console only with --verbose logging (but are always recorded in each task's stderr.txt).
 
-After installing, activate for a run by setting configuration section "log_task_usage" option
-"period" (or env MINIWDL__LOG_TASK_USAGE__PERIOD) to the desired logging period in seconds.
+To enable, install this plugin (`pip3 install .` & confirm listed by `miniwdl --version`) and
+set configuration [log_task_usage] period (or the environment variable
+MINIWDL__LOG_TASK_USAGE__PERIOD) to the desired logging period in seconds.
 
 YMMV because host OS version & configuration may affect availability of the counters read from
 pseudo-files under /sys/fs/cgroup
