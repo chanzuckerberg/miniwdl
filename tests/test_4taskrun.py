@@ -774,6 +774,32 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
         self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)
 
+    def test_runtime_memory_limit(self):
+        txt = R"""
+        version 1.0
+        task limit {
+            input {
+                String memory
+            }
+            command <<<
+                cat /sys/fs/cgroup/memory/memory.limit_in_bytes
+            >>>
+            output {
+                Int memory_limit_in_bytes = read_int(stdout())
+            }
+            runtime {
+                cpu: 1
+                memory: "~{memory}"
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        outputs = self._test_task(txt, {"memory": "256MB"}, cfg=cfg)
+        self.assertGreater(outputs["memory_limit_in_bytes"], 300*1024*1024)
+        cfg.override({"task_runtime": {"memory_hard_limit_multiplier": 0.9}})
+        outputs = self._test_task(txt, {"memory": "256MB"}, cfg=cfg)
+        self.assertLess(outputs["memory_limit_in_bytes"], 300*1024*1024)
+
     def test_input_files_rw(self):
         txt = R"""
         version 1.0

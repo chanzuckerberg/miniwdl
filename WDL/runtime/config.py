@@ -48,6 +48,9 @@ class Section:
     def get_int(self, key: str) -> int:
         return self._parent.get_int(self._section, key)
 
+    def get_float(self, key: str) -> float:
+        return self._parent.get_float(self._section, key)
+
     def get_bool(self, key: str) -> bool:
         return self._parent.get_bool(self._section, key)
 
@@ -201,6 +204,9 @@ class Loader:
 
     def get_int(self, section: str, key: str) -> int:
         return self._parse(section, key, "int", int)
+
+    def get_float(self, section: str, key: str) -> float:
+        return self._parse(section, key, "float", float)
 
     def get_bool(self, section: str, key: str) -> bool:
         return self._parse(section, key, "bool", _parse_bool)
