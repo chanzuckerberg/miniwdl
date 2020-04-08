@@ -205,14 +205,11 @@ def provision_run_dir(name: str, run_dir: Optional[str], last_link: bool = False
     except FileExistsError:
         new_dir = None
 
-    # it already exists; try adding milliseconds
     while not new_dir:
+        # it already exists; try adding milliseconds
         new_dir = os.path.join(
             run_dir,
-            now.strftime("%Y%m%d_%H%M%S_")
-            + str(int(now.microsecond / 1000)).zfill(3)
-            + "_"
-            + name,
+            now.strftime("%Y%m%d_%H%M%S_") + str(int(now.microsecond / 1000)).zfill(3) + "_" + name,
         )
         try:
             os.makedirs(new_dir, exist_ok=False)
