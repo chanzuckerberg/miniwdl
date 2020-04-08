@@ -205,20 +205,20 @@ def provision_run_dir(name: str, run_dir: Optional[str], last_link: bool = False
     except FileExistsError:
         new_dir = None
 
-    if not new_dir:
-        # it already exists; try adding milliseconds
-        while True:
-            new_dir = os.path.join(
-                run_dir,
-                now.strftime("%Y%m%d_%H%M%S_")
-                + str(int(now.microsecond / 1000)).zfill(3)
-                + "_"
-                + name,
-            )
-            try:
-                os.makedirs(new_dir, exist_ok=False)
-            except FileExistsError:
-                sleep(1e-3)
+    # it already exists; try adding milliseconds
+    while not new_dir:
+        new_dir = os.path.join(
+            run_dir,
+            now.strftime("%Y%m%d_%H%M%S_")
+            + str(int(now.microsecond / 1000)).zfill(3)
+            + "_"
+            + name,
+        )
+        try:
+            os.makedirs(new_dir, exist_ok=False)
+        except FileExistsError:
+            new_dir = None
+            sleep(1e-3)
     assert new_dir
 
     # update the _LAST link
