@@ -629,7 +629,7 @@ def run_local_workflow(
     # provision run directory and log file
     run_id = run_id or workflow.name
     _run_id_stack = _run_id_stack or []
-    run_dir = provision_run_dir(workflow.name, run_dir)
+    run_dir = provision_run_dir(workflow.name, run_dir, last_link=not _run_id_stack)
 
     logger_prefix = logger_prefix or ["wdl"]
     logger_id = logger_prefix + ["w:" + run_id]

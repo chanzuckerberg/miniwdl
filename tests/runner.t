@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 52
+plan tests 53
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -223,9 +223,9 @@ task second {
 }
 EOF
 
-$miniwdl run multitask.wdl --task second | tee stdout
+$miniwdl run multitask.wdl --task second
 is "$?" "0" "multitask"
-is "$(jq -r '.outputs["second.msg"]' stdout)" "two" "multitask stdout"
+is "$(jq -r '.["second.msg"]' _LAST/outputs.json)" "two" "multitask stdout & _LAST"
 
 cat << 'EOF' > mv_input_file.wdl
 version 1.0
@@ -244,6 +244,7 @@ EOF
 
 $miniwdl run --copy-input-files mv_input_file.wdl file=quick
 is "$?" "0" "copy input files"
+is "$(basename `jq -r '.["mv_input_file.xxx"]' _LAST/outputs.json`)" "xxx" "updated _LAST"
 
 cat << 'EOF' > uri_inputs.json
 {"my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
