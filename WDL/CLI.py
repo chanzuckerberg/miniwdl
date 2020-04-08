@@ -457,6 +457,11 @@ def runner(
     logger = logging.getLogger("miniwdl-run")
     install_coloredlogs(logger)
 
+    if os.geteuid() == 0:
+        logger.warning(
+            "running as root; non-root users should be able to `miniwdl run` as long as they're in the `docker` group"
+        )
+
     # load configuration & apply command-line overrides
     cfg_arg = None
     if cfg:

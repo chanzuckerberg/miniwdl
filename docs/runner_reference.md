@@ -28,7 +28,9 @@ The top-level run directory also contains:
 * `rerun` can be "sourced" to run the WDL (as found in the original location, possibly updated) using the same inputs
 * The top-level `workflow.log` file is "flocked" while `miniwdl run` is still in progress (`task.log` if running a task directly)
 
-The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/tree/master/examples) illustrating how this structure can inform production automation (e.g. retrieving error messages, uploading output files).
+When miniwdl creates a new timestamp-named subdirectory for a run, it also creates a symbolic link `_LAST` to it in the same parent directory. (For convenience referring to the most recent run; should not be relied upon if multiple runs can start concurrently.)
+
+The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/tree/master/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
 
 ## Configuration
 

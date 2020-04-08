@@ -10,6 +10,7 @@ import threading
 import time
 import copy
 import fcntl
+import subprocess
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager, AbstractContextManager
@@ -183,7 +184,7 @@ def write_values_json(
 
 
 @export
-def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
+def provision_run_dir(name: str, run_dir: Optional[str], last_link: bool = False) -> str:
     here = (
         (run_dir in [".", "./"] or run_dir.endswith("/.") or run_dir.endswith("/./"))
         if run_dir
@@ -192,27 +193,44 @@ def provision_run_dir(name: str, run_dir: Optional[str] = None) -> str:
     run_dir = os.path.abspath(run_dir or os.getcwd())
 
     if here:
+        # user wants to use run_dir exactly
         os.makedirs(run_dir, exist_ok=True)
         return run_dir
 
+    # create timestamp-named directory
     now = datetime.today()
-    run_dir2 = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
+    new_dir = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
     try:
-        os.makedirs(run_dir2, exist_ok=False)
-        return run_dir2
+        os.makedirs(new_dir, exist_ok=False)
     except FileExistsError:
-        pass
+        new_dir = None
 
-    while True:
-        run_dir2 = os.path.join(
-            run_dir,
-            now.strftime("%Y%m%d_%H%M%S_") + str(int(now.microsecond / 1000)).zfill(3) + "_" + name,
-        )
-        try:
-            os.makedirs(run_dir2, exist_ok=False)
-            return run_dir2
-        except FileExistsError:
-            sleep(1e-3)
+    if not new_dir:
+        # it already exists; try adding milliseconds
+        while True:
+            new_dir = os.path.join(
+                run_dir,
+                now.strftime("%Y%m%d_%H%M%S_")
+                + str(int(now.microsecond / 1000)).zfill(3)
+                + "_"
+                + name,
+            )
+            try:
+                os.makedirs(new_dir, exist_ok=False)
+            except FileExistsError:
+                sleep(1e-3)
+    assert new_dir
+
+    # update the _LAST link
+    if last_link:
+        last_link_name = os.path.join(run_dir, "_LAST")
+        if not os.path.lexists(last_link_name) or os.path.islink(last_link_name):
+            new_dir_basename = os.path.basename(new_dir)
+            tmp_link_name = last_link_name + "." + new_dir_basename
+            os.symlink(new_dir_basename, tmp_link_name)
+            os.rename(tmp_link_name, last_link_name)
+
+    return new_dir
 
 
 @export
@@ -700,8 +718,9 @@ class FlockHolder(AbstractContextManager):
                             openfile.fileno(), ns=(int(time.time() * 1e9), file_st.st_mtime_ns)
                         )
 
-                    # The filename link could have been replaced or removed in the instant between
-                    # our open() and flock() syscalls.
+                    # Even if all concurrent processes obey the advisory flocks, the filename link
+                    # could have been replaced or removed in the duration between our open() and
+                    # fcntl() syscalls.
                     # - if it was removed, the following os.stat will trigger FileNotFoundError,
                     #   which is reasonable to propagate.
                     # - if it was replaced, the subsequent condition won't hold, and we'll loop

@@ -457,8 +457,6 @@ class SwarmContainer(TaskContainer):
                 # poll for container exit
                 while exit_code is None:
                     # spread out work over the GIL
-                    # TODO: adaptive interval before container starts running (poll less frequently
-                    # if it's already been waiting a long time)
                     time.sleep(random.uniform(1.0, 2.0))
                     if terminating():
                         raise Terminated() from None
@@ -678,7 +676,7 @@ def run_local_task(
     # provision run directory and log file
     run_id = run_id or task.name
     _run_id_stack = _run_id_stack or []
-    run_dir = provision_run_dir(task.name, run_dir)
+    run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
 
     logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
     logger = logging.getLogger(".".join(logger_prefix))
