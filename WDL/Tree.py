@@ -1135,7 +1135,7 @@ class Workflow(SourceNode):
         return self._nodes_by_id[workflow_node_id]
 
 
-SourceComment = NamedTuple("Comment", [("pos", Error.SourcePosition), ("text", str)])
+SourceComment = NamedTuple("SourceComment", [("pos", Error.SourcePosition), ("text", str)])
 """
 Position and text of a comment. The text includes the ``#`` and any preceding or trailing
 spaces/tabs.
