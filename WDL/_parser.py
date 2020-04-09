@@ -1,20 +1,31 @@
 # pylint: skip-file
 import inspect
-from typing import List, Optional, Set
+import threading
+from typing import List, Optional, Set, Tuple
 import lark
 from .Error import SourcePosition
 from . import Error, Tree, Type, Expr, _grammar
 
 # memoize Lark parsers constructed for version & start symbol
 _lark_cache = {}
+_lark_comments_buffer = []
+_lark_lock = threading.Lock()
 
 
-def parse(grammar: str, txt: str, start: str) -> lark.Tree:
-    if (grammar, start) not in _lark_cache:
-        _lark_cache[(grammar, start)] = lark.Lark(
-            grammar, start=start, parser="lalr", propagate_positions=True
-        )
-    return _lark_cache[(grammar, start)].parse(txt + ("\n" if not txt.endswith("\n") else ""))
+def parse(grammar: str, txt: str, start: str) -> Tuple[lark.Tree, List[lark.Token]]:
+    with _lark_lock:
+        if (grammar, start) not in _lark_cache:
+            _lark_cache[(grammar, start)] = lark.Lark(
+                grammar,
+                start=start,
+                parser="lalr",
+                propagate_positions=True,
+                lexer_callbacks={"COMMENT": _lark_comments_buffer.append},
+            )
+        tree = _lark_cache[(grammar, start)].parse(txt + ("\n" if not txt.endswith("\n") else ""))
+        comments = _lark_comments_buffer.copy()
+        _lark_comments_buffer.clear()
+        return (tree, comments)
 
 
 def to_int(x):
@@ -228,11 +239,15 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
     _keywords: Set[str]
     _source_text: str
+    _comments: List[lark.Token]
 
-    def __init__(self, source_text: str, keywords: Set[str], *args, **kwargs):
+    def __init__(
+        self, source_text: str, keywords: Set[str], comments: List[lark.Token], *args, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         self._source_text = source_text
         self._keywords = keywords
+        self._comments = comments
 
     def _check_keyword(self, pos, name):
         if name in self._keywords:
@@ -499,7 +514,24 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
                 imports.append(item)
             else:
                 assert False
-        return Tree.Document(self._source_text, self._sp(meta), imports, structs, tasks, workflow)
+        comments = [
+            Tree.SourceComment(
+                SourcePosition(
+                    uri=self.uri,
+                    abspath=self.abspath,
+                    line=comment.line,
+                    column=comment.column,
+                    end_line=comment.end_line or comment.line,
+                    end_column=comment.end_column or (comment.column + len(comment.value)),
+                ),
+                text=comment.value,
+            )
+            for comment in self._comments
+        ]
+
+        return Tree.Document(
+            self._source_text, self._sp(meta), imports, structs, tasks, workflow, comments
+        )
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
@@ -511,7 +543,7 @@ for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
     try:
-        return _ExprTransformer().transform(parse(_grammar.get(version)[0], txt, "expr"))
+        return _ExprTransformer().transform(parse(_grammar.get(version)[0], txt, "expr")[0])
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
             uri="(buffer)",
@@ -529,8 +561,9 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
 def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
     try:
         (grammar, keywords) = _grammar.get(version)
-        return _DocTransformer(source_text=txt, keywords=keywords).transform(
-            parse(grammar, txt, "tasks")
+        raw_ast, comments = parse(grammar, txt, "tasks")
+        return _DocTransformer(source_text=txt, keywords=keywords, comments=comments).transform(
+            raw_ast
         )
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
@@ -541,7 +574,7 @@ def parse_document(
 ) -> Tree.Document:
     npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
     if not txt.strip():
-        return Tree.Document(txt, npos, [], {}, [], None,)
+        return Tree.Document(txt, npos, [], {}, [], None, [])
     if version is None:
         # for now assume the version is 1.0 if the first line is "version <number>"
         # otherwise draft-2
@@ -557,9 +590,10 @@ def parse_document(
     except KeyError:
         raise Error.SyntaxError(npos, "unknown WDL version " + version) from None
     try:
+        raw_ast, comments = parse(grammar, txt, "document")
         return _DocTransformer(
-            source_text=txt, uri=uri, abspath=abspath, keywords=keywords
-        ).transform(parse(grammar, txt, "document"))
+            source_text=txt, uri=uri, abspath=abspath, keywords=keywords, comments=comments
+        ).transform(raw_ast)
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
             uri=(uri if uri else "(buffer)"),

@@ -21,7 +21,8 @@ class SourcePosition(
     """
     Source position attached to AST nodes and exceptions; NamedTuple of ``uri`` the filename/URI
     passed to :func:`WDL.load` or a WDL import statement, which may be relative; ``abspath`` the
-    absolute filename/URI; and int positions ``line`` ``end_line`` ``column`` ``end_column``
+    absolute filename/URI; and one-based int positions ``line`` ``end_line`` ``column``
+    ``end_column``
     """
 
 

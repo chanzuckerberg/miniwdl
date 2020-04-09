@@ -502,43 +502,49 @@ class TestTypes(unittest.TestCase):
 
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
-        doc = r"""
-        workflow count_lines_matching {
-            call grep
-            call count_lines {
-                input:
-                    in = grep.out
-            }
-        }
-        task grep {
-            File in
-            String pattern
+        doc = r"""#foo
+workflow count_lines_matching {
+    call grep
+    call count_lines {
+        input:
+            in = grep.out  	# bar
+    }
+}
+task grep {
+    File in
+    String pattern
 
-            command {
-                grep ${pattern} ${in} > ans
-            }
+    command {
+        grep ${pattern} ${in} > ans
+    }
 
-            output {
-                File out = "ans"
-            }
-        }
-        task count_lines {
-            File in
+    output {
+        File out = "ans"
+    }
+}
+    #baz   
+task count_lines {
+    File in
 
-            command {
-                wc -l ${in}
-            }
+    command {
+        wc -l ${in}
+    }
 
-            output {
-                Int out = read_int(stdout())
-            }
-        }
-        """
+    output {
+        Int out = read_int(stdout())
+    }
+}
+   #bas 
+"""
         doc = WDL.parse_document(doc)
         self.assertIsInstance(doc.workflow, WDL.Tree.Workflow)
         self.assertEqual(len(doc.workflow.body), 2)
         self.assertEqual(len(doc.tasks), 2)
         doc.typecheck()
+        self.assertEqual(doc.source_comments[0].text, "#foo")
+        self.assertEqual(doc.source_comments[5].text, "  	# bar")
+        self.assertEqual(doc.source_comments[20].text, "    #baz   ")
+        self.assertEqual(doc.source_comments[32].text, "   #bas ")
 
     def test_bam_chrom_counter(self):
         doc = r"""

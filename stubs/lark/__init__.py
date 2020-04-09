@@ -2,6 +2,14 @@
 
 from typing import Any
 
+class Token:
+    value: str
+    line: int
+    end_line: int
+    column: int
+    end_column: int
+    ...
+
 class Transformer:
     def transform(self,tree) -> Any:
         ...
