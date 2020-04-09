@@ -46,9 +46,6 @@ def main():
     # run SetParents to facilitate getting from a called task to its containing document
     WDL.Walker.SetParents()(doc)
 
-    # original document lines for surgery
-    doc_lines = doc.source_text.split("\n")
-
     # for each call
     tasks_processed = set()
     for call in calls(doc.workflow):
@@ -57,8 +54,8 @@ def main():
             new_task_name = "__".join(call.callee_id)
             assert isinstance(call.callee, WDL.Task), "can't import sub-workflows"
             # rewrite the call with the new task name
-            doc_lines[call.pos.line - 1] = rewrite_line(
-                doc_lines[call.pos.line - 1],
+            doc.source_lines[call.pos.line - 1] = rewrite_line(
+                doc.source_lines[call.pos.line - 1],
                 "call",
                 f"{new_task_name} as {call.name}",
                 old_name="[0-9A-Za-z_\\.]+(\\s+as\\s+[0-9A-Za-z_]+)?",
@@ -66,21 +63,21 @@ def main():
             if new_task_name not in tasks_processed:
                 task_lines = task_source_lines(call.callee)
                 task_lines[0] = rewrite_line(task_lines[0], "task", new_task_name)
-                doc_lines += ["\n"] + task_lines + ["\n"]
+                doc.source_lines += ["\n"] + task_lines + ["\n"]
                 tasks_processed.add(new_task_name)
 
     # blank out the imports
     for imp in doc.imports:
         for ln in range(imp.pos.line - 1, imp.pos.end_line):
-            doc_lines[ln] = ""
+            doc.source_lines[ln] = ""
 
     # print output
     if args.o:
         with open(args.o, "w") as outfile:
-            for line in doc_lines:
+            for line in doc.source_lines:
                 print(line, file=outfile)
     else:
-        for line in doc_lines:
+        for line in doc.source_lines:
             print(line)
 
 

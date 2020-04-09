@@ -1135,6 +1135,12 @@ class Workflow(SourceNode):
         return self._nodes_by_id[workflow_node_id]
 
 
+SourceComment = NamedTuple("SourceComment", [("pos", Error.SourcePosition), ("text", str)])
+"""
+Position and text of a comment. The text includes the ``#`` and any preceding or trailing
+spaces/tabs.
+"""
+
 DocImport = NamedTuple(
     "DocImport",
     [
@@ -1146,7 +1152,8 @@ DocImport = NamedTuple(
     ],
 )
 """
-Represents one imported document, with position of the import statement, import URI, namespace, struct type aliases, and (after typechecking) the ``Document`` object.
+Represents one imported document, with position of the import statement, import URI, namespace,
+struct type aliases, and (after typechecking) the ``Document`` object.
 """
 
 
@@ -1161,6 +1168,23 @@ class Document(SourceNode):
     :type: str
 
     Original WDL source code text
+    """
+
+    source_lines: List[str]
+    """
+    :type: List[str]
+
+    Original WDL source code text split by newlines. ``SourcePosition`` line numbers are
+    one-based, so line number ``L`` corresponds to ``source_lines[L-1]``.
+    """
+
+    source_comments: List[Optional[SourceComment]]
+    """
+    :type: List[Optional[SourceComment]]
+
+    Lookup table for source code comments. ``source_comments`` has the same length as
+    ``source_lines``, and each entry is the :class:`WDL.Tree.SourceComment` found on the
+    corresponding source line, or ``None`` if the line has no comment.
     """
 
     imports: List[DocImport]
@@ -1183,15 +1207,22 @@ class Document(SourceNode):
         struct_typedefs: Dict[str, StructTypeDef],
         tasks: List[Task],
         workflow: Optional[Workflow],
+        comments: List[SourceComment],
     ) -> None:
         super().__init__(pos)
-        self.source_text = source_text
         self.imports = imports
         self.struct_typedefs = Env.Bindings()
         for name, struct_typedef in struct_typedefs.items():
             self.struct_typedefs = self.struct_typedefs.bind(name, struct_typedef)
         self.tasks = tasks
         self.workflow = workflow
+        self.source_text = source_text
+        self.source_lines = source_text.split("\n")
+        self.source_comments = [None for _ in self.source_lines]
+        for comment in comments:
+            assert self.source_comments[comment.pos.line - 1] is None
+            assert self.source_lines[comment.pos.line - 1].endswith(comment.text)
+            self.source_comments[comment.pos.line - 1] = comment
 
     @property
     def children(self) -> Iterable[SourceNode]:

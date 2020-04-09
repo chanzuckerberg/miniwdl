@@ -89,16 +89,17 @@ optional_nonempty: "+?"
 
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
-COMMENT: "#" /[^\r\n]*/ NEWLINE
+COMMENT: /[ \t]*/ "#" /[^\r\n]*/
+SPACE: /[ \t]+/
 
 %import common.INT
 %import common.SIGNED_INT
 %import common.FLOAT
 %import common.SIGNED_FLOAT
 %import common.ESCAPED_STRING
-%import common.WS
 %import common.NEWLINE
-%ignore WS
+%ignore SPACE
+%ignore NEWLINE
 %ignore COMMENT
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -475,11 +476,12 @@ CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 %import common.NEWLINE
-COMMENT: "#" /[^\r\n]*/ NEWLINE
-%ignore COMMENT
+SPACE: /[ \t]+/
+COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 
-%import common.WS
-%ignore WS
+%ignore SPACE
+%ignore NEWLINE
+%ignore COMMENT
 """
 keywords["development"] = set(
     "Array Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
