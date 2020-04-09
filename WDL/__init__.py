@@ -24,7 +24,7 @@ from .Tree import (
     Document,
     WorkflowNode,
     WorkflowSection,
-    SourceComment
+    SourceComment,
 )
 from . import runtime
 
