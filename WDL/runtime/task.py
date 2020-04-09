@@ -162,7 +162,14 @@ class TaskContainer(ABC):
             os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
             shutil.copy(host_filename, host_copy_filename)
 
-    def run(self, logger: logging.Logger, command: str, cpu: int, memory: int) -> None:
+    def run(
+        self,
+        logger: logging.Logger,
+        command: str,
+        cpu: int,
+        memory_reservation: int,
+        memory_limit: int,
+    ) -> None:
         """
         1. Container is instantiated with the configured mounts
         2. The mounted directory and all subdirectories have u+rwx,g+rwx permission bits; all files
@@ -184,7 +191,9 @@ class TaskContainer(ABC):
                     raise Terminated()
                 self._running = True
                 try:
-                    exit_status = self._run(logger, terminating, command, cpu, memory)
+                    exit_status = self._run(
+                        logger, terminating, command, cpu, memory_reservation, memory_limit
+                    )
                 finally:
                     self._running = False
 
@@ -200,7 +209,8 @@ class TaskContainer(ABC):
         terminating: Callable[[], bool],
         command: str,
         cpu: int,
-        memory: int,
+        memory_reservation: int,
+        memory_limit: int,
     ) -> int:
         # run command in container & return exit status
         raise NotImplementedError()
@@ -403,7 +413,8 @@ class SwarmContainer(TaskContainer):
         terminating: Callable[[], bool],
         command: str,
         cpu: int,
-        memory: int,
+        memory_reservation: int,
+        memory_limit: int,
     ) -> int:
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
@@ -423,7 +434,9 @@ class SwarmContainer(TaskContainer):
 
         # connect to dockerd
         client = docker.from_env(timeout=900)
-        resources, user, groups = self.misc_config(logger, client, cpu, memory)
+        resources, user, groups = self.misc_config(
+            logger, client, cpu, memory_reservation, memory_limit
+        )
         svc = None
         exit_code = None
         try:
@@ -532,15 +545,22 @@ class SwarmContainer(TaskContainer):
         return mounts
 
     def misc_config(
-        self, logger: logging.Logger, client: docker.DockerClient, cpu: int, memory: int
+        self,
+        logger: logging.Logger,
+        client: docker.DockerClient,
+        cpu: int,
+        memory_reservation: int,
+        memory_limit: int,
     ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
         resources = {}
         if cpu > 0:
             # the cpu unit expected by swarm is "NanoCPUs"
             resources["cpu_limit"] = cpu * 1_000_000_000
             resources["cpu_reservation"] = cpu * 1_000_000_000
-        if memory > 0:
-            resources["mem_reservation"] = memory
+        if memory_reservation > 0:
+            resources["mem_reservation"] = memory_reservation
+        if memory_limit > 0:
+            resources["mem_limit"] = memory_limit
         if resources:
             logger.debug(_("docker resources", **resources))
             resources = docker.types.Resources(**resources)
@@ -993,7 +1013,11 @@ def _eval_task_runtime(
                 )
             )
             memory_bytes = memory_max
-        ans["memory"] = memory_bytes
+        ans["memory_reservation"] = memory_bytes
+
+        memory_limit_multiplier = cfg["task_runtime"].get_float("memory_limit_multiplier")
+        if memory_limit_multiplier > 0.0:
+            ans["memory_limit"] = int(memory_limit_multiplier * memory_bytes)
 
     if "maxRetries" in runtime_values:
         ans["maxRetries"] = max(0, runtime_values["maxRetries"].coerce(Type.Int()).value)
@@ -1028,7 +1052,11 @@ def _try_task(
         try:
             # start container & run command
             return container.run(
-                logger, command, int(runtime.get("cpu", 0)), int(runtime.get("memory", 0))
+                logger,
+                command,
+                int(runtime.get("cpu", 0)),
+                int(runtime.get("memory_reservation", 0)),
+                int(runtime.get("memory_limit", 0)),
             )
         except Exception as exn:
             if isinstance(exn, Terminated) or prevRetries >= maxRetries:
