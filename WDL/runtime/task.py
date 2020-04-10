@@ -447,9 +447,9 @@ class SwarmContainer(TaskContainer):
                 "name": "-".join(
                     [
                         "wdl",
-                        os.getpid(),
+                        str(os.getpid()),
                         socket.gethostname()[:12],
-                        SwarmContainer._id_counter.next(),
+                        str(SwarmContainer._id_counter.next()),
                         self.run_id,
                     ]
                 )[:63],
