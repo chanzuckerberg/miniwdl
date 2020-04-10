@@ -530,21 +530,6 @@ def LoggingFileHandler(logger: logging.Logger, filename: str) -> Iterator[loggin
 
 
 @export
-class AtomicCounter:
-    _value: int
-    _lock: threading.Lock
-
-    def __init__(self) -> None:
-        self._value = 0
-        self._lock = threading.Lock()
-
-    def next(self) -> int:
-        with self._lock:
-            self._value += 1
-            return self._value
-
-
-@export
 @contextmanager
 def compose_coroutines(  # pyre-fixme
     generators: List[Callable[[Any], Generator[Any, Any, None]]], x: Any  # pyre-fixme

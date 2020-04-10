@@ -16,7 +16,9 @@ import threading
 import shutil
 import shlex
 import re
-import socket
+import hashlib
+import uuid
+import base64
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 from contextlib import ExitStack
@@ -33,7 +35,6 @@ from .._util import (
     chmod_R_plus,
     path_really_within,
     LoggingFileHandler,
-    AtomicCounter,
     compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
@@ -279,7 +280,6 @@ class SwarmContainer(TaskContainer):
     """
 
     _limits: Dict[str, int] = {}
-    _id_counter: AtomicCounter = AtomicCounter()
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
@@ -444,7 +444,7 @@ class SwarmContainer(TaskContainer):
             # scheduling (waiting until requested # of CPUs are available).
             kwargs = {
                 # unique name with some human readability; docker limits to 63 chars (issue #327)
-                "name": f"wdl-{os.getpid()}-{SwarmContainer._id_counter.next()}-{self.run_id}"[:63],
+                "name": self.unique_service_name(self.run_id),
                 "command": [
                     "/bin/bash",
                     "-c",
@@ -649,9 +649,7 @@ class SwarmContainer(TaskContainer):
                 try:
                     chowner = client.containers.run(
                         "alpine:3",
-                        name=f"wdl-chown-{os.getpid()}-{SwarmContainer._id_counter.next()}-{self.run_id}"[
-                            :63
-                        ],
+                        name=self.unique_service_name("chown-" + self.run_id),
                         command=["/bin/ash", "-c", script],
                         volumes=volumes,
                         detach=True,
@@ -668,6 +666,24 @@ class SwarmContainer(TaskContainer):
                 if success:
                     raise
                 logger.exception("post-task chown also failed")
+
+    def unique_service_name(self, run_id: str) -> str:
+        # We need to give each service a name unique on the swarm; collisions cause the service
+        # create request to fail. Considerations:
+        # 1. [0-9A-Za-z-]{1,63} -- case is remembered, but comparison ignores it.
+        # 2. It's useful for the names to be mostly human-readable via `docker service ls` to get a
+        #    sense of what's happening on the swarm. Unfortunately, that tool truncates the display
+        #    names pretty short, so prefer human-readability of the leftmost part of the name.
+        # 3. PID+seqno isn't sufficient because the swarm could receive submissions from miniwdl
+        #    running in different hosts/VMs/containers with potentially colliding PIDs.
+        # see GitHub issues: 327, 368
+        junk = hashlib.sha256()
+        junk.update(uuid.uuid1().bytes)
+        junk.update(uuid.uuid4().bytes)
+        junk = junk.digest()[:15]
+        junk = base64.b32encode(junk).decode().lower()
+        assert len(junk) == 24
+        return f"wdl-{run_id[:34]}-{junk}"  # 4 + 34 + 1 + 24 = 63
 
 
 def run_local_task(
