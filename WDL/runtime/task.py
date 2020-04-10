@@ -734,8 +734,9 @@ def run_local_task(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
-            assert not _cache
-            cache = cleanup.enter_context(CallCache(cfg, logger))  # pylint: disable=no-member
+            cache = _cache or cleanup.enter_context(  # pylint: disable=no-member
+                CallCache(cfg, logger)
+            )
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
         else:
             cache = _cache

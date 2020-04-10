@@ -662,9 +662,11 @@ def run_local_workflow(
             except importlib_metadata.PackageNotFoundError:
                 version = "UNKNOWN"
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
-            assert not _thread_pools and not _cache
+            assert not _thread_pools
 
-            cache = cleanup.enter_context(CallCache(cfg, logger))  # pylint: disable=no-member
+            cache = _cache or cleanup.enter_context(  # pylint: disable=no-member
+                CallCache(cfg, logger)
+            )
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
