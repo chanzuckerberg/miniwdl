@@ -445,11 +445,13 @@ class SwarmContainer(TaskContainer):
             kwargs = {
                 # unique name with some human readability; docker limits to 63 chars (issue #327)
                 "name": "-".join(
-                    "wdl",
-                    os.getpid(),
-                    socket.gethostname()[:12],
-                    SwarmContainer._id_counter.next(),
-                    self.run_id,
+                    [
+                        "wdl",
+                        os.getpid(),
+                        socket.gethostname()[:12],
+                        SwarmContainer._id_counter.next(),
+                        self.run_id,
+                    ]
                 )[:63],
                 "command": [
                     "/bin/bash",
