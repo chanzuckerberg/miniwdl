@@ -315,7 +315,12 @@ class SwarmContainer(TaskContainer):
                     logger.warning(
                         "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
                     )
-                    client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
+                    try:
+                        client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
+                    except Exception as exn:
+                        # smooth over race condition with multiple processes trying to init swarm
+                        if "already part of a swarm" not in str(exn):
+                            raise exn
 
                 logger.notice(  # pyre-fixme
                     _(
