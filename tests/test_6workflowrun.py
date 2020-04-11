@@ -33,6 +33,7 @@ class TestWorkflowRunner(unittest.TestCase):
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
             rundir, outputs = WDL.runtime.run(cfg, doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
+            self._rundir = rundir
         except WDL.runtime.RunFailed as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
                 exn = exn.__context__
@@ -963,7 +964,7 @@ class TestWorkflowRunner(unittest.TestCase):
         assert test_time < 30
 
     def test_retry(self):
-        outputs = self._test_workflow(R"""
+        txt = R"""
         version 1.0
         workflow test_retry {
             call start
@@ -990,6 +991,7 @@ class TestWorkflowRunner(unittest.TestCase):
                 Int start_time
             }
             command <<<
+                touch iwuzhere
                 now=$(date +%s)
                 if (( now < ~{start_time} + 20 )); then
                     exit 1
@@ -1003,5 +1005,12 @@ class TestWorkflowRunner(unittest.TestCase):
                 maxRetries: 99
             }
         }
-        """)
+        """
+        outputs = self._test_workflow(txt)
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
+        self.assertTrue(os.path.isfile(os.path.join(self._rundir, "call-finish", "failed_tries", "0", "work", "iwuzhere")))
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"delete_work": "failure"}})
+        outputs = self._test_workflow(txt, cfg=cfg)
+        self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
+        self.assertFalse(os.path.isdir(os.path.join(self._rundir, "call-finish", "failed_tries")))
