@@ -216,20 +216,25 @@ class TaskContainer(ABC):
         # run command in container & return exit status
         raise NotImplementedError()
 
-    def reset(self, logger: logging.Logger, prev_retries: int) -> None:
+    def reset(self, logger: logging.Logger, prev_retries: int, delete_work: bool = False) -> None:
         """
         After a container/command failure, reset the working directory state so that
         copy_input_files() and run() can be retried.
         """
         artifacts_dir = os.path.join(self.host_dir, "failed_tries", str(prev_retries))
-        artifacts_moved = []
+        artifacts = []
         for artifact in ["work", "command", "stdout.txt", "stderr.txt", "stderr.txt.offset"]:
             src = os.path.join(self.host_dir, artifact)
             if os.path.exists(src):
-                os.renames(src, os.path.join(artifacts_dir, artifact))
-                artifacts_moved.append(src)
+                artifacts.append(src)
+                if delete_work:
+                    (shutil.rmtree if os.path.isdir(src) else os.unlink)(src)
+                else:
+                    os.renames(src, os.path.join(artifacts_dir, artifact))
         logger.info(
-            _("archived failed task artifacts", artifacts=artifacts_moved, dest=artifacts_dir)
+            _("deleted failed task artifacts", artifacts=artifacts)
+            if delete_work
+            else _("archived failed task artifacts", artifacts=artifacts, dest=artifacts_dir)
         )
         os.makedirs(os.path.join(self.host_dir, "work"))
 
@@ -1092,7 +1097,13 @@ def _try_task(
                     maxRetries=maxRetries,
                 )
             )
-            container.reset(logger, prevRetries)
+            container.reset(
+                logger,
+                prevRetries,
+                delete_work=(
+                    cfg["task_runtime"]["delete_work"].strip().lower() in ["always", "failure"]
+                ),
+            )
             prevRetries += 1
 
 
@@ -1237,7 +1248,7 @@ def _delete_work(cfg: config.Loader, logger: logging.Logger, run_dir: str, succe
                 "ignoring configuration [task_runtime] delete_work because it requires [file_io] output_hardlinks = true"
             )
             return
-        for dn in ["write_", "work"]:
+        for dn in ["write_", "work", "failed_tries"]:
             dn = os.path.join(run_dir, dn)
             if os.path.isdir(dn):
                 shutil.rmtree(dn)
