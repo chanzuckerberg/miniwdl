@@ -311,7 +311,7 @@ def PygtailLogger(
     Truncates lines at 4KB in case writer goes haywire.
     """
     pygtail = None
-    if logger.getEffectiveLevel() <= VERBOSE_LEVEL:
+    if logger.isEnabledFor(VERBOSE_LEVEL):
         pygtail = Pygtail(filename, full_lines=True)
 
     def poll() -> None:

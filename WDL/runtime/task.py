@@ -604,7 +604,8 @@ class SwarmContainer(TaskContainer):
         if tasks:
             assert len(tasks) == 1, "docker service should have at most 1 task"
             status = tasks[0]["Status"]
-            logger.debug(_("docker task status", **status))
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(_("docker task status", **status))
         else:
             assert (
                 len(self._observed_states or []) <= 1
@@ -625,7 +626,7 @@ class SwarmContainer(TaskContainer):
         # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
         # https://github.com/moby/moby/blob/8fbf2598f58fb212230e6ddbcfbde628b0458250/api/types/swarm/task.go#L12
         if "ExitCode" in status.get("ContainerStatus", {}):
-            exit_code = status["ContainerStatus"]["ExitCode"]
+            exit_code = status["ContainerStatus"]["ExitCode"]  # pyre-fixme
             assert isinstance(exit_code, int)
             if exit_code != 0 or status["State"] == "complete":
                 logger.notice(  # pyre-fixme
