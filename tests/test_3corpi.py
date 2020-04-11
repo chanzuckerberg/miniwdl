@@ -11,19 +11,20 @@ class Lint(unittest.TestCase):
         )
         WDL.Lint._shellcheck_available = False
         lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
-        for (pos, lint_class, message) in lint:
+        for (pos, lint_class, message, suppressed) in lint:
             assert isinstance(pos, WDL.SourcePosition)
             assert isinstance(lint_class, str) and isinstance(message, str)
-            print(json.dumps({
-                "uri"        : pos.uri,
-                "abspath"    : pos.abspath,
-                "line"       : pos.line,
-                "end_line"   : pos.end_line,
-                "column"     : pos.column,
-                "end_column" : pos.end_column,
-                "lint"       : lint_class,
-                "message"    : message,
-            }))
+            if not suppressed:
+                print(json.dumps({
+                    "uri"        : pos.uri,
+                    "abspath"    : pos.abspath,
+                    "line"       : pos.line,
+                    "end_line"   : pos.end_line,
+                    "column"     : pos.column,
+                    "end_column" : pos.end_column,
+                    "lint"       : lint_class,
+                    "message"    : message,
+                }))
         self.assertEqual(len(lint), 1)
 
 async def read_source(uri, path, importer_uri):
@@ -69,8 +70,10 @@ def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                             print(exn.node.pos)
                         raise
                     WDL.Lint.lint(doc)
-                    for _, linter, _ in WDL.Lint.collect(doc):
+                    for _, linter, _, suppressed in WDL.Lint.collect(doc):
                         test_klass._lint_count[linter] = 1 + test_klass._lint_count.get(linter, 0)
+                        if suppressed:
+                            test_klass._lint_count["_suppressions"] = 1 + test_klass._lint_count.get("_suppressions", 0)
                     print("\n" + os.path.basename(fn))
                     WDL.CLI.outline(doc, 0, show_called=(doc.workflow is not None))
                     WDL.copy_source(doc, tempfile.mkdtemp(prefix=f"miniwdl_test_copy_source_{prefix}"))
@@ -248,7 +251,7 @@ class dxWDL(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 4, 'NameCollision': 27, 'StringCoercion': 4, 'FileCoercion': 2, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2, 'SelectArray': 1},
+    expected_lint={'_suppressions': 8, 'UnusedImport': 4, 'NameCollision': 27, 'StringCoercion': 4, 'FileCoercion': 2, 'NonemptyCoercion': 1, 'UnnecessaryQuantifier': 2, 'UnusedDeclaration': 2, "IncompleteCall": 2, 'SelectArray': 1},
     blacklist=["check_quant", "incomplete_call"],
 )
 class Contrived(unittest.TestCase):
@@ -256,7 +259,7 @@ class Contrived(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/contrived/**"],
-    expected_lint={'UnusedImport': 6, 'NameCollision': 43, 'StringCoercion': 9, 'FileCoercion': 4, 'OptionalCoercion': 3, 'NonemptyCoercion': 2, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, 'ArrayCoercion': 2, 'SelectArray': 4},
+    expected_lint={'_suppressions': 16, 'UnusedImport': 6, 'NameCollision': 43, 'StringCoercion': 9, 'FileCoercion': 4, 'OptionalCoercion': 3, 'NonemptyCoercion': 2, 'UnnecessaryQuantifier': 4, 'UnusedDeclaration': 9, 'IncompleteCall': 3, 'ArrayCoercion': 2, 'SelectArray': 4},
     check_quant=False,
     blacklist=["incomplete_call"],
 )

@@ -18,7 +18,7 @@ import atexit
 import docker
 from shlex import quote as shellquote
 from datetime import datetime
-from argparse import ArgumentParser, Action, SUPPRESS
+from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 import importlib_metadata
 from . import *
 from ._util import (
@@ -135,25 +135,46 @@ def fill_common(subparser, path=True):
 
 def fill_check_subparser(subparsers):
     check_parser = subparsers.add_parser(
-        "check", help="Load and typecheck a WDL document; show an outline with lint warnings"
+        "check",
+        description="Load and typecheck a WDL document, showing an outline with lint warnings.\n\n"
+        "Individual lint warnings can be suppressed by a WDL comment containing !WarningName on the\n"
+        "same line or the following line, e.g.:\n"
+        "    Int? foo = 42  # !UnnecessaryQuantifier\n"
+        "    Int bar = foo + 1\n"
+        "    # Lorem ipsum dolor sit (!OptionalCoercion)\n",
+        formatter_class=RawDescriptionHelpFormatter,
     )
     check_parser.add_argument(
         "uri", metavar="URI", type=str, nargs="+", help="WDL document filename/URI"
     )
     check_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="exit with nonzero status code if any lint warnings are shown (in addition to syntax and type errors)",
+    )
+    check_parser.add_argument(
+        "--no-suppress",
+        dest="show_all",
+        action="store_true",
+        help="show lint warnings even if they have suppression comments",
+    )
+    check_parser.add_argument(
         "--no-shellcheck",
         dest="shellcheck",
         action="store_false",
-        help="don't use shellcheck on task commands even if available, and suppress message if it isn't",
+        help="don't use shellcheck on task commands even if available, and suppress suggestion if it isn't",
     )
     return check_parser
 
 
-def check(uri=None, path=None, check_quant=True, shellcheck=True, **kwargs):
+def check(
+    uri=None, path=None, check_quant=True, shellcheck=True, strict=False, show_all=False, **kwargs
+):
     # Load the document (read, parse, and typecheck)
     if not shellcheck:
         Lint._shellcheck_available = False
 
+    shown = [0]
     for uri1 in uri or []:
         doc = load(uri1, path or [], check_quant=check_quant, read_source=read_source)
 
@@ -161,16 +182,19 @@ def check(uri=None, path=None, check_quant=True, shellcheck=True, **kwargs):
 
         # Print an outline
         print(os.path.basename(uri1))
-        outline(doc, 0, show_called=(doc.workflow is not None))
+        outline(doc, 0, show_called=(doc.workflow is not None), show_all=show_all, shown=shown)
 
     if shellcheck and Lint._shellcheck_available == False:
         print(
-            "* Hint: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this message)",
+            "* Suggestion: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this message)",
             file=sys.stderr,
         )
 
+    if strict and shown[0]:
+        sys.exit(2)
 
-def outline(obj, level, file=sys.stdout, show_called=True):
+
+def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown=None):
     # recursively pretty-print a brief outline of the workflow
     s = "".join(" " for i in range(level * 4))
 
@@ -179,11 +203,14 @@ def outline(obj, level, file=sys.stdout, show_called=True):
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
-            for (pos, klass, msg) in sorted(obj.lint, key=lambda t: t[0]):
-                print(
-                    "{}    (Ln {}, Col {}) {}, {}".format(s, pos.line, pos.column, klass, msg),
-                    file=file,
-                )
+            for (pos, klass, msg, suppressed) in sorted(obj.lint, key=lambda t: t[0]):
+                if show_all or not suppressed:
+                    print(
+                        f"{s}    (Ln {pos.line}, Col {pos.column}) {klass}{' (suppressed)' if suppressed else ''}, {msg}",
+                        file=file,
+                    )
+                    if shown:
+                        shown[0] += 1
         first_descent.append(False)
         if dobj:
             outline(
@@ -191,6 +218,8 @@ def outline(obj, level, file=sys.stdout, show_called=True):
                 level + (1 if not isinstance(dobj, Decl) else 0),
                 file=file,
                 show_called=show_called,
+                show_all=show_all,
+                shown=shown,
             )
 
     # document
