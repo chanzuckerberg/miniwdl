@@ -826,17 +826,17 @@ def _workflow_main_loop(
         except Exception as exn2:
             logger.debug(traceback.format_exc())
             logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
-        if isinstance(exn, RunFailed):
-            logger.error(
-                _("call failure propagating", **{"from": getattr(exn, "run_id"), "dir": run_dir})
-            )
-        else:
+        if not isinstance(exn, RunFailed):
             info = {"error": exn.__class__.__name__, "dir": run_dir}
             if str(exn):
                 info["message"] = str(exn)
             if hasattr(exn, "job_id"):
                 info["node"] = getattr(exn, "job_id")
             logger.error(_(str(wrapper), dir=run_dir, **error_json(exn)))
+        elif not isinstance(exn.__cause__, Terminated):
+            logger.error(
+                _("call failure propagating", **{"from": getattr(exn, "run_id"), "dir": run_dir},)
+            )
         # Cancel all future tasks that havent started
         for key in call_futures:
             key.cancel()

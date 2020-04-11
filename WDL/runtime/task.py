@@ -189,7 +189,7 @@ class TaskContainer(ABC):
         if command.strip():  # if the command is empty then don't bother with any of this
             with TerminationSignalFlag(logger) as terminating:
                 if terminating():
-                    raise Terminated()
+                    raise Terminated(quiet=True)
                 self._running = True
                 try:
                     exit_status = self._run(
@@ -482,7 +482,7 @@ class SwarmContainer(TaskContainer):
                     # spread out work over the GIL
                     time.sleep(random.uniform(1.0, 2.0))
                     if terminating():
-                        raise Terminated() from None
+                        raise Terminated(quiet="running" not in self._observed_states) from None
                     if "running" in self._observed_states:
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
@@ -828,7 +828,11 @@ def run_local_task(
         except Exception as exn:
             logger.debug(traceback.format_exc())
             wrapper = RunFailed(task, run_id, run_dir)
-            logger.error(_(str(wrapper), dir=run_dir, **error_json(exn)))
+            logmsg = _(str(wrapper), dir=run_dir, **error_json(exn))
+            if isinstance(exn, Terminated) and getattr(exn, "quiet", False):
+                logger.debug(logmsg)
+            else:
+                logger.error(logmsg)
             try:
                 write_atomic(
                     json.dumps(error_json(wrapper, cause=exn), indent=2),
@@ -840,7 +844,7 @@ def run_local_task(
             try:
                 _delete_work(cfg, logger, run_dir, False)
             except:
-                logger.exception("delete_work also failed")
+                logger.exception("delete_work failed")
             raise wrapper from exn
 
 

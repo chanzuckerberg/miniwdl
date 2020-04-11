@@ -30,7 +30,13 @@ class Terminated(_RuntimeError):
     Workflow/task was terminated, e.g. by Unix signal
     """
 
-    pass
+    quiet: bool
+    """
+    Termination was a secondary side-effect, so warrants less logging
+    """
+
+    def __init__(self, quiet: bool = False) -> None:
+        self.quiet = quiet
 
 
 class OutputError(_RuntimeError):
