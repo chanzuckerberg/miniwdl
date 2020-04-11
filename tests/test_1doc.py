@@ -898,7 +898,7 @@ task count_lines {
 
         doc = r"""
         import "x.wdl"
-        import "x.wdl"
+        import "x.y.wdl"
         """
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
@@ -911,6 +911,18 @@ task count_lines {
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
+
+        doc = r"""
+        import "https://www.google.com/task.wdl"
+        """
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(doc)
+
+        doc = r"""
+        import "0"
+        """
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(doc)
 
         doc = r"""
         workflow wf {

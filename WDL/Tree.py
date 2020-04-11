@@ -74,7 +74,7 @@ class StructTypeDef(SourceNode):
         """
         :type: str
 
-        A string uniquely describing the member names and types, excluding the struct type name; useful to identify aliased struct types.
+        A string canonically describing the member names and their types, excluding the struct type name; useful to unify aliased struct types.
         """
         return Type._struct_type_id(self.members)
 

@@ -1,6 +1,7 @@
 # pylint: skip-file
 import inspect
 import threading
+import regex
 from typing import List, Optional, Set, Tuple
 import lark
 from .Error import SourcePosition
@@ -471,22 +472,25 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return (items[0].value, items[1].value)
 
     def import_doc(self, items, meta):
+        pos = self._sp(meta)
         uri = items[0]
         if len(items) > 1 and isinstance(items[1], str):
             namespace = items[1].value
         else:
+            # infer namespace from filename/URI
             namespace = uri
             try:
                 namespace = namespace[namespace.rindex("/") + 1 :]
             except ValueError:
                 pass
-            if namespace.endswith(".wdl"):
-                namespace = namespace[:-4]
-        self._check_keyword(self._sp(meta), namespace)
+            namespace = namespace.split("?")[0].split(".")[0]
+        if not regex.fullmatch("[a-zA-Z][a-zA-Z0-9_]*", namespace) or namespace in self._keywords:
+            raise Error.SyntaxError(
+                pos,
+                """declare an import namespace that follows WDL name rules and isn't a language keyword (import "filename" as some_namespace)""",
+            )
         aliases = [p for p in items[1:] if isinstance(p, tuple)]
-        return Tree.DocImport(
-            pos=self._sp(meta), uri=uri, namespace=namespace, aliases=aliases, doc=None
-        )
+        return Tree.DocImport(pos=pos, uri=uri, namespace=namespace, aliases=aliases, doc=None)
 
     def document(self, items, meta):
         imports = []
