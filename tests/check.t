@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 37
+plan tests 40
 
 DN=$(mktemp -d --tmpdir miniwdl_check_tests_XXXXXX)
 cd $DN
@@ -93,8 +93,9 @@ is "$(grep '                ^^^^^' trivial_type_error.err | wc -l)" "1" "trivial
 cat << EOF > multi_error.wdl
 task t {
     Int? x
-    Int y = x
+    Int y = x  # !OptionalCoercion
     Array[Int] z = [x]
+        # Lorem ipsum dolor sit (!UnusedDeclaration)
     command {}
 }
 EOF
@@ -107,8 +108,12 @@ is "$(grep '                ^' import_multi_error.err | wc -l)" "2" "import_mult
 is "$(grep '                       ^^^' import_multi_error.err | wc -l)" "1" "import_multi_error.wdl stderr marker 2"
 $miniwdl check --no-shellcheck --no-quant-check import_multi_error.wdl > import_multi_error.no_quant_check.out
 is "$?" "0" "import_multi_error.wdl --no-quant-check"
-is "$(grep OptionalCoercion import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check OptionalCoercion"
-is "$(grep UnusedDeclaration import_multi_error.no_quant_check.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check UnusedDeclaration"
+is "$(grep OptionalCoercion import_multi_error.no_quant_check.out | wc -l)" "1" "import_multi_error.wdl --no-quant-check OptionalCoercion"
+is "$(grep UnusedDeclaration import_multi_error.no_quant_check.out | wc -l)" "1" "import_multi_error.wdl --no-quant-check UnusedDeclaration"
+$miniwdl check --no-shellcheck --no-quant-check --strict --no-suppress import_multi_error.wdl > import_multi_error.no_quant_check.strict_all.out
+is "$?" "2" "import_multi_error.wdl --no-quant-check --strict --no-suppress"
+is "$(grep OptionalCoercion import_multi_error.no_quant_check.strict_all.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check --strict --no-suppress OptionalCoercion"
+is "$(grep UnusedDeclaration import_multi_error.no_quant_check.strict_all.out | wc -l)" "2" "import_multi_error.wdl --no-quant-check --strict --no-suppress UnusedDeclaration"
 
 $miniwdl check --no-shellcheck $SOURCE_DIR/test_corpi/DataBiosphere/topmed-workflows/CRAM-no-header-md5sum/CRAM_md5sum_checker_wrapper.wdl > import_uri.out 2> import_uri.err
 is "$?" "0" "URI import"

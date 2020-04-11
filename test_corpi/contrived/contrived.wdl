@@ -2,7 +2,8 @@
 version 1.0
 
 import "empty.wdl" as popular
-import "empty.wdl" as contrived
+import "empty.wdl" as contrived  # !UnusedImport
+# !NameCollision
 
 struct contrived {
 }
@@ -12,7 +13,7 @@ struct popular {
 
 workflow contrived {
     input {
-        String popular = "fox"
+        String popular = "fox" # !NameCollision
         Int? fortytwo = 42
         Float required
     }
@@ -38,6 +39,7 @@ workflow contrived {
 task popular {
     input {
         String popular
+        # Lorem ipsum dolor sit (!NameCollision)
         String? opt
         Float? i
         Array[String]+ y = select_all(["${popular + i}"])

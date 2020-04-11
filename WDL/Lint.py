@@ -5,19 +5,20 @@ Annotate WDL document AST with hygiene warnings (underlies ``miniwdl check``)
 Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
 
     lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
-    for (pos, lint_class, message) in lint:
+    for (pos, lint_class, message, suppressed) in lint:
         assert isinstance(pos, WDL.SourcePosition)
         assert isinstance(lint_class, str) and isinstance(message, str)
-        print(json.dumps({
-            "uri"        : pos.uri,
-            "abspath"    : pos.abspath,
-            "line"       : pos.line,
-            "end_line"   : pos.end_line,
-            "column"     : pos.column,
-            "end_column" : pos.end_column,
-            "lint"       : lint_class,
-            "message"    : message,
-        }))
+        if not suppressed:
+            print(json.dumps({
+                "uri"        : pos.uri,
+                "abspath"    : pos.abspath,
+                "line"       : pos.line,
+                "end_line"   : pos.end_line,
+                "column"     : pos.column,
+                "end_column" : pos.end_column,
+                "lint"       : lint_class,
+                "message"    : message,
+            }))
 
 The ``descend_imports`` flag controls whether lint warnings are generated for imported documents
 recursively (true, default), or otherwise only the given document (false).
@@ -46,7 +47,9 @@ class Linter(Walker.Base):
     def __init__(self, auto_descend: bool = True, descend_imports: bool = True):
         super().__init__(auto_descend=auto_descend, descend_imports=descend_imports)
 
-    def add(self, obj: Error.SourceNode, message: str, pos: Optional[Error.SourcePosition] = None):
+    def add(
+        self, obj: Error.SourceNode, message: str, pos: Optional[Error.SourcePosition] = None
+    ) -> bool:
         """
         Used by subclasses to attach lint to a node.
 
@@ -57,9 +60,31 @@ class Linter(Walker.Base):
         assert not isinstance(obj, Expr.Base)
         if pos is None:
             pos = obj.pos
+
+        # check for suppressive comments
+        suppress = False
+        doc = obj
+        while not isinstance(doc, Tree.Document):
+            doc = getattr(doc, "parent")
+        assert isinstance(doc, Tree.Document)
+        for L in [pos.line, pos.end_line]:
+            # check the current line
+            comment = doc.source_comments[L - 1]
+            if comment and ("!" + self.__class__.__name__) in comment.text:
+                suppress = True
+            # check the following line if it has nothing but a comment
+            comment = doc.source_comments[L] if L < len(doc.source_comments) else None
+            if (
+                comment
+                and ("!" + self.__class__.__name__) in comment.text
+                and comment.text.strip() == doc.source_lines[L].strip()
+            ):
+                suppress = True
+
         if not hasattr(obj, "lint"):
             obj.lint = []
-        obj.lint.append((pos, self.__class__.__name__, message))
+        obj.lint.append((pos, self.__class__.__name__, message, suppress))  # pyre-ignore
+        return True
 
 
 _all_linters = []
@@ -112,7 +137,7 @@ class _Collector(Walker.Base):
 def collect(doc):
     """
     Recursively traverse the already-linted document and collect a flat list of
-    (tree node, linter_class, message)
+    (SourcePosition, linter_class, message, suppressed)
     """
     collector = _Collector()
     collector(doc)
@@ -606,7 +631,7 @@ class NameCollision(Linter):
                     msg = "imported document namespace '{}' collides with {}struct type".format(
                         imp.namespace, "imported " if stb.value.imported else ""
                     )
-                    self.add(obj, msg)
+                    self.add(obj, msg, imp.pos)
 
 
 @a_linter
@@ -622,6 +647,7 @@ class UnusedImport(Linter):
                     obj,
                     "no use of workflow, tasks, or structs defined in the imported document "
                     + imp.namespace,
+                    pos=imp.pos,
                 )
 
 
