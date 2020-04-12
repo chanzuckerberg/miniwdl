@@ -216,12 +216,12 @@ class TaskContainer(ABC):
         # run command in container & return exit status
         raise NotImplementedError()
 
-    def reset(self, logger: logging.Logger, prev_retries: int, delete_work: bool = False) -> None:
+    def reset(self, logger: logging.Logger, retries: int, delete_work: bool = False) -> None:
         """
         After a container/command failure, reset the working directory state so that
         copy_input_files() and run() can be retried.
         """
-        artifacts_dir = os.path.join(self.host_dir, "failed_tries", str(prev_retries))
+        artifacts_dir = os.path.join(self.host_dir, "failed_tries", str(retries))
         artifacts = []
         for artifact in ["work", "command", "stdout.txt", "stderr.txt", "stderr.txt.offset"]:
             src = os.path.join(self.host_dir, artifact)
@@ -1087,8 +1087,8 @@ def _try_task(
     """
     max_retries = runtime.get("maxRetries", 0)
     max_interruptions = runtime.get("preemptible", 0)
-    prev_retries = 0
-    prev_interruptions = 0
+    retries = 0
+    interruptions = 0
 
     while True:
         # copy input files, if needed
@@ -1109,37 +1109,37 @@ def _try_task(
                 if (
                     "preemptible" in runtime
                     and cfg.has_option("task_runtime", "_mock_interruptions")
-                    and prev_interruptions < cfg["task_runtime"].get_int("_mock_interruptions")
+                    and interruptions < cfg["task_runtime"].get_int("_mock_interruptions")
                 ):
                     raise Interrupted("mock interruption") from None
         except Exception as exn:
-            if isinstance(exn, Interrupted) and prev_interruptions < max_interruptions:
+            if isinstance(exn, Interrupted) and interruptions < max_interruptions:
                 logger.error(
                     _(
                         "interrupted task will be retried",
                         error=exn.__class__.__name__,
                         message=str(exn),
-                        prev_interruptions=prev_interruptions,
+                        prev_interruptions=interruptions,
                         max_interruptions=max_interruptions,
                     )
                 )
-                prev_interruptions += 1
-            elif not isinstance(exn, Terminated) and prev_retries < max_retries:
+                interruptions += 1
+            elif not isinstance(exn, Terminated) and retries < max_retries:
                 logger.error(
                     _(
                         "failed task will be retried",
                         error=exn.__class__.__name__,
                         message=str(exn),
-                        prev_retries=prev_retries,
+                        prev_retries=retries,
                         max_retries=max_retries,
                     )
                 )
-                prev_retries += 1
+                retries += 1
             else:
                 raise
             container.reset(
                 logger,
-                prev_interruptions + prev_retries - 1,
+                interruptions + retries - 1,
                 delete_work=(
                     cfg["task_runtime"]["delete_work"].strip().lower() in ["always", "failure"]
                 ),
