@@ -42,7 +42,7 @@ class Terminated(_RuntimeError):
 
 class Interrupted(_RuntimeError):
     """
-    Task execution was interrupted by an uncontrollable cause (e.g. worker node went down)
+    Task was interrupted by an exogenous problem (e.g. worker node went down)
     """
 
     pass

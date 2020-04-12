@@ -1062,6 +1062,8 @@ def _eval_task_runtime(
 
     if "maxRetries" in runtime_values:
         ans["maxRetries"] = max(0, runtime_values["maxRetries"].coerce(Type.Int()).value)
+    if "preemptible" in runtime_values:
+        ans["preemptible"] = max(0, runtime_values["preemptible"].coerce(Type.Int()).value)
 
     if ans:
         logger.info(_("effective runtime", **ans))
@@ -1080,10 +1082,13 @@ def _try_task(
     runtime: Dict[str, Union[int, str]],
 ) -> None:
     """
-    Run the task command in the container, with up to runtime.maxRetries
+    Run the task command in the container, retrying up to runtime.preemptible occurrences of
+    Interrupted errors, plus up to runtime.maxRetries occurrences of any error.
     """
-    maxRetries = runtime.get("maxRetries", 0)
-    prevRetries = 0
+    max_retries = runtime.get("maxRetries", 0)
+    max_interruptions = runtime.get("preemptible", 0)
+    prev_retries = 0
+    prev_interruptions = 0
 
     while True:
         # copy input files, if needed
@@ -1092,33 +1097,53 @@ def _try_task(
 
         try:
             # start container & run command
-            return container.run(
-                logger,
-                command,
-                int(runtime.get("cpu", 0)),
-                int(runtime.get("memory_reservation", 0)),
-                int(runtime.get("memory_limit", 0)),
-            )
-        except Exception as exn:
-            if isinstance(exn, Terminated) or prevRetries >= maxRetries:
-                raise
-            logger.error(
-                _(
-                    "task failure will be retried",
-                    error=exn.__class__.__name__,
-                    message=str(exn),
-                    prevRetries=prevRetries,
-                    maxRetries=maxRetries,
+            try:
+                return container.run(
+                    logger,
+                    command,
+                    int(runtime.get("cpu", 0)),
+                    int(runtime.get("memory_reservation", 0)),
+                    int(runtime.get("memory_limit", 0)),
                 )
-            )
+            finally:
+                if (
+                    "preemptible" in runtime
+                    and cfg.has_option("task_runtime", "_mock_interruptions")
+                    and prev_interruptions < cfg["task_runtime"].get_int("_mock_interruptions")
+                ):
+                    raise Interrupted("mock interruption") from None
+        except Exception as exn:
+            if isinstance(exn, Interrupted) and prev_interruptions < max_interruptions:
+                logger.error(
+                    _(
+                        "interrupted task will be retried",
+                        error=exn.__class__.__name__,
+                        message=str(exn),
+                        prev_interruptions=prev_interruptions,
+                        max_interruptions=max_interruptions,
+                    )
+                )
+                prev_interruptions += 1
+            elif not isinstance(exn, Terminated) and prev_retries < max_retries:
+                logger.error(
+                    _(
+                        "failed task will be retried",
+                        error=exn.__class__.__name__,
+                        message=str(exn),
+                        prev_retries=prev_retries,
+                        max_retries=max_retries,
+                    )
+                )
+                prev_retries += 1
+            else:
+                raise
             container.reset(
                 logger,
-                prevRetries,
+                prev_interruptions + prev_retries - 1,
                 delete_work=(
                     cfg["task_runtime"]["delete_work"].strip().lower() in ["always", "failure"]
                 ),
             )
-            prevRetries += 1
 
 
 def _eval_task_outputs(
