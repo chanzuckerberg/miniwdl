@@ -198,24 +198,14 @@ def provision_run_dir(name: str, run_dir: Optional[str], last_link: bool = False
         return run_dir
 
     # create timestamp-named directory
-    now = datetime.today()
-    new_dir = os.path.join(run_dir, now.strftime("%Y%m%d_%H%M%S") + "_" + name)
-    try:
-        os.makedirs(new_dir, exist_ok=False)
-    except FileExistsError:
-        new_dir = None
-
+    new_dir = None
     while not new_dir:
-        # it already exists; try adding milliseconds
-        new_dir = os.path.join(
-            run_dir,
-            now.strftime("%Y%m%d_%H%M%S_") + str(int(now.microsecond / 1000)).zfill(3) + "_" + name,
-        )
+        new_dir = os.path.join(run_dir, datetime.today().strftime("%Y%m%d_%H%M%S") + "_" + name)
         try:
             os.makedirs(new_dir, exist_ok=False)
         except FileExistsError:
             new_dir = None
-            sleep(1e-3)
+            sleep(0.5)
     assert new_dir
 
     # update the _LAST link
