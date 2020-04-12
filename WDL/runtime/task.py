@@ -611,33 +611,42 @@ class SwarmContainer(TaskContainer):
                 len(self._observed_states or []) <= 1
             ), "docker task shouldn't disappear from service"
 
+        # references on docker task states:
+        # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
+        # https://github.com/docker/swarmkit/blob/master/design/task_model.md
+        # https://github.com/moby/moby/blob/8fbf2598f58fb212230e6ddbcfbde628b0458250/api/types/swarm/task.go#L12
+
         # log each new state
-        assert isinstance(self._observed_states, set)
-        if status["State"] not in self._observed_states:
+        state = status["State"]
+        assert isinstance(state, str) and isinstance(self._observed_states, set)
+        if state not in self._observed_states:
             loginfo = {"service": svc.short_id}
             if tasks:
                 loginfo["task"] = tasks[0]["ID"][:10]
                 if "NodeID" in tasks[0]:
                     loginfo["node"] = tasks[0]["NodeID"][:10]
-            method = logger.notice if status["State"] == "running" else logger.info  # pyre-fixme
-            method(_(f"docker task {status['State']}", **loginfo))
-            self._observed_states.add(status["State"])
+            if status.get("Err", None):
+                loginfo["Err"] = status["Err"]
+            method = logger.notice if state == "running" else logger.info  # pyre-fixme
+            method(_(f"docker task {state}", **loginfo))
+            self._observed_states.add(state)
 
-        # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
-        # https://github.com/moby/moby/blob/8fbf2598f58fb212230e6ddbcfbde628b0458250/api/types/swarm/task.go#L12
+        # determine whether docker task has exited
+        exit_code = None
         if "ExitCode" in status.get("ContainerStatus", {}):
             exit_code = status["ContainerStatus"]["ExitCode"]  # pyre-fixme
             assert isinstance(exit_code, int)
-            if exit_code != 0 or status["State"] == "complete":
-                logger.notice(  # pyre-fixme
-                    _("docker task exit", state=status["State"], exit_code=exit_code)
-                )
-                return exit_code
 
-        if status["State"] in ["failed", "rejected", "orphaned", "remove"]:
-            raise RuntimeError(
-                f"docker task {status['State']}"
-                + ((": " + status["Err"]) if "Err" in status else "")
+        if state in ["complete", "failed"]:
+            logger.notice(_("docker task exit", state=state, exit_code=exit_code))  # pyre-fixme
+            assert isinstance(exit_code, int) and (exit_code == 0) == (state == "complete")
+            return exit_code
+        elif state in ["rejected", "shutdown", "orphaned", "remove"] or exit_code not in [None, 0]:
+            # note: worker shutdown seems to manifest as state=running, exit_code=-1
+            raise (RuntimeError if state == "rejected" else Interrupted)(  # pyre-ignore
+                f"docker task {state}"
+                + (f", exit code = {exit_code}" if exit_code not in [None, 0] else "")
+                + (f": {status['Err']}" if "Err" in status else "")
             )
 
         return None

@@ -20,23 +20,32 @@ class CommandFailed(_RuntimeError):
     """
 
     def __init__(self, exit_status: int, stderr_file: str, message: str = "") -> None:
-        super().__init__(message or f"task command failed with exit status {exit_status}")
+        oom_hint = ", a possible indication that it ran out of memory" if exit_status == 137 else ""
+        super().__init__(message or f"task command failed with exit status {exit_status}{oom_hint}")
         self.exit_status = exit_status
         self.stderr_file = stderr_file
 
 
 class Terminated(_RuntimeError):
     """
-    Workflow/task was terminated, e.g. by Unix signal
+    Workflow/task was intentionally terminated, e.g. by Unix signal
     """
 
     quiet: bool
     """
-    Termination was a secondary side-effect, so warrants less logging
+    Termination warrants less logging because it was a secondary side-effect of a previous error
     """
 
     def __init__(self, quiet: bool = False) -> None:
         self.quiet = quiet
+
+
+class Interrupted(_RuntimeError):
+    """
+    Task execution was interrupted by an uncontrollable cause (e.g. worker node went down)
+    """
+
+    pass
 
 
 class OutputError(_RuntimeError):
