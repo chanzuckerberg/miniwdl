@@ -1141,7 +1141,7 @@ def _try_task(
                 logger,
                 interruptions + retries - 1,
                 delete_work=(
-                    cfg["task_runtime"]["delete_work"].strip().lower() in ["always", "failure"]
+                    cfg["file_io"]["delete_work"].strip().lower() in ["always", "failure"]
                 ),
             )
 
@@ -1280,11 +1280,11 @@ def link_outputs(
 
 
 def _delete_work(cfg: config.Loader, logger: logging.Logger, run_dir: str, success: bool) -> None:
-    opt = cfg["task_runtime"]["delete_work"].strip().lower()
+    opt = cfg["file_io"]["delete_work"].strip().lower()
     if opt == "always" or (success and opt == "success") or (not success and opt == "failure"):
         if success and not cfg["file_io"].get_bool("output_hardlinks"):
             logger.warning(
-                "ignoring configuration [task_runtime] delete_work because it requires [file_io] output_hardlinks = true"
+                "ignoring configuration [file_io] delete_work because it requires also output_hardlinks = true"
             )
             return
         for dn in ["write_", "work", "failed_tries"]:

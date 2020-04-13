@@ -1011,7 +1011,7 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
         self.assertTrue(os.path.isfile(os.path.join(self._rundir, "call-finish", "failed_tries", "0", "work", "iwuzhere")))
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override({"task_runtime": {"delete_work": "failure", "_mock_interruptions": 2}})
+        cfg.override({"file_io": {"delete_work": "failure"}, "task_runtime": {"_mock_interruptions": 2}})
         outputs = self._test_workflow(txt, cfg=cfg)
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
         self.assertFalse(os.path.isdir(os.path.join(self._rundir, "call-finish", "failed_tries")))

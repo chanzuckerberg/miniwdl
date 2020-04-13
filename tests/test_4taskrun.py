@@ -971,7 +971,7 @@ class TestTaskRunner(unittest.TestCase):
             outfile.write("Ben\n")
         inputs = {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]}
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override({"file_io": {"output_hardlinks": True}, "task_runtime": {"delete_work": "success"}})
+        cfg.override({"file_io": {"output_hardlinks": True, "delete_work": "success"}})
         output = self._test_task(txt, inputs, cfg=cfg)
         self.assertFalse(os.path.isdir(os.path.join(self._rundir, "work")))
         self.assertFalse(os.path.isdir(os.path.join(self._rundir, "write_")))
@@ -979,7 +979,7 @@ class TestTaskRunner(unittest.TestCase):
             self.assertTrue(os.path.isfile(fn) and not os.path.islink(fn))
 
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override({"file_io": {"output_hardlinks": False}, "task_runtime": {"delete_work": "success"}})
+        cfg.override({"file_io": {"output_hardlinks": False, "delete_work": "success"}})
         output = self._test_task(txt, inputs, cfg=cfg)
         self.assertTrue(os.path.isfile(os.path.join(self._rundir, "work", "foo.txt")))
 
