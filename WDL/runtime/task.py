@@ -483,9 +483,11 @@ class SwarmContainer(TaskContainer):
                     time.sleep(random.uniform(1.0, 2.0))
                     if terminating():
                         quiet = (
-                            self._observed_states.intersection(set(["(UNKNOWN)", "new", "pending"]))
+                            self._observed_states.intersection(
+                                set(["(UNKNOWN)", "new", "allocated", "pending"])
+                            )
                             == self._observed_states
-                        )
+                        )  # suppress log noise if the docker task never made it to a worker
                         self.poll_service(logger, svc, verbose=not quiet)
                         raise Terminated(quiet=quiet)
                     if "running" in self._observed_states:
@@ -606,9 +608,11 @@ class SwarmContainer(TaskContainer):
         svc.reload()
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
         tasks = svc.tasks()
+        # logger.debug(_("xxx", service=svc.attrs, tasks=tasks))
         if tasks:
             assert len(tasks) == 1, "docker service should have at most 1 task"
             status = tasks[0]["Status"]
+            status["DesiredState"] = tasks[0].get("DesiredState", None)
             if verbose:
                 logger.info(_("docker task status", **status))
             elif logger.isEnabledFor(logging.DEBUG):
@@ -632,8 +636,11 @@ class SwarmContainer(TaskContainer):
                 loginfo["task"] = tasks[0]["ID"][:10]
                 if "NodeID" in tasks[0]:
                     loginfo["node"] = tasks[0]["NodeID"][:10]
-            if status.get("Err", None):
-                loginfo["message"] = status["Err"]
+            if status["DesiredState"] != state:
+                loginfo["desired"] = status["DesiredState"]
+            logmsg = status.get("Err", status.get("Message", None))
+            if logmsg:
+                loginfo["message"] = logmsg
             method = logger.notice if state == "running" else logger.info  # pyre-fixme
             method(_(f"docker task {state}", **loginfo))
             self._observed_states.add(state)
@@ -644,14 +651,29 @@ class SwarmContainer(TaskContainer):
             exit_code = status["ContainerStatus"]["ExitCode"]  # pyre-fixme
             assert isinstance(exit_code, int)
 
-        if state in ["complete", "failed"]:
+        bad_states = ("rejected", "shutdown", "orphaned", "remove")
+        if state in ("complete", "failed"):
             logger.notice(_("docker task exit", state=state, exit_code=exit_code))  # pyre-fixme
             assert isinstance(exit_code, int) and (exit_code == 0) == (state == "complete")
             return exit_code
-        elif state in ["rejected", "shutdown", "orphaned", "remove"] or exit_code not in [None, 0]:
-            # note: worker shutdown seems to manifest as state=running, exit_code=-1
+        elif (
+            state in bad_states
+            or status["DesiredState"] in bad_states
+            or exit_code not in [None, 0]
+        ):
+            # "rejected" state usually arises from nonexistent docker image.
+            # if the worker assigned a task goes down, any of the following can manifest:
+            #   - exit_code=-1 with non-terminal state
+            #   - state in bad_states
+            #   - desired_state in bad_states
+            # also see GitHub issue #374
             raise (RuntimeError if state == "rejected" else Interrupted)(  # pyre-ignore
                 f"docker task {state}"
+                + (
+                    (", desired " + status["DesiredState"])
+                    if status["DesiredState"] not in (None, state)
+                    else ""
+                )
                 + (f", exit code = {exit_code}" if exit_code not in [None, 0] else "")
                 + (f": {status['Err']}" if "Err" in status else "")
             )
