@@ -482,7 +482,12 @@ class SwarmContainer(TaskContainer):
                     # spread out work over the GIL
                     time.sleep(random.uniform(1.0, 2.0))
                     if terminating():
-                        raise Terminated(quiet="running" not in self._observed_states) from None
+                        quiet = (
+                            self._observed_states.intersection(set(["(UNKNOWN)", "new", "pending"]))
+                            == self._observed_states
+                        )
+                        self.poll_service(logger, svc, verbose=not quiet)
+                        raise Terminated(quiet=quiet)
                     if "running" in self._observed_states:
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
@@ -594,7 +599,7 @@ class SwarmContainer(TaskContainer):
         return resources, user, groups
 
     def poll_service(
-        self, logger: logging.Logger, svc: docker.models.services.Service
+        self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
     ) -> Optional[int]:
         status = {"State": "(UNKNOWN)"}
 
@@ -604,7 +609,9 @@ class SwarmContainer(TaskContainer):
         if tasks:
             assert len(tasks) == 1, "docker service should have at most 1 task"
             status = tasks[0]["Status"]
-            if logger.isEnabledFor(logging.DEBUG):
+            if verbose:
+                logger.info(_("docker task status", **status))
+            elif logger.isEnabledFor(logging.DEBUG):
                 logger.debug(_("docker task status", **status))
         else:
             assert (
@@ -626,7 +633,7 @@ class SwarmContainer(TaskContainer):
                 if "NodeID" in tasks[0]:
                     loginfo["node"] = tasks[0]["NodeID"][:10]
             if status.get("Err", None):
-                loginfo["Err"] = status["Err"]
+                loginfo["message"] = status["Err"]
             method = logger.notice if state == "running" else logger.info  # pyre-fixme
             method(_(f"docker task {state}", **loginfo))
             self._observed_states.add(state)
