@@ -481,11 +481,9 @@ class SwarmContainer(TaskContainer):
                 while exit_code is None:
                     time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
                     if terminating():
-                        quiet = (  # suppress log noise if docker task only sat in the queue
-                            self._observed_states.intersection(
-                                {"(UNKNOWN)", "new", "allocated", "pending"}
-                            )
-                            == self._observed_states
+                        quiet = not self._observed_states.difference(
+                            # reduce log noise if the terminated task only sat in docker's queue
+                            {"(UNKNOWN)", "new", "allocated", "pending"}
                         )
                         if not quiet:
                             self.poll_service(logger, svc, verbose=True)
