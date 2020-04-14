@@ -639,7 +639,7 @@ class SwarmContainer(TaskContainer):
             if status["DesiredState"] != state:
                 loginfo["desired"] = status["DesiredState"]
             logmsg = status.get("Err", status.get("Message", None))
-            if logmsg:
+            if logmsg and logmsg != state:
                 loginfo["message"] = logmsg
             method = logger.notice if state == "running" else logger.info  # pyre-fixme
             method(_(f"docker task {state}", **loginfo))
@@ -1080,6 +1080,7 @@ def _eval_task_runtime(
                 )
             )
             memory_bytes = memory_max
+        ans["memory"] = memory_bytes
         ans["memory_reservation"] = memory_bytes
 
         memory_limit_multiplier = cfg["task_runtime"].get_float("memory_limit_multiplier")
