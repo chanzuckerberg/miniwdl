@@ -461,7 +461,7 @@ def _scatter(
         if v.value:
             # condition is satisfied, so we'll "scatter" over a length-1 array
             array = [None]
-    digits = math.ceil(math.log10(len(array) + 1))
+    digits = math.ceil(math.log10(len(array))) if len(array) > 1 else 1
 
     # for each array element, schedule an instance of the body subgraph
     last_scatter_indices = None
@@ -472,9 +472,9 @@ def _scatter(
         scatter_stack_i = scatter_stack
         if isinstance(array_i, Value.Base):
             assert isinstance(section, Tree.Scatter)
-            scatter_stack_i = scatter_stack_i + [
-                (str(i).zfill(digits), Env.Binding(section.variable, array_i))
-            ]
+            str_i = str(i).zfill(digits)
+            assert len(str_i) <= digits
+            scatter_stack_i = scatter_stack_i + [(str_i, Env.Binding(section.variable, array_i))]
         scatter_indices_i = [p[0] for p in scatter_stack_i]
         assert last_scatter_indices is None or last_scatter_indices < scatter_indices_i
         last_scatter_indices = scatter_indices_i

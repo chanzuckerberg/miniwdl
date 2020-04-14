@@ -66,7 +66,7 @@ The record of invocations left by `set -x` goes well with `miniwdl run --verbose
 
 ### Use local disks for Docker storage
 
-Docker images and containers should reside on fast local disks rather than a network file system. These are typically stored under `/var/lib/docker`, which on a cloud instance would be part of the network-attached root file system. Suppose your instance has a local scratch disk mounted to `/mnt`. You can [change the Docker storage location](https://linuxconfig.org/how-to-move-docker-s-default-var-lib-docker-to-another-directory-on-ubuntu-debian-linux) using a procedure like this:
+Docker images and containers should reside on fast local disks, rather than a network file system, to optimize container startup and scratch I/O performance. These typically reside under `/var/lib/docker`, which on a cloud instance would usually be on the network-attached root file system. Suppose your instance has a local scratch disk mounted to `/mnt`. You can [change the Docker storage location](https://linuxconfig.org/how-to-move-docker-s-default-var-lib-docker-to-another-directory-on-ubuntu-debian-linux) using a procedure like this:
 
 ```
 systemctl stop docker    # or appropriate command to stop dockerd
@@ -75,7 +75,7 @@ ln -s /mnt/docker /var/lib/docker
 systemctl start docker
 ```
 
-If the host has multiple disks, consider [striping them in a RAID0 array](https://gist.github.com/joemiller/6049831) to create one logical partition with all available space and IOPS.
+If the host has multiple scratch disks, consider first [assembling them into a RAID0 array](https://gist.github.com/joemiller/6049831) with all available space and IOPS.
 
 ### How to `miniwdl run` inside a Docker container
 

@@ -13,7 +13,6 @@
 - [Command-line tools](#command-line-tools)
   - [miniwdl check](#miniwdl-check)
   - [miniwdl run](#miniwdl-run)
-  - [miniwdl cromwell](#miniwdl-cromwell)
 - [WDL Python library](#wdl-python-library)
   - [API documentation](#api-documentation)
 - [Security](#security)
@@ -81,9 +80,9 @@ SmartSeq2SingleSample.wdl
             (Ln 40, Col 21) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
 ```
 
-In addition to its suite of WDL-specific warnings, `miniwdl check` uses [ShellCheck](https://www.shellcheck.net/), if available, to detect possible issues in each task command script. You may need to install ShellCheck separately, as it's not included with miniwdl.
+Individual lint warnings can be suppressed by a WDL comment containing the string `!WarningName` on the same line or the following line.
 
-If you haven't installed the PyPI package to get the `miniwdl` entry point, equivalently `PYTHONPATH=$PYTHONPATH:/path/to/miniwdl python3 -m WDL check ...`.
+In addition to its suite of WDL warnings, `miniwdl check` uses [ShellCheck](https://www.shellcheck.net/), if available, to detect possible issues in each task command script. You may need to install ShellCheck separately, as it's not included with miniwdl. Individual ShellCheck warnings can be suppressed with that tool's own [directives](https://github.com/koalaman/shellcheck/wiki/Directive).
 
 ### `miniwdl run`
 
@@ -132,33 +131,9 @@ $ miniwdl run hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
 }
 ```
 
-Relative or absolute paths are accepted for File inputs. The runner can also provide shell tab-completion for the workflow's available inputs. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl run hello.wdl ` and try double-tab.
+Relative or absolute paths, and web URIs to download, are accepted for File inputs. The runner can also provide shell tab-completion for the workflow's available inputs. To use this, enable [argcomplete](https://argcomplete.readthedocs.io/en/latest/) global completion by invoking `activate-global-python-argcomplete` and starting a new shell session. Then, start a command line `miniwdl run hello.wdl ` and try double-tab.
 
 Lastly, inputs can be supplied through a Cromwell-style JSON file; see `miniwdl run --help` for this and other options.
-
-The miniwdl runner is still in beta testing, and the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) page documents certain existing limitations. If you encounter a WDL 1.0 interoperability problem not mentioned there, please file it via [Issues](https://github.com/chanzuckerberg/miniwdl/issues).
-
-### `miniwdl cromwell`
-
-This tool provides `miniwidl run`'s command-line interface for supplying the workflow's inputs, but calls out to [Cromwell](https://github.com/broadinstitute/cromwell) to actually run it instead of the built-in runtime.
-
-```
-$ miniwdl cromwell hello.wdl who=Alyssa "who=Ben Bitdiddle" x=41
-{
-  "outputs": {
-    "hello.messages": [
-      "Hello Alyssa",
-      "Hello Ben Bitdiddle"
-    ],
-    "hello.meaning_of_life": 42
-  },
-  "id": "b75f3449-344f-45ec-86b2-c004a3adc289",
-  "dir": "/home/user/20190203_215657_hello"
-}
-```
-
-
-It downloads the Cromwell JAR file automatically to a temporary location; a compatible `java` JRE must be available. You can use the `-r/--jar` option if you already have a local copy of Cromwell; other Cromwell configuration options are available (see `miniwdl cromwell --help`).
 
 ## WDL Python library
 

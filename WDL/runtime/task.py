@@ -172,14 +172,16 @@ class TaskContainer(ABC):
         memory_limit: int,
     ) -> None:
         """
-        1. Container is instantiated with the configured mounts
+        1. Container is instantiated with the configured mounts and resources
         2. The mounted directory and all subdirectories have u+rwx,g+rwx permission bits; all files
            within have u+rw,g+rw permission bits.
         3. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
            {container_dir} inside the container)
         4. Standard output is written to ``{host_dir}/stdout.txt``
         5. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
-        6. Raises CommandFailed for nonzero exit code, or any other error
+        6. Raises CommandFailed for nonzero exit code
+        7. Raises Terminated if TerminationSignalFlag detected, or Interrupted if the backend
+           cancels on us for some reason that isn't our fault.
 
         The container is torn down in any case, including SIGTERM/SIGHUP signal which is trapped.
         """
