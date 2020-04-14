@@ -479,16 +479,16 @@ class SwarmContainer(TaskContainer):
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
                 # poll for container exit
                 while exit_code is None:
-                    # spread out work over the GIL
-                    time.sleep(random.uniform(1.0, 2.0))
+                    time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
                     if terminating():
-                        quiet = (
+                        quiet = (  # suppress log noise if docker task only sat in the queue
                             self._observed_states.intersection(
-                                set(["(UNKNOWN)", "new", "allocated", "pending"])
+                                {"(UNKNOWN)", "new", "allocated", "pending"}
                             )
                             == self._observed_states
-                        )  # suppress log noise if the docker task never made it to a worker
-                        self.poll_service(logger, svc, verbose=not quiet)
+                        )
+                        if not quiet:
+                            self.poll_service(logger, svc, verbose=True)
                         raise Terminated(quiet=quiet)
                     if "running" in self._observed_states:
                         poll_stderr()
@@ -651,26 +651,23 @@ class SwarmContainer(TaskContainer):
             exit_code = status["ContainerStatus"]["ExitCode"]  # pyre-fixme
             assert isinstance(exit_code, int)
 
-        bad_states = ("rejected", "shutdown", "orphaned", "remove")
         if state in ("complete", "failed"):
             logger.notice(_("docker task exit", state=state, exit_code=exit_code))  # pyre-fixme
             assert isinstance(exit_code, int) and (exit_code == 0) == (state == "complete")
             return exit_code
-        elif (
-            state in bad_states
-            or status["DesiredState"] in bad_states
-            or exit_code not in [None, 0]
-        ):
+        elif {state, status["DesiredState"]}.intersection(
+            {"rejected", "shutdown", "orphaned", "remove"}
+        ) or exit_code not in [None, 0]:
             # "rejected" state usually arises from nonexistent docker image.
             # if the worker assigned a task goes down, any of the following can manifest:
-            #   - exit_code=-1 with non-terminal state
-            #   - state in bad_states
-            #   - desired_state in bad_states
+            #   - exit_code=-1 with state running (or other non-terminal)
+            #   - state shutdown, orphaned, remove
+            #   - desired_state shutdown
             # also see GitHub issue #374
             raise (RuntimeError if state == "rejected" else Interrupted)(  # pyre-ignore
                 f"docker task {state}"
                 + (
-                    (", desired " + status["DesiredState"])
+                    (", desired state " + status["DesiredState"])
                     if status["DesiredState"] not in (None, state)
                     else ""
                 )
