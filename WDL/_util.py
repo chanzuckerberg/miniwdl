@@ -184,40 +184,43 @@ def write_values_json(
 
 
 @export
-def provision_run_dir(name: str, run_dir: Optional[str], last_link: bool = False) -> str:
+def provision_run_dir(name: str, parent_dir: Optional[str], last_link: bool = False) -> str:
     here = (
-        (run_dir in [".", "./"] or run_dir.endswith("/.") or run_dir.endswith("/./"))
-        if run_dir
+        (parent_dir in [".", "./"] or parent_dir.endswith("/.") or parent_dir.endswith("/./"))
+        if parent_dir
         else False
     )
-    run_dir = os.path.abspath(run_dir or os.getcwd())
+    parent_dir = os.path.abspath(parent_dir or os.getcwd())
 
+    run_dir = None
     if here:
-        # user wants to use run_dir exactly
+        # user wants to use parent_dir exactly
+        run_dir = parent_dir
         os.makedirs(run_dir, exist_ok=True)
-        return run_dir
-
-    # create timestamp-named directory
-    new_dir = None
-    while not new_dir:
-        new_dir = os.path.join(run_dir, datetime.today().strftime("%Y%m%d_%H%M%S") + "_" + name)
-        try:
-            os.makedirs(new_dir, exist_ok=False)
-        except FileExistsError:
-            new_dir = None
-            sleep(0.5)
-    assert new_dir
+        parent_dir = os.path.dirname(parent_dir)
+    else:
+        # create timestamp-named directory
+        while not run_dir:
+            run_dir = os.path.join(
+                parent_dir, datetime.today().strftime("%Y%m%d_%H%M%S") + "_" + name
+            )
+            try:
+                os.makedirs(run_dir, exist_ok=False)
+            except FileExistsError:
+                run_dir = None
+                sleep(0.5)
+    assert run_dir
 
     # update the _LAST link
-    if last_link:
-        last_link_name = os.path.join(run_dir, "_LAST")
-        if not os.path.lexists(last_link_name) or os.path.islink(last_link_name):
-            new_dir_basename = os.path.basename(new_dir)
-            tmp_link_name = last_link_name + "." + new_dir_basename
-            os.symlink(new_dir_basename, tmp_link_name)
+    if last_link and run_dir != parent_dir:
+        last_link_name = os.path.join(parent_dir, "_LAST")
+        if os.path.islink(last_link_name) or not (here or os.path.lexists(last_link_name)):
+            run_dir_basename = os.path.basename(run_dir)
+            tmp_link_name = last_link_name + "." + run_dir_basename
+            os.symlink(run_dir_basename, tmp_link_name)
             os.rename(tmp_link_name, last_link_name)
 
-    return new_dir
+    return run_dir
 
 
 @export
