@@ -1080,7 +1080,6 @@ def _eval_task_runtime(
                 )
             )
             memory_bytes = memory_max
-        ans["memory"] = memory_bytes
         ans["memory_reservation"] = memory_bytes
 
         memory_limit_multiplier = cfg["task_runtime"].get_float("memory_limit_multiplier")
@@ -1094,7 +1093,9 @@ def _eval_task_runtime(
 
     if ans:
         logger.info(_("effective runtime", **ans))
-    unused_keys = list(key for key in runtime_values if key not in ans)
+    unused_keys = list(
+        key for key in runtime_values if key not in ("cpu", "memory") and key not in ans
+    )
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
 
