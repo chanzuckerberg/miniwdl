@@ -479,10 +479,15 @@ class SwarmContainer(TaskContainer):
             with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
                 # poll for container exit
                 while exit_code is None:
-                    # spread out work over the GIL
-                    time.sleep(random.uniform(1.0, 2.0))
+                    time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
                     if terminating():
-                        raise Terminated(quiet="running" not in self._observed_states) from None
+                        quiet = not self._observed_states.difference(
+                            # reduce log noise if the terminated task only sat in docker's queue
+                            {"(UNKNOWN)", "new", "allocated", "pending"}
+                        )
+                        if not quiet:
+                            self.poll_service(logger, svc, verbose=True)
+                        raise Terminated(quiet=quiet)
                     if "running" in self._observed_states:
                         poll_stderr()
                     exit_code = self.poll_service(logger, svc)
@@ -594,17 +599,21 @@ class SwarmContainer(TaskContainer):
         return resources, user, groups
 
     def poll_service(
-        self, logger: logging.Logger, svc: docker.models.services.Service
+        self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
     ) -> Optional[int]:
         status = {"State": "(UNKNOWN)"}
 
         svc.reload()
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
         tasks = svc.tasks()
+        # logger.debug(_("xxx", service=svc.attrs, tasks=tasks))
         if tasks:
             assert len(tasks) == 1, "docker service should have at most 1 task"
             status = tasks[0]["Status"]
-            if logger.isEnabledFor(logging.DEBUG):
+            status["DesiredState"] = tasks[0].get("DesiredState", None)
+            if verbose:
+                logger.info(_("docker task status", **status))
+            elif logger.isEnabledFor(logging.DEBUG):
                 logger.debug(_("docker task status", **status))
         else:
             assert (
@@ -625,8 +634,11 @@ class SwarmContainer(TaskContainer):
                 loginfo["task"] = tasks[0]["ID"][:10]
                 if "NodeID" in tasks[0]:
                     loginfo["node"] = tasks[0]["NodeID"][:10]
-            if status.get("Err", None):
-                loginfo["Err"] = status["Err"]
+            if status["DesiredState"] != state:
+                loginfo["desired"] = status["DesiredState"]
+            logmsg = status.get("Err", status.get("Message", None))
+            if logmsg and logmsg != state:
+                loginfo["message"] = logmsg
             method = logger.notice if state == "running" else logger.info  # pyre-fixme
             method(_(f"docker task {state}", **loginfo))
             self._observed_states.add(state)
@@ -637,14 +649,26 @@ class SwarmContainer(TaskContainer):
             exit_code = status["ContainerStatus"]["ExitCode"]  # pyre-fixme
             assert isinstance(exit_code, int)
 
-        if state in ["complete", "failed"]:
+        if state in ("complete", "failed"):
             logger.notice(_("docker task exit", state=state, exit_code=exit_code))  # pyre-fixme
             assert isinstance(exit_code, int) and (exit_code == 0) == (state == "complete")
             return exit_code
-        elif state in ["rejected", "shutdown", "orphaned", "remove"] or exit_code not in [None, 0]:
-            # note: worker shutdown seems to manifest as state=running, exit_code=-1
+        elif {state, status["DesiredState"]}.intersection(
+            {"rejected", "shutdown", "orphaned", "remove"}
+        ) or exit_code not in [None, 0]:
+            # "rejected" state usually arises from nonexistent docker image.
+            # if the worker assigned a task goes down, any of the following can manifest:
+            #   - exit_code=-1 with state running (or other non-terminal)
+            #   - state shutdown, orphaned, remove
+            #   - desired_state shutdown
+            # also see GitHub issue #374
             raise (RuntimeError if state == "rejected" else Interrupted)(  # pyre-ignore
                 f"docker task {state}"
+                + (
+                    (", desired state " + status["DesiredState"])
+                    if status["DesiredState"] not in (None, state)
+                    else ""
+                )
                 + (f", exit code = {exit_code}" if exit_code not in [None, 0] else "")
                 + (f": {status['Err']}" if "Err" in status else "")
             )
@@ -1067,7 +1091,9 @@ def _eval_task_runtime(
 
     if ans:
         logger.info(_("effective runtime", **ans))
-    unused_keys = list(key for key in runtime_values if key not in ans)
+    unused_keys = list(
+        key for key in runtime_values if key not in ("cpu", "memory") and key not in ans
+    )
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
 
