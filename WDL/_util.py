@@ -299,7 +299,12 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
             self.release()
 
     def set_status(self, new_status: str) -> None:
-        self._status = new_status[: shutil.get_terminal_size().columns]
+        cols = shutil.get_terminal_size().columns
+        if len(new_status) < cols:
+            new_status = " " * int((cols - len(new_status)) / 2) + new_status
+        else:
+            new_status = new_status[:cols]
+        self._status = new_status
         self.emit_status()
 
 

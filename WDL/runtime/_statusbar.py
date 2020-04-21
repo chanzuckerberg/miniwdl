@@ -75,7 +75,6 @@ def enable(set_status: Optional[Callable[[str], None]]) -> Iterator[None]:
             if _counters["abort"] or _util._terminating:
                 spinner = "\033[1;91mABORT" if (int(5 * elapsed) % 5) <= 2 else "     "
             msg = [
-                "   ",
                 spinner,
                 f"   {datetime.timedelta(seconds=int(elapsed))} elapsed",
                 "  ",
