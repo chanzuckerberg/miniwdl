@@ -37,7 +37,6 @@ quant_warning = False
 
 def main(args=None):
     sys.setrecursionlimit(1_000_000)  # permit as much call stack depth as OS can give us
-    os.environ["COLUMNS"] = os.environ.get("COLUMNS", "100")
 
     parser = ArgumentParser("miniwdl")
     parser.add_argument(
@@ -56,7 +55,14 @@ def main(args=None):
     fill_common(fill_localize_subparser(subparsers))
 
     argcomplete.autocomplete(parser)
+
+    replace_COLUMNS = os.environ.get("COLUMNS", None)
+    os.environ["COLUMNS"] = "100"  # make help descriptions wider
     args = parser.parse_args(args if args is not None else sys.argv[1:])
+    if replace_COLUMNS is not None:
+        os.environ["COLUMNS"] = replace_COLUMNS
+    else:
+        del os.environ["COLUMNS"]
 
     try:
         if args.command == "check":
@@ -571,7 +577,6 @@ def runner(
             file_found=file_found,
             root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
         )
-        set_status(target.name)
 
         if json_only:
             print(json.dumps(input_json, indent=2))
@@ -617,7 +622,9 @@ def runner(
         runtime.task.SwarmContainer.global_init(cfg, logger)
 
         # run & log any errors
-        with runtime.cache.CallCache(cfg, logger) as cache:
+        with runtime.status.enable(set_status, target.name), runtime.cache.CallCache(
+            cfg, logger
+        ) as cache:
             rundir = None
             try:
                 rundir, output_env = runtime.run(

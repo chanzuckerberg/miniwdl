@@ -19,6 +19,7 @@ import re
 import hashlib
 import uuid
 import base64
+import contextlib
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 from contextlib import ExitStack
@@ -38,7 +39,7 @@ from .._util import (
     compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
-from . import config
+from . import config, status
 from .download import able as downloadable, run_cached as download
 from .cache import CallCache
 from .error import *
@@ -478,7 +479,13 @@ class SwarmContainer(TaskContainer):
             logger.debug(_("docker service", name=svc.name, id=svc.short_id))
 
             # stream stderr into log
-            with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
+            with contextlib.ExitStack() as cleanup:
+                cleanup.enter_context(status.task_runnable())
+                poll_stderr = cleanup.enter_context(
+                    PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt"))
+                )
+                known_running = False
+
                 # poll for container exit
                 while exit_code is None:
                     time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
@@ -492,6 +499,9 @@ class SwarmContainer(TaskContainer):
                         raise Terminated(quiet=quiet)
                     if "running" in self._observed_states:
                         poll_stderr()
+                        if not known_running:
+                            cleanup.enter_context(status.task_running(cpu, memory_reservation))
+                            known_running = True
                     exit_code = self.poll_service(logger, svc)
                 logger.debug(
                     _(

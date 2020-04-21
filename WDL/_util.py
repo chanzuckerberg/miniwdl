@@ -293,7 +293,7 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
     def emit_status(self) -> None:
         self.acquire()
         try:
-            sys.stderr.write(_CLEAREOL + self._status)
+            sys.stderr.write(_CLEAREOL + "\033[1m" + self._status + "\033[22m")
             self.flush()
         finally:
             self.release()
@@ -786,3 +786,10 @@ class FlockHolder(AbstractContextManager):
                     openfile.close()
                     raise
                 openfile.close()
+
+
+@export
+class RepeatTimer(threading.Timer):
+    def run(self) -> None:
+        while not self.finished.wait(self.interval):  # pyre-ignore
+            self.function(*self.args, **self.kwargs)  # pyre-ignore
