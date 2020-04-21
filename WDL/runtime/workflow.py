@@ -58,7 +58,7 @@ from .._util import (
     compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
-from . import config
+from . import config, _statusbar
 from .cache import CallCache
 from .error import RunFailed, Terminated, error_json
 
@@ -194,8 +194,6 @@ class StateMachine:
                 known_jobs,
             )
 
-        self._log_status()
-
     @property
     def outputs(self) -> Optional[Env.Bindings[Value.Base]]:
         """
@@ -252,7 +250,6 @@ class StateMachine:
                     set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
                     - self.finished
                 )
-                self._log_status()
                 return None
             job_id = runnable.pop()
             job = self.jobs[job_id]
@@ -417,16 +414,6 @@ class StateMachine:
             #
             # and close it later
         return self._logger
-
-    def _log_status(self) -> None:
-        self.logger.notice(  # pyre-fixme
-            _(
-                "workflow steps",
-                waiting=len(self.waiting),
-                outstanding=len(self.running),
-                finished=len(self.finished),
-            )
-        )
 
     def __getstate__(self) -> Dict[str, Any]:
         ans = dict(self.__dict__)
@@ -707,6 +694,7 @@ def run_local_workflow(
                 _test_pickle,
             )
         except:
+            _statusbar.abort()
             if not _run_id_stack:
                 # if we're the top-level worfklow, signal abort to anything still running
                 # concurrently on the thread pools (SIGUSR1 will be picked up by
@@ -778,6 +766,7 @@ def _workflow_main_loop(
                     }
                     # submit to appropriate thread pool
                     if isinstance(next_call.callee, Tree.Task):
+                        _statusbar.task_backlogged()
                         future = thread_pools[0].submit(run_local_task, *sub_args, **sub_kwargs)
                     elif isinstance(next_call.callee, Tree.Workflow):
                         future = thread_pools[1].submit(

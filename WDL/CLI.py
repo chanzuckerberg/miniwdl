@@ -19,6 +19,7 @@ import docker
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
+from contextlib import ExitStack
 import importlib_metadata
 from . import *
 from ._util import (
@@ -490,7 +491,9 @@ def runner(
         os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
-    with install_coloredlogs(logger) as set_status:
+
+    with ExitStack() as cleanup:
+        set_status = cleanup.enter_context(install_coloredlogs(logger))
 
         if os.geteuid() == 0:
             logger.warning(
@@ -622,54 +625,49 @@ def runner(
         runtime.task.SwarmContainer.global_init(cfg, logger)
 
         # run & log any errors
-        with runtime.status.enable(set_status, target.name), runtime.cache.CallCache(
-            cfg, logger
-        ) as cache:
-            rundir = None
-            try:
-                rundir, output_env = runtime.run(
-                    cfg, target, input_env, run_dir=run_dir, _cache=cache
-                )
-            except Exception as exn:
-                if error_json:
-                    print(json.dumps(runtime.error_json(exn), indent=2))
-                exit_status = 2
-                from_rundir = None
-                while isinstance(exn, runtime.RunFailed):
-                    exn_rundir = getattr(exn, "run_dir")
-                    rundir = rundir or exn_rundir
-                    from_rundir = exn_rundir
-                    exn = exn.__cause__
-                if isinstance(exn, runtime.CommandFailed):
-                    exit_status = (lambda v: v if v else exit_status)(
-                        getattr(exn, "exit_status", 0)
+        cleanup.enter_context(runtime._statusbar.enable(set_status))
+        cache = cleanup.enter_context(runtime.cache.CallCache(cfg, logger))
+        rundir = None
+        try:
+            rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir, _cache=cache)
+        except Exception as exn:
+            if error_json:
+                print(json.dumps(runtime.error_json(exn), indent=2))
+            exit_status = 2
+            from_rundir = None
+            while isinstance(exn, runtime.RunFailed):
+                exn_rundir = getattr(exn, "run_dir")
+                rundir = rundir or exn_rundir
+                from_rundir = exn_rundir
+                exn = exn.__cause__
+            if isinstance(exn, runtime.CommandFailed):
+                exit_status = (lambda v: v if v else exit_status)(getattr(exn, "exit_status", 0))
+                if not (kwargs["verbose"] or kwargs["debug"]):
+                    logger.notice(
+                        "run with --verbose to include task standard error streams in this log"
                     )
-                    if not (kwargs["verbose"] or kwargs["debug"]):
-                        logger.notice(
-                            "run with --verbose to include task standard error streams in this log"
-                        )
-                info = runtime.error_json(exn)
-                if rundir:
-                    info["dir"] = rundir
-                if from_rundir and from_rundir != rundir:
-                    info["from_dir"] = from_rundir
-                msg = str(exn)
-                if "message" in info:
-                    msg = info["message"]
-                    del info["message"]
-                logger.error(_(msg, **info))
-                if kwargs["debug"]:
-                    raise
-                sys.exit(exit_status)
-            finally:
-                if rundir:
-                    # whether success or fail, leave some artifacts in the run directory.
-                    # this should be done under the flock held open within the cache context so that
-                    # other waiting processes know when we're really finished with the run directory.
-                    with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
-                        print(rerun_sh, file=rerunfile)
-                    copy_source(doc, os.path.join(rundir, "wdl"))
-                cfg.log_unused_options()
+            info = runtime.error_json(exn)
+            if rundir:
+                info["dir"] = rundir
+            if from_rundir and from_rundir != rundir:
+                info["from_dir"] = from_rundir
+            msg = str(exn)
+            if "message" in info:
+                msg = info["message"]
+                del info["message"]
+            logger.error(_(msg, **info))
+            if kwargs["debug"]:
+                raise
+            sys.exit(exit_status)
+        finally:
+            if rundir:
+                # whether success or fail, leave some artifacts in the run directory.
+                # this should be done under the flock held open within the cache context so that
+                # other waiting processes know when we're really finished with the run directory.
+                with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
+                    print(rerun_sh, file=rerunfile)
+                copy_source(doc, os.path.join(rundir, "wdl"))
+            cfg.log_unused_options()
 
     # report
     outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}

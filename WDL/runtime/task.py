@@ -39,7 +39,7 @@ from .._util import (
     compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
-from . import config, status
+from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
 from .cache import CallCache
 from .error import *
@@ -429,6 +429,7 @@ class SwarmContainer(TaskContainer):
         memory_reservation: int,
         memory_limit: int,
     ) -> int:
+        _statusbar.task_slotted()
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
@@ -480,7 +481,6 @@ class SwarmContainer(TaskContainer):
 
             # stream stderr into log
             with contextlib.ExitStack() as cleanup:
-                cleanup.enter_context(status.task_runnable())
                 poll_stderr = cleanup.enter_context(
                     PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt"))
                 )
@@ -500,7 +500,7 @@ class SwarmContainer(TaskContainer):
                     if "running" in self._observed_states:
                         poll_stderr()
                         if not known_running:
-                            cleanup.enter_context(status.task_running(cpu, memory_reservation))
+                            cleanup.enter_context(_statusbar.task_running(cpu, memory_reservation))
                             known_running = True
                     exit_code = self.poll_service(logger, svc)
                 logger.debug(
@@ -765,15 +765,18 @@ def run_local_task(
                     If the final path component is ".", then operate in run_dir directly.
     """
 
-    # provision run directory and log file
-    run_id = run_id or task.name
     _run_id_stack = _run_id_stack or []
-    run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
-
+    run_id = run_id or task.name
     logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
     logger = logging.getLogger(".".join(logger_prefix))
-    logfile = os.path.join(run_dir, "task.log")
     with ExitStack() as cleanup:
+        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
+        if terminating():
+            raise Terminated(quiet=True)
+
+        # provision run directory and log file
+        run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
+        logfile = os.path.join(run_dir, "task.log")
         fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))  # pylint: disable=no-member
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         logger.notice(  # pyre-fixme
@@ -846,7 +849,7 @@ def run_local_task(
                 command, runtime, container = (recv[k] for k in ("command", "runtime", "container"))
 
                 # start container & run command (and retry if needed)
-                _try_task(cfg, logger, container, command, runtime)
+                _try_task(cfg, logger, container, command, runtime, terminating)
 
                 # evaluate output declarations
                 outputs = _eval_task_outputs(logger, task, container_env, container)
@@ -1118,6 +1121,7 @@ def _try_task(
     container: TaskContainer,
     command: str,
     runtime: Dict[str, Union[int, str]],
+    terminating: Callable[[], bool],
 ) -> None:
     """
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
@@ -1129,6 +1133,8 @@ def _try_task(
     interruptions = 0
 
     while True:
+        if terminating():
+            raise Terminated()
         # copy input files, if needed
         if cfg["file_io"].get_bool("copy_input_files"):
             container.copy_input_files(logger)
@@ -1150,6 +1156,8 @@ def _try_task(
                     and interruptions < cfg["task_runtime"].get_int("_mock_interruptions")
                 ):
                     raise Interrupted("mock interruption") from None
+                if terminating():
+                    raise Terminated()
         except Exception as exn:
             if isinstance(exn, Interrupted) and interruptions < max_interruptions:
                 logger.error(

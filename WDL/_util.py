@@ -293,7 +293,7 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
     def emit_status(self) -> None:
         self.acquire()
         try:
-            sys.stderr.write(_CLEAREOL + "\033[1m" + self._status + "\033[22m")
+            sys.stderr.write(_CLEAREOL + "\033[1m" + self._status + "\033[0m")
             self.flush()
         finally:
             self.release()

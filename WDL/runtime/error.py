@@ -2,6 +2,7 @@
 from typing import Union, Dict, Any, Optional
 from ..Error import RuntimeError as _RuntimeError, SourcePosition
 from ..Tree import Task as _Task, Workflow as _Workflow
+from . import _statusbar
 
 
 class CommandFailed(_RuntimeError):
@@ -38,6 +39,7 @@ class Terminated(_RuntimeError):
 
     def __init__(self, quiet: bool = False) -> None:
         self.quiet = quiet
+        _statusbar.abort()
 
 
 class Interrupted(_RuntimeError):
@@ -66,6 +68,7 @@ class DownloadFailed(_RuntimeError):
     def __init__(self, uri: str, message: str = "") -> None:
         super().__init__(message or ("unable to download " + uri))
         self.uri = uri
+        _statusbar.abort()
 
 
 class RunFailed(_RuntimeError):
@@ -84,6 +87,7 @@ class RunFailed(_RuntimeError):
         self.exe = exe
         self.run_id = run_id
         self.run_dir = run_dir
+        _statusbar.abort()
 
 
 def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[str, Any]:
