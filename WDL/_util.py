@@ -11,6 +11,7 @@ import time
 import copy
 import fcntl
 import subprocess
+import shutil
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager, AbstractContextManager
@@ -262,16 +263,62 @@ def notice(self, message, *args, **kws):  # pyre-fixme
 
 logging.Logger.notice = notice
 
+_CLEAREOL = "\33[2K\r"
+
+
+class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
+    """
+    This subclass augments coloredlogs.StandardErrorHandler to maintain a "status line" which
+    remains in place at the bottom of the screen as log records scroll by. The content of the
+    status line can be set at any time. It will be truncated to the terminal width.
+    """
+
+    _singleton: "Optional[_StatusLineStandardErrorHandler]" = None
+    _status: str = ""
+
+    def __init__(self, *args, **kwargs):  # pyre-ignore
+        super().__init__(*args, **kwargs)
+        assert not self.__class__._singleton
+        self.__class__._singleton = self
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.acquire()
+        try:
+            sys.stderr.write(_CLEAREOL)
+            super().emit(record)
+            self.emit_status()
+        finally:
+            self.release()
+
+    def emit_status(self) -> None:
+        self.acquire()
+        try:
+            sys.stderr.write(_CLEAREOL + self._status)
+            self.flush()
+        finally:
+            self.release()
+
+    def set_status(self, new_status: str) -> None:
+        self._status = new_status[: shutil.get_terminal_size().columns]
+        self.emit_status()
+
+
 LOGGING_FORMAT = "%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(message)s"
 __all__.append("LOGGING_FORMAT")
 
 
 @export
-def install_coloredlogs(logger: logging.Logger) -> None:
+@contextmanager
+def install_coloredlogs(logger: logging.Logger) -> Iterator[Callable[[str], None]]:
+    """
+    contextmanager to set up our logger customizations; yields a function to set the status line at
+    the bottom of the screen (if stderr isatty, else it does nothing)
+    """
     level_styles = {}
     field_styles = {}
+    enable = sys.stderr.isatty() and "NO_COLOR" not in os.environ
 
-    if sys.stderr.isatty() and "NO_COLOR" not in os.environ:
+    if enable:
         level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
         level_styles["debug"]["color"] = 242
         level_styles["notice"] = {"color": "green", "bold": True}
@@ -282,13 +329,30 @@ def install_coloredlogs(logger: logging.Logger) -> None:
         field_styles["asctime"] = {"color": "blue"}
         field_styles["name"] = {"color": "magenta"}
 
-    coloredlogs.install(
-        level=logger.getEffectiveLevel(),
-        logger=logger,
-        level_styles=level_styles,
-        field_styles=field_styles,
-        fmt=LOGGING_FORMAT,
-    )
+        # monkey-patch _StatusLineStandardErrorHandler over coloredlogs.StandardErrorHandler for
+        # coloredlogs.install() to instantiate
+        coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler
+        sys.stderr.write("\033[?25l")  # hide cursor
+
+    try:
+        coloredlogs.install(
+            level=logger.getEffectiveLevel(),
+            logger=logger,
+            level_styles=level_styles,
+            field_styles=field_styles,
+            fmt=LOGGING_FORMAT,
+        )
+        yield (
+            lambda status: _StatusLineStandardErrorHandler._singleton.set_status(  # pyre-fixme
+                status
+            )
+            if _StatusLineStandardErrorHandler._singleton
+            else None
+        )
+    finally:
+        if enable:
+            sys.stderr.write(_CLEAREOL)  # wipe the status line
+            sys.stderr.write("\033[?25h")  # un-hide cursor
 
 
 @export
