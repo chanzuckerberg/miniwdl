@@ -37,7 +37,8 @@ check:
 		--search-path stubs \
 		--typeshed `python3 -c 'import site; print(site.getuserbase())'`/lib/pyre_check/typeshed \
 		--show-parse-errors check
-	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
+	# no-member disabled due to https://github.com/PyCQA/pylint/issues/3137
+	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL -d no-member
 
 check_check:
 	# regression test against pyre doing nothing (issue #100)
@@ -48,7 +49,8 @@ check_check:
 # uses black to rewrite source files!
 pretty:
 	black --line-length 100 --target-version py36 WDL/
-	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name,bad-continuation --exit-zero WDL
+	# no-member disabled due to https://github.com/PyCQA/pylint/issues/3137
+	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name,bad-continuation --exit-zero WDL -d no-member
 
 # for use in CI: complain if source code isn't at a fixed point for black
 sopretty:
