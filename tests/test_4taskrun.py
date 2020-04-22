@@ -672,7 +672,7 @@ class TestTaskRunner(unittest.TestCase):
         # also just covering codepaths for stderr status bar logging:
         logger = logging.getLogger(self.id())
         with WDL._util.install_coloredlogs(logger, force=True) as set_status, WDL.runtime._statusbar.enable(set_status):
-            signal.alarm(3)
+            signal.alarm(10)
             t0 = time.time()
             self._test_task(R"""
             version 1.0
@@ -683,7 +683,7 @@ class TestTaskRunner(unittest.TestCase):
             }
             """, expected_exception=WDL.runtime.Terminated)
             t1 = time.time()
-            self.assertLess(t1 - t0, 15)
+            self.assertLess(t1 - t0, 20)
 
     def test_orphan_background_process(self):
         # TODO: https://github.com/chanzuckerberg/miniwdl/issues/211
