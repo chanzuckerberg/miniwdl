@@ -328,6 +328,7 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
 
 
 LOGGING_FORMAT = "%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(message)s"
+LOGGING_FORMAT_STDERR = "%(asctime)s.%(msecs)03d %(name)s %(message)s"
 __all__.append("LOGGING_FORMAT")
 
 
@@ -342,6 +343,7 @@ def install_coloredlogs(
     """
     level_styles = {}
     field_styles = {}
+    fmt = LOGGING_FORMAT
     enable = force or (sys.stderr.isatty() and "NO_COLOR" not in os.environ)
 
     if enable:
@@ -354,6 +356,7 @@ def install_coloredlogs(
         field_styles = dict(coloredlogs.DEFAULT_FIELD_STYLES)
         field_styles["asctime"] = {"color": "blue"}
         field_styles["name"] = {"color": "magenta"}
+        fmt = LOGGING_FORMAT_STDERR
 
         # monkey-patch _StatusLineStandardErrorHandler over coloredlogs.StandardErrorHandler for
         # coloredlogs.install() to instantiate
@@ -366,7 +369,7 @@ def install_coloredlogs(
             logger=logger,
             level_styles=level_styles,
             field_styles=field_styles,
-            fmt=LOGGING_FORMAT,
+            fmt=fmt,
         )
         yield (
             lambda status: _StatusLineStandardErrorHandler._singleton.set_status(  # pyre-fixme
