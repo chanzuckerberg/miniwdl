@@ -263,7 +263,26 @@ def notice(self, message, *args, **kws):  # pyre-fixme
 
 logging.Logger.notice = notice
 
-_CLEAREOL = "\33[2K\r"
+
+@export
+class ANSI:
+    # https://gist.github.com/RabaDabaDoba/145049536f815903c79944599c6f952a
+    # https://espterm.github.io/docs/VT100%20escape%20codes.html
+    CLEAR: str = "\x1b[2K\r"
+    RESET: str = "\x1b[0m"
+    BOLD: str = "\x1b[1m"
+
+    RED: str = "\x1b[0;31m"
+    BRED: str = "\x1b[1;31m"
+    HRED: str = "\x1b[0;91m"
+    BHRED: str = "\x1b[1;91m"
+
+    HIDE_CURSOR: str = "\x1b[?25l"
+    SHOW_CURSOR: str = "\x1b[?25h"
+
+
+def _ansilen(parts: List[str]) -> int:
+    return sum([len(s) for s in parts if s[0] != "\x1b"])
 
 
 class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
@@ -284,7 +303,7 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
     def emit(self, record: logging.LogRecord) -> None:
         self.acquire()
         try:
-            sys.stderr.write(_CLEAREOL)
+            sys.stderr.write(ANSI.CLEAR)
             super().emit(record)
             self.emit_status()
         finally:
@@ -293,18 +312,18 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
     def emit_status(self) -> None:
         self.acquire()
         try:
-            sys.stderr.write(_CLEAREOL + "\033[1m" + self._status + "\033[0m")
+            sys.stderr.write(ANSI.CLEAR + self._status + ANSI.RESET)
             self.flush()
         finally:
             self.release()
 
-    def set_status(self, new_status: str) -> None:
+    def set_status(self, new_status: List[str]) -> None:
         cols = shutil.get_terminal_size().columns
-        if len(new_status) < cols:
-            new_status = " " * int((cols - len(new_status)) / 2) + new_status
-        else:
-            new_status = new_status[:cols]
-        self._status = new_status
+        if _ansilen(new_status) > cols:
+            new_status = new_status.copy()
+            while new_status and (_ansilen(new_status) > cols or new_status[-1][0] == "\x1b"):
+                new_status.pop()
+        self._status = "".join(new_status)
         self.emit_status()
 
 
@@ -314,14 +333,16 @@ __all__.append("LOGGING_FORMAT")
 
 @export
 @contextmanager
-def install_coloredlogs(logger: logging.Logger) -> Iterator[Callable[[str], None]]:
+def install_coloredlogs(
+    logger: logging.Logger, force: bool = False
+) -> Iterator[Callable[[str], None]]:
     """
     contextmanager to set up our logger customizations; yields a function to set the status line at
     the bottom of the screen (if stderr isatty, else it does nothing)
     """
     level_styles = {}
     field_styles = {}
-    enable = sys.stderr.isatty() and "NO_COLOR" not in os.environ
+    enable = force or (sys.stderr.isatty() and "NO_COLOR" not in os.environ)
 
     if enable:
         level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
@@ -337,7 +358,7 @@ def install_coloredlogs(logger: logging.Logger) -> Iterator[Callable[[str], None
         # monkey-patch _StatusLineStandardErrorHandler over coloredlogs.StandardErrorHandler for
         # coloredlogs.install() to instantiate
         coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler
-        sys.stderr.write("\033[?25l")  # hide cursor
+        sys.stderr.write(ANSI.HIDE_CURSOR)  # hide cursor
 
     try:
         coloredlogs.install(
@@ -356,8 +377,8 @@ def install_coloredlogs(logger: logging.Logger) -> Iterator[Callable[[str], None
         )
     finally:
         if enable:
-            sys.stderr.write(_CLEAREOL)  # wipe the status line
-            sys.stderr.write("\033[?25h")  # un-hide cursor
+            sys.stderr.write(ANSI.CLEAR)  # wipe the status line
+            sys.stderr.write(ANSI.SHOW_CURSOR)  # un-hide cursor
 
 
 @export

@@ -31,7 +31,7 @@ class TestTaskRunner(unittest.TestCase):
             assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
-            rundir, outputs = WDL.runtime.run_local_task(cfg, doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, **kwargs)
+            rundir, outputs = WDL.runtime.run_local_task(cfg, doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, logger_prefix=[self.id()], **kwargs)
             self._rundir = rundir
         except WDL.runtime.RunFailed as exn:
             if expected_exception:
@@ -669,18 +669,21 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(self._test_task(txt, {"x": 22, "y": 99})["yy"], 99)
 
     def test_signal(self):
-        signal.alarm(3)
-        t0 = time.time()
-        self._test_task(R"""
-        version 1.0
-        task t {
-            command {
-                sleep 30
+        # also just covering codepaths for stderr status bar logging:
+        logger = logging.getLogger(self.id())
+        with WDL._util.install_coloredlogs(logger, force=True) as set_status, WDL.runtime._statusbar.enable(set_status):
+            signal.alarm(3)
+            t0 = time.time()
+            self._test_task(R"""
+            version 1.0
+            task t {
+                command {
+                    sleep 30
+                }
             }
-        }
-        """, expected_exception=WDL.runtime.Terminated)
-        t1 = time.time()
-        self.assertLess(t1 - t0, 15)
+            """, expected_exception=WDL.runtime.Terminated)
+            t1 = time.time()
+            self.assertLess(t1 - t0, 15)
 
     def test_orphan_background_process(self):
         # TODO: https://github.com/chanzuckerberg/miniwdl/issues/211

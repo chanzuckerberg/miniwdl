@@ -9,6 +9,7 @@ import datetime
 import math
 from contextlib import contextmanager
 from typing import Optional, Callable, List, Iterator
+from .._util import ANSI, RepeatTimer
 from .. import _util
 
 _counters = {
@@ -60,43 +61,64 @@ def abort() -> None:
     _counters["abort"] = True
 
 
-_SPINNER: List[str] = ["●▫▫▫▫", "▫●▫▫▫", "▫▫●▫▫", "▫▫▫●▫", "▫▫▫▫●", "▫▫▫●▫", "▫▫●▫▫", "▫●▫▫▫"]
+_KITT: List[str] = [
+    "▬▬      ",
+    "▬▬▬     ",
+    "▬▬▬▬    ",
+    " ▬▬▬▬   ",
+    "  ▬▬▬▬  ",
+    "   ▬▬▬▬ ",
+    "    ▬▬▬▬",
+    "     ▬▬▬",
+    "      ▬▬",
+    "     ▬▬▬",
+    "    ▬▬▬▬",
+    "   ▬▬▬▬ ",
+    "  ▬▬▬▬  ",
+    " ▬▬▬▬   ",
+    "▬▬▬▬    ",
+    "▬▬▬     ",
+]
 
 
 @contextmanager
-def enable(set_status: Optional[Callable[[str], None]]) -> Iterator[None]:
+def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
     # set_status comes from .._util.install_coloredlogs to set the status bar contents
     t0 = time.time()
 
     def update() -> None:
         if set_status:
             elapsed = time.time() - t0
-            spinner = _SPINNER[int(5 * elapsed) % 8]
-            if _counters["abort"] or _util._terminating:
-                spinner = "\033[1;91mABORT" if (int(5 * elapsed) % 5) <= 2 else "     "
-            msg = [
-                spinner,
-                f"   {datetime.timedelta(seconds=int(elapsed))} elapsed",
-                "  ",
-                "tasks finished:",
-                str(_counters["tasks_finished"]) + ",",
-                "ready:",
-                str(_counters["tasks_backlogged"] + _counters["tasks_slotted"]) + ",",
-                "running:",
-                str(_counters["tasks_running"]),
-            ]
+            elapsed5 = int(elapsed * 5)
+            spinner = ["        "]
+            if not (_counters["abort"] or _util._terminating):
+                spinner = [ANSI.RED, _KITT[elapsed5 % len(_KITT)], ANSI.RESET]
+            elif (elapsed5 % 5) <= 2:
+                # reaching into _util._terminating like that feels bad, but lets us provide this
+                # feedback sooner:
+                spinner = [ANSI.BRED, " ABORT! ", ANSI.RESET]
+            msg = (
+                ["    "]
+                + spinner
+                + [
+                    ANSI.BOLD,
+                    f"    {datetime.timedelta(seconds=int(elapsed))} elapsed",
+                    "    ",
+                    "tasks finished: " + str(_counters["tasks_finished"]),
+                    ", ready: " + str(_counters["tasks_backlogged"] + _counters["tasks_slotted"]),
+                    ", running: " + str(_counters["tasks_running"]),
+                ]
+            )
             if _counters["tasks_running"]:
                 msg += [
-                    "   reserved CPUs:",
-                    str(_counters["tasks_running_cpu"]) + ",",
-                    "RAM:",
-                    str(math.ceil(_counters["tasks_running_mem_bytes"] / (2 ** 30))),
-                    "GiB",
+                    "    reserved CPUs: " + str(_counters["tasks_running_cpu"]),
+                    ", RAM: "
+                    + str(math.ceil(_counters["tasks_running_mem_bytes"] / (2 ** 30)))
+                    + "GiB",
                 ]
-            msg += ["  ", spinner]
-            set_status(" ".join(msg))
+            set_status(msg)
 
-    timer = _util.RepeatTimer(0.2, update)
+    timer = RepeatTimer(0.2, update)
     timer.start()
     try:
         yield
