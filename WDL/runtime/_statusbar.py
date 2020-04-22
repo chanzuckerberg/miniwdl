@@ -67,22 +67,20 @@ def abort() -> None:
 
 
 _KITT: List[str] = [
-    "▬▬      ",
-    "▬▬▬     ",
-    "▬▬▬▬    ",
-    " ▬▬▬▬   ",
-    "  ▬▬▬▬  ",
-    "   ▬▬▬▬ ",
-    "    ▬▬▬▬",
-    "     ▬▬▬",
-    "      ▬▬",
-    "     ▬▬▬",
-    "    ▬▬▬▬",
-    "   ▬▬▬▬ ",
-    "  ▬▬▬▬  ",
-    " ▬▬▬▬   ",
-    "▬▬▬▬    ",
-    "▬▬▬     ",
+    "▬▬     ",
+    "▬▬▬    ",
+    "▬▬▬▬   ",
+    " ▬▬▬▬  ",
+    "  ▬▬▬▬ ",
+    "   ▬▬▬▬",
+    "    ▬▬▬",
+    "     ▬▬",
+    "    ▬▬▬",
+    "   ▬▬▬▬",
+    "  ▬▬▬▬ ",
+    " ▬▬▬▬  ",
+    "▬▬▬▬   ",
+    "▬▬▬    ",
 ]
 
 
@@ -95,13 +93,13 @@ def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
         if set_status:
             elapsed = time.time() - t0
             elapsed5 = int(elapsed * 5)
-            spinner = ["        "]
+            spinner = ["       "]
             if not (_counters["abort"] or _util._terminating):
                 spinner = [ANSI.RED, _KITT[elapsed5 % len(_KITT)], ANSI.RESET]
             elif (elapsed5 % 5) <= 2:
                 # reaching into _util._terminating like that feels bad, but lets us provide this
                 # feedback sooner:
-                spinner = [ANSI.BRED, " ABORT! ", ANSI.RESET]
+                spinner = [ANSI.BRED, " ABORT ", ANSI.RESET]
             msg = (
                 ["    "]
                 + spinner
