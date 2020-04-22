@@ -777,7 +777,7 @@ def run_local_task(
         # provision run directory and log file
         run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
         logfile = os.path.join(run_dir, "task.log")
-        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))  # pylint: disable=no-member
+        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         logger.notice(  # pyre-fixme
             _(
@@ -793,9 +793,7 @@ def run_local_task(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
-            cache = _cache or cleanup.enter_context(  # pylint: disable=no-member
-                CallCache(cfg, logger)
-            )
+            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
         else:
             cache = _cache
