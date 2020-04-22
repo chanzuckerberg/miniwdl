@@ -30,19 +30,25 @@ def task_backlogged() -> None:
         _counters["tasks_backlogged"] += 1
 
 
-def task_slotted() -> None:
-    # task.py calls this when a thread starts run_local_task
+@contextmanager
+def task_slotted() -> Iterator[None]:
+    # task.py opens this context while a thread has picked up the task
     with _counters_lock:
         _counters["tasks_backlogged"] = max(0, _counters["tasks_backlogged"] - 1)
         _counters["tasks_slotted"] += 1
+    try:
+        yield
+    finally:
+        with _counters_lock:
+            _counters["tasks_slotted"] -= 1
+            _counters["tasks_finished"] += 1
 
 
 @contextmanager
 def task_running(cpu: int, mem_bytes: int) -> Iterator[None]:
     # task.py opens this context while the task container is actually running
+    # it's possible for a task to succeed without this occurring (if the container exits instantly)
     with _counters_lock:
-        assert _counters["tasks_slotted"]
-        _counters["tasks_slotted"] -= 1
         _counters["tasks_running"] += 1
         _counters["tasks_running_cpu"] += cpu
         _counters["tasks_running_mem_bytes"] += mem_bytes
@@ -53,7 +59,6 @@ def task_running(cpu: int, mem_bytes: int) -> Iterator[None]:
             _counters["tasks_running"] -= 1
             _counters["tasks_running_cpu"] -= cpu
             _counters["tasks_running_mem_bytes"] -= mem_bytes
-            _counters["tasks_finished"] += 1
 
 
 def abort() -> None:
@@ -105,7 +110,12 @@ def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
                     f"    {datetime.timedelta(seconds=int(elapsed))} elapsed",
                     "    ",
                     "tasks finished: " + str(_counters["tasks_finished"]),
-                    ", ready: " + str(_counters["tasks_backlogged"] + _counters["tasks_slotted"]),
+                    ", ready: "
+                    + str(
+                        _counters["tasks_backlogged"]
+                        + _counters["tasks_slotted"]
+                        - _counters["tasks_running"]
+                    ),
                     ", running: " + str(_counters["tasks_running"]),
                 ]
             )

@@ -429,7 +429,6 @@ class SwarmContainer(TaskContainer):
         memory_reservation: int,
         memory_limit: int,
     ) -> int:
-        _statusbar.task_slotted()
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
@@ -484,7 +483,6 @@ class SwarmContainer(TaskContainer):
                 poll_stderr = cleanup.enter_context(
                     PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt"))
                 )
-                known_running = False
 
                 # poll for container exit
                 while exit_code is None:
@@ -497,12 +495,14 @@ class SwarmContainer(TaskContainer):
                         if not quiet:
                             self.poll_service(logger, svc, verbose=True)
                         raise Terminated(quiet=quiet)
-                    if "running" in self._observed_states:
-                        poll_stderr()
-                        if not known_running:
-                            cleanup.enter_context(_statusbar.task_running(cpu, memory_reservation))
-                            known_running = True
+                    was_running = "running" in self._observed_states
                     exit_code = self.poll_service(logger, svc)
+                    if "running" in self._observed_states:
+                        if not was_running:
+                            # indicate actual container start in status bar
+                            cleanup.enter_context(_statusbar.task_running(cpu, memory_reservation))
+                        poll_stderr()
+
                 logger.debug(
                     _(
                         "docker service logs",
@@ -770,6 +770,7 @@ def run_local_task(
     logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
     logger = logging.getLogger(".".join(logger_prefix))
     with ExitStack() as cleanup:
+        cleanup.enter_context(_statusbar.task_slotted())
         terminating = cleanup.enter_context(TerminationSignalFlag(logger))
         if terminating():
             raise Terminated(quiet=True)
