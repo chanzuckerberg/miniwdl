@@ -29,7 +29,6 @@ from .._util import (
     write_atomic,
     write_values_json,
     provision_run_dir,
-    LOGGING_FORMAT,
     PygtailLogger,
     TerminationSignalFlag,
     parse_byte_size,
@@ -778,8 +777,15 @@ def run_local_task(
         # provision run directory and log file
         run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
         logfile = os.path.join(run_dir, "task.log")
-        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
-        fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
+        fh = cleanup.enter_context(
+            LoggingFileHandler(
+                logger,
+                logfile,
+                json=(
+                    cfg["logging"].get_bool("json") if cfg.has_option("logging", "json") else False
+                ),
+            )
+        )
         logger.notice(  # pyre-fixme
             _(
                 "task start",

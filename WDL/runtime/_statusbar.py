@@ -86,7 +86,7 @@ _KITT: List[str] = [
 
 @contextmanager
 def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
-    # set_status comes from .._util.install_coloredlogs to set the status bar contents
+    # set_status comes from .._util.configure_logger to set the status bar contents
     t0 = time.time()
 
     def update() -> None:
@@ -101,11 +101,15 @@ def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
                 # feedback sooner:
                 spinner = [ANSI.BRED, " ABORT ", ANSI.RESET]
             msg = (
-                ["    "]
+                [
+                    "    ",
+                    ANSI.BOLD,
+                    f"{datetime.timedelta(seconds=int(elapsed))} elapsed    ",
+                    ANSI.RESET,
+                ]
                 + spinner
                 + [
                     ANSI.BOLD,
-                    f"    {datetime.timedelta(seconds=int(elapsed))} elapsed",
                     "    ",
                     "tasks finished: " + str(_counters["tasks_finished"]),
                     ", ready: "

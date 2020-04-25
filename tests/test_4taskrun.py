@@ -670,8 +670,7 @@ class TestTaskRunner(unittest.TestCase):
 
     def test_signal(self):
         # also just covering codepaths for stderr status bar logging:
-        logger = logging.getLogger(self.id())
-        with WDL._util.install_coloredlogs(logger, force=True) as set_status, WDL.runtime._statusbar.enable(set_status):
+        with WDL._util.configure_logger(force_tty=True) as set_status, WDL.runtime._statusbar.enable(set_status):
             signal.alarm(10)
             t0 = time.time()
             self._test_task(R"""
