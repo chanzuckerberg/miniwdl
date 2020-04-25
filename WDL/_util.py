@@ -419,31 +419,36 @@ def configure_logger(
 @export
 @contextmanager
 def PygtailLogger(
-    logger: logging.Logger, filename: str, prefix: str = "2| "
+    logger: logging.Logger, filename: str, callback: Optional[Callable[[str], None]] = None
 ) -> Iterator[Callable[[], None]]:
     """
     Helper for streaming task stderr into logger using pygtail. Context manager yielding a function
     which reads the latest lines from the file and writes them into logger at verbose level. This
     function also runs automatically on context exit.
 
-    Truncates lines at 4KB in case writer goes haywire.
+    Stops if it sees a line greater than 4KB, in case writer goes haywire.
     """
     pygtail = None
     if logger.isEnabledFor(VERBOSE_LEVEL):
         pygtail = Pygtail(filename, full_lines=True)
+    logger2 = logger.getChild("stderr")
+
+    def default_callback(line: str) -> None:
+        assert len(line) <= 4096, "line > 4KB"
+        logger2.verbose(line.rstrip())  # pyre-fixme
+
+    callback = callback or default_callback
 
     def poll() -> None:
         nonlocal pygtail
         if pygtail:
             try:
                 for line in pygtail:
-                    logger.verbose((prefix + line.rstrip())[:4096])  # pyre-ignore
-            except:
+                    callback(line)
+            except Exception as exn:
                 # cf. https://github.com/bgreenlee/pygtail/issues/48
-                logger.verbose(  # pyre-ignore
-                    "incomplete log stream due to the following exception; see %s",
-                    filename,
-                    exc_info=sys.exc_info(),
+                logger.error(
+                    StructuredLogMessage("incomplete log stream", filename=filename, error=str(exn))
                 )
                 pygtail = None
 

@@ -100,6 +100,13 @@ class TaskContainer(ABC):
 
     input_file_map_rev: Dict[str, str]
 
+    stderr_callback: Optional[Callable[[str], None]]
+    """
+    A function called line-by-line for the task's standard error stream, if verbose logging is
+    enabled. If provided it overrides the default standard error logging behavior (writing the line
+    to the 'stderr' child of the task logger)
+    """
+
     _running: bool
 
     def __init__(self, cfg: config.Loader, run_id: str, host_dir: str) -> None:
@@ -109,6 +116,7 @@ class TaskContainer(ABC):
         self.container_dir = "/mnt/miniwdl_task_container"
         self.input_file_map = {}
         self.input_file_map_rev = {}
+        self.stderr_callback = None
         self._running = False
         os.makedirs(os.path.join(self.host_dir, "work"))
 
@@ -480,7 +488,11 @@ class SwarmContainer(TaskContainer):
             # stream stderr into log
             with contextlib.ExitStack() as cleanup:
                 poll_stderr = cleanup.enter_context(
-                    PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt"))
+                    PygtailLogger(
+                        logger,
+                        os.path.join(self.host_dir, "stderr.txt"),
+                        callback=self.stderr_callback,
+                    )
                 )
 
                 # poll for container exit
