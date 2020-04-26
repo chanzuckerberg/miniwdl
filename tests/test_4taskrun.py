@@ -683,6 +683,8 @@ class TestTaskRunner(unittest.TestCase):
             """, expected_exception=WDL.runtime.Terminated)
             t1 = time.time()
             self.assertLess(t1 - t0, 20)
+        with WDL._util.configure_logger(json=True) as _:
+            pass
 
     def test_orphan_background_process(self):
         # TODO: https://github.com/chanzuckerberg/miniwdl/issues/211
