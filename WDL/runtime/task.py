@@ -102,9 +102,9 @@ class TaskContainer(ABC):
 
     stderr_callback: Optional[Callable[[str], None]]
     """
-    A function called line-by-line for the task's standard error stream, if verbose logging is
-    enabled. If provided it overrides the default standard error logging behavior (writing the line
-    to the 'stderr' child of the task logger)
+    A function called line-by-line for the task's standard error stream, iff verbose logging is
+    enabled. If provided by a plugin then it overrides the default standard error logging, which
+    writes each line to the 'stderr' child of the task logger.
     """
 
     _running: bool

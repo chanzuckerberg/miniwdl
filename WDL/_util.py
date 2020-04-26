@@ -248,10 +248,7 @@ class StructuredLogMessageJSONFormatter(jsonlogger.JsonFormatter):
         if isinstance(rec.msg, StructuredLogMessage):
             ans = {"level": rec.levelname, "message": rec.msg.message}
             for k, v in rec.msg.kwargs.items():
-                if k == "message":
-                    assert "message2" not in ans
-                    ans["message2"] = v
-                else:
+                if k not in ans:
                     ans[k] = v
             rec.msg = ans
         return super().format(rec)
@@ -447,8 +444,10 @@ def PygtailLogger(
                     callback(line)
             except Exception as exn:
                 # cf. https://github.com/bgreenlee/pygtail/issues/48
-                logger.error(
-                    StructuredLogMessage("incomplete log stream", filename=filename, error=str(exn))
+                logger.warning(
+                    StructuredLogMessage(
+                        "log stream is incomplete", filename=filename, error=str(exn)
+                    )
                 )
                 pygtail = None
 
