@@ -256,11 +256,11 @@ class StructuredLogMessageJSONFormatter(jsonlogger.JsonFormatter):
     def add_fields(
         self, log_record: Dict[str, Any], record: logging.LogRecord, message_dict: Dict[str, Any]
     ) -> None:
+        super().add_fields(log_record, record, message_dict)
         log_record["timestamp"] = round(record.created, 3)
         log_record["source"] = record.name
         log_record["level"] = record.levelname
         log_record["levelno"] = record.levelno
-        super().add_fields(log_record, record, message_dict)
 
 
 VERBOSE_LEVEL = 15
