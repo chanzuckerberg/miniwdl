@@ -19,6 +19,7 @@ import re
 import hashlib
 import uuid
 import base64
+import contextlib
 from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 from contextlib import ExitStack
@@ -38,7 +39,7 @@ from .._util import (
     compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
-from . import config
+from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
 from .cache import CallCache
 from .error import *
@@ -478,7 +479,11 @@ class SwarmContainer(TaskContainer):
             logger.debug(_("docker service", name=svc.name, id=svc.short_id))
 
             # stream stderr into log
-            with PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt")) as poll_stderr:
+            with contextlib.ExitStack() as cleanup:
+                poll_stderr = cleanup.enter_context(
+                    PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt"))
+                )
+
                 # poll for container exit
                 while exit_code is None:
                     time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
@@ -490,9 +495,14 @@ class SwarmContainer(TaskContainer):
                         if not quiet:
                             self.poll_service(logger, svc, verbose=True)
                         raise Terminated(quiet=quiet)
-                    if "running" in self._observed_states:
-                        poll_stderr()
+                    was_running = "running" in self._observed_states
                     exit_code = self.poll_service(logger, svc)
+                    if "running" in self._observed_states:
+                        if not was_running:
+                            # indicate actual container start in status bar
+                            cleanup.enter_context(_statusbar.task_running(cpu, memory_reservation))
+                        poll_stderr()
+
                 logger.debug(
                     _(
                         "docker service logs",
@@ -755,16 +765,20 @@ def run_local_task(
                     If the final path component is ".", then operate in run_dir directly.
     """
 
-    # provision run directory and log file
-    run_id = run_id or task.name
     _run_id_stack = _run_id_stack or []
-    run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
-
+    run_id = run_id or task.name
     logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
     logger = logging.getLogger(".".join(logger_prefix))
-    logfile = os.path.join(run_dir, "task.log")
     with ExitStack() as cleanup:
-        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))  # pylint: disable=no-member
+        cleanup.enter_context(_statusbar.task_slotted())
+        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
+        if terminating():
+            raise Terminated(quiet=True)
+
+        # provision run directory and log file
+        run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
+        logfile = os.path.join(run_dir, "task.log")
+        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         logger.notice(  # pyre-fixme
             _(
@@ -780,9 +794,7 @@ def run_local_task(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
-            cache = _cache or cleanup.enter_context(  # pylint: disable=no-member
-                CallCache(cfg, logger)
-            )
+            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
         else:
             cache = _cache
@@ -836,7 +848,7 @@ def run_local_task(
                 command, runtime, container = (recv[k] for k in ("command", "runtime", "container"))
 
                 # start container & run command (and retry if needed)
-                _try_task(cfg, logger, container, command, runtime)
+                _try_task(cfg, logger, container, command, runtime, terminating)
 
                 # evaluate output declarations
                 outputs = _eval_task_outputs(logger, task, container_env, container)
@@ -1108,6 +1120,7 @@ def _try_task(
     container: TaskContainer,
     command: str,
     runtime: Dict[str, Union[int, str]],
+    terminating: Callable[[], bool],
 ) -> None:
     """
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
@@ -1119,6 +1132,8 @@ def _try_task(
     interruptions = 0
 
     while True:
+        if terminating():
+            raise Terminated()
         # copy input files, if needed
         if cfg["file_io"].get_bool("copy_input_files"):
             container.copy_input_files(logger)
@@ -1140,6 +1155,8 @@ def _try_task(
                     and interruptions < cfg["task_runtime"].get_int("_mock_interruptions")
                 ):
                     raise Interrupted("mock interruption") from None
+                if terminating():
+                    raise Terminated()
         except Exception as exn:
             if isinstance(exn, Interrupted) and interruptions < max_interruptions:
                 logger.error(

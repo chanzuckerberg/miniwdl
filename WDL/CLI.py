@@ -19,6 +19,7 @@ import docker
 from shlex import quote as shellquote
 from datetime import datetime
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
+from contextlib import ExitStack
 import importlib_metadata
 from . import *
 from ._util import (
@@ -37,7 +38,6 @@ quant_warning = False
 
 def main(args=None):
     sys.setrecursionlimit(1_000_000)  # permit as much call stack depth as OS can give us
-    os.environ["COLUMNS"] = os.environ.get("COLUMNS", "100")
 
     parser = ArgumentParser("miniwdl")
     parser.add_argument(
@@ -56,7 +56,14 @@ def main(args=None):
     fill_common(fill_localize_subparser(subparsers))
 
     argcomplete.autocomplete(parser)
+
+    replace_COLUMNS = os.environ.get("COLUMNS", None)
+    os.environ["COLUMNS"] = "100"  # make help descriptions wider
     args = parser.parse_args(args if args is not None else sys.argv[1:])
+    if replace_COLUMNS is not None:
+        os.environ["COLUMNS"] = replace_COLUMNS
+    else:
+        del os.environ["COLUMNS"]
 
     try:
         if args.command == "check":
@@ -484,135 +491,142 @@ def runner(
         os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
-    install_coloredlogs(logger)
 
-    if os.geteuid() == 0:
-        logger.warning(
-            "running as root; non-root users should be able to `miniwdl run` as long as they're in the `docker` group"
-        )
+    with ExitStack() as cleanup:
+        set_status = cleanup.enter_context(install_coloredlogs(logger))
 
-    # load configuration & apply command-line overrides
-    cfg_arg = None
-    if cfg:
-        assert os.path.isfile(cfg), "--cfg file not found"
-        cfg_arg = [cfg]
-    cfg = runtime.config.Loader(logger, filenames=cfg_arg)
-    cfg_overrides = {
-        "scheduler": {},
-        "file_io": {},
-        "task_runtime": {},
-        "download_cache": {},
-    }
-    if max_tasks is not None:
-        cfg_overrides["scheduler"]["call_concurrency"] = max_tasks
-    if copy_input_files:
-        cfg_overrides["file_io"]["copy_input_files"] = copy_input_files
-    if as_me:
-        cfg_overrides["task_runtime"]["as_user"] = as_me
-    if runtime_defaults:
-        if runtime_defaults.lstrip()[0] == "{":
-            json.loads(runtime_defaults)
-            cfg_overrides["task_runtime"]["defaults"] = runtime_defaults
-        else:
-            with open(runtime_defaults, "r") as infile:
-                cfg_overrides["task_runtime"]["defaults"] = infile.read()
-    if runtime_cpu_max is not None:
-        cfg_overrides["task_runtime"]["cpu_max"] = runtime_cpu_max
-    if runtime_memory_max is not None:
-        runtime_memory_max = (
-            -1 if runtime_memory_max.strip() == "-1" else parse_byte_size(runtime_memory_max)
-        )
-        cfg_overrides["task_runtime"]["memory_max"] = runtime_memory_max
-    if no_cache:
-        cfg_overrides["download_cache"]["get"] = False
-
-    cfg.override(cfg_overrides)
-    cfg.log_all()
-
-    # check root
-    if not path_really_within((run_dir or os.getcwd()), cfg["file_io"]["root"]):
-        logger.error(
-            _(
-                "working directory or --dir must be within the configured `file_io.root' directory",
-                dir=(run_dir or os.getcwd()),
-                root=cfg["file_io"]["root"],
+        if os.geteuid() == 0:
+            logger.warning(
+                "running as root; non-root users should be able to `miniwdl run` as long as they're in the `docker` group"
             )
-        )
-        sys.exit(2)
-    if (
-        cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put")
-    ) and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
-        logger.error(
-            _(
-                "configuration error: 'download_cache.dir' must be within the `file_io.root' directory",
-                dir=cfg["download_cache"]["dir"],
-                root=cfg["file_io"]["root"],
+
+        # load configuration & apply command-line overrides
+        cfg_arg = None
+        if cfg:
+            assert os.path.isfile(cfg), "--cfg file not found"
+            cfg_arg = [cfg]
+        cfg = runtime.config.Loader(logger, filenames=cfg_arg)
+        cfg_overrides = {
+            "scheduler": {},
+            "file_io": {},
+            "task_runtime": {},
+            "download_cache": {},
+        }
+        if max_tasks is not None:
+            cfg_overrides["scheduler"]["call_concurrency"] = max_tasks
+        if copy_input_files:
+            cfg_overrides["file_io"]["copy_input_files"] = copy_input_files
+        if as_me:
+            cfg_overrides["task_runtime"]["as_user"] = as_me
+        if runtime_defaults:
+            if runtime_defaults.lstrip()[0] == "{":
+                json.loads(runtime_defaults)
+                cfg_overrides["task_runtime"]["defaults"] = runtime_defaults
+            else:
+                with open(runtime_defaults, "r") as infile:
+                    cfg_overrides["task_runtime"]["defaults"] = infile.read()
+        if runtime_cpu_max is not None:
+            cfg_overrides["task_runtime"]["cpu_max"] = runtime_cpu_max
+        if runtime_memory_max is not None:
+            runtime_memory_max = (
+                -1 if runtime_memory_max.strip() == "-1" else parse_byte_size(runtime_memory_max)
             )
-        )
-        sys.exit(2)
+            cfg_overrides["task_runtime"]["memory_max"] = runtime_memory_max
+        if no_cache:
+            cfg_overrides["download_cache"]["get"] = False
 
-    # load WDL document
-    doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
+        cfg.override(cfg_overrides)
+        cfg.log_all()
 
-    # parse and validate the provided inputs
-    def file_found(fn):
-        return runtime.download.able(cfg, fn) or os.path.isfile(fn)
-
-    eff_root = cfg["file_io"]["root"] if not cfg["file_io"].get_bool("copy_input_files") else "/"
-
-    target, input_env, input_json = runner_input(
-        doc,
-        inputs,
-        input_file,
-        empty,
-        task=task,
-        file_found=file_found,
-        root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
-    )
-
-    if json_only:
-        print(json.dumps(input_json, indent=2))
-        sys.exit(0)
-
-    # debug logging
-    versionlog = {}
-    for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
-        try:
-            versionlog[pkg] = str(importlib_metadata.version(pkg))
-        except importlib_metadata.PackageNotFoundError:
-            versionlog[pkg] = "UNKNOWN"
-    logger.debug(_("package versions", **versionlog))
-
-    envlog = {}
-    for k in os.environ:
-        if k.upper().startswith("MINIWDL") or k in [
-            "LANG",
-            "SHELL",
-            "USER",
-            "HOME",
-            "PWD",
-            "TMPDIR",
-        ]:
-            envlog[k] = os.environ[k]
-    logger.debug(_("environment", **envlog))
-
-    enabled_plugins = []
-    disabled_plugins = []
-    for group in runtime.config.DEFAULT_PLUGINS.keys():
-        for enabled, plugin in runtime.config.load_all_plugins(cfg, group):
-            (enabled_plugins if enabled else disabled_plugins).append(
-                f"{plugin.name} = {plugin.value}"
+        # check root
+        if not path_really_within((run_dir or os.getcwd()), cfg["file_io"]["root"]):
+            logger.error(
+                _(
+                    "working directory or --dir must be within the configured `file_io.root' directory",
+                    dir=(run_dir or os.getcwd()),
+                    root=cfg["file_io"]["root"],
+                )
             )
-    if enabled_plugins or disabled_plugins:
-        logger.debug(_("plugin configuration", enabled=enabled_plugins, disabled=disabled_plugins))
+            sys.exit(2)
+        if (
+            cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put")
+        ) and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+            logger.error(
+                _(
+                    "configuration error: 'download_cache.dir' must be within the `file_io.root' directory",
+                    dir=cfg["download_cache"]["dir"],
+                    root=cfg["file_io"]["root"],
+                )
+            )
+            sys.exit(2)
 
-    rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
+        # load WDL document
+        doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
-    # initialize local Docker Swarm
-    runtime.task.SwarmContainer.global_init(cfg, logger)
+        # parse and validate the provided inputs
+        def file_found(fn):
+            return runtime.download.able(cfg, fn) or os.path.isfile(fn)
 
-    # run & log any errors
-    with runtime.cache.CallCache(cfg, logger) as cache:
+        eff_root = (
+            cfg["file_io"]["root"] if not cfg["file_io"].get_bool("copy_input_files") else "/"
+        )
+
+        target, input_env, input_json = runner_input(
+            doc,
+            inputs,
+            input_file,
+            empty,
+            task=task,
+            file_found=file_found,
+            root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
+        )
+
+        if json_only:
+            print(json.dumps(input_json, indent=2))
+            sys.exit(0)
+
+        # debug logging
+        versionlog = {}
+        for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
+            try:
+                versionlog[pkg] = str(importlib_metadata.version(pkg))
+            except importlib_metadata.PackageNotFoundError:
+                versionlog[pkg] = "UNKNOWN"
+        logger.debug(_("package versions", **versionlog))
+
+        envlog = {}
+        for k in os.environ:
+            if k.upper().startswith("MINIWDL") or k in [
+                "LANG",
+                "SHELL",
+                "USER",
+                "HOME",
+                "PWD",
+                "TMPDIR",
+            ]:
+                envlog[k] = os.environ[k]
+        logger.debug(_("environment", **envlog))
+
+        enabled_plugins = []
+        disabled_plugins = []
+        for group in runtime.config.DEFAULT_PLUGINS.keys():
+            for enabled, plugin in runtime.config.load_all_plugins(cfg, group):
+                (enabled_plugins if enabled else disabled_plugins).append(
+                    f"{plugin.name} = {plugin.value}"
+                )
+        if enabled_plugins or disabled_plugins:
+            logger.debug(
+                _("plugin configuration", enabled=enabled_plugins, disabled=disabled_plugins)
+            )
+
+        rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
+
+        # initialize local Docker Swarm
+        runtime.task.SwarmContainer.global_init(cfg, logger)
+
+        # run & log any errors
+        cleanup.enter_context(runtime._statusbar.enable(set_status))
+        cache = cleanup.enter_context(runtime.cache.CallCache(cfg, logger))
         rundir = None
         try:
             rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir, _cache=cache)
@@ -1350,119 +1364,119 @@ def localize(
 ):
     logging.basicConfig(level=NOTICE_LEVEL)
     logger = logging.getLogger("miniwdl-localize")
-    install_coloredlogs(logger)
+    with install_coloredlogs(logger) as set_status:
 
-    cfg_arg = None
-    if cfg:
-        assert os.path.isfile(cfg), "--cfg file not found"
-        cfg_arg = [cfg]
-    cfg = runtime.config.Loader(logger, filenames=cfg_arg)
-    cache_cfg = cfg["download_cache"]
-    original_get = cache_cfg.get_bool("get")
-    if original_get and no_cache:
-        cfg.override({"download_cache": {"get": False}})
-    logger.notice(
-        _(
-            "effective configuration",
-            put=cache_cfg.get_bool("put"),
-            get=cache_cfg.get_bool("get"),
-            dir=cache_cfg["dir"],
-            ignore_query=cache_cfg.get_bool("ignore_query"),
-            enable_patterns=cache_cfg.get_list("enable_patterns"),
-            disable_patterns=cache_cfg.get_list("disable_patterns"),
-        )
-    )
-
-    uri = uri or []
-    uri = set(uri)
-
-    if infile:
-        # load WDL document
-        doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
-
-        def file_found(fn):
-            return runtime.download.able(cfg, fn) or os.path.isfile(fn)
-
-        target, input_env, input_json = runner_input(
-            doc, [], infile, [], task=task, check_required=False, file_found=file_found
-        )
-
-        # scan for Files that appear to be downloadable URIs
-        def scan(x):
-            if isinstance(x, Value.File) and runtime.download.able(cfg, x.value):
-                yield x.value
-            for y in x.children:
-                yield from scan(y)
-
-        for b in input_env:
-            uri |= set(scan(b.value))
-
-    if not uri:
-        logger.warning(
-            "nothing to do; if inputs use special URI schemes, make sure necessary downloader plugin(s) are installed and enabled"
-        )
-        sys.exit(0)
-
-    if not cache_cfg.get_bool("put"):
-        logger.error(
-            'configuration section "download_cache", option "put" (env MINIWDL__DOWNLOAD_CACHE__PUT) must be true for this operation to be effective'
-        )
-        sys.exit(2)
-
-    if not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
-        logger.error(
+        cfg_arg = None
+        if cfg:
+            assert os.path.isfile(cfg), "--cfg file not found"
+            cfg_arg = [cfg]
+        cfg = runtime.config.Loader(logger, filenames=cfg_arg)
+        cache_cfg = cfg["download_cache"]
+        original_get = cache_cfg.get_bool("get")
+        if original_get and no_cache:
+            cfg.override({"download_cache": {"get": False}})
+        logger.notice(
             _(
-                "configuration error: `download_cache.dir' must be within the `file_io.root' directory",
-                dir=cfg["download_cache"]["dir"],
-                root=cfg["file_io"]["root"],
+                "effective configuration",
+                put=cache_cfg.get_bool("put"),
+                get=cache_cfg.get_bool("get"),
+                dir=cache_cfg["dir"],
+                ignore_query=cache_cfg.get_bool("ignore_query"),
+                enable_patterns=cache_cfg.get_list("enable_patterns"),
+                disable_patterns=cache_cfg.get_list("disable_patterns"),
             )
         )
-        sys.exit(2)
 
-    with runtime.cache.CallCache(cfg, logger) as cache:
-        disabled = [u for u in uri if not cache.download_path(u)]
-    if disabled:
-        logger.notice(_("URIs found but not cacheable per configuration", uri=disabled))
-    uri = list(uri - set(disabled))
+        uri = uri or []
+        uri = set(uri)
 
-    if not uri:
-        logger.warning("nothing to do; check configured enable_patterns and disable_patterns")
-        sys.exit(0)
-    logger.notice(_("starting downloads", uri=uri))
+        if infile:
+            # load WDL document
+            doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
 
-    # initialize Docker Swarm
-    runtime.task.SwarmContainer.global_init(cfg, logger)
+            def file_found(fn):
+                return runtime.download.able(cfg, fn) or os.path.isfile(fn)
 
-    # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
-    # runtime to download & cache them
-    localizer_wdl = """
-        version 1.0
-        workflow localize {
-            input {
-                Array[File] uris
+            target, input_env, input_json = runner_input(
+                doc, [], infile, [], task=task, check_required=False, file_found=file_found
+            )
+
+            # scan for Files that appear to be downloadable URIs
+            def scan(x):
+                if isinstance(x, Value.File) and runtime.download.able(cfg, x.value):
+                    yield x.value
+                for y in x.children:
+                    yield from scan(y)
+
+            for b in input_env:
+                uri |= set(scan(b.value))
+
+        if not uri:
+            logger.warning(
+                "nothing to do; if inputs use special URI schemes, make sure necessary downloader plugin(s) are installed and enabled"
+            )
+            sys.exit(0)
+
+        if not cache_cfg.get_bool("put"):
+            logger.error(
+                'configuration section "download_cache", option "put" (env MINIWDL__DOWNLOAD_CACHE__PUT) must be true for this operation to be effective'
+            )
+            sys.exit(2)
+
+        if not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+            logger.error(
+                _(
+                    "configuration error: `download_cache.dir' must be within the `file_io.root' directory",
+                    dir=cfg["download_cache"]["dir"],
+                    root=cfg["file_io"]["root"],
+                )
+            )
+            sys.exit(2)
+
+        with runtime.cache.CallCache(cfg, logger) as cache:
+            disabled = [u for u in uri if not cache.download_path(u)]
+        if disabled:
+            logger.notice(_("URIs found but not cacheable per configuration", uri=disabled))
+        uri = list(uri - set(disabled))
+
+        if not uri:
+            logger.warning("nothing to do; check configured enable_patterns and disable_patterns")
+            sys.exit(0)
+        logger.notice(_("starting downloads", uri=uri))
+
+        # initialize Docker Swarm
+        runtime.task.SwarmContainer.global_init(cfg, logger)
+
+        # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
+        # runtime to download & cache them
+        localizer_wdl = """
+            version 1.0
+            workflow localize {
+                input {
+                    Array[File] uris
+                }
+                output {
+                    Array[File] files = uris
+                }
             }
-            output {
-                Array[File] files = uris
-            }
-        }
-        """
-    localizer = parse_document(localizer_wdl)
-    localizer.typecheck()
-    cfg = runtime.config.Loader(logger)
-    subdir, outputs = runtime.run(
-        cfg,
-        localizer.workflow,
-        values_from_json({"uris": uri}, localizer.workflow.available_inputs),
-        run_dir=os.environ.get("TMPDIR", "/tmp"),
-    )
-
-    logger.notice(
-        _("success", files=[os.path.realpath(p) for p in values_to_json(outputs)["files"]])
-    )
-    if not original_get:
-        logger.warning(
-            """future runs won't use the cache unless configuration section "download_cache", key "get" (env MINIWDL__DOWNLOAD_CACHE__GET) is set to true"""
+            """
+        localizer = parse_document(localizer_wdl)
+        localizer.typecheck()
+        cfg = runtime.config.Loader(logger)
+        subdir, outputs = runtime.run(
+            cfg,
+            localizer.workflow,
+            values_from_json({"uris": uri}, localizer.workflow.available_inputs),
+            run_dir=os.environ.get("TMPDIR", "/tmp"),
         )
+
+        logger.notice(
+            _("success", files=[os.path.realpath(p) for p in values_to_json(outputs)["files"]])
+        )
+        if not original_get:
+            logger.warning(
+                """future runs won't use the cache unless configuration section "download_cache", key "get" (env MINIWDL__DOWNLOAD_CACHE__GET) is set to true"""
+            )
 
 
 def die(msg, status=2):

@@ -58,7 +58,7 @@ from .._util import (
     compose_coroutines,
 )
 from .._util import StructuredLogMessage as _
-from . import config
+from . import config, _statusbar
 from .cache import CallCache
 from .error import RunFailed, Terminated, error_json
 
@@ -194,8 +194,6 @@ class StateMachine:
                 known_jobs,
             )
 
-        self._log_status()
-
     @property
     def outputs(self) -> Optional[Env.Bindings[Value.Base]]:
         """
@@ -252,7 +250,6 @@ class StateMachine:
                     set(itertools.chain(*(self.jobs[j].dependencies for j in self.waiting)))
                     - self.finished
                 )
-                self._log_status()
                 return None
             job_id = runnable.pop()
             job = self.jobs[job_id]
@@ -417,16 +414,6 @@ class StateMachine:
             #
             # and close it later
         return self._logger
-
-    def _log_status(self) -> None:
-        self.logger.notice(  # pyre-fixme
-            _(
-                "workflow steps",
-                waiting=len(self.waiting),
-                outstanding=len(self.running),
-                finished=len(self.finished),
-            )
-        )
 
     def __getstate__(self) -> Dict[str, Any]:
         ans = dict(self.__dict__)
@@ -636,7 +623,7 @@ def run_local_workflow(
     logger = logging.getLogger(".".join(logger_id))
     logfile = os.path.join(run_dir, "workflow.log")
     with ExitStack() as cleanup:
-        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))  # pylint: disable=no-member
+        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
         fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
         logger.notice(  # pyre-fixme
             _(
@@ -651,9 +638,7 @@ def run_local_workflow(
         logger.debug(_("thread", ident=threading.get_ident()))
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
-        terminating = cleanup.enter_context(  # pylint: disable=no-member
-            TerminationSignalFlag(logger)
-        )
+        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
 
         # if we're the top-level workflow, provision CallCache and thread pools
         if not _run_id_stack:
@@ -664,9 +649,7 @@ def run_local_workflow(
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
             assert not _thread_pools
 
-            cache = _cache or cleanup.enter_context(  # pylint: disable=no-member
-                CallCache(cfg, logger)
-            )
+            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
@@ -678,13 +661,9 @@ def run_local_workflow(
                 cfg["scheduler"].get_int("call_concurrency") or multiprocessing.cpu_count()
             )
             task_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
-            cleanup.callback(  # pylint: disable=no-member
-                futures.ThreadPoolExecutor.shutdown, task_pool
-            )
+            cleanup.callback(futures.ThreadPoolExecutor.shutdown, task_pool)
             subwf_pool = futures.ThreadPoolExecutor(max_workers=max_workers)
-            cleanup.callback(  # pylint: disable=no-member
-                futures.ThreadPoolExecutor.shutdown, subwf_pool
-            )
+            cleanup.callback(futures.ThreadPoolExecutor.shutdown, subwf_pool)
             thread_pools = (task_pool, subwf_pool)
         else:
             assert _thread_pools and _cache
@@ -707,6 +686,7 @@ def run_local_workflow(
                 _test_pickle,
             )
         except:
+            _statusbar.abort()
             if not _run_id_stack:
                 # if we're the top-level worfklow, signal abort to anything still running
                 # concurrently on the thread pools (SIGUSR1 will be picked up by
@@ -778,6 +758,7 @@ def _workflow_main_loop(
                     }
                     # submit to appropriate thread pool
                     if isinstance(next_call.callee, Tree.Task):
+                        _statusbar.task_backlogged()
                         future = thread_pools[0].submit(run_local_task, *sub_args, **sub_kwargs)
                     elif isinstance(next_call.callee, Tree.Workflow):
                         future = thread_pools[1].submit(

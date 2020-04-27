@@ -1231,7 +1231,6 @@ class Document(SourceNode):
             if imp.doc:
                 yield imp.doc
         for stb in self.struct_typedefs:
-            # pylint: disable=no-member
             assert isinstance(stb, Env.Binding) and isinstance(stb.value, StructTypeDef)
             yield stb.value
         for task in self.tasks:
