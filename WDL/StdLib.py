@@ -77,8 +77,8 @@ class Base:
         def defined(v: Value.Base):
             return Value.Boolean(not isinstance(v, Value.Null))
 
-        @static([Type.Array(Type.String()), Type.String()], Type.String())
-        def sep(iterable: Value.Array, sep: Value.String) -> Value.String:
+        @static([Type.String(), Type.Array(Type.String())], Type.String())
+        def sep(sep: Value.String, iterable: Value.Array) -> Value.String:
             return Value.String(sep.value.join(v.value for v in iterable.value))
 
         # write_*
