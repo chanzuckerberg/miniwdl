@@ -321,7 +321,7 @@ input_decls: "input" "{" any_decl* "}"
 output_decls: "output" "{" bound_decl* "}"
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
-!?placeholder_key: "default" | "false" | "true" | "sep"
+!?placeholder_key: "default" | "false" | "true"
 ?placeholder_value: string_literal
                   | INT -> int
                   | FLOAT -> float
