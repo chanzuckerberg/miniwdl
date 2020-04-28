@@ -1034,7 +1034,7 @@ def run_self_test(**kwargs):
         os.path.join(dn, "test.wdl"),
         "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt",
         "--dir",
-        dn,
+        dn if dn not in [".", "./"] else os.getcwd(),
         "--debug",
     ]
     if kwargs["as_me"]:
