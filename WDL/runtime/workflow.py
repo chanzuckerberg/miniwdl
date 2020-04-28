@@ -52,7 +52,6 @@ from .._util import (
     write_atomic,
     write_values_json,
     provision_run_dir,
-    LOGGING_FORMAT,
     TerminationSignalFlag,
     LoggingFileHandler,
     compose_coroutines,
@@ -404,15 +403,8 @@ class StateMachine:
     def logger(self) -> logging.Logger:
         if not self._logger:
             self._logger = logging.getLogger(self.logger_id)
-            # TODO: if we were truly unpickling in a new process, we'd need to reinitialize the
-            # logger object like this --
-            #
-            # if self.run_dir and not self._logger.hasHandlers():
-            #    fh = logging.FileHandler(os.path.join(self.run_dir, "workflow.log"))
-            #    fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
-            #    self._logger.addHandler(fh)
-            #
-            # and close it later
+            # TODO: if we were truly unpickling in a new process, we'd need to add a new
+            # LoggingFileHandler to self._logger
         return self._logger
 
     def __getstate__(self) -> Dict[str, Any]:
@@ -623,8 +615,15 @@ def run_local_workflow(
     logger = logging.getLogger(".".join(logger_id))
     logfile = os.path.join(run_dir, "workflow.log")
     with ExitStack() as cleanup:
-        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
-        fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
+        fh = cleanup.enter_context(
+            LoggingFileHandler(
+                logger,
+                logfile,
+                json=(
+                    cfg["logging"].get_bool("json") if cfg.has_option("logging", "json") else False
+                ),
+            )
+        )
         logger.notice(  # pyre-fixme
             _(
                 "workflow start",

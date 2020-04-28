@@ -148,10 +148,10 @@ class TestTaskRunner(unittest.TestCase):
         }
         """)
 
-        std_error_msgs = [record for record in capture.records if str(record.msg).startswith("2|")]
+        std_error_msgs = [record for record in capture.records if str(record.name).endswith("stderr")]
 
-        self.assertEqual(std_error_msgs.pop(0).msg, "2| Start logging")
-        self.assertEqual(std_error_msgs.pop().msg, "2| End logging")
+        self.assertEqual(std_error_msgs.pop(0).msg, "Start logging")
+        self.assertEqual(std_error_msgs.pop().msg, "End logging")
         for record in std_error_msgs:
             line_written = int(record.msg.split('=')[1])
             self.assertGreater(record.created, line_written)
@@ -181,10 +181,10 @@ class TestTaskRunner(unittest.TestCase):
 
                 }
                 """)
-        std_error_msgs = [record for record in capture.records if str(record.msg).startswith("2|")]
+        std_error_msgs = [record for record in capture.records if str(record.name).endswith("stderr")]
 
         self.assertEqual(len(std_error_msgs), 6)
-        self.assertEqual(std_error_msgs[0].msg, "2| Part onePart two")
+        self.assertEqual(std_error_msgs[0].msg, "Part onePart two")
 
     def test_hello_blank(self):
         self._test_task(R"""
@@ -670,8 +670,7 @@ class TestTaskRunner(unittest.TestCase):
 
     def test_signal(self):
         # also just covering codepaths for stderr status bar logging:
-        logger = logging.getLogger(self.id())
-        with WDL._util.install_coloredlogs(logger, force=True) as set_status, WDL.runtime._statusbar.enable(set_status):
+        with WDL._util.configure_logger(force_tty=True) as set_status, WDL.runtime._statusbar.enable(set_status):
             signal.alarm(10)
             t0 = time.time()
             self._test_task(R"""
@@ -684,6 +683,8 @@ class TestTaskRunner(unittest.TestCase):
             """, expected_exception=WDL.runtime.Terminated)
             t1 = time.time()
             self.assertLess(t1 - t0, 20)
+        with WDL._util.configure_logger(json=True) as _:
+            pass
 
     def test_orphan_background_process(self):
         # TODO: https://github.com/chanzuckerberg/miniwdl/issues/211

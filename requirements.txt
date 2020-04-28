@@ -3,9 +3,10 @@
 setuptools
 lark-parser==0.8.5
 docker>=3.4.0
-argcomplete
-pygtail>=0.11.0
-coloredlogs
+argcomplete~=1.11.0
+pygtail~=0.11.0
+coloredlogs~=11.0
+python-json-logger~=0.1.11
 importlib-metadata
 regex
 xdg
