@@ -712,3 +712,47 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
+    def test_sep(self):
+        outputs = self._test_task(R"""
+        version development
+        task SepTest {
+            input {
+                Array[String] inp = ["value1", "value2", "value3"]
+            }
+            command {}
+            output {
+                String out = sep(",", inp)
+            }
+        }
+        """)
+        self.assertEqual("value1,value2,value3", outputs["out"])
+
+        outputs = self._test_task(R"""
+        version development
+        task SepTest {
+            input {
+                Array[String] inp = ["value1", "value2", "value3"]
+            }
+            command <<<
+                echo ~{sep(",", inp)}
+            >>>
+
+            output {
+                String out = read_string(stdout())
+            }
+        }
+        """)
+        self.assertEqual("value1,value2,value3", outputs["out"])
+
+        self._test_task(R"""
+        version development
+        task SepTest {
+            input {
+                Array[String] inp = ["value1", "value2", "value3"]
+            }
+            command <<<
+                echo ~{sep="," inp}
+            >>>
+        }
+        """, expected_exception=WDL.Error.SyntaxError)
