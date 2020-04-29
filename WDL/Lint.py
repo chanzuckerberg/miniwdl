@@ -986,7 +986,7 @@ class MissingVersion(Linter):
             None,
         )
         # (don't bother with this warning if the document is effectively empty)
-        if first_sloc and not first_sloc[1].startswith("version "):
+        if first_sloc and obj.wdl_version is None:
             line = (first_sloc[0] + 1) if first_sloc else obj.pos.line
             self.add(
                 obj,

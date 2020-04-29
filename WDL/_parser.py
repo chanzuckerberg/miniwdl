@@ -241,14 +241,22 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     _keywords: Set[str]
     _source_text: str
     _comments: List[lark.Token]
+    _version: Optional[str]
 
     def __init__(
-        self, source_text: str, keywords: Set[str], comments: List[lark.Token], *args, **kwargs
+        self,
+        source_text: str,
+        keywords: Set[str],
+        comments: List[lark.Token],
+        version: Optional[str],
+        *args,
+        **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self._source_text = source_text
         self._keywords = keywords
         self._comments = comments
+        self._version = version
 
     def _check_keyword(self, pos, name):
         if name in self._keywords:
@@ -534,7 +542,14 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         ]
 
         return Tree.Document(
-            self._source_text, self._sp(meta), imports, structs, tasks, workflow, comments
+            self._source_text,
+            self._sp(meta),
+            imports,
+            structs,
+            tasks,
+            workflow,
+            comments,
+            self._version,
         )
 
 
@@ -566,9 +581,9 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
     try:
         (grammar, keywords) = _grammar.get(version)
         raw_ast, comments = parse(grammar, txt, "tasks")
-        return _DocTransformer(source_text=txt, keywords=keywords, comments=comments).transform(
-            raw_ast
-        )
+        return _DocTransformer(
+            source_text=txt, keywords=keywords, comments=comments, version=version
+        ).transform(raw_ast)
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
 
@@ -578,25 +593,30 @@ def parse_document(
 ) -> Tree.Document:
     npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
     if not txt.strip():
-        return Tree.Document(txt, npos, [], {}, [], None, [])
-    if version is None:
-        # for now assume the version is 1.0 if the first line is "version <number>"
-        # otherwise draft-2
-        version = "draft-2"
-        for line in txt.split("\n"):
-            line = line.strip()
-            if line and line[0] != "#":
-                if line.startswith("version "):
-                    version = line[8:]
-                break
+        return Tree.Document(txt, npos, [], {}, [], None, [], None)
+    declared_version = None
+    for line in txt.split("\n"):
+        line = line.strip()
+        if line and line[0] != "#":
+            if line.startswith("version "):
+                declared_version = line[8:]
+            break
+    version = version or declared_version or "draft-2"
     try:
         (grammar, keywords) = _grammar.get(version)
     except KeyError:
-        raise Error.SyntaxError(npos, "unknown WDL version " + version) from None
+        raise Error.SyntaxError(
+            npos, f"unknown WDL version {version}; choices: " + ", ".join(_grammar.versions.keys())
+        ) from None
     try:
         raw_ast, comments = parse(grammar, txt, "document")
         return _DocTransformer(
-            source_text=txt, uri=uri, abspath=abspath, keywords=keywords, comments=comments
+            source_text=txt,
+            uri=uri,
+            abspath=abspath,
+            keywords=keywords,
+            comments=comments,
+            version=declared_version,
         ).transform(raw_ast)
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
