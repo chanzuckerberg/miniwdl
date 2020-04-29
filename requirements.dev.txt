@@ -2,7 +2,7 @@
 # requirements.txt which are needed for miniwdl to run in common use.
 pyre-check==0.0.27
 black==19.10b0
-pylint
+pylint==2.4.4
 sphinx
 sphinx-autobuild
 sphinx_rtd_theme
