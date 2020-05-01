@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='miniwdl_download_awscli',
-    version='0.0.1',
+    version='0.1.0',
     description='miniwdl download plugin for s3:// using awscli',
     author='Wid L. Hacker',
     py_modules=["miniwdl_download_awscli"],
