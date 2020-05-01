@@ -539,6 +539,7 @@ class CustomDeepCopyMixin:
 
 
 byte_size_units = {
+    "B": 1,
     "K": 1000,
     "KB": 1000,
     "Ki": 1024,
