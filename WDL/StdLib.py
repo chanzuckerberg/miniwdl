@@ -113,6 +113,7 @@ class Base:
         # infer_type logic
         self.range = _Range()
         self.prefix = _Prefix()
+        self.suffix = _Suffix()
         self.size = _Size(self)
         self.select_first = _SelectFirst()
         self.select_all = _SelectAll()
@@ -120,6 +121,8 @@ class Base:
         self.cross = _Cross()
         self.flatten = _Flatten()
         self.transpose = _Transpose()
+        self.quote = _Quote()
+        self.squote = _Quote(squote=True)
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -882,4 +885,58 @@ class _Prefix(EagerFunction):
         return Value.Array(
             Type.String(),
             [Value.String(pfx + s.coerce(Type.String()).value) for s in arguments[1].value],
+        )
+
+
+class _Suffix(EagerFunction):
+    # string -> t array -> string array
+    # if input array is nonempty then so is output
+    # Append a suffix to every element within the array
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+        expr.arguments[0].typecheck(Type.String())
+        expr.arguments[1].typecheck(Type.Array(Type.String()))
+        arg1ty = expr.arguments[1].type
+        return Type.Array(
+            Type.String(), nonempty=(isinstance(arg1ty, Type.Array) and arg1ty.nonempty)
+        )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        sfx = arguments[0].coerce(Type.String()).value
+        return Value.Array(
+            Type.String(),
+            [Value.String(s.coerce(Type.String()).value + sfx) for s in arguments[1].value],
+        )
+
+
+class _Quote(EagerFunction):
+    # t array -> string array
+    # if input array is nonempty then so is output
+    # Append a suffix to every element within the array
+
+    def __init__(self, squote: bool = False) -> None:
+        if squote:
+            self.quote = "'"
+        else:
+            self.quote = '"'
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        expr.arguments[0].typecheck(Type.Array(Type.String()))
+        arg0ty = expr.arguments[0].type
+        nonempty = isinstance(arg0ty, Type.Array) and arg0ty.nonempty
+        return Type.Array(
+            Type.String(), nonempty=(isinstance(arg0ty, Type.Array) and arg0ty.nonempty)
+        )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        return Value.Array(
+            Type.String(),
+            [
+                Value.String("{0}{1}{0}".format(self.quote, s.coerce(Type.String()).value))
+                for s in arguments[0].value
+            ],
         )
