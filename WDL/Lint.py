@@ -972,3 +972,31 @@ class UnknownRuntimeKey(Linter):
         for k in obj.runtime:
             if k not in self.known_keys:
                 self.add(obj, "unknown entry in task runtime section: " + k, obj.runtime[k].pos)
+
+
+@a_linter
+class MissingVersion(Linter):
+    def document(self, obj: Tree.Document) -> Any:
+        first_sloc = next(
+            (
+                p
+                for p in enumerate(line.lstrip() for line in obj.source_lines)
+                if p[1] and p[1][0] != "#"
+            ),
+            None,
+        )
+        # (don't bother with this warning if the document is effectively empty)
+        if first_sloc and obj.wdl_version is None:
+            line = (first_sloc[0] + 1) if first_sloc else obj.pos.line
+            self.add(
+                obj,
+                "document should declare WDL version; draft-2 assumed",
+                Error.SourcePosition(
+                    uri=obj.pos.uri,
+                    abspath=obj.pos.abspath,
+                    line=line,
+                    end_line=line,
+                    column=1,
+                    end_column=1,
+                ),
+            )

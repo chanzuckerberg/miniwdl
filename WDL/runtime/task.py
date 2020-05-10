@@ -29,7 +29,6 @@ from .._util import (
     write_atomic,
     write_values_json,
     provision_run_dir,
-    LOGGING_FORMAT,
     PygtailLogger,
     TerminationSignalFlag,
     parse_byte_size,
@@ -101,6 +100,13 @@ class TaskContainer(ABC):
 
     input_file_map_rev: Dict[str, str]
 
+    stderr_callback: Optional[Callable[[str], None]]
+    """
+    A function called line-by-line for the task's standard error stream, iff verbose logging is
+    enabled. If provided by a plugin then it overrides the default standard error logging, which
+    writes each line to the 'stderr' child of the task logger.
+    """
+
     _running: bool
 
     def __init__(self, cfg: config.Loader, run_id: str, host_dir: str) -> None:
@@ -110,6 +116,7 @@ class TaskContainer(ABC):
         self.container_dir = "/mnt/miniwdl_task_container"
         self.input_file_map = {}
         self.input_file_map_rev = {}
+        self.stderr_callback = None
         self._running = False
         os.makedirs(os.path.join(self.host_dir, "work"))
 
@@ -481,7 +488,11 @@ class SwarmContainer(TaskContainer):
             # stream stderr into log
             with contextlib.ExitStack() as cleanup:
                 poll_stderr = cleanup.enter_context(
-                    PygtailLogger(logger, os.path.join(self.host_dir, "stderr.txt"))
+                    PygtailLogger(
+                        logger,
+                        os.path.join(self.host_dir, "stderr.txt"),
+                        callback=self.stderr_callback,
+                    )
                 )
 
                 # poll for container exit
@@ -778,8 +789,15 @@ def run_local_task(
         # provision run directory and log file
         run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
         logfile = os.path.join(run_dir, "task.log")
-        fh = cleanup.enter_context(LoggingFileHandler(logger, logfile))
-        fh.setFormatter(logging.Formatter(LOGGING_FORMAT))
+        fh = cleanup.enter_context(
+            LoggingFileHandler(
+                logger,
+                logfile,
+                json=(
+                    cfg["logging"].get_bool("json") if cfg.has_option("logging", "json") else False
+                ),
+            )
+        )
         logger.notice(  # pyre-fixme
             _(
                 "task start",

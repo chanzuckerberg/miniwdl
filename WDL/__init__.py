@@ -263,5 +263,5 @@ def values_to_json(values_env: Env.Bindings[Value.Base], namespace: str = "") ->
         else:
             assert isinstance(item.value, Type.Base)
             j = str(item.value)
-        ans[namespace + item.name] = j
+        ans[(namespace if not item.name.startswith("_") else "") + item.name] = j
     return ans

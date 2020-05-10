@@ -27,7 +27,7 @@ from ._util import (
     write_values_json,
     VERBOSE_LEVEL,
     NOTICE_LEVEL,
-    install_coloredlogs,
+    configure_logger,
     parse_byte_size,
     path_really_within,
 )
@@ -389,6 +389,19 @@ def fill_run_subparser(subparsers):
         action="store_true",
         help="upon failure, print error information JSON to standard output (in addition to standard error logging)",
     )
+    group = run_parser.add_argument_group("logging")
+    group.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="increase logging detail & stream tasks' stderr",
+    )
+    group.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable colored logging and status bar on terminal (also set by NO_COLOR environment variable)",
+    )
+    group.add_argument("--log-json", action="store_true", help="write all logs in JSON")
     group = run_parser.add_argument_group("configuration")
     group.add_argument(
         "--cfg",
@@ -441,17 +454,6 @@ def fill_run_subparser(subparsers):
         action="store_true",
         help="run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. apt-get)",
     )
-    run_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="increase logging detail & stream tasks' stderr",
-    )
-    run_parser.add_argument(
-        "--no-color",
-        action="store_true",
-        help="disable colored logging on terminal (also set by NO_COLOR environment variable)",
-    )
     # TODO:
     # way to specify None for an optional value (that has a default)
     return run_parser
@@ -476,6 +478,7 @@ def runner(
     as_me=False,
     no_cache=False,
     error_json=False,
+    log_json=False,
     **kwargs,
 ):
     # set up logging
@@ -487,13 +490,19 @@ def runner(
     else:
         logging.raiseExceptions = False
     if kwargs["no_color"]:
-        # picked up by _util.install_coloredlogs()
+        # picked up by _util.configure_logger()
         os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
+    # log_json setting only comes from command line or environment (not cfg file), because we
+    # need it before loading configuration
+    log_json = log_json or (
+        os.environ.get("MINIWDL__LOGGING__JSON", "").lower().strip()
+        in ("t", "y", "1", "true", "yes")
+    )
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-run")
 
     with ExitStack() as cleanup:
-        set_status = cleanup.enter_context(install_coloredlogs(logger))
+        set_status = cleanup.enter_context(configure_logger(json=log_json))
 
         if os.geteuid() == 0:
             logger.warning(
@@ -511,6 +520,7 @@ def runner(
             "file_io": {},
             "task_runtime": {},
             "download_cache": {},
+            "logging": {"json": log_json},
         }
         if max_tasks is not None:
             cfg_overrides["scheduler"]["call_concurrency"] = max_tasks
@@ -965,6 +975,7 @@ def fill_run_self_test_subparser(subparsers):
         default=None,
         help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
     )
+    run_parser.add_argument("--log-json", action="store_true", help="write all logs in JSON")
     run_parser.add_argument(
         "--as-me", action="store_true", help="run all containers as the current user uid:gid"
     )
@@ -1023,7 +1034,7 @@ def run_self_test(**kwargs):
         os.path.join(dn, "test.wdl"),
         "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt",
         "--dir",
-        dn,
+        dn if dn not in [".", "./"] else os.getcwd(),
         "--debug",
     ]
     if kwargs["as_me"]:
@@ -1031,6 +1042,8 @@ def run_self_test(**kwargs):
     if kwargs["cfg"]:
         argv.append("--cfg")
         argv.append(kwargs["cfg"])
+    if kwargs["log_json"]:
+        argv.append("--log-json")
     try:
         outputs = main(argv)["outputs"]
         assert len(outputs["hello_caller.messages"]) == 2
@@ -1364,7 +1377,7 @@ def localize(
 ):
     logging.basicConfig(level=NOTICE_LEVEL)
     logger = logging.getLogger("miniwdl-localize")
-    with install_coloredlogs(logger) as set_status:
+    with configure_logger() as set_status:
 
         cfg_arg = None
         if cfg:

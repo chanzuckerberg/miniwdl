@@ -1187,6 +1187,13 @@ class Document(SourceNode):
     corresponding source line, or ``None`` if the line has no comment.
     """
 
+    wdl_version: Optional[str]
+    """
+    :type: Optional[str]
+
+    Declared WDL language version; if absent, then assume draft-2.
+    """
+
     imports: List[DocImport]
     """
     :type: List[DocImport]
@@ -1208,6 +1215,7 @@ class Document(SourceNode):
         tasks: List[Task],
         workflow: Optional[Workflow],
         comments: List[SourceComment],
+        wdl_version: Optional[str],
     ) -> None:
         super().__init__(pos)
         self.imports = imports
@@ -1219,6 +1227,7 @@ class Document(SourceNode):
         self.source_text = source_text
         self.source_lines = source_text.split("\n")
         self.source_comments = [None for _ in self.source_lines]
+        self.wdl_version = wdl_version
         for comment in comments:
             assert self.source_comments[comment.pos.line - 1] is None
             assert self.source_lines[comment.pos.line - 1].endswith(comment.text)

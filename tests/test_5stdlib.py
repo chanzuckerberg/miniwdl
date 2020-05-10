@@ -756,3 +756,154 @@ class TestStdLib(unittest.TestCase):
             >>>
         }
         """, expected_exception=WDL.Error.SyntaxError)
+
+
+    def test_suffix(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_suffix {
+            command {}
+            output {
+                String chocolike = "I like chocolate when it's late"
+                Array[String] chocolove = suffix(" and early",[chocolike]) # ["I like chocolate when it's late and early"]
+                Array[String] chocoearly = suffix(" and early", [chocolike,chocolike]) # ["I like chocolate when it's late and early","I like chocolate when it's late and early"]
+            }
+        }
+        """)
+
+        # Check to make sure suffix added to each element in array
+        self.assertEqual(outputs, {
+            "chocolike": "I like chocolate when it's late",
+            "chocolove": ["I like chocolate when it's late and early"],
+            "chocoearly": ["I like chocolate when it's late and early","I like chocolate when it's late and early"]
+        })
+
+        # check to make sure coercible type returns appropriate suffix
+        outputs = self._test_task(R"""
+                version 1.0
+                task test_suffix {
+                    command {}
+                    output {
+                        Array[Int] integers = [1,2,3,4]
+                        Array[String] integers_with_suffix = suffix(".0", integers) # ["1.0","2.0","3.0","4.0"]
+                    }
+                }
+                """)
+
+        # Missing Suffix
+        self._test_task(R"""
+        version 1.0
+        task test_suffix {
+            command {}
+            output {
+                Array[Int] integers = suffix([1,2,3,4])
+            }
+        }
+        """,expected_exception=WDL.Error.WrongArity)
+
+        # Suffix should require an array
+        self._test_task(R"""
+                version 1.0
+                task test_suffix {
+                    command {}
+                    output {
+                        Array[Int] integers = suffix("not-allowed","s")
+                    }
+                }
+                """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        self.assertEqual(outputs["integers_with_suffix"], ["1.0","2.0","3.0","4.0"])
+
+
+    def test_quote(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_quote {
+            command {}
+            output {
+                Array[String] arguments = ["foo","bar","baz"]
+                Array[String] quoted_args = quote(arguments) # ["\"foo\"","\"bar\"","\"baz\""]
+            }
+        }
+        """)
+        # Check to make sure each element has be quoted appropriately
+        self.assertEqual(outputs, {
+            "arguments": ["foo","bar","baz"],
+            "quoted_args": ["\"foo\"","\"bar\"","\"baz\""]
+        })
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_quote {
+            command {}
+            output {
+                Array[Int] arguments = [1,2,3]
+                Array[String] quoted_args = quote(arguments) # ["\"1\"","\"2\"","\"3\""]
+            }
+        }
+        """)
+
+        # Check to make sure each element has been coerced and quoted appropriately
+        self.assertEqual(outputs, {
+            "arguments": [1,2,3],
+            "quoted_args": ["\"1\"","\"2\"","\"3\""]
+        })
+
+        # Check invalid type does not work
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_quote {
+            command {}
+            output {
+                String arguments = "some argument"
+                Array[String] quoted_args = quote(arguments)
+            }
+        }
+        """,expected_exception=WDL.Error.StaticTypeMismatch)
+
+
+    def test_squote(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_squote {
+            command {}
+            output {
+                Array[String] arguments = ["foo","bar","baz"]
+                Array[String] quoted_args = squote(arguments) # ["'foo'","'bar'","'baz'"]
+            }
+        }
+        """)
+        # Check to make sure each element has be quoted appropriately
+        self.assertEqual(outputs, {
+            "arguments": ["foo","bar","baz"],
+            "quoted_args": ["'foo'","'bar'","'baz'"]
+        })
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_squote {
+            command {}
+            output {
+                Array[Int] arguments = [1,2,3]
+                Array[String] quoted_args = squote(arguments) # ["'1'","'2'","'3'"]
+            }
+        }
+        """)
+
+        # Check to make sure each element has been coerced and quoted appropriately
+        self.assertEqual(outputs, {
+            "arguments": [1,2,3],
+            "quoted_args": ["'1'","'2'","'3'"]
+        })
+
+        # Check invalid type does not work
+        outputs = self._test_task(R"""
+        version 1.0
+        task test_squote {
+            command {}
+            output {
+                String arguments = "some argument"
+                Array[String] quoted_args = squote(arguments)
+            }
+        }
+        """,expected_exception=WDL.Error.StaticTypeMismatch)

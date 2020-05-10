@@ -1,6 +1,7 @@
 """
-Example miniwdl download plugin, adding support for s3:// URIs with AWS credentials inherited from
-the runner's environment (as detected by boto3).
+Example miniwdl download plugin adding support for s3:// URIs using `aws s3 cp`.
+AWS credentials may be passed in from the runner's environment (as detected by boto3)
+or sourced automatically from EC2 instance metadata.
 
 `pip3 install .` installs the plugin and registers it by means of this in setup.py:
     entry_points={
@@ -28,6 +29,7 @@ suppress) an exception upon task failure.
 
 import os
 import tempfile
+from contextlib import ExitStack
 import boto3
 
 
@@ -45,31 +47,45 @@ def main(cfg, logger, uri, **kwargs):
     :param kwargs: for forward-compatibility
     """
 
-    # get AWS credentials from boto3
-    b3 = boto3.session.Session()
-    b3creds = b3.get_credentials()
-    aws_credentials = {
-        "AWS_ACCESS_KEY_ID": b3creds.access_key,
-        "AWS_SECRET_ACCESS_KEY": b3creds.secret_key,
-    }
-    if b3creds.token:
-        aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
+    aws_credentials = None
+    if not cfg.has_option("download_awscli", "pass_credentials") or cfg["download_awscli"].get_bool(
+        "pass_credentials"
+    ):
+        # get AWS credentials from boto3
+        b3 = boto3.session.Session()
+        b3creds = b3.get_credentials()
+        aws_credentials = {
+            "AWS_ACCESS_KEY_ID": b3creds.access_key,
+            "AWS_SECRET_ACCESS_KEY": b3creds.secret_key,
+        }
+        if b3creds.token:
+            aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
 
-    # format them as env vars to be sourced in the WDL task command
-    aws_credentials = "\n".join(f"export {k}='{v}'" for (k, v) in aws_credentials.items())
+        # format them as env vars to be sourced in the WDL task command
+        aws_credentials = "\n".join(f"export {k}='{v}'" for (k, v) in aws_credentials.items())
+    # configuration can set
+    #   [download_awscli] pass_credentials = false
+    # to force awscli to get credentials from EC2 instance metadata service
 
-    # write them to a temp file that'll self-destruct afterwards (success or fail)
-    with tempfile.NamedTemporaryFile(
-        prefix="miniwdl_download_awscli_credentials_", delete=True, mode="w"
-    ) as aws_credentials_file:
-        print(aws_credentials, file=aws_credentials_file, flush=True)
-        # make file group-readable to ensure it'll be usable if the docker image runs as non-root
-        os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
+    with ExitStack() as cleanup:
+        inputs = {"uri": uri}
+
+        if aws_credentials:
+            # write credentials to temp file that'll self-destruct afterwards
+            aws_credentials_file = cleanup.enter_context(
+                tempfile.NamedTemporaryFile(
+                    prefix="miniwdl_download_awscli_credentials_", delete=True, mode="w"
+                )
+            )
+            print(aws_credentials, file=aws_credentials_file, flush=True)
+            # make file group-readable to ensure it'll be usable if the docker image runs as non-root
+            os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
+            inputs["aws_credentials"] = aws_credentials_file.name
 
         # yield WDL task source code and inputs (Cromwell-style JSON dict)
         recv = yield {
             "task_wdl": wdl,
-            "inputs": {"uri": uri, "aws_credentials": aws_credentials_file.name},
+            "inputs": inputs,
         }
 
     # recv is a dict with key "outputs" containing the task outputs (Cromwell-style JSON dict).
@@ -86,15 +102,14 @@ wdl = r"""
 task awscli_s3 {
     input {
         String uri
-        File aws_credentials
+        File? aws_credentials
     }
 
     command <<<
         set -euo pipefail
-        source "~{aws_credentials}"
-        # lack of official awscli docker image: https://github.com/aws/aws-cli/issues/3553
-        apt-get -qq update
-        DEBIAN_FRONTEND=noninteractive apt-get -qq install -y awscli
+        if [ -n "~{aws_credentials}" ]; then
+            source "~{aws_credentials}"
+        fi
         mkdir __out
         cd __out
         aws s3 cp "~{uri}" .
@@ -106,8 +121,8 @@ task awscli_s3 {
 
     runtime {
         cpu: 2
-        memory: "1G"
-        docker: "ubuntu:19.10"
+        memory: "2G"
+        docker: "amazon/aws-cli"
     }
 }
 """

@@ -22,7 +22,6 @@ class TestWorkflowRunner(unittest.TestCase):
     def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
         sys.setrecursionlimit(200)  # set artificially low in unit tests to detect excessive recursion (issue #239)
         logger = logging.getLogger(self.id())
-        WDL._util.install_coloredlogs(logger)
         cfg = cfg or WDL.runtime.config.Loader(logger, [])
         try:
             with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:

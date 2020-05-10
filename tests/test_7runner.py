@@ -3,6 +3,7 @@ import logging
 import tempfile
 import os
 import shutil
+import json
 import docker
 from testfixtures import log_capture
 from .context import WDL
@@ -34,7 +35,6 @@ class RunnerTestCase(unittest.TestCase):
         run workflow/task & return outputs dict
         """
         logger = logging.getLogger(self.id())
-        WDL._util.install_coloredlogs(logger)
         cfg = cfg or WDL.runtime.config.Loader(logger, [])
         try:
             with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:
@@ -45,6 +45,7 @@ class RunnerTestCase(unittest.TestCase):
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, target.available_inputs, target.required_inputs)
             rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir)
+            self._rundir = rundir
         except Exception as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
                 exn = exn.__context__
@@ -140,8 +141,7 @@ class TestDownload(RunnerTestCase):
         self.assertTrue("downloaded: 1" in logs[0])
         self.assertTrue("downloaded: 1" in logs[1])
 
-    @log_capture()
-    def test_download_cache4(self, capture):
+    def test_download_cache4(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         cfg.override({
             "download_cache": {
@@ -149,12 +149,21 @@ class TestDownload(RunnerTestCase):
                 "get": True,
                 "dir": os.path.join(self._dir, "cache4"),
                 "ignore_query": True
-            }
+            },
+            # test JSON logging:
+            "logging": { "json": True }
         })
         inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt?xxx"]}
         self._run(self.count_wdl, inp, cfg=cfg)
+        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
+            for line in logfile:
+                line = json.loads(line)
+                if "downloaded input files" in line["message"]:
+                    self.assertEqual(line["downloaded"], 1)
         self._run(self.count_wdl, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
         # cache used with ignore_query
-        self.assertTrue("downloaded: 1" in logs[0])
-        self.assertTrue("downloaded: 0" in logs[1])
+        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
+            for line in logfile:
+                line = json.loads(line)
+                if "downloaded input files" in line["message"]:
+                    self.assertEqual(line["downloaded"], 0)

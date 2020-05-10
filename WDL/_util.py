@@ -32,6 +32,7 @@ from typing import (
 )
 from types import FrameType
 import coloredlogs
+from pythonjsonlogger import jsonlogger
 from pygtail import Pygtail
 import docker
 
@@ -240,6 +241,28 @@ class StructuredLogMessage:
         )
 
 
+class StructuredLogMessageJSONFormatter(jsonlogger.JsonFormatter):
+    "JSON formatter for StructuredLogMessages"
+
+    def format(self, rec: logging.LogRecord) -> str:
+        if isinstance(rec.msg, StructuredLogMessage):
+            ans = {"level": rec.levelname, "message": rec.msg.message}
+            for k, v in rec.msg.kwargs.items():
+                if k not in ans:
+                    ans[k] = v
+            rec.msg = ans
+        return super().format(rec)
+
+    def add_fields(
+        self, log_record: Dict[str, Any], record: logging.LogRecord, message_dict: Dict[str, Any]
+    ) -> None:
+        super().add_fields(log_record, record, message_dict)
+        log_record["timestamp"] = round(record.created, 3)
+        log_record["source"] = record.name
+        log_record["level"] = record.levelname
+        log_record["levelno"] = record.levelno
+
+
 VERBOSE_LEVEL = 15
 __all__.append("VERBOSE_LEVEL")
 logging.addLevelName(VERBOSE_LEVEL, "VERBOSE")
@@ -328,90 +351,103 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
 
 
 LOGGING_FORMAT = "%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(message)s"
-LOGGING_FORMAT_STDERR = "%(asctime)s.%(msecs)03d %(name)s %(message)s"
+COLORED_LOGGING_FORMAT = "%(asctime)s.%(msecs)03d %(name)s %(message)s"  # colors obviate levelname
 __all__.append("LOGGING_FORMAT")
 
 
 @export
 @contextmanager
-def install_coloredlogs(
-    logger: logging.Logger, force: bool = False
+def configure_logger(
+    force_tty: bool = False, json: bool = False
 ) -> Iterator[Callable[[str], None]]:
     """
-    contextmanager to set up our logger customizations; yields a function to set the status line at
+    contextmanager to set up the root/stderr logger; yields a function to set the status line at
     the bottom of the screen (if stderr isatty, else it does nothing)
     """
-    level_styles = {}
-    field_styles = {}
-    fmt = LOGGING_FORMAT
-    enable = force or (sys.stderr.isatty() and "NO_COLOR" not in os.environ)
+    logger = logging.getLogger()
 
-    if enable:
-        level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
-        level_styles["debug"]["color"] = 242
-        level_styles["notice"] = {"color": "green", "bold": True}
-        level_styles["error"]["bold"] = True
-        level_styles["warning"]["bold"] = True
-        level_styles["info"] = {}
-        field_styles = dict(coloredlogs.DEFAULT_FIELD_STYLES)
-        field_styles["asctime"] = {"color": "blue"}
-        field_styles["name"] = {"color": "magenta"}
-        fmt = LOGGING_FORMAT_STDERR
+    if json:
+        logger.handlers[0].setFormatter(StructuredLogMessageJSONFormatter())
+        yield (lambda ignore: None)
+    else:
+        level_styles = {}
+        field_styles = {}
+        fmt = LOGGING_FORMAT
+        tty = force_tty or (sys.stderr.isatty() and "NO_COLOR" not in os.environ)
 
-        # monkey-patch _StatusLineStandardErrorHandler over coloredlogs.StandardErrorHandler for
-        # coloredlogs.install() to instantiate
-        coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler
-        sys.stderr.write(ANSI.HIDE_CURSOR)  # hide cursor
+        if tty:
+            level_styles = dict(coloredlogs.DEFAULT_LEVEL_STYLES)
+            level_styles["debug"]["color"] = 242
+            level_styles["notice"] = {"color": "green", "bold": True}
+            level_styles["error"]["bold"] = True
+            level_styles["warning"]["bold"] = True
+            level_styles["info"] = {}
+            field_styles = dict(coloredlogs.DEFAULT_FIELD_STYLES)
+            field_styles["asctime"] = {"color": "blue"}
+            field_styles["name"] = {"color": "magenta"}
+            fmt = COLORED_LOGGING_FORMAT
 
-    try:
-        coloredlogs.install(
-            level=logger.getEffectiveLevel(),
-            logger=logger,
-            level_styles=level_styles,
-            field_styles=field_styles,
-            fmt=fmt,
-        )
-        yield (
-            lambda status: _StatusLineStandardErrorHandler._singleton.set_status(  # pyre-fixme
-                status
+            # monkey-patch _StatusLineStandardErrorHandler over coloredlogs.StandardErrorHandler for
+            # coloredlogs.install() to instantiate
+            coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler
+            sys.stderr.write(ANSI.HIDE_CURSOR)  # hide cursor
+
+        try:
+            coloredlogs.install(
+                level=logger.getEffectiveLevel(),
+                logger=logger,
+                level_styles=level_styles,
+                field_styles=field_styles,
+                fmt=fmt,
             )
-            if _StatusLineStandardErrorHandler._singleton
-            else None
-        )
-    finally:
-        if enable:
-            sys.stderr.write(ANSI.CLEAR)  # wipe the status line
-            sys.stderr.write(ANSI.SHOW_CURSOR)  # un-hide cursor
+            yield (
+                lambda status: _StatusLineStandardErrorHandler._singleton.set_status(  # pyre-fixme
+                    status
+                )
+                if _StatusLineStandardErrorHandler._singleton
+                else None
+            )
+        finally:
+            if tty:
+                sys.stderr.write(ANSI.CLEAR)  # wipe the status line
+                sys.stderr.write(ANSI.SHOW_CURSOR)  # un-hide cursor
 
 
 @export
 @contextmanager
 def PygtailLogger(
-    logger: logging.Logger, filename: str, prefix: str = "2| "
+    logger: logging.Logger, filename: str, callback: Optional[Callable[[str], None]] = None
 ) -> Iterator[Callable[[], None]]:
     """
     Helper for streaming task stderr into logger using pygtail. Context manager yielding a function
     which reads the latest lines from the file and writes them into logger at verbose level. This
     function also runs automatically on context exit.
 
-    Truncates lines at 4KB in case writer goes haywire.
+    Stops if it sees a line greater than 4KB, in case writer goes haywire.
     """
     pygtail = None
     if logger.isEnabledFor(VERBOSE_LEVEL):
         pygtail = Pygtail(filename, full_lines=True)
+    logger2 = logger.getChild("stderr")
+
+    def default_callback(line: str) -> None:
+        assert len(line) <= 4096, "line > 4KB"
+        logger2.verbose(line.rstrip())  # pyre-fixme
+
+    callback = callback or default_callback
 
     def poll() -> None:
         nonlocal pygtail
         if pygtail:
             try:
                 for line in pygtail:
-                    logger.verbose((prefix + line.rstrip())[:4096])  # pyre-ignore
-            except:
+                    callback(line)
+            except Exception as exn:
                 # cf. https://github.com/bgreenlee/pygtail/issues/48
-                logger.verbose(  # pyre-ignore
-                    "incomplete log stream due to the following exception; see %s",
-                    filename,
-                    exc_info=sys.exc_info(),
+                logger.warning(
+                    StructuredLogMessage(
+                        "log stream is incomplete", filename=filename, error=str(exn)
+                    )
                 )
                 pygtail = None
 
@@ -503,6 +539,7 @@ class CustomDeepCopyMixin:
 
 
 byte_size_units = {
+    "B": 1,
     "K": 1000,
     "KB": 1000,
     "Ki": 1024,
@@ -600,12 +637,19 @@ def chmod_R_plus(path: str, file_bits: int = 0, dir_bits: int = 0) -> None:
 
 @export
 @contextmanager
-def LoggingFileHandler(logger: logging.Logger, filename: str) -> Iterator[logging.FileHandler]:
+def LoggingFileHandler(
+    logger: logging.Logger, filename: str, json: bool = False
+) -> Iterator[logging.FileHandler]:
     """
     Context manager which opens a logging.FileHandler and adds it to the logger; on exit, closes
     the log file and removes the handler.
     """
     fh = logging.FileHandler(filename)
+    fh.setFormatter(
+        StructuredLogMessageJSONFormatter()
+        if json
+        else logging.Formatter(LOGGING_FORMAT, datefmt="%Y-%m-%d %H:%M:%S")
+    )
     try:
         logger.addHandler(fh)
         yield fh
