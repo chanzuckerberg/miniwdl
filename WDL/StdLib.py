@@ -77,6 +77,10 @@ class Base:
         def defined(v: Value.Base):
             return Value.Boolean(not isinstance(v, Value.Null))
 
+        @static([Type.String(), Type.Array(Type.String())], Type.String())
+        def sep(sep: Value.String, iterable: Value.Array) -> Value.String:
+            return Value.String(sep.value.join(v.value for v in iterable.value))
+
         # write_*
         static([Type.Array(Type.String())], Type.File(), "write_lines")(
             self._write(_serialize_lines)
