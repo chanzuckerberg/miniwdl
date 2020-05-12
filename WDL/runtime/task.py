@@ -629,14 +629,11 @@ class SwarmContainer(TaskContainer):
         svc.reload()
         assert svc.attrs["Spec"]["Labels"]["miniwdl_run_id"] == self.run_id
         tasks = svc.tasks()
-        # logger.debug(_("xxx", service=svc.attrs, tasks=tasks))
         if tasks:
             assert len(tasks) == 1, "docker service should have at most 1 task"
             status = tasks[0]["Status"]
             status["DesiredState"] = tasks[0].get("DesiredState", None)
-            if verbose:
-                logger.info(_("docker task status", **status))
-            elif logger.isEnabledFor(logging.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(_("docker task status", **status))
         else:
             assert (
