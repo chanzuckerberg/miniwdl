@@ -24,6 +24,8 @@ from abc import ABC, abstractmethod
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 from contextlib import ExitStack
 import docker
+
+import WDL
 from .. import Error, Type, Env, Value, StdLib, Tree, _util
 from .._util import (
     write_atomic,
@@ -790,6 +792,7 @@ def run_local_task(
 
         # provision run directory and log file
         run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
+
         logfile = os.path.join(run_dir, "task.log")
         fh = cleanup.enter_context(
             LoggingFileHandler(
@@ -816,11 +819,20 @@ def run_local_task(
         if not _run_id_stack:
             cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
+            input_digest = cache.get_digest_for_inputs(inputs)
+            cached = cache.get(input_digest, run_dir)
+            if cached:
+                return (run_dir, cached)
+
         else:
             cache = _cache
         assert cache
 
         try:
+            input_digest = cache.get_digest_for_inputs(inputs)
+            cached = cache.get(input_digest, run_dir)
+            if cached:
+                return (run_dir, cached)
             # start plugin coroutines and process inputs through them
             with compose_coroutines(
                 [
@@ -892,6 +904,7 @@ def run_local_task(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
                 logger.notice("done")  # pyre-fixme
+                cache.put(input_digest, run_dir, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())

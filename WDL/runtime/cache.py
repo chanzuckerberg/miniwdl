@@ -3,7 +3,8 @@ Caching outputs of task/workflow calls (incl. file URI downloader tasks) based o
 inputs. When cached outputs are found for reuse, opens advisory locks (flocks) on any local files
 referenced therein, and updates their access timestamps (atime).
 """
-
+import hashlib
+import json
 import os
 import logging
 import threading
@@ -25,6 +26,11 @@ class CallCache(AbstractContextManager):
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
+        self.cache_dir = '/tmp/cache/'
+        try:
+            os.mkdir(self.cache_dir)
+        except Exception as e:
+            pass
 
     def __enter__(self) -> "CallCache":
         self._flocker.__enter__()
@@ -33,10 +39,19 @@ class CallCache(AbstractContextManager):
     def __exit__(self, *args) -> None:
         self._flocker.__exit__(*args)
 
+    def get_digest_for_inputs(self, inputs: dict):
+        """
+        Return sha256 for json of sorted inputs
+        """
+        from .. import values_to_json
+        json_inputs = json.dumps(values_to_json(inputs), sort_keys=True).encode('utf-8')
+        return hashlib.sha256(json_inputs).hexdigest()
+
     def get(
         self,
         key: str,
-        output_types: Env.Bindings[Type.Base],
+        run_dir: str,
+        # output_types: Env.Bindings[Type.Base],
         logger: Optional[logging.Logger] = None,
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
@@ -44,15 +59,32 @@ class CallCache(AbstractContextManager):
         opens shared flocks on all files referenced therein, which will remain for the life of the
         CallCache object.
         """
-        raise NotImplementedError()
+
+        file_path = os.path.join(self.cache_dir, f"{key}.json")
+
+        try:
+            with open(file_path, "rb") as file_reader:
+                contents = file_reader.read()
+        except FileNotFoundError:
+            return None
+        # self.flock(file_path)
+        return json.loads(contents)
 
     def put(
-        self, key: str, outputs: Env.Bindings[Value.Base], logger: Optional[logging.Logger] = None
+        self, key: str, run_dir: str, outputs: Env.Bindings[Value.Base], logger: Optional[logging.Logger] = None
     ) -> None:
         """
         Store call outputs for future reuse
         """
-        raise NotImplementedError()
+        from .. import values_to_json
+        # would there ever be a case of same inputs different task?
+        with open(os.path.join(self.cache_dir, f"{key}.json"), "w+") as outfile:
+            print(
+                json.dumps(values_to_json(outputs), sort_keys=True),
+                file=outfile,
+            )
+
+
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up in URI-derived folder structure instead of sqlite db)
