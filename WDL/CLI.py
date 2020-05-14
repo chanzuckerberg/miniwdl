@@ -596,7 +596,7 @@ def runner(
             sys.exit(0)
 
         # debug logging
-        versionlog = {}
+        versionlog = {"python": sys.version}
         for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
             try:
                 versionlog[pkg] = str(importlib_metadata.version(pkg))

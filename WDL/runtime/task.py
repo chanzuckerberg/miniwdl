@@ -496,6 +496,8 @@ class SwarmContainer(TaskContainer):
                 )
 
                 # poll for container exit
+                running_states = {"preparing", "running"}
+                was_running = False
                 while exit_code is None:
                     time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
                     if terminating():
@@ -506,12 +508,14 @@ class SwarmContainer(TaskContainer):
                         if not quiet:
                             self.poll_service(logger, svc, verbose=True)
                         raise Terminated(quiet=quiet)
-                    was_running = "running" in self._observed_states
                     exit_code = self.poll_service(logger, svc)
+                    if not was_running and self._observed_states.intersection(running_states):
+                        # indicate actual container start in status bar
+                        # 'preparing' is when docker is pulling and extracting the image, which can
+                        # be a lengthy and somewhat intensive operation, so we count it as running.
+                        cleanup.enter_context(_statusbar.task_running(cpu, memory_reservation))
+                        was_running = True
                     if "running" in self._observed_states:
-                        if not was_running:
-                            # indicate actual container start in status bar
-                            cleanup.enter_context(_statusbar.task_running(cpu, memory_reservation))
                         poll_stderr()
 
                 logger.debug(
