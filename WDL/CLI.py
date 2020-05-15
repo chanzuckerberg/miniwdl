@@ -21,6 +21,7 @@ from datetime import datetime
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
 import importlib_metadata
+from ruamel.yaml import YAML
 from . import *
 from ._util import (
     provision_run_dir,
@@ -356,7 +357,7 @@ def fill_run_subparser(subparsers):
         "--input",
         metavar="INPUT.json",
         dest="input_file",
-        help="Cromwell-style input JSON file; command-line inputs will be merged in",
+        help="Cromwell-style input JSON object, filename, or -; command-line inputs will be merged in",
     )
     group.add_argument(
         "--empty",
@@ -410,28 +411,9 @@ def fill_run_subparser(subparsers):
         default=None,
         help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
     )
-    group.add_argument(
-        "-@",
-        metavar="N",
-        dest="max_tasks",
-        type=int,
-        default=None,
-        help="maximum concurrent tasks (default: # host processors, effectively lower when tasks require multiple processors)",
-    )
-    group.add_argument(
-        "--runtime-cpu-max",
-        metavar="N",
-        type=int,
-        default=None,
-        help="maximum effective runtime.cpu for any task (default: # host processors)",
-    )
-    group.add_argument(
-        "--runtime-memory-max",
-        metavar="N",
-        type=str,
-        default=None,
-        help="maximum effective runtime.memory for any task (default: total host memory)",
-    )
+    group.add_argument("-@", metavar="N", dest="max_tasks", type=int, default=None, help=SUPPRESS)
+    group.add_argument("--runtime-cpu-max", metavar="N", type=int, default=None, help=SUPPRESS)
+    group.add_argument("--runtime-memory-max", metavar="N", type=str, default=None, help=SUPPRESS)
     group.add_argument(
         "--runtime-defaults",
         metavar="JSON",
@@ -841,16 +823,18 @@ def runner_input_json_file(available_inputs, namespace, input_file, root):
     if input_file:
         input_file = input_file.strip()
     if input_file:
+        input_json = None
         if input_file[0] == "{":
-            input_json = json.loads(input_file)
+            input_json = input_file
         elif input_file == "-":
-            input_json = json.load(sys.stdin)
+            input_json = sys.stdin.read()
         else:
-            input_json = json.loads(
+            input_json = (
                 asyncio.get_event_loop()
                 .run_until_complete(read_source(input_file, [], None))
                 .source_text
             )
+        input_json = YAML(typ="safe", pure=True).load(input_json)
         ans = values_from_json(input_json, available_inputs, namespace=namespace)
 
         # join relative file paths to the cwd
