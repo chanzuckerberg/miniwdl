@@ -112,8 +112,7 @@ class TestTaskRunner(unittest.TestCase):
     def test_cache_prevents_task_rerun(self):
         # run task twice, check _try_task not called not instantiated for second run
 
-        mock = MagicMock()
-        mock.return_value = WDL.Env.Bindings().bind("count", 15)
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
         # test mock is called
         with patch('WDL.runtime.task._try_task', mock):
@@ -124,7 +123,8 @@ class TestTaskRunner(unittest.TestCase):
         self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
 
         # test mock is not called once cache is available
-        new_mock = MagicMock()
+        new_mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+
         with patch('WDL.runtime.task._try_task', new_mock):
             self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
 
