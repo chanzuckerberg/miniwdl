@@ -820,7 +820,7 @@ def run_local_task(
             cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
             input_digest = cache.get_digest_for_inputs(inputs)
-            cached = cache.get(input_digest, run_dir)
+            cached = cache.get(input_digest, run_dir, task.outputs)
             if cached:
                 return (run_dir, cached)
 
@@ -830,7 +830,7 @@ def run_local_task(
 
         try:
             input_digest = cache.get_digest_for_inputs(inputs)
-            cached = cache.get(input_digest, run_dir)
+            cached = cache.get(input_digest, run_dir, task.outputs)
             if cached:
                 return (run_dir, cached)
             # start plugin coroutines and process inputs through them

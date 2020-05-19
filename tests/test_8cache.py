@@ -41,6 +41,7 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         cls.logger = logging.getLogger(cls.__name__)
         cls.cfg = WDL.runtime.config.Loader(cls.logger, [])
+        cls.cfg.override({"outputs_cache": {"XDG_CACHE_HOME": cls.cache_dir}})
         WDL.runtime.task.SwarmContainer.global_init(cls.cfg, cls.logger)
 
     def setUp(self):
@@ -109,9 +110,11 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(read_data, WDL.values_to_json(outputs))
 
     def test_cache_prevents_task_rerun(self):
-        # run task twice, check _try_task not called and TaskDockerContainer not instantiated for second run
+        # run task twice, check _try_task not called not instantiated for second run
+
         mock = MagicMock()
-        mock.return_value = {}
+        mock.return_value = WDL.Env.Bindings().bind("count", 15)
+
         # test mock is called
         with patch('WDL.runtime.task._try_task', mock):
             self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
@@ -123,7 +126,6 @@ class TestTaskRunner(unittest.TestCase):
         # test mock is not called once cache is available
         new_mock = MagicMock()
         with patch('WDL.runtime.task._try_task', new_mock):
-
             self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
 
         self.assertEqual(new_mock.call_count, 0)
@@ -133,6 +135,7 @@ class TestTaskRunner(unittest.TestCase):
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
         digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(inputs)
-        cache = CallCache(cfg=self.cfg, logger=self.logger).get(key=digest, run_dir=rundir)
-        self.assertEqual(WDL.values_to_json(outputs), cache)
+        cache = CallCache(cfg=self.cfg, logger=self.logger).get(key=digest, run_dir=rundir,
+                                                                output_types=self.doc.tasks[0].outputs)
+        self.assertEqual(values_to_json(outputs), values_to_json(cache))
 

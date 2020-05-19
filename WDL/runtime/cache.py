@@ -12,6 +12,7 @@ from typing import Iterator, Dict, Any, Optional, Set, List, IO
 from contextlib import AbstractContextManager
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
+
 from . import config
 from .. import Env, Value, Type
 from .._util import StructuredLogMessage as _, FlockHolder
@@ -26,9 +27,10 @@ class CallCache(AbstractContextManager):
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
-        self.cache_dir = '/tmp/cache/'
+        self.outputs_cache_dir = cfg["outputs_cache"]["XDG_CACHE_HOME"]
+
         try:
-            os.mkdir(self.cache_dir)
+            os.mkdir(self.outputs_cache_dir)
         except Exception as e:
             pass
 
@@ -44,14 +46,15 @@ class CallCache(AbstractContextManager):
         Return sha256 for json of sorted inputs
         """
         from .. import values_to_json
-        json_inputs = json.dumps(values_to_json(inputs), sort_keys=True).encode('utf-8')
+
+        json_inputs = json.dumps(values_to_json(inputs), sort_keys=True).encode("utf-8")
         return hashlib.sha256(json_inputs).hexdigest()
 
     def get(
         self,
         key: str,
         run_dir: str,
-        # output_types: Env.Bindings[Type.Base],
+        output_types: Env.Bindings[Type.Base],
         logger: Optional[logging.Logger] = None,
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
@@ -59,32 +62,34 @@ class CallCache(AbstractContextManager):
         opens shared flocks on all files referenced therein, which will remain for the life of the
         CallCache object.
         """
+        from .. import values_from_json
 
-        file_path = os.path.join(self.cache_dir, f"{key}.json")
+        file_path = os.path.join(self.outputs_cache_dir, f"{key}.json")
 
         try:
             with open(file_path, "rb") as file_reader:
                 contents = file_reader.read()
         except FileNotFoundError:
             return None
-        # self.flock(file_path)
-        return json.loads(contents)
+        contents = json.loads(contents)
+        return values_from_json(contents, output_types)
 
     def put(
-        self, key: str, run_dir: str, outputs: Env.Bindings[Value.Base], logger: Optional[logging.Logger] = None
+        self,
+        key: str,
+        run_dir: str,
+        outputs: Env.Bindings[Value.Base],
+        logger: Optional[logging.Logger] = None,
     ) -> None:
         """
         Store call outputs for future reuse
         """
         from .. import values_to_json
-        # would there ever be a case of same inputs different task?
-        with open(os.path.join(self.cache_dir, f"{key}.json"), "w+") as outfile:
+
+        with open(os.path.join(self.outputs_cache_dir, f"{key}.json"), "w+") as outfile:
             print(
-                json.dumps(values_to_json(outputs), sort_keys=True),
-                file=outfile,
+                json.dumps(values_to_json(outputs), sort_keys=True), file=outfile,
             )
-
-
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up in URI-derived folder structure instead of sqlite db)
