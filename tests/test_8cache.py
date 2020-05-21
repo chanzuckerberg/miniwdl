@@ -31,7 +31,7 @@ class TestTaskRunner(unittest.TestCase):
     ordered_input_dict = {
         "what": ["a", "ab", "b", "bc"],
         "where": {"places": {"Minneapolis": "a", "SanFan": "b"}},
-        "who": "Alyssa"
+        "who": "Alyssa",
     }
     doc = WDL.parse_document(test_wdl)
     cache_dir = '/tmp/cache/'
@@ -135,6 +135,7 @@ class TestTaskRunner(unittest.TestCase):
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
         digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(inputs)
+
         cache = CallCache(cfg=self.cfg, logger=self.logger).get(key=digest, run_dir=rundir,
                                                                 output_types=self.doc.tasks[0].effective_outputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache))
