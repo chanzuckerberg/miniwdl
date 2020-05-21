@@ -136,6 +136,6 @@ class TestTaskRunner(unittest.TestCase):
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
         digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(inputs)
         cache = CallCache(cfg=self.cfg, logger=self.logger).get(key=digest, run_dir=rundir,
-                                                                output_types=self.doc.tasks[0].outputs)
+                                                                output_types=self.doc.tasks[0].effective_outputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache))
 
