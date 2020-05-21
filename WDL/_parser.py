@@ -401,7 +401,9 @@ class _DocTransformer(_ExprTransformer):
         return [item.value for item in items]
 
     def call_input(self, items, meta):
-        return (items[0].value, items[1])
+        if len(items) > 1:
+            return (items[0].value, items[1])
+        return (items[0].value, Expr.Ident(self._sp(meta), items[0].value))
 
     def call_inputs(self, items, meta):
         d = dict()

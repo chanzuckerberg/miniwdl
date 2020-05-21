@@ -766,3 +766,50 @@ class MiscRegressionTests(RunnerTestCase):
         euid = os.geteuid()
         for fn in outp["files_out"]:
             assert os.stat(fn).st_uid == euid
+
+
+class TestAbbreviatedCallInput(RunnerTestCase):
+
+    def test_docker(self):
+        caller = R"""
+        version development
+        workflow caller {
+            input {
+                String message
+                String docker
+            }
+            call contrived as contrived1 {
+                input:
+                message = "~{message}1",
+                docker
+            }
+            call contrived as contrived2 {
+                input:
+                message = "~{message}2",
+                docker
+            }
+            output {
+                Array[String] results = [contrived1.result, contrived2.result]
+            }
+        }
+        task contrived {
+            input {
+                String message
+                String docker
+            }
+            command <<<
+                echo "~{message}"
+                cat /etc/issue
+            >>>
+            output {
+                String result = read_string(stdout())
+            }
+            runtime {
+                docker: docker
+            }
+        }
+        """
+        outputs = self._run(caller, {"message": "hello", "docker": "ubuntu:bionic"})
+        assert sum("18.04" in msg for msg in outputs["results"]) == 2
+        outputs = self._run(caller, {"message": "hello", "docker": "ubuntu:focal"})
+        assert sum("20.04" in msg for msg in outputs["results"]) == 2
