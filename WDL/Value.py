@@ -409,7 +409,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return Struct(Type.Object(type.members), items)
     if type.optional and value is None:
         return Null()
-    raise Error.InputError(f"couldn't construct {str(type)} from: {json.dumps(value)}")
+    raise Error.InputError(f"couldn't construct {str(type)} from {json.dumps(value)}")
 
 
 def _infer_from_json(j: Any) -> Base:

@@ -7,6 +7,7 @@ documents.
 * `GitHub repo <https://github.com/chanzuckerberg/miniwdl/>`_ for installation and further background
 * `Codelabs <https://miniwdl.readthedocs.io/en/latest/WDL.html#python-codelabs>`_ on using this package
 """
+import sys
 import os
 import errno
 import inspect
@@ -232,7 +233,12 @@ def values_from_json(
             if isinstance(ty, Tree.Decl):
                 ty = ty.type
             assert isinstance(ty, Type.Base)
-            ans = ans.bind(key2, Value.from_json(ty, values_json[key]))
+            try:
+                ans = ans.bind(key2, Value.from_json(ty, values_json[key]))
+            except Error.InputError as exn:
+                raise Error.InputError(exn.args[0] + f" (in {key})").with_traceback(
+                    sys.exc_info()[2]
+                )
     if required:
         missing = required.subtract(ans)
         if missing:

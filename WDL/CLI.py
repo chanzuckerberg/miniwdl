@@ -835,7 +835,11 @@ def runner_input_json_file(available_inputs, namespace, input_file, root):
                 .source_text
             )
         input_json = YAML(typ="safe", pure=True).load(input_json)
-        ans = values_from_json(input_json, available_inputs, namespace=namespace)
+        try:
+            ans = values_from_json(input_json, available_inputs, namespace=namespace)
+        except Error.InputError as exn:
+            die("check JSON input; " + str(exn))
+            sys.exit(2)
 
         # join relative file paths to the cwd
 
