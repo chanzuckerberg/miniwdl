@@ -707,8 +707,9 @@ class SwarmContainer(TaskContainer):
         alternatives and their problems.
         """
         if not self.cfg["task_runtime"].get_bool("as_user") and (os.geteuid() or os.getegid()):
+            paste = shlex.quote(os.path.join(self.container_dir, "work"))
             script = f"""
-            chown -RP {os.geteuid()}:{os.getegid()} {shlex.quote(os.path.join(self.container_dir, 'work'))}
+            (find {paste} -type d && find {paste} -type f) | xargs -P 10 chown -P {os.geteuid()}:{os.getegid()}
             """.strip()
             volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
             logger.debug(_("post-task chown", script=script, volumes=volumes))
@@ -718,7 +719,7 @@ class SwarmContainer(TaskContainer):
                     chowner = client.containers.run(
                         "alpine:3",
                         name=self.unique_service_name("chown-" + self.run_id),
-                        command=["/bin/ash", "-c", script],
+                        command=["/bin/ash", "-eo", "pipefail", "-c", script],
                         volumes=volumes,
                         detach=True,
                     )
