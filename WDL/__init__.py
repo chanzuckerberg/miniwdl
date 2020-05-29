@@ -129,6 +129,10 @@ async def resolve_file_import(uri: str, path: List[str], importer: Optional[Docu
     relative ``uri`` is resolved by first joining it to either, the directory of the importer
     document (if any), or the process current working directory (otherwise). Failing that, it's
     searched in the ``path`` directories (in reverse order).
+
+    Security-focused applications may wish to override ``read_source`` with logic to restrict
+    allowable results of ``resolve_file_import``, to prevent WDL source code from triggering access
+    to arbitrary filesystem paths. No such restrictions are applied by default.
     """
     return await Tree.resolve_file_import(uri, path, importer)
 

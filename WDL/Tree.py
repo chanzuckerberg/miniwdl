@@ -1333,6 +1333,7 @@ async def load_async(
 ) -> Document:
     path = list(path) if path is not None else []
     read_source = read_source or read_source_default
+    uri = uri if uri != "-" else "/dev/stdin"
     read_rslt = await read_source(uri, path, importer)
     # parse the document
     doc = _parser.parse_document(read_rslt.source_text, uri=uri, abspath=read_rslt.abspath)
