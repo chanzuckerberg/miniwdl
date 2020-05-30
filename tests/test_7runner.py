@@ -167,3 +167,36 @@ class TestDownload(RunnerTestCase):
                 line = json.loads(line)
                 if "downloaded input files" in line["message"]:
                     self.assertEqual(line["downloaded"], 0)
+
+class MiscRegressionTests(RunnerTestCase):
+    def test_repeated_file_rewriting(self):
+        wdl = """
+        version 1.0
+        task t {
+            input {
+                Array[File] files
+            }
+            command <<<
+                xargs cat < ~{write_lines(files)}
+                echo Bob > bob.txt
+            >>>
+            output {
+                Array[String] out = read_lines(stdout())
+                File bob = "bob.txt"
+                Array[File] bob2 = [bob, bob]
+            }
+        }
+        workflow w {
+            input {
+                File file
+            }
+            call t {
+                input:
+                files = [file, file]
+            }
+        }
+        """
+        with open(os.path.join(self._dir, "alice.txt"), "w") as alice:
+            print("Alice", file=alice)
+        outp = self._run(wdl, {"file": os.path.join(self._dir, "alice.txt")})
+        self.assertEqual(outp["t.out"], ["Alice", "Alice"])

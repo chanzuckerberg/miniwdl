@@ -12,10 +12,9 @@ import copy
 from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
 from . import Error, Type, Env
-from ._util import CustomDeepCopyMixin
 
 
-class Base(CustomDeepCopyMixin, ABC):
+class Base(ABC):
     """The abstract base class for WDL values"""
 
     type: Type.Base
@@ -30,9 +29,6 @@ class Base(CustomDeepCopyMixin, ABC):
     from ``WDL.Expr.eval``
     """
 
-    # exempt type & expr from deep-copying since they're immutable
-    _shallow_copy_attrs: List[str] = ["expr", "type"]
-
     def __init__(self, type: Type.Base, value: Any, expr: "Optional[Expr.Base]" = None) -> None:
         assert isinstance(type, Type.Base)
         self.type = type
@@ -44,6 +40,39 @@ class Base(CustomDeepCopyMixin, ABC):
 
     def __str__(self) -> str:
         return json.dumps(self.json)
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> Any:
+        cls = self.__class__
+        cp = cls.__new__(cls)
+        shallow = ("expr", "type")  # avoid deep-copying large, immutable structures
+        for k, v in self.__dict__.items():
+            if k != "value":
+                setattr(cp, k, copy.deepcopy(v, memo) if k not in shallow else v)
+        # override deepcopy of self.value to eliminate sharing; this accommodates rewrite_files()
+        # which wants a deep copy for the purpose of modifying the copied File.value, and isn't
+        # expecting to encounter shared ones.
+        if isinstance(self.value, list):
+            value2 = []
+            for elt in self.value:
+                if isinstance(elt, tuple):
+                    assert len(elt) == 2
+                    value2.append((copy.deepcopy(elt[0]), copy.deepcopy(elt[1])))
+                else:
+                    assert isinstance(elt, Base)
+                    value2.append(copy.deepcopy(elt))
+            cp.value = value2
+        elif isinstance(self.value, tuple):
+            assert len(self.value) == 2
+            cp.value = (copy.deepcopy(self.value[0]), copy.deepcopy(self.value[1]))
+        elif isinstance(self.value, dict):
+            value2 = {}
+            for key in self.value:
+                value2[copy.deepcopy(key)] = copy.deepcopy(self.value[key])
+            cp.value = value2
+        else:
+            assert self.value is None or isinstance(self.value, (int, float, bool, str))
+            cp.value = self.value
+        return cp
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> "Base":
         """
@@ -293,7 +322,7 @@ class Null(Base):
     ``type`` and ``value`` are both None."""
 
     def __init__(self, expr: "Optional[Expr.Base]" = None) -> None:
-        super().__init__(Type.Any(optional=True), expr)
+        super().__init__(Type.Any(optional=True), None, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
@@ -440,9 +469,13 @@ def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
     (including Files nested inside compound Values).
     """
 
+    mapped_files = set()
+
     def map_files(v2: Base) -> Base:
         if isinstance(v2, File):
+            assert id(v2) not in mapped_files, f"File {id(v2)} reused in deepcopy"
             v2.value = f(v2.value)
+            mapped_files.add(id(v2))
         for ch in v2.children:
             map_files(ch)
         return v2

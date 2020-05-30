@@ -983,16 +983,10 @@ def _eval_task_inputs(
     container.add_files(_filenames(posix_inputs))
 
     # copy posix_inputs with all Files mapped to their in-container paths
-    def map_files(v: Value.Base) -> Value.Base:
-        if isinstance(v, Value.File):
-            v.value = container.input_file_map[v.value]
-        for ch in v.children:
-            map_files(ch)
-        return v
+    def map_files(fn: str) -> str:
+        return container.input_file_map[fn]
 
-    container_inputs = posix_inputs.map(
-        lambda binding: Env.Binding(binding.name, map_files(copy.deepcopy(binding.value)))
-    )
+    container_inputs = Value.rewrite_env_files(posix_inputs, map_files)
 
     # initialize value environment with the inputs
     container_env = Env.Bindings()
@@ -1216,25 +1210,22 @@ def _eval_task_outputs(
 ) -> Env.Bindings[Value.Base]:
 
     # helper to rewrite Files from in-container paths to host paths
-    def rewrite_files(v: Value.Base, output_name: str) -> None:
-        if isinstance(v, Value.File):
-            host_file = container.host_file(v.value)
-            if host_file is None:
-                logger.warning(
-                    _(
-                        "output file not found in container (error unless declared type is optional)",
-                        name=output_name,
-                        file=v.value,
-                    )
+    def rewriter(fn: str, output_name: str) -> str:
+        host_file = container.host_file(fn)
+        if host_file is None:
+            logger.warning(
+                _(
+                    "output file not found in container (error unless declared type is optional)",
+                    name=output_name,
+                    file=fn,
                 )
-            else:
-                logger.debug(_("output file", container=v.value, host=host_file))
-            # We may overwrite File.value with None, which is an invalid state, then we'll fix it
-            # up (or abort) below. This trickery is because we don't, at this point, know whether
-            # the 'desired' output type is File or File?.
-            v.value = host_file
-        for ch in v.children:
-            rewrite_files(ch, output_name)
+            )
+        else:
+            logger.debug(_("output file", container=fn, host=host_file))
+        # We may overwrite File.value with None, which is an invalid state, then we'll fix it
+        # up (or abort) below. This trickery is because we don't, at this point, know whether
+        # the 'desired' output type is File or File?.
+        return host_file  # pyre-fixme
 
     stdlib = OutputStdLib(logger, container)
     outputs = Env.Bindings()
@@ -1258,11 +1249,10 @@ def _eval_task_outputs(
         # compound values)
 
         # First bind the value as-is in the environment, so that subsequent output expressions will
-        # "see" the in-container path(s) if they use this binding. (Copy it though, because we'll
-        # then clobber v)
-        env = env.bind(decl.name, copy.deepcopy(v))
+        # "see" the in-container path(s) if they use this binding.
+        env = env.bind(decl.name, v)
         # Rewrite each File.value to either a host path, or None if the file doesn't exist.
-        rewrite_files(v, decl.name)
+        v = Value.rewrite_files(v, lambda fn: rewriter(fn, decl.name))
         # File.coerce has a special behavior for us so that, if the value is None:
         #   - produces Value.Null() if the desired type is File?
         #   - raises FileNotFoundError otherwise.
