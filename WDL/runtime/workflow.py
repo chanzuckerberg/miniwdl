@@ -676,6 +676,7 @@ def run_local_workflow(
                 cfg,
                 workflow,
                 inputs,
+                wdl_doc,
                 _run_id_stack + [run_id],
                 run_dir,
                 logger,
@@ -701,6 +702,7 @@ def _workflow_main_loop(
     cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
+    wdl_doc: Document,
     run_id_stack: List[str],
     run_dir: str,
     logger: logging.Logger,
@@ -748,7 +750,7 @@ def _workflow_main_loop(
                         logger.warning(
                             _("call subdirectory already exists, conflict likely", dir=call_dir)
                         )
-                    sub_args = (cfg, next_call.callee, next_call.inputs)
+                    sub_args = (cfg, next_call.callee, next_call.inputs, wdl_doc)
                     sub_kwargs = {
                         "run_id": next_call.id,
                         "run_dir": os.path.join(call_dir, "."),

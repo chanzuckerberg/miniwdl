@@ -35,6 +35,23 @@ class TestTaskRunner(unittest.TestCase):
     }
     doc = WDL.parse_document(test_wdl)
     cache_dir = '/tmp/cache/'
+    struct_task: str = R"""
+            version 1.0
+            struct Box {
+                Array[File] str
+            }
+            task hello {
+                input {
+                    Box box
+                }
+                command {
+                    echo "Hello, world!"
+                }
+                output {
+                    Int count = 13
+                }
+            }
+            """
 
     @classmethod
     def setUpClass(cls):
@@ -112,7 +129,7 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(read_data, WDL.values_to_json(outputs))
 
     def test_cache_prevents_task_rerun(self):
-        # run task twice, check _try_task not called not instantiated for second run
+        # run task twice, check _try_task not called for second run
 
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
@@ -143,3 +160,120 @@ class TestTaskRunner(unittest.TestCase):
                                                                 output_types=self.doc.tasks[0].effective_outputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 
+    def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
+        # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
+        new_test_wdl: str = R"""
+               version 1.0
+               task hello_blank {
+                   input {
+                       String who
+                       Array[String]? what
+                       Map[String,Map[String,String]]? where
+                   }
+                   command <<<
+                       echo "Heyyyyy, ~{who}!"
+                   >>>
+                   output {
+                       Int count = 12
+                   }
+               }
+               """
+
+
+        #  _try_task function for original wdl
+        self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
+
+        # test _try_task is called when task def changes (with same inputs)
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(new_test_wdl, self.ordered_input_dict, cfg=self.cfg)
+
+        self.assertEqual(mock.call_count, 1)
+
+    def test_a_task_with_the_same_inputs_and_different_outputs_doesnt_pull_from_the_cache(self):
+        # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
+        new_test_wdl: str = R"""
+                  version 1.0
+                  task hello_blank {
+                      input {
+                          String who
+                          Array[String]? what
+                          Map[String,Map[String,String]]? where
+                      }
+                      command <<<
+                          echo "Hello, ~{who}!"
+                      >>>
+                      output {
+                          Int count = 13
+                      }
+                  }
+                  """
+
+        #  _try_task function for original wdl
+        self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
+
+        # test _try_task is called when task def changes (with same inputs)
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(new_test_wdl, self.ordered_input_dict, cfg=self.cfg)
+
+        self.assertEqual(mock.call_count, 1)
+
+    def test_struct_handling(self):
+        with open(os.path.join(self._dir, "randomFile.txt"), "w") as outfile:
+            outfile.write("Gotta put something here")
+        inputs = {"box": {"str": [os.path.join(self._dir, "randomFile.txt")]}}
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        # test mock is called
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(self.struct_task, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 1)
+        # run for real
+        self._run(self.struct_task, inputs, cfg=self.cfg)
+
+        new_mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+
+        # test mock not called for cached tasks containing a struct
+        with patch('WDL.runtime.task._try_task', new_mock):
+            self._run(self.struct_task, inputs, cfg=self.cfg)
+        self.assertEqual(new_mock.call_count, 0)
+
+    def test_caching_with_struct_name_change(self):
+        with open(os.path.join(self._dir, "randomFile.txt"), "w") as outfile:
+            outfile.write("Gotta put something here")
+        inputs = {"box": {"str": [os.path.join(self._dir, "randomFile.txt")]}}
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        # test mock is called
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(self.struct_task, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 1)
+        # run for real
+        self._run(self.struct_task, inputs, cfg=self.cfg)
+
+        new_mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+
+        rename_struct: str = R"""
+                    version 1.0
+                    struct Fox {
+                        Array[File] str
+                    }
+                    task hello {
+                        input {
+                            Fox fox
+                        }
+                        command {
+                            echo "Hello, world!"
+                        }
+                        output {
+                            Int count = 13
+                        }
+                    }
+                    """
+        update_inputs = {"fox": {"str": [os.path.join(self._dir, "randomFile.txt")]}}
+
+        # test mock not called for cached tasks containing a struct
+        with patch('WDL.runtime.task._try_task', new_mock):
+            self._run(rename_struct, update_inputs, cfg=self.cfg)
+        self.assertEqual(new_mock.call_count, 0)
