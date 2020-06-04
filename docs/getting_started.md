@@ -160,30 +160,7 @@ Individual tasks and sub-workflows run in their own nested subdirectories, each 
 
 ## Next steps
 
-To aid the workflow development cycle, miniwdl includes a code quality checker which statically analyzes WDL source code to generate warnings and suggestions:
-
-```
-$ miniwdl check skylab/library/tasks/ZarrUtils.wdl
-ZarrUtils.wdl
-    task OptimusZarrConversion
-        (Ln 110, Col 6) CommandShellCheck, SC2006 Use $(..) instead of legacy `..`.
-        (Ln 113, Col 9) CommandShellCheck, SC2006 Use $(..) instead of legacy `..`.
-        (Ln 113, Col 15) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
-        (Ln 114, Col 10) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
-        (Ln 114, Col 21) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
-    task OptimusZarrToLoom
-        (Ln 139, Col 5) UnusedDeclaration, nothing references Int cpu
-    task SmartSeq2ZarrConversion
-        (Ln 37, Col 6) CommandShellCheck, SC2006 Use $(..) instead of legacy `..`.
-        (Ln 40, Col 9) CommandShellCheck, SC2006 Use $(..) instead of legacy `..`.
-        (Ln 40, Col 15) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
-        (Ln 41, Col 10) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
-        (Ln 41, Col 21) CommandShellCheck, SC2086 Double quote to prevent globbing and word splitting.
-```
-
-Here miniwdl points out an unused declaration in one task, and (if [ShellCheck](https://www.shellcheck.net/) is installed) several suggestions for the embedded shell commands.
-
-Installing miniwdl also makes available a `WDL` package for Python 3.6+, providing programmatic access to miniwdl's WDL parser and other functionality; its documentation follows here.
+The following pages document features, configuration, and optimization for `miniwdl run`. To aid the workflow development cycle, miniwdl also includes a static code quality checker, `miniwdl check`. Lastly, installing miniwdl makes available a Python `WDL` package, providing programmatic access to miniwdl's WDL parser and runtime.
 
 ### Links
 

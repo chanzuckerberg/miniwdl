@@ -40,22 +40,7 @@ quant_warning = False
 def main(args=None):
     sys.setrecursionlimit(1_000_000)  # permit as much call stack depth as OS can give us
 
-    parser = ArgumentParser("miniwdl")
-    parser.add_argument(
-        "--version",
-        nargs=0,
-        action=PipVersionAction,
-        help="show miniwdl package version information",
-    )
-    subparsers = parser.add_subparsers()
-    subparsers.required = True
-    subparsers.dest = "command"
-    fill_common(fill_check_subparser(subparsers))
-    fill_common(fill_cromwell_subparser(subparsers), path=False)  # FIXME path issue #131
-    fill_common(fill_run_subparser(subparsers))
-    fill_common(fill_run_self_test_subparser(subparsers))
-    fill_common(fill_localize_subparser(subparsers))
-
+    parser = create_arg_parser()
     argcomplete.autocomplete(parser)
 
     replace_COLUMNS = os.environ.get("COLUMNS", None)
@@ -98,6 +83,25 @@ def main(args=None):
     sys.exit(0)
 
 
+def create_arg_parser():
+    parser = ArgumentParser("miniwdl")
+    parser.add_argument(
+        "--version",
+        nargs=0,
+        action=PipVersionAction,
+        help="show miniwdl package version information",
+    )
+    subparsers = parser.add_subparsers()
+    subparsers.required = True
+    subparsers.dest = "command"
+    fill_common(fill_check_subparser(subparsers))
+    fill_common(fill_cromwell_subparser(subparsers), path=False)  # FIXME path issue #131
+    fill_common(fill_run_subparser(subparsers))
+    fill_common(fill_run_self_test_subparser(subparsers))
+    fill_common(fill_localize_subparser(subparsers))
+    return parser
+
+
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
         try:
@@ -136,7 +140,8 @@ def fill_common(subparser, path=True):
             action="append",
             help="local directory to search for imports",
         )
-    subparser.add_argument(
+    group = subparser.add_argument_group("debugging")
+    group.add_argument(
         "--debug", action="store_true", help="maximally verbose logging & exception tracebacks"
     )
 
@@ -153,7 +158,7 @@ def fill_check_subparser(subparsers):
         formatter_class=RawDescriptionHelpFormatter,
     )
     check_parser.add_argument(
-        "uri", metavar="URI", type=str, nargs="+", help="WDL document filename/URI"
+        "uri", metavar="WDL_URI", type=str, nargs="+", help="WDL document filename/URI"
     )
     check_parser.add_argument(
         "--strict",

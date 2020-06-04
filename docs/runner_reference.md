@@ -1,4 +1,4 @@
-# Runner reference
+# `miniwdl run` reference
 
 ## I/O and run directory structure
 
