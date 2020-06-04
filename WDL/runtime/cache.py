@@ -70,10 +70,10 @@ class CallCache(AbstractContextManager):
             with open(file_path, "rb") as file_reader:
                 contents = file_reader.read()
         except FileNotFoundError:
-            logger.info(f"Cache not found for input_digest: {key}")
+            self._logger.info(f"Cache not found for input_digest: {key}")
             return None
         contents = json.loads(contents)
-        logger.notice(f"Cache found for input_digest: {key}")
+        self._logger.notice(f"Cache found for input_digest: {key}")
         return values_from_json(contents, output_types)
 
     def put(
@@ -92,7 +92,7 @@ class CallCache(AbstractContextManager):
             json.dumps(values_to_json(outputs, namespace=''), indent=2),  # pyre-ignore
             filename,
         )
-        logger.info(f"Cache created for input_digest: {key}")
+        self._logger.info(f"Cache created for input_digest: {key}")
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up in URI-derived folder structure instead of sqlite db)
