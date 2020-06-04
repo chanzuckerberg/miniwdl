@@ -41,7 +41,7 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         cls.logger = logging.getLogger(cls.__name__)
         cls.cfg = WDL.runtime.config.Loader(cls.logger, [])
-        cls.cfg.override({"outputs_cache": {"XDG_CACHE_HOME": cls.cache_dir}})
+        cls.cfg.override({"call_cache": {"dir": cls.cache_dir}})
         WDL.runtime.task.SwarmContainer.global_init(cls.cfg, cls.logger)
 
     def setUp(self):

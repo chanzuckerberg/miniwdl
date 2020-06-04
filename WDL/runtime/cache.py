@@ -15,7 +15,7 @@ from fnmatch import fnmatchcase
 
 from . import config
 from .. import Env, Value, Type
-from .._util import StructuredLogMessage as _, FlockHolder
+from .._util import StructuredLogMessage as _, FlockHolder, write_atomic
 
 
 class CallCache(AbstractContextManager):
@@ -27,7 +27,7 @@ class CallCache(AbstractContextManager):
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
-        self.outputs_cache_dir = cfg["outputs_cache"]["XDG_CACHE_HOME"]
+        self.outputs_cache_dir = cfg["call_cache"]["dir"]
 
         try:
             os.mkdir(self.outputs_cache_dir)
@@ -70,8 +70,10 @@ class CallCache(AbstractContextManager):
             with open(file_path, "rb") as file_reader:
                 contents = file_reader.read()
         except FileNotFoundError:
+            logger.info(f"Cache not found for input_digest: {key}")
             return None
         contents = json.loads(contents)
+        logger.notice(f"Cache found for input_digest: {key}")
         return values_from_json(contents, output_types)
 
     def put(
@@ -85,11 +87,12 @@ class CallCache(AbstractContextManager):
         Store call outputs for future reuse
         """
         from .. import values_to_json
-
-        with open(os.path.join(self.outputs_cache_dir, f"{key}.json"), "w+") as outfile:
-            print(
-                json.dumps(values_to_json(outputs), sort_keys=True), file=outfile,
-            )
+        filename = os.path.join(self.outputs_cache_dir, f"{key}.json")
+        write_atomic(
+            json.dumps(values_to_json(outputs, namespace=''), indent=2),  # pyre-ignore
+            filename,
+        )
+        logger.info(f"Cache created for input_digest: {key}")
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up in URI-derived folder structure instead of sqlite db)
