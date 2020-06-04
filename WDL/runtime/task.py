@@ -26,7 +26,7 @@ from contextlib import ExitStack
 import docker
 
 import WDL
-from .. import Error, Type, Env, Value, StdLib, Tree, _util
+from .. import Error, Type, Env, Value, StdLib, Tree, _util, Document
 from .._util import (
     write_atomic,
     write_values_json,
@@ -761,6 +761,7 @@ def run_local_task(
     cfg: config.Loader,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
+    wdl_doc: Document,
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
@@ -817,11 +818,13 @@ def run_local_task(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
-            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
+            cache = _cache or cleanup.enter_context(CallCache(cfg, logger, wdl_doc))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
             input_digest = cache.get_digest_for_inputs(inputs)
-            cached = cache.get(input_digest, run_dir, task.effective_outputs)
+            task_digest = cache.get_digest_for_task(task)
+            cached = cache.get(f"{task_digest}/{input_digest}", run_dir, task.effective_outputs)
             if cached:
+                logger.notice(f"Succesfullly pulled cached outputs for task_digest: {task_digest} and input_digest: {input_digest}")
                 return (run_dir, cached)
 
         else:
@@ -830,8 +833,10 @@ def run_local_task(
 
         try:
             input_digest = cache.get_digest_for_inputs(inputs)
-            cached = cache.get(input_digest, run_dir, task.outputs)
+            task_digest = cache.get_digest_for_task(task)
+            cached = cache.get(f"{task_digest}/{input_digest}", run_dir, task.outputs)
             if cached:
+                logger.notice(f"Succesfullly pulled cached outputs for task digest: {task_digest} and input_digest: {input_digest}")
                 return (run_dir, cached)
             # start plugin coroutines and process inputs through them
             with compose_coroutines(
@@ -904,7 +909,7 @@ def run_local_task(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
                 logger.notice("done")  # pyre-fixme
-                cache.put(input_digest, run_dir, outputs)
+                cache.put(task_digest, input_digest, run_dir, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())

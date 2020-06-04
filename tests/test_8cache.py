@@ -68,7 +68,7 @@ class TestTaskRunner(unittest.TestCase):
             target = doc.workflow or doc.tasks[0]
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, target.available_inputs, target.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir)
+            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), doc, run_dir=self._dir)
 
             self._rundir = rundir
         except Exception as exn:
@@ -94,18 +94,20 @@ class TestTaskRunner(unittest.TestCase):
                 "who": "Alyssa"
             }, self.doc.tasks[0].available_inputs)
 
-        ordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(ordered_inputs)
-        unordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(unordered_inputs)
+        ordered_digest = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc).get_digest_for_inputs(ordered_inputs)
+        unordered_digest = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc).get_digest_for_inputs(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
 
     def test_task_input_cache_matches_output(self):
 
         # run task, check output matches what was stored in run_dir
+        cache = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(inputs)
-        with open(os.path.join(self.cache_dir, f"{digest}.json")) as f:
+        input_digest = cache.get_digest_for_inputs(inputs)
+        task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
+        with open(os.path.join(self.cache_dir, f"{task_digest}/{input_digest}.json")) as f:
             read_data = json.loads(f.read())
         self.assertEqual(read_data, WDL.values_to_json(outputs))
 
@@ -131,12 +133,13 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(new_mock.call_count, 0)
 
     def test_get_cache_return_value_matches_outputs(self):
+        cache = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(inputs)
-
-        cache = CallCache(cfg=self.cfg, logger=self.logger).get(key=digest, run_dir=rundir,
+        input_digest = cache.get_digest_for_inputs(inputs)
+        task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
+        cache_value = cache.get(key=f"{task_digest}/{input_digest}", run_dir=rundir,
                                                                 output_types=self.doc.tasks[0].effective_outputs)
-        self.assertEqual(values_to_json(outputs), values_to_json(cache))
+        self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 

@@ -6,12 +6,14 @@ import os
 import json
 import logging
 import signal
+import tempfile
 import threading
 import time
 import copy
 import fcntl
 import subprocess
 import shutil
+import urllib
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager, AbstractContextManager
@@ -37,6 +39,8 @@ from pygtail import Pygtail
 import docker
 
 __all__: List[str] = []
+
+import WDL
 
 
 def export(obj) -> str:  # pyre-ignore
@@ -841,3 +845,54 @@ class RepeatTimer(threading.Timer):
     def run(self) -> None:
         while not self.finished.wait(self.interval):  # pyre-ignore
             self.function(*self.args, **self.kwargs)  # pyre-ignore
+
+
+def describe_struct_types(task):
+    """
+    Scan all declarations in the task for uses of struct types; produce a mapping from struct name
+    to its type_id (a string describing the struct's members, independent of struct names).
+    """
+    structs = {}
+    items = list(task.children)
+    while items:
+        item = items.pop()
+        if isinstance(item, WDL.Decl):
+            items.append(item.type)
+        elif isinstance(item, WDL.Type.StructInstance):
+            structs[item.type_name] = item.type_id
+        elif isinstance(item, WDL.Type.Base):
+            # descent into compound types so we'll cover e.g. Array[MyStructType]
+            for par_ty in item.parameters:
+                items.append(par_ty)
+    return structs
+
+
+def excerpt(doc, pos):
+    """
+    Excerpt the document's source lines indicated by pos : WDL.SourcePosition
+    TODO (?): delete comments from the source lines
+    """
+    if pos.end_line == pos.line:
+        return [doc.source_lines[pos.line - 1][(pos.column - 1) : pos.end_column]]
+    return (
+        [doc.source_lines[pos.line - 1][(pos.column - 1) :]]
+        + doc.source_lines[pos.line : (pos.end_line - 1)]
+        + [doc.source_lines[pos.end_line - 1][: pos.end_column]]
+    )
+
+
+async def read_source(uri, path, importer):
+    if uri.startswith("http:") or uri.startswith("https:"):
+        fn = os.path.join(
+            tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
+            os.path.basename(urllib.parse.urlsplit(uri).path),
+        )
+        urllib.request.urlretrieve(uri, filename=fn)
+        with open(fn, "r") as infile:
+            return WDL.ReadSourceResult(infile.read(), uri)
+    elif importer and (
+        importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
+    ):
+        assert not os.path.isabs(uri), "absolute import from downloaded WDL"
+        return await read_source(urllib.parse.urljoin(importer.pos.abspath, uri), [], importer)
+    return await WDL.read_source_default(uri, path, importer)

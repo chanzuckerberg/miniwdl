@@ -7,15 +7,20 @@ import hashlib
 import json
 import os
 import logging
+import tempfile
 import threading
+import urllib
+from pathlib import Path
 from typing import Iterator, Dict, Any, Optional, Set, List, IO
 from contextlib import AbstractContextManager
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
 
+import WDL
 from . import config
-from .. import Env, Value, Type
-from .._util import StructuredLogMessage as _, FlockHolder, write_atomic
+
+from .. import Env, Value, Type, Document
+from .._util import StructuredLogMessage as _, FlockHolder, write_atomic, excerpt, describe_struct_types, read_source
 
 
 class CallCache(AbstractContextManager):
@@ -23,14 +28,15 @@ class CallCache(AbstractContextManager):
     _flocker: FlockHolder
     _logger: logging.Logger
 
-    def __init__(self, cfg: config.Loader, logger: logging.Logger):
+    def __init__(self, cfg: config.Loader, logger: logging.Logger, wdl_doc: Document):
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
-        self.outputs_cache_dir = cfg["call_cache"]["dir"]
+        self.call_cache_dir = cfg["call_cache"]["dir"]
+        self.wdl_doc = wdl_doc
 
         try:
-            os.mkdir(self.outputs_cache_dir)
+            os.mkdir(self.call_cache_dir)
         except Exception as e:
             pass
 
@@ -64,13 +70,13 @@ class CallCache(AbstractContextManager):
         """
         from .. import values_from_json
 
-        file_path = os.path.join(self.outputs_cache_dir, f"{key}.json")
+        file_path = os.path.join(self.call_cache_dir, f"{key}.json")
 
         try:
             with open(file_path, "rb") as file_reader:
                 contents = file_reader.read()
         except FileNotFoundError:
-            self._logger.info(f"Cache not found for input_digest: {key}")
+            self._logger.info(f"Cache lookup unsuccessful for input_digest: {key}")
             return None
         contents = json.loads(contents)
         self._logger.notice(f"Cache found for input_digest: {key}")
@@ -78,7 +84,8 @@ class CallCache(AbstractContextManager):
 
     def put(
         self,
-        key: str,
+        task_digest: str,
+        input_digest: str,
         run_dir: str,
         outputs: Env.Bindings[Value.Base],
         logger: Optional[logging.Logger] = None,
@@ -87,12 +94,17 @@ class CallCache(AbstractContextManager):
         Store call outputs for future reuse
         """
         from .. import values_to_json
-        filename = os.path.join(self.outputs_cache_dir, f"{key}.json")
+        filepath = os.path.join(self.call_cache_dir, task_digest)
+        filename = os.path.join(self.call_cache_dir, f"{task_digest}/{input_digest}.json")
+
+        Path(filepath).mkdir(parents=True, exist_ok=True)
+
         write_atomic(
             json.dumps(values_to_json(outputs, namespace=''), indent=2),  # pyre-ignore
             filename,
         )
-        self._logger.info(f"Cache created for input_digest: {key}")
+        self._logger.info(f"Cache created for task_digest: {task_digest}, input_digest: {input_digest}")
+
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up in URI-derived folder structure instead of sqlite db)
@@ -182,3 +194,45 @@ class CallCache(AbstractContextManager):
 
     def flock(self, filename: str, exclusive: bool = False) -> None:
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
+
+    def get_digest_for_task(self, task):
+        task_string = self.describe_task(self.wdl_doc, task)
+        return hashlib.sha256(task_string.encode('utf-8')).hexdigest()
+
+    def describe_task(self, doc, task):
+        """
+        Generate a string describing the content of a WDL task. Right now this is just the task
+        definition excerpted from the WDL document, with some extra bits to cover any struct types
+        used.
+        """
+        output_lines = []
+
+        # WDL version declaration, if any
+        if doc.wdl_version:
+            output_lines.append("version " + doc.wdl_version)
+
+        # Insert comments describing struct types used in the task.
+        # Originally, we wanted to excerpt/generate the full struct type definitions and produce valid
+        # standalone WDL. But, there were complications: because a struct type can be imported from
+        # another document and aliased to a different name while doing so, it's possible that the task
+        # document refers to the struct by a different name than its original definition. Moreover, the
+        # struct might have members that are other structs, which could also be aliased in the current
+        # document. So generating valid WDL would involve tricky rewriting of the original struct
+        # definitions using one consistent set of names.
+        # To avoid dealing with this, instead we just generate comments describing the members of each
+        # struct type as named in the task's document. This description (type_id) applies recursively
+        # for any members that are themselves structs, making it independent of all struct type names.
+        #   https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.StructTypeDef.type_id
+        structs = describe_struct_types(task)
+        for struct_name in sorted(structs.keys()):
+            output_lines.append(f"# {struct_name} :: {structs[struct_name]}")
+
+        # excerpt task{} from document
+        output_lines += excerpt(doc, task.pos)
+
+        # TODO (?): delete non-semantic whitespace, perhaps excise the meta & parameter_meta sections
+
+        return "\n".join(output_lines).strip()
+
+
+

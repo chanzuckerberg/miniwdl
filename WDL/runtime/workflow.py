@@ -44,7 +44,7 @@ from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
 import importlib_metadata
-from .. import Env, Type, Value, Tree, StdLib
+from .. import Env, Type, Value, Tree, StdLib, Document
 from ..Error import InputError
 from .task import run_local_task, _filenames, link_outputs
 from .download import able as downloadable, run_cached as download
@@ -585,6 +585,7 @@ def run_local_workflow(
     cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
+    wdl_doc: Document,
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
@@ -648,7 +649,7 @@ def run_local_workflow(
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
             assert not _thread_pools
 
-            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
+            cache = _cache or cleanup.enter_context(CallCache(cfg, logger, wdl_doc))
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd

@@ -623,7 +623,7 @@ def runner(
 
         # run & log any errors
         cleanup.enter_context(runtime._statusbar.enable(set_status))
-        cache = cleanup.enter_context(runtime.cache.CallCache(cfg, logger))
+        cache = cleanup.enter_context(runtime.cache.CallCache(cfg, logger, doc))
         rundir = None
         try:
             rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir, _cache=cache)
@@ -1439,7 +1439,7 @@ def localize(
             )
             sys.exit(2)
 
-        with runtime.cache.CallCache(cfg, logger) as cache:
+        with runtime.cache.CallCache(cfg, logger, doc) as cache:
             disabled = [u for u in uri if not cache.download_path(u)]
         if disabled:
             logger.notice(_("URIs found but not cacheable per configuration", uri=disabled))
