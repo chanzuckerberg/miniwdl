@@ -37,6 +37,7 @@ jobs:
     - env: CI_TARGET=ci_unit_tests
     - env: CI_TARGET=integration_tests
     - env: CI_TARGET=skylab_bulk_rna
+    - env: CI_TARGET=viral_refbased
     - env: CI_TARGET=DVGLx
     - env: CI_TARGET=viral_assemble
   allow_failures:

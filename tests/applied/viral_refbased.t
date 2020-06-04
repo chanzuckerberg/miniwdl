@@ -19,7 +19,10 @@ source $SOURCE_DIR/tests/bash-tap/bash-tap-bootstrap
 plan tests 1
 set +e
 
-$miniwdl run pipes/WDL/workflows/assemble_denovo.wdl \
-    --path pipes/WDL/tasks --dir "$DN" --verbose \
-    -i test/input/WDL/test_inputs-assemble_denovo-local.json
+$miniwdl run pipes/WDL/workflows/assemble_refbased.wdl \
+    reads_unmapped_bams=test/input/G5012.3.testreads.bam \
+    reference_fasta=test/input/ebov-makona.fasta \
+    sample_name=G5012.3 \
+    --path pipes/WDL/tasks --dir "$DN" --verbose
+
 is "$?" "0" "pipeline success"

@@ -27,6 +27,9 @@ DVGLx:
 viral_assemble:
 	prove -v tests/applied/viral_assemble.t
 
+viral_refbased:
+	prove -v tests/applied/viral_refbased.t
+
 ci_housekeeping: sopretty check_check check doc
 
 ci_unit_tests: unit_tests
