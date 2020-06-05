@@ -23,6 +23,6 @@ $miniwdl run pipes/WDL/workflows/assemble_refbased.wdl \
     reads_unmapped_bams=test/input/G5012.3.testreads.bam \
     reference_fasta=test/input/ebov-makona.fasta \
     sample_name=G5012.3 \
-    --path pipes/WDL/tasks --dir "$DN" --verbose
+    --dir "$DN" --verbose
 
 is "$?" "0" "pipeline success"

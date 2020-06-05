@@ -27,6 +27,8 @@ To quickly run only a relevant subset of the tests, you can e.g. `python3 -m uni
 
 **macOS:** isn't preferred for miniwdl development due to some [test suite incompatibilities](https://github.com/chanzuckerberg/miniwdl/issues/145); but at least simple changes can be prototyped under macOS.
 
+Read the Docs currently builds from the [mlin/miniwdl](https://github.com/mlin/miniwdl) fork of this repository. Locally, `make doc` generates the docs under `docs/_build/html/`.
+
 ## Security
 
 Please disclose security issues responsibly by contacting security@chanzuckerberg.com.

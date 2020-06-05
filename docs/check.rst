@@ -33,7 +33,7 @@ Run this through ``miniwdl check``:
             (Ln 2, Col 21) ForwardReference, reference to i precedes its declaration
             (Ln 10, Col 14) NameCollision, declaration of 't' collides with a task name
 
-miniwdl parsed the document successfully to produce this outline, but noted several issues within. First, we forgot to specify the WDL language version by starting the file with ``version 1.0`` or ``version development``, causing miniwdl to assume the outdated draft-2 dialect (as required by the WDL specification). This in turn causes a more serious problem: WDL draft-2 didn't yet support the ``~{expr}`` interpolation syntax, so it goes unrecognized here, leaving incorrect command logic and the WDL value ``s`` unused. This pitfall (a common one!) illustrates how the "lint" warnings, while often stylistic, can indicate critical errors.
+miniwdl parsed the document successfully to produce this outline, but noted several issues within. First, we forgot to specify the WDL language version by starting the file with ``version 1.0`` or ``version development``, causing miniwdl to assume the outdated draft-2 dialect (as required by the WDL specification). This leads to a more serious problem: WDL draft-2 didn't yet support the ``~{expr}`` interpolation syntax, so it goes unrecognized here, leaving incorrect command logic and the WDL value ``s`` unused. This pitfall (a common one!) illustrates how the "lint" warnings, while often stylistic, can indicate critical errors.
 
 If your system has `ShellCheck <https://www.shellcheck.net/>`_ installed, ``miniwdl check`` automatically runs it on each task command script and reports any findings, in this case:
 
@@ -77,7 +77,7 @@ ShellCheck warnings can be suppressed using `that tool's own convention <https:/
 Pre-commit hook
 ---------------
 
-In a git repository with WDL workflows, you can use `pre-commit <https://pre-commit.com/>`_  with ``miniwdl check`` with by entering into ``.pre-commit-config.yaml``:
+In a git repository with WDL workflows, you can use `pre-commit <https://pre-commit.com/>`_  with ``miniwdl check`` by entering into ``.pre-commit-config.yaml``:
 
 .. code-block:: yaml
 

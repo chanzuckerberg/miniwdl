@@ -1,7 +1,7 @@
 # Getting Started
 
 [miniwdl](https://github.com/chanzuckerberg/miniwdl/) is a local runner and developer toolkit for
-the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/>).  In this tutorial, we'll use miniwdl's runner with a [Human Cell Atlas (HCA) secondary analysis pipeline](https://github.com/HumanCellAtlas/skylab/) and test dataset.
+the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/>).  In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.
 
 ## Install miniwdl
 
@@ -23,140 +23,110 @@ Then open a command prompt and try,
 
 ```miniwdl run_self_test```
 
-to test that miniwdl and Docker are set up properly to run a trivial built-in workflow. This should print numerous log messages, and conclude with `miniwdl run_self_test OK` in about 30 seconds.
+...to test the installation with a trivial built-in workflow. This should print numerous log messages, and conclude with `miniwdl run_self_test OK` in about 30 seconds.
 
-Please [file any issues](https://github.com/chanzuckerberg/miniwdl/issues) that arise!
+On macOS, you'll first need to override the `TMPDIR` environment variable, e.g. `export TMPDIR=/tmp`, to allow Docker containers to mount shared working directories. Please [file any other issues](https://github.com/chanzuckerberg/miniwdl/issues) that arise!
 
-## Fetch skylab and data
+## Fetch viral-pipelines
 
-[Skylab](https://github.com/HumanCellAtlas/skylab/) is the HCA project's repository of WDL data processing workflows for high-throughput sequencing data. We'll fetch a copy of it and a test dataset to use for this exercise.
-
-Enter some working directory and either,
+For this exercise we'll use the [Broad Institute's viral sequencing pipeline](https://github.com/broadinstitute/viral-pipelines/), which includes a small EBOV dataset for testing. Start by fetching a copy,
 
 ```
-git clone https://github.com/HumanCellAtlas/skylab.git
+wget -nv -O - https://github.com/broadinstitute/viral-pipelines/archive/v2.1.0.2.tar.gz | tar zx
+cd viral-pipelines-*
 ```
 
-or download & extract the [source ZIP file](https://github.com/HumanCellAtlas/skylab/archive/master.zip).
+## Run assemble_refbased workflow
 
-Next, download ~6 GB of test data to run the [snap-atac pipeline](https://github.com/HumanCellAtlas/skylab/tree/master/pipelines/snap-atac) for single-cell ATAC-seq reads. The files are staged in a public Google Cloud Storage bucket, so first [install gsutil](https://cloud.google.com/storage/docs/gsutil_install) and:
-
-```
-gsutil -m cp                                                                                                 \
-    gs://hca-dcp-sc-pipelines-test-data/alignmentReferences/snapATAC_BWA/hg38/hg38.tar                       \
-    gs://hca-dcp-sc-pipelines-test-data/smallDatasets/snap-atac/readnames_preattached/test_500k.R1.fastq.gz  \
-    gs://hca-dcp-sc-pipelines-test-data/smallDatasets/snap-atac/readnames_preattached/test_500k.R2.fastq.gz  \
-    .
-```
-
-## Run snap-atac workflow
-
-First we can use miniwdl to preview the workflow's inputs and outputs.
+First we can use miniwdl to preview the inputs and outputs of the [reference-based assembly workflow](https://github.com/broadinstitute/viral-pipelines/blob/master/pipes/WDL/workflows/assemble_refbased.wdl):
 
 ```
-$ miniwdl run --path skylab/library/tasks skylab/pipelines/snap-atac/snap-atac.wdl
+$ miniwdl run pipes/WDL/workflows/assemble_refbased.wdl
 
-missing required inputs for scATAC: input_fastq1, input_fastq2, genome_name, input_reference
+missing required inputs for assemble_refbased: reads_unmapped_bams, reference_fasta
 
 required inputs:
-  File input_fastq1
-  File input_fastq2
-  String genome_name
-  File input_reference
+  Array[File]+ reads_unmapped_bams
+  File reference_fasta
 
 optional inputs:
-  String output_bam
-  String AlignPairedEnd.reference_unpack_name
-  Int AlignPairedEnd.min_cov
-  String AlignPairedEnd.docker_image
-  String SnapPre.genome_size_file
-  String SnapPre.docker_image
-  String SnapCellByBin.snap_output_name
-  String SnapCellByBin.docker_image
-  String MakeCompliantBAM.output_bam_filename
-  String MakeCompliantBAM.docker_image
-  String BreakoutSnap.docker_image
+  String sample_name
+  ...
 
 outputs:
-  File output_snap_qc
-  File output_snap
-  File output_aligned_bam
-  File breakout_barcodes
-  File breakout_fragments
-  File breakout_binCoordinates
-  File breakout_binCounts
-  File breakout_barcodesSection
+  File assembly_fasta
+  Int assembly_length
+  Int assembly_length_unambiguous
+  Int reference_genome_length
+  Float assembly_mean_coverage
+  ...
 ```
 
-* The ``--path`` argument is needed because the skylab pipelines import from a common library of tasks in a separate directory. Simpler WDL codebases won't need this argument.
-
-To run the workflow, miniwdl can accept the inputs as command-line arguments in most cases:
+To invoke the workflow, miniwdl can accept the inputs as command-line arguments in most cases. Here we'll start it on the test reads and EBOV reference genome included in the repository:
 
 ```
-$ miniwdl run --copy-input-files --path skylab/library/tasks  \
-    skylab/pipelines/snap-atac/snap-atac.wdl                  \
-    input_fastq1=test_500k.R1.fastq.gz                        \
-    input_fastq2=test_500k.R2.fastq.gz                        \
-    genome_name=hg38                                          \
-    input_reference=hg38.tar
+$ miniwdl run pipes/WDL/workflows/assemble_refbased.wdl   \
+    reads_unmapped_bams=test/input/G5012.3.testreads.bam  \
+    reference_fasta=test/input/ebov-makona.fasta          \
+    sample_name=G5012.3 --verbose
 ```
 
-The workflow should finish in about 10 minutes, with modest parallelization.
+The workflow should finish in just a few minutes.
 
-* The ``--copy-input-files`` argument is needed because some skylab tasks rename or delete their input files. The miniwdl runner makes all input files read-only by default, causing such commands to fail; they're permitted with ``--copy-input-files`` with increased disk space usage.
-* Adding ``--verbose`` shows more status detail, including a realtime log of each task's standard error stream, often informative for debugging.
+* Adding ``--verbose`` shows more status detail, including a realtime log of each task's standard error stream (often informative for debugging).
 * Array inputs can be supplied on the command-line by repeating, e.g. `array_input1=/path/to/file1 array_input1=/path/to/file2` translates to `{"array_input1": ["/path/to/file1", "/path/to/file2"]}`
-* Strings with spaces can be supplied by quoting the whole pair, `"name=Alyssa P. Hacker"`
-* For other cases, you can supply a Cromwell-style JSON file with `--input inputs.json`.
-
-See `miniwdl run --help` for other available options.
+* Strings with spaces can be supplied by quoting the whole pair, `"name=Wid L. Hacker"`
+* For other cases or to separate inputs from the invocation, you can supply a [Cromwell-style JSON](https://support.terra.bio/hc/en-us/articles/360037120252) file with `--input inputs.json`.
 
 ## Inspect results
 
-By default, `miniwdl run` creates a new subdirectory of the current working directory, used for all of the workflow's operations. The subdirectory's name is timestamp-prefixed, so that multiple runs sort in the order they were invoked. The workflow directory can be overridden on the command line.
+By default, `miniwdl run` creates a new subdirectory of the current working directory, used for all of the workflow's operations. The subdirectory's name is timestamp-prefixed, so that multiple runs sort in the order they were invoked. The workflow directory can be overridden on the command line; see `miniwdl run --help` for details.
 
-The standard output from `miniwdl run` provides the subdirectory along with the Cromwell-style JSON outputs, for example:
+The standard output from `miniwdl run` provides the subdirectory along with JSON describing the workflow outputs, for example (abbreviated):
 
 ```
 {
   "outputs": {
-    "scATAC.output_snap_qc": "/tmp/snap-atac/20191012_120816_scATAC/call-SnapPre/work/output.snap.qc",
-    "scATAC.breakout_binCounts": "/tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/binCounts_10000.csv",
-    "scATAC.output_aligned_bam": "/tmp/snap-atac/20191012_120816_scATAC/call-MakeCompliantBAM/work/output.bam",
-    "scATAC.output_snap": "/tmp/snap-atac/20191012_120816_scATAC/call-SnapCellByBin/work/output.snap",
-    "scATAC.breakout_fragments": "/tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/fragments.csv",
-    "scATAC.breakout_binCoordinates": "/tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/binCoordinates_10000.csv",
-    "scATAC.breakout_barcodesSection": "/tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/barcodesSection.csv",
-    "scATAC.breakout_barcodes": "/tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/barcodes.csv"
+    "assemble_refbased.assembly_length": 18865,
+    "assemble_refbased.assembly_length_unambiguous": 18865,
+    "assemble_refbased.assembly_mean_coverage": 94.95885858958806,
+    "assemble_refbased.assembly_fasta": "/tmp/viral-pipelines-2.1.0.2/20200604_132146_assemble_refbased/output_links/assembly_fasta/G5012.3.fasta",
+    "assemble_refbased.reference_genome_length": 18959,
+    ...
   },
-  "dir": "/tmp/snap-atac/20191012_120816_scATAC"
+  "dir": "/tmp/viral-pipelines-2.1.0.2/20200604_132146_assemble_refbased"
 }
 ```
 
-This is also stored in `outputs.json` in the subdirectory. miniwdl furthermore generates an `output_links` directory tree containing symbolic links to the output files, which is sometimes more convenient to consume than the JSON:
+This is also stored in `outputs.json` in the subdirectory. For your convenience, miniwdl furthermore generates a symbolic link `_LAST` pointing to the timestamped subdirectory for most recent run; and an `output_links` directory tree containing symbolic links to the output files.
 
 ```
-$ tree 20191012_120816_scATAC/output_links
-20191012_120816_scATAC/output_links
-├── scATAC.breakout_barcodes
-│   └── barcodes.csv -> /tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/barcodes.csv
-├── scATAC.breakout_barcodesSection
-│   └── barcodesSection.csv -> /tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/barcodesSection.csv
-├── scATAC.breakout_binCoordinates
-│   └── binCoordinates_10000.csv -> /tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/binCoordinates_10000.csv
-├── scATAC.breakout_binCounts
-│   └── binCounts_10000.csv -> /tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/binCounts_10000.csv
-├── scATAC.breakout_fragments
-│   └── fragments.csv -> /tmp/snap-atac/20191012_120816_scATAC/call-BreakoutSnap/work/output/fragments.csv
-├── scATAC.output_aligned_bam
-│   └── output.bam -> /tmp/snap-atac/20191012_120816_scATAC/call-MakeCompliantBAM/work/output.bam
-├── scATAC.output_snap
-│   └── output.snap -> /tmp/snap-atac/20191012_120816_scATAC/call-SnapCellByBin/work/output.snap
-└── scATAC.output_snap_qc
-    └── output.snap.qc -> /tmp/snap-atac/20191012_120816_scATAC/call-SnapPre/work/output.snap.qc
+$ tree _LAST/output_links/
+_LAST/output_links/
+├── align_to_ref_merged_aligned_trimmed_only_bam
+│   └── G5012.3.align_to_ref.trimmed.bam -> ../../call-merge_align_to_ref/work/G5012.3.align_to_ref.trimmed.bam
+├── align_to_ref_merged_coverage_plot
+│   └── G5012.3.coverage_plot.pdf -> ../../call-plot_ref_coverage/work/G5012.3.coverage_plot.pdf
+├── align_to_ref_merged_coverage_tsv
+│   └── G5012.3.coverage_plot.txt -> ../../call-plot_ref_coverage/work/G5012.3.coverage_plot.txt
+├── align_to_ref_multiqc_report
+│   └── multiqc.html -> ../../call-multiqc_align_to_ref/work/multiqc-output/multiqc.html
+├── align_to_ref_per_input_aligned_flagstat
+│   └── 0
+│       └── G5012.3.testreads.all.bam.flagstat.txt -> ../../../call-align_to_ref-0/work/G5012.3.testreads.all.bam.flagstat.txt
+├── align_to_ref_variants_vcf_gz
+│   └── G5012.3.sites.vcf.gz -> ../../call-call_consensus/work/G5012.3.sites.vcf.gz
+├── align_to_self_merged_aligned_only_bam
+│   └── G5012.3.merge_align_to_self.bam -> ../../call-merge_align_to_self/work/G5012.3.merge_align_to_self.bam
+├── align_to_self_merged_coverage_plot
+│   └── G5012.3.coverage_plot.pdf -> ../../call-plot_self_coverage/work/G5012.3.coverage_plot.pdf
+├── align_to_self_merged_coverage_tsv
+│   └── G5012.3.coverage_plot.txt -> ../../call-plot_self_coverage/work/G5012.3.coverage_plot.txt
+└── assembly_fasta
+    └── G5012.3.fasta -> ../../call-call_consensus/work/G5012.3.fasta
 ```
 
-Individual tasks and sub-workflows run in their own nested subdirectories, each with a similar structure.
+The `output_links` are often more convenient to consume than the JSON, but they only capture outputs that are files. Individual tasks and sub-workflows run in their own nested subdirectories, each with a similar structure.
 
 ## Next steps
 
