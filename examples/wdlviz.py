@@ -66,6 +66,7 @@ def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False):
     top.attr(compound="true", rankdir="LR")
     fontname = "Roboto"
     top.attr("node", fontname=fontname)
+    top.attr("edge", color="#00000080")
     node_ids = set()
 
     # recursively add graphviz nodes for each decl/call/scatter/conditional workflow node.

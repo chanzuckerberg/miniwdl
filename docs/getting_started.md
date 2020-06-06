@@ -16,7 +16,7 @@ Requirements:
 Installation options:
 
 * via PyPI: `pip3 install miniwdl`
-* via conda: `conda install miniwdl` after adding [conda-forge](https://conda-forge.org/docs/user/introduction.html)
+* via conda: `conda install --channel conda-forge miniwdl`
 * see the [GitHub repo README](https://github.com/chanzuckerberg/miniwdl/) to install from source
 
 Then open a command prompt and try,
