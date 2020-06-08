@@ -19,7 +19,7 @@ Source install: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/b
 
 See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows the current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues).
 
-## [Documentation](https://readthedocs.org/projects/miniwdl/badge/?version=latest)
+## [Documentation](https://miniwdl.readthedocs.io/en/latest/WDL.html)
 
 The online documentation includes a user tutorial, reference manual, and Python development codelabs: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/WDL.html)
 
