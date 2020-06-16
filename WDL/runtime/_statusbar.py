@@ -121,7 +121,7 @@ def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
                     ", running: " + str(_counters["tasks_running"]),
                 ]
             )
-            if _counters["tasks_running"]:
+            if _counters["tasks_running_cpu"] or _counters["tasks_running_mem_bytes"]:
                 msg += [
                     "    reserved CPUs: " + str(_counters["tasks_running_cpu"]),
                     ", RAM: "
