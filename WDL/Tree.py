@@ -1404,7 +1404,7 @@ def load(
 
 
 def _calls(element: Union[Workflow, WorkflowSection]) -> Generator[Call, None, None]:
-    # Yield each Call in the workflow, including those nested withis scatter/conditional sections
+    # Yield each Call in the workflow, including those nested within scatter/conditional sections
     for ch in element.children:
         if isinstance(ch, Call):
             yield ch
