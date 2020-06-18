@@ -33,6 +33,24 @@ from typing import Any, Optional, Union
 from . import Error, Type, Env, Expr, Tree, StdLib, Walker, _util
 
 
+def _find_doc(obj: Error.SourceNode):
+    "find the containing document"
+    doc = obj
+    while not isinstance(doc, Tree.Document):
+        doc = getattr(doc, "parent")
+        assert doc
+    return doc
+
+
+def _find_expr_parent(obj: Expr.Base):
+    "find closest ancestor of obj that isn't an expression"
+    pt = obj
+    while isinstance(pt, Expr.Base):
+        pt = getattr(pt, "parent")
+    assert pt
+    return pt
+
+
 class Linter(Walker.Base):
     """
     Linters are Walkers which annotate each Tree node with
@@ -54,19 +72,17 @@ class Linter(Walker.Base):
         Used by subclasses to attach lint to a node.
 
         Note, lint attaches to Tree nodes (Decl, Task, Workflow, Scatter,
-        Conditional, Document). Warnings about individual expressions should
+        Conditional, Document). Warnings about individual expressions will
         attach to their parent Tree node.
         """
-        assert not isinstance(obj, Expr.Base)
+        if isinstance(obj, Expr.Base):
+            obj = _find_expr_parent(obj)
         if pos is None:
             pos = obj.pos
 
         # check for suppressive comments
         suppress = False
-        doc = obj
-        while not isinstance(doc, Tree.Document):
-            doc = getattr(doc, "parent")
-        assert isinstance(doc, Tree.Document)
+        doc = _find_doc(obj)
         for L in [pos.line, pos.end_line]:
             # check the current line
             comment = doc.source_comments[L - 1]
@@ -83,7 +99,7 @@ class Linter(Walker.Base):
 
         if not hasattr(obj, "lint"):
             obj.lint = []
-        obj.lint.append((pos, self.__class__.__name__, message, suppress))  # pyre-ignore
+        obj.lint.append((pos, self.__class__.__name__, message, suppress))
         return True
 
 
@@ -156,19 +172,19 @@ def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
         return _compound_coercion(
             to_type.item_type, from_type.item_type, base_to_type, extra_from_type
         )
-    elif isinstance(to_type, Type.Map) and isinstance(from_type, Type.Map):
+    if isinstance(to_type, Type.Map) and isinstance(from_type, Type.Map):
         return _compound_coercion(
             to_type.item_type[0], from_type.item_type[0], base_to_type, extra_from_type
         ) or _compound_coercion(
             to_type.item_type[1], from_type.item_type[1], base_to_type, extra_from_type
         )
-    elif isinstance(to_type, Type.Pair) and isinstance(from_type, Type.Pair):
+    if isinstance(to_type, Type.Pair) and isinstance(from_type, Type.Pair):
         return _compound_coercion(
             to_type.left_type, from_type.left_type, base_to_type, extra_from_type
         ) or _compound_coercion(
             to_type.right_type, from_type.right_type, base_to_type, extra_from_type
         )
-    elif isinstance(to_type, base_to_type):
+    if isinstance(to_type, base_to_type):
         if extra_from_type:
             return not isinstance(from_type, (base_to_type, extra_from_type, Type.Any))
         return not isinstance(from_type, (base_to_type, Type.Any))
@@ -202,9 +218,6 @@ class StringCoercion(Linter):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: Expr.Base) -> Any:
-        pt = obj
-        while isinstance(pt, Expr.Base):
-            pt = getattr(pt, "parent")
         if isinstance(obj, Expr.Apply):
             # String function operands with non-String expression
             if obj.function_name == "_add":
@@ -227,7 +240,7 @@ class StringCoercion(Linter):
                     and not getattr(obj, "in_placeholder", False)
                 ):
                     self.add(
-                        pt,
+                        obj,
                         "string concatenation (+) has {} argument; consider using interpolation".format(
                             str(all_string)
                         ),
@@ -249,7 +262,7 @@ class StringCoercion(Linter):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F_i), F.name, str(arg_i.type)
                             )
-                            self.add(pt, msg, arg_i.pos)
+                            self.add(obj, msg, arg_i.pos)
         elif isinstance(obj, Expr.Array):
             # Array literal with mixed item types, one of which is String,
             # causing coercion of the others
@@ -266,7 +279,7 @@ class StringCoercion(Linter):
                 msg = "{} literal = [{}]".format(
                     str(obj.type), ", ".join(":{}:".format(ty) for ty in item_types)
                 )
-                self.add(pt, msg, obj.pos)
+                self.add(obj, msg, obj.pos)
 
     def call(self, obj: Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -303,9 +316,6 @@ class FileCoercion(Linter):
     def expr(self, obj: Expr.Base) -> Any:
         super().expr(obj)
         if isinstance(obj, Expr.Apply):
-            pt = obj
-            while isinstance(pt, Expr.Base):
-                pt = getattr(pt, "parent")
             # File function operands with String expression
             F = getattr(StdLib.TaskOutputs(), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
@@ -314,14 +324,14 @@ class FileCoercion(Linter):
                     arg_i = obj.arguments[i]
                     if _compound_coercion(F_i, arg_i.type, Type.File):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
-                        self.add(pt, msg, arg_i.pos)
+                        self.add(obj, msg, arg_i.pos)
             elif obj.function_name == "size":
                 arg0ty = obj.arguments[0].type
                 if not isinstance(arg0ty, Type.File) and not (
                     isinstance(arg0ty, Type.Array) and isinstance(arg0ty.item_type, Type.File)
                 ):
                     self.add(
-                        pt,
+                        obj,
                         "File?/Array[File?] argument of size() = :{}:".format(
                             str(obj.arguments[0].type)
                         ),
@@ -369,10 +379,7 @@ class ArrayCoercion(Linter):
                     arg_i = obj.arguments[i]
                     if _is_array_coercion(F_i, arg_i.type):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
-                        pt = obj
-                        while isinstance(pt, Expr.Base):
-                            pt = getattr(pt, "parent")
-                        self.add(pt, msg, arg_i.pos)
+                        self.add(obj, msg, arg_i.pos)
 
     def call(self, obj: Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -390,9 +397,6 @@ class OptionalCoercion(Linter):
     # TODO: suppress within 'if (defined(x))' consequent
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
-            pt = obj
-            while isinstance(pt, Expr.Base):
-                pt = getattr(pt, "parent")
             if obj.function_name in ["_add", "_sub", "_mul", "_div", "_land", "_lor"]:
                 assert len(obj.arguments) == 2
                 arg0ty = obj.arguments[0].type
@@ -409,7 +413,7 @@ class OptionalCoercion(Linter):
                 ):
                     # exception for :String: + :T?: or vice-versa in string interpolations
                     self.add(
-                        pt,
+                        obj,
                         "infix operator has :{}: and :{}: operands".format(
                             str(arg0ty), str(arg1ty)
                         ),
@@ -426,7 +430,7 @@ class OptionalCoercion(Linter):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                             )
-                            self.add(pt, msg, obj.arguments[i].pos)
+                            self.add(obj, msg, obj.arguments[i].pos)
 
     def decl(self, obj: Tree.Decl) -> Any:
         if (
@@ -470,10 +474,7 @@ class NonemptyCoercion(Linter):
                         msg = "{} argument of {}() = :{}:".format(
                             str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                         )
-                        pt = obj
-                        while isinstance(pt, Expr.Base):
-                            pt = getattr(pt, "parent")
-                        self.add(pt, msg, obj.arguments[i].pos)
+                        self.add(obj, msg, obj.arguments[i].pos)
 
     def decl(self, obj: Tree.Decl) -> Any:
         # heuristic exception for: Array[File]+ outp = glob(...)
@@ -531,10 +532,7 @@ class NameCollision(Linter):
     # - struct type/alias and import
     # These are allowed, but confusing.
     def call(self, obj: Tree.Call) -> Any:
-        doc = obj
-        while not isinstance(doc, Tree.Document):
-            doc = getattr(doc, "parent")
-        assert isinstance(doc, Tree.Document)
+        doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
                 msg = "call name '{}' collides with imported document namespace".format(obj.name)
@@ -548,9 +546,7 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def decl(self, obj: Tree.Decl) -> Any:
-        doc = obj
-        while not isinstance(doc, Tree.Document):
-            doc = getattr(doc, "parent")
+        doc = _find_doc(obj)
         assert isinstance(doc, Tree.Document)
         for imp in doc.imports:
             if imp.namespace == obj.name:
@@ -574,10 +570,7 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def scatter(self, obj: Tree.Scatter) -> Any:
-        doc = obj
-        while not isinstance(doc, Tree.Document):
-            doc = getattr(doc, "parent")
-        assert isinstance(doc, Tree.Document)
+        doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.variable:
                 msg = "scatter variable '{}' collides with imported document namespace".format(
@@ -600,10 +593,7 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def workflow(self, obj: Tree.Workflow) -> Any:
-        doc = obj
-        while not isinstance(doc, Tree.Document):
-            doc = getattr(doc, "parent")
-        assert isinstance(doc, Tree.Document)
+        doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
                 msg = "workflow name '{}' collides with imported document namespace".format(
@@ -619,10 +609,7 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def task(self, obj: Tree.Task) -> Any:
-        doc = obj
-        while not isinstance(doc, Tree.Document):
-            doc = getattr(doc, "parent")
-        assert isinstance(doc, Tree.Document)
+        doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
                 msg = "task name '{}' collides with imported document namespace".format(obj.name)
@@ -680,10 +667,7 @@ class ForwardReference(Linter):
                     msg = "reference to output {} precedes the call".format(obj.name)
                 else:
                     assert False
-                pt = obj
-                while isinstance(pt, Expr.Base):
-                    pt = getattr(pt, "parent")
-                self.add(pt, msg, obj.pos)
+                self.add(obj, msg, obj.pos)
 
 
 @a_linter
@@ -880,7 +864,7 @@ class CommandShellCheck(Linter):
                             end_column=column,
                         ),
                     )
-            except:
+            except Exception:
                 self.add(
                     obj,
                     "error parsing shellcheck output JSON; update shellcheck version or use --no-shellcheck to suppress this warning",
@@ -938,11 +922,8 @@ class SelectArray(Linter):
         if isinstance(obj, Expr.Apply) and obj.function_name in ["select_first", "select_all"]:
             arg0 = obj.arguments[0]
             if isinstance(arg0.type, Type.Array) and not arg0.type.item_type.optional:
-                pt = obj
-                while isinstance(pt, Expr.Base):
-                    pt = getattr(pt, "parent")
                 self.add(
-                    pt,
+                    obj,
                     "array of non-optional items passed to " + obj.function_name,
                     obj.arguments[0].pos,
                 )
