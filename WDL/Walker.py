@@ -174,7 +174,7 @@ class SetParents(Base):
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
 
-    On each Expr, the containing Decl, Call, Scatter, Conditional, or Task. Also, set
+    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional, Task. Also, set
     in_placeholder=True on any Expr nested within a string interpolation placeholder (including the
     Placeholder itself)
     """
@@ -237,10 +237,12 @@ class SetParents(Base):
     def expr(self, obj: Expr.Base) -> None:
         if isinstance(obj, Expr.Placeholder):
             self._placeholder_depth += 1
+        self._parent_stack.append(obj)
         super().expr(obj)
-        obj.parent = self._parent_stack[-1]
+        self._parent_stack.pop()
         if self._placeholder_depth > 0:
             obj.in_placeholder = True
+        obj.parent = self._parent_stack[-1]
         if isinstance(obj, Expr.Placeholder):
             self._placeholder_depth -= 1
 

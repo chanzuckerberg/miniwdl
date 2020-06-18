@@ -1321,7 +1321,7 @@ async def read_source_default(
         return ReadSourceResult(source_text=infile.read(), abspath=abspath)
 
 
-async def load_async(
+async def _load_async(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
@@ -1350,7 +1350,7 @@ async def load_async(
                 imp.pos, imp.uri, "exceeded import_max_depth; circular imports?"
             )
         try:
-            subdoc = await load_async(
+            subdoc = await _load_async(
                 imp.uri,
                 path=path,
                 check_quant=check_quant,
@@ -1376,7 +1376,7 @@ async def load_async(
     return doc
 
 
-def load(
+def _load(
     uri: str,
     path: Optional[List[str]] = None,
     check_quant: bool = True,
@@ -1387,7 +1387,7 @@ def load(
     importer: Optional[Document] = None,
 ) -> Document:
     return asyncio.get_event_loop().run_until_complete(
-        load_async(
+        _load_async(
             uri,
             path=path,
             importer=importer,

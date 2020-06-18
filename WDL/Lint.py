@@ -202,7 +202,9 @@ class StringCoercion(Linter):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: Expr.Base) -> Any:
-        pt = getattr(obj, "parent")
+        pt = obj
+        while isinstance(pt, Expr.Base):
+            pt = getattr(pt, "parent")
         if isinstance(obj, Expr.Apply):
             # String function operands with non-String expression
             if obj.function_name == "_add":
@@ -300,8 +302,10 @@ class FileCoercion(Linter):
 
     def expr(self, obj: Expr.Base) -> Any:
         super().expr(obj)
-        pt = getattr(obj, "parent")
         if isinstance(obj, Expr.Apply):
+            pt = obj
+            while isinstance(pt, Expr.Base):
+                pt = getattr(pt, "parent")
             # File function operands with String expression
             F = getattr(StdLib.TaskOutputs(), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
@@ -357,7 +361,6 @@ class ArrayCoercion(Linter):
             self.add(obj, msg)
 
     def expr(self, obj: Expr.Base) -> Any:
-        pt = getattr(obj, "parent")
         if isinstance(obj, Expr.Apply):
             F = getattr(StdLib.TaskOutputs(), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
@@ -366,6 +369,9 @@ class ArrayCoercion(Linter):
                     arg_i = obj.arguments[i]
                     if _is_array_coercion(F_i, arg_i.type):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
+                        pt = obj
+                        while isinstance(pt, Expr.Base):
+                            pt = getattr(pt, "parent")
                         self.add(pt, msg, arg_i.pos)
 
     def call(self, obj: Tree.Call) -> Any:
@@ -384,6 +390,9 @@ class OptionalCoercion(Linter):
     # TODO: suppress within 'if (defined(x))' consequent
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
+            pt = obj
+            while isinstance(pt, Expr.Base):
+                pt = getattr(pt, "parent")
             if obj.function_name in ["_add", "_sub", "_mul", "_div", "_land", "_lor"]:
                 assert len(obj.arguments) == 2
                 arg0ty = obj.arguments[0].type
@@ -400,7 +409,7 @@ class OptionalCoercion(Linter):
                 ):
                     # exception for :String: + :T?: or vice-versa in string interpolations
                     self.add(
-                        getattr(obj, "parent"),
+                        pt,
                         "infix operator has :{}: and :{}: operands".format(
                             str(arg0ty), str(arg1ty)
                         ),
@@ -417,7 +426,7 @@ class OptionalCoercion(Linter):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                             )
-                            self.add(getattr(obj, "parent"), msg, obj.arguments[i].pos)
+                            self.add(pt, msg, obj.arguments[i].pos)
 
     def decl(self, obj: Tree.Decl) -> Any:
         if (
@@ -461,7 +470,10 @@ class NonemptyCoercion(Linter):
                         msg = "{} argument of {}() = :{}:".format(
                             str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
                         )
-                        self.add(getattr(obj, "parent"), msg, obj.arguments[i].pos)
+                        pt = obj
+                        while isinstance(pt, Expr.Base):
+                            pt = getattr(pt, "parent")
+                        self.add(pt, msg, obj.arguments[i].pos)
 
     def decl(self, obj: Tree.Decl) -> Any:
         # heuristic exception for: Array[File]+ outp = glob(...)
@@ -668,7 +680,10 @@ class ForwardReference(Linter):
                     msg = "reference to output {} precedes the call".format(obj.name)
                 else:
                     assert False
-                self.add(getattr(obj, "parent"), msg, obj.pos)
+                pt = obj
+                while isinstance(pt, Expr.Base):
+                    pt = getattr(pt, "parent")
+                self.add(pt, msg, obj.pos)
 
 
 @a_linter
@@ -920,10 +935,12 @@ class MixedIndentation(Linter):
 class SelectArray(Linter):
     # application of select_first or select_all on a non-optional array
     def expr(self, obj: Expr.Base) -> Any:
-        pt = getattr(obj, "parent")
         if isinstance(obj, Expr.Apply) and obj.function_name in ["select_first", "select_all"]:
             arg0 = obj.arguments[0]
             if isinstance(arg0.type, Type.Array) and not arg0.type.item_type.optional:
+                pt = obj
+                while isinstance(pt, Expr.Base):
+                    pt = getattr(pt, "parent")
                 self.add(
                     pt,
                     "array of non-optional items passed to " + obj.function_name,
