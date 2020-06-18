@@ -58,13 +58,15 @@ def load(
     :raises WDL.Error.MultipleValidationErrors: when multiple validation errors are detected in one pass, listed in the ``exceptions`` attribute
     :raises WDL.Error.ImportError: when an imported sub-document can't be loaded; the ``__cause__`` attribute has the specific error
     """
-    return Tree.load(
+    doc = Tree._load(
         uri,
         path=path,
         check_quant=check_quant,
         read_source=read_source,
         import_max_depth=import_max_depth,
     )
+    Walker.SetParents()(doc)
+    return doc
 
 
 async def load_async(
@@ -79,13 +81,15 @@ async def load_async(
     """
     Async version of :func:`load`, with all the same arguments
     """
-    return await Tree.load_async(
+    doc = await Tree._load_async(
         uri,
         path=path,
         check_quant=check_quant,
         read_source=read_source,
         import_max_depth=import_max_depth,
     )
+    Walker.SetParents()(doc)
+    return doc
 
 
 async def read_source_default(
