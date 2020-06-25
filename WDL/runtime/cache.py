@@ -7,16 +7,13 @@ import hashlib
 import json
 import os
 import logging
-import tempfile
 import threading
-import urllib
 from pathlib import Path
 from typing import Iterator, Dict, Any, Optional, Set, List, IO
 from contextlib import AbstractContextManager
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
 
-import WDL
 from . import config
 
 from .. import Env, Value, Type, Document
@@ -26,7 +23,6 @@ from .._util import (
     write_atomic,
     excerpt,
     describe_struct_types,
-    read_source,
 )
 
 
@@ -35,7 +31,9 @@ class CallCache(AbstractContextManager):
     _flocker: FlockHolder
     _logger: logging.Logger
 
-    def __init__(self, cfg: config.Loader, logger: logging.Logger, wdl_doc: Document):
+    def __init__(
+        self, cfg: config.Loader, logger: logging.Logger, wdl_doc: Optional[Document] = None
+    ):
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
@@ -54,7 +52,7 @@ class CallCache(AbstractContextManager):
     def __exit__(self, *args) -> None:
         self._flocker.__exit__(*args)
 
-    def get_digest_for_inputs(self, inputs: dict):
+    def get_digest_for_inputs(self, inputs: Env.Bindings[Value.Base]):
         """
         Return sha256 for json of sorted inputs
         """
@@ -64,11 +62,7 @@ class CallCache(AbstractContextManager):
         return hashlib.sha256(json_inputs).hexdigest()
 
     def get(
-        self,
-        key: str,
-        run_dir: str,
-        output_types: Env.Bindings[Type.Base],
-        logger: Optional[logging.Logger] = None,
+        self, key: str, output_types: Env.Bindings[Type.Base],
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found,
@@ -91,14 +85,7 @@ class CallCache(AbstractContextManager):
         self._logger.notice(f"Cache found for input_digest: {key}")
         return values_from_json(contents, output_types)
 
-    def put(
-        self,
-        task_digest: str,
-        input_digest: str,
-        run_dir: str,
-        outputs: Env.Bindings[Value.Base],
-        logger: Optional[logging.Logger] = None,
-    ) -> None:
+    def put(self, task_digest: str, input_digest: str, outputs: Env.Bindings[Value.Base],) -> None:
         """
         Store call outputs for future reuse
         """

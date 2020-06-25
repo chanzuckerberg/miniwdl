@@ -94,7 +94,7 @@ class TestTaskRunner(unittest.TestCase):
             target = doc.workflow or doc.tasks[0]
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, target.available_inputs, target.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), doc, run_dir=self._dir)
+            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir)
 
             self._rundir = rundir
         except Exception as exn:
@@ -185,8 +185,7 @@ class TestTaskRunner(unittest.TestCase):
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
         input_digest = cache.get_digest_for_inputs(inputs)
         task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
-        cache_value = cache.get(key=f"{task_digest}/{input_digest}", run_dir=rundir,
-                                                                output_types=self.doc.tasks[0].effective_outputs)
+        cache_value = cache.get(key=f"{task_digest}/{input_digest}", output_types=self.doc.tasks[0].effective_outputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):

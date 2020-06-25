@@ -40,7 +40,7 @@ import docker
 
 __all__: List[str] = []
 
-import WDL
+from . import Type
 
 
 def export(obj) -> str:  # pyre-ignore
@@ -856,11 +856,13 @@ def describe_struct_types(task):
     items = list(task.children)
     while items:
         item = items.pop()
-        if isinstance(item, WDL.Decl):
+        from WDL import Decl
+
+        if isinstance(item, Decl):
             items.append(item.type)
-        elif isinstance(item, WDL.Type.StructInstance):
+        elif isinstance(item, Type.StructInstance):
             structs[item.type_name] = item.type_id
-        elif isinstance(item, WDL.Type.Base):
+        elif isinstance(item, Type.Base):
             # descent into compound types so we'll cover e.g. Array[MyStructType]
             for par_ty in item.parameters:
                 items.append(par_ty)
@@ -879,20 +881,3 @@ def excerpt(doc, pos):
         + doc.source_lines[pos.line : (pos.end_line - 1)]
         + [doc.source_lines[pos.end_line - 1][: pos.end_column]]
     )
-
-
-async def read_source(uri, path, importer):
-    if uri.startswith("http:") or uri.startswith("https:"):
-        fn = os.path.join(
-            tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
-            os.path.basename(urllib.parse.urlsplit(uri).path),
-        )
-        urllib.request.urlretrieve(uri, filename=fn)
-        with open(fn, "r") as infile:
-            return WDL.ReadSourceResult(infile.read(), uri)
-    elif importer and (
-        importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
-    ):
-        assert not os.path.isabs(uri), "absolute import from downloaded WDL"
-        return await read_source(urllib.parse.urljoin(importer.pos.abspath, uri), [], importer)
-    return await WDL.read_source_default(uri, path, importer)

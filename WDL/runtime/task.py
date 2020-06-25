@@ -25,7 +25,6 @@ from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 from contextlib import ExitStack
 import docker
 
-import WDL
 from .. import Error, Type, Env, Value, StdLib, Tree, _util, Document
 from .._util import (
     write_atomic,
@@ -761,7 +760,6 @@ def run_local_task(
     cfg: config.Loader,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
-    wdl_doc: Document,
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
@@ -793,7 +791,6 @@ def run_local_task(
 
         # provision run directory and log file
         run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
-
         logfile = os.path.join(run_dir, "task.log")
         fh = cleanup.enter_context(
             LoggingFileHandler(
@@ -818,16 +815,9 @@ def run_local_task(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
+            wdl_doc = getattr(task, "parent")
             cache = _cache or cleanup.enter_context(CallCache(cfg, logger, wdl_doc))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
-            input_digest = cache.get_digest_for_inputs(inputs)
-            task_digest = cache.get_digest_for_task(task)
-            cached = cache.get(f"{task_digest}/{input_digest}", run_dir, task.effective_outputs)
-            if cached:
-                logger.notice(
-                    f"Succesfullly pulled cached outputs for task_digest: {task_digest} and input_digest: {input_digest}"
-                )
-                return (run_dir, cached)
 
         else:
             cache = _cache
@@ -836,7 +826,9 @@ def run_local_task(
         try:
             input_digest = cache.get_digest_for_inputs(inputs)
             task_digest = cache.get_digest_for_task(task)
-            cached = cache.get(f"{task_digest}/{input_digest}", run_dir, task.outputs)
+            cached = cache.get(
+                key=f"{task_digest}/{input_digest}", output_types=task.effective_outputs
+            )
             if cached:
                 logger.notice(
                     f"Succesfullly pulled cached outputs for task digest: {task_digest} and input_digest: {input_digest}"
@@ -913,7 +905,7 @@ def run_local_task(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
                 logger.notice("done")  # pyre-fixme
-                cache.put(task_digest, input_digest, run_dir, outputs)
+                cache.put(task_digest, input_digest, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())

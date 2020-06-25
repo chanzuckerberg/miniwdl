@@ -6,7 +6,7 @@ handlers. Alternatively, it's possible to call ``WDL.runtime.run()`` directly if
 """
 # pyre-strict
 from typing import Union, Dict, Tuple, Any
-from .. import Tree, Value, Env, Document
+from .. import Tree, Value, Env
 from . import config
 from . import task
 from . import workflow
@@ -20,7 +20,6 @@ def run(
     cfg: config.Loader,
     exe: Union[Tree.Task, Tree.Workflow],
     inputs: Env.Bindings[Value.Base],
-    wdl_doc: Document,
     **run_kwargs: Dict[str, Any],
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
@@ -51,4 +50,4 @@ def run(
     if "max_tasks" in run_kwargs and isinstance(exe, Tree.Task):
         del run_kwargs["max_tasks"]  # N/A to run_local_task
     entrypoint = run_local_task if isinstance(exe, Tree.Task) else run_local_workflow
-    return entrypoint(cfg, exe, inputs, wdl_doc, **run_kwargs)  # pyre-ignore
+    return entrypoint(cfg, exe, inputs, **run_kwargs)  # pyre-ignore

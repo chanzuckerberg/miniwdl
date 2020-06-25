@@ -585,7 +585,6 @@ def run_local_workflow(
     cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
-    wdl_doc: Document,
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
@@ -648,7 +647,7 @@ def run_local_workflow(
                 version = "UNKNOWN"
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
             assert not _thread_pools
-
+            wdl_doc = getattr(workflow, "parent")
             cache = _cache or cleanup.enter_context(CallCache(cfg, logger, wdl_doc))
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 
@@ -676,7 +675,6 @@ def run_local_workflow(
                 cfg,
                 workflow,
                 inputs,
-                wdl_doc,
                 _run_id_stack + [run_id],
                 run_dir,
                 logger,
@@ -702,7 +700,6 @@ def _workflow_main_loop(
     cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
-    wdl_doc: Document,
     run_id_stack: List[str],
     run_dir: str,
     logger: logging.Logger,
@@ -750,7 +747,7 @@ def _workflow_main_loop(
                         logger.warning(
                             _("call subdirectory already exists, conflict likely", dir=call_dir)
                         )
-                    sub_args = (cfg, next_call.callee, next_call.inputs, wdl_doc)
+                    sub_args = (cfg, next_call.callee, next_call.inputs)
                     sub_kwargs = {
                         "run_id": next_call.id,
                         "run_dir": os.path.join(call_dir, "."),
