@@ -85,7 +85,7 @@ class CallCache(AbstractContextManager):
         self._logger.notice(f"Cache found for input_digest: {key}")
         return values_from_json(contents, output_types)
 
-    def put(self, task_digest: str, input_digest: str, outputs: Env.Bindings[Value.Base],) -> None:
+    def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base],) -> None:
         """
         Store call outputs for future reuse
         """
@@ -93,8 +93,8 @@ class CallCache(AbstractContextManager):
 
         if self._cfg["call_cache"].get_bool("put"):
 
-            filepath = os.path.join(self.call_cache_dir, task_digest)
-            filename = os.path.join(self.call_cache_dir, f"{task_digest}/{input_digest}.json")
+            filepath = os.path.join(self.call_cache_dir, task_key)
+            filename = os.path.join(self.call_cache_dir, f"{task_key}/{input_digest}.json")
 
             Path(filepath).mkdir(parents=True, exist_ok=True)
 
@@ -103,7 +103,7 @@ class CallCache(AbstractContextManager):
                 filename,
             )
             self._logger.info(
-                f"Cache created for task_digest: {task_digest}, input_digest: {input_digest}"
+                f"Cache created for task_digest: {task_key}, input_digest: {input_digest}"
             )
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,

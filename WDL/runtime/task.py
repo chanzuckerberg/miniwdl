@@ -827,7 +827,7 @@ def run_local_task(
             input_digest = cache.get_digest_for_inputs(inputs)
             task_digest = cache.get_digest_for_task(task)
             cached = cache.get(
-                key=f"{task_digest}/{input_digest}", output_types=task.effective_outputs
+                key=f"{task.name}_{task_digest}/{input_digest}", output_types=task.effective_outputs
             )
             if cached:
                 logger.notice(
@@ -905,7 +905,7 @@ def run_local_task(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
                 logger.notice("done")  # pyre-fixme
-                cache.put(task_digest, input_digest, outputs)
+                cache.put(f"{task.name}_{task_digest}", input_digest, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())
