@@ -824,7 +824,9 @@ def run_local_task(
             task_digest = cache.get_digest_for_task(task)
             cached = cache.get(f"{task_digest}/{input_digest}", run_dir, task.effective_outputs)
             if cached:
-                logger.notice(f"Succesfullly pulled cached outputs for task_digest: {task_digest} and input_digest: {input_digest}")
+                logger.notice(
+                    f"Succesfullly pulled cached outputs for task_digest: {task_digest} and input_digest: {input_digest}"
+                )
                 return (run_dir, cached)
 
         else:
@@ -836,7 +838,9 @@ def run_local_task(
             task_digest = cache.get_digest_for_task(task)
             cached = cache.get(f"{task_digest}/{input_digest}", run_dir, task.outputs)
             if cached:
-                logger.notice(f"Succesfullly pulled cached outputs for task digest: {task_digest} and input_digest: {input_digest}")
+                logger.notice(
+                    f"Succesfullly pulled cached outputs for task digest: {task_digest} and input_digest: {input_digest}"
+                )
                 return (run_dir, cached)
             # start plugin coroutines and process inputs through them
             with compose_coroutines(

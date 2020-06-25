@@ -20,7 +20,14 @@ import WDL
 from . import config
 
 from .. import Env, Value, Type, Document
-from .._util import StructuredLogMessage as _, FlockHolder, write_atomic, excerpt, describe_struct_types, read_source
+from .._util import (
+    StructuredLogMessage as _,
+    FlockHolder,
+    write_atomic,
+    excerpt,
+    describe_struct_types,
+    read_source,
+)
 
 
 class CallCache(AbstractContextManager):
@@ -71,6 +78,8 @@ class CallCache(AbstractContextManager):
         from .. import values_from_json
 
         file_path = os.path.join(self.call_cache_dir, f"{key}.json")
+        if not self._cfg["call_cache"].get_bool("get"):
+            return None
 
         try:
             with open(file_path, "rb") as file_reader:
@@ -94,17 +103,21 @@ class CallCache(AbstractContextManager):
         Store call outputs for future reuse
         """
         from .. import values_to_json
-        filepath = os.path.join(self.call_cache_dir, task_digest)
-        filename = os.path.join(self.call_cache_dir, f"{task_digest}/{input_digest}.json")
 
-        Path(filepath).mkdir(parents=True, exist_ok=True)
+        if self._cfg["call_cache"].get_bool("put"):
 
-        write_atomic(
-            json.dumps(values_to_json(outputs, namespace=''), indent=2),  # pyre-ignore
-            filename,
-        )
-        self._logger.info(f"Cache created for task_digest: {task_digest}, input_digest: {input_digest}")
+            filepath = os.path.join(self.call_cache_dir, task_digest)
+            filename = os.path.join(self.call_cache_dir, f"{task_digest}/{input_digest}.json")
 
+            Path(filepath).mkdir(parents=True, exist_ok=True)
+
+            write_atomic(
+                json.dumps(values_to_json(outputs, namespace=""), indent=2),  # pyre-ignore
+                filename,
+            )
+            self._logger.info(
+                f"Cache created for task_digest: {task_digest}, input_digest: {input_digest}"
+            )
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up in URI-derived folder structure instead of sqlite db)
@@ -197,7 +210,7 @@ class CallCache(AbstractContextManager):
 
     def get_digest_for_task(self, task):
         task_string = self.describe_task(self.wdl_doc, task)
-        return hashlib.sha256(task_string.encode('utf-8')).hexdigest()
+        return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
     def describe_task(self, doc, task):
         """
@@ -233,6 +246,3 @@ class CallCache(AbstractContextManager):
         # TODO (?): delete non-semantic whitespace, perhaps excise the meta & parameter_meta sections
 
         return "\n".join(output_lines).strip()
-
-
-

@@ -58,7 +58,13 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         cls.logger = logging.getLogger(cls.__name__)
         cls.cfg = WDL.runtime.config.Loader(cls.logger, [])
-        cls.cfg.override({"call_cache": {"dir": cls.cache_dir}})
+        cls.cfg.override(
+            {"call_cache": {
+                "put": True,
+                "get": True,
+                "dir": cls.cache_dir
+            }
+        })
         WDL.runtime.task.SwarmContainer.global_init(cls.cfg, cls.logger)
 
     def setUp(self):
@@ -69,7 +75,10 @@ class TestTaskRunner(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self._dir)
-        shutil.rmtree(self.cache_dir)
+        try:
+            shutil.rmtree(self.cache_dir)
+        except FileNotFoundError:
+            print("No cache directory to delete")
 
     def _run(self, wdl: str, inputs=None, expected_exception: Exception = None, cfg=None):
         """
@@ -148,6 +157,26 @@ class TestTaskRunner(unittest.TestCase):
             self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
 
         self.assertEqual(new_mock.call_count, 0)
+
+    def test_default_config_does_not_use_cache(self):
+        # run task twice, check _try_task called for second run
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+
+        # test mock is called
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(self.test_wdl, self.ordered_input_dict)
+        self.assertEqual(mock.call_count, 1)
+
+        # call real _try_task function
+        self._run(self.test_wdl, self.ordered_input_dict)
+
+        # test mock is not called once cache is available
+        new_mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+
+        with patch('WDL.runtime.task._try_task', new_mock):
+            self._run(self.test_wdl, self.ordered_input_dict)
+
+        self.assertEqual(new_mock.call_count, 1)
 
     def test_get_cache_return_value_matches_outputs(self):
         cache = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc)
