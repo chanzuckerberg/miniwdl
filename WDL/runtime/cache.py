@@ -16,13 +16,11 @@ from fnmatch import fnmatchcase
 
 from . import config
 
-from .. import Env, Value, Type, Document
+from .. import Env, Value, Type, Document, Tree, Error
 from .._util import (
     StructuredLogMessage as _,
     FlockHolder,
     write_atomic,
-    excerpt,
-    describe_struct_types,
 )
 
 
@@ -82,8 +80,8 @@ class CallCache(AbstractContextManager):
             self._logger.info(f"Cache lookup unsuccessful for input_digest: {key}")
             return None
         contents = json.loads(contents)
-        self._logger.notice(f"Cache found for input_digest: {key}")
-        return values_from_json(contents, output_types)
+        self._logger.notice(f"Cache found for input_digest: {key}")  # pyre-fixme
+        return values_from_json(contents, output_types)  # pyre-fixme
 
     def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base],) -> None:
         """
@@ -196,40 +194,75 @@ class CallCache(AbstractContextManager):
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
 
     def get_digest_for_task(self, task):
-        task_string = self.describe_task(self.wdl_doc, task)
+        task_string = _describe_task(self.wdl_doc, task)
         return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
-    def describe_task(self, doc, task):
-        """
-        Generate a string describing the content of a WDL task. Right now this is just the task
-        definition excerpted from the WDL document, with some extra bits to cover any struct types
-        used.
-        """
-        output_lines = []
 
-        # WDL version declaration, if any
-        if doc.wdl_version:
-            output_lines.append("version " + doc.wdl_version)
+def _describe_task(doc, task: Tree.Task) -> str:
+    """
+    Generate a string describing the content of a WDL task. Right now this is just the task
+    definition excerpted from the WDL document, with some extra bits to cover any struct types
+    used.
+    """
+    output_lines = []
 
-        # Insert comments describing struct types used in the task.
-        # Originally, we wanted to excerpt/generate the full struct type definitions and produce valid
-        # standalone WDL. But, there were complications: because a struct type can be imported from
-        # another document and aliased to a different name while doing so, it's possible that the task
-        # document refers to the struct by a different name than its original definition. Moreover, the
-        # struct might have members that are other structs, which could also be aliased in the current
-        # document. So generating valid WDL would involve tricky rewriting of the original struct
-        # definitions using one consistent set of names.
-        # To avoid dealing with this, instead we just generate comments describing the members of each
-        # struct type as named in the task's document. This description (type_id) applies recursively
-        # for any members that are themselves structs, making it independent of all struct type names.
-        #   https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.StructTypeDef.type_id
-        structs = describe_struct_types(task)
-        for struct_name in sorted(structs.keys()):
-            output_lines.append(f"# {struct_name} :: {structs[struct_name]}")
+    # WDL version declaration, if any
+    if doc.wdl_version:
+        output_lines.append("version " + doc.wdl_version)
 
-        # excerpt task{} from document
-        output_lines += excerpt(doc, task.pos)
+    # Insert comments describing struct types used in the task.
+    # Originally, we wanted to excerpt/generate the full struct type definitions and produce valid
+    # standalone WDL. But, there were complications: because a struct type can be imported from
+    # another document and aliased to a different name while doing so, it's possible that the task
+    # document refers to the struct by a different name than its original definition. Moreover, the
+    # struct might have members that are other structs, which could also be aliased in the current
+    # document. So generating valid WDL would involve tricky rewriting of the original struct
+    # definitions using one consistent set of names.
+    # To avoid dealing with this, instead we just generate comments describing the members of each
+    # struct type as named in the task's document. This description (type_id) applies recursively
+    # for any members that are themselves structs, making it independent of all struct type names.
+    #   https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.StructTypeDef.type_id
+    structs = _describe_struct_types(task)
+    for struct_name in sorted(structs.keys()):
+        output_lines.append(f"# {struct_name} :: {structs[struct_name]}")
 
-        # TODO (?): delete non-semantic whitespace, perhaps excise the meta & parameter_meta sections
+    # excerpt task{} from document
+    output_lines += _excerpt(doc, task.pos)
 
-        return "\n".join(output_lines).strip()
+    # TODO (?): delete non-semantic whitespace, perhaps excise the meta & parameter_meta sections
+
+    return "\n".join(output_lines).strip()
+
+
+def _describe_struct_types(task: Tree.Task) -> Dict[str, str]:
+    """
+    Scan all declarations in the task for uses of struct types; produce a mapping from struct name
+    to its type_id (a string describing the struct's members, independent of struct names).
+    """
+    structs = {}
+    items: List[Any] = list(task.children)
+    while items:
+        item = items.pop()
+        if isinstance(item, Tree.Decl):
+            items.append(item.type)
+        elif isinstance(item, Type.StructInstance):
+            structs[item.type_name] = item.type_id
+        elif isinstance(item, Type.Base):
+            # descent into compound types so we'll cover e.g. Array[MyStructType]
+            for par_ty in item.parameters:
+                items.append(par_ty)
+    return structs
+
+
+def _excerpt(doc: Tree.Document, pos: Error.SourcePosition) -> List[str]:
+    """
+    Excerpt the document's source lines indicated by pos : WDL.SourcePosition
+    TODO (?): delete comments from the source lines
+    """
+    if pos.end_line == pos.line:
+        return [doc.source_lines[pos.line - 1][(pos.column - 1) : pos.end_column]]
+    return (
+        [doc.source_lines[pos.line - 1][(pos.column - 1) :]]
+        + doc.source_lines[pos.line : (pos.end_line - 1)]
+        + [doc.source_lines[pos.end_line - 1][: pos.end_column]]
+    )

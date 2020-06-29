@@ -845,39 +845,3 @@ class RepeatTimer(threading.Timer):
     def run(self) -> None:
         while not self.finished.wait(self.interval):  # pyre-ignore
             self.function(*self.args, **self.kwargs)  # pyre-ignore
-
-
-def describe_struct_types(task):
-    """
-    Scan all declarations in the task for uses of struct types; produce a mapping from struct name
-    to its type_id (a string describing the struct's members, independent of struct names).
-    """
-    structs = {}
-    items = list(task.children)
-    while items:
-        item = items.pop()
-        from WDL import Decl
-
-        if isinstance(item, Decl):
-            items.append(item.type)
-        elif isinstance(item, Type.StructInstance):
-            structs[item.type_name] = item.type_id
-        elif isinstance(item, Type.Base):
-            # descent into compound types so we'll cover e.g. Array[MyStructType]
-            for par_ty in item.parameters:
-                items.append(par_ty)
-    return structs
-
-
-def excerpt(doc, pos):
-    """
-    Excerpt the document's source lines indicated by pos : WDL.SourcePosition
-    TODO (?): delete comments from the source lines
-    """
-    if pos.end_line == pos.line:
-        return [doc.source_lines[pos.line - 1][(pos.column - 1) : pos.end_column]]
-    return (
-        [doc.source_lines[pos.line - 1][(pos.column - 1) :]]
-        + doc.source_lines[pos.line : (pos.end_line - 1)]
-        + [doc.source_lines[pos.end_line - 1][: pos.end_column]]
-    )

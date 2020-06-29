@@ -830,7 +830,7 @@ def run_local_task(
                 key=f"{task.name}_{task_digest}/{input_digest}", output_types=task.effective_outputs
             )
             if cached:
-                logger.notice(
+                logger.notice(  # pyre-fixme
                     f"Succesfullly pulled cached outputs for task digest: {task_digest} and input_digest: {input_digest}"
                 )
                 return (run_dir, cached)
