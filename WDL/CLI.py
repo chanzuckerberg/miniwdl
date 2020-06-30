@@ -60,8 +60,6 @@ def main(args=None):
             run_self_test(**vars(args))
         elif args.command == "localize":
             localize(**vars(args))
-        elif args.command == "cromwell":
-            cromwell(**vars(args))
         else:
             assert False
     except (
@@ -95,7 +93,6 @@ def create_arg_parser():
     subparsers.required = True
     subparsers.dest = "command"
     fill_common(fill_check_subparser(subparsers))
-    fill_common(fill_cromwell_subparser(subparsers), path=False)  # FIXME path issue #131
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
@@ -119,7 +116,6 @@ class PipVersionAction(Action):
             group = f"miniwdl.plugin.{group}"
             for plugin in pkg_resources.iter_entry_points(group=group):
                 print(f"{group}\t{plugin}\t{plugin.dist}")
-        print("Cromwell " + CROMWELL_VERSION)
         sys.exit(0)
 
 
@@ -1063,250 +1059,6 @@ def run_self_test(**kwargs):
             "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
             file=sys.stderr,
         )
-
-
-def fill_cromwell_subparser(subparsers):
-    cromwell_parser = subparsers.add_parser(
-        "cromwell", help="Run workflow/task locally using Cromwell " + CROMWELL_VERSION
-    )
-    cromwell_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
-    cromwell_parser.add_argument(
-        "inputs",
-        metavar="input_key=value",
-        type=str,
-        nargs="*",
-        help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
-    ).completer = runner_input_completer
-    group = cromwell_parser.add_argument_group("input")
-    group.add_argument(
-        "--empty",
-        metavar="input_key",
-        action="append",
-        help="explicitly set an array input to the empty array (to override a default)",
-    )
-    group.add_argument(
-        "-i",
-        "--input",
-        metavar="INPUT.json",
-        dest="input_file",
-        help="file with Cromwell-style input JSON; command-line inputs will be merged in",
-    )
-    group.add_argument(
-        "-j",
-        "--json",
-        dest="json_only",
-        action="store_true",
-        help="just print Cromwell-style input JSON to standard output, then exit",
-    )
-    group = cromwell_parser.add_argument_group("Cromwell configuration")
-    group.add_argument(
-        "-d",
-        "--dir",
-        metavar="DIR",
-        dest="rundir",
-        help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead operate in this directory directly",
-    )
-    group.add_argument(
-        "-o",
-        "--options",
-        metavar="OPTIONS.json",
-        dest="options_file",
-        help="file with Cromwell workflow options JSON",
-    )
-    group.add_argument(
-        "-c",
-        "--config",
-        metavar="CONFIG.conf",
-        dest="config",
-        type=str,
-        help="Cromwell backend configuration CONF file path (also set by CROMWELL_CONFIG environment variable)",
-    )
-    group.add_argument(
-        "-r",
-        "--jar",
-        metavar="jarfile",
-        dest="jarfile",
-        type=str,
-        help="Cromwell jarfile file path (also set by CROMWELL_JAR environment variable). Overrides default behavior of downloading a hard-coded version",
-    )
-    # TODO:
-    # way to specify None for an optional value (that has a default)
-    return cromwell_parser
-
-
-def cromwell(
-    uri,
-    inputs,
-    input_file,
-    json_only,
-    empty,
-    check_quant,
-    rundir=None,
-    options_file=None,
-    jarfile=None,
-    config=None,
-    path=None,
-    **kwargs,
-):
-    print(
-        "DEPRECATION NOTICE: `miniwdl cromwell` may be retired in the future; see and comment on https://github.com/chanzuckerberg/miniwdl/issues/351",
-        file=sys.stderr,
-    )
-    path = path or []
-
-    # load WDL document
-    doc = load(uri, path, check_quant=check_quant, read_source=read_source)
-
-    # validate the provided inputs and prepare Cromwell-style JSON
-    target, _, input_json = runner_input(doc, inputs, input_file, empty)
-
-    if json_only:
-        print(json.dumps(input_json, indent=2))
-        sys.exit(0)
-
-    rundir = provision_run_dir(target.name, rundir)
-    os.makedirs(os.path.join(rundir, "cromwell"), exist_ok=False)
-
-    # write the JSON inputs file
-    input_json_filename = None
-    print("Cromwell input: " + json.dumps(input_json, indent=2), file=sys.stderr)
-    input_json_filename = os.path.join(rundir, "inputs.json")
-    with open(input_json_filename, "w") as outfile:
-        print(json.dumps(input_json, indent=2), file=outfile)
-
-    # write Cromwell options
-    cromwell_options = {"final_workflow_log_dir": os.path.join(rundir, "cromwell")}
-
-    if options_file:
-        with open(options_file, "r") as infile:
-            more_options = json.load(infile)
-            for k in more_options:
-                if k not in ["final_workflow_log_dir", "use_relative_output_paths"]:
-                    cromwell_options[k] = more_options[k]
-
-    cromwell_options_filename = os.path.join(rundir, "cromwell", "options.json")
-    with open(cromwell_options_filename, "w") as options_json:
-        print(json.dumps(cromwell_options, indent=2), file=options_json)
-
-    # setup Cromwell config file
-    config_setting = None
-    if config:
-        config_setting = "-Dconfig.file={}".format(config)
-    elif "CROMWELL_CONFIG" in os.environ:
-        config_setting = "-Dconfig.file={}".format(os.getenv("CROMWELL_CONFIG"))
-
-    # launch Cromwell
-    jarpath = ensure_cromwell_jar(jarfile)
-    cromwell_cmd = ["java", "-DLOG_LEVEL=info", "-DLOG_MODE=pretty"]
-    cromwell_cmd.extend([config_setting] if config_setting else [])
-    cromwell_cmd.extend(
-        [
-            "-jar",
-            jarpath,
-            "run",
-            (os.path.abspath(uri) if "://" not in uri else uri),
-            "-o",
-            cromwell_options_filename,
-            "-i",
-            input_json_filename,
-        ]
-    )
-
-    for p in path:
-        # FIXME issue #131
-        cromwell_cmd.append("--imports")
-        cromwell_cmd.append(p)
-    print(" ".join(["+"] + [shellquote(s) for s in cromwell_cmd]), file=sys.stderr)
-    proc = subprocess.Popen(
-        cromwell_cmd, cwd=os.path.join(rundir, "cromwell"), stdout=subprocess.PIPE
-    )
-
-    # stream in Cromwell stdout, which mixes a bunch of stuff. tee it to stderr
-    # while recording it so we can go back to look for the output JSON later.
-    cromwell_output_lines = []
-    while proc.poll() is None:
-        line = proc.stdout.readline()
-        if line:
-            line = str(line, "utf-8").rstrip()
-            print(line, file=sys.stderr)
-            cromwell_output_lines.append(line)
-    assert isinstance(proc.returncode, int)
-
-    # deal with Cromwell outputs
-
-    # remove world-write permissions from created temp files
-    subprocess.call(["chmod", "-Rf", "o-w", rundir])
-
-    if proc.returncode == 0:
-        # sniff for the outputs JSON as the last subsequence of stdout lines
-        # delimited by { and }
-        last_lbrace = None
-        last_rbrace = None
-        try:
-            last_lbrace = max(loc for loc, val in enumerate(cromwell_output_lines) if val == "{")
-            last_rbrace = max(loc for loc, val in enumerate(cromwell_output_lines) if val == "}")
-        except ValueError:
-            pass
-        try:
-            if last_lbrace is None or last_rbrace is None or last_lbrace >= last_rbrace:
-                raise KeyError
-            outputs_json = json.loads(
-                "\n".join(cromwell_output_lines[last_lbrace : (last_rbrace + 1)])
-            )
-        except:
-            die("failed to find outputs JSON in Cromwell standard output")
-
-        # load the outputs, make file links and outputs.json
-        outputs = values_from_json(
-            outputs_json["outputs"], target.effective_outputs, namespace=target.name
-        )
-        outputs = runtime.link_outputs(outputs, rundir)
-
-        assert "dir" not in outputs_json
-        outputs_json["dir"] = rundir
-        outputs_json["outputs"] = values_to_json(outputs, namespace=target.name)
-        print(json.dumps(outputs_json, indent=2))
-        with open(os.path.join(rundir, "outputs.json"), "w") as outfile:
-            print(json.dumps(outputs_json["outputs"], indent=2), file=outfile)
-
-    sys.exit(proc.returncode)
-
-
-CROMWELL_VERSION = "47"
-CROMWELL_JAR_SIZE = 196_298_777
-
-
-def ensure_cromwell_jar(jarfile=None):
-    """
-    Return local path to Cromwell JAR file, first downloading it if necessary.
-    """
-    if jarfile:
-        jarpath = jarfile
-    elif "CROMWELL_JAR" in os.environ:
-        jarpath = os.getenv("CROMWELL_JAR")
-    else:
-        CROMWELL_JAR_URL = "https://github.com/broadinstitute/cromwell/releases/download/{v}/cromwell-{v}.jar".format(
-            v=CROMWELL_VERSION
-        )
-        CROMWELL_JAR_NAME = os.path.basename(CROMWELL_JAR_URL)
-
-        jarpath = os.path.join(tempfile.gettempdir(), CROMWELL_JAR_NAME)
-        try:
-            if os.path.getsize(jarpath) == CROMWELL_JAR_SIZE:
-                return jarpath
-        except:
-            pass
-        print(
-            "Downloading Cromwell to {}; it'll be reused there, or specify --jar with your own version".format(
-                jarpath
-            ),
-            file=sys.stderr,
-        )
-        urllib.request.urlretrieve(CROMWELL_JAR_URL, filename=jarpath)
-        assert os.path.getsize(jarpath) == CROMWELL_JAR_SIZE, (
-            "unexpected size of downloaded " + jarpath
-        )
-    return jarpath
 
 
 def fill_localize_subparser(subparsers):
