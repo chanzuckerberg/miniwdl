@@ -18,3 +18,4 @@ pytest-cov
 pytest-xdist
 recommonmark
 sphinx-argparse
+boto3

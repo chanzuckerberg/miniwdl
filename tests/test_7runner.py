@@ -133,13 +133,14 @@ class TestDownload(RunnerTestCase):
                 "dir": os.path.join(self._dir, "cache"),
             }
         })
-        inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt?xxx"]}
+        inp = {"files": ["s3://1000genomes/CHANGELOG", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt?xxx"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
         logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
-        # cache isn't used due to presence of query string
-        self.assertTrue("downloaded: 1" in logs[0])
+        # cache isn't used for alyssa_ben.txt due to presence of query string
+        self.assertTrue("downloaded: 2" in logs[0])
         self.assertTrue("downloaded: 1" in logs[1])
+        assert next(record for record in capture.records if "AWS credentials" in str(record.msg))
 
     def test_download_cache4(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
