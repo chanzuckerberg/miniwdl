@@ -185,16 +185,8 @@ def awscli_downloader(
                 }.items()
                 if v
             )
-            if host_aws_credentials:
-                logger.getChild("awscli_downloader").info(
-                    "using host's AWS credentials; to disable, configure [download_awscli] host_credentials=false (MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=false)"
-                )
         except Exception:
             pass
-        if not host_aws_credentials:
-            logger.getChild("awscli_downloader").warning(
-                "no AWS credentials available on host; if needed, install awscli+boto3 and `aws configure`"
-            )
 
     inputs = {"uri": uri}
     with ExitStack() as cleanup:
@@ -211,6 +203,13 @@ def awscli_downloader(
             # make file group-readable to ensure it'll be usable if the docker image runs as non-root
             os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
             inputs["aws_credentials"] = aws_credentials_file.name
+            logger.getChild("awscli_downloader").info(
+                "using host's AWS credentials; to disable, configure [download_awscli] host_credentials=false (MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=false)"
+            )
+        else:
+            logger.getChild("awscli_downloader").warning(
+                "no AWS credentials available on host; if needed, install awscli+boto3 and `aws configure`"
+            )
 
         wdl = r"""
         task aws_s3_cp {
