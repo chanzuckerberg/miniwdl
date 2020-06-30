@@ -6,12 +6,12 @@ test: check_check check unit_tests integration_tests
 # fail fast
 qtest:
 	python3 tests/no_docker_services.py
-	pytest -vx -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
+	pytest -vx --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
 	prove -v tests/{check,runner}.t
 	python3 tests/no_docker_services.py
 
 unit_tests:
-	pytest -v -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
+	pytest -v --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
 	python3 tests/no_docker_services.py
 
 integration_tests:
