@@ -186,7 +186,8 @@ class SetParents(Base):
         super().document(obj)
         obj.parent = None
         for imp in obj.imports:
-            imp.doc.parent = obj
+            if imp.doc:
+                imp.doc.parent = obj
         for stb in obj.struct_typedefs:
             stb.value.parent = obj
         for task in obj.tasks:

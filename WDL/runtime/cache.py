@@ -194,7 +194,9 @@ class CallCache(AbstractContextManager):
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
 
     def get_digest_for_task(self, task):
-        task_string = _describe_task(self.wdl_doc, task)
+        doc = getattr(task, "parent", None)
+        assert isinstance(doc, Document)
+        task_string = _describe_task(doc, task)
         return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
 

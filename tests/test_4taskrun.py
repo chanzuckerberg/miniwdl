@@ -29,7 +29,6 @@ class TestTaskRunner(unittest.TestCase):
             assert len(doc.tasks) == 1
             doc.typecheck()
             assert len(doc.tasks[0].required_inputs.subtract(doc.tasks[0].available_inputs)) == 0
-            WDL.Walker.SetParents()(doc)
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.tasks[0].available_inputs, doc.tasks[0].required_inputs)
             rundir, outputs = WDL.runtime.run_local_task(cfg, doc.tasks[0], (inputs or WDL.Env.Bindings()), run_dir=self._dir, logger_prefix=[self.id()], **kwargs)
