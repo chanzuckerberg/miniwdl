@@ -1,3 +1,9 @@
+"""
+The recommended way to run a WDL workflow programmatically is to invoke ``miniwdl run`` as a
+subprocess, capturing its JSON standard output. This leverages its logging, configuration, and
+flexible input loading features; and avoids conflicting with the runtime's thread pools and signal
+handlers. Alternatively, it's possible to call ``WDL.runtime.run()`` directly if needed.
+"""
 # pyre-strict
 from typing import Union, Dict, Tuple, Any
 from .. import Tree, Value, Env
@@ -17,21 +23,29 @@ def run(
     **run_kwargs: Dict[str, Any],
 ) -> Tuple[str, Env.Bindings[Value.Base]]:
     """
-    Run the task or workflow given the inputs environment and configuration.
-
-    ``inputs`` may be parsed from a JSON dict using :func:`~WDL.values_from_json`. The
-    workflow/task name should NOT be used as a namespace for the input values. They should have
-    been typechecked against ``exe.available_inputs`` already.
+    Run the task or workflow given the inputs environment and configuration, returning the outputs
+    environment. ``inputs`` may be parsed from a JSON dict using :func:`~WDL.values_from_json`,
+    which can also validate them; see example below.
 
     :param run_id: a run identifier used in logs and filenames; defaults to executable name
     :param run_dir: directory under which to create a timestamp-named subdirectory for this run
                     (defaults to current working directory).
-                    If the final path component is ".", then operate in run_dir directly.
+                    If the final path component is ``.`` then operate in run_dir directly.
 
-    Note: the runner manipulates process signal handlers and launches thread pools. If these risk
-    interfering with other activities of the calling program, then consider using
-    e.g. `subprocess.check_output(["miniwdl", "run", ...])` instead of calling this Python function
-    directly.
+    Typical usage:
+
+    .. code-block:: python
+
+       # Convert JSON-like inputs dict to WDL environment, validating them against exe's available
+       # and required inputs. The dict keys should NOT be namespaced by the executable name;
+       # if namespaces are present, then add namespace=exe.name to effectively remove them.
+       inputs_env = WDL.values_from_json(inputs_dict, exe.available_inputs, exe.required_inputs)
+       # Load configuration (see below)
+       cfg = WDL.runtime.config.Loader(logging.getLogger(__name__))
+       # Run executable
+       run_subdir, outputs_env = WDL.runtime.run(cfg, exe, inputs_env, run_dir="/tmp")
+       # Generate JSON-like outputs dict, with keys namespaced by the executable name
+       outputs_dict = WDL.values_to_json(outputs_env, exe.name)
     """
     if "max_tasks" in run_kwargs and isinstance(exe, Tree.Task):
         del run_kwargs["max_tasks"]  # N/A to run_local_task

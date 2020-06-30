@@ -53,6 +53,13 @@ Lint
 ----
 .. automodule:: WDL.Lint
 
+runtime
+-------
+.. automodule:: WDL.runtime
+   :members:
+
+.. automodule:: WDL.runtime.config
+   :members:
 
 Python codelabs
 ===============

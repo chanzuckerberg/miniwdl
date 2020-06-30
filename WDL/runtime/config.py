@@ -1,17 +1,3 @@
-"""
-miniwdl runtime configuration loader
-
-Options (section & key) are sourced in the following priority order:
-
-1. dict of overrides (e.g. built from command-line arguments)
-2. environment variables MINIWDL__SECTION__KEY (uppercased with double-underscores)
-3. custom configuration file (mutually exclusive):
-   a) filename given to ``__init__``
-   b) file named by environment variable MINIWDL_CFG
-   c) miniwdl.cfg in XDG_CONFIG_HOME & XDG_CONFIG_DIRS
-4. WDL/runtime/config_templates/default.cfg
-"""
-
 # Portions copied from AirflowConfigParser --
 #  https://github.com/apache/airflow/blob/master/airflow/configuration.py
 # Exposition --
@@ -62,6 +48,25 @@ class Section:
 
 
 class Loader:
+    """
+    Runtime configuration options, identified by section & key, are sourced in the following
+    priority order:
+
+    1. Supplied ``overrides`` dict, ``{"section": {"key": value}}``
+    2. Environment variables ``MINIWDL__SECTION__KEY`` (uppercased with double-underscores)
+    3. Custom configuration file (mutually exclusive):
+
+       a. filename given to ``__init__``
+       b. file named by environment variable ``MINIWDL_CFG``
+       c. ``miniwdl.cfg`` in XDG_CONFIG_HOME or XDG_CONFIG_DIRS, usually ``~/.config/miniwdl.cfg``
+
+    4. ``WDL/runtime/config_templates/default.cfg`` from installed package
+
+    If ``filenames`` is an empty list, then no custom configuration file is used. Or ``filenames``
+    may be a prioritized list of candidate filenames instead of (a-c) above; the first extant file
+    is used, if any.
+    """
+
     _logger: logging.Logger
     _defaults: configparser.ConfigParser
     _options: configparser.ConfigParser
@@ -75,17 +80,6 @@ class Loader:
         filenames: Optional[List[str]] = None,
         overrides: Optional[Dict[str, Dict[str, str]]] = None,
     ):
-        """
-        Load configuration file and defaults.
-
-        If ``filenames`` is ``None``, then by default: load configuration from file named by
-        ``os.environ["MINIWDL_CFG"]`` if present; otherwise, search for ``miniwdl.cfg`` in
-        ``XDG_CONFIG_HOME`` and ``XDG_CONFIG_DIRS``.
-
-        Otherwise ``filenames`` is a prioritized list of candidate configuration filenames; the
-        first file found to exist is used. If ``filenames`` is the empty list, then no
-        configuration file is used, only defaults and overrides.
-        """
         self._logger = logger
         self._used = set()
         self._used_env = set(["MINIWDL_CFG"])
@@ -238,8 +232,8 @@ class Loader:
 
     def log_unused_options(self):
         """
-        Log warnings about any options, overrides, or environment variables which (i) were never
-        accessed and (ii) don't correspond to any default option.
+        After a run, log warnings about any options that were set, but were never accessed and
+        don't correspond to any default option.
         """
         options = set()
         for section in self._overrides.sections():
