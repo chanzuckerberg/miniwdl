@@ -18,45 +18,15 @@ security credentials.
 import os
 import logging
 import traceback
+import tempfile
+import hashlib
 import importlib_metadata
+from contextlib import ExitStack
 from typing import Optional, List, Generator, Dict, Any, Tuple, Callable
 from . import config
 from .cache import CallCache
 from .._util import compose_coroutines
 from .._util import StructuredLogMessage as _
-
-# WDL tasks for downloading a file based on its URI scheme
-
-
-def aria2c_downloader(
-    cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
-) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    wdl = r"""
-    task aria2c {
-        input {
-            String uri
-            Int connections = 10
-        }
-        command <<<
-            set -euxo pipefail
-            mkdir __out
-            cd __out
-            aria2c -x ~{connections} -s ~{connections} \
-                --file-allocation=none --retry-wait=2 --stderr=true --enable-color=false \
-                "~{uri}"
-        >>>
-        output {
-            File file = glob("__out/*")[0]
-        }
-        runtime {
-            cpu: 4
-            memory: "1G"
-            docker: "hobbsau/aria2"
-        }
-    }
-    """
-    recv = yield {"task_wdl": wdl, "inputs": {"uri": uri}}
-    yield recv  # pyre-ignore
 
 
 def _load(cfg: config.Loader):
@@ -65,7 +35,12 @@ def _load(cfg: config.Loader):
         return table
 
     # default public URI downloaders
-    table = {"https": aria2c_downloader, "http": aria2c_downloader, "ftp": aria2c_downloader}
+    table = {
+        "https": aria2c_downloader,
+        "http": aria2c_downloader,
+        "ftp": aria2c_downloader,
+        "s3": awscli_downloader,
+    }
 
     # plugins
     for plugin_name, plugin_fn in config.load_plugins(cfg, "file_download"):
@@ -154,6 +129,128 @@ def run_cached(
     run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
     filename = run(cfg, logger, uri, run_dir=run_dir, **kwargs)
     return False, cache.put_download(uri, os.path.realpath(filename), logger=logger)
+
+
+# WDL tasks for downloading a file based on its URI scheme
+
+
+def aria2c_downloader(
+    cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
+) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+    wdl = r"""
+    task aria2c {
+        input {
+            String uri
+            Int connections = 10
+        }
+        command <<<
+            set -euxo pipefail
+            mkdir __out
+            cd __out
+            aria2c -x ~{connections} -s ~{connections} \
+                --file-allocation=none --retry-wait=2 --stderr=true --enable-color=false \
+                "~{uri}"
+        >>>
+        output {
+            File file = glob("__out/*")[0]
+        }
+        runtime {
+            cpu: 4
+            memory: "1G"
+            docker: "hobbsau/aria2"
+        }
+    }
+    """
+    recv = yield {"task_wdl": wdl, "inputs": {"uri": uri}}
+    yield recv  # pyre-ignore
+
+
+def awscli_downloader(
+    cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
+) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+
+    # get AWS credentials from boto3 (unless prevented by configuration)
+    host_aws_credentials = None
+    if cfg["download_awscli"].get_bool("host_credentials"):
+        try:
+            import boto3  # pyre-fixme
+
+            b3creds = boto3.session.Session().get_credentials()
+            host_aws_credentials = "\n".join(
+                f"export {k}='{v}'"
+                for (k, v) in {
+                    "AWS_ACCESS_KEY_ID": b3creds.access_key,
+                    "AWS_SECRET_ACCESS_KEY": b3creds.secret_key,
+                    "AWS_SESSION_TOKEN": b3creds.token,
+                }.items()
+                if v
+            )
+            if host_aws_credentials:
+                logger.getChild("awscli_downloader").info(
+                    "using host's AWS credentials; to disable, configure [download_awscli] host_credentials=false (MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=false)"
+                )
+        except Exception:
+            pass
+        if not host_aws_credentials:
+            logger.getChild("awscli_downloader").warning(
+                "no AWS credentials available on host; if needed, install awscli+boto3 and `aws configure`"
+            )
+
+    inputs = {"uri": uri}
+    with ExitStack() as cleanup:
+        if host_aws_credentials:
+            # write credentials to temp file that'll self-destruct afterwards
+            aws_credentials_file = cleanup.enter_context(
+                tempfile.NamedTemporaryFile(
+                    prefix=hashlib.sha256(host_aws_credentials.encode()).hexdigest(),
+                    delete=True,
+                    mode="w",
+                )
+            )
+            print(host_aws_credentials, file=aws_credentials_file, flush=True)
+            # make file group-readable to ensure it'll be usable if the docker image runs as non-root
+            os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
+            inputs["aws_credentials"] = aws_credentials_file.name
+
+        wdl = r"""
+        task aws_s3_cp {
+            input {
+                String uri
+                File? aws_credentials
+            }
+
+            command <<<
+                set -euo pipefail
+                if [ -n "~{aws_credentials}" ]; then
+                    source "~{aws_credentials}"
+                fi
+                args=""
+                if ! aws sts get-caller-identity >&2 ; then
+                    # no credentials or instance role; add --no-sign-request to allow requests for
+                    # PUBLIC objects to proceed.
+                    args="--no-sign-request"
+                fi
+                mkdir __out
+                cd __out
+                aws s3 cp $args "~{uri}" .
+            >>>
+
+            output {
+                File file = glob("__out/*")[0]
+            }
+
+            runtime {
+                cpu: 4
+                memory: "1G"
+                docker: "amazon/aws-cli"
+            }
+        }
+        """
+        recv = yield {
+            "task_wdl": wdl,
+            "inputs": inputs,
+        }
+    yield recv  # pyre-ignore
 
 
 def gsutil_downloader(
