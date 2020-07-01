@@ -44,7 +44,7 @@ from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
 import importlib_metadata
-from .. import Env, Type, Value, Tree, StdLib
+from .. import Env, Type, Value, Tree, StdLib, Document
 from ..Error import InputError
 from .task import run_local_task, _filenames, link_outputs
 from .download import able as downloadable, run_cached as download
@@ -647,7 +647,7 @@ def run_local_workflow(
                 version = "UNKNOWN"
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
             assert not _thread_pools
-
+            wdl_doc = getattr(workflow, "parent")
             cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 

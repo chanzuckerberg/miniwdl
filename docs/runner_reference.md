@@ -86,3 +86,9 @@ Details:
 * If needed, the `miniwdl localize` subcommand can **"prime" the local cache** with URIs found in a given JSON input template (or a simple list of URIs) before actually running any workflow.
 * Cached files that are no longer needed can simply be **deleted from the cache directory**, once they're no longer in use by a running workflow.
 * Miniwdl itself doesn't delete files from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached file it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/blob/master/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used files that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
+
+# Task output caching
+ 
+Miniwdl is able to cache the output of tasks in a local directory, so that repeat runs of that task (with matching inputs) can reference those outputs via a digest of the task and its inputs.
+
+The task cache functionality must be enabled in the configuration. The relevant options exemplified in the (https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/runtime/config_templates/default.cfg) template, are in the `call_cache` section, especially `put = true`, `get = true`, and `dir`.  If the cache is enabled in persistent configuration, then `--no-cache` disables it for one run. 

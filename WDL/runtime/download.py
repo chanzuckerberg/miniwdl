@@ -77,7 +77,7 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
     """
 
     from . import run_local_task, RunFailed, DownloadFailed, Terminated, error_json
-    from .. import parse_tasks, values_from_json, values_to_json
+    from .. import parse_document, values_from_json, values_to_json, Walker
 
     gen = _downloader(cfg, uri)
     assert gen
@@ -88,8 +88,11 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
             if "task_wdl" in recv:
                 task_wdl, inputs = (recv[k] for k in ["task_wdl", "inputs"])
 
-                task = parse_tasks(task_wdl, version="1.0")[0]  # pyre-ignore
-                task.typecheck()
+                doc = parse_document(task_wdl, version="1.0")  # pyre-ignore
+                assert len(doc.tasks) == 1 and not doc.workflow
+                doc.typecheck()
+                Walker.SetParents()(doc)
+                task = doc.tasks[0]
                 inputs = values_from_json(inputs, task.available_inputs)  # pyre-ignore
                 subdir, outputs_env = run_local_task(
                     cfg, task, inputs, run_id=("download-" + task.name), **kwargs

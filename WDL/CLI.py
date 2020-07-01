@@ -507,6 +507,7 @@ def runner(
             "file_io": {},
             "task_runtime": {},
             "download_cache": {},
+            "call_cache": {},
             "logging": {"json": log_json},
         }
         if max_tasks is not None:
@@ -531,6 +532,7 @@ def runner(
             cfg_overrides["task_runtime"]["memory_max"] = runtime_memory_max
         if no_cache:
             cfg_overrides["download_cache"]["get"] = False
+            cfg_overrides["call_cache"]["get"] = False
 
         cfg.override(cfg_overrides)
         cfg.log_all()

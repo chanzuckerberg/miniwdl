@@ -190,7 +190,9 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Do
 
     :param uri: filename/URI for error reporting (not otherwise used)
     """
-    return _parser.parse_document(txt, version, uri)
+    doc = _parser.parse_document(txt, version, uri)
+    Walker.SetParents()(doc)
+    return doc
 
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:

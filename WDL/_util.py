@@ -6,12 +6,14 @@ import os
 import json
 import logging
 import signal
+import tempfile
 import threading
 import time
 import copy
 import fcntl
 import subprocess
 import shutil
+import urllib
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager, AbstractContextManager
@@ -37,6 +39,8 @@ from pygtail import Pygtail
 import docker
 
 __all__: List[str] = []
+
+from . import Type
 
 
 def export(obj) -> str:  # pyre-ignore
