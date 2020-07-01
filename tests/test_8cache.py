@@ -120,14 +120,13 @@ class TestTaskRunner(unittest.TestCase):
                 "who": "Alyssa"
             }, self.doc.tasks[0].available_inputs)
 
-        ordered_digest = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc).get_digest_for_inputs(ordered_inputs)
-        unordered_digest = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc).get_digest_for_inputs(unordered_inputs)
+        ordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(ordered_inputs)
+        unordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
 
     def test_task_input_cache_matches_output(self):
-
         # run task, check output matches what was stored in run_dir
-        cache = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc)
+        cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
@@ -179,13 +178,14 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(new_mock.call_count, 1)
 
     def test_get_cache_return_value_matches_outputs(self):
-        cache = CallCache(cfg=self.cfg, logger=self.logger, wdl_doc=self.doc)
+        cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
         input_digest = cache.get_digest_for_inputs(inputs)
         task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
-        cache_value = cache.get(key=f"{self.doc.tasks[0].name}_{task_digest}/{input_digest}", output_types=self.doc.tasks[0].effective_outputs)
+        cache_value = cache.get(key=f"{self.doc.tasks[0].name}_{task_digest}/{input_digest}",
+                                output_types=self.doc.tasks[0].effective_outputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
@@ -206,7 +206,6 @@ class TestTaskRunner(unittest.TestCase):
                    }
                }
                """
-
 
         #  _try_task function for original wdl
         self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)

@@ -816,7 +816,7 @@ def run_local_task(
 
         if not _run_id_stack:
             wdl_doc = getattr(task, "parent")
-            cache = _cache or cleanup.enter_context(CallCache(cfg, logger, wdl_doc))
+            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
 
         else:

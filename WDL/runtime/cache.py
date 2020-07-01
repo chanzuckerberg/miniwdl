@@ -29,14 +29,11 @@ class CallCache(AbstractContextManager):
     _flocker: FlockHolder
     _logger: logging.Logger
 
-    def __init__(
-        self, cfg: config.Loader, logger: logging.Logger, wdl_doc: Optional[Document] = None
-    ):
+    def __init__(self, cfg: config.Loader, logger: logging.Logger):
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
         self.call_cache_dir = cfg["call_cache"]["dir"]
-        self.wdl_doc = wdl_doc
 
         try:
             os.mkdir(self.call_cache_dir)
@@ -58,6 +55,12 @@ class CallCache(AbstractContextManager):
 
         json_inputs = json.dumps(values_to_json(inputs), sort_keys=True).encode("utf-8")
         return hashlib.sha256(json_inputs).hexdigest()
+
+    def get_digest_for_task(self, task):
+        doc = getattr(task, "parent", None)
+        assert isinstance(doc, Document)
+        task_string = _describe_task(doc, task)
+        return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
     def get(
         self, key: str, output_types: Env.Bindings[Type.Base],
@@ -192,12 +195,6 @@ class CallCache(AbstractContextManager):
 
     def flock(self, filename: str, exclusive: bool = False) -> None:
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
-
-    def get_digest_for_task(self, task):
-        doc = getattr(task, "parent", None)
-        assert isinstance(doc, Document)
-        task_string = _describe_task(doc, task)
-        return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
 
 def _describe_task(doc, task: Tree.Task) -> str:

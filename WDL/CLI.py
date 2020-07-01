@@ -625,7 +625,7 @@ def runner(
 
         # run & log any errors
         cleanup.enter_context(runtime._statusbar.enable(set_status))
-        cache = cleanup.enter_context(runtime.cache.CallCache(cfg, logger, doc))
+        cache = cleanup.enter_context(runtime.cache.CallCache(cfg, logger))
         rundir = None
         try:
             rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir, _cache=cache)

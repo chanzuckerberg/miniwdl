@@ -648,7 +648,7 @@ def run_local_workflow(
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
             assert not _thread_pools
             wdl_doc = getattr(workflow, "parent")
-            cache = _cache or cleanup.enter_context(CallCache(cfg, logger, wdl_doc))
+            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
