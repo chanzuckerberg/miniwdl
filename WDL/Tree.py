@@ -1367,11 +1367,15 @@ async def _load_async(
         doc.typecheck(check_quant=check_quant)
     except Error.ValidationError as exn:
         exn.source_text = read_rslt.source_text
+        exn.declared_wdl_version = doc.wdl_version
         raise exn
     except Error.MultipleValidationErrors as multi:
         for exn in multi.exceptions:
             if not exn.source_text:
                 exn.source_text = read_rslt.source_text
+                exn.declared_wdl_version = doc.wdl_version
+        multi.source_text = read_rslt.source_text
+        multi.declared_wdl_version = doc.wdl_version
         raise multi
     return doc
 

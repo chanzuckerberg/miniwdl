@@ -242,13 +242,15 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     _source_text: str
     _comments: List[lark.Token]
     _version: Optional[str]
+    _declared_version: Optional[str]
 
     def __init__(
         self,
         source_text: str,
         keywords: Set[str],
         comments: List[lark.Token],
-        version: Optional[str],
+        version: str,
+        declared_version: Optional[str],
         *args,
         **kwargs,
     ):
@@ -257,10 +259,13 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         self._keywords = keywords
         self._comments = comments
         self._version = version
+        self._declared_version = declared_version
 
     def _check_keyword(self, pos, name):
         if name in self._keywords:
-            raise Error.SyntaxError(pos, "unexpected keyword {}".format(name))
+            raise Error.SyntaxError(
+                pos, "unexpected keyword {}".format(name), self._version, self._declared_version
+            )
 
     def decl(self, items, meta):
         self._check_keyword(self._sp(meta), items[1].value)
@@ -496,6 +501,8 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             raise Error.SyntaxError(
                 pos,
                 """declare an import namespace that follows WDL name rules and isn't a language keyword (import "filename" as some_namespace)""",
+                self._version,
+                self._declared_version,
             )
         aliases = [p for p in items[1:] if isinstance(p, tuple)]
         return Tree.DocImport(pos=pos, uri=uri, namespace=namespace, aliases=aliases, doc=None)
@@ -549,7 +556,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             tasks,
             workflow,
             comments,
-            self._version,
+            self._declared_version,
         )
 
 
@@ -572,17 +579,21 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
             end_line=getattr(exn, "line", "?"),
             end_column=getattr(exn, "column", "?"),
         )
-        raise Error.SyntaxError(pos, str(exn)) from None
+        raise Error.SyntaxError(pos, str(exn), "1.0", None) from None
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
 
 
-def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
+def parse_tasks(txt: str, version: str = "draft-2") -> List[Tree.Task]:
     try:
         (grammar, keywords) = _grammar.get(version)
         raw_ast, comments = parse(grammar, txt, "tasks")
         return _DocTransformer(
-            source_text=txt, keywords=keywords, comments=comments, version=version
+            source_text=txt,
+            keywords=keywords,
+            comments=comments,
+            version=version,
+            declared_version=None,
         ).transform(raw_ast)
     except lark.exceptions.VisitError as exn:
         raise exn.__context__
@@ -602,11 +613,15 @@ def parse_document(
                 declared_version = line[8:]
             break
     version = version or declared_version or "draft-2"
+    assert isinstance(version, str)
     try:
         (grammar, keywords) = _grammar.get(version)
     except KeyError:
         raise Error.SyntaxError(
-            npos, f"unknown WDL version {version}; choices: " + ", ".join(_grammar.versions.keys())
+            npos,
+            f"unknown WDL version {version}; choices: " + ", ".join(_grammar.versions.keys()),
+            version,
+            declared_version,
         ) from None
     try:
         raw_ast, comments = parse(grammar, txt, "document")
@@ -616,7 +631,8 @@ def parse_document(
             abspath=abspath,
             keywords=keywords,
             comments=comments,
-            version=declared_version,
+            version=version,
+            declared_version=declared_version,
         ).transform(raw_ast)
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
@@ -627,6 +643,6 @@ def parse_document(
             end_line=getattr(exn, "line", "?"),
             end_column=getattr(exn, "column", "?"),
         )
-        raise Error.SyntaxError(pos, str(exn)) from None
+        raise Error.SyntaxError(pos, str(exn), version, declared_version) from None
     except lark.exceptions.VisitError as exn:
         raise exn.__context__

@@ -185,7 +185,17 @@ def check(
 
     shown = [0]
     for uri1 in uri or []:
-        doc = load(uri1, path or [], check_quant=check_quant, read_source=read_source)
+        try:
+            doc = load(uri1, path or [], check_quant=check_quant, read_source=read_source)
+        except (Error.SyntaxError, Error.ValidationError, Error.MultipleValidationErrors) as exn:
+            if not getattr(exn, "declared_wdl_version", None):
+                atexit.register(
+                    lambda: print(
+                        "* Hint: document should begin with WDL version declaration",
+                        file=sys.stderr,
+                    )
+                )
+            raise exn
 
         Lint.lint(doc)
 

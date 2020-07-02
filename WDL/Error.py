@@ -30,10 +30,16 @@ class SyntaxError(Exception):
     """Failure to lex/parse a WDL document"""
 
     pos: SourcePosition
+    wdl_version: str
+    declared_wdl_version: Optional[str]
 
-    def __init__(self, pos: SourcePosition, msg: str) -> None:
+    def __init__(
+        self, pos: SourcePosition, msg: str, wdl_version: str, declared_wdl_version: Optional[str]
+    ) -> None:
         super().__init__(msg)
         self.pos = pos
+        self.wdl_version = wdl_version
+        self.declared_wdl_version = declared_wdl_version
 
 
 class ImportError(Exception):
