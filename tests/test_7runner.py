@@ -75,11 +75,11 @@ class TestDownload(RunnerTestCase):
     def test_download_input_files(self):
         self._run(self.count_wdl, {"files": [
             "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt",
-            "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"
+            "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"
         ]})
         self._run(self.count_wdl, {"files": [
             "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt",
-            "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/nonexistent12345.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"
+            "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/nonexistent12345.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"
         ]}, expected_exception=WDL.runtime.DownloadFailed)
         self._run(self.count_wdl, {"files": ["gs://8675309"]}, expected_exception=WDL.runtime.DownloadFailed)
 
@@ -94,7 +94,7 @@ class TestDownload(RunnerTestCase):
                 "disable_patterns": ["https://google.com/*"]
             }
         })
-        inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
+        inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
         logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
@@ -114,7 +114,7 @@ class TestDownload(RunnerTestCase):
                 "enable_patterns": ["https://raw.githubusercontent.com/chanzuckerberg/*"]
             }
         })
-        inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
+        inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
         logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
@@ -133,7 +133,7 @@ class TestDownload(RunnerTestCase):
                 "dir": os.path.join(self._dir, "cache"),
             }
         })
-        inp = {"files": ["s3://1000genomes/CHANGELOG", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt?xxx"]}
+        inp = {"files": ["s3://1000genomes/CHANGELOG", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
         logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
@@ -154,7 +154,7 @@ class TestDownload(RunnerTestCase):
             # test JSON logging:
             "logging": { "json": True }
         })
-        inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt?xxx"]}
+        inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         with open(os.path.join(self._rundir, "workflow.log")) as logfile:
             for line in logfile:

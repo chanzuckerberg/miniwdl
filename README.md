@@ -2,9 +2,9 @@
 **[Workflow Description Language](http://openwdl.org/) local runner & developer toolkit for Python 3.6+**
 
 ![Project Status](https://img.shields.io/badge/status-beta-yellow.svg)
-[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/master/LICENSE)
+[![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
-[![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=master)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=master)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=master)
+[![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=main)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=main)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=main)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
 ## Getting Started
@@ -15,7 +15,7 @@
 
 [![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl) `conda install --channel conda-forge miniwdl`
 
-Source install: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) for dependencies to run `setup.py`
+Source install: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/main/Dockerfile) for dependencies to run `setup.py`
 
 See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows the current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues).
 
@@ -23,9 +23,9 @@ See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for chang
 
 The online documentation includes a user tutorial, reference manual, and Python development codelabs: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/WDL.html)
 
-## [Contributing](https://github.com/chanzuckerberg/miniwdl/blob/master/CONTRIBUTING.md)
+## [Contributing](https://github.com/chanzuckerberg/miniwdl/blob/main/CONTRIBUTING.md)
 
-Feedback and contributions to miniwdl are welcome, via issues and pull requests on this repository. See [CONTRIBUTING.md](https://github.com/chanzuckerberg/miniwdl/blob/master/CONTRIBUTING.md) for guidelines and instructions to set up your development environment.
+Feedback and contributions to miniwdl are welcome, via issues and pull requests on this repository. See [CONTRIBUTING.md](https://github.com/chanzuckerberg/miniwdl/blob/main/CONTRIBUTING.md) for guidelines and instructions to set up your development environment.
 
 ## Security
 

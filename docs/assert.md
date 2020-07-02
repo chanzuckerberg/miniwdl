@@ -43,7 +43,7 @@ Lastly, our constructor pre-computes the assertion failure message for later use
 
 ## Grammar and parser
 
-Miniwdl uses [Lark](https://github.com/lark-parser/lark) for basic lexing/parsing, entailing (i) an [EBNF grammar](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) hard-coded as a lengthy string in [`WDL/_grammar.py`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/_grammar.py), and (ii) "transformers" to map Lark's low-level syntax tree onto the `WDL.Tree` object model, found in [`WDL/_parser.py`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/_parser.py). The former source file furthermore includes several versions of the grammar for different WDL language versions, and the latter the mechanism for choosing the appropriate grammar based on the `version` declaration in the source code. We'll introduce our new assertion statement to the "development" version of the grammar.
+Miniwdl uses [Lark](https://github.com/lark-parser/lark) for basic lexing/parsing, entailing (i) an [EBNF grammar](https://en.wikipedia.org/wiki/Extended_Backus%E2%80%93Naur_form) hard-coded as a lengthy string in [`WDL/_grammar.py`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/_grammar.py), and (ii) "transformers" to map Lark's low-level syntax tree onto the `WDL.Tree` object model, found in [`WDL/_parser.py`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/_parser.py). The former source file furthermore includes several versions of the grammar for different WDL language versions, and the latter the mechanism for choosing the appropriate grammar based on the `version` declaration in the source code. We'll introduce our new assertion statement to the "development" version of the grammar.
 
 In `WDL/_grammar.py` we add the production,
 
@@ -84,7 +84,7 @@ class _DocTransformer:
 
 Lark calls this method when the new `assert` statement appears in the source code, upon which we create an instance of our new `Assertion` node based on the source position and expression.
 
-Even though we haven't yet added the logic to actually check the asserted condition at runtime, we can begin writing our test cases to check that the new statement is recognized syntactically. In [`tests/test_7runner.py`](https://github.com/chanzuckerberg/miniwdl/blob/master/tests/test_7runner.py) we add a new test case class deriving from the `RunnerTestCase(unittest.TestCase)` helper,
+Even though we haven't yet added the logic to actually check the asserted condition at runtime, we can begin writing our test cases to check that the new statement is recognized syntactically. In [`tests/test_7runner.py`](https://github.com/chanzuckerberg/miniwdl/blob/main/tests/test_7runner.py) we add a new test case class deriving from the `RunnerTestCase(unittest.TestCase)` helper,
 
 ```python3
 ...
@@ -115,7 +115,7 @@ The `self._run()` helper method runs the given WDL on the inputs and returns the
 
 ## Checking assertions in tasks
 
-The task runtime logic is found in [`WDL/runtime/task.py`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/runtime/task.py). We'll add the assertion checking logic to the `_eval_task_inputs` subroutine, which is responsible for evaluating all the task's input and "post-input" declarations.
+The task runtime logic is found in [`WDL/runtime/task.py`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/task.py). We'll add the assertion checking logic to the `_eval_task_inputs` subroutine, which is responsible for evaluating all the task's input and "post-input" declarations.
 
 ```python3
 def _eval_task_inputs(...):
@@ -153,7 +153,7 @@ conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 ?inner_workflow_element: any_decl | call | scatter | conditional | assertion
 ```
 
-The workflow runner in [`WDL/runtime/workflow.py`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/runtime/workflow.py) would now treat assertion statements as declarations and schedule their evaluation appropriately. We just need to add a check on the value in the corresponding logic,
+The workflow runner in [`WDL/runtime/workflow.py`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/workflow.py) would now treat assertion statements as declarations and schedule their evaluation appropriately. We just need to add a check on the value in the corresponding logic,
 
 ```python3
 class StateMachine:

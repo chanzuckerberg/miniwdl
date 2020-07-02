@@ -1,6 +1,6 @@
 # wdlviz
 
-In this lab, we'll develop a Python program using miniwdl's API to generate a [graphviz](https://www.graphviz.org/) visualization of a WDL workflow's internal dependency structure. We'll keep this example brief and barebones, while a more-elaborate version can be found [in the miniwdl repo](https://github.com/chanzuckerberg/miniwdl/blob/master/examples/wdlviz.py).
+In this lab, we'll develop a Python program using miniwdl's API to generate a [graphviz](https://www.graphviz.org/) visualization of a WDL workflow's internal dependency structure. We'll keep this example brief and barebones, while a more-elaborate version can be found [in the miniwdl repo](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/wdlviz.py).
 
 Begin by installing (i) graphviz using your OS package manager (e.g. `apt install graphviz`), and (ii) either `pip3 install miniwdl graphviz` or `conda install miniwdl graphviz` as you prefer.
 
@@ -260,4 +260,4 @@ which generates this interesting graphic:
 
 ![](wdlviz_ex2.png)
 
-A more-elaborate version of this barebones example can be found [in the miniwdl repo](https://github.com/chanzuckerberg/miniwdl/blob/master/examples/wdlviz.py). Pull requests with feature and visual improvements are welcome!
+A more-elaborate version of this barebones example can be found [in the miniwdl repo](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/wdlviz.py). Pull requests with feature and visual improvements are welcome!

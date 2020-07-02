@@ -30,7 +30,7 @@ The top-level run directory also contains:
 
 When miniwdl creates a new timestamp-named subdirectory for a run, it also creates a symbolic link `_LAST` to it in the same parent directory. (For convenience referring to the most recent run; should not be relied upon if multiple runs can start concurrently.)
 
-The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/tree/master/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
+The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/blob/main/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
 
 ## Configuration
 
@@ -38,7 +38,7 @@ The miniwdl runner's configuration loader sources from command-line options, env
 
 **default.cfg**
 
-The available configuration options are exemplified in [`WDL/runtime/config_templates/default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/runtime/config_templates/default.cfg), which follows the format of [Python's configparser module](https://docs.python.org/3/library/configparser.html#quick-start), organized into `[SECTION]` headings with `KEY = VALUE` entries in each section. Some values take the form of a JSON object or array, which may span multiple lines with indentation.
+The available configuration options are exemplified in [`WDL/runtime/config_templates/default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg), which follows the format of [Python's configparser module](https://docs.python.org/3/library/configparser.html#quick-start), organized into `[SECTION]` headings with `KEY = VALUE` entries in each section. Some values take the form of a JSON object or array, which may span multiple lines with indentation.
 
 Miniwdl loads these defaults from the locally installed copy of that file.
 
@@ -76,7 +76,7 @@ MINIWDL__TASK_RUNTIME__DEFAULTS='{"docker":"ubuntu:19.10"}'
 
 Miniwdl automatically downloads input files supplied as URIs instead of locally-mounted filenames. It's also able to cache these downloads in a local directory, so that multiple workflow runs can reference files by URI without downloading them repeatedly. This permits efficient use of WDL input templates referring to public databases by URI (e.g. reference genomes, sequence databases, interval lists), without having to compromise portability by rewriting them with local paths.
 
-The download cache functionality must be enabled in the configuration. The relevant options, exemplified in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/runtime/config_templates/default.cfg) template, are in the `download_cache` section, especially `put = true`, `get = true`, and `dir`. Additional options such as `ignore_query`, `enable_patterns`, and `disable_patterns` provide control over which URIs will be cached. If the cache is enabled in persistent configuration, then `--no-cache` disables it for one run.
+The download cache functionality must be enabled in the configuration. The relevant options, exemplified in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, are in the `download_cache` section, especially `put = true`, `get = true`, and `dir`. Additional options such as `ignore_query`, `enable_patterns`, and `disable_patterns` provide control over which URIs will be cached. If the cache is enabled in persistent configuration, then `--no-cache` disables it for one run.
 
 Details:
 
@@ -85,10 +85,10 @@ Details:
 * URIs excluded from the cache by the enable/disable patterns fall back to being downloaded under the current run directory. Typically, write the patterns to **include reusable reference data while excluding any run-specific inputs** that might be supplied as URIs.
 * If needed, the `miniwdl localize` subcommand can **"prime" the local cache** with URIs found in a given JSON input template (or a simple list of URIs) before actually running any workflow.
 * Cached files that are no longer needed can simply be **deleted from the cache directory**, once they're no longer in use by a running workflow.
-* Miniwdl itself doesn't delete files from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached file it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/blob/master/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used files that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
+* Miniwdl itself doesn't delete files from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached file it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used files that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
 
 # Task output caching
  
 Miniwdl is able to cache the output of tasks in a local directory, so that repeat runs of that task (with matching inputs) can reference those outputs via a digest of the task and its inputs.
 
-The task cache functionality must be enabled in the configuration. The relevant options exemplified in the (https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/runtime/config_templates/default.cfg) template, are in the `call_cache` section, especially `put = true`, `get = true`, and `dir`.  If the cache is enabled in persistent configuration, then `--no-cache` disables it for one run. 
+The task cache functionality must be enabled in the configuration. The relevant options exemplified in the (https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, are in the `call_cache` section, especially `put = true`, `get = true`, and `dir`.  If the cache is enabled in persistent configuration, then `--no-cache` disables it for one run. 

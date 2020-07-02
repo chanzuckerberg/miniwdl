@@ -247,7 +247,7 @@ is "$?" "0" "copy input files"
 is "$(basename `jq -r '.["mv_input_file.xxx"]' _LAST/outputs.json`)" "xxx" "updated _LAST"
 
 cat << 'EOF' > uri_inputs.json
-{"my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt"]}
+{"my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
 EOF
 cat << 'EOF' > localize_me.wdl
 version 1.0

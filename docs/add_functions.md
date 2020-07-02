@@ -13,7 +13,7 @@ The standard library is implemented in `WDL/StdLib.py`, except for some details 
 
 ## factorial
 
-We'll warm up by adding a `factorial(n)` function to WDL. This is an example of a "static" function, with fixed argument and return types (integer to integer, in this case), thus straightforward to define. In [`WDL.StdLib.Base.__init__`](https://github.com/chanzuckerberg/miniwdl/blob/master/WDL/StdLib.py), you'll find the definition of a `static()` helper followed by numerous uses to set up standard functions. We can define the new factorial function by adding to this section,
+We'll warm up by adding a `factorial(n)` function to WDL. This is an example of a "static" function, with fixed argument and return types (integer to integer, in this case), thus straightforward to define. In [`WDL.StdLib.Base.__init__`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/StdLib.py), you'll find the definition of a `static()` helper followed by numerous uses to set up standard functions. We can define the new factorial function by adding to this section,
 
 ```python3
 class Base:

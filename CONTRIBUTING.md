@@ -5,12 +5,12 @@ Feedback and contributions to miniwdl are welcome, via issues and pull requests 
 * [Online documentation](https://miniwdl.readthedocs.io/en/latest/) includes several "codelab" tutorials to start with
 * The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows our current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues)
 * [Starter issues](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Astarter) are suitable entry points for new contributors
-* [Pull request template](https://github.com/chanzuckerberg/miniwdl/blob/master/.github/pull_request_template.md) includes a preparation checklist
+* [Pull request template](https://github.com/chanzuckerberg/miniwdl/blob/main/.github/pull_request_template.md) includes a preparation checklist
 
 To set up your Linux development environment,
 
 1. `git clone --recursive` this repository or your fork thereof, and `cd` into it
-2. Install dependencies as illustrated in the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/master/Dockerfile) (OS packages + `pip3 install --user -r` both `requirements.txt` and `requirements.dev.txt`)
+2. Install dependencies as illustrated in the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/main/Dockerfile) (OS packages + `pip3 install --user -r` both `requirements.txt` and `requirements.dev.txt`)
 3. Invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
 4. Try `python3 -m WDL run_self_test` to test the configuration
 

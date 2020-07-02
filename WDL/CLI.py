@@ -1033,7 +1033,7 @@ def run_self_test(**kwargs):
     argv = [
         "run",
         os.path.join(dn, "test.wdl"),
-        "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/master/tests/alyssa_ben.txt",
+        "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
         "--dir",
         dn if dn not in [".", "./"] else os.getcwd(),
         "--debug",
