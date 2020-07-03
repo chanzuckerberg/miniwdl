@@ -839,6 +839,13 @@ def run_local_task(
                             value=(v.json if len(vj) < 4096 else "(((large)))"),
                         )
                     )
+                # create out/ and outputs.json
+                outputs = link_outputs(
+                    cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                )
+                write_values_json(
+                    cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
+                )
                 logger.notice("done (cached)")  # pyre-fixme
                 return (run_dir, cached)
             # start plugin coroutines and process inputs through them
