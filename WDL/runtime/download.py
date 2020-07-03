@@ -206,12 +206,10 @@ def awscli_downloader(
             # make file group-readable to ensure it'll be usable if the docker image runs as non-root
             os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
             inputs["aws_credentials"] = aws_credentials_file.name
-            logger.getChild("awscli_downloader").info(
-                "using host's AWS credentials; to disable, configure [download_awscli] host_credentials=false (MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=false)"
-            )
+            logger.getChild("awscli_downloader").info("loaded host AWS credentials")
         else:
-            logger.getChild("awscli_downloader").warning(
-                "no AWS credentials available on host; if needed, install awscli+boto3 and `aws configure`"
+            logger.getChild("awscli_downloader").info(
+                "no AWS credentials available via host awscli/boto3; if needed, configure them and set [download_awscli] host_credentials=true. (On EC2: awscli might still assume role from instance metadata service.)"
             )
 
         wdl = r"""

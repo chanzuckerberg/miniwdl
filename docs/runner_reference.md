@@ -50,8 +50,8 @@ Upon starting, miniwdl looks for a custom configuration file in the following lo
 
 1. File named by `--cfg` command-line argument
 2. File named by `MINIWDL_CFG` environment variable
-3. `XDG_CONFIG_HOME/miniwdl.cfg` (typically `${HOME}/.config/miniwdl.cfg`)
-4. `miniwdl.cfg` in [XDG_CONFIG_DIRS](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) (typically `/etc/xdg/.config/miniwdl.cfg`)
+3. `XDG_CONFIG_HOME/miniwdl.cfg` (usually `~/.config/miniwdl.cfg`)
+4. `miniwdl.cfg` in [XDG_CONFIG_DIRS](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) (usually `/etc/xdg/.config/miniwdl.cfg`)
 
 Miniwdl loads *only the first file found* in this priority order, and merges its options into the defaults; so the file needs only contain selected sections & options to override. For example, the following overrides the default docker image (used when a task doesn't specify `runtime.docker`), leaving other defaults in place:
 
@@ -71,6 +71,8 @@ Environment variables following the convention `MINIWDL__SECTION__KEY=VALUE` ove
 ```
 MINIWDL__TASK_RUNTIME__DEFAULTS='{"docker":"ubuntu:19.10"}'
 ```
+
+Any option can thus be set/changed temporarily without a configuration file.
 
 `miniwdl run` command-line arguments override the other sources. If in doubt, running with `--debug` logs the effective configuration and sources.
 
