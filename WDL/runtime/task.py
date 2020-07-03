@@ -1345,6 +1345,8 @@ def link_outputs(
         return v
 
     os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
+    # out/ used to be called output_links/ -- symlink this name to ease transition
+    os.symlink("out", os.path.join(run_dir, "output_links"))
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,

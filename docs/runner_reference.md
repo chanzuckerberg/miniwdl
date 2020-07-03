@@ -32,6 +32,8 @@ When miniwdl creates a new timestamp-named subdirectory for a run, it also creat
 
 The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/blob/main/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
 
+*Legacy note:* `out/` was called `output_links/` prior to miniwdl v0.8.0. To ease this transition, miniwdl currently adds a symlink `output_links/` pointing to `out/` in each run directory. This backwards-compatibility feature will be discontinued in the future.
+
 ## Configuration
 
 The miniwdl runner's configuration loader sources from command-line options, environment variables, and a configuration file, in that priority order.
