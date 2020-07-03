@@ -54,11 +54,11 @@ def task(cfg, logger, run_id, run_dir, task, **recv):
         s3prefix = cfg["s3_progressive_upload"]["uri_prefix"]
         assert s3prefix.startswith("s3://"), "MINIWDL__S3_PROGRESSIVE_UPLOAD__URI_PREFIX invalid"
 
-        # for each file under output_links
+        # for each file under out/
         def _raise(ex):
             raise ex
 
-        links_dir = os.path.join(run_dir, "output_links")
+        links_dir = os.path.join(run_dir, "out")
         for (dn, subdirs, files) in os.walk(links_dir, onerror=_raise):
             assert dn == links_dir or dn.startswith(links_dir + "/")
             for fn in files:
