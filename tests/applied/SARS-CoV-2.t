@@ -27,7 +27,7 @@ $miniwdl run viral-pipelines/pipes/WDL/tasks/tasks_ncbi_tools.wdl "SRA_ID=${SRR_
 is "$?" "0" "fetch SRA run"
 
 $miniwdl run viral-pipelines/pipes/WDL/workflows/assemble_denovo_with_isnv_calling.wdl \
-    "reads_unmapped_bam=${SRR_ID}/output_links/reads_ubam/${SRR_ID}.bam" \
+    "reads_unmapped_bam=${SRR_ID}/out/reads_ubam/${SRR_ID}.bam" \
     filter_to_taxon.lastal_db_fasta=NC_045512.2.fa \
     assemble.trim_clip_db=viral-pipelines/test/input/clipDb.fasta \
     scaffold.reference_genome_fasta=NC_045512.2.fa \

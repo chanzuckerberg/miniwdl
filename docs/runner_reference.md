@@ -13,14 +13,14 @@ For tasks, the run directory also contains:
 * `download/` with any files downloaded from URIs in task inputs
 * `work/` the working directory mounted into the task container, where the command leaves its output files
 * `stdout.txt` and `stderr.txt` from the task command, streamed as it runs.
-* `output_links/` if the task succeeded, symbolic links to the individual output files, organized in a directory tree mirroring the WDL output values & associated JSON structure
+* `out/` if the task succeeded, symbolic links to the individual output files, organized in a directory tree reflecting the WDL output declarations
 
 For workflows,
 
 * `workflow.log`
 * `write_/` and `download/` as above
 * subdirectories for each call to a task or sub-workflow, each structured similarly
-* `output_links/` with links reaching into the call subdirectories where each output file was generated
+* `out/` with links reaching into the call subdirectories where each output file was generated
 
 The top-level run directory also contains:
 
@@ -31,6 +31,8 @@ The top-level run directory also contains:
 When miniwdl creates a new timestamp-named subdirectory for a run, it also creates a symbolic link `_LAST` to it in the same parent directory. (For convenience referring to the most recent run; should not be relied upon if multiple runs can start concurrently.)
 
 The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/blob/main/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
+
+*Legacy note:* `out/` was called `output_links/` prior to miniwdl v0.8.0. To ease this transition, miniwdl currently adds a symlink `output_links/` pointing to `out/` in each run directory. This backwards-compatibility feature will be discontinued in the future.
 
 ## Configuration
 

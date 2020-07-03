@@ -90,7 +90,7 @@ The standard output from `miniwdl run` provides the subdirectory along with JSON
     "assemble_refbased.assembly_length": 18865,
     "assemble_refbased.assembly_length_unambiguous": 18865,
     "assemble_refbased.assembly_mean_coverage": 94.95885858958806,
-    "assemble_refbased.assembly_fasta": "/tmp/viral-pipelines-2.1.0.2/20200604_132146_assemble_refbased/output_links/assembly_fasta/G5012.3.fasta",
+    "assemble_refbased.assembly_fasta": "/tmp/viral-pipelines-2.1.0.2/20200604_132146_assemble_refbased/out/assembly_fasta/G5012.3.fasta",
     "assemble_refbased.reference_genome_length": 18959,
     ...
   },
@@ -98,11 +98,11 @@ The standard output from `miniwdl run` provides the subdirectory along with JSON
 }
 ```
 
-This is also stored in `outputs.json` in the subdirectory. For your convenience, miniwdl furthermore generates a symbolic link `_LAST` pointing to the timestamped subdirectory for most recent run; and an `output_links` directory tree containing symbolic links to the output files.
+This is also stored in `outputs.json` in the subdirectory. For your convenience, miniwdl furthermore generates a symbolic link `_LAST` pointing to the timestamped subdirectory for most recent run; and an `out` directory tree containing symbolic links to the output files.
 
 ```
-$ tree _LAST/output_links/
-_LAST/output_links/
+$ tree _LAST/out/
+_LAST/out/
 ├── align_to_ref_merged_aligned_trimmed_only_bam
 │   └── G5012.3.align_to_ref.trimmed.bam -> ../../call-merge_align_to_ref/work/G5012.3.align_to_ref.trimmed.bam
 ├── align_to_ref_merged_coverage_plot
@@ -126,7 +126,7 @@ _LAST/output_links/
     └── G5012.3.fasta -> ../../call-call_consensus/work/G5012.3.fasta
 ```
 
-The `output_links` are often more convenient to consume than the JSON, but they only capture outputs that are files. Individual tasks and sub-workflows run in their own nested subdirectories, each with a similar structure.
+The `out` links are often more convenient to consume than the JSON, but they only capture outputs that are files. Individual tasks and sub-workflows run in their own nested subdirectories, each with a similar structure.
 
 ## Next steps
 

@@ -1312,7 +1312,7 @@ def link_outputs(
                 assert os.path.isfile(hardlink)
                 newlink = os.path.join(dn, os.path.basename(v.value))
                 os.makedirs(dn, exist_ok=False)
-                if not hardlinks and path_really_within(hardlink, run_dir):
+                if not hardlinks and path_really_within(hardlink, os.path.dirname(run_dir)):
                     # make symlink relative
                     hardlink = os.path.relpath(hardlink, start=os.path.realpath(dn))
                 (os.link if hardlinks else os.symlink)(hardlink, newlink)
@@ -1351,13 +1351,13 @@ def link_outputs(
                 v.value[key] = map_files(v.value[key], os.path.join(dn, key))
         return v
 
-    os.makedirs(os.path.join(run_dir, "output_links"), exist_ok=False)
+    os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
+    # out/ used to be called output_links/ -- symlink this name to ease transition
+    os.symlink("out", os.path.join(run_dir, "output_links"))
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_files(
-                copy.deepcopy(binding.value), os.path.join(run_dir, "output_links", binding.name),
-            ),
+            map_files(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name),),
         )
     )
 
