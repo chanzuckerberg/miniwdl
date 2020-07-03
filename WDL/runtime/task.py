@@ -11,7 +11,6 @@ import traceback
 import glob
 import time
 import random
-import multiprocessing
 import threading
 import shutil
 import shlex
@@ -25,7 +24,7 @@ from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any
 from contextlib import ExitStack
 import docker
 
-from .. import Error, Type, Env, Value, StdLib, Tree, _util, Document
+from .. import Error, Type, Env, Value, StdLib, Tree, _util
 from .._util import (
     write_atomic,
     write_values_json,
@@ -830,9 +829,17 @@ def run_local_task(
                 key=f"{task.name}_{task_digest}/{input_digest}", output_types=task.effective_outputs
             )
             if cached:
-                logger.notice(  # pyre-fixme
-                    f"Succesfullly pulled cached outputs for task digest: {task_digest} and input_digest: {input_digest}"
-                )
+                for decl in task.outputs:
+                    v = cached[decl.name]
+                    vj = json.dumps(v.json)
+                    logger.info(
+                        _(
+                            "cached output",
+                            name=decl.name,
+                            value=(v.json if len(vj) < 4096 else "(((large)))"),
+                        )
+                    )
+                logger.notice("done (cached)")  # pyre-fixme
                 return (run_dir, cached)
             # start plugin coroutines and process inputs through them
             with compose_coroutines(

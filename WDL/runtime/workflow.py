@@ -39,12 +39,11 @@ import signal
 import traceback
 import pickle
 import threading
-import copy
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
 import importlib_metadata
-from .. import Env, Type, Value, Tree, StdLib, Document
+from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .task import run_local_task, _filenames, link_outputs
 from .download import able as downloadable, run_cached as download

@@ -7,9 +7,8 @@ import hashlib
 import json
 import os
 import logging
-import threading
 from pathlib import Path
-from typing import Iterator, Dict, Any, Optional, Set, List, IO
+from typing import Dict, Any, Optional, List
 from contextlib import AbstractContextManager
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
@@ -37,7 +36,7 @@ class CallCache(AbstractContextManager):
 
         try:
             os.mkdir(self.call_cache_dir)
-        except Exception as e:
+        except Exception:
             pass
 
     def __enter__(self) -> "CallCache":
@@ -80,10 +79,10 @@ class CallCache(AbstractContextManager):
             with open(file_path, "rb") as file_reader:
                 contents = file_reader.read()
         except FileNotFoundError:
-            self._logger.info(f"Cache lookup unsuccessful for input_digest: {key}")
+            self._logger.info(_(f"call cache miss", cache_path=file_path))
             return None
         contents = json.loads(contents)
-        self._logger.notice(f"Cache found for input_digest: {key}")  # pyre-fixme
+        self._logger.notice(_(f"call cache hit", cache_path=file_path))  # pyre-fixme
         return values_from_json(contents, output_types)  # pyre-fixme
 
     def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base],) -> None:
@@ -103,9 +102,7 @@ class CallCache(AbstractContextManager):
                 json.dumps(values_to_json(outputs, namespace=""), indent=2),  # pyre-ignore
                 filename,
             )
-            self._logger.info(
-                f"Cache created for task_digest: {task_key}, input_digest: {input_digest}"
-            )
+            self._logger.info(_(f"call cache insert", cache_path=filename))
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up in URI-derived folder structure instead of sqlite db)
