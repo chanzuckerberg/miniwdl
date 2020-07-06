@@ -663,7 +663,11 @@ class SwarmContainer(TaskContainer):
             logmsg = status.get("Err", status.get("Message", None))
             if logmsg and logmsg != state:
                 loginfo["message"] = logmsg
-            method = logger.notice if state == "running" else logger.info  # pyre-fixme
+            method = logger.info
+            if state == "running":
+                method = logger.notice  # pyre-fixme
+            elif state in ["failed", "shutdown", "rejected", "orphaned", "remove"]:
+                method = logger.error
             method(_(f"docker task {state}", **loginfo))
             self._observed_states.add(state)
 
@@ -674,7 +678,11 @@ class SwarmContainer(TaskContainer):
             assert isinstance(exit_code, int)
 
         if state in ("complete", "failed"):
-            logger.notice(_("docker task exit", state=state, exit_code=exit_code))  # pyre-fixme
+            msg = _("docker task exit", state=state, exit_code=exit_code)
+            if state == "failed":
+                logger.error(msg)
+            else:
+                logger.notice(msg)  # pyre-fixme
             assert isinstance(exit_code, int) and (exit_code == 0) == (state == "complete")
             return exit_code
         elif {state, status["DesiredState"]}.intersection(
