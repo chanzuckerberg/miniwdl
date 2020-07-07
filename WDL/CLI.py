@@ -530,8 +530,8 @@ def runner(
         if os.geteuid() == 0:
             logger.warning(
                 (
-                    "running as root; non-root users should be able to `miniwdl run` as long as they're in the `docker` "
-                    "group"
+                    "running as root; non-root users should be able to `miniwdl run` "
+                    "as long as they're in the `docker` group"
                 )
             )
 

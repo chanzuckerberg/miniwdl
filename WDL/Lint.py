@@ -658,8 +658,9 @@ class ForwardReference(Linter):
             referee = obj.referee
             if isinstance(referee, Tree.Gather):
                 referee = referee.final_referee
-            if referee.pos.line > obj.pos.line or (
-                referee.pos.line == obj.pos.line and referee.pos.column > obj.pos.column
+            if referee.pos.line > obj.pos.line or (  # pyre-ignore
+                referee.pos.line == obj.pos.line  # pyre-ignore
+                and referee.pos.column > obj.pos.column  # pyre-ignore
             ):
                 if isinstance(referee, Tree.Decl):
                     msg = "reference to {} precedes its declaration".format(obj.name)
