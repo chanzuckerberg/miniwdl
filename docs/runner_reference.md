@@ -99,7 +99,7 @@ Details:
 * Cached files that are no longer needed can simply be **deleted from the cache directory**, once they're no longer in use by a running workflow.
 * Miniwdl itself doesn't delete files from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached file it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used files that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
 
-# Task output cache (experimental)
+## Task output cache (experimental)
  
 Miniwdl can cache the output of task calls in a local directory, so that repeat runs of that task (with matching inputs) can reference those outputs via a digest of the task and its inputs.
 
