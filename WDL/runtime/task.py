@@ -32,6 +32,7 @@ from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
 from .cache import CallCache
 from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
+from .task_container import TaskContainer, new as new_task_container
 
 
 def run_local_task(
