@@ -214,7 +214,7 @@ class Bindings(Generic[T]):
 
         def enter(b: Binding[T]) -> Optional[Binding[T]]:
             if b.name.startswith(namespace):
-                return Binding(b.name[len(namespace) :], b.value, b.info)
+                return Binding(b.name[len(namespace):], b.value, b.info)
             return None
 
         return self.map(enter)

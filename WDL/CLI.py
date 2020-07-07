@@ -5,27 +5,22 @@ miniwdl command-line interface
 import sys
 import os
 import platform
-import subprocess
 import tempfile
-import glob
 import json
-import math
 import argcomplete
 import logging
 import urllib
 import asyncio
 import atexit
-import docker
 from shlex import quote as shellquote
-from datetime import datetime
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
 import importlib_metadata
 from ruamel.yaml import YAML
-from . import *
+from . import (load, runtime, Error, Lint, Value, Type, Expr, Document, Workflow, Task, Env, Decl, Call, Scatter,
+               Conditional, SourcePosition, parse_document, copy_source, values_from_json, values_to_json,
+               read_source_default, ReadSourceResult)
 from ._util import (
-    provision_run_dir,
-    write_values_json,
     VERBOSE_LEVEL,
     NOTICE_LEVEL,
     configure_logger,
@@ -72,7 +67,8 @@ def main(args=None):
         print_error(exn)
         if args.check_quant and quant_warning:
             print(
-                "* Hint: for compatibility with older existing WDL code, try setting --no-quant-check to relax quantifier validation rules.",
+                "* Hint: for compatibility with older existing WDL code, try setting --no-quant-check to relax "
+                "quantifier validation rules.",
                 file=sys.stderr,
             )
         if args.debug:
@@ -125,7 +121,8 @@ def fill_common(subparser, path=True):
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
-        help="relax static typechecking of optional types, and permit coercion of T to Array[T] (discouraged; for backwards compatibility with older WDL)",
+        help=("relax static typechecking of optional types, and permit coercion of T to Array[T] (discouraged; for "
+              "backwards compatibility with older WDL)"),
     )
     if path:
         group.add_argument(
@@ -203,9 +200,10 @@ def check(
         print(os.path.basename(uri1))
         outline(doc, 0, show_called=(doc.workflow is not None), show_all=show_all, shown=shown)
 
-    if shellcheck and Lint._shellcheck_available == False:
+    if shellcheck and Lint._shellcheck_available is False:
         print(
-            "* Suggestion: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck suppresses this message)",
+            "* Suggestion: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck "
+            "suppresses this message)",
             file=sys.stderr,
         )
 
@@ -222,10 +220,10 @@ def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
-            for (pos, klass, msg, suppressed) in sorted(obj.lint, key=lambda t: t[0]):
+            for (pos, cls, msg, suppressed) in sorted(obj.lint, key=lambda t: t[0]):
                 if show_all or not suppressed:
                     print(
-                        f"{s}    (Ln {pos.line}, Col {pos.column}) {klass}{' (suppressed)' if suppressed else ''}, {msg}",
+                        f"{s}    (Ln {pos.line}, Col {pos.column}) {cls}{' (suppressed)' if suppressed else ''}, {msg}",
                         file=file,
                     )
                     if shown:
@@ -394,7 +392,8 @@ def fill_run_subparser(subparsers):
         "--dir",
         metavar="DIR",
         dest="run_dir",
-        help="directory under which to create a timestamp-named subdirectory for this run (defaults to current working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly",
+        help=("directory under which to create a timestamp-named subdirectory for this run (defaults to current "
+              " working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly"),
     )
     group.add_argument(
         "--error-json",
@@ -420,7 +419,8 @@ def fill_run_subparser(subparsers):
         metavar="FILE",
         type=str,
         default=None,
-        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
+        help=("configuration file to load (in preference to file named by MINIWDL_CFG environment, or "
+              "XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"),
     )
     group.add_argument("-@", metavar="N", dest="max_tasks", type=int, default=None, help=SUPPRESS)
     group.add_argument("--runtime-cpu-max", metavar="N", type=int, default=None, help=SUPPRESS)
@@ -445,7 +445,8 @@ def fill_run_subparser(subparsers):
     group.add_argument(
         "--as-me",
         action="store_true",
-        help="run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. apt-get)",
+        help=("run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. "
+              "apt-get)"),
     )
     # TODO:
     # way to specify None for an optional value (that has a default)
@@ -499,7 +500,8 @@ def runner(
 
         if os.geteuid() == 0:
             logger.warning(
-                "running as root; non-root users should be able to `miniwdl run` as long as they're in the `docker` group"
+                ("running as root; non-root users should be able to `miniwdl run` as long as they're in the `docker` "
+                 "group")
             )
 
         # load configuration & apply command-line overrides
@@ -772,7 +774,9 @@ def runner_input(
         if not one_input or not one_input[0].isalpha():
             # let user just see runner_input_help
             die(
-                f"{target.name} ({target.pos.uri})\n{'-'*(len(target.name)+len(target.pos.uri)+3)}\n{runner_input_help(target)}"
+                f"""{target.name} ({target.pos.uri})
+{'-'*(len(target.name)+len(target.pos.uri)+3)}
+{runner_input_help(target)}"""
             )
 
         # parse [namespace], name, and value
@@ -860,7 +864,8 @@ def runner_input_json_file(available_inputs, namespace, input_file, root):
                         v.value = os.path.normpath(os.path.join(os.getcwd(), v.value))
                     if not path_really_within(v.value, root):
                         die(
-                            f"all input files must be located within the configured `file_io.root' directory `{root}' unlike `{v.value}'"
+                            f"all input files must be located within the configured `file_io.root' directory `{root}' "
+                            f"unlike `{v.value}'"
                         )
                         sys.exit(2)
             for ch in v.children:
@@ -926,7 +931,8 @@ def runner_input_value(s_value, ty, file_found, root):
             fn = os.path.abspath(fn)
             if not path_really_within(fn, root):
                 die(
-                    f"all input files must be located within the configured `file_io.root' directory `{root}' unlike `{fn}'"
+                    f"all input files must be located within the configured `file_io.root' directory `{root}' "
+                    f"unlike `{fn}'"
                 )
         elif not (file_found and file_found(fn)):  # maybe URI
             die("File not found: " + fn)
@@ -971,7 +977,8 @@ def fill_run_self_test_subparser(subparsers):
         metavar="FILE",
         type=str,
         default=None,
-        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
+        help=("configuration file to load (in preference to file named by MINIWDL_CFG environment, "
+              "or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"),
     )
     run_parser.add_argument("--log-json", action="store_true", help="write all logs in JSON")
     run_parser.add_argument(
@@ -986,7 +993,7 @@ def run_self_test(**kwargs):
         dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
     with open(os.path.join(dn, "test.wdl"), "w") as outfile:
         outfile.write(
-            """
+            r"""
             version 1.0
             workflow hello_caller {
                 input {
@@ -1053,7 +1060,8 @@ def run_self_test(**kwargs):
                 lambda: print(
                     "* Hint: ensure Docker is installed & running"
                     + (
-                        ", and user has permission to control it per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
+                        ", and user has permission to control it per "
+                        "https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
                         if platform.system() != "Darwin"
                         else "; and on macOS override the environment variable TMPDIR=/tmp/"
                     ),
@@ -1065,7 +1073,8 @@ def run_self_test(**kwargs):
     print("miniwdl run_self_test OK", file=sys.stderr)
     if os.geteuid() == 0:
         print(
-            "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+            "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per "
+            "https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
             file=sys.stderr,
         )
 
@@ -1074,7 +1083,7 @@ def fill_localize_subparser(subparsers):
     localize_parser = subparsers.add_parser(
         "localize",
         help="Download URI input files to local cache",
-        description=f"Prime the local file download cache with URI File inputs found in Cromwell-style input JSON",
+        description="Prime the local file download cache with URI File inputs found in Cromwell-style input JSON",
     )
     localize_parser.add_argument(
         "wdlfile",
@@ -1113,7 +1122,8 @@ def fill_localize_subparser(subparsers):
         metavar="FILE",
         type=str,
         default=None,
-        help="configuration file to load (in preference to file named by MINIWDL_CFG environment, or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)",
+        help=("configuration file to load (in preference to file named by MINIWDL_CFG environment, "
+              "or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"),
     )
     return localize_parser
 
@@ -1180,13 +1190,15 @@ def localize(
 
         if not uri:
             logger.warning(
-                "nothing to do; if inputs use special URI schemes, make sure necessary downloader plugin(s) are installed and enabled"
+                "nothing to do; if inputs use special URI schemes, make sure necessary downloader plugin(s) are "
+                "installed and enabled"
             )
             sys.exit(0)
 
         if not cache_cfg.get_bool("put"):
             logger.error(
-                'configuration section "download_cache", option "put" (env MINIWDL__DOWNLOAD_CACHE__PUT) must be true for this operation to be effective'
+                'configuration section "download_cache", option "put" (env MINIWDL__DOWNLOAD_CACHE__PUT) must be true '
+                'for this operation to be effective'
             )
             sys.exit(2)
 
@@ -1239,7 +1251,8 @@ def localize(
         )
         if not original_get:
             logger.warning(
-                """future runs won't use the cache unless configuration section "download_cache", key "get" (env MINIWDL__DOWNLOAD_CACHE__GET) is set to true"""
+                """future runs won't use the cache unless configuration section "download_cache", key "get" """
+                """(env MINIWDL__DOWNLOAD_CACHE__GET) is set to true"""
             )
 
 

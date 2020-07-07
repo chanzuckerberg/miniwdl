@@ -12,7 +12,7 @@ import glob
 import threading
 import shutil
 import re
-from typing import Tuple, List, Dict, Optional, Callable, Set, Any
+from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any, Union
 from contextlib import ExitStack
 
 from .. import Error, Type, Env, Value, StdLib, Tree, _util
@@ -31,9 +31,7 @@ from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
 from .cache import CallCache
-from .error import *
-from .task_container import TaskContainer
-from .task_container import new as new_task_container
+from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
 
 
 def run_local_task(
@@ -735,7 +733,7 @@ class OutputStdLib(_StdLib):
                 dstrip = lib.container.host_dir
                 dstrip += "" if dstrip.endswith("/") else "/"
                 assert hf.startswith(dstrip)
-                container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip) :]))
+                container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip):]))
             return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
 
         setattr(

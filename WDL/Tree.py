@@ -74,7 +74,8 @@ class StructTypeDef(SourceNode):
         """
         :type: str
 
-        A string canonically describing the member names and their types, excluding the struct type name; useful to unify aliased struct types.
+        A string canonically describing the member names and their types, excluding the struct type name; useful to
+        unify aliased struct types.
         """
         return Type._struct_type_id(self.members)
 
@@ -1023,7 +1024,7 @@ class Workflow(SourceNode):
                 errors.try1(
                     lambda decl=decl: decl.typecheck(self._type_env, check_quant=check_quant)
                 )
-            if errors.try1(lambda: _typecheck_workflow_body(doc, check_quant)) == False:
+            if errors.try1(lambda: _typecheck_workflow_body(doc, check_quant)) is False:
                 self.complete_calls = False
             # 4. convert deprecated output_idents, if any, to output declarations
             if self._output_idents:
@@ -1555,7 +1556,7 @@ def _typecheck_workflow_body(
                             ),
                         )
                     )
-                    == False
+                    is False
                 ):
                     complete_calls = False
             elif isinstance(child, WorkflowSection):
@@ -1566,7 +1567,7 @@ def _typecheck_workflow_body(
                             lambda child=child: _typecheck_workflow_body(doc, check_quant, child),
                         )
                     )
-                    == False
+                    is False
                 ):
                     complete_calls = False
             else:

@@ -40,8 +40,6 @@ import docker
 
 __all__: List[str] = []
 
-from . import Type
-
 
 def export(obj) -> str:  # pyre-ignore
     __all__.append(obj.__name__)
@@ -179,7 +177,8 @@ def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
 
 @export
 def write_values_json(
-    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""
+        values_env: "Env.Bindings[Value.Base]",  # noqa
+        filename: str, namespace: str = ""
 ) -> None:
     from . import values_to_json
 
@@ -550,7 +549,7 @@ def parse_byte_size(s: str) -> int:
     for i in range(len(s)):
         if s[i].isdigit() or s[i] == ".":
             N = float(s[: i + 1])
-            unit = s[i + 1 :].lstrip()
+            unit = s[i + 1:].lstrip()
         else:
             break
     if N and unit:

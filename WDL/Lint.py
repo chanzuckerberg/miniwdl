@@ -839,7 +839,8 @@ class CommandShellCheck(Linter):
             else:
                 self.add(
                     obj,
-                    "shellcheck failed on the task command; update shellcheck version or use --no-shellcheck to suppress this warning",
+                    "shellcheck failed on the task command; update shellcheck version or use --no-shellcheck "
+                    "to suppress this warning",
                     obj.command.pos,
                 )
 
@@ -867,7 +868,8 @@ class CommandShellCheck(Linter):
             except Exception:
                 self.add(
                     obj,
-                    "error parsing shellcheck output JSON; update shellcheck version or use --no-shellcheck to suppress this warning",
+                    "error parsing shellcheck output JSON; update shellcheck version or use --no-shellcheck "
+                    "to suppress this warning",
                     obj.command.pos,
                 )
 

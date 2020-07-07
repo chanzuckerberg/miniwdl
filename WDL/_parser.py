@@ -330,7 +330,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
     def runtime_section(self, items, meta):
         d = dict()
         for k, v in items:
-            # TODO: restore duplicate check, cf. https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/blob/89f11befc13abae97ab8fb1b457731f390c8728d/tasks_pipelines/qc.wdl#L288
+            # TODO: restore duplicate check, cf. https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/blob/89f11befc13abae97ab8fb1b457731f390c8728d/tasks_pipelines/qc.wdl#L288  # noqa
             # if k in d:
             #    raise Error.MultipleDefinitions(self._sp(meta), "duplicate keys in runtime section")
             d[k] = v
@@ -493,14 +493,15 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             # infer namespace from filename/URI
             namespace = uri
             try:
-                namespace = namespace[namespace.rindex("/") + 1 :]
+                namespace = namespace[namespace.rindex("/") + 1:]
             except ValueError:
                 pass
             namespace = namespace.split("?")[0].split(".")[0]
         if not regex.fullmatch("[a-zA-Z][a-zA-Z0-9_]*", namespace) or namespace in self._keywords:
             raise Error.SyntaxError(
                 pos,
-                """declare an import namespace that follows WDL name rules and isn't a language keyword (import "filename" as some_namespace)""",
+                """declare an import namespace that follows WDL name rules and isn't a language keyword """
+                """(import "filename" as some_namespace)""",
                 self._version,
                 self._declared_version,
             )

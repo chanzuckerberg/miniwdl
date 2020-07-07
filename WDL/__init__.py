@@ -43,20 +43,29 @@ def load(
     import_max_depth: int = 10,
 ) -> Document:
     """
-    Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and workflow.
+    Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and
+    workflow.
 
     :param path: local filesystem directories to search for imports, in addition to the current working directory
 
-    :param check_quant: set to ``False`` to relax static typechecking of the optional (?) and nonempty (+) type quantifiers. This is discouraged, but may be useful for older WDL workflows which assume less-rigorous static validation of these annotations.
+    :param check_quant:
+        set to ``False`` to relax static typechecking of the optional (?) and nonempty (+) type quantifiers. This is
+        discouraged, but may be useful for older WDL workflows which assume less-rigorous static validation of these
+        annotations.
 
-    :param read_source: async routine to read the WDL source code from filename/URI; see :func:`read_source_default` below for details
+    :param read_source:
+        async routine to read the WDL source code from filename/URI; see :func:`read_source_default` below for details
 
-    :param import_max_depth: to prevent recursive import infinite loops, fail when there are too many import nesting levels (default 10)
+    :param import_max_depth:
+        to prevent recursive import infinite loops, fail when there are too many import nesting levels (default 10)
 
     :raises WDL.Error.SyntaxError: when the document is syntactically invalid under the WDL grammar
-    :raises WDL.Error.ValidationError: when the document is syntactically OK, but fails typechecking or other static validity checks
-    :raises WDL.Error.MultipleValidationErrors: when multiple validation errors are detected in one pass, listed in the ``exceptions`` attribute
-    :raises WDL.Error.ImportError: when an imported sub-document can't be loaded; the ``__cause__`` attribute has the specific error
+    :raises WDL.Error.ValidationError:
+        when the document is syntactically OK, but fails typechecking or other static validity checks
+    :raises WDL.Error.MultipleValidationErrors:
+        when multiple validation errors are detected in one pass, listed in the ``exceptions`` attribute
+    :raises WDL.Error.ImportError:
+        when an imported sub-document can't be loaded; the ``__cause__`` attribute has the specific error
     """
     doc = Tree._load(
         uri,
@@ -169,7 +178,7 @@ def copy_source(doc: Document, dir: str) -> str:
     ans = None
     for a_doc in docs:
         assert a_doc.pos.abspath.startswith(lcp)
-        rp = a_doc.pos.abspath[len(lcp) :].lstrip("/")
+        rp = a_doc.pos.abspath[len(lcp):].lstrip("/")
         fn = os.path.join(dir, rp)
         os.makedirs(os.path.dirname(fn), exist_ok=True)
         _util.write_atomic(a_doc.source_text, fn, end="")
@@ -186,7 +195,9 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Do
     Parse WDL document text into an abstract syntax tree. Doesn't descend into
     imported documents nor typecheck the AST.
 
-    :param version: Override the WDL language version, such as "1.0" or "draft-2". (By default, detects from the "version" string at the beginning of the document, per the WDL spec.)
+    :param version:
+        Override the WDL language version, such as "1.0" or "draft-2". (By default, detects from the "version" string
+        at the beginning of the document, per the WDL spec.)
 
     :param uri: filename/URI for error reporting (not otherwise used)
     """
@@ -230,7 +241,7 @@ def values_from_json(
         if not key.startswith("#"):  # ignore "comments"
             key2 = key
             if namespace and key.startswith(namespace):
-                key2 = key[len(namespace) :]
+                key2 = key[len(namespace):]
             if key2 not in available:
                 # attempt to simplify <call>.<subworkflow>.<input>
                 key2parts = key2.split(".")
