@@ -65,7 +65,6 @@ class TestTaskRunner(unittest.TestCase):
                 "dir": cls.cache_dir
             }
         })
-        WDL.runtime.task.SwarmContainer.global_init(cls.cfg, cls.logger)
 
     def setUp(self):
         """

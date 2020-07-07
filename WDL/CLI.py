@@ -626,9 +626,6 @@ def runner(
 
         rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
 
-        # initialize local Docker Swarm
-        runtime.task.SwarmContainer.global_init(cfg, logger)
-
         # run & log any errors
         cleanup.enter_context(runtime._statusbar.enable(set_status))
         cache = cleanup.enter_context(runtime.cache.CallCache(cfg, logger))
@@ -1213,9 +1210,6 @@ def localize(
             logger.warning("nothing to do; check configured enable_patterns and disable_patterns")
             sys.exit(0)
         logger.notice(_("starting downloads", uri=uri))
-
-        # initialize Docker Swarm
-        runtime.task.SwarmContainer.global_init(cfg, logger)
 
         # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
         # runtime to download & cache them

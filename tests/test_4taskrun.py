@@ -17,7 +17,6 @@ class TestTaskRunner(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
-        WDL.runtime.task.SwarmContainer.global_init(cfg, logger)
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
@@ -1062,7 +1061,6 @@ class TestConfigLoader(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
-        WDL.runtime.task.SwarmContainer.global_init(cfg, logger)
 
     # trigger various codepaths of the config loader that wouldn't be exercised otherwise
     def test_basic(self):

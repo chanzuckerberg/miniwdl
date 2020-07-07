@@ -8,11 +8,12 @@ import json
 import contextlib
 import shutil
 import random
+import threading
 import base64
 import uuid
 import hashlib
 import shlex
-from typing import Callable, Iterable, List, Set, Tuple
+from typing import Callable, Iterable, List, Set, Tuple, Type, Any
 from abc import ABC, abstractmethod
 import docker
 from .. import Error
@@ -78,6 +79,13 @@ class TaskContainer(ABC):
 
     input_file_map_rev: Dict[str, str]
 
+    runtime_values: Dict[str, Any]
+    """
+    Evaluted task runtime{} section. Typically the TaskContainer implementation needs to honor
+    cpu, memory_limit, memory_reservation, docker. Resources must have already been fit to
+    get_resource_limits(). Retry logic (maxRetries, preemptible) is handled externally.
+    """
+
     stderr_callback: Optional[Callable[[str], None]]
     """
     A function called line-by-line for the task's standard error stream, iff verbose logging is
@@ -96,6 +104,7 @@ class TaskContainer(ABC):
         self.input_file_map_rev = {}
         self.stderr_callback = None
         self._running = False
+        self.runtime_values = {}
         os.makedirs(os.path.join(self.host_dir, "work"))
 
     def add_files(self, host_files: Iterable[str]) -> None:
@@ -139,6 +148,7 @@ class TaskContainer(ABC):
         # locations to the appropriate subdirectories of the container working directory. This may
         # not be necessary e.g. if the container implementation supports bind-mounting the input
         # files from their original host paths.
+        # called once per task run (attempt)
         for host_filename, container_filename in self.input_file_map.items():
             assert container_filename.startswith(self.container_dir)
             host_copy_filename = os.path.join(
@@ -149,14 +159,7 @@ class TaskContainer(ABC):
             os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
             shutil.copy(host_filename, host_copy_filename)
 
-    def run(
-        self,
-        logger: logging.Logger,
-        command: str,
-        cpu: int,
-        memory_reservation: int,
-        memory_limit: int,
-    ) -> None:
+    def run(self, logger: logging.Logger, command: str,) -> None:
         """
         1. Container is instantiated with the configured mounts and resources
         2. The mounted directory and all subdirectories have u+rwx,g+rwx permission bits; all files
@@ -180,9 +183,7 @@ class TaskContainer(ABC):
                     raise Terminated(quiet=True)
                 self._running = True
                 try:
-                    exit_status = self._run(
-                        logger, terminating, command, cpu, memory_reservation, memory_limit
-                    )
+                    exit_status = self._run(logger, terminating, command)
                 finally:
                     self._running = False
 
@@ -192,15 +193,7 @@ class TaskContainer(ABC):
                     ) if not terminating() else Terminated()
 
     @abstractmethod
-    def _run(
-        self,
-        logger: logging.Logger,
-        terminating: Callable[[], bool],
-        command: str,
-        cpu: int,
-        memory_reservation: int,
-        memory_limit: int,
-    ) -> int:
+    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str,) -> int:
         # run command in container & return exit status
         raise NotImplementedError()
 
@@ -265,6 +258,23 @@ class TaskContainer(ABC):
                 + container_file
             )
         return None
+
+
+_initialized: Set[int] = set()
+_initialized_lock: threading.Lock = threading.Lock()
+
+
+def get_implementation(cfg: config.Loader, logger: logging.Logger) -> Type[TaskContainer]:
+    """
+    Get the applicable TaskContainer implementation based on current configuration, with any needed
+    global initialization performed.
+    """
+    ans = SwarmContainer  # TODO: configuration/plugin
+    with _initialized_lock:
+        if id(ans) not in _initialized:
+            ans.global_init(cfg, logger)
+            _initialized.add(id(ans))
+    return ans
 
 
 class SwarmContainer(TaskContainer):
@@ -386,13 +396,6 @@ class SwarmContainer(TaskContainer):
         assert cls._limits, f"{cls.__name__}.global_init"
         return cls._limits
 
-    image_tag: str = "ubuntu:18.04"
-    """
-    :type: str
-
-    docker image tag (set as desired before running)
-    """
-
     create_service_kwargs: Optional[Dict[str, Any]] = None
     # override kwargs to docker service create() (may be set by plugins)
 
@@ -405,24 +408,17 @@ class SwarmContainer(TaskContainer):
         # now that files have been copied, it won't be necessary to bind-mount them
         self._bind_input_files = None
 
-    def _run(
-        self,
-        logger: logging.Logger,
-        terminating: Callable[[], bool],
-        command: str,
-        cpu: int,
-        memory_reservation: int,
-        memory_limit: int,
-    ) -> int:
+    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str,) -> int:
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
 
         # prepare docker configuration
-        if ":" not in self.image_tag:
+        image_tag = self.runtime_values.get("docker", "ubuntu:18.04")
+        if ":" not in image_tag:
             # seems we need to do this explicitly under some configurations -- issue #232
-            self.image_tag += ":latest"
-        logger.info(_("docker image", tag=self.image_tag))
+            image_tag += ":latest"
+        logger.info(_("docker image", tag=image_tag))
 
         mounts = self.prepare_mounts(logger)
         # we want g+rw on files (and g+rwx on directories) under host_dir, to ensure the container
@@ -432,9 +428,7 @@ class SwarmContainer(TaskContainer):
 
         # connect to dockerd
         client = docker.from_env(timeout=900)
-        resources, user, groups = self.misc_config(
-            logger, client, cpu, memory_reservation, memory_limit
-        )
+        resources, user, groups = self.misc_config(logger, client)
         svc = None
         exit_code = None
         try:
@@ -460,7 +454,7 @@ class SwarmContainer(TaskContainer):
             }
             kwargs.update(self.create_service_kwargs or {})
             logger.debug(_("docker create service kwargs", **kwargs))
-            svc = client.services.create(self.image_tag, **kwargs)
+            svc = client.services.create(image_tag, **kwargs)
             logger.debug(_("docker service", name=svc.name, id=svc.short_id))
 
             # stream stderr into log
@@ -491,7 +485,12 @@ class SwarmContainer(TaskContainer):
                         # indicate actual container start in status bar
                         # 'preparing' is when docker is pulling and extracting the image, which can
                         # be a lengthy and somewhat intensive operation, so we count it as running.
-                        cleanup.enter_context(_statusbar.task_running(cpu, memory_reservation))
+                        cleanup.enter_context(
+                            _statusbar.task_running(
+                                self.runtime_values.get("cpu", 0),
+                                self.runtime_values.get("memory_reservation", 0),
+                            )
+                        )
                         was_running = True
                     if "running" in self._observed_states:
                         poll_stderr()
@@ -565,20 +564,18 @@ class SwarmContainer(TaskContainer):
         return mounts
 
     def misc_config(
-        self,
-        logger: logging.Logger,
-        client: docker.DockerClient,
-        cpu: int,
-        memory_reservation: int,
-        memory_limit: int,
+        self, logger: logging.Logger, client: docker.DockerClient
     ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
         resources = {}
+        cpu = self.runtime_values.get("cpu", 0)
         if cpu > 0:
             # the cpu unit expected by swarm is "NanoCPUs"
             resources["cpu_limit"] = cpu * 1_000_000_000
             resources["cpu_reservation"] = cpu * 1_000_000_000
+        memory_reservation = self.runtime_values.get("memory_reservation", 0)
         if memory_reservation > 0:
             resources["mem_reservation"] = memory_reservation
+        memory_limit = self.runtime_values.get("memory_limit", 0)
         if memory_limit > 0:
             resources["mem_limit"] = memory_limit
         if resources:

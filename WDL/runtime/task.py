@@ -32,7 +32,8 @@ from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
 from .cache import CallCache
 from .error import *
-from .task_container import TaskContainer, SwarmContainer
+from .task_container import TaskContainer
+from .task_container import get_implementation as get_task_container_implementation
 
 
 def run_local_task(
@@ -151,16 +152,18 @@ def run_local_task(
                     cfg, logger, logger_prefix, run_dir, inputs, cache
                 )
 
-                # create appropriate TaskContainer
-                container = SwarmContainer(cfg, run_id, run_dir)
+                # create TaskContainer per configuration
+                TaskContainerImpl = get_task_container_implementation(cfg, logger)
+                container = TaskContainerImpl(cfg, run_id, run_dir)
 
                 # evaluate input/postinput declarations, including mapping from host to
                 # in-container file paths
                 container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
                 # evaluate runtime fields
-                runtime = _eval_task_runtime(cfg, logger, task, container_env,)
-                container.image_tag = str(runtime.get("docker", container.image_tag))
+                container.runtime_values = _eval_task_runtime(
+                    cfg, logger, task, container, container_env
+                )
 
                 # interpolate command
                 command = _util.strip_leading_whitespace(
@@ -168,14 +171,12 @@ def run_local_task(
                 )[1]
                 logger.debug(_("command", command=command.strip()))
 
-                # process command/runtime/container through plugins
-                recv = plugins.send(
-                    {"command": command, "runtime": runtime, "container": container}
-                )
-                command, runtime, container = (recv[k] for k in ("command", "runtime", "container"))
+                # process command & container through plugins
+                recv = plugins.send({"command": command, "container": container})
+                command, container = (recv[k] for k in ("command", "container"))
 
                 # start container & run command (and retry if needed)
-                _try_task(cfg, logger, container, command, runtime, terminating)
+                _try_task(cfg, logger, container, command, terminating)
 
                 # evaluate output declarations
                 outputs = _eval_task_outputs(logger, task, container_env, container)
@@ -359,7 +360,11 @@ def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
 
 
 def _eval_task_runtime(
-    cfg: config.Loader, logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base],
+    cfg: config.Loader,
+    logger: logging.Logger,
+    task: Tree.Task,
+    container: TaskContainer,
+    env: Env.Bindings[Value.Base],
 ) -> Dict[str, Union[int, str]]:
     runtime_values = {}
     for key, v in cfg["task_runtime"].get_dict("defaults").items():
@@ -377,7 +382,7 @@ def _eval_task_runtime(
     if "docker" in runtime_values:
         ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
 
-    host_limits = SwarmContainer.detect_resource_limits(cfg, logger)
+    host_limits = container.detect_resource_limits(cfg, logger)
     if "cpu" in runtime_values:
         cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
         assert isinstance(cpu_value, int)
@@ -441,15 +446,14 @@ def _try_task(
     logger: logging.Logger,
     container: TaskContainer,
     command: str,
-    runtime: Dict[str, Union[int, str]],
     terminating: Callable[[], bool],
 ) -> None:
     """
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
     Interrupted errors, plus up to runtime.maxRetries occurrences of any error.
     """
-    max_retries = runtime.get("maxRetries", 0)
-    max_interruptions = runtime.get("preemptible", 0)
+    max_retries = container.runtime_values.get("maxRetries", 0)
+    max_interruptions = container.runtime_values.get("preemptible", 0)
     retries = 0
     interruptions = 0
 
@@ -463,16 +467,10 @@ def _try_task(
         try:
             # start container & run command
             try:
-                return container.run(
-                    logger,
-                    command,
-                    int(runtime.get("cpu", 0)),
-                    int(runtime.get("memory_reservation", 0)),
-                    int(runtime.get("memory_limit", 0)),
-                )
+                return container.run(logger, command)
             finally:
                 if (
-                    "preemptible" in runtime
+                    "preemptible" in container.runtime_values
                     and cfg.has_option("task_runtime", "_mock_interruptions")
                     and interruptions < cfg["task_runtime"].get_int("_mock_interruptions")
                 ):
