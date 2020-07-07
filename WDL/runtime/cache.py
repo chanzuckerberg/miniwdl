@@ -256,9 +256,9 @@ def _excerpt(doc: Tree.Document, pos: Error.SourcePosition) -> List[str]:
     TODO (?): delete comments from the source lines
     """
     if pos.end_line == pos.line:
-        return [doc.source_lines[pos.line - 1][(pos.column - 1): pos.end_column]]
+        return [doc.source_lines[pos.line - 1][(pos.column - 1) : pos.end_column]]
     return (
-        [doc.source_lines[pos.line - 1][(pos.column - 1):]]
-        + doc.source_lines[pos.line: (pos.end_line - 1)]
+        [doc.source_lines[pos.line - 1][(pos.column - 1) :]]
+        + doc.source_lines[pos.line : (pos.end_line - 1)]
         + [doc.source_lines[pos.end_line - 1][: pos.end_column]]
     )

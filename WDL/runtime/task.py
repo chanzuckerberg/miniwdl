@@ -733,7 +733,7 @@ class OutputStdLib(_StdLib):
                 dstrip = lib.container.host_dir
                 dstrip += "" if dstrip.endswith("/") else "/"
                 assert hf.startswith(dstrip)
-                container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip):]))
+                container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip) :]))
             return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
 
         setattr(

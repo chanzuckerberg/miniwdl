@@ -209,10 +209,12 @@ def awscli_downloader(
             inputs["aws_credentials"] = aws_credentials_file.name
             logger.getChild("awscli_downloader").info("loaded host AWS credentials")
         else:
-            logger.getChild("awscli_downloader").info("no AWS credentials available via host awscli/boto3; if needed, "
-                                                      "configure them and set [download_awscli] host_credentials=true. "
-                                                      "(On EC2: awscli might still assume role from instance metadata "
-                                                      "service.)")
+            logger.getChild("awscli_downloader").info(
+                "no AWS credentials available via host awscli/boto3; if needed, "
+                "configure them and set [download_awscli] host_credentials=true. "
+                "(On EC2: awscli might still assume role from instance metadata "
+                "service.)"
+            )
 
         wdl = r"""
         task aws_s3_cp {

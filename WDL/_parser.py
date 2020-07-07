@@ -493,7 +493,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
             # infer namespace from filename/URI
             namespace = uri
             try:
-                namespace = namespace[namespace.rindex("/") + 1:]
+                namespace = namespace[namespace.rindex("/") + 1 :]
             except ValueError:
                 pass
             namespace = namespace.split("?")[0].split(".")[0]

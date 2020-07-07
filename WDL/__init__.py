@@ -178,7 +178,7 @@ def copy_source(doc: Document, dir: str) -> str:
     ans = None
     for a_doc in docs:
         assert a_doc.pos.abspath.startswith(lcp)
-        rp = a_doc.pos.abspath[len(lcp):].lstrip("/")
+        rp = a_doc.pos.abspath[len(lcp) :].lstrip("/")
         fn = os.path.join(dir, rp)
         os.makedirs(os.path.dirname(fn), exist_ok=True)
         _util.write_atomic(a_doc.source_text, fn, end="")
@@ -241,7 +241,7 @@ def values_from_json(
         if not key.startswith("#"):  # ignore "comments"
             key2 = key
             if namespace and key.startswith(namespace):
-                key2 = key[len(namespace):]
+                key2 = key[len(namespace) :]
             if key2 not in available:
                 # attempt to simplify <call>.<subworkflow>.<input>
                 key2parts = key2.split(".")

@@ -17,9 +17,30 @@ from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatt
 from contextlib import ExitStack
 import importlib_metadata
 from ruamel.yaml import YAML
-from . import (load, runtime, Error, Lint, Value, Type, Expr, Document, Workflow, Task, Env, Decl, Call, Scatter,
-               Conditional, SourcePosition, parse_document, copy_source, values_from_json, values_to_json,
-               read_source_default, ReadSourceResult)
+from . import (
+    load,
+    runtime,
+    Error,
+    Lint,
+    Value,
+    Type,
+    Expr,
+    Document,
+    Workflow,
+    Task,
+    Env,
+    Decl,
+    Call,
+    Scatter,
+    Conditional,
+    SourcePosition,
+    parse_document,
+    copy_source,
+    values_from_json,
+    values_to_json,
+    read_source_default,
+    ReadSourceResult,
+)
 from ._util import (
     VERBOSE_LEVEL,
     NOTICE_LEVEL,
@@ -121,8 +142,10 @@ def fill_common(subparser, path=True):
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
-        help=("relax static typechecking of optional types, and permit coercion of T to Array[T] (discouraged; for "
-              "backwards compatibility with older WDL)"),
+        help=(
+            "relax static typechecking of optional types, and permit coercion of T to Array[T] (discouraged; for "
+            "backwards compatibility with older WDL)"
+        ),
     )
     if path:
         group.add_argument(
@@ -392,8 +415,10 @@ def fill_run_subparser(subparsers):
         "--dir",
         metavar="DIR",
         dest="run_dir",
-        help=("directory under which to create a timestamp-named subdirectory for this run (defaults to current "
-              " working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly"),
+        help=(
+            "directory under which to create a timestamp-named subdirectory for this run (defaults to current "
+            " working directory); supply '.' or 'some/dir/.' to instead run in this directory exactly"
+        ),
     )
     group.add_argument(
         "--error-json",
@@ -419,8 +444,10 @@ def fill_run_subparser(subparsers):
         metavar="FILE",
         type=str,
         default=None,
-        help=("configuration file to load (in preference to file named by MINIWDL_CFG environment, or "
-              "XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"),
+        help=(
+            "configuration file to load (in preference to file named by MINIWDL_CFG environment, or "
+            "XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"
+        ),
     )
     group.add_argument("-@", metavar="N", dest="max_tasks", type=int, default=None, help=SUPPRESS)
     group.add_argument("--runtime-cpu-max", metavar="N", type=int, default=None, help=SUPPRESS)
@@ -445,8 +472,10 @@ def fill_run_subparser(subparsers):
     group.add_argument(
         "--as-me",
         action="store_true",
-        help=("run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. "
-              "apt-get)"),
+        help=(
+            "run all containers as the invoking user uid:gid (more secure, but potentially blocks task commands e.g. "
+            "apt-get)"
+        ),
     )
     # TODO:
     # way to specify None for an optional value (that has a default)
@@ -500,8 +529,10 @@ def runner(
 
         if os.geteuid() == 0:
             logger.warning(
-                ("running as root; non-root users should be able to `miniwdl run` as long as they're in the `docker` "
-                 "group")
+                (
+                    "running as root; non-root users should be able to `miniwdl run` as long as they're in the `docker` "
+                    "group"
+                )
             )
 
         # load configuration & apply command-line overrides
@@ -977,8 +1008,10 @@ def fill_run_self_test_subparser(subparsers):
         metavar="FILE",
         type=str,
         default=None,
-        help=("configuration file to load (in preference to file named by MINIWDL_CFG environment, "
-              "or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"),
+        help=(
+            "configuration file to load (in preference to file named by MINIWDL_CFG environment, "
+            "or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"
+        ),
     )
     run_parser.add_argument("--log-json", action="store_true", help="write all logs in JSON")
     run_parser.add_argument(
@@ -1122,8 +1155,10 @@ def fill_localize_subparser(subparsers):
         metavar="FILE",
         type=str,
         default=None,
-        help=("configuration file to load (in preference to file named by MINIWDL_CFG environment, "
-              "or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"),
+        help=(
+            "configuration file to load (in preference to file named by MINIWDL_CFG environment, "
+            "or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"
+        ),
     )
     return localize_parser
 
@@ -1198,7 +1233,7 @@ def localize(
         if not cache_cfg.get_bool("put"):
             logger.error(
                 'configuration section "download_cache", option "put" (env MINIWDL__DOWNLOAD_CACHE__PUT) must be true '
-                'for this operation to be effective'
+                "for this operation to be effective"
             )
             sys.exit(2)
 
