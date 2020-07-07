@@ -33,7 +33,7 @@ from .download import able as downloadable, run_cached as download
 from .cache import CallCache
 from .error import *
 from .task_container import TaskContainer
-from .task_container import get_implementation as get_task_container_implementation
+from .task_container import new as new_task_container
 
 
 def run_local_task(
@@ -152,9 +152,8 @@ def run_local_task(
                     cfg, logger, logger_prefix, run_dir, inputs, cache
                 )
 
-                # create TaskContainer per configuration
-                TaskContainerImpl = get_task_container_implementation(cfg, logger)
-                container = TaskContainerImpl(cfg, run_id, run_dir)
+                # create TaskContainer according to configuration
+                container = new_task_container(cfg, logger, run_id, run_dir)
 
                 # evaluate input/postinput declarations, including mapping from host to
                 # in-container file paths
@@ -382,7 +381,7 @@ def _eval_task_runtime(
     if "docker" in runtime_values:
         ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
 
-    host_limits = container.detect_resource_limits(cfg, logger)
+    host_limits = container.__class__.detect_resource_limits(cfg, logger)
     if "cpu" in runtime_values:
         cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
         assert isinstance(cpu_value, int)

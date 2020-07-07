@@ -302,6 +302,13 @@ DEFAULT_PLUGINS = {
     ],
     "task": [],
     "workflow": [],
+    "container_backend": [
+        importlib_metadata.EntryPoint(
+            group="miniwdl.plugin.container_backend",
+            name="docker_swarm",
+            value="WDL.runtime.task_container:SwarmContainer",
+        )
+    ],
 }
 
 

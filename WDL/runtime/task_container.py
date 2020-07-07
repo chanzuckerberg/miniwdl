@@ -1,5 +1,5 @@
 """
-Abstract interface for task container runtime + default Docker Swarm implementation
+Abstract interface for task container runtime + default Docker Swarm backend
 """
 import os
 import logging
@@ -25,7 +25,7 @@ from .error import *
 
 class TaskContainer(ABC):
     """
-    Base class for task containers, subclassed by runtime-specific implementations (e.g. Docker).
+    Base class for task containers, subclassed by runtime-specific backends (e.g. Docker).
     """
 
     # class stuff
@@ -33,7 +33,7 @@ class TaskContainer(ABC):
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
         """
-        Perform any necessary one-time initialization of the underlying container runtime. Must be
+        Perform any necessary one-time initialization of the underlying container backend. Must be
         invoked once per process prior to any instantiation of the class.
         """
         raise NotImplementedError()
@@ -41,10 +41,10 @@ class TaskContainer(ABC):
     @classmethod
     def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
         """
-        Detect the maximum resources (cpu and mem_bytes) that the underlying container runtime
+        Detect the maximum resources (cpu and mem_bytes) that the underlying container backend
         would be able to provision.
 
-        If determining this is at all costly, then implementation should memoize (thread-safely and
+        If determining this is at all costly, then backend should memoize (thread-safely and
         perhaps front-loaded in global_init).
         """
         raise NotImplementedError()
@@ -81,7 +81,7 @@ class TaskContainer(ABC):
 
     runtime_values: Dict[str, Any]
     """
-    Evaluted task runtime{} section. Typically the TaskContainer implementation needs to honor
+    Evaluted task runtime{} section. Typically the TaskContainer backend needs to honor
     cpu, memory_limit, memory_reservation, docker. Resources must have already been fit to
     get_resource_limits(). Retry logic (maxRetries, preemptible) is handled externally.
     """
@@ -146,7 +146,7 @@ class TaskContainer(ABC):
     def copy_input_files(self, logger: logging.Logger) -> None:
         # After add_files has been used as needed, copy the input files from their original
         # locations to the appropriate subdirectories of the container working directory. This may
-        # not be necessary e.g. if the container implementation supports bind-mounting the input
+        # not be necessary e.g. if the container backend supports bind-mounting the input
         # files from their original host paths.
         # called once per task run (attempt)
         for host_filename, container_filename in self.input_file_map.items():
@@ -260,21 +260,27 @@ class TaskContainer(ABC):
         return None
 
 
-_initialized: Set[int] = set()
-_initialized_lock: threading.Lock = threading.Lock()
+_backends: Dict[str, Type[TaskContainer]] = dict()
+_backends_lock: threading.Lock = threading.Lock()
 
 
-def get_implementation(cfg: config.Loader, logger: logging.Logger) -> Type[TaskContainer]:
+def new(cfg: config.Loader, logger: logging.Logger, run_id: str, host_dir: str) -> TaskContainer:
     """
-    Get the applicable TaskContainer implementation based on current configuration, with any needed
-    global initialization performed.
+    Instantiate a TaskContainer from the configured backend, including any necessary global
+    initialization.
     """
-    ans = SwarmContainer  # TODO: configuration/plugin
-    with _initialized_lock:
-        if id(ans) not in _initialized:
-            ans.global_init(cfg, logger)
-            _initialized.add(id(ans))
-    return ans
+    global _backends
+    with _backends_lock:
+        if not _backends:
+            for plugin_name, plugin_cls in config.load_plugins(cfg, "container_backend"):
+                _backends[plugin_name] = plugin_cls  # pyre-fixme
+        backend_cls = _backends[cfg["scheduler"]["container_backend"]]
+        if not getattr(backend_cls, "_global_init", False):
+            backend_cls.global_init(cfg, logger)
+            setattr(backend_cls, "_global_init", True)
+        ans = backend_cls(cfg, run_id, host_dir)
+        assert isinstance(ans, TaskContainer)
+        return ans
 
 
 class SwarmContainer(TaskContainer):
