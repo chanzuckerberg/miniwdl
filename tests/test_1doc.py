@@ -505,6 +505,14 @@ class TestTypes(unittest.TestCase):
         """)
         doc.typecheck()
 
+        with self.assertRaises(WDL.Error.ValidationError):
+            doc = WDL.parse_document("""
+            workflow unify {
+                Array[Pair[String,String]] bogus = [("a","b"), "c"]
+            }
+            """)
+            doc.typecheck()
+
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
         doc = r"""#foo
