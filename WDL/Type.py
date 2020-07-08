@@ -483,7 +483,7 @@ class Object(Base):
         return False
 
 
-def unify(types: List[Base], check_quant: bool = True, force_string: bool = False,) -> Base:
+def unify(types: List[Base], check_quant: bool = True, force_string: bool = False) -> Base:
     """
     Given a list of types, compute a type to which they're all coercible, or :class:`WDL.Type.Any`
     if no more-specific inference is possible.
@@ -496,20 +496,35 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
 
     # begin with first type; or if --no-quant-check, the first array type (as we can try to promote
     # other T to Array[T])
-    t = types[0]
+    t = next((t for t in types if not isinstance(t, Any)), types[0])
     if not check_quant:
-        t = next((a for a in types if isinstance(a, Array)), t)
+        t = next((a for a in types if isinstance(a, Array) and not isinstance(a.item_type, Any)), t)
+    t = t.copy()  # pyre-ignore
 
     # potentially promote/generalize t to other types seen
     optional = False
     all_nonempty = True
     all_stringifiable = True
     for t2 in types:
+        # recurse on parameters of compound types
+        if isinstance(t, Array) and isinstance(t2, Array):
+            t.item_type = unify([t.item_type, t2.item_type], check_quant, force_string)
+        if isinstance(t, Pair) and isinstance(t2, Pair):
+            t.left_type = unify([t.left_type, t2.left_type], check_quant, force_string)
+            t.right_type = unify([t.right_type, t2.right_type], check_quant, force_string)
+        if isinstance(t, Map) and isinstance(t2, Map):
+            t.item_type = (  # pyre-ignore
+                unify([t.item_type[0], t2.item_type[0]], check_quant, force_string),  # pyre-ignore
+                unify([t.item_type[1], t2.item_type[1]], check_quant, force_string),  # pyre-ignore
+            )
+
+        # Int/Float, String/File
         if isinstance(t, Int) and isinstance(t2, Float):
             t = Float()
         if isinstance(t, String) and isinstance(t2, File):
             t = File()
 
+        # String
         if (
             isinstance(t2, String)
             and not isinstance(t2, File)
@@ -520,9 +535,10 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
         if not t2.coerces(String(optional=True), check_quant=check_quant):
             all_stringifiable = False
 
-        if t2.optional:
+        # optional/nonempty
+        if t.optional or t2.optional:
             optional = True
-        if isinstance(t2, Array) and not t2.nonempty:
+        if isinstance(t, Array) and not t.nonempty or isinstance(t2, Array) and not t2.nonempty:
             all_nonempty = False
 
     if isinstance(t, Array):
@@ -530,6 +546,8 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
     t = t.copy(optional=optional)
 
     # check all types are coercible to t
+    if not isinstance(t, Array) and next((pt for pt in t.parameters if isinstance(pt, Any)), False):
+        return Any()
     for t2 in types:
         if not t2.coerces(t, check_quant=check_quant):
             if all_stringifiable and force_string:
