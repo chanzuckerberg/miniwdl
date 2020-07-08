@@ -493,6 +493,7 @@ class TestTypes(unittest.TestCase):
             Array[Int] a1 = [1]
             Array[Int?]? a2 = []
             Array[Pair[String,String]] ap = [(0,1),(2,3)]
+            Array[Map[String,String]] am = [{ "a": 0, "b": 1 }, { "a": "x", "b": "y" }, { 1: 2, 3: 4 }]
 
             output {
                 Array[File?] a = [s, f2]
