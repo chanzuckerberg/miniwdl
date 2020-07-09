@@ -507,7 +507,8 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
     all_stringifiable = True
     for t2 in types:
         # recurse on parameters of compound types
-        if isinstance(t, Array) and isinstance(t2, Array):
+        t_was_array_any = isinstance(t, Array) and isinstance(t.item_type, Any)
+        if isinstance(t, Array) and isinstance(t2, Array) and not isinstance(t2.item_type, Any):
             t.item_type = unify([t.item_type, t2.item_type], check_quant, force_string)
         if isinstance(t, Pair) and isinstance(t2, Pair):
             t.left_type = unify([t.left_type, t2.left_type], check_quant, force_string)
@@ -517,6 +518,8 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
                 unify([t.item_type[0], t2.item_type[0]], check_quant, force_string),  # pyre-ignore
                 unify([t.item_type[1], t2.item_type[1]], check_quant, force_string),  # pyre-ignore
             )
+        if not t_was_array_any and next((pt for pt in t.parameters if isinstance(pt, Any)), False):
+            return Any()
 
         # Int/Float, String/File
         if isinstance(t, Int) and isinstance(t2, Float):
@@ -546,8 +549,6 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
     t = t.copy(optional=optional)
 
     # check all types are coercible to t
-    if not isinstance(t, Array) and next((pt for pt in t.parameters if isinstance(pt, Any)), False):
-        return Any()
     for t2 in types:
         if not t2.coerces(t, check_quant=check_quant):
             if all_stringifiable and force_string:
