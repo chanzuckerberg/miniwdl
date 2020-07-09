@@ -508,7 +508,7 @@ class TestTypes(unittest.TestCase):
         with self.assertRaises(WDL.Error.ValidationError):
             doc = WDL.parse_document("""
             workflow unify {
-                Array[Pair[String,String]] bogus = [("a","b"), "c"]
+                Array[Pair[String,String]] bogus = [("a","b"), ("c",("d","e"))]
             }
             """)
             doc.typecheck()
