@@ -300,7 +300,7 @@ class ViralNGS(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
     expected_lint={
-        "StringCoercion": 192,
+        "StringCoercion": 208,
         "FileCoercion": 154,
         "NameCollision": 16,
         "OptionalCoercion": 64,

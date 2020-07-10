@@ -490,15 +490,28 @@ class TestTypes(unittest.TestCase):
         workflow unify {
             String s
             File? f2
+            Array[Int] a1 = [1]
+            Array[Int?]? a2 = []
+            Array[Pair[String,String]] ap = [(0,1),(2,3)]
+            Array[Map[String,String]] am = [{ "a": 0, "b": 1 }, { "a": "x", "b": "y" }, { 1: 2, 3: 4 }]
 
             output {
                 Array[File?] a = [s, f2]
+                Array[Array[Int?]?] a3 = [a1, a2]
                 Map[String, File?] m = { "foo": s, "bar": f2 }
                 Map[Float, File?] m2 = { 1: s, 2.0: f2 }
             }
         }
         """)
         doc.typecheck()
+
+        with self.assertRaises(WDL.Error.ValidationError):
+            doc = WDL.parse_document("""
+            workflow unify {
+                Array[Pair[String,String]] bogus = [("a","b"), ("c",("d","e"))]
+            }
+            """)
+            doc.typecheck()
 
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
