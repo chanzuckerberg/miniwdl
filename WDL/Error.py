@@ -2,28 +2,9 @@
 from typing import List, Optional, NamedTuple, Union, Iterable, TypeVar, Generator, Callable, Any
 from functools import total_ordering
 from contextlib import contextmanager
+
+from ._error_util import SourcePosition
 from . import Type
-
-
-class SourcePosition(
-    NamedTuple(
-        "SourcePosition",
-        [
-            ("uri", str),
-            ("abspath", str),
-            ("line", int),
-            ("column", int),
-            ("end_line", int),
-            ("end_column", int),
-        ],
-    )
-):
-    """
-    Source position attached to AST nodes and exceptions; NamedTuple of ``uri`` the filename/URI
-    passed to :func:`WDL.load` or a WDL import statement, which may be relative; ``abspath`` the
-    absolute filename/URI; and one-based int positions ``line`` ``end_line`` ``column``
-    ``end_column``
-    """
 
 
 class SyntaxError(Exception):
@@ -106,7 +87,10 @@ class SourceNode:
 
 
 class ValidationError(Exception):
-    """Base class for a WDL validation error (when the document loads and parses, but fails typechecking or other static validity tests)"""
+    """
+    Base class for a WDL validation error (when the document loads and parses, but fails typechecking or other static
+    validity tests)
+    """
 
     pos: SourcePosition
     """:type: SourcePosition"""
@@ -203,9 +187,10 @@ class UncallableWorkflow(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(
             node,
-            "Cannot call workflow {} because its calls don't supply all required inputs, or it lacks an output section".format(
-                name
-            ),
+            (
+                "Cannot call workflow {} because its calls don't supply all required inputs, "
+                "or it lacks an output section"
+            ).format(name),
         )
 
 

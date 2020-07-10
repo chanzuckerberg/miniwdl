@@ -82,7 +82,8 @@ class RunFailed(_RuntimeError):
 
     def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str) -> None:
         super().__init__(
-            f"{'task' if  isinstance(exe, _Task) else 'workflow'} {exe.name} ({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed"
+            f"{'task' if isinstance(exe, _Task) else 'workflow'} {exe.name} "
+            f"({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed"
         )
         self.exe = exe
         self.run_id = run_id

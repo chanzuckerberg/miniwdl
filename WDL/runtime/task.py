@@ -12,7 +12,7 @@ import glob
 import threading
 import shutil
 import re
-from typing import Tuple, List, Dict, Optional, Callable, Set, Any
+from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any, Union
 from contextlib import ExitStack
 
 from .. import Error, Type, Env, Value, StdLib, Tree, _util
@@ -31,9 +31,8 @@ from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
 from .cache import CallCache
-from .error import *
-from .task_container import TaskContainer
-from .task_container import new as new_task_container
+from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
+from .task_container import TaskContainer, new as new_task_container
 
 
 def run_local_task(

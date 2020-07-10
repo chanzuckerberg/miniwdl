@@ -42,6 +42,7 @@ check:
 		--show-parse-errors check
 	# no-member disabled due to https://github.com/PyCQA/pylint/issues/3137
 	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL -d no-member
+	flake8 WDL
 
 check_check:
 	# regression test against pyre doing nothing (issue #100)

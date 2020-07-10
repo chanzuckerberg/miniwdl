@@ -658,8 +658,9 @@ class ForwardReference(Linter):
             referee = obj.referee
             if isinstance(referee, Tree.Gather):
                 referee = referee.final_referee
-            if referee.pos.line > obj.pos.line or (
-                referee.pos.line == obj.pos.line and referee.pos.column > obj.pos.column
+            if referee.pos.line > obj.pos.line or (  # pyre-ignore
+                referee.pos.line == obj.pos.line  # pyre-ignore
+                and referee.pos.column > obj.pos.column  # pyre-ignore
             ):
                 if isinstance(referee, Tree.Decl):
                     msg = "reference to {} precedes its declaration".format(obj.name)
@@ -839,7 +840,8 @@ class CommandShellCheck(Linter):
             else:
                 self.add(
                     obj,
-                    "shellcheck failed on the task command; update shellcheck version or use --no-shellcheck to suppress this warning",
+                    "shellcheck failed on the task command; update shellcheck version or use --no-shellcheck "
+                    "to suppress this warning",
                     obj.command.pos,
                 )
 
@@ -867,7 +869,8 @@ class CommandShellCheck(Linter):
             except Exception:
                 self.add(
                     obj,
-                    "error parsing shellcheck output JSON; update shellcheck version or use --no-shellcheck to suppress this warning",
+                    "error parsing shellcheck output JSON; update shellcheck version or use --no-shellcheck "
+                    "to suppress this warning",
                     obj.command.pos,
                 )
 

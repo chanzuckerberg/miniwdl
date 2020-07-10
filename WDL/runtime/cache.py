@@ -79,10 +79,10 @@ class CallCache(AbstractContextManager):
             with open(file_path, "rb") as file_reader:
                 contents = file_reader.read()
         except FileNotFoundError:
-            self._logger.info(_(f"call cache miss", cache_path=file_path))
+            self._logger.info(_("call cache miss", cache_path=file_path))
             return None
         contents = json.loads(contents)
-        self._logger.notice(_(f"call cache hit", cache_path=file_path))  # pyre-fixme
+        self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
         return values_from_json(contents, output_types)  # pyre-fixme
 
     def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base],) -> None:
@@ -102,7 +102,7 @@ class CallCache(AbstractContextManager):
                 json.dumps(values_to_json(outputs, namespace=""), indent=2),  # pyre-ignore
                 filename,
             )
-            self._logger.info(_(f"call cache insert", cache_path=filename))
+            self._logger.info(_("call cache insert", cache_path=filename))
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up in URI-derived folder structure instead of sqlite db)

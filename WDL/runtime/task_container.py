@@ -13,14 +13,14 @@ import base64
 import uuid
 import hashlib
 import shlex
-from typing import Callable, Iterable, List, Set, Tuple, Type, Any
+from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Optional
 from abc import ABC, abstractmethod
 import docker
 from .. import Error
 from .._util import TerminationSignalFlag, path_really_within, chmod_R_plus, PygtailLogger
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
-from .error import *
+from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
 
 
 class TaskContainer(ABC):
@@ -318,11 +318,13 @@ class SwarmContainer(TaskContainer):
                             break
                     else:
                         logging.warning(
-                            "this host is a docker swarm worker but not a manager; WDL task scheduling requires manager access"
+                            "this host is a docker swarm worker but not a manager; "
+                            "WDL task scheduling requires manager access"
                         )
                 elif state == "inactive" and cfg["docker_swarm"].get_bool("auto_init"):
                     logger.warning(
-                        "docker swarm is inactive on this host; performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
+                        "docker swarm is inactive on this host; "
+                        "performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
                     )
                     try:
                         client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
@@ -347,7 +349,9 @@ class SwarmContainer(TaskContainer):
             ]
             if miniwdl_services and cfg["docker_swarm"].get_bool("auto_init"):
                 logger.warning(
-                    "docker swarm lists existing miniwdl-related services. This is normal if other miniwdl processes are running concurrently; otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
+                    "docker swarm lists existing miniwdl-related services. "
+                    "This is normal if other miniwdl processes are running concurrently; "
+                    "otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
                 )
         finally:
             client.close()
@@ -548,7 +552,8 @@ class SwarmContainer(TaskContainer):
                     # file is neither world-readable, nor group-readable for the invoking user's primary group
                     logger.warning(
                         _(
-                            "one or more input file(s) could be inaccessible to docker images that don't run as root; it may be necessary to `chmod g+r` them, or set --copy-input-files",
+                            "one or more input file(s) could be inaccessible to docker images that don't run as root; "
+                            "it may be necessary to `chmod g+r` them, or set --copy-input-files",
                             example_file=host_path,
                         )
                     )

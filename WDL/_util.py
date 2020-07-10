@@ -40,8 +40,6 @@ import docker
 
 __all__: List[str] = []
 
-from . import Type
-
 
 def export(obj) -> str:  # pyre-ignore
     __all__.append(obj.__name__)
@@ -179,7 +177,7 @@ def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
 
 @export
 def write_values_json(
-    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""
+    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""  # noqa
 ) -> None:
     from . import values_to_json
 

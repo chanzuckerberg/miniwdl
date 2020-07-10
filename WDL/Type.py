@@ -42,6 +42,8 @@ import copy
 from abc import ABC
 from typing import Optional, Tuple, Dict, Iterable, Set, List
 
+from ._error_util import SourcePosition
+
 
 class Base(ABC):
     """The abstract base class for WDL types
@@ -58,7 +60,7 @@ class Base(ABC):
 
     # pos is set on Type objects instantiated by the WDL syntax parser (mainly in Decl). Other Type
     # objects are instantiated in other ways (e.g. Value describing itself), so will not have pos.
-    pos: "Optional[WDL.Error.SourcePosition]" = None
+    pos: "Optional[SourcePosition]" = None
 
     def coerces(self, rhs: "Base", check_quant: bool = True) -> bool:
         """
@@ -117,7 +119,8 @@ class Base(ABC):
 
 class Any(Base):
     """
-    A symbolic type which coerces to any other type; used to represent e.g. the item type of an empty array literal, or the result of read_json().
+    A symbolic type which coerces to any other type; used to represent e.g. the item type of an empty array literal, or
+    the result of read_json().
     """
 
     def __init__(self, optional: bool = False) -> None:
@@ -410,7 +413,8 @@ class StructInstance(Base):
         """
         :type: str
 
-        A string canonically describing the member names and their types, excluding the struct type name; useful to unify aliased struct types.
+        A string canonically describing the member names and their types, excluding the struct type name; useful to
+        unify aliased struct types.
         """
         assert isinstance(self.members, dict)
         return _struct_type_id(self.members)

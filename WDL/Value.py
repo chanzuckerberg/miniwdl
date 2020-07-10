@@ -11,7 +11,7 @@ import json
 import copy
 from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
-from . import Error, Type, Env
+from . import Error, Type, Env, Expr
 
 
 class Base(ABC):
@@ -23,7 +23,7 @@ class Base(ABC):
     value: Any
     """The "raw" Python value"""
 
-    expr: "Optional[WDL.Expr.Base]"
+    expr: "Optional[Expr.Base]"
     """
     Reference to the WDL expression that generated this value, if it originated
     from ``WDL.Expr.eval``
@@ -100,7 +100,8 @@ class Base(ABC):
 
     @property
     def json(self) -> Any:
-        """Return a value representation which can be serialized to JSON using ``json.dumps`` (str, int, float, list, dict, or null)"""
+        """Return a value representation which can be serialized to JSON using ``json.dumps`` """
+        """(str, int, float, list, dict, or null)"""
         return self.value
 
     @property

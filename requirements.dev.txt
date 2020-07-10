@@ -19,3 +19,4 @@ pytest-xdist
 recommonmark
 sphinx-argparse
 boto3
+flake8

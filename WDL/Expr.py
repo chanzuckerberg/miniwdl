@@ -14,7 +14,7 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable
 from .Error import SourcePosition, SourceNode
-from . import Type, Value, Env, Error, StdLib
+from . import Type, Value, Env, Error, StdLib, Tree
 
 
 class Base(SourceNode, ABC):
@@ -55,7 +55,10 @@ class Base(SourceNode, ABC):
         invoked exactly once prior to use of other methods.
 
         :param stdlib: a context-specific standard function library for typechecking
-        :param check_quant: when ``False``, disables static validation of the optional (?) type quantifier when `typecheck()` is called on this expression, so for example type ``T?`` can satisfy an expected type ``T``. Applies recursively to the type inference and checking of any sub-expressions.
+        :param check_quant:
+            when ``False``, disables static validation of the optional (?) type quantifier when `typecheck()` is called
+            on this expression, so for example type ``T?`` can satisfy an expected type ``T``. Applies recursively to
+            the type inference and checking of any sub-expressions.
         :raise WDL.Error.StaticTypeMismatch: when the expression fails to type-check
         :return: `self`
         """
@@ -258,8 +261,8 @@ class Placeholder(Base):
                     self.expr.type,
                     "array command placeholder must have 'sep'",
                 )
-            # if sum(1 for t in [Type.Int, Type.Float, Type.Boolean, Type.String, Type.File] if isinstance(self.expr.type.item_type, t)) == 0:
-            #    raise Error.StaticTypeMismatch(self, Type.Array(Type.Any()), self.expr.type, "cannot use array of complex types for command placeholder")
+            # if sum(1 for t in [Type.Int, Type.Float, Type.Boolean, Type.String, Type.File] if isinstance(self.expr.type.item_type, t)) == 0:  # noqa
+            #    raise Error.StaticTypeMismatch(self, Type.Array(Type.Any()), self.expr.type, "cannot use array of complex types for command placeholder")  # noqa
         elif "sep" in self.options:
             raise Error.StaticTypeMismatch(
                 self,
@@ -685,7 +688,7 @@ class Ident(Base):
     Name, possibly including a dot-separated namespace
     """
 
-    referee: "Union[None, WDL.Tree.Decl, WDL.Tree.Call, WDL.Tree.Scatter, WDL.Tree.Gather]"
+    referee: "Union[None, Tree.Decl, Tree.Call, Tree.Scatter, Tree.Gather]"
     """
     After typechecking within a task or workflow, stores the AST node to which the identifier
     refers: a ``WDL.Tree.Decl`` for value references; a ``WDL.Tree.Call`` for call outputs; a
