@@ -161,6 +161,15 @@ class Loader:
             raise configparser.NoOptionError(key, section)
 
         self._used.add((section, key))
+        ans = ans.strip()
+        if len(ans) >= 2 and (
+            (
+                ans.startswith("'")
+                and ans.endswith("'")
+                or (ans.startswith('"') and ans.endswith('"'))
+            )
+        ):
+            ans = ans[1:-1]
         return _expand_env_var(ans)
 
     def has_section(self, section: str) -> bool:
