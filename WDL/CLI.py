@@ -12,6 +12,7 @@ import logging
 import urllib
 import asyncio
 import atexit
+import textwrap
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
@@ -47,6 +48,7 @@ from ._util import (
     configure_logger,
     parse_byte_size,
     path_really_within,
+    ANSI,
 )
 from ._util import StructuredLogMessage as _
 
@@ -323,6 +325,8 @@ def print_error(exn):
         for exn1 in exn.exceptions:
             print_error(exn1)
     else:
+        if sys.stderr.isatty():
+            sys.stderr.write(ANSI.BHRED)
         if isinstance(getattr(exn, "pos", None), SourcePosition):
             print(
                 "({} Ln {} Col {}) {}".format(exn.pos.uri, exn.pos.line, exn.pos.column, str(exn)),
@@ -330,6 +334,8 @@ def print_error(exn):
             )
         else:
             print(str(exn), file=sys.stderr)
+        if sys.stderr.isatty():
+            sys.stderr.write(ANSI.RESET)
         if isinstance(exn, Error.ImportError) and hasattr(exn, "__cause__"):
             print_error(exn.__cause__)
         if isinstance(exn, Error.ValidationError) and exn.source_text:
@@ -598,26 +604,35 @@ def runner(
             )
             sys.exit(2)
 
-        # load WDL document
-        doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
+        try:
+            # load WDL document
+            doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
-        # parse and validate the provided inputs
-        def file_found(fn):
-            return runtime.download.able(cfg, fn) or os.path.isfile(fn)
+            # parse and validate the provided inputs
+            def file_found(fn):
+                return runtime.download.able(cfg, fn) or os.path.isfile(fn)
 
-        eff_root = (
-            cfg["file_io"]["root"] if not cfg["file_io"].get_bool("copy_input_files") else "/"
-        )
+            eff_root = (
+                cfg["file_io"]["root"] if not cfg["file_io"].get_bool("copy_input_files") else "/"
+            )
 
-        target, input_env, input_json = runner_input(
-            doc,
-            inputs,
-            input_file,
-            empty,
-            task=task,
-            file_found=file_found,
-            root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
-        )
+            target, input_env, input_json = runner_input(
+                doc,
+                inputs,
+                input_file,
+                empty,
+                task=task,
+                file_found=file_found,
+                root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
+            )
+        except Error.InputError as exn:
+            if error_json:
+                print(json.dumps(runtime.error_json(exn), indent=2))
+            die(exn.args[0])
+        except Exception as exn:
+            if error_json:
+                print(json.dumps(runtime.error_json(exn), indent=2))
+            raise
 
         if json_only:
             print(json.dumps(input_json, indent=2))
@@ -769,15 +784,17 @@ def runner_input(
     if task:
         target = next((t for t in doc.tasks if t.name == task), None)
         if not target:
-            die(f"no such task {task} in document")
+            raise Error.InputError(f"no such task {task} in document")
     elif doc.workflow:
         target = doc.workflow
     elif len(doc.tasks) == 1:
         target = doc.tasks[0]
     elif len(doc.tasks) > 1:
-        die("specify --task for WDL document with multiple tasks and no workflow")
+        raise Error.InputError(
+            "specify --task for WDL document with multiple tasks and no workflow"
+        )
     else:
-        die("Empty WDL document")
+        raise Error.InputError("Empty WDL document")
     assert target
 
     # build up an values env of the provided inputs
@@ -791,38 +808,28 @@ def runner_input(
         try:
             decl = available_inputs[empty_name]
         except KeyError:
-            die(
-                "No such input to {}: {}\n{}".format(
-                    target.name, empty_name, runner_input_help(target)
-                )
-            )
+            runner_input_help(target)
+            raise Error.InputError(f"No such input to {target.name}: {empty_name}")
         if not isinstance(decl.type, Type.Array) or decl.type.nonempty:
-            die("Cannot set input {} {} to empty array".format(str(decl.type), decl.name))
+            runner_input_help(target)
+            raise Error.InputError(f"Cannot set input {str(decl.type)} {decl.name} to empty array")
         input_env = input_env.bind(empty_name, Value.Array(decl.type.item_type, []), decl)
 
     # add in command-line inputs
     for one_input in inputs:
-        if not one_input or not one_input[0].isalpha():
-            # let user just see runner_input_help
-            die(
-                f"""{target.name} ({target.pos.uri})
-{'-'*(len(target.name)+len(target.pos.uri)+3)}
-{runner_input_help(target)}"""
-            )
-
         # parse [namespace], name, and value
         buf = one_input.split("=", 1)
-        if len(buf) != 2 or not buf[0]:
-            die("Invalid input name=value pair: " + one_input)
+        if not one_input or not one_input[0].isalpha() or len(buf) != 2 or not buf[0]:
+            runner_input_help(target)
+            raise Error.InputError("Invalid input name=value pair: " + one_input)
         name, s_value = buf
 
         # find corresponding input declaration
         try:
             decl = available_inputs[name]
         except KeyError:
-            die(
-                "No such input to {}: {}\n{}".format(target.name, buf[0], runner_input_help(target))
-            )
+            runner_input_help(target)
+            raise Error.InputError(f"No such input to {target.name}: {buf[0]}")
 
         # create a Value based on the expected type
         v = runner_input_value(s_value, decl.type, file_found, root)
@@ -837,7 +844,8 @@ def runner_input(
                 assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
                 existing.value.extend(v.value)
             else:
-                die("non-array input {} duplicated\n{}".format(buf[0], runner_input_help(target)))
+                runner_input_help(target)
+                raise Error.InputError(f"non-array input {buf[0]} duplicated")
         else:
             input_env = input_env.bind(name, v, decl)
 
@@ -845,10 +853,9 @@ def runner_input(
     if check_required:
         missing_inputs = values_to_json(target.required_inputs.subtract(input_env))
         if missing_inputs:
-            die(
-                "missing required inputs for {}: {}\n{}".format(
-                    target.name, ", ".join(missing_inputs.keys()), runner_input_help(target)
-                )
+            runner_input_help(target)
+            raise Error.InputError(
+                f"missing required inputs for {target.name}: {', '.join(missing_inputs.keys())}"
             )
 
     # make a pass over the Env to create a dict for Cromwell-style input JSON
@@ -883,8 +890,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, root):
         try:
             ans = values_from_json(input_json, available_inputs, namespace=namespace)
         except Error.InputError as exn:
-            die("check JSON input; " + str(exn))
-            sys.exit(2)
+            raise Error.InputError("check JSON input; " + exn.args[0])
 
         # join relative file paths to the cwd
 
@@ -894,11 +900,10 @@ def runner_input_json_file(available_inputs, namespace, input_file, root):
                     if not os.path.isabs(v.value):
                         v.value = os.path.normpath(os.path.join(os.getcwd(), v.value))
                     if not path_really_within(v.value, root):
-                        die(
+                        raise Error.InputError(
                             f"all input files must be located within the configured `file_io.root' directory `{root}' "
                             f"unlike `{v.value}'"
                         )
-                        sys.exit(2)
             for ch in v.children:
                 absolutify_files(ch)
             return v
@@ -909,13 +914,21 @@ def runner_input_json_file(available_inputs, namespace, input_file, root):
 
 
 def runner_input_help(target):
-    # TODO: get help message from parameter_meta
-    # TODO: show default values of optionals
-    ans = []
+    def bold(line):
+        if sys.stderr.isatty():
+            return f"{ANSI.BOLD}{line}{ANSI.RESET}"
+        return line
+
+    ans = [
+        "",
+        bold(f"{target.name} ({target.pos.uri})"),
+        bold(f"{'-'*(len(target.name)+len(target.pos.uri)+3)}"),
+    ]
     required_inputs = target.required_inputs
-    ans.append("\nrequired inputs:")
+    ans.append(bold("\nrequired inputs:"))
     for b in required_inputs:
-        ans.append("  {} {}".format(str(b.value.type), b.name))
+        ans.append(bold(f"  {str(b.value.type)} {b.name}"))
+        add_wrapped_parameter_meta(target, b.name, ans)
     optional_inputs = target.available_inputs.subtract(target.required_inputs)
     if target.inputs is None:
         # if the target doesn't have an input{} section (pre WDL 1.0), exclude
@@ -924,13 +937,19 @@ def runner_input_help(target):
             lambda b: b.value.expr is None or is_constant_expr(b.value.expr)
         )
     if optional_inputs:
-        ans.append("\noptional inputs:")
+        ans.append(bold("\noptional inputs:"))
         for b in optional_inputs:
-            ans.append("  {} {}".format(str(b.value.type), b.name))
-    ans.append("\noutputs:")
+            d = bold(f"  {str(b.value.type)} {b.name}")
+            if b.value.expr:
+                ans.append(f"{d} = {b.value.expr}")
+            else:
+                ans.append(d)
+            add_wrapped_parameter_meta(target, b.name, ans)
+    ans.append(bold("\noutputs:"))
     for b in target.effective_outputs:
-        ans.append("  {} {}".format(str(b.value), b.name))
-    return "\n".join(ans)
+        ans.append(bold(f"  {str(b.value)} {b.name}"))
+    for line in ans:
+        print(line, file=sys.stderr)
 
 
 def is_constant_expr(expr):
@@ -949,6 +968,18 @@ def is_constant_expr(expr):
     return False
 
 
+def add_wrapped_parameter_meta(target, input_name, output_list):
+    ans = ""
+    if input_name in target.parameter_meta:
+        entry = target.parameter_meta[input_name]
+        if isinstance(entry, str):
+            ans = entry
+        elif isinstance(entry, dict) and isinstance(entry.get("help", None), str):
+            ans = entry["help"]
+    if ans:
+        output_list.extend((" " * 4 + line) for line in textwrap.wrap(ans, 96))
+
+
 def runner_input_value(s_value, ty, file_found, root):
     """
     Given an input value from the command line (right-hand side of =) and the
@@ -961,19 +992,21 @@ def runner_input_value(s_value, ty, file_found, root):
         if os.path.isfile(fn):
             fn = os.path.abspath(fn)
             if not path_really_within(fn, root):
-                die(
+                raise Error.InputError(
                     f"all input files must be located within the configured `file_io.root' directory `{root}' "
                     f"unlike `{fn}'"
                 )
         elif not (file_found and file_found(fn)):  # maybe URI
-            die("File not found: " + fn)
+            raise Error.InputError("File not found: " + fn)
         return Value.File(fn)
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
         if s_value == "false":
             return Value.Boolean(False)
-        die("Boolean input should be true or false instead of {}".format(s_value))
+        raise Error.InputError(
+            "Boolean input should be true or false instead of `{}'".format(s_value)
+        )
     if isinstance(ty, Type.Int):
         return Value.Int(int(s_value))
     if isinstance(ty, Type.Float):
@@ -985,7 +1018,7 @@ def runner_input_value(s_value, ty, file_found, root):
         return Value.Array(
             ty.item_type, [runner_input_value(s_value, ty.item_type, file_found, root)]
         )
-    return die(
+    raise Error.InputError(
         "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
             str(ty)
         )
@@ -1209,9 +1242,12 @@ def localize(
             def file_found(fn):
                 return runtime.download.able(cfg, fn) or os.path.isfile(fn)
 
-            target, input_env, input_json = runner_input(
-                doc, [], infile, [], task=task, check_required=False, file_found=file_found
-            )
+            try:
+                target, input_env, input_json = runner_input(
+                    doc, [], infile, [], task=task, check_required=False, file_found=file_found
+                )
+            except Error.InputError as exn:
+                die(exn.args[0])
 
             # scan for Files that appear to be downloadable URIs
             def scan(x):
@@ -1292,5 +1328,9 @@ def localize(
 
 
 def die(msg, status=2):
-    print("\n" + msg + "\n", file=sys.stderr)
+    msg = "\n".join(textwrap.wrap(msg, 100))
+    if sys.stderr.isatty():
+        print(f"\n{ANSI.BHRED}{msg}{ANSI.RESET}\n", file=sys.stderr)
+    else:
+        print(f"\n{msg}\n", file=sys.stderr)
     sys.exit(status)
