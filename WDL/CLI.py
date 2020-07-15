@@ -167,6 +167,7 @@ def fill_common(subparser, path=True):
 def fill_check_subparser(subparsers):
     check_parser = subparsers.add_parser(
         "check",
+        help="Validate a WDL document; show an outline with lint warnings",
         description="Load and typecheck a WDL document, showing an outline with lint warnings.\n\n"
         "Individual lint warnings can be suppressed by a WDL comment containing !WarningName on the\n"
         "same line or the following line, e.g.:\n"
@@ -379,7 +380,10 @@ async def read_source(uri, path, importer):
 
 def fill_run_subparser(subparsers):
     run_parser = subparsers.add_parser(
-        "run", help="Run workflow/task locally with built-in runtime [beta test]"
+        "run",
+        help="Run workflow/task locally with built-in runtime",
+        description="For details & configuration see:\n"
+        "https://miniwdl.readthedocs.io/en/latest/runner_reference.html",
     )
     run_parser.add_argument("uri", metavar="URI", type=str, help="WDL document filename/URI")
     run_parser.add_argument(
@@ -1027,8 +1031,7 @@ def runner_input_value(s_value, ty, file_found, root):
 
 def fill_run_self_test_subparser(subparsers):
     run_parser = subparsers.add_parser(
-        "run_self_test",
-        help="Run a trivial workflow to smoke-test installation, docker permission, etc.",
+        "run_self_test", help="Run a short built-in workflow to test system configuration",
     )
     run_parser.add_argument(
         "--dir",
@@ -1148,8 +1151,9 @@ def run_self_test(**kwargs):
 def fill_localize_subparser(subparsers):
     localize_parser = subparsers.add_parser(
         "localize",
-        help="Download URI input files to local cache",
-        description="Prime the local file download cache with URI File inputs found in Cromwell-style input JSON",
+        help="Download URI input Files to local cache for use in subsequent runs",
+        description="Prime the local file download cache with URI File inputs found in Cromwell-style input JSON. "
+        "This is only needed if it's useful to perform downloads in advance rather than on next run start.",
     )
     localize_parser.add_argument(
         "wdlfile",
