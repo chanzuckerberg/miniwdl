@@ -94,10 +94,8 @@ def run_local_task(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
-            wdl_doc = getattr(task, "parent")
             cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
-
         else:
             cache = _cache
         assert cache
@@ -108,7 +106,7 @@ def run_local_task(
             cached = cache.get(
                 key=f"{task.name}_{task_digest}/{input_digest}", output_types=task.effective_outputs
             )
-            if cached:
+            if cached is not None:
                 for decl in task.outputs:
                     v = cached[decl.name]
                     vj = json.dumps(v.json)
@@ -198,7 +196,8 @@ def run_local_task(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
                 logger.notice("done")  # pyre-fixme
-                cache.put(f"{task.name}_{task_digest}", input_digest, outputs)
+                if not run_id.startswith("download-"):
+                    cache.put(f"{task.name}_{task_digest}", input_digest, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())
