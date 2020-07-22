@@ -409,14 +409,15 @@ class SwarmContainer(TaskContainer):
     create_service_kwargs: Optional[Dict[str, Any]] = None
     # override kwargs to docker service create() (may be set by plugins)
 
-    _bind_input_files: Optional[str] = "ro"
+    _bind_input_files: bool = True
     _observed_states: Optional[Set[str]] = None
 
     def copy_input_files(self, logger: logging.Logger) -> None:
         assert self._bind_input_files
         super().copy_input_files(logger)
-        # now that files have been copied, it won't be necessary to bind-mount them
-        self._bind_input_files = None
+        # now that files have been copied into the working dir, it won't be necessary to bind-mount
+        # them individually
+        self._bind_input_files = False
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str,) -> int:
         self._observed_states = set()
@@ -528,7 +529,7 @@ class SwarmContainer(TaskContainer):
             except:
                 logger.exception("failed to close docker-py client")
 
-    def prepare_mounts(self, logger: logging.Logger) -> List[Dict[str, str]]:
+    def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
         def touch_mount_point(container_file: str) -> None:
             # touching each mount point ensures they'll be owned by invoking user:group
             assert container_file.startswith(self.container_dir + "/")
@@ -559,18 +560,33 @@ class SwarmContainer(TaskContainer):
                     )
                     perm_warn = False
                 touch_mount_point(container_path)
-                mounts.append(f"{host_path}:{container_path}:{self._bind_input_files}")
+                mounts.append(
+                    docker.types.Mount(container_path, host_path, type="bind", read_only=True)
+                )
         mounts.append(
-            f"{os.path.join(self.host_dir, 'command')}:{os.path.join(self.container_dir, 'command')}:ro"
+            docker.types.Mount(
+                os.path.join(self.container_dir, "command"),
+                os.path.join(self.host_dir, "command"),
+                type="bind",
+                read_only=True,
+            )
         )
         # mount stdout, stderr, and working directory read/write
         for pipe_file in ["stdout.txt", "stderr.txt"]:
             touch_mount_point(os.path.join(self.container_dir, pipe_file))
             mounts.append(
-                f"{os.path.join(self.host_dir, pipe_file)}:{os.path.join(self.container_dir, pipe_file)}:rw"
+                docker.types.Mount(
+                    os.path.join(self.container_dir, pipe_file),
+                    os.path.join(self.host_dir, pipe_file),
+                    type="bind",
+                )
             )
         mounts.append(
-            f"{os.path.join(self.host_dir, 'work')}:{os.path.join(self.container_dir, 'work')}:rw"
+            docker.types.Mount(
+                os.path.join(self.container_dir, "work"),
+                os.path.join(self.host_dir, "work"),
+                type="bind",
+            )
         )
         return mounts
 
@@ -721,7 +737,7 @@ class SwarmContainer(TaskContainer):
                     assert (
                         isinstance(chowner_status, dict)
                         and chowner_status.get("StatusCode", -1) == 0
-                    ), str(chowner_status)
+                    ), f"post-task chown failed: {chowner_status}"
                 finally:
                     if chowner:
                         chowner.remove()

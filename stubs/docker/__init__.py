@@ -76,6 +76,10 @@ class types:
         def __init__(self, type: str):
             ...
 
+    class Mount:
+        def __init__(self, *args, **kwargs):
+            ...
+
 class DockerClient:
     @property
     def containers(self) -> Containers:
