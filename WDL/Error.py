@@ -160,9 +160,11 @@ class StaticTypeMismatch(ValidationError):
         super().__init__(node, message)
 
     def __str__(self) -> str:
-        msg = "Expected {} instead of {}".format(str(self.expected), str(self.actual))
+        msg = f"Expected {self.expected} instead of {self.actual}"
         if self.message:
-            msg += " " + self.message
+            msg += "; " + self.message
+        elif isinstance(self.expected, Type.Int) and isinstance(self.actual, Type.Float):
+            msg += "; perhaps try floor() or round()"
         return msg
 
 

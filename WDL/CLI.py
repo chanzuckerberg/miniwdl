@@ -329,10 +329,7 @@ def print_error(exn):
         if sys.stderr.isatty():
             sys.stderr.write(ANSI.BHRED)
         if isinstance(getattr(exn, "pos", None), SourcePosition):
-            print(
-                "({} Ln {} Col {}) {}".format(exn.pos.uri, exn.pos.line, exn.pos.column, str(exn)),
-                file=sys.stderr,
-            )
+            print(f"({exn.pos.uri} Ln {exn.pos.line} Col {exn.pos.column}) {exn}", file=sys.stderr)
         else:
             print(str(exn), file=sys.stderr)
         if sys.stderr.isatty():
@@ -710,7 +707,7 @@ def runner(
                 msg = info["message"]
                 del info["message"]
             logger.error(_(msg, **info))
-            if kwargs["debug"]:
+            if isinstance(exn, AssertionError) or kwargs["debug"]:
                 raise
             sys.exit(exit_status)
         finally:
