@@ -719,7 +719,8 @@ class SwarmContainer(TaskContainer):
         if not self.cfg["task_runtime"].get_bool("as_user") and (os.geteuid() or os.getegid()):
             paste = shlex.quote(os.path.join(self.container_dir, "work"))
             script = f"""
-            (find {paste} -type d && find {paste} -type f) | xargs -P 10 chown -P {os.geteuid()}:{os.getegid()}
+            (find {paste} -type d -print0 && find {paste} -type f -print0) \
+                | xargs -0 -P 10 chown -P {os.geteuid()}:{os.getegid()}
             """.strip()
             volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
             logger.debug(_("post-task chown", script=script, volumes=volumes))
