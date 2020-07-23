@@ -203,7 +203,7 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["t.out"], ["Alice", "Alice"])
 
     def test_weird_filenames(self):
-        chars = [c for c in (chr(i) for i in range(1,256)) if c not in ('/','\n')]
+        chars = [c for c in (chr(i) for i in range(1,256)) if c not in ('/')]
         filenames = []
         for c in chars:
             if c != '.':
