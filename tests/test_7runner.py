@@ -1,6 +1,7 @@
 import unittest
 import logging
 import tempfile
+import random
 import os
 import shutil
 import json
@@ -200,3 +201,59 @@ class MiscRegressionTests(RunnerTestCase):
             print("Alice", file=alice)
         outp = self._run(wdl, {"file": os.path.join(self._dir, "alice.txt")})
         self.assertEqual(outp["t.out"], ["Alice", "Alice"])
+
+    def test_weird_filenames(self):
+        chars = [c for c in (chr(i) for i in range(1,256)) if c not in ('/')]
+        filenames = []
+        for c in chars:
+            if c != '.':
+                filenames.append(c)
+            filenames.append(c + ''.join(random.choices(chars,k=11)))
+        assert filenames == list(sorted(filenames))
+        filenames.append('ThisIsAVeryLongFilename abc...xzy1234567890!@నేనుÆды.test.ext')
+
+        inputs = {"files": []}
+        for fn in filenames:
+            fn = os.path.join(self._dir, fn)
+            with open(fn, "w") as outfile:
+                print(fn, file=outfile)
+            inputs["files"].append(fn)
+
+        wdl = """
+        version 1.0
+        workflow w {
+            input {
+                Array[File] files
+            }
+            call t {
+                input:
+                files = files
+            }
+            output {
+                Array[File] files_out = t.files_out
+            }
+        }
+
+        task t {
+            input {
+                Array[File] files
+            }
+            command <<<
+                set -euxo pipefail
+                mkdir files_out
+                find _miniwdl_inputs -type f -print0 | xargs -0 -iXXX cp XXX files_out/
+            >>>
+            output {
+                Array[File] files_out = glob("files_out/*")
+            }
+        }
+        """
+
+        outp = self._run(wdl, inputs)
+        outp_filenames = list(sorted(os.path.basename(fn) for fn in outp["files_out"]))
+        # glob will exclude dotfiles
+        expctd_filenames = list(bn for bn in sorted(os.path.basename(fn) for fn in inputs["files"]) if not bn.startswith("."))
+        self.assertEqual(outp_filenames, expctd_filenames)
+        euid = os.geteuid()
+        for fn in outp["files_out"]:
+            assert os.stat(fn).st_uid == euid
