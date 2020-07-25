@@ -5,6 +5,7 @@ referenced therein, and updates their access timestamps (atime).
 """
 import hashlib
 import json
+import itertools
 import os
 import logging
 from pathlib import Path
@@ -223,9 +224,11 @@ def _describe_task(doc, task: Tree.Task) -> str:
         output_lines.append(f"# {struct_name} :: {structs[struct_name]}")
 
     # excerpt task{} from document
-    output_lines += _excerpt(doc, task.pos)
-
-    # TODO (?): delete non-semantic whitespace, perhaps excise the meta & parameter_meta sections
+    # Possible future improvements:
+    # excise the meta & parameter_meta sections
+    # normalize order of declarations
+    # normalize whitespace within lines (not leading/trailing)
+    output_lines += _excerpt(doc, task.pos, [task.command.pos])
 
     return "\n".join(output_lines).strip()
 
@@ -250,15 +253,38 @@ def _describe_struct_types(task: Tree.Task) -> Dict[str, str]:
     return structs
 
 
-def _excerpt(doc: Tree.Document, pos: Error.SourcePosition) -> List[str]:
+def _excerpt(
+    doc: Tree.Document, pos: Error.SourcePosition, literals: List[Error.SourcePosition]
+) -> List[str]:
     """
-    Excerpt the document's source lines indicated by pos : WDL.SourcePosition
-    TODO (?): delete comments from the source lines
+    Excerpt the document's source lines indicated by pos : WDL.SourcePosition. Delete comments,
+    blank lines, and leading/trailing whitespace from each line -- except those indicated by
+    literals.
     """
+
+    def clean(line: int, column: int = 1, end_column: Optional[int] = None) -> List[str]:
+        literal = next(
+            (True for lit in literals if line >= lit.line and line <= lit.end_line), False
+        )
+        comment = doc.source_comments[line - 1]
+        if comment and not literal:
+            assert comment.pos.line == line
+            if end_column is None:
+                end_column = comment.pos.column - 1
+            else:
+                end_column = min(end_column, comment.pos.column - 1)
+        txt = doc.source_lines[line - 1][(column - 1) : end_column]
+        if literal:
+            return [txt]
+        txt = txt.strip()
+        return [txt] if txt else []
+
     if pos.end_line == pos.line:
-        return [doc.source_lines[pos.line - 1][(pos.column - 1) : pos.end_column]]
-    return (
-        [doc.source_lines[pos.line - 1][(pos.column - 1) :]]
-        + doc.source_lines[pos.line : (pos.end_line - 1)]
-        + [doc.source_lines[pos.end_line - 1][: pos.end_column]]
+        return clean(pos.line, pos.column, pos.end_column)
+    return list(
+        itertools.chain(
+            clean(pos.line, pos.column),
+            *(clean(line_nr) for line_nr in range(pos.line + 1, pos.end_line)),
+            clean(pos.end_line, 1, pos.end_column),
+        )
     )

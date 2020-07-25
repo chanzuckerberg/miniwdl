@@ -15,18 +15,24 @@ class TestTaskRunner(unittest.TestCase):
     test_wdl: str = R"""
         version 1.0
         task hello_blank {
-            input {
-                String who
+            # comment1
+            input  {
+                String who     # comment2
                 Array[String]? what
+
                 Map[String,Map[String,String]]? where
-            }
+            }     
+
+
             command <<<
+                # comment3
                 echo "Hello, ~{who}!"
             >>>
-            output {
+            output {#comment4
                 Int count = 12
+
             }
-        }
+        }#comment5
         """
     ordered_input_dict = {
         "what": ["a", "ab", "b", "bc"],
@@ -122,6 +128,26 @@ class TestTaskRunner(unittest.TestCase):
         ordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(ordered_inputs)
         unordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
+
+    def test_normalization(self):
+        desc = WDL.runtime.cache._describe_task(self.doc, self.doc.tasks[0])
+        self.assertEqual(desc, R"""
+version 1.0
+task hello_blank {
+input  {
+String who
+Array[String]? what
+Map[String,Map[String,String]]? where
+}
+            command <<<
+                # comment3
+                echo "Hello, ~{who}!"
+            >>>
+output {
+Int count = 12
+}
+}
+        """.strip())
 
     def test_task_input_cache_matches_output(self):
         # run task, check output matches what was stored in run_dir
