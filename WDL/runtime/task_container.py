@@ -541,6 +541,10 @@ class SwarmContainer(TaskContainer):
             with open(host_file, "x") as _:
                 pass
 
+        def escape(s):
+            # docker processes {{ interpolations }}
+            return s.replace("{{", '{{"{{"}}')
+
         mounts = []
         # mount input files and command
         if self._bind_input_files:
@@ -561,12 +565,14 @@ class SwarmContainer(TaskContainer):
                     perm_warn = False
                 touch_mount_point(container_path)
                 mounts.append(
-                    docker.types.Mount(container_path, host_path, type="bind", read_only=True)
+                    docker.types.Mount(
+                        escape(container_path), escape(host_path), type="bind", read_only=True
+                    )
                 )
         mounts.append(
             docker.types.Mount(
-                os.path.join(self.container_dir, "command"),
-                os.path.join(self.host_dir, "command"),
+                escape(os.path.join(self.container_dir, "command")),
+                escape(os.path.join(self.host_dir, "command")),
                 type="bind",
                 read_only=True,
             )
@@ -576,15 +582,15 @@ class SwarmContainer(TaskContainer):
             touch_mount_point(os.path.join(self.container_dir, pipe_file))
             mounts.append(
                 docker.types.Mount(
-                    os.path.join(self.container_dir, pipe_file),
-                    os.path.join(self.host_dir, pipe_file),
+                    escape(os.path.join(self.container_dir, pipe_file)),
+                    escape(os.path.join(self.host_dir, pipe_file)),
                     type="bind",
                 )
             )
         mounts.append(
             docker.types.Mount(
-                os.path.join(self.container_dir, "work"),
-                os.path.join(self.host_dir, "work"),
+                escape(os.path.join(self.container_dir, "work")),
+                escape(os.path.join(self.host_dir, "work")),
                 type="bind",
             )
         )

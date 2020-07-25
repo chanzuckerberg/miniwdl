@@ -210,7 +210,7 @@ class MiscRegressionTests(RunnerTestCase):
                 filenames.append(c)
             filenames.append(c + ''.join(random.choices(chars,k=11)))
         assert filenames == list(sorted(filenames))
-        filenames.append('ThisIsAVeryLongFilename abc...xzy1234567890!@నేనుÆды.test.ext')
+        filenames.append('ThisIs{{AVeryLongFilename }}abc...}}xzy1234567890!@{{నేనుÆды.test.ext')
 
         inputs = {"files": []}
         for fn in filenames:
