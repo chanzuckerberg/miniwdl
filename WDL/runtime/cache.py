@@ -270,10 +270,10 @@ def _excerpt(
         if comment and not literal:
             assert comment.pos.line == line
             if end_column is None:
-                end_column = comment.pos.column-1
+                end_column = comment.pos.column - 1
             else:
-                end_column = min(end_column, comment.pos.column-1)
-        txt = doc.source_lines[line-1][(column - 1) : end_column]
+                end_column = min(end_column, comment.pos.column - 1)
+        txt = doc.source_lines[line - 1][(column - 1) : end_column]
         if literal:
             return [txt]
         txt = txt.strip()
@@ -284,7 +284,7 @@ def _excerpt(
     return list(
         itertools.chain(
             clean(pos.line, pos.column),
-            *(clean(line_nr) for line_nr in range(pos.line+1, pos.end_line)),
+            *(clean(line_nr) for line_nr in range(pos.line + 1, pos.end_line)),
             clean(pos.end_line, 1, pos.end_column),
         )
     )
