@@ -28,11 +28,11 @@ class TestTaskRunner(unittest.TestCase):
                 # comment3
                 echo "Hello, ~{who}!"
             >>>
-            output {
+            output {#comment4
                 Int count = 12
 
             }
-        }
+        }#comment5
         """
     ordered_input_dict = {
         "what": ["a", "ab", "b", "bc"],
