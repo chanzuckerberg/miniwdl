@@ -6,7 +6,6 @@ import docker
 import signal
 import time
 import json
-import configparser
 from .context import WDL
 from testfixtures import log_capture
 
@@ -1073,9 +1072,9 @@ class TestConfigLoader(unittest.TestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"file_io":{"copy_input_files": "true"}})
         self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
 
-        with self.assertRaises(configparser.NoSectionError):
+        with self.assertRaises(WDL.runtime.config.ConfigMissing):
             cfg.get("bogus", "key")
-        with self.assertRaises(configparser.NoOptionError):
+        with self.assertRaises(WDL.runtime.config.ConfigMissing):
             cfg.get("file_io", "bogus")
         self.assertTrue(cfg.has_option("file_io", "copy_input_files"))
         self.assertFalse(cfg.has_option("bogus", "key"))

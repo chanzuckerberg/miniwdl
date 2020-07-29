@@ -17,6 +17,11 @@ from .._util import StructuredLogMessage as _
 _T = TypeVar("_T")
 
 
+class ConfigMissing(Exception):
+    # configparser.No{Option,Section}Error have vague hard-coded error messages
+    pass
+
+
 class Section:
     _section: str
     _parent: "Loader"
@@ -157,8 +162,8 @@ class Loader:
 
         if ans is None:
             if not self.has_section(section):
-                raise configparser.NoSectionError(section)
-            raise configparser.NoOptionError(key, section)
+                raise ConfigMissing(f"missing config section [{section}]")
+            raise ConfigMissing(f"missing config option [{section}] {key}")
 
         self._used.add((section, key))
         ans = ans.strip()
@@ -183,7 +188,7 @@ class Loader:
         try:
             self.get(section, option)
             return True
-        except (configparser.NoOptionError, configparser.NoSectionError):
+        except ConfigMissing:
             return False
 
     def __getitem__(self, section: str) -> Section:
@@ -203,7 +208,7 @@ class Loader:
                     expected_type=ty,
                 )
             )
-            raise ValueError(f"configuration option {section}:{key} should be {ty}")
+            raise ValueError(f"configuration option [{section}] {key} should be {ty}")
 
     def get_int(self, section: str, key: str) -> int:
         return self._parse(section, key, "int", int)
