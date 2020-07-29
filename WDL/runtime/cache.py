@@ -3,6 +3,7 @@ Caching outputs of task/workflow calls (incl. file URI downloader tasks) based o
 inputs. When cached outputs are found for reuse, opens advisory locks (flocks) on any local files
 referenced therein, and updates their access timestamps (atime).
 """
+import abc
 import hashlib
 import json
 import itertools
@@ -15,6 +16,7 @@ from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
 from threading import Lock
 
+import WDL
 from . import config
 
 from .. import Env, Value, Type, Document, Tree, Error
@@ -78,6 +80,8 @@ class CallCache(AbstractContextManager):
         from .. import values_from_json
 
         file_path = os.path.join(self.call_cache_dir, f"{key}.json")
+        file_coherence_checker = FileCoherence(self._logger)
+        # files = WDL.Value.rewrite_env_files
         if not self._cfg["call_cache"].get_bool("get"):
             return None
 
@@ -318,3 +322,36 @@ def _excerpt(
             clean(pos.end_line, 1, pos.end_column),
         )
     )
+
+
+class FileCoherence(abc.ABC):
+    _logger: logging.Logger
+
+    def __init__(self, logger):
+        self._logger = logger.getChild("FileCoherence")
+        self.cache_file_modification_time = 0
+
+    def get_last_modified_time(self, file_path: str) -> float:
+        # returned as seconds since epoch
+        return os.lstat(file_path).st_mtime
+
+    def check_cache_younger_than_file(self, cache_file_path: str, output_file_path: str) -> bool:
+        if self.cache_file_modification_time == 0:
+            self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
+        output_file_modification_time = self.get_last_modified_time(output_file_path)
+        return self.cache_file_modification_time > output_file_modification_time
+
+
+class S3FileCoherence(FileCoherence):
+    _logger: logging.Logger
+
+    def __init__(self, logger):
+        # super().__init__(logger=logger)
+        self._logger = logger.getChild("S3FileCoherence")
+        self.cache_file_modification_time = 0
+
+    def get_last_modified_time(self, file_path):
+        pass
+
+    def check_cache_younger_than_file(self, cache_file_path: str, output_file_path:str) -> bool:
+        pass

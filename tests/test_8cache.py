@@ -58,6 +58,25 @@ class TestTaskRunner(unittest.TestCase):
                 }
             }
             """
+    test_wdl_with_output_files: str = R"""
+        version 1.0
+        task hello {
+            String who
+            File foo = write_lines(["foo","bar","baz"])
+            File tsv = write_tsv([["one", "two", "three"], ["un", "deux", "trois"]])
+            File json = write_json({"key1": "value1", "key2": "value2"})
+
+            command <<<
+                echo "Hello, ~{who}!"
+            >>>
+
+            output {
+                File o_json = json
+                File a_tsv = tsv
+                File whynot = write_lines(["foo","bar","baz"])
+            }
+        }
+        """
 
     @classmethod
     def setUpClass(cls):
@@ -113,7 +132,7 @@ class TestTaskRunner(unittest.TestCase):
 
         return rundir, outputs
 
-    def test_input_digest_sorts_keys(self):
+    def xtest_input_digest_sorts_keys(self):
         # Note this fails if input array is reordered
 
         ordered_inputs = values_from_json(
@@ -129,7 +148,7 @@ class TestTaskRunner(unittest.TestCase):
         unordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
 
-    def test_normalization(self):
+    def xtest_normalization(self):
         desc = WDL.runtime.cache._describe_task(self.doc, self.doc.tasks[0])
         self.assertEqual(desc, R"""
 version 1.0
@@ -149,7 +168,7 @@ Int count = 12
 }
         """.strip())
 
-    def test_task_input_cache_matches_output(self):
+    def xtest_task_input_cache_matches_output(self):
         # run task, check output matches what was stored in run_dir
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
@@ -161,7 +180,7 @@ Int count = 12
             read_data = json.loads(f.read())
         self.assertEqual(read_data, WDL.values_to_json(outputs))
 
-    def test_cache_prevents_task_rerun(self):
+    def xtest_cache_prevents_task_rerun(self):
         # run task twice, check _try_task not called for second run
 
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
@@ -182,7 +201,7 @@ Int count = 12
 
         self.assertEqual(new_mock.call_count, 0)
 
-    def test_default_config_does_not_use_cache(self):
+    def xtest_default_config_does_not_use_cache(self):
         # run task twice, check _try_task called for second run
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
@@ -202,7 +221,7 @@ Int count = 12
 
         self.assertEqual(new_mock.call_count, 1)
 
-    def test_get_cache_return_value_matches_outputs(self):
+    def xtest_get_cache_return_value_matches_outputs(self):
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
@@ -213,7 +232,7 @@ Int count = 12
                                 output_types=self.doc.tasks[0].effective_outputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 
-    def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
+    def xtest_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""
                version 1.0
@@ -243,7 +262,7 @@ Int count = 12
 
         self.assertEqual(mock.call_count, 1)
 
-    def test_a_task_with_the_same_inputs_and_different_outputs_doesnt_pull_from_the_cache(self):
+    def xtest_a_task_with_the_same_inputs_and_different_outputs_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""
                   version 1.0
@@ -273,7 +292,7 @@ Int count = 12
 
         self.assertEqual(mock.call_count, 1)
 
-    def test_struct_handling(self):
+    def xtest_struct_handling(self):
         with open(os.path.join(self._dir, "randomFile.txt"), "w") as outfile:
             outfile.write("Gotta put something here")
         inputs = {"box": {"str": [os.path.join(self._dir, "randomFile.txt")]}}
@@ -291,3 +310,58 @@ Int count = 12
         with patch('WDL.runtime.task._try_task', new_mock):
             self._run(self.struct_task, inputs, cfg=self.cfg)
         self.assertEqual(new_mock.call_count, 0)
+
+    def test_cache_not_used_when_output_files_deleted(self):
+        inputs = {"who": "Alyssa"}
+        self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
+
+        # test mock is not called once cache is available
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
+
+        self.assertEqual(mock.call_count, 0)
+
+        # delete files
+        import pdb
+        # pdb.set_trace()
+        shutil.rmtree(f"{self._dir}/*_hello/out/a_tsv")
+        # shutil.rmtree(f"{self._dir}/{os.listdir(self._dir)[1]}/out/a_tsv")
+
+
+        # pdb.set_trace()
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 1)
+
+
+
+    def xtest_cache_not_used_when_output_files_updated_after_cache_creation(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            String who
+            File foo = write_lines(["foo","bar","baz"])
+            File tsv = write_tsv([["one", "two", "three"], ["un", "deux", "trois"]])
+            File json = write_json({"key1": "value1", "key2": "value2"})
+            File map = write_map({"key1": "value1", "key2": "value2"})
+
+            command <<<
+                echo "Hello, ~{who}!"
+            >>>
+
+            output {
+                File o_json = json
+                File a_tsv = tsv
+                Map[String,String] o_map = read_map(map)
+                File whynot = write_lines(["foo","bar","baz"])
+            }
+        }
+        """)
+        # check
+        with open(outputs["o_json"]) as curr_file:
+            self.assertEqual(json.load(curr_file), {"key1": "value1", "key2": "value2"})
+        with open(outputs["whynot"]) as curr_file:
+            self.assertEqual(json.load(curr_file), {"key1": "value1", "key2": "value2"})
+
