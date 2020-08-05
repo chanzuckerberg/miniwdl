@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional, List
 from contextlib import AbstractContextManager
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
+from threading import Lock
 
 from . import config
 
@@ -29,10 +30,18 @@ class CallCache(AbstractContextManager):
     _flocker: FlockHolder
     _logger: logging.Logger
 
+    # URIs->files cached only for the lifetime of this CallCache instance. These are downloaded in
+    # the course of the current workflow run, but not eligible for persistent caching in future
+    # runs; we just want to remember them for potential reuse later in the current run.
+    _workflow_downloads: Dict[str, str]
+    _lock: Lock
+
     def __init__(self, cfg: config.Loader, logger: logging.Logger):
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
+        self._workflow_downloads = {}
+        self._lock = Lock()
         self.call_cache_dir = cfg["call_cache"]["dir"]
 
         try:
@@ -152,6 +161,9 @@ class CallCache(AbstractContextManager):
         Return filename of the cached download of uri, if available. If so then opens a shared
         flock on the local file, which will remain for the life of the CallCache object.
         """
+        with self._lock:
+            if uri in self._workflow_downloads:
+                return self._workflow_downloads[uri]
         logger = logger.getChild("CallCache") if logger else self._logger
         p = self.download_path(uri)
         if not (self._cfg["download_cache"].get_bool("get") and p and os.path.isfile(p)):
@@ -181,15 +193,22 @@ class CallCache(AbstractContextManager):
         """
         logger = logger.getChild("CallCache") if logger else self._logger
         ans = filename
-        if self._cfg["download_cache"].get_bool("put"):
-            p = self.download_path(uri)
-            if p:
-                os.makedirs(os.path.dirname(p), exist_ok=True)
-                os.rename(filename, p)
-                logger.info(_("stored in download cache", uri=uri, cache_path=p))
-                ans = p
+        p = self.download_cacheable(uri)
+        if p:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            os.rename(filename, p)
+            logger.info(_("stored in download cache", uri=uri, cache_path=p))
+            ans = p
+        else:
+            with self._lock:
+                self._workflow_downloads[uri] = ans
         self.flock(ans)
         return ans
+
+    def download_cacheable(self, uri: str) -> Optional[str]:
+        if not self._cfg["download_cache"].get_bool("put"):
+            return None
+        return self.download_path(uri)
 
     def flock(self, filename: str, exclusive: bool = False) -> None:
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)

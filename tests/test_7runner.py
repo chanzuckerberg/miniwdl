@@ -169,6 +169,57 @@ class TestDownload(RunnerTestCase):
                 if "downloaded input files" in line["message"]:
                     self.assertEqual(line["downloaded"], 0)
 
+    def test_download_cache5(self):
+        # passing workflow-level URI inputs through to task, which should find them in the cache
+        wdl5 = """
+        version 1.0
+        task t {
+            input {
+                File f1
+                File f2
+            }
+            command {}
+            output {
+                Int size2 = floor(size(f1) + size(f2))
+            }
+        }
+        workflow w {
+            input {
+                Array[File] af1
+            }
+            scatter (f1 in af1) {
+                call t { input: f1 = f1 }
+            }
+            output {
+                Array[Int] sizes = t.size2
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({
+            "download_cache": {
+                "put": True,
+                "get": True,
+                "dir": os.path.join(self._dir, "cache5"),
+                "disable_patterns": ["*://google.com/*"]
+            },
+            "logging": { "json": True }
+        })
+        inp = {
+            "af1": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt", "s3://1000genomes/CHANGELOG" ],
+            "t.f2": "https://google.com/robots.txt"
+        }
+        self._run(wdl5, inp, cfg=cfg)
+        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
+            for line in logfile:
+                line = json.loads(line)
+                if "t:call-t" not in line["source"] and "downloaded input files" in line["message"]:
+                    self.assertEqual(line["downloaded"], 3)
+                if "t:call-t" in line["source"] and "downloaded input files" in line["message"]:
+                    self.assertEqual(line["downloaded"], 0)
+                    self.assertEqual(line["cached"], 2)
+
+
 class MiscRegressionTests(RunnerTestCase):
     def test_repeated_file_rewriting(self):
         wdl = """

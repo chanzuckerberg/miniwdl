@@ -223,7 +223,9 @@ class StateMachine:
     :param inputs: ``WDL.Env.Bindings[Value.Base]`` of call inputs
     """
 
-    def step(self, cfg: config.Loader) -> "Optional[StateMachine.CallInstructions]":
+    def step(
+        self, cfg: config.Loader, stdlib: StdLib.Base
+    ) -> "Optional[StateMachine.CallInstructions]":
         """
         Advance the workflow state machine, returning the next call to initiate.
 
@@ -258,7 +260,7 @@ class StateMachine:
 
             # do the job
             try:
-                res = self._do_job(cfg, job)
+                res = self._do_job(cfg, stdlib, job)
             except Exception as exn:
                 setattr(exn, "job_id", job.id)
                 raise exn
@@ -308,7 +310,7 @@ class StateMachine:
         self.waiting.add(job.id)
 
     def _do_job(
-        self, cfg: config.Loader, job: _Job
+        self, cfg: config.Loader, stdlib: StdLib.Base, job: _Job
     ) -> "Union[StateMachine.CallInstructions, Env.Bindings[Value.Base]]":
         if isinstance(job.node, Tree.Gather):
             return _gather(
@@ -330,8 +332,6 @@ class StateMachine:
                 values=envlog if len(json.dumps(envlog)) < 4096 else "(((large)))",
             )
         )
-
-        stdlib = _StdLib(self)
 
         if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
             for newjob in _scatter(self.workflow, job.node, env, job.scatter_stack, stdlib):
@@ -564,13 +564,21 @@ def _gather(
 
 class _StdLib(StdLib.Base):
     "checks against & updates the filename whitelist for the read_* and write_* functions"
+    cfg: config.Loader
     state: StateMachine
+    cache: CallCache
 
-    def __init__(self, state: StateMachine) -> None:
+    def __init__(self, cfg: config.Loader, state: StateMachine, cache: CallCache) -> None:
         super().__init__(write_dir=os.path.join(state.run_dir, "write_"))
+        self.cfg = cfg
         self.state = state
+        self.cache = cache
 
     def _devirtualize_filename(self, filename: str) -> str:
+        if downloadable(self.cfg, filename):
+            cached = self.cache.get_download(filename)
+            if cached:
+                return cached
         if filename in self.state.filename_whitelist:
             return filename
         raise InputError("attempted read from unknown or inaccessible file " + filename)
@@ -727,19 +735,17 @@ def _workflow_main_loop(
             inputs = recv["inputs"]
 
             # download input files, if needed
-            posix_inputs = _download_input_files(
-                cfg, logger, logger_id, run_dir, inputs, thread_pools[0], cache
-            )
+            _download_input_files(cfg, logger, logger_id, run_dir, inputs, thread_pools[0], cache)
 
             # run workflow state machine to completion
-            state = StateMachine(".".join(logger_id), run_dir, workflow, posix_inputs)
+            state = StateMachine(".".join(logger_id), run_dir, workflow, inputs)
             while state.outputs is None:
                 if _test_pickle:
                     state = pickle.loads(pickle.dumps(state))
                 if terminating():
                     raise Terminated()
                 # schedule all runnable calls
-                next_call = state.step(cfg)
+                next_call = state.step(cfg, _StdLib(cfg, state, cache))
                 while next_call:
                     call_dir = os.path.join(run_dir, next_call.id)
                     if os.path.exists(call_dir):
@@ -765,7 +771,7 @@ def _workflow_main_loop(
                     else:
                         assert False
                     call_futures[future] = next_call.id
-                    next_call = state.step(cfg)
+                    next_call = state.step(cfg, _StdLib(cfg, state, cache))
                 # no more calls to launch right now; wait for an outstanding call to finish
                 future = next(futures.as_completed(call_futures), None)
                 if future:
@@ -830,38 +836,38 @@ def _download_input_files(
     inputs: Env.Bindings[Value.Base],
     thread_pool: futures.ThreadPoolExecutor,
     cache: CallCache,
-) -> Env.Bindings[Value.Base]:
+) -> None:
     """
-    Find all File values in the inputs (including any nested within compound values) that need
-    to / can be downloaded. Download them to some location under run_dir and return a copy of the
-    inputs with the URI values replaced by the downloaded filenames. Parallelize the download
-    operations on thread_pool.
+    Find all File values in the inputs, including any nested within compound values, that are
+    downloadable URIs, and ensure the cache is "primed" with them -- including performing actual
+    download tasks on thread_pool, if necessary. The inputs are not modified, but the CallCache
+    will be ready to quickly produce a local filename corresponding to any URI therein, because
+    it's either stored in the persistent download cache (if enabled), or downloaded to the
+    current/parent run directory and transiently memoized.
     """
 
     # scan for URIs and schedule their downloads on the thread pool
     ops = {}
 
-    def schedule_downloads(v: Value.Base) -> None:
+    def schedule_download(uri: str) -> str:
         nonlocal ops
-        if isinstance(v, Value.File):
-            if v.value not in ops and downloadable(cfg, v.value):
-                logger.info(_("schedule input file download", uri=v.value))
-                future = thread_pool.submit(
-                    download,
-                    cfg,
-                    logger,
-                    cache,
-                    v.value,
-                    run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
-                    logger_prefix=logger_prefix + [f"download{len(ops)}"],
-                )
-                ops[future] = v.value
-        for ch in v.children:
-            schedule_downloads(ch)
+        if downloadable(cfg, uri):
+            logger.info(_("schedule input file download", uri=uri))
+            future = thread_pool.submit(
+                download,
+                cfg,
+                logger,
+                cache,
+                uri,
+                run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
+                logger_prefix=logger_prefix + [f"download{len(ops)}"],
+            )
+            ops[future] = uri
+        return uri
 
-    inputs.map(lambda b: schedule_downloads(b.value))
+    Value.rewrite_env_files(inputs, schedule_download)
     if not ops:
-        return inputs
+        return
     logger.notice(_("downloading input files", count=len(ops)))  # pyre-fixme
 
     # collect the results, with "clean" fail-fast
@@ -909,6 +915,3 @@ def _download_input_files(
             cached_bytes=cached_bytes,
         )
     )
-
-    # rewrite the input URIs to the downloaded filenames
-    return Value.rewrite_env_files(inputs, lambda uri: downloaded.get(uri, uri))
