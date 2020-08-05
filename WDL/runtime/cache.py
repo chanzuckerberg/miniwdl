@@ -181,15 +181,19 @@ class CallCache(AbstractContextManager):
         """
         logger = logger.getChild("CallCache") if logger else self._logger
         ans = filename
-        if self._cfg["download_cache"].get_bool("put"):
-            p = self.download_path(uri)
-            if p:
-                os.makedirs(os.path.dirname(p), exist_ok=True)
-                os.rename(filename, p)
-                logger.info(_("stored in download cache", uri=uri, cache_path=p))
-                ans = p
+        p = self.download_cacheable(uri)
+        if p:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            os.rename(filename, p)
+            logger.info(_("stored in download cache", uri=uri, cache_path=p))
+            ans = p
         self.flock(ans)
         return ans
+
+    def download_cacheable(self, uri: str) -> Optional[str]:
+        if not self._cfg["download_cache"].get_bool("put"):
+            return None
+        return self.download_path(uri)
 
     def flock(self, filename: str, exclusive: bool = False) -> None:
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)

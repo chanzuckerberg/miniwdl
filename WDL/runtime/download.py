@@ -127,7 +127,7 @@ def run_cached(
     cached = cache.get_download(uri, logger=logger)
     if cached:
         return True, cached
-    if not cfg["download_cache"].get_bool("put") or not cache.download_path(uri):
+    if not cache.download_cacheable(uri):
         return False, run(cfg, logger, uri, run_dir=run_dir, **kwargs)
     # run the download within the cache directory
     run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
