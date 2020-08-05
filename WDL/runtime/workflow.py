@@ -838,35 +838,34 @@ def _download_input_files(
     cache: CallCache,
 ) -> None:
     """
-    Find all File values in the inputs (including any nested within compound values) that need
-    to / can be downloaded. Download them to some location under run_dir, parallelized on
-    thread_pool, and put them into the cache (either in the persistent cache if enabled, otherwise,
-    in the transient cache just for this run). The inputs env is left as-is, but later steps
-    encountering a URI therein can expect to find it cached already.
+    Find all File values in the inputs, including any nested within compound values, that are
+    downloadable URIs, and ensure the cache is "primed" with them -- including performing actual
+    download tasks on thread_pool, if necessary. The inputs are not modified, but the CallCache
+    will be ready to quickly produce a local filename corresponding to any URI therein, because
+    it's either stored in the persistent download cache (if enabled), or downloaded to the
+    current/parent run directory and transiently memoized.
     """
 
     # scan for URIs and schedule their downloads on the thread pool
     ops = {}
 
-    def schedule_downloads(v: Value.Base) -> None:
+    def schedule_download(uri: str) -> str:
         nonlocal ops
-        if isinstance(v, Value.File):
-            if v.value not in ops and downloadable(cfg, v.value):
-                logger.info(_("schedule input file download", uri=v.value))
-                future = thread_pool.submit(
-                    download,
-                    cfg,
-                    logger,
-                    cache,
-                    v.value,
-                    run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
-                    logger_prefix=logger_prefix + [f"download{len(ops)}"],
-                )
-                ops[future] = v.value
-        for ch in v.children:
-            schedule_downloads(ch)
+        if downloadable(cfg, uri):
+            logger.info(_("schedule input file download", uri=uri))
+            future = thread_pool.submit(
+                download,
+                cfg,
+                logger,
+                cache,
+                uri,
+                run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
+                logger_prefix=logger_prefix + [f"download{len(ops)}"],
+            )
+            ops[future] = uri
+        return uri
 
-    inputs.map(lambda b: schedule_downloads(b.value))
+    Value.rewrite_env_files(inputs, schedule_download)
     if not ops:
         return
     logger.notice(_("downloading input files", count=len(ops)))  # pyre-fixme
