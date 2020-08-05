@@ -43,7 +43,7 @@ from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
 import importlib_metadata
-from .. import Env, Type, Value, Expr, Tree, StdLib
+from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .task import run_local_task, _filenames, link_outputs
 from .download import able as downloadable, run_cached as download
@@ -735,9 +735,7 @@ def _workflow_main_loop(
             inputs = recv["inputs"]
 
             # download input files, if needed
-            _download_input_files(
-                cfg, logger, logger_id, run_dir, workflow, inputs, thread_pools[0], cache
-            )
+            _download_input_files(cfg, logger, logger_id, run_dir, inputs, thread_pools[0], cache)
 
             # run workflow state machine to completion
             state = StateMachine(".".join(logger_id), run_dir, workflow, inputs)
@@ -835,7 +833,6 @@ def _download_input_files(
     logger: logging.Logger,
     logger_prefix: List[str],
     run_dir: str,
-    workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
     thread_pool: futures.ThreadPoolExecutor,
     cache: CallCache,
@@ -844,12 +841,8 @@ def _download_input_files(
     Find all File values in the inputs (including any nested within compound values) that need
     to / can be downloaded. Download them to some location under run_dir, parallelized on
     thread_pool, and put them into the cache (either in the persistent cache if enabled, otherwise,
-    in the transient cache just for this run). The inputs env is not modified, but later steps
-    encountering a URI therein can expect it to be cached, with one exception:
-
-    As an optimization, defer the download of any File URI input whose sole use is to be passed
-    directly into one, non-scattered call. Then downloading it becomes the responsibility of that
-    call, and any unrelated workflow steps may proceed without waiting for it.
+    in the transient cache just for this run). The inputs env is left as-is, but later steps
+    encountering a URI therein can expect to find it cached already.
     """
 
     # scan for URIs and schedule their downloads on the thread pool
@@ -873,11 +866,7 @@ def _download_input_files(
         for ch in v.children:
             schedule_downloads(ch)
 
-    inputs.map(
-        lambda b: schedule_downloads(b.value)
-        if not _download_deferrable(cfg, workflow, b)
-        else None
-    )
+    inputs.map(lambda b: schedule_downloads(b.value))
     if not ops:
         return
     logger.notice(_("downloading input files", count=len(ops)))  # pyre-fixme
@@ -927,65 +916,3 @@ def _download_input_files(
             cached_bytes=cached_bytes,
         )
     )
-
-
-def _download_deferrable(
-    cfg: config.Loader, workflow: Tree.Workflow, input: Env.Binding[Value.Base]
-) -> bool:
-    try:
-        # passed-through inputs meet our criteria as long as the call isn't in a scatter
-        if "." in input.name:
-            call_id = "call-" + input.name.split(".")[0]
-            return workflow.get_node(call_id).scatter_depth == 0
-
-        # if we're looking at a File input with a downloadable URI
-        decl_id = "decl-" + input.name
-        decl = workflow.get_node(decl_id)
-        assert isinstance(decl, Tree.Decl)
-        if not (
-            isinstance(decl.type, Type.File)
-            and isinstance(input.value, Value.File)
-            and downloadable(cfg, input.value.value)
-        ):
-            return False
-    except KeyError:
-        return False
-
-    # find workflow nodes that depend on this File input
-    dependers = []
-
-    def find_dependers(node: Tree.SourceNode) -> None:
-        if isinstance(node, Tree.WorkflowNode):
-            if decl_id in node.workflow_node_dependencies:
-                dependers.append(node)
-            for ch in node.children:
-                find_dependers(ch)
-
-    for ch in workflow.children:
-        find_dependers(ch)
-
-    # if the only such depender is a call (that isn't in a scatter)
-    if len(dependers) == 1:
-        depender = dependers[0]
-        if isinstance(depender, Tree.Call) and depender.scatter_depth == 0:
-
-            # find all Idents in the call inputs referring to the File input
-            idents = []
-
-            def find_idents(expr: Expr.Base) -> None:
-                if (
-                    isinstance(expr, Expr.Ident)
-                    and expr.referee
-                    and expr.referee.workflow_node_id == decl_id
-                ):
-                    idents.append(id(expr))
-                for ch in expr.children:
-                    find_idents(ch)
-
-            for rhs in depender.inputs.values():
-                find_idents(rhs)
-
-            # we need to see that there's one such Ident, bound to a call input directly
-            return len(idents) == 1 and idents[0] in (id(v) for v in depender.inputs.values())
-
-    return False
