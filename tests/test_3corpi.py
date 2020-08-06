@@ -399,6 +399,7 @@ class dxWDL(unittest.TestCase):
         "IncompleteCall": 2,
         "SelectArray": 1,
         "MissingVersion": 7,
+        "UnboundDeclaration": 1,
     },
     blacklist=["check_quant", "incomplete_call"],
 )
@@ -422,6 +423,7 @@ class Contrived(unittest.TestCase):
         "ArrayCoercion": 2,
         "SelectArray": 4,
         "MissingVersion": 11,
+        "UnboundDeclaration": 1,
     },
     check_quant=False,
     blacklist=["incomplete_call"],

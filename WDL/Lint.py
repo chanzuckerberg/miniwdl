@@ -35,10 +35,13 @@ from . import Error, Type, Env, Expr, Tree, StdLib, Walker, _util
 
 def _find_doc(obj: Error.SourceNode):
     "find the containing document"
+    if hasattr(obj, "_doc4lint"):
+        return getattr(obj, "_doc4lint")
     doc = obj
     while not isinstance(doc, Tree.Document):
         doc = getattr(doc, "parent")
         assert doc
+    setattr(obj, "_doc4lint", doc)
     return doc
 
 
@@ -1001,3 +1004,21 @@ class MissingVersion(Linter):
                     end_column=1,
                 ),
             )
+
+
+@a_linter
+class UnboundDeclaration(Linter):
+    # Unbound declaration outside of input{} section in WDL 1.0+
+    def decl(self, obj: Tree.Decl) -> Any:
+        if not obj.expr:
+            doc = _find_doc(obj)
+            if doc.wdl_version and doc.wdl_version != "draft-2":
+                exe = obj
+                while not isinstance(exe, (Tree.Task, Tree.Workflow)):
+                    exe = getattr(exe, "parent")
+                assert isinstance(exe, (Tree.Task, Tree.Workflow))
+                if obj not in (exe.inputs or []):
+                    self.add(
+                        obj,
+                        f"{obj.type} {obj.name} should either be in the input section or bound to an expression",
+                    )
