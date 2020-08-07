@@ -848,10 +848,11 @@ def _download_input_files(
 
     # scan for URIs and schedule their downloads on the thread pool
     ops = {}
+    uris = set()
 
     def schedule_download(uri: str) -> str:
-        nonlocal ops
-        if downloadable(cfg, uri):
+        nonlocal ops, uris
+        if uri not in uris and downloadable(cfg, uri):
             logger.info(_("schedule input file download", uri=uri))
             future = thread_pool.submit(
                 download,
@@ -863,6 +864,7 @@ def _download_input_files(
                 logger_prefix=logger_prefix + [f"download{len(ops)}"],
             )
             ops[future] = uri
+            uris.add(uri)
         return uri
 
     Value.rewrite_env_files(inputs, schedule_download)
