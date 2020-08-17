@@ -227,15 +227,18 @@ def awscli_downloader(
                 if [ -n "~{aws_credentials}" ]; then
                     source "~{aws_credentials}"
                 fi
-                args=""
-                if ! aws sts get-caller-identity >&2 ; then
-                    # no credentials or instance role; add --no-sign-request to allow requests for
-                    # PUBLIC objects to proceed.
-                    args="--no-sign-request"
-                fi
+                set -x
                 mkdir __out
-                cd __out
-                aws s3 cp $args "~{uri}" .
+                exit_code=0
+                aws s3 cp "~{uri}" __out/ || exit_code=$?
+                if [[ $exit_code -ne 0 ]]; then
+                    # Retry with --no-sign-request in case the object is public. Without this flag,
+                    # the previous invocation could have failed either because (i) no AWS
+                    # credentials are available or (ii) the IAM policy restricts accessible S3
+                    # buckets regardless of whether the desired object is public.
+                    rm -f __out/*
+                    aws s3 cp --no-sign-request "~{uri}" __out/
+                fi
             >>>
 
             output {
