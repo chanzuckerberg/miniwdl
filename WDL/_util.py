@@ -764,7 +764,7 @@ class FlockHolder(AbstractContextManager):
 
         :param filename: file to open & lock
         :param mode: open() mode, default: "r+b" if exclusive else "rb"
-        :param exclusive: True to open an exclusive lock (default: shared lock)p
+        :param exclusive: True to open an exclusive lock (default: shared lock)
         :param wait: True to wait as long as needed to obtain the lock, otherwise (default) raise
                      OSError if the lock isn't available immediately. Self-deadlock is possible;
                      see Python fcntl.flock docs for further details.
