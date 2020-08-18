@@ -194,7 +194,7 @@ class CallCache(AbstractContextManager):
         logger = logger.getChild("CallCache") if logger else self._logger
         ans = filename
         p = self.download_cacheable(uri)
-        if p:
+        if p and not (os.path.exists(p) and self._cfg["call_cache"].get_bool("get")):
             os.makedirs(os.path.dirname(p), exist_ok=True)
             os.rename(filename, p)
             logger.info(_("stored in download cache", uri=uri, cache_path=p))
