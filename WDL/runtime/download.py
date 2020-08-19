@@ -229,9 +229,7 @@ def awscli_downloader(
                 fi
                 set -x
                 mkdir __out
-                exit_code=0
-                aws s3 cp "~{uri}" __out/ || exit_code=$?
-                if [[ $exit_code -ne 0 ]]; then
+                if ! aws s3 cp "~{uri}" __out/ ; then
                     # Retry with --no-sign-request in case the object is public. Without this flag,
                     # the previous invocation could have failed either because (i) no AWS
                     # credentials are available or (ii) the IAM policy restricts accessible S3

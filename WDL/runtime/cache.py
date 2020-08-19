@@ -194,12 +194,30 @@ class CallCache(AbstractContextManager):
         logger = logger.getChild("CallCache") if logger else self._logger
         ans = filename
         p = self.download_cacheable(uri)
-        if p and not (os.path.exists(p) and self._cfg["call_cache"].get_bool("get")):
-            os.makedirs(os.path.dirname(p), exist_ok=True)
-            os.rename(filename, p)
-            logger.info(_("stored in download cache", uri=uri, cache_path=p))
-            ans = p
-        else:
+        if p:
+            # if a file at the cache location has appeared whilst we were downloading, replace it
+            # iff we can exclusive-flock it
+            with FlockHolder(logger) as replace_flock:
+                try:
+                    replace_flock.flock(p, mode="rb", exclusive=True)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    logger.warning(
+                        _(
+                            "existing cached file in use; leaving downloaded in-place",
+                            uri=uri,
+                            downloaded=filename,
+                            cache_path=p,
+                        )
+                    )
+                    p = None
+                if p:
+                    os.makedirs(os.path.dirname(p), exist_ok=True)
+                    os.rename(filename, p)
+                    logger.info(_("stored in download cache", uri=uri, cache_path=p))
+                    ans = p
+        if not p:
             with self._lock:
                 self._workflow_downloads[uri] = ans
         self.flock(ans)

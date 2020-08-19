@@ -292,7 +292,7 @@ class SwarmContainer(TaskContainer):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
-        client = docker.from_env()
+        client = docker.from_env(version="auto")
         worker_nodes = []
         try:
             logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
@@ -438,7 +438,7 @@ class SwarmContainer(TaskContainer):
         chmod_R_plus(self.host_dir, file_bits=0o660, dir_bits=0o770)
 
         # connect to dockerd
-        client = docker.from_env(timeout=900)
+        client = docker.from_env(version="auto", timeout=900)
         resources, user, groups = self.misc_config(logger, client)
         svc = None
         exit_code = None

@@ -36,7 +36,6 @@ from types import FrameType
 import coloredlogs
 from pythonjsonlogger import jsonlogger
 from pygtail import Pygtail
-import docker
 
 __all__: List[str] = []
 

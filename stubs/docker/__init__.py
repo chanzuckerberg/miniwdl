@@ -106,6 +106,6 @@ class DockerClient:
     def nodes(self) -> Nodes:
         ...
 
-def from_env(timeout: Optional[int] = None) -> DockerClient:
+def from_env(version: Optional[str] = None, timeout: Optional[int] = None) -> DockerClient:
     ...
 

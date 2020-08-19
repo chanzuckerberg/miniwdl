@@ -3,7 +3,7 @@
 import sys
 import docker
 
-client = docker.from_env()
+client = docker.from_env(version="auto")
 info = client.info()
 if (
     "Swarm" in info
