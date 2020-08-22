@@ -311,9 +311,18 @@ class FileCoercion(Linter):
             self(ex)
 
     # File declaration with String rhs expression
+    # exception: when rhs looks like a URI constant (typically a default reference database)
     def decl(self, obj: Tree.Decl) -> Any:
         super().decl(obj)
-        if obj.expr and _compound_coercion(obj.type, obj.expr.type, Type.File):
+        if (
+            obj.expr
+            and _compound_coercion(obj.type, obj.expr.type, Type.File)
+            and not (
+                isinstance(obj.expr, Expr.String)
+                and obj.expr.constant
+                and "://" in obj.expr.constant
+            )
+        ):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: Expr.Base) -> Any:

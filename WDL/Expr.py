@@ -354,6 +354,14 @@ class String(Base):
             if isinstance(p, Base):
                 yield p
 
+    @property
+    def constant(self) -> Optional[str]:
+        # If the expression is a constant string literal, then return that string (without quotes
+        # and with any escape sequences evaluated). Otherwise return None.
+        if next((p for p in self.parts if not isinstance(p, str)), None):
+            return None
+        return self._eval(Env.Bindings()).value
+
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.String()
 
