@@ -374,7 +374,7 @@ class ENCODE_WGBS(unittest.TestCase):
         "UnusedCall": 16,
         "NameCollision": 2,
         "OptionalCoercion": 3,
-        "FileCoercion": 3,
+        "FileCoercion": 2,
         "StringCoercion": 2,
         "UnnecessaryQuantifier": 1,
         "MissingVersion": 52,
