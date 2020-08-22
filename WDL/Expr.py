@@ -117,6 +117,16 @@ class Base(SourceNode, ABC):
         except Exception as exn:
             raise Error.EvalError(self, str(exn)) from exn
 
+    @property
+    def literal(self) -> Optional[Value.Base]:
+        """
+        If the expression is a literal constant, return its value; otherwise return None. The
+        result can be an instance of ``WDL.Value.Null`` which is distinct from None.
+        """
+        if isinstance(self, (Boolean, Int, Float)):
+            return self._eval(Env.Bindings())
+        return None
+
 
 class Boolean(Base):
     """
@@ -354,14 +364,6 @@ class String(Base):
             if isinstance(p, Base):
                 yield p
 
-    @property
-    def constant(self) -> Optional[str]:
-        # If the expression is a constant string literal, then return that string (without quotes
-        # and with any escape sequences evaluated). Otherwise return None.
-        if next((p for p in self.parts if not isinstance(p, str)), None):
-            return None
-        return self._eval(Env.Bindings()).value
-
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.String()
 
@@ -388,6 +390,12 @@ class String(Base):
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
         return Value.String("".join(ans)[1:-1])
+
+    @property
+    def literal(self) -> Optional[Value.Base]:
+        if next((p for p in self.parts if not isinstance(p, str)), None):
+            return None
+        return self._eval(Env.Bindings())
 
 
 class Array(Base):
@@ -444,6 +452,18 @@ class Array(Base):
             [item.eval(env, stdlib).coerce(self.type.item_type) for item in self.items],
         )
 
+    @property
+    def literal(self) -> Optional[Value.Base]:
+        assert isinstance(self.type, Type.Array)
+        ans = []
+        for item in self.items:
+            item_literal = item.literal
+            if item_literal:
+                ans.append(item_literal.coerce(self.type.item_type))
+            else:
+                return None
+        return Value.Array(self.type.item_type, ans)
+
 
 class Pair(Base):
     """
@@ -487,6 +507,15 @@ class Pair(Base):
         lv = self.left.eval(env, stdlib)
         rv = self.right.eval(env, stdlib)
         return Value.Pair(self.left.type, self.right.type, (lv, rv))
+
+    @property
+    def literal(self) -> Optional[Value.Base]:
+        assert isinstance(self.type, Type.Pair)
+        lv = self.left.literal
+        rv = self.right.literal
+        if lv and rv:
+            return Value.Pair(self.left.type, self.right.type, (lv, rv))
+        return None
 
 
 class Map(Base):
@@ -557,6 +586,19 @@ class Map(Base):
         # TODO: complain of duplicate keys
         return Value.Map(self.type.item_type, eitems)
 
+    @property
+    def literal(self) -> Optional[Value.Base]:
+        assert isinstance(self.type, Type.Map)
+        items = []
+        for k, v in self.items:
+            kl = k.literal
+            vl = v.literal
+            if kl and vl:
+                items.append((kl, vl))
+            else:
+                return None
+        return Value.Map(self.type.item_type, items)
+
 
 class Struct(Base):
     """
@@ -602,6 +644,18 @@ class Struct(Base):
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
+        assert isinstance(self.type, Type.Object)
+        return Value.Struct(self.type, ans)
+
+    @property
+    def literal(self) -> Optional[Value.Base]:
+        ans = {}
+        for k, v in self.members.items():
+            vl = v.literal
+            if vl:
+                ans[k] = vl
+            else:
+                return None
         assert isinstance(self.type, Type.Object)
         return Value.Struct(self.type, ans)
 

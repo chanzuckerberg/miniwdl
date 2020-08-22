@@ -2203,6 +2203,8 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
+        self.assertIsInstance(doc.workflow.body[0].expr.literal, WDL.Value.Struct)
+        self.assertIsNone(doc.tasks[0].outputs[0].expr.literal)
 
         # quickly check task pickle-ability with struct types
         pickled_task = pickle.dumps(doc.tasks[0])

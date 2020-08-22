@@ -300,9 +300,10 @@ def _add_downloadable_default_files(
             isinstance(b.value.type, Type.File)
             and b.name not in ans
             and isinstance(b.value.expr, Expr.String)
-            and downloadable(cfg, b.value.expr.constant)
         ):
-            ans = ans.bind(b.name, Value.File(b.value.expr.constant, b.value.expr))  # pyre-fixme
+            maybe_uri = b.value.expr.literal
+            if maybe_uri and downloadable(cfg, maybe_uri.value):
+                ans = ans.bind(b.name, Value.File(maybe_uri.value, b.value.expr))
     return ans
 
 

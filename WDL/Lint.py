@@ -319,8 +319,8 @@ class FileCoercion(Linter):
             and _compound_coercion(obj.type, obj.expr.type, Type.File)
             and not (
                 isinstance(obj.expr, Expr.String)
-                and obj.expr.constant
-                and "://" in obj.expr.constant
+                and obj.expr.literal
+                and "://" in obj.expr.literal.value
             )
         ):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
