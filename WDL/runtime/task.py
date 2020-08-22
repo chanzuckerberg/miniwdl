@@ -15,7 +15,7 @@ import re
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any, Union
 from contextlib import ExitStack
 
-from .. import Error, Type, Env, Value, StdLib, Tree, _util
+from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
 from .._util import (
     write_atomic,
     write_values_json,
@@ -146,7 +146,12 @@ def run_local_task(
 
                 # download input files, if needed
                 posix_inputs = _download_input_files(
-                    cfg, logger, logger_prefix, run_dir, inputs, cache
+                    cfg,
+                    logger,
+                    logger_prefix,
+                    run_dir,
+                    _add_downloadable_default_files(cfg, task.available_inputs, inputs),
+                    cache,
                 )
 
                 # create TaskContainer according to configuration
@@ -275,6 +280,30 @@ def _download_input_files(
                 cached_bytes=cached_bytes,
             )
         )
+    return ans
+
+
+def _add_downloadable_default_files(
+    cfg: config.Loader, available_inputs: Env.Bindings[Tree.Decl], inputs: Env.Bindings[Value.Base],
+) -> Env.Bindings[Value.Base]:
+    """
+    Helper for File URI downloading: look for available File inputs that default to a string
+    constant appearing to be a downloadable URI. For each one, add the default binding to the
+    user-supplied inputs (if not already overridden in them).
+
+    This is to trigger download of the default URIs even though we otherwise don't evaluate input
+    declarations until after processing downloads.
+    """
+    ans = inputs
+    for b in available_inputs:
+        if (
+            isinstance(b.value.type, Type.File)
+            and b.name not in ans
+            and isinstance(b.value.expr, Expr.String)
+        ):
+            maybe_uri = b.value.expr.literal
+            if maybe_uri and downloadable(cfg, maybe_uri.value):
+                ans = ans.bind(b.name, Value.File(maybe_uri.value, b.value.expr))
     return ans
 
 

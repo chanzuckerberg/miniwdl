@@ -61,11 +61,11 @@ def _downloader(
     return getattr(cfg, "_downloaders").get(scheme, None)
 
 
-def able(cfg: config.Loader, uri: str) -> bool:
+def able(cfg: config.Loader, uri: Optional[str]) -> bool:
     """
     Returns True if uri appears to be a URI we know how to download
     """
-    return _downloader(cfg, uri) is not None
+    return bool(uri and _downloader(cfg, uri) is not None)
 
 
 def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:

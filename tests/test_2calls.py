@@ -103,6 +103,9 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
         doc = WDL.parse_document(txt)
         doc.typecheck(check_quant=False)
+        self.assertIsInstance(doc.workflow.body[0].expr.literal, WDL.Value.Int)
+        self.assertIsInstance(doc.workflow.body[1].expr.literal, WDL.Value.String)
+        self.assertIsNone(doc.workflow.body[2].expr.literal)
 
         txt = tsk + r"""
         workflow contrived {
@@ -115,6 +118,7 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
         doc = WDL.parse_document(txt)
         doc.typecheck(check_quant=False)
+        self.assertIsNone(doc.workflow.body[1].expr.literal)
 
         # TODO: test quant checking in Map & other composite types
 

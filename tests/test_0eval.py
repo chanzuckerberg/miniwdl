@@ -70,6 +70,7 @@ class TestEval(unittest.TestCase):
         self.assertEqual(str(val), "true")
         self.assertEqual(val, WDL.Value.Boolean(True))
         self.assertNotEqual(val, WDL.Value.Boolean(False))
+        self.assertIsInstance(expr.literal, WDL.Value.Boolean)
 
         expr = WDL.parse_expr("false")
         expr.infer_type([])
@@ -109,8 +110,11 @@ class TestEval(unittest.TestCase):
                 with self.assertRaises(exn, msg=expected):
                     x = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env)
             else:
-                v = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env).expect(expected_type)
+                ex = WDL.parse_expr(expr, version=version).infer_type(type_env)
+                v = ex.eval(env).expect(expected_type)
                 self.assertEqual(str(v), expected, str(expr))
+                if ex.literal:
+                    self.assertEqual(str(ex.literal), expected)
 
     def test_logic(self):
         self._test_tuples(
@@ -220,6 +224,7 @@ class TestEval(unittest.TestCase):
         self.assertIsInstance(val, WDL.Value.Array)
         self.assertEqual(str(val.type), "Array[Boolean]+")
         self.assertEqual(str(val), "[true, false]")
+        self.assertIsInstance(expr.literal, WDL.Value.Array)
 
         self._test_tuples(
             ("[true, false][0]", "true"),

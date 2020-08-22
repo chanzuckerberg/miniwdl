@@ -183,6 +183,16 @@ class TestDownload(RunnerTestCase):
                 Int size2 = floor(size(f1) + size(f2))
             }
         }
+        task u {
+            input {
+                File f1
+                File f2 = "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"
+            }
+            command {}
+            output {
+                Int size2 = floor(size(f1) + size(f2))
+            }
+        }
         workflow w {
             input {
                 Array[File] af1
@@ -190,8 +200,10 @@ class TestDownload(RunnerTestCase):
             scatter (f1 in af1) {
                 call t { input: f1 = f1 }
             }
+            call u
             output {
                 Array[Int] sizes = t.size2
+                Int size2 = u.size2
             }
         }
         """
@@ -206,16 +218,24 @@ class TestDownload(RunnerTestCase):
             "logging": { "json": True }
         })
         inp = {
-            "af1": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt", "s3://1000genomes/CHANGELOG" ],
-            "t.f2": "https://google.com/robots.txt"
+            "af1": ["s3://1000genomes/CHANGELOG", "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt"],
+            "t.f2": "https://google.com/robots.txt",
+            "u.f1": "https://google.com/robots.txt"
         }
         self._run(wdl5, inp, cfg=cfg)
         with open(os.path.join(self._rundir, "workflow.log")) as logfile:
             for line in logfile:
                 line = json.loads(line)
-                if "t:call-t" not in line["source"] and "downloaded input files" in line["message"]:
-                    self.assertEqual(line["downloaded"], 3)
+                if (
+                    "t:call-t" not in line["source"]
+                    and "t:call-u" not in line["source"]
+                    and "downloaded input files" in line["message"]
+                ):
+                    self.assertEqual(line["downloaded"], 4)
                 if "t:call-t" in line["source"] and "downloaded input files" in line["message"]:
+                    self.assertEqual(line["downloaded"], 0)
+                    self.assertEqual(line["cached"], 2)
+                if "t:call-u" in line["source"] and "downloaded input files" in line["message"]:
                     self.assertEqual(line["downloaded"], 0)
                     self.assertEqual(line["cached"], 2)
 

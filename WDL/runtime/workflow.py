@@ -45,7 +45,7 @@ from contextlib import ExitStack
 import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .task import run_local_task, _filenames, link_outputs
+from .task import run_local_task, _filenames, link_outputs, _add_downloadable_default_files
 from .download import able as downloadable, run_cached as download
 from .._util import (
     write_atomic,
@@ -735,7 +735,15 @@ def _workflow_main_loop(
             inputs = recv["inputs"]
 
             # download input files, if needed
-            _download_input_files(cfg, logger, logger_id, run_dir, inputs, thread_pools[0], cache)
+            _download_input_files(
+                cfg,
+                logger,
+                logger_id,
+                run_dir,
+                _add_downloadable_default_files(cfg, workflow.available_inputs, inputs),
+                thread_pools[0],
+                cache,
+            )
 
             # run workflow state machine to completion
             state = StateMachine(".".join(logger_id), run_dir, workflow, inputs)
