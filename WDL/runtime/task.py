@@ -63,7 +63,6 @@ def run_local_task(
     logger_prefix = (logger_prefix or ["wdl"]) + ["t:" + run_id]
     logger = logging.getLogger(".".join(logger_prefix))
     with ExitStack() as cleanup:
-        cleanup.enter_context(_statusbar.task_slotted())
         terminating = cleanup.enter_context(TerminationSignalFlag(logger))
         if terminating():
             raise Terminated(quiet=True)
@@ -88,9 +87,9 @@ def run_local_task(
                 line=task.pos.line,
                 column=task.pos.column,
                 dir=run_dir,
+                thread=threading.get_ident(),
             )
         )
-        logger.info(_("thread", ident=threading.get_ident()))
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
@@ -177,6 +176,7 @@ def run_local_task(
                 command, container = (recv[k] for k in ("command", "container"))
 
                 # start container & run command (and retry if needed)
+                cleanup.enter_context(_statusbar.task_slotted())
                 _try_task(cfg, logger, container, command, terminating)
 
                 # evaluate output declarations
