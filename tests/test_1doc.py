@@ -504,6 +504,8 @@ class TestTypes(unittest.TestCase):
         }
         """)
         doc.typecheck()
+        for outp in doc.workflow.outputs:
+            self.assertIsNone(outp.expr.literal)
 
         with self.assertRaises(WDL.Error.ValidationError):
             doc = WDL.parse_document("""
