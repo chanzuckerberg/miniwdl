@@ -1,8 +1,10 @@
+import glob
 import json
 import logging
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -74,6 +76,8 @@ class TestTaskRunner(unittest.TestCase):
                 File o_json = json
                 File a_tsv = tsv
                 File whynot = write_lines(["foo","bar","baz"])
+                Int count = 13
+                String ans = stdout()
             }
         }
         """
@@ -132,7 +136,7 @@ class TestTaskRunner(unittest.TestCase):
 
         return rundir, outputs
 
-    def xtest_input_digest_sorts_keys(self):
+    def test_input_digest_sorts_keys(self):
         # Note this fails if input array is reordered
 
         ordered_inputs = values_from_json(
@@ -148,7 +152,7 @@ class TestTaskRunner(unittest.TestCase):
         unordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
 
-    def xtest_normalization(self):
+    def test_normalization(self):
         desc = WDL.runtime.cache._describe_task(self.doc, self.doc.tasks[0])
         self.assertEqual(desc, R"""
 version 1.0
@@ -168,7 +172,7 @@ Int count = 12
 }
         """.strip())
 
-    def xtest_task_input_cache_matches_output(self):
+    def test_task_input_cache_matches_output(self):
         # run task, check output matches what was stored in run_dir
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
@@ -180,7 +184,7 @@ Int count = 12
             read_data = json.loads(f.read())
         self.assertEqual(read_data, WDL.values_to_json(outputs))
 
-    def xtest_cache_prevents_task_rerun(self):
+    def test_cache_prevents_task_rerun(self):
         # run task twice, check _try_task not called for second run
 
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
@@ -201,7 +205,7 @@ Int count = 12
 
         self.assertEqual(new_mock.call_count, 0)
 
-    def xtest_default_config_does_not_use_cache(self):
+    def test_default_config_does_not_use_cache(self):
         # run task twice, check _try_task called for second run
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
@@ -221,7 +225,7 @@ Int count = 12
 
         self.assertEqual(new_mock.call_count, 1)
 
-    def xtest_get_cache_return_value_matches_outputs(self):
+    def test_get_cache_return_value_matches_outputs(self):
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
@@ -232,7 +236,7 @@ Int count = 12
                                 output_types=self.doc.tasks[0].effective_outputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 
-    def xtest_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
+    def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""
                version 1.0
@@ -262,7 +266,7 @@ Int count = 12
 
         self.assertEqual(mock.call_count, 1)
 
-    def xtest_a_task_with_the_same_inputs_and_different_outputs_doesnt_pull_from_the_cache(self):
+    def test_a_task_with_the_same_inputs_and_different_outputs_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""
                   version 1.0
@@ -292,7 +296,7 @@ Int count = 12
 
         self.assertEqual(mock.call_count, 1)
 
-    def xtest_struct_handling(self):
+    def test_struct_handling(self):
         with open(os.path.join(self._dir, "randomFile.txt"), "w") as outfile:
             outfile.write("Gotta put something here")
         inputs = {"box": {"str": [os.path.join(self._dir, "randomFile.txt")]}}
@@ -314,7 +318,6 @@ Int count = 12
     def test_cache_not_used_when_output_files_deleted(self):
         inputs = {"who": "Alyssa"}
         self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
-
         # test mock is not called once cache is available
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
@@ -324,44 +327,39 @@ Int count = 12
         self.assertEqual(mock.call_count, 0)
 
         # delete files
-        import pdb
-        # pdb.set_trace()
-        shutil.rmtree(f"{self._dir}/*_hello/out/a_tsv")
-        # shutil.rmtree(f"{self._dir}/{os.listdir(self._dir)[1]}/out/a_tsv")
+        for x in glob.glob(f"{self._dir}/*_hello/out/a_tsv"):
+            shutil.rmtree(x)
 
-
-        # pdb.set_trace()
+        # test mock is called now that cached file has been deleted
         with patch('WDL.runtime.task._try_task', mock):
             self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
 
+    def test_cache_not_used_when_output_files_updated_after_cache_creation(self):
+        inputs = {"who": "Bethie"}
+        self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
+        # change modified time on outputs
+        time.sleep(2)
+        for x in glob.glob(f"{self._dir}/*_hello/out/a_tsv/*"):
+            os.utime(x)
 
+        # check that mock is called now that output file is older than cache file
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch('WDL.runtime.task._try_task', mock):
 
-    def xtest_cache_not_used_when_output_files_updated_after_cache_creation(self):
-        outputs = self._test_task(R"""
-        version 1.0
-        task hello {
-            String who
-            File foo = write_lines(["foo","bar","baz"])
-            File tsv = write_tsv([["one", "two", "three"], ["un", "deux", "trois"]])
-            File json = write_json({"key1": "value1", "key2": "value2"})
-            File map = write_map({"key1": "value1", "key2": "value2"})
+            self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 1)
 
-            command <<<
-                echo "Hello, ~{who}!"
-            >>>
+    def test_cache_not_used_when_output_files_but_not__sym_links_updated_after_cache_creation(self):
+        inputs = {"who": "Bethie"}
+        self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
+        # change modified time on outputs
+        time.sleep(2)
+        for x in glob.glob(f"{self._dir}/*_hello/out/a_tsv/*"):
+            os.utime(x, follow_symlinks=False)
 
-            output {
-                File o_json = json
-                File a_tsv = tsv
-                Map[String,String] o_map = read_map(map)
-                File whynot = write_lines(["foo","bar","baz"])
-            }
-        }
-        """)
-        # check
-        with open(outputs["o_json"]) as curr_file:
-            self.assertEqual(json.load(curr_file), {"key1": "value1", "key2": "value2"})
-        with open(outputs["whynot"]) as curr_file:
-            self.assertEqual(json.load(curr_file), {"key1": "value1", "key2": "value2"})
-
+        # check that mock is called now that output file is older than cache file
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 1)

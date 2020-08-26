@@ -16,11 +16,15 @@ from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
 from threading import Lock
 
-import WDL
 from . import config
 
 from .. import Env, Value, Type, Document, Tree, Error
-from .._util import StructuredLogMessage as _, FlockHolder, write_atomic
+from ..Value import Base, File
+from .._util import (
+    StructuredLogMessage as _,
+    FlockHolder,
+    write_atomic,
+)
 
 
 class CallCache(AbstractContextManager):
@@ -81,7 +85,7 @@ class CallCache(AbstractContextManager):
 
         file_path = os.path.join(self.call_cache_dir, f"{key}.json")
         file_coherence_checker = FileCoherence(self._logger)
-        # files = WDL.Value.rewrite_env_files
+
         if not self._cfg["call_cache"].get_bool("get"):
             return None
 
@@ -93,7 +97,10 @@ class CallCache(AbstractContextManager):
             return None
         contents = json.loads(contents)
         self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
-        return values_from_json(contents, output_types)  # pyre-fixme
+        cache = values_from_json(contents, output_types)  # pyre-fixme
+        files = Value.rewrite_env_files(cache, lambda file: file)
+        if file_coherence_checker.check_output_files(file_path, files):
+            return cache
 
     def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base]) -> None:
         """
@@ -329,29 +336,31 @@ class FileCoherence(abc.ABC):
 
     def __init__(self, logger):
         self._logger = logger.getChild("FileCoherence")
-        self.cache_file_modification_time = 0
+        self.cache_file_modification_time = 0.0
+
+    def check_output_files(self, cache_file_path: str, cache_output: Env.Bindings[Base]) -> bool:
+        if self.cache_file_modification_time == 0.0:
+            self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
+        for output in cache_output:
+            if type(output._value) == File:
+                file_path = output._value.value
+                try:
+                    assert self.check_cache_younger_than_file(output_file_path=file_path) is True
+                except (FileNotFoundError, AssertionError):
+                    self._logger.info(
+                        f"Issue with file referenced in cached task output. Rerunning task. "
+                        f"Has {file_path} been deleted or updated since the cache was created?"
+                    )
+                    return False
+        return True
 
     def get_last_modified_time(self, file_path: str) -> float:
         # returned as seconds since epoch
-        return os.lstat(file_path).st_mtime
+        file_modification_time = os.path.getmtime(file_path)
+        sym_link_modification_time = os.lstat(file_path).st_mtime
 
-    def check_cache_younger_than_file(self, cache_file_path: str, output_file_path: str) -> bool:
-        if self.cache_file_modification_time == 0:
-            self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
+        return max(file_modification_time, sym_link_modification_time)
+
+    def check_cache_younger_than_file(self, output_file_path: str) -> bool:
         output_file_modification_time = self.get_last_modified_time(output_file_path)
         return self.cache_file_modification_time > output_file_modification_time
-
-
-class S3FileCoherence(FileCoherence):
-    _logger: logging.Logger
-
-    def __init__(self, logger):
-        # super().__init__(logger=logger)
-        self._logger = logger.getChild("S3FileCoherence")
-        self.cache_file_modification_time = 0
-
-    def get_last_modified_time(self, file_path):
-        pass
-
-    def check_cache_younger_than_file(self, cache_file_path: str, output_file_path:str) -> bool:
-        pass
