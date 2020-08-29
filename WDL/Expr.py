@@ -266,7 +266,7 @@ class Placeholder(Base):
         if isinstance(self.expr.type, Type.Array):
             if "sep" not in self.options:
                 raise Error.IncompatibleOperand(
-                    self, "provide `sep'arator string to interpolate array items",
+                    self, "provide `sep'arator string to interpolate array items"
                 )
             # if sum(1 for t in [Type.Int, Type.Float, Type.Boolean, Type.String, Type.File] if isinstance(self.expr.type.item_type, t)) == 0:  # noqa
             #    raise Error.StaticTypeMismatch(self, Type.Array(Type.Any()), self.expr.type, "cannot use array of complex types for command placeholder")  # noqa

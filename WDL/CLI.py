@@ -1028,7 +1028,7 @@ def runner_input_value(s_value, ty, file_found, root):
 
 def fill_run_self_test_subparser(subparsers):
     run_parser = subparsers.add_parser(
-        "run_self_test", help="Run a short built-in workflow to test system configuration",
+        "run_self_test", help="Run a short built-in workflow to test system configuration"
     )
     run_parser.add_argument(
         "--dir",

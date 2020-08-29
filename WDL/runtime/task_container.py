@@ -159,7 +159,7 @@ class TaskContainer(ABC):
             os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
             shutil.copy(host_filename, host_copy_filename)
 
-    def run(self, logger: logging.Logger, command: str,) -> None:
+    def run(self, logger: logging.Logger, command: str) -> None:
         """
         1. Container is instantiated with the configured mounts and resources
         2. The mounted directory and all subdirectories have u+rwx,g+rwx permission bits; all files
@@ -193,7 +193,7 @@ class TaskContainer(ABC):
                     ) if not terminating() else Terminated()
 
     @abstractmethod
-    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str,) -> int:
+    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         # run command in container & return exit status
         raise NotImplementedError()
 
@@ -419,7 +419,7 @@ class SwarmContainer(TaskContainer):
         # them individually
         self._bind_input_files = False
 
-    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str,) -> int:
+    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)

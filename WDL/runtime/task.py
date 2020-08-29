@@ -284,7 +284,7 @@ def _download_input_files(
 
 
 def _add_downloadable_default_files(
-    cfg: config.Loader, available_inputs: Env.Bindings[Tree.Decl], inputs: Env.Bindings[Value.Base],
+    cfg: config.Loader, available_inputs: Env.Bindings[Tree.Decl], inputs: Env.Bindings[Value.Base]
 ) -> Env.Bindings[Value.Base]:
     """
     Helper for File URI downloading: look for available File inputs that default to a string
@@ -415,7 +415,7 @@ def _eval_task_runtime(
         cpu_max = cfg["task_runtime"].get_int("cpu_max")
         if cpu_max == 0:
             cpu_max = host_limits["cpu"]
-        cpu = max(1, cpu_value if cpu_value <= cpu_max or cpu_max < 0 else cpu_max,)
+        cpu = max(1, cpu_value if cpu_value <= cpu_max or cpu_max < 0 else cpu_max)
         if cpu != cpu_value:
             logger.warning(
                 _("runtime.cpu adjusted to host limit", original=cpu_value, adjusted=cpu)
@@ -661,7 +661,7 @@ def link_outputs(
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_files(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name),),
+            map_files(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
         )
     )
 

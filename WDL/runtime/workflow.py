@@ -774,7 +774,7 @@ def _workflow_main_loop(
                         future = thread_pools[0].submit(run_local_task, *sub_args, **sub_kwargs)
                     elif isinstance(next_call.callee, Tree.Workflow):
                         future = thread_pools[1].submit(
-                            run_local_workflow, *sub_args, **sub_kwargs, _thread_pools=thread_pools,
+                            run_local_workflow, *sub_args, **sub_kwargs, _thread_pools=thread_pools
                         )
                     else:
                         assert False
@@ -828,7 +828,7 @@ def _workflow_main_loop(
             logger.error(_(str(wrapper), dir=run_dir, **error_json(exn)))
         elif not isinstance(exn.__cause__, Terminated):
             logger.error(
-                _("call failure propagating", **{"from": getattr(exn, "run_id"), "dir": run_dir},)
+                _("call failure propagating", **{"from": getattr(exn, "run_id"), "dir": run_dir})
             )
         # Cancel all future tasks that havent started
         for key in call_futures:
