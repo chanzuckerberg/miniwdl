@@ -72,9 +72,7 @@ class DownloadFailed(_RuntimeError):
 
 
 class RunFailed(_RuntimeError):
-    """
-
-    """
+    """"""
 
     exe: Union[_Task, _Workflow]
     run_id: str
