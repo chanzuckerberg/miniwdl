@@ -18,11 +18,7 @@ from threading import Lock
 from . import config
 
 from .. import Env, Value, Type, Document, Tree, Error
-from .._util import (
-    StructuredLogMessage as _,
-    FlockHolder,
-    write_atomic,
-)
+from .._util import StructuredLogMessage as _, FlockHolder, write_atomic
 
 
 class CallCache(AbstractContextManager):
@@ -72,7 +68,7 @@ class CallCache(AbstractContextManager):
         return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
     def get(
-        self, key: str, output_types: Env.Bindings[Type.Base],
+        self, key: str, output_types: Env.Bindings[Type.Base]
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found,
@@ -95,7 +91,7 @@ class CallCache(AbstractContextManager):
         self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
         return values_from_json(contents, output_types)  # pyre-fixme
 
-    def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base],) -> None:
+    def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base]) -> None:
         """
         Store call outputs for future reuse
         """
@@ -109,8 +105,7 @@ class CallCache(AbstractContextManager):
             Path(filepath).mkdir(parents=True, exist_ok=True)
 
             write_atomic(
-                json.dumps(values_to_json(outputs, namespace=""), indent=2),  # pyre-ignore
-                filename,
+                json.dumps(values_to_json(outputs, namespace=""), indent=2), filename  # pyre-ignore
             )
             self._logger.info(_("call cache insert", cache_path=filename))
 
@@ -184,9 +179,7 @@ class CallCache(AbstractContextManager):
             )
             return None
 
-    def put_download(
-        self, uri: str, filename: str, logger: Optional[logging.Logger] = None,
-    ) -> str:
+    def put_download(self, uri: str, filename: str, logger: Optional[logging.Logger] = None) -> str:
         """
         Move the downloaded file to the cache location & return the new path; or if the uri isn't
         cacheable, return the given path.

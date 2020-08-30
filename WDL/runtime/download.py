@@ -51,7 +51,7 @@ def _load(cfg: config.Loader):
 
 
 def _downloader(
-    cfg: config.Loader, uri: str,
+    cfg: config.Loader, uri: str
 ) -> Optional[Callable[..., Generator[Dict[str, Any], Dict[str, Any], None]]]:
     _load(cfg)
     colon = uri.find(":")
@@ -250,10 +250,7 @@ def awscli_downloader(
             }
         }
         """
-        recv = yield {
-            "task_wdl": wdl,
-            "inputs": inputs,
-        }
+        recv = yield {"task_wdl": wdl, "inputs": inputs}
     yield recv  # pyre-ignore
 
 

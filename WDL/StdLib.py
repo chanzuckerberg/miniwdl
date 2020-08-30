@@ -150,7 +150,9 @@ class Base:
     ) -> Callable[[Value.Base], Value.File]:
         "generate write_* function implementation based on serialize"
 
-        def _f(v: Value.Base,) -> Value.File:
+        def _f(
+            v: Value.Base,
+        ) -> Value.File:
             os.makedirs(self._write_dir, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=self._write_dir, delete=False) as outfile:
                 outfile: BinaryIO = outfile  # pyre-ignore
