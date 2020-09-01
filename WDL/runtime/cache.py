@@ -17,6 +17,7 @@ from fnmatch import fnmatchcase
 from threading import Lock
 
 from . import config
+from .error import CacheOutputFileAgeError
 
 from .. import Env, Value, Type, Document, Tree, Error
 from ..Value import Base, File
@@ -345,12 +346,14 @@ class FileCoherence(abc.ABC):
             if type(output._value) == File:
                 file_path = output._value.value
                 try:
-                    assert self.check_cache_younger_than_file(output_file_path=file_path) is True
-                except (FileNotFoundError, AssertionError):
+                    self.check_cache_younger_than_file(output_file_path=file_path)
+                except (FileNotFoundError, CacheOutputFileAgeError):
                     self._logger.info(
-                        f"Issue with file referenced in cached task output. Rerunning task. "
+                        f"Issue with file referenced in cached task output. "
                         f"Has {file_path} been deleted or updated since the cache was created?"
                     )
+                    os.remove(cache_file_path)
+                    self._logger.info("Deleted cached task output, running task")
                     return False
         return True
 
@@ -363,4 +366,7 @@ class FileCoherence(abc.ABC):
 
     def check_cache_younger_than_file(self, output_file_path: str) -> bool:
         output_file_modification_time = self.get_last_modified_time(output_file_path)
-        return self.cache_file_modification_time > output_file_modification_time
+        if self.cache_file_modification_time > output_file_modification_time:
+            return True
+        else:
+            raise CacheOutputFileAgeError
