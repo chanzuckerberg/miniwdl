@@ -158,7 +158,10 @@ class TaskContainer(ABC):
 
             logger.info(_("copy host input file", input=host_filename, copy=host_copy_filename))
             os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
-            shutil.copy(host_filename, host_copy_filename)
+            if os.path.isdir(host_filename):
+                shutil.copytree(host_filename, host_copy_filename, symlinks=False)
+            else:
+                shutil.copy(host_filename, host_copy_filename)
 
     def run(self, logger: logging.Logger, command: str) -> None:
         """

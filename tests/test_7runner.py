@@ -75,11 +75,15 @@ class TestDirectoryInputs(RunnerTestCase):
         task t {
             input {
                 Directory d
+                Boolean touch = false
             }
             command {
                 set -euxo pipefail
                 mkdir outdir
                 cp "~{d}"/* outdir/
+                if [ "~{touch}" == "true" ]; then
+                    touch "~{d}"/foo
+                fi
                 >&2 ls -Rl
             }
             output {
@@ -95,6 +99,13 @@ class TestDirectoryInputs(RunnerTestCase):
         outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
         assert outp["dsz"] == 10
 
+        with self.assertRaises(WDL.runtime.error.RunFailed):
+            self._run(wdl, {"d": os.path.join(self._dir, "d"), "t.touch": True})
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"copy_input_files": True}})
+        outp = self._run(wdl, {"d": os.path.join(self._dir, "d"), "t.touch": True}, cfg=cfg)
+        assert outp["dsz"] == 10
 
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
