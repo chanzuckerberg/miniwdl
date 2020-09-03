@@ -13,6 +13,7 @@ import base64
 import uuid
 import hashlib
 import shlex
+import stat
 from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Optional
 from abc import ABC, abstractmethod
 import docker
@@ -123,8 +124,8 @@ class TaskContainer(ABC):
         host_files_by_dir = {}
         for host_file in host_files:
             if host_file not in self.input_file_map:
-                if not os.path.isfile(host_file):
-                    raise Error.InputError("input file not found: " + host_file)
+                if not os.path.exists(host_file):
+                    raise Error.InputError("input path not found: " + host_file)
                 host_files_by_dir.setdefault(os.path.dirname(host_file), set()).add(host_file)
 
         # for each such partition of files
@@ -530,16 +531,19 @@ class SwarmContainer(TaskContainer):
                 logger.exception("failed to close docker-py client")
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
-        def touch_mount_point(container_file: str) -> None:
+        def touch_mount_point(container_file: str, is_dir: bool = False) -> None:
             # touching each mount point ensures they'll be owned by invoking user:group
             assert container_file.startswith(self.container_dir + "/")
             host_file = os.path.join(
                 self.host_dir, os.path.relpath(container_file, self.container_dir)
             )
             assert host_file.startswith(self.host_dir + "/")
-            os.makedirs(os.path.dirname(host_file), exist_ok=True)
-            with open(host_file, "x") as _:
-                pass
+            if is_dir:
+                os.makedirs(host_file, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(host_file), exist_ok=True)
+                with open(host_file, "x") as _:
+                    pass
 
         def escape(s):
             # docker processes {{ interpolations }}
@@ -552,7 +556,8 @@ class SwarmContainer(TaskContainer):
             for host_path, container_path in self.input_file_map.items():
                 st = os.stat(host_path)
                 if perm_warn and not (
-                    (st.st_mode & 4) or (st.st_gid == os.getegid() and (st.st_mode & 0o40))
+                    (st.st_mode & stat.S_IROTH)
+                    or (st.st_gid == os.getegid() and (st.st_mode & stat.S_IRGRP))
                 ):
                     # file is neither world-readable, nor group-readable for the invoking user's primary group
                     logger.warning(
@@ -563,7 +568,7 @@ class SwarmContainer(TaskContainer):
                         )
                     )
                     perm_warn = False
-                touch_mount_point(container_path)
+                touch_mount_point(container_path, is_dir=stat.S_ISDIR(st.st_mode))
                 mounts.append(
                     docker.types.Mount(
                         escape(container_path), escape(host_path), type="bind", read_only=True

@@ -233,6 +233,8 @@ class _DocTransformer(_ExprTransformer):
             "String": Type.String,
             "File": Type.File,
         }
+        if self._version not in ("draft-2", "1.0"):
+            atomic_types["Directory"] = Type.Directory
         if items[0].value in atomic_types:
             if param or param2:
                 raise Error.InvalidType(

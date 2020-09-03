@@ -152,6 +152,8 @@ class String(Base):
         ""
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
             return File(self.value, self.expr)
+        if isinstance(desired_type, Type.Directory) and not isinstance(self, Directory):
+            return Directory(self.value, self.expr)
         try:
             if isinstance(desired_type, Type.Int):
                 return Int(int(self.value), self.expr)
@@ -173,6 +175,19 @@ class File(String):
             # special case for dealing with File? task outputs; see _eval_task_outputs in
             # runtime/task.py. Only on that path should self.value possibly be None.
             if isinstance(desired_type, Type.File) and desired_type.optional:
+                return Null(self.expr)
+            else:
+                raise FileNotFoundError()
+        return super().coerce(desired_type)
+
+
+class Directory(String):
+    """``value`` has Python type ``str``"""
+
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+        ""
+        if self.value is None:
+            if isinstance(desired_type, Type.Directory) and desired_type.optional:
                 return Null(self.expr)
             else:
                 raise FileNotFoundError()
@@ -412,6 +427,8 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return Float(float(value))
     if isinstance(type, Type.File) and isinstance(value, str):
         return File(value)
+    if isinstance(type, Type.Directory) and isinstance(value, str):
+        return Directory(value)
     if isinstance(type, (Type.String, Type.Any)) and isinstance(value, str):
         return String(value)
     if isinstance(type, Type.Array) and isinstance(value, list):
@@ -495,3 +512,32 @@ def rewrite_env_files(env: Env.Bindings[Base], f: Callable[[str], str]) -> Env.B
     Produce a deep copy of the given Value Env with all File names rewritten by the given function.
     """
     return env.map(lambda binding: Env.Binding(binding.name, rewrite_files(binding.value, f)))
+
+
+def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], str]) -> Base:
+    """
+    Produce a deep copy of the given Value with all File & Directory paths (including those nested
+    inside compound Values) rewritten by the given function.
+    """
+
+    mapped_paths = set()
+
+    def map_paths(v2: Base) -> Base:
+        if isinstance(v2, (File, Directory)):
+            assert id(v2) not in mapped_paths, f"File/Directory {id(v2)} reused in deepcopy"
+            v2.value = f(v2)
+            mapped_paths.add(id(v2))
+        for ch in v2.children:
+            map_paths(ch)
+        return v2
+
+    return map_paths(copy.deepcopy(v))
+
+
+def rewrite_env_paths(
+    env: Env.Bindings[Base], f: Callable[[Union[File, Directory]], str]
+) -> Env.Bindings[Base]:
+    """
+    Produce a deep copy of the given Value Env with all File names rewritten by the given function.
+    """
+    return env.map(lambda binding: Env.Binding(binding.name, rewrite_paths(binding.value, f)))

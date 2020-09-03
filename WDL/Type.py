@@ -174,13 +174,24 @@ class File(Base):
         return super().coerces(rhs, check_quant)
 
 
+class Directory(Base):
+    def __init__(self, optional: bool = False) -> None:
+        self._optional = optional
+
+    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+        ""
+        if isinstance(rhs, String):
+            return True
+        return super().coerces(rhs, check_quant)
+
+
 class String(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
-        if isinstance(rhs, (File, Int, Float)):
+        if isinstance(rhs, (File, Directory, Int, Float)):
             return self._check_optional(rhs, check_quant)
         return super().coerces(rhs, check_quant)
 

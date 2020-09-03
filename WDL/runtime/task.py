@@ -318,10 +318,10 @@ def _eval_task_inputs(
     container.add_files(_filenames(posix_inputs))
 
     # copy posix_inputs with all Files mapped to their in-container paths
-    def map_files(fn: str) -> str:
-        return container.input_file_map[fn]
+    def map_paths(fn: Union[Value.File, Value.Directory]) -> str:
+        return container.input_file_map[fn.value]
 
-    container_inputs = Value.rewrite_env_files(posix_inputs, map_files)
+    container_inputs = Value.rewrite_env_paths(posix_inputs, map_paths)
 
     # initialize value environment with the inputs
     container_env = Env.Bindings()
@@ -375,7 +375,7 @@ def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
     ans = set()
 
     def collector(v: Value.Base) -> None:
-        if isinstance(v, Value.File):
+        if isinstance(v, (Value.File, Value.Directory)):
             ans.add(v.value)
         for ch in v.children:
             collector(ch)

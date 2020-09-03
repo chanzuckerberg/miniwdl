@@ -56,6 +56,46 @@ class RunnerTestCase(unittest.TestCase):
         self.assertIsNone(expected_exception, str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
 
+class TestDirectoryInputs(RunnerTestCase):
+    def test_basic_directory(self):
+        wdl = R"""
+        version development
+        workflow w {
+            input {
+                Directory d
+            }
+            call t {
+                input:
+                    d = d
+            }
+            output {
+                Int dsz = round(size(t.files))
+            }
+        }
+        task t {
+            input {
+                Directory d
+            }
+            command {
+                set -euxo pipefail
+                mkdir outdir
+                cp "~{d}"/* outdir/
+                >&2 ls -Rl
+            }
+            output {
+                Array[File] files = glob("outdir/*.txt")
+            }
+        }
+        """
+        os.makedirs(os.path.join(self._dir, "d"))
+        with open(os.path.join(self._dir, "d/alice.txt"), mode="w") as outfile:
+            print("Alice", file=outfile)
+        with open(os.path.join(self._dir, "d/bob.txt"), mode="w") as outfile:
+            print("Bob", file=outfile)
+        outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
+        assert outp["dsz"] == 10
+
+
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
         version 1.0
