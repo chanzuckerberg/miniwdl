@@ -56,7 +56,7 @@ class RunnerTestCase(unittest.TestCase):
         self.assertIsNone(expected_exception, str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
 
-class TestDirectoryInputs(RunnerTestCase):
+class TestDirectoryIO(RunnerTestCase):
     def test_basic_directory(self):
         wdl = R"""
         version development
@@ -106,6 +106,29 @@ class TestDirectoryInputs(RunnerTestCase):
         cfg.override({"file_io": {"copy_input_files": True}})
         outp = self._run(wdl, {"d": os.path.join(self._dir, "d"), "t.touch": True}, cfg=cfg)
         assert outp["dsz"] == 10
+
+    def test_no_outputs(self):
+        with self.assertRaisesRegex(WDL.Error.ValidationError, "Directory outputs"):
+            self._run("""
+            version development
+            task t {
+                command {}
+                output {
+                    Directory d = "."
+                }
+            }
+            """, {})
+
+        with self.assertRaisesRegex(WDL.Error.ValidationError, "Directory outputs"):
+            self._run("""
+            version development
+            workflow w {
+                Directory d = "."
+                output {
+                    Directory d2 = d
+                }
+            }
+            """, {})
 
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""

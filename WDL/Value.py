@@ -487,33 +487,6 @@ def _infer_from_json(j: Any) -> Base:
     raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
 
 
-def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
-    """
-    Produce a deep copy of the given Value with all File names rewritten by the given function
-    (including Files nested inside compound Values).
-    """
-
-    mapped_files = set()
-
-    def map_files(v2: Base) -> Base:
-        if isinstance(v2, File):
-            assert id(v2) not in mapped_files, f"File {id(v2)} reused in deepcopy"
-            v2.value = f(v2.value)
-            mapped_files.add(id(v2))
-        for ch in v2.children:
-            map_files(ch)
-        return v2
-
-    return map_files(copy.deepcopy(v))
-
-
-def rewrite_env_files(env: Env.Bindings[Base], f: Callable[[str], str]) -> Env.Bindings[Base]:
-    """
-    Produce a deep copy of the given Value Env with all File names rewritten by the given function.
-    """
-    return env.map(lambda binding: Env.Binding(binding.name, rewrite_files(binding.value, f)))
-
-
 def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], str]) -> Base:
     """
     Produce a deep copy of the given Value with all File & Directory paths (including those nested
@@ -541,3 +514,23 @@ def rewrite_env_paths(
     Produce a deep copy of the given Value Env with all File names rewritten by the given function.
     """
     return env.map(lambda binding: Env.Binding(binding.name, rewrite_paths(binding.value, f)))
+
+
+def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
+    """
+    Produce a deep copy of the given Value with all File names rewritten by the given function
+    (including Files nested inside compound Values).
+
+    (deprecated: use ``rewrite_paths`` to handle Directory values as well)
+    """
+
+    return rewrite_paths(v, lambda fd: f(fd.value) if isinstance(fd, File) else fd.value)
+
+
+def rewrite_env_files(env: Env.Bindings[Base], f: Callable[[str], str]) -> Env.Bindings[Base]:
+    """
+    Produce a deep copy of the given Value Env with all File names rewritten by the given function.
+
+    (deprecated: use ``rewrite_env_paths`` to handle Directory values as well)
+    """
+    return env.map(lambda binding: Env.Binding(binding.name, rewrite_files(binding.value, f)))
