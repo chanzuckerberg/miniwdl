@@ -511,7 +511,8 @@ def rewrite_env_paths(
     env: Env.Bindings[Base], f: Callable[[Union[File, Directory]], str]
 ) -> Env.Bindings[Base]:
     """
-    Produce a deep copy of the given Value Env with all File names rewritten by the given function.
+    Produce a deep copy of the given Value Env with all File & Directory paths rewritten by the
+    given function.
     """
     return env.map(lambda binding: Env.Binding(binding.name, rewrite_paths(binding.value, f)))
 
