@@ -57,6 +57,12 @@ class RunnerTestCase(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
 class TestDirectoryIO(RunnerTestCase):
+    def test_coercion(self):
+        assert WDL.Type.Directory().coerces(WDL.Type.String())
+        d = WDL.Value.String("foo").coerce(WDL.Type.Directory())
+        assert isinstance(d, WDL.Value.Directory)
+        assert d.value == "foo"
+
     def test_basic_directory(self):
         wdl = R"""
         version development

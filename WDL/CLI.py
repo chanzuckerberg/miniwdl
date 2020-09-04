@@ -1000,6 +1000,20 @@ def runner_input_value(s_value, ty, file_found, root):
         elif not (file_found and file_found(fn)):  # maybe URI
             raise Error.InputError("File not found: " + fn)
         return Value.File(fn)
+    if isinstance(ty, Type.Directory):
+        dn = os.path.expanduser(s_value)
+        if os.path.isdir(dn):
+            dn = os.path.abspath(dn)
+            if not path_really_within(dn, root):
+                raise Error.InputError(
+                    f"all input paths must be located within the configured `file_io.root' directory `{root}' "
+                    f"unlike `{dn}'"
+                )
+            # TODO: courtesy check for symlinks that have absolute paths or relatively point
+            # outside the directory
+        else:  # TODO: relax for URIs
+            raise Error.InputError("Directory not found: " + dn)
+        return Value.Directory(dn)
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
@@ -1241,7 +1255,7 @@ def localize(
             doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
 
             def file_found(fn):
-                return runtime.download.able(cfg, fn) or os.path.isfile(fn)
+                return runtime.download.able(cfg, fn) or os.path.exists(fn)
 
             try:
                 target, input_env, input_json = runner_input(

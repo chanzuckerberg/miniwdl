@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 53
+plan tests 55
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -245,6 +245,41 @@ EOF
 $miniwdl run --copy-input-files mv_input_file.wdl file=quick
 is "$?" "0" "copy input files"
 is "$(basename `jq -r '.["mv_input_file.xxx"]' _LAST/outputs.json`)" "xxx" "updated _LAST"
+
+cat << 'EOF' > dir_io.wdl
+version development
+workflow w {
+    input {
+        Directory d
+    }
+    call t {
+        input:
+        d = d
+    }
+    output {
+        Int dsz = round(size(t.files))
+    }
+}
+task t {
+    input {
+        Directory d
+    }
+    command <<<
+        mkdir outdir
+        find ~{d} -type f | xargs -i{} cp {} outdir/
+    >>>
+    output {
+        Array[File] files = glob("outdir/*")
+    }
+}
+EOF
+
+mkdir -p indir/subdir
+echo alice > indir/alice.txt
+echo bob > indir/subdir/bob.txt
+miniwdl run dir_io.wdl d=indir
+is "$?" "0" "directory input"
+is `jq -r '.["w.dsz"]' _LAST/outputs.json` "10" "use of directory input"
 
 cat << 'EOF' > uri_inputs.json
 {"my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
