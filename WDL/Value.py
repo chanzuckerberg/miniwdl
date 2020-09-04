@@ -296,7 +296,7 @@ class Pair(Base):
     @property
     def json(self) -> Any:
         ""
-        return [self.value[0].json, self.value[1].json]
+        return {"left": self.value[0].json, "right": self.value[1].json}
 
     @property
     def children(self) -> Iterable[Base]:
@@ -416,11 +416,11 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return String(value)
     if isinstance(type, Type.Array) and isinstance(value, list):
         return Array(type, [from_json(type.item_type, item) for item in value])
-    if isinstance(type, Type.Pair) and isinstance(value, list) and len(value) == 2:
+    if isinstance(type, Type.Pair) and isinstance(value, dict) and set(value) == {"left", "right"}:
         return Pair(
             type.left_type,
             type.right_type,
-            (from_json(type.left_type, value[0]), from_json(type.right_type, value[1])),
+            (from_json(type.left_type, value["left"]), from_json(type.right_type, value["right"])),
         )
     if (
         isinstance(type, Type.Map)

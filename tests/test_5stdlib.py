@@ -280,7 +280,11 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs["ai"], [1, 2, 3, 1, 21, 22])
         self.assertEqual(outputs["af"], ["/tmp/X.txt", "/tmp/Y.txt", "/tmp/Z.txt"])
-        self.assertEqual(outputs["ap"], [[0.1, "mouse"], [3, "cat"], [15, "dog"]])
+        self.assertEqual(outputs["ap"], [
+            {"left": 0.1, "right": "mouse"},
+            {"left": 3, "right": "cat"},
+            {"left": 15, "right": "dog"}
+        ])
 
     def test_size(self):
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
@@ -696,8 +700,19 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
-        self.assertEqual(outputs["zipped"], [[1, "a"], [2, "b"], [3, "c"]])
-        self.assertEqual(outputs["crossed"], [[1, "d"], [1, "e"], [2, "d"], [2, "e"], [3, "d"], [3, "e"]])
+        self.assertEqual(outputs["zipped"], [
+            {"left": 1, "right": "a"},
+            {"left": 2, "right": "b"},
+            {"left": 3, "right": "c"}
+        ])
+        self.assertEqual(outputs["crossed"], [
+            {"left": 1, "right": "d"},
+            {"left": 1, "right": "e"},
+            {"left": 2, "right": "d"},
+            {"left": 2, "right": "e"},
+            {"left": 3, "right": "d"},
+            {"left": 3, "right": "e"}
+        ])
 
         outputs = self._test_task(R"""
         version 1.0
