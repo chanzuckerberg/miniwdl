@@ -145,8 +145,11 @@ class Int(Base):
 class String(Base):
     """``value`` has Python type ``str``"""
 
-    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
-        super().__init__(Type.String(), value, expr)
+    def __init__(
+        self, value: str, expr: "Optional[Expr.Base]" = None, subtype: Optional[Type.Base] = None
+    ) -> None:
+        subtype = subtype or Type.String()
+        super().__init__(subtype, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
@@ -169,6 +172,11 @@ class String(Base):
 class File(String):
     """``value`` has Python type ``str``"""
 
+    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(value, expr=expr, subtype=Type.File())
+        if value != value.rstrip("/"):
+            raise Error.InputError("WDL.Value.File invalid path: " + value)
+
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
         if self.value is None:
@@ -183,6 +191,9 @@ class File(String):
 
 class Directory(String):
     """``value`` has Python type ``str``"""
+
+    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(value, expr=expr, subtype=Type.Directory())
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""

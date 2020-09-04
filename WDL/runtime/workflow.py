@@ -45,7 +45,7 @@ from contextlib import ExitStack
 import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .task import run_local_task, _filenames, link_outputs, _add_downloadable_default_files
+from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_default_files
 from .download import able as downloadable, run_cached as download
 from .._util import (
     write_atomic,
@@ -156,7 +156,7 @@ class StateMachine:
         self.finished = set()
         self.running = set()
         self.waiting = set()
-        self.filename_whitelist = _filenames(inputs)
+        self.filename_whitelist = _fspaths(inputs)
 
         from .. import values_to_json
 
@@ -299,7 +299,7 @@ class StateMachine:
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
         self.job_outputs[job_id] = outputs.wrap_namespace(call_node.name)
-        self.filename_whitelist |= _filenames(outputs)
+        self.filename_whitelist |= _fspaths(outputs)
         self.finished.add(job_id)
         self.running.remove(job_id)
 
@@ -373,7 +373,7 @@ class StateMachine:
                 lambda b: Env.Binding(b.name, b.value.coerce(callee_inputs[b.name].type))
             )
             # check input files against whitelist
-            disallowed_filenames = _filenames(call_inputs) - self.filename_whitelist
+            disallowed_filenames = _fspaths(call_inputs) - self.filename_whitelist
             disallowed_filenames = set(
                 fn for fn in disallowed_filenames if not downloadable(cfg, fn)
             )

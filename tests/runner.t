@@ -277,7 +277,7 @@ EOF
 mkdir -p indir/subdir
 echo alice > indir/alice.txt
 echo bob > indir/subdir/bob.txt
-miniwdl run dir_io.wdl d=indir
+$miniwdl run dir_io.wdl d=indir
 is "$?" "0" "directory input"
 is `jq -r '.["w.dsz"]' _LAST/outputs.json` "10" "use of directory input"
 
