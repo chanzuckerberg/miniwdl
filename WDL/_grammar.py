@@ -260,7 +260,7 @@ versions["1.0"] = productions_common1 + productions_1_0
 
 keywords = {}
 keywords["draft-2"] = set(
-    "Array Float Int Map None Pair String as call command else false if import input left meta object output parameter_meta right runtime scatter task then true workflow".split(
+    "Array File Float Int Map None Pair String as call command else false if import input left meta object output parameter_meta right runtime scatter task then true workflow".split(
         " "
     )
 )
@@ -479,7 +479,7 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore COMMENT
 """
 keywords["development"] = set(
-    "Array Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
+    "Array Directory File Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
         " "
     )
 )

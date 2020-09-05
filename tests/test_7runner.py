@@ -56,6 +56,86 @@ class RunnerTestCase(unittest.TestCase):
         self.assertIsNone(expected_exception, str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
 
+class TestDirectoryIO(RunnerTestCase):
+    def test_coercion(self):
+        assert WDL.Type.Directory().coerces(WDL.Type.String())
+        d = WDL.Value.String("foo").coerce(WDL.Type.Directory())
+        assert isinstance(d, WDL.Value.Directory)
+        assert d.value == "foo"
+
+    def test_basic_directory(self):
+        wdl = R"""
+        version development
+        workflow w {
+            input {
+                Directory d
+            }
+            call t {
+                input:
+                    d = d
+            }
+            output {
+                Int dsz = round(size(t.files))
+            }
+        }
+        task t {
+            input {
+                Directory d
+                Boolean touch = false
+            }
+            command {
+                set -euxo pipefail
+                mkdir outdir
+                cp "~{d}"/* outdir/
+                if [ "~{touch}" == "true" ]; then
+                    touch "~{d}"/foo
+                fi
+                >&2 ls -Rl
+            }
+            output {
+                Array[File] files = glob("outdir/*.txt")
+            }
+        }
+        """
+        os.makedirs(os.path.join(self._dir, "d"))
+        with open(os.path.join(self._dir, "d/alice.txt"), mode="w") as outfile:
+            print("Alice", file=outfile)
+        with open(os.path.join(self._dir, "d/bob.txt"), mode="w") as outfile:
+            print("Bob", file=outfile)
+        outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
+        assert outp["dsz"] == 10
+
+        with self.assertRaises(WDL.runtime.error.RunFailed):
+            self._run(wdl, {"d": os.path.join(self._dir, "d"), "t.touch": True})
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"copy_input_files": True}})
+        outp = self._run(wdl, {"d": os.path.join(self._dir, "d"), "t.touch": True}, cfg=cfg)
+        assert outp["dsz"] == 10
+
+    def test_no_outputs(self):
+        with self.assertRaisesRegex(WDL.Error.ValidationError, "Directory outputs"):
+            self._run("""
+            version development
+            task t {
+                command {}
+                output {
+                    Directory d = "."
+                }
+            }
+            """, {})
+
+        with self.assertRaisesRegex(WDL.Error.ValidationError, "Directory outputs"):
+            self._run("""
+            version development
+            workflow w {
+                Directory d = "."
+                output {
+                    Directory d2 = d
+                }
+            }
+            """, {})
+
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
         version 1.0

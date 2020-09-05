@@ -165,8 +165,37 @@ for op in [
     setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))  # pyre-fixme
 
 
-class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
+class _DocTransformer(_ExprTransformer):
     # pylint: disable=no-self-use,unused-argument
+
+    _keywords: Set[str]
+    _source_text: str
+    _comments: List[lark.Token]
+    _version: Optional[str]
+    _declared_version: Optional[str]
+
+    def __init__(
+        self,
+        source_text: str,
+        keywords: Set[str],
+        comments: List[lark.Token],
+        version: str,
+        declared_version: Optional[str],
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self._source_text = source_text
+        self._keywords = keywords
+        self._comments = comments
+        self._version = version
+        self._declared_version = declared_version
+
+    def _check_keyword(self, pos, name):
+        if name in self._keywords:
+            raise Error.SyntaxError(
+                pos, "unexpected keyword {}".format(name), self._version, self._declared_version
+            )
 
     def optional(self, items, meta):
         return set(["optional"])
@@ -204,6 +233,8 @@ class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
             "String": Type.String,
             "File": Type.File,
         }
+        if self._version not in ("draft-2", "1.0"):
+            atomic_types["Directory"] = Type.Directory
         if items[0].value in atomic_types:
             if param or param2:
                 raise Error.InvalidType(
@@ -233,39 +264,6 @@ class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         ans = Type.StructInstance(items[0].value, "optional" in quantifiers)
         ans.pos = self._sp(meta)
         return ans
-
-
-class _DocTransformer(_ExprTransformer, _TypeTransformer):
-    # pylint: disable=no-self-use,unused-argument
-
-    _keywords: Set[str]
-    _source_text: str
-    _comments: List[lark.Token]
-    _version: Optional[str]
-    _declared_version: Optional[str]
-
-    def __init__(
-        self,
-        source_text: str,
-        keywords: Set[str],
-        comments: List[lark.Token],
-        version: str,
-        declared_version: Optional[str],
-        *args,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        self._source_text = source_text
-        self._keywords = keywords
-        self._comments = comments
-        self._version = version
-        self._declared_version = declared_version
-
-    def _check_keyword(self, pos, name):
-        if name in self._keywords:
-            raise Error.SyntaxError(
-                pos, "unexpected keyword {}".format(name), self._version, self._declared_version
-            )
 
     def decl(self, items, meta):
         self._check_keyword(self._sp(meta), items[1].value)
@@ -562,7 +560,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
-for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
+for _klass in [_ExprTransformer, _DocTransformer]:
     for name, method in inspect.getmembers(_klass, inspect.isfunction):
         if not name.startswith("_"):
             setattr(_klass, name, lark.v_args(meta=True)(method))  # pyre-fixme

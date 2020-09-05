@@ -145,13 +145,18 @@ class Int(Base):
 class String(Base):
     """``value`` has Python type ``str``"""
 
-    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
-        super().__init__(Type.String(), value, expr)
+    def __init__(
+        self, value: str, expr: "Optional[Expr.Base]" = None, subtype: Optional[Type.Base] = None
+    ) -> None:
+        subtype = subtype or Type.String()
+        super().__init__(subtype, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
             return File(self.value, self.expr)
+        if isinstance(desired_type, Type.Directory) and not isinstance(self, Directory):
+            return Directory(self.value, self.expr)
         try:
             if isinstance(desired_type, Type.Int):
                 return Int(int(self.value), self.expr)
@@ -167,6 +172,11 @@ class String(Base):
 class File(String):
     """``value`` has Python type ``str``"""
 
+    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(value, expr=expr, subtype=Type.File())
+        if value != value.rstrip("/"):
+            raise Error.InputError("WDL.Value.File invalid path: " + value)
+
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
         if self.value is None:
@@ -176,6 +186,18 @@ class File(String):
                 return Null(self.expr)
             else:
                 raise FileNotFoundError()
+        return super().coerce(desired_type)
+
+
+class Directory(String):
+    """``value`` has Python type ``str``"""
+
+    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+        super().__init__(value, expr=expr, subtype=Type.Directory())
+
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+        ""
+        # TODO: similar coercion logic for Directory? outputs when we support those
         return super().coerce(desired_type)
 
 
@@ -412,6 +434,8 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return Float(float(value))
     if isinstance(type, Type.File) and isinstance(value, str):
         return File(value)
+    if isinstance(type, Type.Directory) and isinstance(value, str):
+        return Directory(value)
     if isinstance(type, (Type.String, Type.Any)) and isinstance(value, str):
         return String(value)
     if isinstance(type, Type.Array) and isinstance(value, list):
@@ -470,28 +494,51 @@ def _infer_from_json(j: Any) -> Base:
     raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
 
 
+def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], str]) -> Base:
+    """
+    Produce a deep copy of the given Value with all File & Directory paths (including those nested
+    inside compound Values) rewritten by the given function.
+    """
+
+    mapped_paths = set()
+
+    def map_paths(v2: Base) -> Base:
+        if isinstance(v2, (File, Directory)):
+            assert id(v2) not in mapped_paths, f"File/Directory {id(v2)} reused in deepcopy"
+            v2.value = f(v2)
+            mapped_paths.add(id(v2))
+        for ch in v2.children:
+            map_paths(ch)
+        return v2
+
+    return map_paths(copy.deepcopy(v))
+
+
+def rewrite_env_paths(
+    env: Env.Bindings[Base], f: Callable[[Union[File, Directory]], str]
+) -> Env.Bindings[Base]:
+    """
+    Produce a deep copy of the given Value Env with all File & Directory paths rewritten by the
+    given function.
+    """
+    return env.map(lambda binding: Env.Binding(binding.name, rewrite_paths(binding.value, f)))
+
+
 def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
     """
     Produce a deep copy of the given Value with all File names rewritten by the given function
     (including Files nested inside compound Values).
+
+    (deprecated: use ``rewrite_paths`` to handle Directory values as well)
     """
 
-    mapped_files = set()
-
-    def map_files(v2: Base) -> Base:
-        if isinstance(v2, File):
-            assert id(v2) not in mapped_files, f"File {id(v2)} reused in deepcopy"
-            v2.value = f(v2.value)
-            mapped_files.add(id(v2))
-        for ch in v2.children:
-            map_files(ch)
-        return v2
-
-    return map_files(copy.deepcopy(v))
+    return rewrite_paths(v, lambda fd: f(fd.value) if isinstance(fd, File) else fd.value)
 
 
 def rewrite_env_files(env: Env.Bindings[Base], f: Callable[[str], str]) -> Env.Bindings[Base]:
     """
     Produce a deep copy of the given Value Env with all File names rewritten by the given function.
+
+    (deprecated: use ``rewrite_env_paths`` to handle Directory values as well)
     """
     return env.map(lambda binding: Env.Binding(binding.name, rewrite_files(binding.value, f)))

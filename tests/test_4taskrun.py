@@ -648,6 +648,9 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, inp, cfg=cfg)
         chk(outputs["outfiles"])
 
+        with self.assertRaises(WDL.Error.InputError):
+            self._test_task(txt, {"files": [os.path.join(self._dir, "a", "x") + "/"]})
+
     def test_topsort(self):
         txt = R"""
         version 1.0

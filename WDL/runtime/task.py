@@ -314,14 +314,17 @@ def _eval_task_inputs(
     container: TaskContainer,
 ) -> Env.Bindings[Value.Base]:
 
-    # Map all the provided input Files to in-container paths
-    container.add_files(_filenames(posix_inputs))
+    # Map all the provided input File & Directory paths to in-container paths
+    container.add_paths(_fspaths(posix_inputs))
 
-    # copy posix_inputs with all Files mapped to their in-container paths
-    def map_files(fn: str) -> str:
-        return container.input_file_map[fn]
+    # copy posix_inputs with all File & Directory values mapped to their in-container paths
+    def map_paths(fn: Union[Value.File, Value.Directory]) -> str:
+        p = fn.value.rstrip("/")
+        if isinstance(fn, Value.Directory):
+            p += "/"
+        return container.input_path_map[p]
 
-    container_inputs = Value.rewrite_env_files(posix_inputs, map_files)
+    container_inputs = Value.rewrite_env_paths(posix_inputs, map_paths)
 
     # initialize value environment with the inputs
     container_env = Env.Bindings()
@@ -346,7 +349,7 @@ def _eval_task_inputs(
     assert len(decls_by_id) == len(decls_to_eval)
 
     # evaluate each declaration in that order
-    # note: the write_* functions call container.add_files as a side-effect
+    # note: the write_* functions call container.add_paths as a side-effect
     stdlib = InputStdLib(logger, container)
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
@@ -370,13 +373,19 @@ def _eval_task_inputs(
     return container_env
 
 
-def _filenames(env: Env.Bindings[Value.Base]) -> Set[str]:
-    "Get the filenames of all File values in the environment"
+def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
+    """
+    Get the unique paths of all File & Directory values in the environment. Directory paths will
+    have a trailing '/'.
+    """
     ans = set()
 
     def collector(v: Value.Base) -> None:
         if isinstance(v, Value.File):
+            assert not v.value.endswith("/")
             ans.add(v.value)
+        elif isinstance(v, Value.Directory):
+            ans.add(v.value.rstrip("/") + "/")
         for ch in v.children:
             collector(ch)
 
@@ -543,7 +552,7 @@ def _eval_task_outputs(
 
     # helper to rewrite Files from in-container paths to host paths
     def rewriter(fn: str, output_name: str) -> str:
-        host_file = container.host_file(fn)
+        host_file = container.host_path(fn)
         if host_file is None:
             logger.warning(
                 _(
@@ -694,20 +703,20 @@ class _StdLib(StdLib.Base):
 
     def _devirtualize_filename(self, filename: str) -> str:
         # check allowability of reading this file, & map from in-container to host
-        ans = self.container.host_file(filename, inputs_only=self.inputs_only)
+        ans = self.container.host_path(filename, inputs_only=self.inputs_only)
         if ans is None:
             raise OutputError("function was passed non-existent file " + filename)
         self.logger.debug(_("read_", container=filename, host=ans))
         return ans
 
     def _virtualize_filename(self, filename: str) -> str:
-        # register new file with container input_file_map
-        self.container.add_files([filename])
+        # register new file with container input_path_map
+        self.container.add_paths([filename])
         self.logger.debug(
-            _("write_", host=filename, container=self.container.input_file_map[filename])
+            _("write_", host=filename, container=self.container.input_path_map[filename])
         )
-        self.logger.info(_("wrote", file=self.container.input_file_map[filename]))
-        return self.container.input_file_map[filename]
+        self.logger.info(_("wrote", file=self.container.input_path_map[filename]))
+        return self.container.input_path_map[filename]
 
 
 class InputStdLib(_StdLib):
