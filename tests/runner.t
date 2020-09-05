@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 55
+plan tests 57
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -188,14 +188,17 @@ is "$?" "42" "failer2000"
 is "$(jq '.cause.exit_status' failer2000.stdout)" "42" "workflow error stdout"
 is "$(jq '.cause.exit_status' failer2000/error.json)" "42" "workflow error.json"
 is "$(jq '.cause.exit_status' failer2000/call-failer/error.json)" "42" "task error.json"
+is `basename "$(jq -r '.cause.stderr_file' failer2000/error.json)"` "stderr3.txt" "error.json stderr.txt"
 grep -q beautiful failer2000/call-failer/stderr.txt
-is "$?" "0" "failer2000 stderr"
+is "$?" "0" "failer2000 try1 stderr"
+grep -q beautiful failer2000/call-failer/work/iwuzhere
+is "$?" "0" "failer2000 try1 iwuzhere"
 grep -q beautiful failer2000.log.txt
 is "$?" "0" "failer2000 stderr logged"
-grep -q beautiful failer2000/call-failer/failed_tries/1/stderr.txt
-is "$?" "0" "failer2000 try1 stderr"
-grep -q beautiful failer2000/call-failer/failed_tries/1/work/iwuzhere
-is "$?" "0" "failer2000 try1 iwuzhere"
+grep -q beautiful failer2000/call-failer/stderr3.txt
+is "$?" "0" "failer2000 try3 stderr"
+grep -q beautiful failer2000/call-failer/work3/iwuzhere
+is "$?" "0" "failer2000 try3 iwuzhere"
 
 
 cat << 'EOF' > multitask.wdl

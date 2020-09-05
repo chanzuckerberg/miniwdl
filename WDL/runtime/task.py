@@ -683,11 +683,11 @@ def _delete_work(cfg: config.Loader, logger: logging.Logger, run_dir: str, succe
                 "ignoring configuration [file_io] delete_work because it requires also output_hardlinks = true"
             )
             return
-        for dn in ["write_", "work", "failed_tries"]:
+        for dn in ["write_", "work"]:
             dn = os.path.join(run_dir, dn)
-            if os.path.isdir(dn):
-                shutil.rmtree(dn)
-                logger.info(_("deleted working directory", dir=dn))
+            for dn2 in glob.glob(dn + "*"):
+                shutil.rmtree(dn2)
+                logger.info(_("deleted working directory", dir=dn2))
 
 
 class _StdLib(StdLib.Base):
@@ -763,7 +763,7 @@ class OutputStdLib(_StdLib):
             if pat.startswith("./"):
                 pat = pat[2:]
             # glob the host directory
-            pat = os.path.join(lib.container.host_dir, "work", pat)
+            pat = os.path.join(lib.container.host_work_dir(), pat)
             host_files = sorted(fn for fn in glob.glob(pat) if os.path.isfile(fn))
             # convert the host filenames to in-container filenames
             container_files = []
