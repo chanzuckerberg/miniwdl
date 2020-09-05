@@ -453,7 +453,7 @@ class TestValue(unittest.TestCase):
             (WDL.Type.Map((WDL.Type.String(), WDL.Type.Int())), {"cats": 42, "dogs": 99}),
             (pty, {"name": "Alyssa", "age": 42, "pets": None}),
             (pty, {"name": "Alyssa", "age": 42, "pets": {"cats": 42, "dogs": 99}}),
-            (WDL.Type.Array(WDL.Type.Pair(WDL.Type.String(), WDL.Type.Int())), [["a",0],["b",1]]),
+            (WDL.Type.Array(WDL.Type.Pair(WDL.Type.String(), WDL.Type.Int())), [{"left": "a", "right": 0},{"left": "b", "right": 1}]),
 
             (WDL.Type.Boolean(), 42, WDL.Error.InputError),
             (WDL.Type.Float(), "your president", WDL.Error.InputError),

@@ -176,7 +176,16 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, {"m": 4, "n": 2})
-        self.assertEqual(outputs["pairs"], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]])
+        self.assertEqual(outputs["pairs"], [
+            {"left": 0, "right": 0},
+            {"left": 0, "right": 1},
+            {"left": 1, "right": 0},
+            {"left": 1, "right": 1},
+            {"left": 2, "right": 0},
+            {"left": 2, "right": 1},
+            {"left": 3, "right": 0},
+            {"left": 3, "right": 1}
+        ])
 
         outputs = self._test_workflow("""
         version 1.0
@@ -213,7 +222,16 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, {"m": 4, "n": 2})
-        self.assertEqual(outputs["pairs"], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]])
+        self.assertEqual(outputs["pairs"], [
+            {"left": 0, "right": 0},
+            {"left": 0, "right": 1},
+            {"left": 1, "right": 0},
+            {"left": 1, "right": 1},
+            {"left": 2, "right": 0},
+            {"left": 2, "right": 1},
+            {"left": 3, "right": 0},
+            {"left": 3, "right": 1}
+        ])
 
     def test_ifs(self):
         outputs = self._test_workflow("""
