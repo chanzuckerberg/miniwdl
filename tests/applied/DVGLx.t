@@ -16,6 +16,6 @@ source $SOURCE_DIR/tests/bash-tap/bash-tap-bootstrap
 plan tests 1
 set +e
 
-$miniwdl run https://raw.githubusercontent.com/mlin/DeepVariant-GLnexus-WDL/master/test/range1KGP.wdl --verbose \
+$miniwdl run https://raw.githubusercontent.com/mlin/DeepVariant-GLnexus-WDL/master/test/range1KGP.wdl --debug \
     -i https://raw.githubusercontent.com/mlin/DeepVariant-GLnexus-WDL/master/test/range1KGP.test26.ALDH2.json
 is "$?" "0" "pipeline success"

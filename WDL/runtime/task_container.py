@@ -468,6 +468,7 @@ class SwarmContainer(TaskContainer):
         # we want g+rw on files (and g+rwx on directories) under host_dir, to ensure the container
         # command will be able to access them regardless of what user id it runs as (we will
         # configure docker to make the container a member of the invoking user's primary group)
+        os.chmod(self.host_dir, (os.stat(self.host_dir).st_mode & 0o7777) | 0o770)
         to_chmod = [
             os.path.join(self.host_dir, "command"),
             self.host_stdout_txt(),
@@ -503,7 +504,7 @@ class SwarmContainer(TaskContainer):
                 "user": user,
                 "groups": groups,
                 "labels": {"miniwdl_run_id": self.run_id},
-                "container_labels": {"miniwdl_run_id": self.run_id},
+                "contafiner_labels": {"miniwdl_run_id": self.run_id},
             }
             kwargs.update(self.create_service_kwargs or {})
             logger.debug(_("docker create service kwargs", **kwargs))
