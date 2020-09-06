@@ -504,7 +504,7 @@ class SwarmContainer(TaskContainer):
                 "user": user,
                 "groups": groups,
                 "labels": {"miniwdl_run_id": self.run_id},
-                "contafiner_labels": {"miniwdl_run_id": self.run_id},
+                "container_labels": {"miniwdl_run_id": self.run_id},
             }
             kwargs.update(self.create_service_kwargs or {})
             logger.debug(_("docker create service kwargs", **kwargs))
