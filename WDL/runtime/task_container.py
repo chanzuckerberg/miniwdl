@@ -216,27 +216,35 @@ class TaskContainer(ABC):
         # run command in container & return exit status
         raise NotImplementedError()
 
-    def reset(self, logger: logging.Logger, retries: int, delete_work: bool = False) -> None:
+    def delete_work(self, logger: logging.Logger, delete_streams: bool = False) -> None:
+        """
+        After the container exits, delete all filesystem traces of it except for task.log. That
+        includes successful output files!
+
+        delete_streams: if True, delete stdout.txt and stderr.txt as well
+        """
+        to_delete = [self.host_work_dir(), os.path.join(self.host_dir, "write_")]
+        to_delete.append(os.path.join(self.host_dir, "command"))
+        if delete_streams:
+            to_delete.append(self.host_stdout_txt())
+            to_delete.append(self.host_stderr_txt())
+            to_delete.append(self.host_stderr_txt() + ".offset")
+        deleted = []
+        for p in to_delete:
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+                deleted.append(p)
+            elif os.path.isfile(p):
+                os.unlink(p)
+                deleted.append(p)
+        if deleted:
+            logger.info(_("deleted task work artifacts", artifacts=deleted))
+
+    def reset(self, logger: logging.Logger) -> None:
         """
         After a container/command failure, reset the working directory state so that
         copy_input_files() and run() can be retried.
         """
-        if delete_work:
-            deleted = []
-            for artifact in [
-                self.host_work_dir(),
-                self.host_stdout_txt(),
-                self.host_stderr_txt(),
-                self.host_stderr_txt() + ".offset",
-            ]:
-                if os.path.isdir(artifact):
-                    shutil.rmtree(artifact)
-                    deleted.append(artifact)
-                elif os.path.isfile(artifact):
-                    os.unlink(artifact)
-                    deleted.append(artifact)
-            if deleted:
-                logger.info(_("deleted failed task artifacts", artifacts=deleted))
         self.try_counter += 1
         os.makedirs(self.host_work_dir())
 

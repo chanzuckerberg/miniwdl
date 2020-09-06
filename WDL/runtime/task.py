@@ -99,6 +99,7 @@ def run_local_task(
             cache = _cache
         assert cache
 
+        container = None
         try:
             input_digest = cache.get_digest_for_inputs(inputs)
             task_digest = cache.get_digest_for_task(task)
@@ -193,7 +194,7 @@ def run_local_task(
 
                 # clean up, if so configured, and make sure output files will be accessible to
                 # downstream tasks
-                _delete_work(cfg, logger, run_dir, True)
+                _delete_work(cfg, logger, container, True)
                 chmod_R_plus(run_dir, file_bits=0o660, dir_bits=0o770)
 
                 # write outputs.json
@@ -221,7 +222,7 @@ def run_local_task(
                 logger.debug(traceback.format_exc())
                 logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
             try:
-                _delete_work(cfg, logger, run_dir, False)
+                _delete_work(cfg, logger, container, False)
             except:
                 logger.exception("delete_work failed")
             raise wrapper from exn
@@ -537,13 +538,8 @@ def _try_task(
                 retries += 1
             else:
                 raise
-            container.reset(
-                logger,
-                interruptions + retries - 1,
-                delete_work=(
-                    cfg["file_io"]["delete_work"].strip().lower() in ["always", "failure"]
-                ),
-            )
+            _delete_work(cfg, logger, container, False)
+            container.reset(logger)
 
 
 def _eval_task_outputs(
@@ -675,19 +671,19 @@ def link_outputs(
     )
 
 
-def _delete_work(cfg: config.Loader, logger: logging.Logger, run_dir: str, success: bool) -> None:
+def _delete_work(
+    cfg: config.Loader, logger: logging.Logger, container: Optional[TaskContainer], success: bool
+) -> None:
     opt = cfg["file_io"]["delete_work"].strip().lower()
-    if opt == "always" or (success and opt == "success") or (not success and opt == "failure"):
+    if container and (
+        opt == "always" or (success and opt == "success") or (not success and opt == "failure")
+    ):
         if success and not cfg["file_io"].get_bool("output_hardlinks"):
             logger.warning(
                 "ignoring configuration [file_io] delete_work because it requires also output_hardlinks = true"
             )
             return
-        for dn in ["write_", "work"]:
-            dn = os.path.join(run_dir, dn)
-            for dn2 in glob.glob(dn + "*"):
-                shutil.rmtree(dn2)
-                logger.info(_("deleted working directory", dir=dn2))
+        container.delete_work(logger, delete_streams=not success)
 
 
 class _StdLib(StdLib.Base):
