@@ -116,7 +116,7 @@ class TaskContainer(ABC):
         self.try_counter = 1
         self._running = False
         self.runtime_values = {}
-        os.makedirs(os.path.join(self.host_dir, "work"))
+        os.makedirs(self.host_work_dir())
 
     def add_paths(self, host_paths: Iterable[str]) -> None:
         """
@@ -465,20 +465,6 @@ class SwarmContainer(TaskContainer):
         logger.info(_("docker image", tag=image_tag))
 
         mounts = self.prepare_mounts(logger)
-        # we want g+rw on files (and g+rwx on directories) under host_dir, to ensure the container
-        # command will be able to access them regardless of what user id it runs as (we will
-        # configure docker to make the container a member of the invoking user's primary group)
-        os.chmod(self.host_dir, (os.stat(self.host_dir).st_mode & 0o7777) | 0o770)
-        to_chmod = [
-            os.path.join(self.host_dir, "command"),
-            self.host_stdout_txt(),
-            self.host_stderr_txt(),
-            self.host_work_dir(),
-        ]
-        if os.path.isdir(os.path.join(self.host_dir, "write_")):
-            to_chmod.append(os.path.join(self.host_dir, "write_"))
-        for p in to_chmod:
-            chmod_R_plus(p, file_bits=0o660, dir_bits=0o770)
 
         # connect to dockerd
         client = docker.from_env(version="auto", timeout=900)
@@ -582,6 +568,13 @@ class SwarmContainer(TaskContainer):
                 os.makedirs(os.path.dirname(host_path), exist_ok=True)
                 with open(host_path, "x") as _:
                     pass
+            # providing g+rw on files (and g+rwx on directories) ensures the command will have
+            # permission to them regardless of which uid it runs as in the container (since we add
+            # the container to the invoking user's primary group)
+            chmod_R_plus(host_path.rstrip("/"), file_bits=0o660, dir_bits=0o770)
+
+        for p in [self.host_work_dir(), os.path.join(self.host_dir, "command")]:
+            chmod_R_plus(p, file_bits=0o660, dir_bits=0o770)
 
         def escape(s):
             # docker processes {{ interpolations }}

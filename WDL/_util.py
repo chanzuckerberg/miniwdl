@@ -602,6 +602,7 @@ def chmod_R_plus(path: str, file_bits: int = 0, dir_bits: int = 0) -> None:
             os.chmod(path1, (os.stat(path1).st_mode & 0o7777) | bits)
 
     if os.path.isdir(path):
+        do1(path, dir_bits)
         for root, subdirs, files in os.walk(path, followlinks=False):
             for dn in subdirs:
                 do1(os.path.join(root, dn), dir_bits)
