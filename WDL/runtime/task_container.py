@@ -581,9 +581,6 @@ class SwarmContainer(TaskContainer):
             # the container to the invoking user's primary group)
             chmod_R_plus(host_path.rstrip("/"), file_bits=0o660, dir_bits=0o770)
 
-        for p in [self.host_work_dir(), os.path.join(self.host_dir, "command")]:
-            chmod_R_plus(p, file_bits=0o660, dir_bits=0o770)
-
         def escape(s):
             # docker processes {{ interpolations }}
             return s.replace("{{", '{{"{{"}}')
@@ -655,6 +652,8 @@ class SwarmContainer(TaskContainer):
                 type="bind",
             )
         )
+        for p in [self.host_work_dir(), os.path.join(self.host_dir, "command")]:
+            chmod_R_plus(p, file_bits=0o660, dir_bits=0o770)
         return mounts
 
     def misc_config(
