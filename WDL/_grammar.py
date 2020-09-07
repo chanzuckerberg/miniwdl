@@ -394,8 +394,6 @@ optional_nonempty: "+?"
 ?expr_infix5: expr_core
 
 // expression core (everything but infix)
-// we stuck this last down here so that further language-version-specific
-// productions can be added below
 ?expr_core: "(" expr ")"
           | literal
           | string
@@ -427,6 +425,7 @@ object_kv:  CNAME ":" expr
 
 ?literal: "true"-> boolean_true
         | "false" -> boolean_false
+        | "None" -> null
         | INT -> int
         | SIGNED_INT -> int
         | FLOAT -> float

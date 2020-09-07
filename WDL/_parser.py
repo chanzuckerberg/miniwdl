@@ -61,10 +61,16 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
     # pylint: disable=no-self-use,unused-argument
 
     def boolean_true(self, items, meta) -> Expr.Base:
+        assert not items
         return Expr.Boolean(self._sp(meta), True)
 
     def boolean_false(self, items, meta) -> Expr.Base:
+        assert not items
         return Expr.Boolean(self._sp(meta), False)
+
+    def null(self, items, meta) -> Expr.Base:
+        assert not items
+        return Expr.Null(self._sp(meta))
 
     def int(self, items, meta) -> Expr.Base:
         assert len(items) == 1
@@ -196,6 +202,17 @@ class _DocTransformer(_ExprTransformer):
             raise Error.SyntaxError(
                 pos, "unexpected keyword {}".format(name), self._version, self._declared_version
             )
+
+    def left_name(self, items, meta) -> Expr.Base:
+        ans = super().left_name(items, meta)
+        self._check_keyword(ans.pos, items[0])
+        return ans
+
+    def get_name(self, items, meta) -> Expr.Base:
+        ans = super().get_name(items, meta)
+        if items[1] not in ("left", "right"):
+            self._check_keyword(ans.pos, items[1])
+        return ans
 
     def optional(self, items, meta):
         return set(["optional"])

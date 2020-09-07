@@ -2295,3 +2295,82 @@ class TestStruct(unittest.TestCase):
             except WDL.Error.SyntaxError as err:
                 self.assertIsInstance(err.pos.line, int)
                 self.assertIsInstance(err.pos.column, int)
+
+class TestNoneLiteral(unittest.TestCase):
+    def test_none_expr(self):
+        doc = r"""
+        version development
+        struct Car {
+            String make
+            String model
+        }
+        workflow wf {
+            input {
+                Int? x = None
+                Array[Float?] ax = [3, None]
+                Array[Car?] ac = [None]
+            }
+            Array[Int?] a = [x, None]
+            if (x == None) {
+                Boolean y = true
+            }
+            output {
+                Boolean b = defined(y)
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        assert WDL.Value.Null() == WDL.Value.Null()
+        assert str(WDL.Value.Null()) == "None"
+        assert str(doc.workflow.inputs[0]) == "Int? x = None"
+
+    def test_none_type_errors(self):
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(r"""version development
+            workflow w {
+                Int x = None
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(r"""version development
+            workflow w {
+                Array[Int] ax = [3, None]
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc = WDL.parse_document(r"""version development
+            workflow w {
+                Array[Float] ax = [3, None]
+            }
+            """)
+            doc.typecheck()
+            assert False, str(doc.workflow.body[0].expr.type)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(r"""version development
+            struct Car {
+                String make
+                String model
+            }
+            workflow w {
+                Array[Car] ax = [None]
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.NoSuchMember):
+            WDL.parse_document(r"""version development
+            workflow w {
+                Int x = None.left
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(r"""version development
+            struct Car {
+                String make
+                String model
+            }
+            workflow w {
+                Car c
+                String s = c.None
+            }
+            """).typecheck()

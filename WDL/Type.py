@@ -121,13 +121,15 @@ class Any(Base):
     """
     A symbolic type which coerces to any other type; used to represent e.g. the item type of an empty array literal, or
     the result of read_json().
+
+    The ``optional`` attribute shall be true only for WDL ``None`` literals, which coerce to optional types only.
     """
 
-    def __init__(self, optional: bool = False) -> None:
-        self._optional = False  # no point, since this unconditionally coerces to anything
+    def __init__(self, optional: bool = False, null: bool = False) -> None:
+        self._optional = null  # True only for None literals
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        return True
+        return self._check_optional(rhs, check_quant)
 
 
 class Boolean(Base):
@@ -158,7 +160,9 @@ class Int(Base):
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
         ""
-        if isinstance(rhs, (Float, String)):
+        if isinstance(rhs, Float):
+            return self._check_optional(rhs, check_quant)
+        if isinstance(rhs, String):
             return True
         return super().coerces(rhs, check_quant)
 

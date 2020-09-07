@@ -36,6 +36,8 @@ class Base(ABC):
         self.expr = expr
 
     def __eq__(self, other) -> bool:
+        if self.value is None:
+            return other.value is None
         return self.type == other.type and self.value == other.value
 
     def __str__(self) -> str:
@@ -360,6 +362,9 @@ class Null(Base):
                 raise Error.NullValue(self.expr)
             raise Error.InputError("'None' for non-optional input/declaration")
         return self
+
+    def __str__(self) -> str:
+        return "None"
 
     @property
     def json(self) -> Any:
