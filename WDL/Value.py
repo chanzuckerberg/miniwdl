@@ -363,6 +363,9 @@ class Null(Base):
             raise Error.InputError("'None' for non-optional input/declaration")
         return self
 
+    def __str__(self) -> str:
+        return "None"
+
     @property
     def json(self) -> Any:
         ""

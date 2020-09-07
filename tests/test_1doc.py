@@ -2322,6 +2322,10 @@ class TestNoneLiteral(unittest.TestCase):
         doc = WDL.parse_document(doc)
         doc.typecheck()
 
+        assert WDL.Value.Null() == WDL.Value.Null()
+        assert str(WDL.Value.Null()) == "None"
+        assert str(doc.workflow.inputs[0]) == "Int? x = None"
+
     def test_none_type_errors(self):
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_document(r"""version development
