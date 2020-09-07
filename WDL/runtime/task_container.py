@@ -58,16 +58,15 @@ class TaskContainer(ABC):
     """
     :type: str
 
-    The host path to the scratch directory that will be mounted inside the
-    container.
+    The run directory (on the host)
     """
 
     container_dir: str
     """
     :type: str
 
-    The scratch directory's mounted path inside the container. The task
-    command's working directory will be ``{container_dir}/work/``.
+    The scratch directory inside the container. The task command's working directory will be
+    ``{container_dir}/work/``.
     """
 
     input_path_map: Dict[str, str]
@@ -81,10 +80,19 @@ class TaskContainer(ABC):
 
     input_path_map_rev: Dict[str, str]
 
+    try_counter: int
+    """
+    :type: int
+
+    Counter for number of retries; starts at 1 on the first attempt. On subsequent attempts, the
+    names (on the host) of the working directory, stdout.txt, and stderr.txt will incorporate the
+    count, to ensure their uniqueness.
+    """
+
     runtime_values: Dict[str, Any]
     """
-    Evaluted task runtime{} section. Typically the TaskContainer backend needs to honor
-    cpu, memory_limit, memory_reservation, docker. Resources must have already been fit to
+    Evaluted task runtime{} section. Typically the TaskContainer backend needs to honor cpu,
+    memory_limit, memory_reservation, docker. Resources must have already been fit to
     get_resource_limits(). Retry logic (maxRetries, preemptible) is handled externally.
     """
 
@@ -105,9 +113,10 @@ class TaskContainer(ABC):
         self.input_path_map = {}
         self.input_path_map_rev = {}
         self.stderr_callback = None
+        self.try_counter = 1
         self._running = False
         self.runtime_values = {}
-        os.makedirs(os.path.join(self.host_dir, "work"))
+        os.makedirs(self.host_work_dir())
 
     def add_paths(self, host_paths: Iterable[str]) -> None:
         """
@@ -174,10 +183,10 @@ class TaskContainer(ABC):
         1. Container is instantiated with the configured mounts and resources
         2. The mounted directory and all subdirectories have u+rwx,g+rwx permission bits; all files
            within have u+rw,g+rw permission bits.
-        3. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
-           {container_dir} inside the container)
-        4. Standard output is written to ``{host_dir}/stdout.txt``
-        5. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
+        3. Command is executed in host_work_dir() which is mounted to {container_dir}/work inside
+           the container.
+        4. Standard output is written to host_stdout_txt()
+        5. Standard error is written to host_stderr_txt() and logged at VERBOSE level
         6. Raises CommandFailed for nonzero exit code
         7. Raises Terminated if TerminationSignalFlag detected, or Interrupted if the backend
            cancels on us for some reason that isn't our fault.
@@ -199,7 +208,7 @@ class TaskContainer(ABC):
 
                 if exit_status != 0:
                     raise CommandFailed(
-                        exit_status, os.path.join(self.host_dir, "stderr.txt")
+                        exit_status, self.host_stderr_txt()
                     ) if not terminating() else Terminated()
 
     @abstractmethod
@@ -207,27 +216,37 @@ class TaskContainer(ABC):
         # run command in container & return exit status
         raise NotImplementedError()
 
-    def reset(self, logger: logging.Logger, retries: int, delete_work: bool = False) -> None:
+    def delete_work(self, logger: logging.Logger, delete_streams: bool = False) -> None:
+        """
+        After the container exits, delete all filesystem traces of it except for task.log. That
+        includes successful output files!
+
+        delete_streams: if True, delete stdout.txt and stderr.txt as well
+        """
+        to_delete = [self.host_work_dir(), os.path.join(self.host_dir, "write_")]
+        to_delete.append(os.path.join(self.host_dir, "command"))
+        if delete_streams:
+            to_delete.append(self.host_stdout_txt())
+            to_delete.append(self.host_stderr_txt())
+            to_delete.append(self.host_stderr_txt() + ".offset")
+        deleted = []
+        for p in to_delete:
+            if os.path.isdir(p):
+                shutil.rmtree(p)
+                deleted.append(p)
+            elif os.path.isfile(p):
+                os.unlink(p)
+                deleted.append(p)
+        if deleted:
+            logger.info(_("deleted task work artifacts", artifacts=deleted))
+
+    def reset(self, logger: logging.Logger) -> None:
         """
         After a container/command failure, reset the working directory state so that
         copy_input_files() and run() can be retried.
         """
-        artifacts_dir = os.path.join(self.host_dir, "failed_tries", str(retries))
-        artifacts = []
-        for artifact in ["work", "command", "stdout.txt", "stderr.txt", "stderr.txt.offset"]:
-            src = os.path.join(self.host_dir, artifact)
-            if os.path.exists(src):
-                artifacts.append(src)
-                if delete_work:
-                    (shutil.rmtree if os.path.isdir(src) else os.unlink)(src)
-                else:
-                    os.renames(src, os.path.join(artifacts_dir, artifact))
-        logger.info(
-            _("deleted failed task artifacts", artifacts=artifacts)
-            if delete_work
-            else _("archived failed task artifacts", artifacts=artifacts, dest=artifacts_dir)
-        )
-        os.makedirs(os.path.join(self.host_dir, "work"))
+        self.try_counter += 1
+        os.makedirs(self.host_work_dir())
 
     def host_path(self, container_path: str, inputs_only: bool = False) -> Optional[str]:
         """
@@ -239,11 +258,10 @@ class TaskContainer(ABC):
         """
         if os.path.isabs(container_path):
             # handle output of std{out,err}.txt
-            if container_path in [
-                os.path.join(self.container_dir, pipe_file)
-                for pipe_file in ["stdout.txt", "stderr.txt"]
-            ]:
-                return os.path.join(self.host_dir, os.path.basename(container_path))
+            if container_path == os.path.join(self.container_dir, "stdout.txt"):
+                return self.host_stdout_txt()
+            if container_path == os.path.join(self.container_dir, "stderr.txt"):
+                return self.host_stderr_txt()
             # handle output of an input file
             if container_path in self.input_path_map_rev:
                 return self.input_path_map_rev[container_path]
@@ -257,16 +275,30 @@ class TaskContainer(ABC):
                 container_path, os.path.join(self.container_dir, "work")
             )
 
-        host_workdir = os.path.join(self.host_dir, "work")
-        ans = os.path.join(host_workdir, container_path)
+        ans = os.path.join(self.host_work_dir(), container_path)
         if os.path.isfile(ans):
-            if path_really_within(ans, host_workdir):
+            if path_really_within(ans, self.host_work_dir()):
                 return ans
             raise OutputError(
                 "task outputs attempted to use a file outside its working directory: "
                 + container_path
             )
         return None
+
+    def host_work_dir(self):
+        return os.path.join(
+            self.host_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
+        )
+
+    def host_stdout_txt(self):
+        return os.path.join(
+            self.host_dir, f"stdout{self.try_counter if self.try_counter > 1 else ''}.txt"
+        )
+
+    def host_stderr_txt(self):
+        return os.path.join(
+            self.host_dir, f"stderr{self.try_counter if self.try_counter > 1 else ''}.txt"
+        )
 
 
 _backends: Dict[str, Type[TaskContainer]] = dict()
@@ -430,7 +462,7 @@ class SwarmContainer(TaskContainer):
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         self._observed_states = set()
-        with open(os.path.join(self.host_dir, "command"), "x") as outfile:
+        with open(os.path.join(self.host_dir, "command"), "w") as outfile:
             outfile.write(command)
 
         # prepare docker configuration
@@ -441,10 +473,6 @@ class SwarmContainer(TaskContainer):
         logger.info(_("docker image", tag=image_tag))
 
         mounts = self.prepare_mounts(logger)
-        # we want g+rw on files (and g+rwx on directories) under host_dir, to ensure the container
-        # command will be able to access them regardless of what user id it runs as (we will
-        # configure docker to make the container a member of the invoking user's primary group)
-        chmod_R_plus(self.host_dir, file_bits=0o660, dir_bits=0o770)
 
         # connect to dockerd
         client = docker.from_env(version="auto", timeout=900)
@@ -482,7 +510,7 @@ class SwarmContainer(TaskContainer):
                 poll_stderr = cleanup.enter_context(
                     PygtailLogger(
                         logger,
-                        os.path.join(self.host_dir, "stderr.txt"),
+                        self.host_stderr_txt(),
                         callback=self.stderr_callback,
                     )
                 )
@@ -539,19 +567,19 @@ class SwarmContainer(TaskContainer):
                 logger.exception("failed to close docker-py client")
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
-        def touch_mount_point(container_path: str) -> None:
+        def touch_mount_point(host_path: str) -> None:
             # touching each mount point ensures they'll be owned by invoking user:group
-            assert container_path.startswith(self.container_dir + "/")
-            host_path = os.path.join(
-                self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
-            )
             assert host_path.startswith(self.host_dir + "/")
-            if container_path.endswith("/"):
+            if host_path.endswith("/"):
                 os.makedirs(host_path, exist_ok=True)
             else:
                 os.makedirs(os.path.dirname(host_path), exist_ok=True)
                 with open(host_path, "x") as _:
                     pass
+            # providing g+rw on files (and g+rwx on directories) ensures the command will have
+            # permission to them regardless of which uid it runs as in the container (since we add
+            # the container to the invoking user's primary group)
+            chmod_R_plus(host_path.rstrip("/"), file_bits=0o660, dir_bits=0o770)
 
         def escape(s):
             # docker processes {{ interpolations }}
@@ -562,8 +590,7 @@ class SwarmContainer(TaskContainer):
         if self._bind_input_files:
             perm_warn = True
             for host_path, container_path in self.input_path_map.items():
-                host_path = host_path.rstrip("/")
-                st = os.stat(host_path)
+                st = os.stat(host_path.rstrip("/"))
                 if perm_warn and not (
                     (st.st_mode & stat.S_IROTH)
                     or (st.st_gid == os.getegid() and (st.st_mode & stat.S_IRGRP))
@@ -578,11 +605,17 @@ class SwarmContainer(TaskContainer):
                     )
                     perm_warn = False
                 assert (not container_path.endswith("/")) or stat.S_ISDIR(st.st_mode)
-                touch_mount_point(container_path)
+                host_mount_point = os.path.join(
+                    self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
+                )
+                if not os.path.exists(host_mount_point):
+                    touch_mount_point(
+                        host_mount_point + ("/" if container_path.endswith("/") else "")
+                    )
                 mounts.append(
                     docker.types.Mount(
                         escape(container_path.rstrip("/")),
-                        escape(host_path),
+                        escape(host_path.rstrip("/")),
                         type="bind",
                         read_only=True,
                     )
@@ -596,22 +629,31 @@ class SwarmContainer(TaskContainer):
             )
         )
         # mount stdout, stderr, and working directory read/write
-        for pipe_file in ["stdout.txt", "stderr.txt"]:
-            touch_mount_point(os.path.join(self.container_dir, pipe_file))
-            mounts.append(
-                docker.types.Mount(
-                    escape(os.path.join(self.container_dir, pipe_file)),
-                    escape(os.path.join(self.host_dir, pipe_file)),
-                    type="bind",
-                )
-            )
+        touch_mount_point(self.host_stdout_txt())
         mounts.append(
             docker.types.Mount(
-                escape(os.path.join(self.container_dir, "work")),
-                escape(os.path.join(self.host_dir, "work")),
+                escape(os.path.join(self.container_dir, "stdout.txt")),
+                escape(self.host_stdout_txt()),
                 type="bind",
             )
         )
+        touch_mount_point(self.host_stderr_txt())
+        mounts.append(
+            docker.types.Mount(
+                escape(os.path.join(self.container_dir, "stderr.txt")),
+                escape(self.host_stderr_txt()),
+                type="bind",
+            )
+        )
+        mounts.append(
+            docker.types.Mount(
+                escape(os.path.join(self.container_dir, "work")),
+                escape(self.host_work_dir()),
+                type="bind",
+            )
+        )
+        for p in [self.host_work_dir(), os.path.join(self.host_dir, "command")]:
+            chmod_R_plus(p, file_bits=0o660, dir_bits=0o770)
         return mounts
 
     def misc_config(
@@ -741,7 +783,11 @@ class SwarmContainer(TaskContainer):
         alternatives and their problems.
         """
         if not self.cfg["task_runtime"].get_bool("as_user") and (os.geteuid() or os.getegid()):
-            paste = shlex.quote(os.path.join(self.container_dir, "work"))
+            paste = shlex.quote(
+                os.path.join(
+                    self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
+                )
+            )
             script = f"""
             (find {paste} -type d -print0 && find {paste} -type f -print0) \
                 | xargs -0 -P 10 chown -P {os.geteuid()}:{os.getegid()}
