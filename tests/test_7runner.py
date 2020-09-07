@@ -136,6 +136,49 @@ class TestDirectoryIO(RunnerTestCase):
             }
             """, {})
 
+class TestNoneLiteral(RunnerTestCase):
+    def test_none_eval(self):
+        wdl = R"""
+        version development
+        struct Car {
+            String make
+            String? model
+        }
+        workflow wf {
+            input {
+                Int? x = None
+                Array[Car?] ac = [None]
+                Array[Int?] a = [x, None]
+            }
+            if (x == None) {
+                Boolean flag1 = true
+            }
+            if (defined(None)) {
+                Boolean flag2 = true
+            }
+            output {
+                Boolean b1 = defined(flag1)
+                Boolean b2 = defined(flag2)
+                Car c = object {
+                    make: "One",
+                    model: None
+                }
+                Array[Int?] a2 = select_all([x, None])
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        assert outp["b1"]
+        assert not outp["b2"]
+        assert outp["c"]["model"] is None
+        assert outp["a2"] == []
+
+        outp = self._run(wdl, {"x": 42})
+        assert not outp["b1"]
+        assert not outp["b2"]
+        assert outp["c"]["model"] is None
+        assert outp["a2"] == [42]
+
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
         version 1.0

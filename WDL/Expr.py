@@ -218,6 +218,35 @@ class Float(Base):
         return Value.Float(self.value)
 
 
+class Null(Base):
+    """
+    WDL ``None`` literal
+
+    (called ``Null`` to avoid conflict with Python ``None``)
+    """
+
+    value: None
+    """
+    :type: None
+    """
+
+    def __init__(self, pos: SourcePosition) -> None:
+        super().__init__(pos)
+        self.value = None
+
+    def __str__(self):
+        return "None"
+
+    def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        return Type.Any(null=True)
+
+    def _eval(
+        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
+    ) -> Value.Null:
+        ""
+        return Value.Null()
+
+
 class Placeholder(Base):
     """Holds an expression interpolated within a string or command"""
 
@@ -431,7 +460,7 @@ class Array(Base):
         item_type = Type.unify(
             [item.type for item in self.items], check_quant=self._check_quant, force_string=True
         )
-        if isinstance(item_type, Type.Any):
+        if isinstance(item_type, Type.Any) and not item_type.optional:
             raise Error.IndeterminateType(self, "unable to unify array item types")
         return Type.Array(item_type, optional=False, nonempty=True)
 

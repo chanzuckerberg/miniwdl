@@ -586,6 +586,10 @@ class _ComparisonOperator(EagerFunction):
             (
                 expr._check_quant
                 and expr.arguments[0].type.optional != expr.arguments[1].type.optional
+                and not (
+                    isinstance(expr.arguments[0], Expr.Null)
+                    or isinstance(expr.arguments[1], Expr.Null)
+                )
             )
             or (
                 self.name not in ["==", "!="]
@@ -595,6 +599,10 @@ class _ComparisonOperator(EagerFunction):
                 not (
                     expr.arguments[0].type.copy(optional=False)
                     == expr.arguments[1].type.copy(optional=False)
+                    or (
+                        isinstance(expr.arguments[0], Expr.Null)
+                        or isinstance(expr.arguments[1], Expr.Null)
+                    )
                     or (
                         isinstance(expr.arguments[0].type, Type.Int)
                         and isinstance(expr.arguments[1].type, Type.Float)
