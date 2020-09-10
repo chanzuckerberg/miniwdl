@@ -266,8 +266,10 @@ class Map(Base):
         ""
         ans = {}
         for k, v in self.value:
-            assert isinstance(k, String)  # TODO
-            ans[k.value] = v.json
+            assert k.type.coerces(Type.String())
+            kstr = k.coerce(Type.String()).value
+            if kstr not in ans:
+                ans[kstr] = v.json
         return ans
 
     @property

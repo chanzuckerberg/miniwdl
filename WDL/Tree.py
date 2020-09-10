@@ -400,8 +400,8 @@ class Task(SourceNode):
                     type_env = type_env2
             errors.maybe_raise()
             # Typecheck the output expressions
+            stdlib = StdLib.TaskOutputs()
             for decl in self.outputs:
-                stdlib = StdLib.TaskOutputs()
                 errors.try1(
                     lambda: decl.typecheck(type_env, stdlib=stdlib, check_quant=check_quant)
                 )
