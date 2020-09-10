@@ -921,3 +921,38 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """,expected_exception=WDL.Error.StaticTypeMismatch)
+
+    def test_keys(self):
+        outputs = self._test_task(R"""
+        version development
+        task test_keys {
+            input {
+                Map[String,String] m1 = {"a": "b", "c": "d"}
+                Map[Int,Boolean] m2 = {1: true, -1: false}
+                Map[Int,Float]? m3
+            }
+            command {}
+            output {
+                Array[String] k1 = keys(m1)
+                Array[Int] k2 = keys(m2)
+                Array[Int] k3 = keys(m3)
+                Array[Boolean] k4 = keys({})
+            }
+        }
+        """)
+        self.assertEqual(outputs["k1"], ["a", "c"])
+        self.assertEqual(outputs["k2"], [1,-1])
+        self.assertEqual(outputs["k3"], [])
+        self.assertEqual(outputs["k4"], [])
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._test_task(R"""
+            version development
+            task test_keys {
+                input {
+                    Array[Int] a = keys([1,2,3])
+                }
+                command {}
+                output {}
+            }
+            """)

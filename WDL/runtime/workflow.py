@@ -753,7 +753,8 @@ def _workflow_main_loop(
                 if terminating():
                     raise Terminated()
                 # schedule all runnable calls
-                next_call = state.step(cfg, _StdLib(cfg, state, cache))
+                stdlib = _StdLib(cfg, state, cache)
+                next_call = state.step(cfg, stdlib)
                 while next_call:
                     call_dir = os.path.join(run_dir, next_call.id)
                     if os.path.exists(call_dir):
@@ -779,7 +780,7 @@ def _workflow_main_loop(
                     else:
                         assert False
                     call_futures[future] = next_call.id
-                    next_call = state.step(cfg, _StdLib(cfg, state, cache))
+                    next_call = state.step(cfg, stdlib)
                 # no more calls to launch right now; wait for an outstanding call to finish
                 future = next(futures.as_completed(call_futures), None)
                 if future:
