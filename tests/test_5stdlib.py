@@ -944,3 +944,15 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["k2"], [1,-1])
         self.assertEqual(outputs["k3"], [])
         self.assertEqual(outputs["k4"], [])
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._test_task(R"""
+            version development
+            task test_keys {
+                input {
+                    Array[Int] a = keys([1,2,3])
+                }
+                command {}
+                output {}
+            }
+            """)
