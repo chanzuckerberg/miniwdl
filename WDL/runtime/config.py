@@ -321,6 +321,11 @@ DEFAULT_PLUGINS = {
             group="miniwdl.plugin.container_backend",
             name="docker_swarm",
             value="WDL.runtime.task_container:SwarmContainer",
+        ),
+        importlib_metadata.EntryPoint(
+            group="miniwdl.plugin.container_backend",
+            name="aws_fargate",
+            value="WDL.runtime.task_container:AWSFargateContainer",
         )
     ],
 }

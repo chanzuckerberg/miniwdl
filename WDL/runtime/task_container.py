@@ -2,6 +2,7 @@
 Abstract interface for task container runtime + default Docker Swarm backend
 """
 import os
+import sys
 import logging
 import time
 import json
@@ -770,3 +771,56 @@ class SwarmContainer(TaskContainer):
         junk = base64.b32encode(junk).decode().lower()
         assert len(junk) == 24
         return f"wdl-{run_id[:34]}-{junk}"  # 4 + 34 + 1 + 24 = 63
+
+
+class AWSFargateContainer(TaskContainer):
+    @classmethod
+    def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
+        cls._limits = {"cpu": sys.maxsize, "mem_bytes": sys.maxsize}
+
+    @classmethod
+    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+        assert cls._limits, f"{cls.__name__}.global_init"
+        return cls._limits
+
+    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
+        with open(os.path.join(self.host_dir, "command"), "x") as outfile:
+            outfile.write(command)
+
+        image_tag = self.runtime_values.get("docker", "ubuntu:18.04")
+        if ":" not in image_tag:
+            image_tag += ":latest"
+        logger.info(_("docker image", tag=image_tag))
+
+        mounts = self.prepare_mounts(logger)
+        chmod_R_plus(self.host_dir, file_bits=0o660, dir_bits=0o770)
+
+        import subprocess
+        import requests
+        from aegea.ecs import run, run_parser
+        # aegea ecs run --volumes fs-b257dcb7:/...=/mnt --security-group aegea.efs --command df --watch
+        #"workdir": os.path.join(self.container_dir, "work"),
+        #"mounts": mounts,
+        #"resources": resources,
+        #"user": user,
+        #"groups": groups,
+        #"labels": {"miniwdl_run_id": self.run_id},
+        #"container_labels": {"miniwdl_run_id": self.run_id},
+        fs_id = "fs-b257dcb7"
+
+        def get_metadata(path):
+            return requests.get("http://169.254.169.254/latest/meta-data/{}".format(path)).content.decode()
+
+        az = get_metadata("placement/availability-zone")
+        services_domain = get_metadata("services/domain")
+        region = os.environ["AWS_DEFAULT_REGION"]
+        fs_url = f"{az}.{fs_id}.efs.{region}.{services_domain}:{os.path.basename(self.host_dir)}"
+        if not os.path.ismount(self.host_dir):
+            subprocess.run(["mount", "-t", "nfs4", "-o",
+                            "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2",
+                            fs_url, self.host_dir])
+        run_args = ["--command", command,
+                    "--security-group", "aegea.efs",
+                    "--volumes", f"{fs_id}:{os.path.basename(self.host_dir)}={self.container_dir}",
+                    "--watch"]
+        return run(run_parser.parse_args(run_args)).code
