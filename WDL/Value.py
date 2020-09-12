@@ -268,7 +268,7 @@ class Map(Base):
         ""
         ans = {}
         if not self.type.item_type[0].coerces(Type.String()):
-            msg = f"cannot JSON-serialize {str(self.type)} keys"
+            msg = f"cannot write {str(self.type)} to JSON"
             raise (Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg))
         for k, v in self.value:
             kstr = k.coerce(Type.String()).value
