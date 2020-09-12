@@ -343,6 +343,8 @@ class TestEval(unittest.TestCase):
             ("{[1]: true, [1]: false}", "", WDL.Error.EvalError),
             ("{(false, false): 0, (false, true): 1}", "", WDL.Type.Map((WDL.Type.Pair(WDL.Type.Boolean(), WDL.Type.Boolean()), WDL.Type.Int()))),
         )
+        with self.assertRaisesRegex(WDL.Error.EvalError, "to JSON"):
+            WDL.parse_expr("{(false, false): 0, (false, true): 1}").infer_type(WDL.Env.Bindings()).eval(WDL.Env.Bindings()).json
 
     def test_errors(self):
         self._test_tuples(
