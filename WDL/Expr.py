@@ -609,10 +609,15 @@ class Map(Base):
     ) -> Value.Base:
         ""
         assert isinstance(self.type, Type.Map)
+        keystrs = set()
         eitems = []
         for k, v in self.items:
-            eitems.append((k.eval(env, stdlib), v.eval(env, stdlib)))
-        # TODO: complain of duplicate keys
+            ek = k.eval(env, stdlib)
+            sk = str(ek)
+            if sk in keystrs:
+                raise Error.EvalError(self, "duplicate keys in Map literal")
+            eitems.append((ek, v.eval(env, stdlib)))
+            keystrs.add(sk)
         return Value.Map(self.type.item_type, eitems)
 
     @property

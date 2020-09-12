@@ -241,6 +241,8 @@ class Array(Base):
             return Array(
                 desired_type, [v.coerce(desired_type.item_type) for v in self.value], self.expr
             )
+        if isinstance(desired_type, Type.String):
+            return String(json.dumps(self.json))
         return super().coerce(desired_type)
 
 
@@ -265,6 +267,9 @@ class Map(Base):
     def json(self) -> Any:
         ""
         ans = {}
+        if not self.type.item_type[0].coerces(Type.String()):
+            msg = f"cannot JSON-serialize {str(self.type)} keys"
+            raise (Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg))
         for k, v in self.value:
             kstr = k.coerce(Type.String()).value
             if kstr not in ans:

@@ -148,7 +148,7 @@ STRING_INNER1: ("\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
-?map_key: literal | string
+?map_key: expr_core
 map_kv: map_key ":" expr
 
 // expression core (everything but infix)
@@ -413,7 +413,7 @@ optional_nonempty: "+?"
           | expr_core "." CNAME -> get_name
           | "object" "{" [object_kv ("," object_kv)* ","?] "}" -> obj
 
-?map_key: literal | string
+?map_key: expr_core
 map_kv: map_key ":" expr
 
 object_kv:  CNAME ":" expr

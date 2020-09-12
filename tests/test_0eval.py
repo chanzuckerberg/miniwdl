@@ -112,9 +112,10 @@ class TestEval(unittest.TestCase):
             else:
                 ex = WDL.parse_expr(expr, version=version).infer_type(type_env)
                 v = ex.eval(env).expect(expected_type)
-                self.assertEqual(str(v), expected, str(expr))
-                if ex.literal:
-                    self.assertEqual(str(ex.literal), expected)
+                if expected:
+                    self.assertEqual(str(v), expected, str(expr))
+                    if ex.literal:
+                        self.assertEqual(str(ex.literal), expected)
 
     def test_logic(self):
         self._test_tuples(
@@ -334,9 +335,13 @@ class TestEval(unittest.TestCase):
             ("{'foo': 1, 'bar': 2, 'baz': 3.0}['bar']", "2.0", WDL.Type.Float()),
             ("{0: 1, 2: 3}[false]", "", WDL.Error.StaticTypeMismatch),
             ("{0: 1, 2: 3}['foo']", "", WDL.Error.EvalError),
+            ("{0: 1, 0: 3}", "", WDL.Error.EvalError),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
             ("{3: 1, false: 2}", "", WDL.Error.IndeterminateType),
-            ("{'foo': true, 'bar': 0,}", '{"foo": true, "bar": 0}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String())))
+            ("{'foo': true, 'bar': 0,}", '{"foo": true, "bar": 0}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))),
+            ("{[1,2]: true, []: false}", '{"[1, 2]": true, "[]": false}', WDL.Type.Map((WDL.Type.Array(WDL.Type.Int()), WDL.Type.Boolean()))),
+            ("{[1]: true, [1]: false}", "", WDL.Error.EvalError),
+            ("{(false, false): 0, (false, true): 1}", "", WDL.Type.Map((WDL.Type.Pair(WDL.Type.Boolean(), WDL.Type.Boolean()), WDL.Type.Int()))),
         )
 
     def test_errors(self):
