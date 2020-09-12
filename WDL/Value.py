@@ -266,7 +266,6 @@ class Map(Base):
         ""
         ans = {}
         for k, v in self.value:
-            assert k.type.coerces(Type.String())
             kstr = k.coerce(Type.String()).value
             if kstr not in ans:
                 ans[kstr] = v.json
@@ -455,13 +454,13 @@ def from_json(type: Type.Base, value: Any) -> Base:
         )
     if (
         isinstance(type, Type.Map)
-        and type.item_type[0] == Type.String()
+        and Type.String().coerces(type.item_type[0])
         and isinstance(value, dict)
     ):
         items = []
         for k, v in value.items():
             assert isinstance(k, str)
-            items.append((from_json(type.item_type[0], k), from_json(type.item_type[1], v)))
+            items.append((String(k).coerce(type.item_type[0]), from_json(type.item_type[1], v)))
         return Map(type.item_type, items)
     if (
         isinstance(type, Type.StructInstance)
