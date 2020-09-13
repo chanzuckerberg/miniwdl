@@ -271,19 +271,39 @@ class TaskContainer(ABC):
                     + container_path
                 )
             # relativize the path to the provisioned working directory
-            container_path = os.path.relpath(
+            container_relpath = os.path.relpath(
                 container_path, os.path.join(self.container_dir, "work")
             )
+            if container_path.endswith("/") and not container_relpath.endswith("/"):
+                container_relpath += "/"
+            container_path = container_relpath
 
         ans = os.path.join(self.host_work_dir(), container_path)
-        if os.path.isfile(ans):
-            if path_really_within(ans, self.host_work_dir()):
-                return ans
+        if container_path.endswith("/") and not ans.endswith("/"):
+            ans += "/"
+        if not (
+            (container_path.endswith("/") and os.path.isdir(ans))
+            or (not container_path.endswith("/") and os.path.isfile(ans))
+        ):
+            return None
+        if not path_really_within(ans, self.host_work_dir()):
             raise OutputError(
-                "task outputs attempted to use a file outside its working directory: "
+                "task outputs attempted to use a path outside its working directory: "
                 + container_path
             )
-        return None
+        if (
+            ans.endswith("/")
+            and self.input_path_map
+            and (
+                path_really_within(self.host_work_dir(), ans[:-1])
+                or path_really_within(
+                    ans[:-1], os.path.join(self.host_work_dir(), "_miniwdl_inputs")
+                )
+            )
+        ):
+            # prevent output of an input mount point
+            raise OutputError("unusable output directory: " + container_path)
+        return ans
 
     def host_work_dir(self):
         return os.path.join(

@@ -199,7 +199,12 @@ class Directory(String):
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
-        # TODO: similar coercion logic for Directory? outputs when we support those
+        if self.value is None:
+            # as above
+            if isinstance(desired_type, Type.Directory) and desired_type.optional:
+                return Null(self.expr)
+            else:
+                raise FileNotFoundError()
         return super().coerce(desired_type)
 
 

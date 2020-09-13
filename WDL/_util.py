@@ -598,12 +598,15 @@ def chmod_R_plus(path: str, file_bits: int = 0, dir_bits: int = 0) -> None:
 
     def do1(path1: str, bits: int) -> None:
         assert 0 <= bits < 0o10000
-        if path_really_within(path1, path):
+        if not os.path.islink(path1) and path_really_within(path1, path):
             os.chmod(path1, (os.stat(path1).st_mode & 0o7777) | bits)
+
+    def raiser(exc: OSError):
+        raise exc
 
     if os.path.isdir(path):
         do1(path, dir_bits)
-        for root, subdirs, files in os.walk(path, followlinks=False):
+        for root, subdirs, files in os.walk(path, onerror=raiser, followlinks=False):
             for dn in subdirs:
                 do1(os.path.join(root, dn), dir_bits)
             for fn in files:
