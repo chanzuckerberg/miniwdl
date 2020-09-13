@@ -937,6 +937,7 @@ class TestStdLib(unittest.TestCase):
                 Array[Int] k2 = keys(m2)
                 Array[Int] k3 = keys(m3)
                 Array[Boolean] k4 = keys({})
+                Array[Pair[Int,Boolean]] k5 = keys({(1,false): "foo", (3,true): "bar"})
             }
         }
         """)
@@ -944,6 +945,7 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["k2"], [1,-1])
         self.assertEqual(outputs["k3"], [])
         self.assertEqual(outputs["k4"], [])
+        self.assertEqual(outputs["k5"], [{"left": 1, "right": False}, {"left": 3, "right": True}])
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             self._test_task(R"""

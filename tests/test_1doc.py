@@ -515,6 +515,26 @@ class TestTypes(unittest.TestCase):
             """)
             doc.typecheck()
 
+    def test_map_io(self):
+        with self.assertRaisesRegex(WDL.Error.ValidationError, "keys cannot"):
+            WDL.parse_document("""
+            workflow w {
+                input {
+                    Map[Pair[Int,Int],String] m
+                }
+            }
+            """).typecheck()
+
+        with self.assertRaisesRegex(WDL.Error.ValidationError, "keys cannot"):
+            WDL.parse_document("""
+            task t {
+                command {}
+                output {
+                    Map[Pair[Int,Int],String] m = read_json("bogus")
+                }
+            }
+            """).typecheck()
+
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
         doc = r"""#foo

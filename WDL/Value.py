@@ -246,6 +246,8 @@ class Array(Base):
             return Array(
                 desired_type, [v.coerce(desired_type.item_type) for v in self.value], self.expr
             )
+        if isinstance(desired_type, Type.String):
+            return String(json.dumps(self.json))
         return super().coerce(desired_type)
 
 
@@ -270,8 +272,10 @@ class Map(Base):
     def json(self) -> Any:
         ""
         ans = {}
+        if not self.type.item_type[0].coerces(Type.String()):
+            msg = f"cannot write {str(self.type)} to JSON"
+            raise (Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg))
         for k, v in self.value:
-            assert k.type.coerces(Type.String())
             kstr = k.coerce(Type.String()).value
             if kstr not in ans:
                 ans[kstr] = v.json
@@ -460,13 +464,13 @@ def from_json(type: Type.Base, value: Any) -> Base:
         )
     if (
         isinstance(type, Type.Map)
-        and type.item_type[0] == Type.String()
+        and Type.String().coerces(type.item_type[0])
         and isinstance(value, dict)
     ):
         items = []
         for k, v in value.items():
             assert isinstance(k, str)
-            items.append((from_json(type.item_type[0], k), from_json(type.item_type[1], v)))
+            items.append((String(k).coerce(type.item_type[0]), from_json(type.item_type[1], v)))
         return Map(type.item_type, items)
     if (
         isinstance(type, Type.StructInstance)

@@ -384,6 +384,8 @@ class Task(SourceNode):
                     Type.String()
                 )
             )
+            for b in self.available_inputs:
+                errors.try1(lambda: _check_serializable_map_keys(b.value.type, b.name, b.value))
             # Typecheck runtime expressions
             for _, runtime_expr in self.runtime.items():
                 errors.try1(
@@ -405,6 +407,7 @@ class Task(SourceNode):
                 errors.try1(
                     lambda: decl.typecheck(type_env, stdlib=stdlib, check_quant=check_quant)
                 )
+                errors.try1(lambda: _check_serializable_map_keys(decl.type, decl.name, decl))
 
         # check for cyclic dependencies among decls
         _detect_cycles(
@@ -1026,6 +1029,8 @@ class Workflow(SourceNode):
                 )
             if errors.try1(lambda: _typecheck_workflow_body(doc, check_quant)) is False:
                 self.complete_calls = False
+            for b in self.available_inputs:
+                errors.try1(lambda: _check_serializable_map_keys(b.value.type, b.name, b.value))
             # 4. convert deprecated output_idents, if any, to output declarations
             if self._output_idents:
                 self._rewrite_output_idents()
@@ -1062,6 +1067,9 @@ class Workflow(SourceNode):
                         )
                     )
                     output_type_env = output_type_env2
+                    errors.try1(
+                        lambda: _check_serializable_map_keys(output.type, output.name, output)
+                    )
         # 6. check for cyclic dependencies
         _detect_cycles(_workflow_dependency_matrix(self))
 
@@ -1804,3 +1812,17 @@ def _add_struct_instance_to_type_env(
         else:
             ans = ans.bind(namespace + "." + member_name, member_type, ctx)
     return ans
+
+
+def _check_serializable_map_keys(t: Type.Base, name: str, node: SourceNode) -> None:
+    # For any Map[K,V] in an input or output declaration, K must be coercible to & from String, so
+    # that it can be de/serialized as JSON.
+    if isinstance(t, Type.Map):
+        kt = t.item_type[0]
+        if not kt.coerces(Type.String()) or not Type.String().coerces(kt):
+            raise Error.ValidationError(
+                node,
+                f"{str(t)} may not be used in input/output {name} because the keys cannot be written to/from JSON",
+            )
+    for p in t.parameters:
+        _check_serializable_map_keys(p, name, node)
