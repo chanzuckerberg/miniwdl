@@ -546,23 +546,31 @@ def _eval_task_outputs(
     logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
 ) -> Env.Bindings[Value.Base]:
 
-    # helper to rewrite Files from in-container paths to host paths
-    def rewriter(fn: str, output_name: str) -> str:
-        host_file = container.host_path(fn)
-        if host_file is None:
+    # helper to rewrite File/Directory from in-container paths to host paths
+    def rewriter(v: Union[Value.File, Value.Directory], output_name: str) -> str:
+        container_path = v.value
+        if isinstance(v, Value.Directory) and not container_path.endswith("/"):
+            container_path += "/"
+        host_path = container.host_path(container_path)
+        if host_path is None:
             logger.warning(
                 _(
-                    "output file not found in container (error unless declared type is optional)",
-                    name=output_name,
-                    file=fn,
+                    "output path not found in container (error unless declared type is optional)",
+                    output=output_name,
+                    path=container_path,
                 )
             )
+        elif isinstance(v, Value.Directory):
+            if host_path.endswith("/"):
+                host_path = host_path[:-1]
+            _check_directory(host_path, output_name)
+            logger.debug(_("output dir", container=container_path, host=host_path))
         else:
-            logger.debug(_("output file", container=fn, host=host_file))
+            logger.debug(_("output file", container=container_path, host=host_path))
         # We may overwrite File.value with None, which is an invalid state, then we'll fix it
         # up (or abort) below. This trickery is because we don't, at this point, know whether
-        # the 'desired' output type is File or File?.
-        return host_file  # pyre-fixme
+        # the -declared- output type is optional.
+        return host_path  # pyre-fixme
 
     stdlib = OutputStdLib(logger, container)
     outputs = Env.Bindings()
@@ -588,20 +596,39 @@ def _eval_task_outputs(
         # First bind the value as-is in the environment, so that subsequent output expressions will
         # "see" the in-container path(s) if they use this binding.
         env = env.bind(decl.name, v)
-        # Rewrite each File.value to either a host path, or None if the file doesn't exist.
-        v = Value.rewrite_files(v, lambda fn: rewriter(fn, decl.name))
+        # Rewrite each File/Directory path to a host path, or None if it doesn't exist.
+        v = Value.rewrite_paths(v, lambda v: rewriter(v, decl.name))
         # File.coerce has a special behavior for us so that, if the value is None:
         #   - produces Value.Null() if the desired type is File?
         #   - raises FileNotFoundError otherwise.
         try:
             v = v.coerce(decl.type)
         except FileNotFoundError:
-            exn = OutputError("File not found in task output " + decl.name)
+            exn = OutputError("File/Directory path not found in task output " + decl.name)
             setattr(exn, "job_id", decl.workflow_node_id)
             raise exn
         outputs = outputs.bind(decl.name, v)
 
     return outputs
+
+
+def _check_directory(host_path: str, output_name: str) -> None:
+    """
+    traverse output directory to check that all symlinks are relative & resolve inside the dir
+    """
+
+    def raiser(exc: OSError):
+        raise exc
+
+    for root, subdirs, files in os.walk(host_path, onerror=raiser, followlinks=False):
+        for fn in files:
+            fn = os.path.join(root, fn)
+            if os.path.islink(fn) and (
+                not os.path.exists(fn)
+                or os.path.isabs(os.readlink(fn))
+                or not path_really_within(fn, host_path)
+            ):
+                raise OutputError(f"Directory in output {output_name} contains unusable symlink")
 
 
 def link_outputs(
@@ -614,23 +641,29 @@ def link_outputs(
     outputs env to use these symlinks.
     """
 
-    def map_files(v: Value.Base, dn: str) -> Value.Base:
-        if isinstance(v, Value.File):
-            if os.path.isfile(v.value):
-                hardlink = os.path.realpath(v.value)
-                assert os.path.isfile(hardlink)
-                newlink = os.path.join(dn, os.path.basename(v.value))
-                os.makedirs(dn, exist_ok=False)
-                if not hardlinks and path_really_within(hardlink, os.path.dirname(run_dir)):
+    def map_paths(v: Value.Base, dn: str) -> Value.Base:
+        if isinstance(v, (Value.File, Value.Directory)):
+            if os.path.exists(v.value):
+                target = os.path.realpath(v.value)
+                if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
                     # make symlink relative
-                    hardlink = os.path.relpath(hardlink, start=os.path.realpath(dn))
-                (os.link if hardlinks else os.symlink)(hardlink, newlink)
-                v.value = newlink
+                    target = os.path.relpath(target, start=os.path.realpath(dn))
+                link = os.path.join(dn, os.path.basename(v.value))
+                os.makedirs(dn, exist_ok=False)
+                if hardlinks:
+                    # TODO: what if target is an input from a different filesystem?
+                    if isinstance(v, Value.Directory):
+                        shutil.copytree(target, link, symlinks=True, copy_function=os.link)
+                    else:
+                        os.link(target, link)
+                else:
+                    os.symlink(target, link)
+                v.value = link
         # recurse into compound values
         elif isinstance(v, Value.Array) and v.value:
             d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
             for i in range(len(v.value)):
-                v.value[i] = map_files(v.value[i], os.path.join(dn, str(i).rjust(d, "0")))
+                v.value[i] = map_paths(v.value[i], os.path.join(dn, str(i).rjust(d, "0")))
         elif isinstance(v, Value.Map):
             # create a subdirectory for each key, as long as the key names seem to make reasonable
             # path components; otherwise, treat the dict as a list of its values
@@ -646,18 +679,18 @@ def link_outputs(
             for i, b in enumerate(v.value):
                 v.value[i] = (
                     b[0],
-                    map_files(
+                    map_paths(
                         b[1], os.path.join(dn, str(b[0]) if keys_ok else str(i).rjust(d, "0"))
                     ),
                 )
         elif isinstance(v, Value.Pair):
             v.value = (
-                map_files(v.value[0], os.path.join(dn, "left")),
-                map_files(v.value[1], os.path.join(dn, "right")),
+                map_paths(v.value[0], os.path.join(dn, "left")),
+                map_paths(v.value[1], os.path.join(dn, "right")),
             )
         elif isinstance(v, Value.Struct):
             for key in v.value:
-                v.value[key] = map_files(v.value[key], os.path.join(dn, key))
+                v.value[key] = map_paths(v.value[key], os.path.join(dn, key))
         return v
 
     os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
@@ -666,7 +699,7 @@ def link_outputs(
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_files(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
+            map_paths(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
         )
     )
 

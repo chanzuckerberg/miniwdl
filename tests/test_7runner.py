@@ -113,28 +113,182 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl, {"d": os.path.join(self._dir, "d"), "t.touch": True}, cfg=cfg)
         assert outp["dsz"] == 10
 
-    def test_no_outputs(self):
-        with self.assertRaisesRegex(WDL.Error.ValidationError, "Directory outputs"):
-            self._run("""
+    def test_directory_output(self):
+        wdl = R"""
+        version development
+        workflow w {
+            input {
+                Directory d
+            }
+            call t {
+                input:
+                    d = d
+            }
+            output {
+                Array[Directory] d_out = t.d_out
+            }
+        }
+        task t {
+            input {
+                Directory d
+            }
+            command {
+                set -euxo pipefail
+                mkdir -p outdir/foo
+                cd outdir
+                echo foobar > foo/bar
+                ln -s foo/bar baz
+                >&2 ls -Rl
+            }
+            output {
+                Array[Directory] d_out = ["~{d}", "outdir"]
+            }
+        }
+        """
+
+        os.makedirs(os.path.join(self._dir, "d"))
+        with open(os.path.join(self._dir, "d/alice.txt"), mode="w") as outfile:
+            print("Alice", file=outfile)
+        with open(os.path.join(self._dir, "d/bob.txt"), mode="w") as outfile:
+            print("Bob", file=outfile)
+        outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
+
+        assert len(outp["d_out"]) == 2
+        assert os.path.islink(outp["d_out"][0])
+        assert os.path.realpath(outp["d_out"][0]) == os.path.join(self._dir, "d")
+        assert os.path.isdir(outp["d_out"][1])
+        assert os.path.islink(outp["d_out"][1])
+        assert os.path.basename(outp["d_out"][1]) == "outdir"
+        assert os.path.isfile(os.path.join(outp["d_out"][1], "foo/bar"))
+        assert os.path.islink(os.path.join(outp["d_out"][1], "baz"))
+        assert os.path.isfile(os.path.join(outp["d_out"][1], "baz"))
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"output_hardlinks": True}})
+        outp = self._run(wdl, {"d": os.path.join(self._dir, "d")}, cfg=cfg)
+        assert len(outp["d_out"]) == 2
+        assert not os.path.islink(outp["d_out"][0])
+        assert os.path.realpath(outp["d_out"][0]) != os.path.join(self._dir, "d")
+        assert os.path.isdir(outp["d_out"][1])
+        assert not os.path.islink(outp["d_out"][1])
+        assert os.path.basename(outp["d_out"][1]) == "outdir"
+        assert os.path.isfile(os.path.join(outp["d_out"][1], "foo/bar"))
+        assert os.path.islink(os.path.join(outp["d_out"][1], "baz"))
+        assert os.path.isfile(os.path.join(outp["d_out"][1], "baz"))
+
+        outp = self._run(R"""
             version development
             task t {
                 command {}
                 output {
-                    Directory d = "."
+                    Directory? d_out = "bogus/dirname"
                 }
             }
             """, {})
+        assert outp["d_out"] is None
 
-        with self.assertRaisesRegex(WDL.Error.ValidationError, "Directory outputs"):
-            self._run("""
+    def test_errors(self):
+        self._run(R"""
             version development
-            workflow w {
-                Directory d = "."
+            task t {
+                command <<<
+                    mkdir outdir
+                    ln -s /etc/passwd outdir/owned
+                >>>
                 output {
-                    Directory d2 = d
+                    Directory d_out = "outdir"
                 }
             }
-            """, {})
+            """, {}, expected_exception=WDL.runtime.error.OutputError)
+
+        self._run(R"""
+            version development
+            task t {
+                command <<<
+                    touch secret
+                    mkdir outdir
+                    ln -s ../secret outdir/owned
+                    >&2 ls -Rl
+                >>>
+                output {
+                    Directory d_out = "outdir/"
+                }
+            }
+            """, {}, expected_exception=WDL.runtime.error.OutputError)
+
+        self._run(R"""
+            version development
+            task t {
+                command <<<
+                    mkdir outdir
+                    touch outdir/secret
+                    ln -s outdir/secret outdir/owned
+                    rm outdir/secret
+                    >&2 ls -Rl
+                >>>
+                output {
+                    Directory d_out = "outdir"
+                }
+            }
+            """, {}, expected_exception=WDL.runtime.error.OutputError)
+
+        self._run(R"""
+            version development
+            task t {
+                command <<<
+                    touch outdir
+                >>>
+                output {
+                    Directory d_out = "outdir"
+                }
+            }
+            """, {}, expected_exception=WDL.runtime.error.OutputError)
+
+        self._run(R"""
+            version development
+            task t {
+                command <<<
+                    mkdir outdir
+                >>>
+                output {
+                    File f_out = "outdir"
+                }
+            }
+            """, {}, expected_exception=WDL.runtime.error.OutputError)
+
+        with open(os.path.join(self._dir, "foo.txt"), mode="w") as outfile:
+            print("foo", file=outfile)
+        self._run(R"""
+            version development
+            task t {
+                input {
+                    File f
+                }
+                command <<<
+                    echo `dirname "~{f}"` > outdir
+                >>>
+                output {
+                    Directory d_out = read_string("outdir")
+                }
+            }
+            """, {"f": os.path.join(self._dir, "foo.txt")},
+                  expected_exception=WDL.runtime.error.OutputError)
+
+        self._run(R"""
+            version development
+            task t {
+                input {
+                    File f
+                }
+                command <<<
+                    echo $(pwd) > outdir
+                >>>
+                output {
+                    Directory d_out = read_string("outdir")
+                }
+            }
+            """, {"f": os.path.join(self._dir, "foo.txt")},
+                  expected_exception=WDL.runtime.error.OutputError)
 
 class TestNoneLiteral(RunnerTestCase):
     def test_none_eval(self):

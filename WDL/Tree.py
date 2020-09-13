@@ -407,11 +407,6 @@ class Task(SourceNode):
                 errors.try1(
                     lambda: decl.typecheck(type_env, stdlib=stdlib, check_quant=check_quant)
                 )
-                if _has_directories(decl.type):
-                    # FIXME
-                    raise Error.ValidationError(
-                        decl, "Directory outputs aren't supported in this version of miniwdl"
-                    )
                 errors.try1(lambda: _check_serializable_map_keys(decl.type, decl.name, decl))
 
         # check for cyclic dependencies among decls
@@ -1072,11 +1067,6 @@ class Workflow(SourceNode):
                         )
                     )
                     output_type_env = output_type_env2
-                    if _has_directories(output.type):
-                        # FIXME
-                        raise Error.ValidationError(
-                            output, "Directory outputs aren't supported in this version of miniwdl"
-                        )
                     errors.try1(
                         lambda: _check_serializable_map_keys(output.type, output.name, output)
                     )
@@ -1822,17 +1812,6 @@ def _add_struct_instance_to_type_env(
         else:
             ans = ans.bind(namespace + "." + member_name, member_type, ctx)
     return ans
-
-
-def _has_directories(t: Type.Base):
-    """
-    used to check output declarations for Directory types while we don't support them
-    """
-    if isinstance(t, Type.Directory) or next(
-        (p for p in t.parameters if _has_directories(p)), None
-    ):
-        return True
-    return False
 
 
 def _check_serializable_map_keys(t: Type.Base, name: str, node: SourceNode) -> None:
