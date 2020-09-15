@@ -773,10 +773,26 @@ class SwarmContainer(TaskContainer):
         return f"wdl-{run_id[:34]}-{junk}"  # 4 + 34 + 1 + 24 = 63
 
 
+import subprocess
+
+import requests
+from aegea.ecs import run, run_parser
+
+
 class AWSFargateContainer(TaskContainer):
+    fargate_mem_values = [512] + list(range(1024, 30721, 1024))
+    fargate_cpu_values = [256, 512, 1024, 2048, 4096]
+    fargate_cpu_mem_constraints = {
+        256: dict(min=512, max=2048),
+        512: dict(min=1024, max=4096),
+        1024: dict(min=2048, max=8192),
+        2048: dict(min=4096, max=16384),
+        4096: dict(min=8192, max=30720)
+    }
+
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
-        cls._limits = {"cpu": sys.maxsize, "mem_bytes": sys.maxsize}
+        cls._limits = {"cpu": 4, "mem_bytes": 30720 * 1024 * 1024}
 
     @classmethod
     def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
@@ -792,35 +808,62 @@ class AWSFargateContainer(TaskContainer):
             image_tag += ":latest"
         logger.info(_("docker image", tag=image_tag))
 
-        mounts = self.prepare_mounts(logger)
+        for host_path, container_path in self.input_file_map.items():
+            host_work_path = os.path.join(self.host_dir, "work/_miniwdl_inputs/0", os.path.basename(host_path))
+            logger.debug("Linking input %s as %s", host_path, host_work_path)
+            os.makedirs(os.path.dirname(host_work_path))
+            if os.stat(host_path).st_dev == os.stat(os.path.dirname(host_work_path)).st_dev:
+                os.link(host_path, host_work_path)
+            else:
+                shutil.copyfile(host_path, host_work_path)
+
         chmod_R_plus(self.host_dir, file_bits=0o660, dir_bits=0o770)
 
-        import subprocess
-        import requests
-        from aegea.ecs import run, run_parser
-        # aegea ecs run --volumes fs-b257dcb7:/...=/mnt --security-group aegea.efs --command df --watch
-        #"workdir": os.path.join(self.container_dir, "work"),
-        #"mounts": mounts,
-        #"resources": resources,
-        #"user": user,
-        #"groups": groups,
+        user = None
+        if self.cfg["task_runtime"].get_bool("as_user"):
+            user = f"{os.geteuid()}:{os.getegid()}"
+
+        fargate_mem_value = self.fargate_mem_values[0]
+        if "memory_reservation" in self.runtime_values:
+            for fargate_mem_value in self.fargate_mem_values:
+                if fargate_mem_value * 1024 * 1024 >= self.runtime_values["memory_reservation"]:
+                    break
+            else:
+                print("\n\nWARNING\n\n")
+
+        fargate_cpu_value = self.fargate_cpu_values[0]
+        if "cpu" in self.runtime_values:
+            for fargate_cpu_value in self.fargate_cpu_values:
+                if fargate_mem_value > self.fargate_cpu_mem_constraints[fargate_cpu_value]["max"]:
+                    continue
+                if fargate_cpu_value >= self.runtime_values["cpu"] * 1024:
+                    break
+        fargate_mem_value = max(fargate_mem_value, self.fargate_cpu_mem_constraints[fargate_cpu_value]["min"])
+        # FIXME: system config should include a minimum fargate cpu and memory setting
         #"labels": {"miniwdl_run_id": self.run_id},
         #"container_labels": {"miniwdl_run_id": self.run_id},
-        fs_id = "fs-b257dcb7"
+        fs_id = "fs-e18315e4"
 
-        def get_metadata(path):
-            return requests.get("http://169.254.169.254/latest/meta-data/{}".format(path)).content.decode()
+#        def get_metadata(path):
+#            return requests.get("http://169.254.169.254/latest/meta-data/{}".format(path)).content.decode()
 
-        az = get_metadata("placement/availability-zone")
-        services_domain = get_metadata("services/domain")
-        region = os.environ["AWS_DEFAULT_REGION"]
-        fs_url = f"{az}.{fs_id}.efs.{region}.{services_domain}:{os.path.basename(self.host_dir)}"
-        if not os.path.ismount(self.host_dir):
-            subprocess.run(["mount", "-t", "nfs4", "-o",
-                            "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2",
-                            fs_url, self.host_dir])
-        run_args = ["--command", command,
+#        az = get_metadata("placement/availability-zone")
+#        services_domain = get_metadata("services/domain")
+#        region = os.environ["AWS_DEFAULT_REGION"]
+#        fs_url = f"{az}.{fs_id}.efs.{region}.{services_domain}:/"
+
+#        if not os.path.ismount(os.path.dirname(self.host_dir)):
+#            subprocess.run(["sudo", "mount", "-t", "nfs4", "-o",
+#                            "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2",
+#                            fs_url, os.path.dirname(self.host_dir)])
+
+        wd = os.path.join(self.container_dir, "work")
+        run_args = ["--command", f"cd {wd} && bash ../command 2> >(tee -a ../stderr.txt 1>&2) > >(tee -a ../stdout.txt)",
                     "--security-group", "aegea.efs",
                     "--volumes", f"{fs_id}:{os.path.basename(self.host_dir)}={self.container_dir}",
+                    "--fargate-memory", str(fargate_mem_value),
+                    "--fargate-cpu", str(fargate_cpu_value),
                     "--watch"]
+        if user:
+            run_args += ["--user", user]
         return run(run_parser.parse_args(run_args)).code
