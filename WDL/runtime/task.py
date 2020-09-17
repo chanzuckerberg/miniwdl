@@ -103,7 +103,7 @@ def run_local_task(
             input_digest = cache.get_digest_for_inputs(inputs)
             task_digest = cache.get_digest_for_task(task)
             cached = cache.get(
-                key=f"{task.name}_{task_digest}/{input_digest}", output_types=task.effective_outputs
+                key=f"{task.name}_{task_digest}/{input_digest}", output_types=task.effective_outputs, inputs=inputs
             )
             if cached is not None:
                 for decl in task.outputs:

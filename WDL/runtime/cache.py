@@ -76,7 +76,7 @@ class CallCache(AbstractContextManager):
         return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
     def get(
-        self, key: str, output_types: Env.Bindings[Type.Base],
+        self, key: str, output_types: Env.Bindings[Type.Base], inputs: Env.Bindings[Type.Base]
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found,
@@ -101,9 +101,10 @@ class CallCache(AbstractContextManager):
         self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
         cache = values_from_json(contents, output_types)  # pyre-fixme
         file_list = []
+        # check output and input files
         Value.rewrite_env_files(cache, lambda file: file_list.append(file))
-
-        if file_coherence_checker.check_all_output_files(file_path, file_list):
+        Value.rewrite_env_files(inputs, lambda file: file_list.append(file))
+        if file_coherence_checker.check_files(file_path, file_list):
             return cache
 
     def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base]) -> None:
@@ -342,7 +343,7 @@ class FileCoherence(abc.ABC):
         self._logger = logger.getChild("FileCoherence")
         self.cache_file_modification_time = 0.0
 
-    def check_all_output_files(self, cache_file_path: str, files: list) -> bool:
+    def check_files(self, cache_file_path: str, files: list) -> bool:
         if self.cache_file_modification_time == 0.0:
             self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
         for file_path in files:
