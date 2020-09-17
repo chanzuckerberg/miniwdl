@@ -76,7 +76,7 @@ class CallCache(AbstractContextManager):
         return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
     def get(
-        self, key: str, output_types: Env.Bindings[Type.Base], inputs: Env.Bindings[Type.Base]
+        self, key: str, output_types: Env.Bindings[Base], inputs: Env.Bindings[Base]
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found,
@@ -102,8 +102,12 @@ class CallCache(AbstractContextManager):
         cache = values_from_json(contents, output_types)  # pyre-fixme
         file_list = []
         # check output and input files
-        Value.rewrite_env_files(cache, lambda file: file_list.append(file))
-        Value.rewrite_env_files(inputs, lambda file: file_list.append(file))
+
+        def get_files(file):
+            file_list.append(file)
+
+        Value.rewrite_env_files(cache, get_files)
+        Value.rewrite_env_files(inputs, get_files)
         if file_coherence_checker.check_files(file_path, file_list):
             return cache
 

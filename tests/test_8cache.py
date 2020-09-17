@@ -234,7 +234,8 @@ Int count = 12
         input_digest = cache.get_digest_for_inputs(inputs)
         task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
         cache_value = cache.get(key=f"{self.doc.tasks[0].name}_{task_digest}/{input_digest}",
-                                output_types=self.doc.tasks[0].effective_outputs)
+                                output_types=self.doc.tasks[0].effective_outputs,
+                                inputs=inputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
@@ -366,10 +367,7 @@ Int count = 12
         self.assertEqual(mock.call_count, 1)
 
     def test_cache_not_used_when_file_in_array_recently_updated(self):
-        chars = [c for c in (chr(i) for i in range(1, 256)) if c not in ('/')]
         filenames = ["file1", "file2", "file3", "butterfinger"]
-
-
         inputs = {"files": []}
         for fn in filenames:
             fn = os.path.join(self._dir, fn)
@@ -403,6 +401,45 @@ Int count = 12
         self.assertEqual(mock.call_count, 0)
         # change time
         for x in glob.glob(f"{self._dir}/*_return_file_array/work/files_out/file1"):
+            os.utime(x)
+        # check cache not used
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(wdl, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 1)
+
+    def test_cache_not_used_when_input_file_recently_updated(self):
+        filenames = ["file1", "file2", "file3", "butterfinger"]
+        inputs = {"files": []}
+        for fn in filenames:
+            fn = os.path.join(self._dir, fn)
+            with open(fn, "w") as outfile:
+                print(fn, file=outfile)
+            inputs["files"].append(fn)
+
+        wdl = """
+                version 1.0
+                task return_file_array {
+                    input {
+                        Array[File] files
+                    }
+                    command <<<
+                        echo "Hello"
+                    >>>
+                    output {
+                         Int count = 13
+                    }
+                }
+                """
+
+        self._run(wdl, inputs, cfg=self.cfg)
+        time.sleep(2)
+        #check cache used
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(wdl, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 0)
+        # change time on input file
+        for x in glob.glob(f"{self._dir}/butterfinger"):
             os.utime(x)
         # check cache not used
         with patch('WDL.runtime.task._try_task', mock):
