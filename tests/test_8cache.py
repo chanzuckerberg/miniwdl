@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import os
+import random
 import shutil
 import tempfile
 import time
@@ -362,4 +363,48 @@ Int count = 12
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
         with patch('WDL.runtime.task._try_task', mock):
             self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 1)
+
+    def test_cache_not_used_when_file_in_array_recently_updated(self):
+        chars = [c for c in (chr(i) for i in range(1, 256)) if c not in ('/')]
+        filenames = ["file1", "file2", "file3", "butterfinger"]
+
+
+        inputs = {"files": []}
+        for fn in filenames:
+            fn = os.path.join(self._dir, fn)
+            with open(fn, "w") as outfile:
+                print(fn, file=outfile)
+            inputs["files"].append(fn)
+
+        wdl = """
+                version 1.0
+                task return_file_array {
+                    input {
+                        Array[File] files
+                    }
+                    command <<<
+                        set -euxo pipefail
+                        mkdir files_out
+                        find _miniwdl_inputs -type f -print0 | xargs -0 -iXXX cp XXX files_out/
+                    >>>
+                    output {
+                        Array[File] files_out = glob("files_out/*")
+                    }
+                }
+                """
+
+        self._run(wdl, inputs, cfg=self.cfg)
+        time.sleep(2)
+        #check cache used
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(wdl, inputs, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 0)
+        # change time
+        for x in glob.glob(f"{self._dir}/*_return_file_array/work/files_out/file1"):
+            os.utime(x)
+        # check cache not used
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(wdl, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)

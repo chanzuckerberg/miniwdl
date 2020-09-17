@@ -20,7 +20,8 @@ from . import config
 from .error import CacheOutputFileAgeError
 
 from .. import Env, Value, Type, Document, Tree, Error
-from ..Value import Base, File
+from ..Env import Binding
+from ..Value import Base, File, Array
 from .._util import (
     StructuredLogMessage as _,
     FlockHolder,
@@ -75,7 +76,7 @@ class CallCache(AbstractContextManager):
         return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
     def get(
-        self, key: str, output_types: Env.Bindings[Type.Base]
+        self, key: str, output_types: Env.Bindings[Type.Base],
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found,
@@ -99,8 +100,10 @@ class CallCache(AbstractContextManager):
         contents = json.loads(contents)
         self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
         cache = values_from_json(contents, output_types)  # pyre-fixme
-        files = Value.rewrite_env_files(cache, lambda file: file)
-        if file_coherence_checker.check_output_files(file_path, files):
+        file_list = []
+        Value.rewrite_env_files(cache, lambda file: file_list.append(file))
+
+        if file_coherence_checker.check_all_output_files(file_path, file_list):
             return cache
 
     def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base]) -> None:
@@ -339,22 +342,20 @@ class FileCoherence(abc.ABC):
         self._logger = logger.getChild("FileCoherence")
         self.cache_file_modification_time = 0.0
 
-    def check_output_files(self, cache_file_path: str, cache_output: Env.Bindings[Base]) -> bool:
+    def check_all_output_files(self, cache_file_path: str, files: list) -> bool:
         if self.cache_file_modification_time == 0.0:
             self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
-        for output in cache_output:
-            if type(output._value) == File:
-                file_path = output._value.value
-                try:
-                    self.check_cache_younger_than_file(output_file_path=file_path)
-                except (FileNotFoundError, CacheOutputFileAgeError):
-                    self._logger.info(
-                        f"Issue with file referenced in cached task output. "
-                        f"Has {file_path} been deleted or updated since the cache was created?"
-                    )
-                    os.remove(cache_file_path)
-                    self._logger.info("Deleted cached task output, running task")
-                    return False
+        for file_path in files:
+            try:
+                self.check_cache_younger_than_file(output_file_path=file_path)
+            except (FileNotFoundError, CacheOutputFileAgeError):
+                self._logger.info(
+                    f"Issue with file referenced in cached task output. "
+                    f"Has {file_path} been deleted or updated since the cache was created?"
+                )
+                os.remove(cache_file_path)
+                self._logger.info("Deleted cached task output, running task")
+                return False
         return True
 
     def get_last_modified_time(self, file_path: str) -> float:
