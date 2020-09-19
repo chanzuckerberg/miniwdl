@@ -811,6 +811,8 @@ class AWSFargateContainer(TaskContainer):
         if task_desc["lastStatus"] not in self._observed_states:
             logger.info("Task %s %s", task_desc["taskArn"], task_desc["lastStatus"])
             self._observed_states.add(task_desc["lastStatus"])
+        if task_desc["lastStatus"] == "STOPPED" and task_desc.get("stopCode") == "TaskFailedToStart":
+            raise Interrupted(task_desc.get("stoppedReason"))
         return task_desc.get("containers", [{}])[0].get("exitCode")
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
@@ -825,11 +827,12 @@ class AWSFargateContainer(TaskContainer):
 
         for host_path, container_path in self.input_file_map.items():
             host_work_path = os.path.join(self.host_dir, "work/_miniwdl_inputs/0", os.path.basename(host_path))
-            logger.debug("Linking input %s as %s", host_path, host_work_path)
             os.makedirs(os.path.dirname(host_work_path))
             if os.stat(host_path).st_dev == os.stat(os.path.dirname(host_work_path)).st_dev:
+                logger.debug("Linking input %s as %s", host_path, host_work_path)
                 os.link(host_path, host_work_path)
             else:
+                logger.debug("Copying input %s as %s", host_path, host_work_path)
                 shutil.copyfile(host_path, host_work_path)
 
         chmod_R_plus(self.host_dir, file_bits=0o660, dir_bits=0o770)
@@ -859,23 +862,21 @@ class AWSFargateContainer(TaskContainer):
                     break
         fargate_mem_value = max(fargate_mem_value, self.fargate_cpu_mem_constraints[fargate_cpu_value]["min"])
         logger.info("Task mem %s, CPU %s", fargate_mem_value, fargate_cpu_value)
-        # FIXME: system config should include a minimum fargate cpu and memory setting
         #"labels": {"miniwdl_run_id": self.run_id},
         #"container_labels": {"miniwdl_run_id": self.run_id},
-        fs_id = "fs-e18315e4"
+        try:
+            efs_id = self.cfg["aws_fargate"]["efs_id"]
+        except:
+            logger.error('EFS filesystem ID is not set. Use "export MINIWDL__AWS_FARGATE__EFS_ID=fs-12345678" '
+                         'or any other miniwdl config facility to set it. Use "aegea efs ls" to list filesystems')
+            raise
 
-#        def get_metadata(path):
-#            return requests.get("http://169.254.169.254/latest/meta-data/{}".format(path)).content.decode()
-
-#        az = get_metadata("placement/availability-zone")
-#        services_domain = get_metadata("services/domain")
-#        region = os.environ["AWS_DEFAULT_REGION"]
-#        fs_url = f"{az}.{fs_id}.efs.{region}.{services_domain}:/"
-
-#        if not os.path.ismount(os.path.dirname(self.host_dir)):
-#            subprocess.run(["sudo", "mount", "-t", "nfs4", "-o",
-#                            "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2",
-#                            fs_url, os.path.dirname(self.host_dir)])
+        if not os.path.ismount(os.path.dirname(self.host_dir)):
+            logger.info("Mounting %s at %s", fs_id, os.path.dirname(self.host_dir))
+            fs_url = f"{fs_id}.efs.{ecs.clients.ecs.meta.region_name}.amazonaws.com:/"
+            subprocess.run(["sudo", "mount", "-t", "nfs4", "-o",
+                            "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2",
+                            fs_url, os.path.dirname(self.host_dir)])
 
         wd = os.path.join(self.container_dir, "work")
 
@@ -884,7 +885,7 @@ class AWSFargateContainer(TaskContainer):
 
         run_args = ["--command", f"cd {wd} && bash ../command 2> >(tee -a ../stderr.txt 1>&2) > >(tee -a ../stdout.txt)",
                     "--security-group", "aegea.efs",
-                    "--volumes", f"{fs_id}:{os.path.basename(self.host_dir)}={self.container_dir}",
+                    "--volumes", f"{efs_id}:{os.path.basename(self.host_dir)}={self.container_dir}",
                     "--fargate-memory", str(fargate_mem_value),
                     "--fargate-cpu", str(fargate_cpu_value)]
         # Tags require "opt in to new ID format" (https://aws.amazon.com/blogs/compute/migrating-your-amazon-ecs-deployment-to-the-new-arn-and-resource-id-format-2/)
