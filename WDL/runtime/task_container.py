@@ -776,7 +776,7 @@ class SwarmContainer(TaskContainer):
 import subprocess
 
 import requests
-from aegea.ecs import run, run_parser
+from aegea import ecs
 
 
 class AWSFargateContainer(TaskContainer):
@@ -789,6 +789,8 @@ class AWSFargateContainer(TaskContainer):
         2048: dict(min=4096, max=16384),
         4096: dict(min=8192, max=30720)
     }
+    running_states = {"PROVISIONING", "PENDING", "ACTIVATING", "RUNNING"}
+    _observed_states: Optional[Set[str]] = None
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
@@ -799,7 +801,18 @@ class AWSFargateContainer(TaskContainer):
         assert cls._limits, f"{cls.__name__}.global_init"
         return cls._limits
 
+    def poll_task(
+        self, logger: logging.Logger, task_desc, verbose: bool = False
+    ) -> Optional[int]:
+        args = [task_desc["taskArn"], "--columns", "taskArn", "lastStatus", "stopCode", "container"]
+        res = ecs.tasks(ecs.tasks_parser.parse_args(args))
+        task_desc = res[0]
+        if task_desc["lastStatus"] not in self._observed_states:
+            self._observed_states.add(task_desc["lastStatus"])
+        return task_desc.get("containers", [{}])[0].get("exitCode")
+
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
+        self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "x") as outfile:
             outfile.write(command)
 
@@ -824,14 +837,21 @@ class AWSFargateContainer(TaskContainer):
             user = f"{os.geteuid()}:{os.getegid()}"
 
         fargate_mem_value = self.fargate_mem_values[0]
+        print(fargate_mem_value)
+        if self.cfg.has_option("aws_fargate", "default_memory_mb"):
+            fargate_mem_value = self.cfg["aws_fargate"].get_int("default_memory_mb")
+        print(fargate_mem_value)
         if "memory_reservation" in self.runtime_values:
             for fargate_mem_value in self.fargate_mem_values:
                 if fargate_mem_value * 1024 * 1024 >= self.runtime_values["memory_reservation"]:
                     break
             else:
                 print("\n\nWARNING\n\n")
+        print(fargate_mem_value)
 
         fargate_cpu_value = self.fargate_cpu_values[0]
+        if self.cfg.has_option("aws_fargate", "default_cpu_shares"):
+            fargate_cpu_value = self.cfg["aws_fargate"].get_int("default_cpu_shares")
         if "cpu" in self.runtime_values:
             for fargate_cpu_value in self.fargate_cpu_values:
                 if fargate_mem_value > self.fargate_cpu_mem_constraints[fargate_cpu_value]["max"]:
@@ -839,6 +859,7 @@ class AWSFargateContainer(TaskContainer):
                 if fargate_cpu_value >= self.runtime_values["cpu"] * 1024:
                     break
         fargate_mem_value = max(fargate_mem_value, self.fargate_cpu_mem_constraints[fargate_cpu_value]["min"])
+        logger.info("Task mem %s, CPU %s", fargate_mem_value, fargate_cpu_value)
         # FIXME: system config should include a minimum fargate cpu and memory setting
         #"labels": {"miniwdl_run_id": self.run_id},
         #"container_labels": {"miniwdl_run_id": self.run_id},
@@ -862,8 +883,83 @@ class AWSFargateContainer(TaskContainer):
                     "--security-group", "aegea.efs",
                     "--volumes", f"{fs_id}:{os.path.basename(self.host_dir)}={self.container_dir}",
                     "--fargate-memory", str(fargate_mem_value),
-                    "--fargate-cpu", str(fargate_cpu_value),
-                    "--watch"]
+                    "--fargate-cpu", str(fargate_cpu_value)]
+        # Tags require "opt in to new ID format" (https://aws.amazon.com/blogs/compute/migrating-your-amazon-ecs-deployment-to-the-new-arn-and-resource-id-format-2/)
+        # "--tags", f"miniwdl_run_id={self.run_id}"
+
         if user:
             run_args += ["--user", user]
-        return run(run_parser.parse_args(run_args)).code
+        task_desc = ecs.run(ecs.run_parser.parse_args(run_args))
+        #self.task_arn = 
+        #print(task_desc)
+        #task_arn = res["taskArn"]
+        #last_status = res["lastStatus"]
+        exit_code = None
+        try:
+            with contextlib.ExitStack() as cleanup:
+                poll_stderr = cleanup.enter_context(
+                    PygtailLogger(
+                        logger,
+                        os.path.join(self.host_dir, "stderr.txt"),
+                        callback=self.stderr_callback,
+                    )
+                )
+
+                # poll for container exit
+                was_running = False
+                while exit_code is None:
+                    time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
+                    if terminating():
+                        self.poll_task(logger, task_desc, verbose=True)
+                        raise Terminated(quiet=quiet)
+                    exit_code = self.poll_task(logger, task_desc)
+                    if not was_running and self._observed_states.intersection(self.running_states):
+                        cleanup.enter_context(
+                            _statusbar.task_running(
+                                self.runtime_values.get("cpu", 0),
+                                self.runtime_values.get("memory_reservation", 0),
+                            )
+                        )
+                        was_running = True
+                    if "RUNNING" in self._observed_states:
+                        poll_stderr()
+
+            assert isinstance(exit_code, int)
+            return exit_code
+        finally:
+            if self._observed_states.intersection(self.running_states):
+                try:
+                    ecs.stop(ecs.stop_parser.parse_args([task_desc["taskArn"]]))
+                except:
+                    logger.exception("failed to stop ECS task")
+                #self.chown(logger, client, exit_code == 0)
+'''        
+        try:
+            task_desc = run(run_parser.parse_args(run_args))
+            while task_desc["lastStatus"] in self.run_states:
+                task_desc = tasks(tasks_parser.parse_args([task_desc["taskArn"]]))
+            return 
+        finally:
+            stop(...)
+            
+            logger.info("Watching task %s (%s)", args.task_id, args.cluster)
+    last_status, events_received = None, 0
+    log_reader = CloudwatchLogReader("/".join([args.task_name, args.task_name, os.path.basename(args.task_id)]),
+                                     log_group_name=args.task_name)
+    while last_status != "STOPPED":
+        res = clients.ecs.describe_tasks(cluster=args.cluster, tasks=[args.task_id])
+        if len(res["tasks"]) == 1:
+            task_desc = res["tasks"][0]
+            if task_desc["lastStatus"] != last_status:
+                logger.info("Task %s %s", args.task_id, format_task_status(task_desc["lastStatus"]))
+                last_status = task_desc["lastStatus"]
+        try:
+            for event in log_reader:
+                print_event(event)
+                events_received += 1
+        except ClientError as e:
+            expect_error_codes(e, "ResourceNotFoundException")
+        if last_status is None and events_received > 0:
+            break  # Logs retrieved successfully but task record is no longer in ECS
+        time.sleep(1)
+'''
