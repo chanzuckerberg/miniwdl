@@ -804,10 +804,10 @@ class AWSFargateContainer(TaskContainer):
     def poll_task(
         self, logger: logging.Logger, task_desc, verbose: bool = False
     ) -> Optional[int]:
-        args = [task_desc["taskArn"], "--columns", "taskArn", "lastStatus", "stopCode", "container"]
-        res = ecs.tasks(ecs.tasks_parser.parse_args(args))
-        task_desc = res[0]
+        res = ecs.clients.ecs.describe_tasks(cluster=task_desc["clusterArn"], tasks=[task_desc["taskArn"]])
+        task_desc = res["tasks"][0]
         if task_desc["lastStatus"] not in self._observed_states:
+            logger.info("Task %s %s", task_desc["taskArn"], task_desc["lastStatus"])
             self._observed_states.add(task_desc["lastStatus"])
         return task_desc.get("containers", [{}])[0].get("exitCode")
 
@@ -897,13 +897,13 @@ class AWSFargateContainer(TaskContainer):
         exit_code = None
         try:
             with contextlib.ExitStack() as cleanup:
-                poll_stderr = cleanup.enter_context(
-                    PygtailLogger(
-                        logger,
-                        os.path.join(self.host_dir, "stderr.txt"),
-                        callback=self.stderr_callback,
-                    )
-                )
+                #poll_stderr = cleanup.enter_context(
+                #    PygtailLogger(
+                #        logger,
+                #        os.path.join(self.host_dir, "stderr.txt"),
+                #        callback=self.stderr_callback,
+                #    )
+                #)
 
                 # poll for container exit
                 was_running = False
@@ -922,7 +922,8 @@ class AWSFargateContainer(TaskContainer):
                         )
                         was_running = True
                     if "RUNNING" in self._observed_states:
-                        poll_stderr()
+                        pass
+                        #poll_stderr()
 
             assert isinstance(exit_code, int)
             return exit_code
