@@ -20,8 +20,6 @@ from . import config
 from .error import CacheOutputFileAgeError
 
 from .. import Env, Value, Type, Document, Tree, Error
-from ..Env import Binding
-from ..Value import Base, File, Array
 from .._util import (
     StructuredLogMessage as _,
     FlockHolder,
@@ -76,12 +74,12 @@ class CallCache(AbstractContextManager):
         return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
     def get(
-        self, key: str, output_types: Env.Bindings[Base], inputs: Env.Bindings[Base]
+        self, key: str, output_types: Env.Bindings[Type.Base], inputs: Env.Bindings[Value.Base]
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
-        Resolve cache key to call outputs, if available, or None. When matching outputs are found,
-        opens shared flocks on all files referenced therein, which will remain for the life of the
-        CallCache object.
+        Resolve cache key to call outputs, if available, or None. When matching outputs are found, check to ensure the
+        modification time on any output or input files is older than the modification time for the cache file.
+        Opens shared flocks on all files referenced therein, which will remain for the life of the CallCache object.
         """
         from .. import values_from_json
 
@@ -341,6 +339,10 @@ def _excerpt(
 
 
 class FileCoherence(abc.ABC):
+    """
+    Class to check for file coherence when utilizing an output caching system (based on last modification time
+    for cache and referenced files) for files stored locally.
+    """
     _logger: logging.Logger
 
     def __init__(self, logger):
