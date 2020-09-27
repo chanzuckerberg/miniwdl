@@ -402,7 +402,13 @@ def fill_run_subparser(subparsers):
         "--empty",
         metavar="input_key",
         action="append",
-        help="explicitly set an array input to the empty array (to override a default)",
+        help="explicitly set a string input to the empty string OR an array input to the empty array",
+    )
+    group.add_argument(
+        "--none",
+        metavar="input_key",
+        action="append",
+        help="explicitly set an optional input to None (to override a default)",
     )
     group.add_argument(
         "--task",
@@ -495,6 +501,7 @@ def runner(
     inputs=[],
     input_file=None,
     empty=[],
+    none=[],
     json_only=False,
     run_dir=None,
     path=None,
@@ -622,6 +629,7 @@ def runner(
                 inputs,
                 input_file,
                 empty,
+                none,
                 task=task,
                 file_found=file_found,
                 root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
@@ -771,7 +779,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
 
 
 def runner_input(
-    doc, inputs, input_file, empty, task=None, check_required=True, file_found=None, root="/"
+    doc, inputs, input_file, empty, none, task=None, check_required=True, file_found=None, root="/"
 ):
     """
     - Determine the target workflow/task
@@ -804,17 +812,50 @@ def runner_input(
         available_inputs, (target.name if isinstance(target, Workflow) else ""), input_file, root
     )
 
-    # set explicitly empty arrays
+    # set explicitly empty arrays or strings
     for empty_name in empty or []:
         try:
             decl = available_inputs[empty_name]
         except KeyError:
             runner_input_help(target)
             raise Error.InputError(f"No such input to {target.name}: {empty_name}")
-        if not isinstance(decl.type, Type.Array) or decl.type.nonempty:
+        if isinstance(decl.type, Type.Array):
+            if decl.type.nonempty:
+                raise Error.InputError(
+                    f"Cannot set input {str(decl.type)} {decl.name} to empty array"
+                )
+            input_env = input_env.bind(empty_name, Value.Array(decl.type.item_type, []), decl)
+        elif isinstance(decl.type, Type.String):
+            input_env = input_env.bind(empty_name, Value.String(""), decl)
+        else:
+            msg = f"Cannot set {str(decl.type)} {decl.name} to empty array or string"
+            if decl.type.optional:
+                msg += "; perhaps you want --none " + decl.name
+            raise Error.InputError(msg)
+
+    # set explicitly None values
+    for none_name in none or []:
+        try:
+            decl = available_inputs[none_name]
+        except KeyError:
             runner_input_help(target)
-            raise Error.InputError(f"Cannot set input {str(decl.type)} {decl.name} to empty array")
-        input_env = input_env.bind(empty_name, Value.Array(decl.type.item_type, []), decl)
+            raise Error.InputError(f"No such input to {target.name}: {none_name}")
+        if not decl.type.optional:
+            raise Error.InputError(
+                f"Cannot set non-optional input {str(decl.type)} {decl.name} to None"
+            )
+        input_env = input_env.bind(none_name, Value.Null(), decl)
+
+    # preprocess command-line inputs: merge adjacent elements ("x=", "y") into ("x=y"), allowing
+    # shell filename completion on y
+    inputs = list(inputs)
+    i = 0
+    while i < len(inputs):
+        len_i = len(inputs[i])
+        if len_i > 1 and inputs[i].find("=") == len_i - 1 and i + 1 < len(inputs):
+            inputs[i] = inputs[i] + inputs[i + 1]
+            del inputs[i + 1]
+        i += 1
 
     # add in command-line inputs
     for one_input in inputs:
@@ -1259,7 +1300,7 @@ def localize(
 
             try:
                 target, input_env, input_json = runner_input(
-                    doc, [], infile, [], task=task, check_required=False, file_found=file_found
+                    doc, [], infile, [], [], task=task, check_required=False, file_found=file_found
                 )
             except Error.InputError as exn:
                 die(exn.args[0])

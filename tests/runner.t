@@ -43,7 +43,7 @@ task echo {
         Array[String]+ a_s
         Array[File] a_f
         File? o_f
-        Array[String]? o_a_s
+        Array[String]? o_a_s = ["zzz"]
     }
 
     command {
@@ -52,14 +52,14 @@ task echo {
 
     output {
         Int out_i = i
-        Array[String]+ out_s = flatten([[s],a_s])
+        Array[String]+ out_s = flatten([[s],a_s,select_all([o_a_s])])
         Array[File]+ out_f = flatten([[f],a_f,select_all([o_f]),["fox"]])
     }
 }
 EOF
 touch quick brown fox
 
-$miniwdl run --dir taskrun/. echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown | tee stdout
+$miniwdl run --dir taskrun/. echo_task.wdl s=foo i=42 f= quick a_s=bar a_f=brown --none o_a_s | tee stdout
 is "$?" "0" "task run"
 is "$(jq '.outputs["echo.out_i"]' stdout)" "42" "task stdout out_i"
 is "$(jq '.["echo.out_i"]' taskrun/outputs.json)" "42" "task outputs.json out_i"
