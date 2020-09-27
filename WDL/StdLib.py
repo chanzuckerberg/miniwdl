@@ -46,6 +46,8 @@ class Base:
         self._lte = _ComparisonOperator("<=", lambda l, r: l <= r)
         self._gt = _ComparisonOperator(">", lambda l, r: l > r)
         self._gte = _ComparisonOperator(">=", lambda l, r: l >= r)
+        self.min = _ArithmeticOperator("min", lambda l, r: min(l, r))
+        self.max = _ArithmeticOperator("max", lambda l, r: max(l, r))
 
         # static stdlib functions
         def static(
