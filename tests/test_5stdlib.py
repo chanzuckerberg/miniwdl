@@ -1003,6 +1003,20 @@ class TestStdLib(unittest.TestCase):
             }
             """)
 
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._test_task(R"""
+            version development
+            task test_keys {
+                input {
+                    Array[Array[Int]] a2
+                }
+                command {}
+                output {
+                    Map[Int,Int] x = collect_by_key(a2)
+                }
+            }
+            """)
+
         with self.assertRaisesRegex(WDL.Error.EvalError, "duplicate"):
             outputs = self._test_task(R"""
             version development
