@@ -153,7 +153,10 @@ class TestEval(unittest.TestCase):
             ("1--4/3","3"), # -4/3 == -2, is this right?
             ("4%2","0"),
             ("4%3","1"),
-            ("1 + false", "(Ln 1, Col 1) Non-numeric operand to + operator", WDL.Error.IncompatibleOperand)
+            ("min(0,1)","0"),
+            ("max(1,3.14)*2","6.28"),
+            ("1 + false", "(Ln 1, Col 1) Non-numeric operand to + operator", WDL.Error.IncompatibleOperand),
+            ("min(max(0,1),true)", "(Ln 1, Col 1) Non-numeric operand to min operator", WDL.Error.IncompatibleOperand),
         )
 
     def test_cmp(self):
