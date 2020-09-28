@@ -128,6 +128,9 @@ class Base:
         self.quote = _Quote()
         self.squote = _Quote(squote=True)
         self.keys = _Keys()
+        self.as_map = _AsMap()
+        self.as_pairs = _AsPairs()
+        self.collect_by_key = _CollectByKey()
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -962,16 +965,106 @@ class _Keys(EagerFunction):
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
-        if not isinstance(arg0ty, Type.Map):
+        if not isinstance(arg0ty, Type.Map) or (expr._check_quant and arg0ty.optional):
             raise Error.StaticTypeMismatch(
                 expr.arguments[0], Type.Map((Type.Any(), Type.Any())), arg0ty
             )
         return Type.Array(arg0ty.item_type[0].copy())
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
-        if isinstance(arguments[0], Value.Null):
-            return Value.Array(Type.Any(), [])
         assert isinstance(arguments[0], Value.Map)
         mapty = arguments[0].type
         assert isinstance(mapty, Type.Map)
-        return Value.Array(mapty.item_type[0], [p[0] for p in arguments[0].value])
+        return Value.Array(
+            mapty.item_type[0], [p[0].coerce(mapty.item_type[0]) for p in arguments[0].value], expr
+        )
+
+
+class _AsPairs(EagerFunction):
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+        if not isinstance(arg0ty, Type.Map) or (expr._check_quant and arg0ty.optional):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Map((Type.Any(), Type.Any())), arg0ty
+            )
+        return Type.Array(Type.Pair(arg0ty.item_type[0], arg0ty.item_type[1]))
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert isinstance(arguments[0], Value.Map)
+        mapty = arguments[0].type
+        assert isinstance(mapty, Type.Map)
+        pairty = Type.Pair(mapty.item_type[0], mapty.item_type[1])
+        return Value.Array(
+            pairty,
+            [Value.Pair(mapty.item_type[0], mapty.item_type[1], p) for p in arguments[0].value],
+            expr,
+        ).coerce(self.infer_type(expr))
+
+
+class _CollectByKey(EagerFunction):
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+        if (
+            not isinstance(arg0ty, Type.Array)
+            or not isinstance(arg0ty.item_type, Type.Pair)
+            or (expr._check_quant and (arg0ty.optional or arg0ty.item_type.optional))
+        ):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Array(Type.Pair(Type.Any(), Type.Any())), arg0ty
+            )
+        return Type.Map((arg0ty.item_type.left_type, Type.Array(arg0ty.item_type.right_type)))
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert isinstance(arguments[0], Value.Array)
+        arg0ty = arguments[0].type
+        assert isinstance(arg0ty, Type.Array)
+        pairty = arg0ty.item_type
+        assert isinstance(pairty, Type.Pair)
+
+        items = {}
+        for p in arguments[0].value:
+            assert isinstance(p, Value.Pair)
+            ek = p.value[0].coerce(pairty.left_type)
+            ev = p.value[1].coerce(pairty.right_type)
+            sk = str(ek)
+            if sk in items:
+                items[sk][1].append(ev)
+            else:
+                items[sk] = (ek, [ev])
+
+        return Value.Map(
+            (pairty.left_type, Type.Array(pairty.right_type)),
+            [(ek, Value.Array(pairty.right_type, evs)) for ek, evs in items.values()],
+            expr,
+        )
+
+
+class _AsMap(_CollectByKey):
+    # as_map(): run collect_by_key() and pluck the values out of the length-1 arrays
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        collectedty = super().infer_type(expr)
+        assert isinstance(collectedty, Type.Map)
+        arrayty = collectedty.item_type[1]
+        assert isinstance(arrayty, Type.Array)
+        return Type.Map((collectedty.item_type[0], arrayty.item_type))
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        collected = super()._call_eager(expr, arguments)
+        assert isinstance(collected, Value.Map)
+        collectedty = collected.type
+        assert isinstance(collectedty, Type.Map)
+        arrayty = collectedty.item_type[1]
+        assert isinstance(arrayty, Type.Array)
+        singletons = []
+        for k, vs in collected.value:
+            assert isinstance(vs, Value.Array)
+            assert len(vs.value) > 0
+            if len(vs.value) > 1:
+                raise Error.EvalError(expr, "duplicate keys supplied to as_map(): " + str(k))
+            singletons.append((k, vs.value[0]))
+        return Value.Map((collectedty.item_type[0], arrayty.item_type), singletons, expr)
