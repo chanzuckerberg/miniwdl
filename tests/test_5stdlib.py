@@ -935,7 +935,6 @@ class TestStdLib(unittest.TestCase):
             output {
                 Array[String] k1 = keys(m1)
                 Array[Int] k2 = keys(m2)
-                Array[Int] k3 = keys(m3)
                 Array[Boolean] k4 = keys({})
                 Array[Pair[Int,Boolean]] k5 = keys({(1,false): "foo", (3,true): "bar"})
             }
@@ -943,7 +942,6 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs["k1"], ["a", "c"])
         self.assertEqual(outputs["k2"], [1,-1])
-        self.assertEqual(outputs["k3"], [])
         self.assertEqual(outputs["k4"], [])
         self.assertEqual(outputs["k5"], [{"left": 1, "right": False}, {"left": 3, "right": True}])
 
@@ -956,5 +954,79 @@ class TestStdLib(unittest.TestCase):
                 }
                 command {}
                 output {}
+            }
+            """)
+
+    def test_map_pairs(self):
+        outputs = self._test_task(R"""
+        version development
+        task test_map_pairs {
+            input {
+                Array[Pair[String,Int]] x = [("b", 1), ("a", 2), ("c", 3)]
+                Array[Pair[String,Pair[String,String]]] y = [("a", ("a_1.bam", "a_1.bai")), ("b", ("b.bam", "b.bai")), ("a", ("a_2.bam", "a_2.bai"))]
+                Array[Pair[String,Pair[String,String]]] y2 = [("a", ("a.bam", "a.bai")), ("b", ("b.bam", "b.bai"))]
+            }
+
+            Map[String,Int] xmap = as_map(x)
+            Map[String,Pair[String,String]] ymap = as_map(y2)
+
+            command {}
+
+            output {
+                Map[String,Int] xmap_out = xmap
+                Map[String,Pair[String,String]] ymap_out = ymap
+                Map[String,Array[Int]] xmulti = collect_by_key(x)
+                Map[String,Array[Pair[String,String]]] ymulti = collect_by_key(y)
+                Array[Pair[String,Int]] x_roundtrip = as_pairs(xmap)
+                Array[Pair[String,Pair[String,String]]] y_roundtrip = as_pairs(ymap)
+            }
+        }
+        """)
+        self.assertEqual(outputs["xmap_out"], {"b": 1, "a": 2, "c": 3})
+        self.assertEqual(outputs["ymap_out"], {"a": {"left": "a.bam", "right": "a.bai"}, "b": {"left": "b.bam", "right": "b.bai"}})
+        self.assertEqual(outputs["xmulti"], {"b": [1], "a": [2], "c": [3]})
+        self.assertEqual(outputs["ymulti"], {"a": [{"left": "a_1.bam", "right": "a_1.bai"}, {"left": "a_2.bam", "right": "a_2.bai"}], "b": [{"left": "b.bam", "right": "b.bai"}]})
+        self.assertEqual(outputs["x_roundtrip"], [{"left": "b", "right": 1}, {"left": "a", "right": 2}, {"left": "c", "right": 3}])
+        self.assertEqual(outputs["y_roundtrip"], [{"left": "a", "right": {"left": "a.bam", "right": "a.bai"}}, {"left": "b", "right": {"left": "b.bam", "right": "b.bai"}}])
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._test_task(R"""
+            version development
+            task test_keys {
+                input {
+                    Map[String,Int]? optmap
+                }
+                command {}
+                output {
+                    Array[Pair[String,Int]] x = as_pairs(optmap)
+                }
+            }
+            """)
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._test_task(R"""
+            version development
+            task test_keys {
+                input {
+                    Array[Array[Int]] a2
+                }
+                command {}
+                output {
+                    Map[Int,Int] x = collect_by_key(a2)
+                }
+            }
+            """)
+
+        with self.assertRaisesRegex(WDL.Error.EvalError, "duplicate"):
+            outputs = self._test_task(R"""
+            version development
+            task test_map_pairs {
+                input {
+                    Array[Pair[String,Pair[String,String]]] y = [("a", ("a_1.bam", "a_1.bai")), ("b", ("b.bam", "b.bai")), ("a", ("a_2.bam", "a_2.bai"))]
+                }
+                command {}
+                output {
+                    Map[String,Pair[String,String]] ymap = as_map(y)
+                }
             }
             """)
