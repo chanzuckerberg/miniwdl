@@ -343,6 +343,7 @@ class FileCoherence(abc.ABC):
     Class to check for file coherence when utilizing an output caching system (based on last modification time
     for cache and referenced files) for files stored locally.
     """
+
     _logger: logging.Logger
 
     def __init__(self, logger):
