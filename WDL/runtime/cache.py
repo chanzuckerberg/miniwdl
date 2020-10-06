@@ -3,6 +3,7 @@ Caching outputs of task/workflow calls (incl. file URI downloader tasks) based o
 inputs. When cached outputs are found for reuse, opens advisory locks (flocks) on any local files
 referenced therein, and updates their access timestamps (atime).
 """
+import abc
 import hashlib
 import json
 import itertools
@@ -16,9 +17,14 @@ from fnmatch import fnmatchcase
 from threading import Lock
 
 from . import config
+from .error import CacheOutputFileAgeError
 
 from .. import Env, Value, Type, Document, Tree, Error
-from .._util import StructuredLogMessage as _, FlockHolder, write_atomic
+from .._util import (
+    StructuredLogMessage as _,
+    FlockHolder,
+    write_atomic,
+)
 
 
 class CallCache(AbstractContextManager):
@@ -68,16 +74,18 @@ class CallCache(AbstractContextManager):
         return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
 
     def get(
-        self, key: str, output_types: Env.Bindings[Type.Base]
+        self, key: str, output_types: Env.Bindings[Type.Base], inputs: Env.Bindings[Value.Base]
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
-        Resolve cache key to call outputs, if available, or None. When matching outputs are found,
-        opens shared flocks on all files referenced therein, which will remain for the life of the
-        CallCache object.
+        Resolve cache key to call outputs, if available, or None. When matching outputs are found, check to ensure the
+        modification time on any output or input files is older than the modification time for the cache file.
+        Opens shared flocks on all files referenced therein, which will remain for the life of the CallCache object.
         """
         from .. import values_from_json
 
         file_path = os.path.join(self.call_cache_dir, f"{key}.json")
+        file_coherence_checker = FileCoherence(self._logger)
+
         if not self._cfg["call_cache"].get_bool("get"):
             return None
 
@@ -89,7 +97,17 @@ class CallCache(AbstractContextManager):
             return None
         contents = json.loads(contents)
         self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
-        return values_from_json(contents, output_types)  # pyre-fixme
+        cache = values_from_json(contents, output_types)  # pyre-fixme
+        file_list = []
+        # check output and input files
+
+        def get_files(file):
+            file_list.append(file)
+
+        Value.rewrite_env_files(cache, get_files)
+        Value.rewrite_env_files(inputs, get_files)
+        if file_coherence_checker.check_files(file_path, file_list):
+            return cache
 
     def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base]) -> None:
         """
@@ -318,3 +336,46 @@ def _excerpt(
             clean(pos.end_line, 1, pos.end_column),
         )
     )
+
+
+class FileCoherence(abc.ABC):
+    """
+    Class to check for file coherence when utilizing an output caching system (based on last modification time
+    for cache and referenced files) for files stored locally.
+    """
+
+    _logger: logging.Logger
+
+    def __init__(self, logger):
+        self._logger = logger.getChild("FileCoherence")
+        self.cache_file_modification_time = 0.0
+
+    def check_files(self, cache_file_path: str, files: list) -> bool:
+        if self.cache_file_modification_time == 0.0:
+            self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
+        for file_path in files:
+            try:
+                self.check_cache_younger_than_file(output_file_path=file_path)
+            except (FileNotFoundError, CacheOutputFileAgeError):
+                self._logger.info(
+                    f"Issue with file referenced in cached task output. "
+                    f"Has {file_path} been deleted or updated since the cache was created?"
+                )
+                os.remove(cache_file_path)
+                self._logger.info("Deleted cached task output, running task")
+                return False
+        return True
+
+    def get_last_modified_time(self, file_path: str) -> float:
+        # returned as seconds since epoch
+        file_modification_time = os.path.getmtime(file_path)
+        sym_link_modification_time = os.lstat(file_path).st_mtime
+
+        return max(file_modification_time, sym_link_modification_time)
+
+    def check_cache_younger_than_file(self, output_file_path: str) -> bool:
+        output_file_modification_time = self.get_last_modified_time(output_file_path)
+        if self.cache_file_modification_time > output_file_modification_time:
+            return True
+        else:
+            raise CacheOutputFileAgeError
