@@ -68,7 +68,7 @@ class TestTasks(unittest.TestCase):
 
             task.typecheck()
 
-            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings(WDL.Env.Binding('in', WDL.Value.String("hello")))).value, 'hello')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings(WDL.Env.Binding('in', WDL.Value.String("hello"))), WDL.StdLib.Base("1.0")).value, 'hello')
 
             self.assertFalse(task.command.parts[0].strip().startswith("{"))
             self.assertFalse(task.command.parts[0].strip().startswith("<<<"))
@@ -139,9 +139,10 @@ class TestTasks(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'yes')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'no')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, '')
+        stdlib = WDL.StdLib.Base("1.0")
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'yes')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False)), stdlib).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null()), stdlib).value, '')
 
         task = WDL.parse_tasks("""
             task wc {
@@ -155,10 +156,10 @@ class TestTasks(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'yes')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'yes')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False)), stdlib).value, 'no')
         with self.assertRaises(WDL.Error.NullValue):
-            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, '')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null()), stdlib).value, '')
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
@@ -205,9 +206,9 @@ class TestTasks(unittest.TestCase):
             """)[0]
         task.typecheck()
         foobar = WDL.Value.Array(WDL.Type.String(), [WDL.Value.String("foo"), WDL.Value.String("bar")])
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar)).value, 'foo, bar')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar), stdlib).value, 'foo, bar')
         foobar = WDL.Value.Array(WDL.Type.String(), [])
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar)).value, '')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar), stdlib).value, '')
         with self.assertRaises(WDL.Error.IncompatibleOperand):
             task = WDL.parse_tasks("""
             task wc {
@@ -243,9 +244,9 @@ class TestTasks(unittest.TestCase):
             """)[0]
         task.typecheck()
         self.assertTrue(task.inputs[0].type.optional)
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'true')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'false')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, 'foo')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'true')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False)), stdlib).value, 'false')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null()), stdlib).value, 'foo')
 
         task = WDL.parse_tasks("""
             task wc {

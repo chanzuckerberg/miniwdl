@@ -831,7 +831,7 @@ class TestStdLib(unittest.TestCase):
 
     def test_quote(self):
         outputs = self._test_task(R"""
-        version 1.0
+        version development
         task test_quote {
             command {}
             output {
@@ -847,7 +847,7 @@ class TestStdLib(unittest.TestCase):
         })
 
         outputs = self._test_task(R"""
-        version 1.0
+        version development
         task test_quote {
             command {}
             output {
@@ -864,8 +864,8 @@ class TestStdLib(unittest.TestCase):
         })
 
         # Check invalid type does not work
-        outputs = self._test_task(R"""
-        version 1.0
+        self._test_task(R"""
+        version development
         task test_quote {
             command {}
             output {
@@ -875,10 +875,22 @@ class TestStdLib(unittest.TestCase):
         }
         """,expected_exception=WDL.Error.StaticTypeMismatch)
 
+        # check unavailable in WDL draft-2 and 1.0
+        self._test_task(R"""
+        version 1.0
+        task test_quote {
+            command {}
+            output {
+                Array[Int] arguments = [1,2,3]
+                Array[String] quoted_args = quote(arguments) # ["\"1\"","\"2\"","\"3\""]
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
 
     def test_squote(self):
         outputs = self._test_task(R"""
-        version 1.0
+        version development
         task test_squote {
             command {}
             output {
@@ -894,7 +906,7 @@ class TestStdLib(unittest.TestCase):
         })
 
         outputs = self._test_task(R"""
-        version 1.0
+        version development
         task test_squote {
             command {}
             output {
@@ -912,7 +924,7 @@ class TestStdLib(unittest.TestCase):
 
         # Check invalid type does not work
         outputs = self._test_task(R"""
-        version 1.0
+        version development
         task test_squote {
             command {}
             output {

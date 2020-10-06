@@ -252,7 +252,9 @@ class StringCoercion(Linter):
                         obj.pos,
                     )
             else:
-                F = getattr(StdLib.TaskOutputs(), obj.function_name)
+                F = getattr(
+                    StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name
+                )
                 if isinstance(F, StdLib.StaticFunction) and obj.function_name != "basename":
                     # ok for basename to take either String or File
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
@@ -331,7 +333,7 @@ class FileCoercion(Linter):
         super().expr(obj)
         if isinstance(obj, Expr.Apply):
             # File function operands with String expression
-            F = getattr(StdLib.TaskOutputs(), obj.function_name)
+            F = getattr(StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
@@ -386,7 +388,7 @@ class ArrayCoercion(Linter):
 
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
-            F = getattr(StdLib.TaskOutputs(), obj.function_name)
+            F = getattr(StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
@@ -433,7 +435,9 @@ class OptionalCoercion(Linter):
                         ),
                     )
             else:
-                F = getattr(StdLib.TaskOutputs(), obj.function_name)
+                F = getattr(
+                    StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name
+                )
                 if isinstance(F, StdLib.StaticFunction):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
@@ -479,7 +483,7 @@ class NonemptyCoercion(Linter):
     # An array of possibly-empty type where a nonempty array is expected
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
-            F = getattr(StdLib.TaskOutputs(), obj.function_name)
+            F = getattr(StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]

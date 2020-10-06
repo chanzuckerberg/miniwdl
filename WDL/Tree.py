@@ -217,15 +217,13 @@ class Decl(WorkflowNode):
     def typecheck(
         self,
         type_env: Env.Bindings[Type.Base],
-        stdlib: Optional[StdLib.Base] = None,
+        stdlib: StdLib.Base,
         check_quant: bool = True,
     ) -> None:
         # Infer the expression's type and ensure it checks against the declared
         # type. One time use!
         if self.expr:
-            self.expr.infer_type(type_env, stdlib=stdlib, check_quant=check_quant).typecheck(
-                self.type
-            )
+            self.expr.infer_type(type_env, stdlib, check_quant=check_quant).typecheck(self.type)
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
         yield from _expr_workflow_node_dependencies(self.expr)
@@ -265,6 +263,12 @@ class Task(SourceNode):
 
     ``meta{}`` section as a JSON-like dict"""
 
+    effective_wdl_version: str
+    """:type: str
+
+    Effective WDL version of the containing document
+    """
+
     def __init__(
         self,
         pos: SourcePosition,
@@ -286,6 +290,7 @@ class Task(SourceNode):
         self.parameter_meta = parameter_meta
         self.runtime = runtime
         self.meta = meta
+        self.effective_wdl_version = "1.0"  # overridden by Document.__init__
         # TODO: enforce validity constraints on parameter_meta and runtime
         # TODO: if the input section exists, then all postinputs decls must be
         #       bound
@@ -374,15 +379,16 @@ class Task(SourceNode):
             type_env = decl.add_to_type_env(struct_typedefs, type_env)
 
         with Error.multi_context() as errors:
+            stdlib = StdLib.Base(self.effective_wdl_version)
             # Pass through input & postinput declarations again, typecheck their
             # right-hand side expressions against the type environment.
             for decl in (self.inputs or []) + self.postinputs:
-                errors.try1(lambda: decl.typecheck(type_env, check_quant=check_quant))
+                errors.try1(lambda: decl.typecheck(type_env, stdlib, check_quant=check_quant))
             # Typecheck the command (string)
             errors.try1(
-                lambda: self.command.infer_type(type_env, check_quant=check_quant).typecheck(
-                    Type.String()
-                )
+                lambda: self.command.infer_type(
+                    type_env, stdlib, check_quant=check_quant
+                ).typecheck(Type.String())
             )
             for b in self.available_inputs:
                 errors.try1(lambda: _check_serializable_map_keys(b.value.type, b.name, b.value))
@@ -390,7 +396,7 @@ class Task(SourceNode):
             for _, runtime_expr in self.runtime.items():
                 errors.try1(
                     lambda runtime_expr=runtime_expr: runtime_expr.infer_type(
-                        type_env, check_quant=check_quant
+                        type_env, stdlib, check_quant=check_quant
                     ).typecheck(Type.String())
                 )
             # Add output declarations to type environment
@@ -402,11 +408,9 @@ class Task(SourceNode):
                     type_env = type_env2
             errors.maybe_raise()
             # Typecheck the output expressions
-            stdlib = StdLib.TaskOutputs()
+            stdlib = StdLib.TaskOutputs(self.effective_wdl_version)
             for decl in self.outputs:
-                errors.try1(
-                    lambda: decl.typecheck(type_env, stdlib=stdlib, check_quant=check_quant)
-                )
+                errors.try1(lambda: decl.typecheck(type_env, stdlib, check_quant=check_quant))
                 errors.try1(lambda: _check_serializable_map_keys(decl.type, decl.name, decl))
 
         # check for cyclic dependencies among decls
@@ -514,7 +518,9 @@ class Call(WorkflowNode):
         # add empty namespace in case self.effective_outputs is empty
         return Env.merge(self.effective_outputs, type_env.with_empty_namespace(self.name))
 
-    def typecheck_input(self, type_env: Env.Bindings[Type.Base], check_quant: bool) -> bool:
+    def typecheck_input(
+        self, type_env: Env.Bindings[Type.Base], stdlib: StdLib.Base, check_quant: bool
+    ) -> bool:
         # Check the input expressions against the callee's inputs. One-time use.
         # Returns True if the call supplies all required inputs, False otherwise.
         assert self.callee
@@ -529,7 +535,7 @@ class Call(WorkflowNode):
                     decl = self.callee.available_inputs[name]
                     errors.try1(
                         lambda expr=expr, decl=decl: expr.infer_type(
-                            type_env, check_quant=check_quant
+                            type_env, stdlib, check_quant=check_quant
                         ).typecheck(decl.type)
                     )
                 except KeyError:
@@ -903,6 +909,12 @@ class Workflow(SourceNode):
 
     _nodes_by_id: Dict[str, WorkflowNode]  # memoizer
 
+    effective_wdl_version: str
+    """:type: str
+
+    Effective WDL version of the containing document
+    """
+
     def __init__(
         self,
         pos: SourcePosition,
@@ -926,6 +938,7 @@ class Workflow(SourceNode):
         self.meta = meta
         self.complete_calls = True
         self._nodes_by_id = {}
+        self.effective_wdl_version = ""  # overridden by Document.__init__
 
         # Hack: modify workflow node IDs for output decls since, in draft-2, they could reuse names
         # of earlier decls
@@ -1018,16 +1031,19 @@ class Workflow(SourceNode):
         _resolve_calls(doc)
         # 2. build type environments in the workflow and each scatter &
         #    conditional section therein
-        _build_workflow_type_env(doc, check_quant)
+        stdlib = StdLib.Base(self.effective_wdl_version)
+        _build_workflow_type_env(doc, stdlib, check_quant)
         with Error.multi_context() as errors:
             # 3. typecheck the right-hand side expressions of each declaration
             #    and the inputs to each call (descending into scatter & conditional
             #    sections)
             for decl in self.inputs or []:
                 errors.try1(
-                    lambda decl=decl: decl.typecheck(self._type_env, check_quant=check_quant)
+                    lambda decl=decl: decl.typecheck(
+                        self._type_env, stdlib, check_quant=check_quant
+                    )
                 )
-            if errors.try1(lambda: _typecheck_workflow_body(doc, check_quant)) is False:
+            if errors.try1(lambda: _typecheck_workflow_body(doc, stdlib, check_quant)) is False:
                 self.complete_calls = False
             for b in self.available_inputs:
                 errors.try1(lambda: _check_serializable_map_keys(b.value.type, b.name, b.value))
@@ -1063,7 +1079,7 @@ class Workflow(SourceNode):
                     )
                     errors.try1(
                         lambda output=output: output.typecheck(
-                            output_type_env, check_quant=check_quant
+                            output_type_env, stdlib, check_quant=check_quant
                         )
                     )
                     output_type_env = output_type_env2
@@ -1200,7 +1216,14 @@ class Document(SourceNode):
     """
     :type: Optional[str]
 
-    Declared WDL language version; if absent, then assume draft-2.
+    Declared WDL language version, if any
+    """
+
+    effective_wdl_version: str
+    """
+    :type"
+
+    ``wdl_version if wdl_version is not None else "draft-2"``
     """
 
     imports: List[DocImport]
@@ -1237,6 +1260,11 @@ class Document(SourceNode):
         self.source_lines = source_text.split("\n")
         self.source_comments = [None for _ in self.source_lines]
         self.wdl_version = wdl_version
+        self.effective_wdl_version = wdl_version if wdl_version is not None else "draft-2"
+        for task in self.tasks:
+            task.effective_wdl_version = self.effective_wdl_version
+        if self.workflow:
+            self.workflow.effective_wdl_version = self.effective_wdl_version
         for comment in comments:
             assert self.source_comments[comment.pos.line - 1] is None
             assert self.source_lines[comment.pos.line - 1].endswith(comment.text)
@@ -1436,6 +1464,7 @@ def _resolve_calls(doc: Document) -> None:
 
 def _build_workflow_type_env(
     doc: Document,
+    stdlib: StdLib.Base,
     check_quant: bool,
     self: Optional[Union[Workflow, WorkflowSection]] = None,
     outer_type_env: Optional[Env.Bindings[Type.Base]] = None,
@@ -1478,7 +1507,7 @@ def _build_workflow_type_env(
             type_env = decl.add_to_type_env(doc.struct_typedefs, type_env)
     elif isinstance(self, Scatter):
         # typecheck scatter array
-        self.expr.infer_type(type_env, check_quant=check_quant)
+        self.expr.infer_type(type_env, stdlib, check_quant=check_quant)
         if not isinstance(self.expr.type, Type.Array):
             raise Error.NotAnArray(self.expr)
         if isinstance(self.expr.type.item_type, Type.Any):
@@ -1495,7 +1524,7 @@ def _build_workflow_type_env(
         type_env = type_env.bind(self.variable, self.expr.type.item_type, self)
     elif isinstance(self, Conditional):
         # typecheck the condition
-        self.expr.infer_type(type_env, check_quant=check_quant)
+        self.expr.infer_type(type_env, stdlib, check_quant=check_quant)
         if not self.expr.type.coerces(Type.Boolean()):
             raise Error.StaticTypeMismatch(self.expr, Type.Boolean(), self.expr.type)
     else:
@@ -1512,7 +1541,7 @@ def _build_workflow_type_env(
                     child_outer_type_env = sibling.add_to_type_env(
                         doc.struct_typedefs, child_outer_type_env
                     )
-            _build_workflow_type_env(doc, check_quant, child, child_outer_type_env)
+            _build_workflow_type_env(doc, stdlib, check_quant, child, child_outer_type_env)
         elif isinstance(child, Decl) and not child.type.optional and not child.expr:
             if doc.workflow.inputs is not None:
                 raise Error.StrayInputDeclaration(
@@ -1536,7 +1565,10 @@ def _build_workflow_type_env(
 
 
 def _typecheck_workflow_body(
-    doc: Document, check_quant: bool, self: Optional[Union[Workflow, WorkflowSection]] = None
+    doc: Document,
+    stdlib: StdLib.Base,
+    check_quant: bool,
+    self: Optional[Union[Workflow, WorkflowSection]] = None,
 ) -> bool:
     # following _resolve_calls() and _build_workflow_type_env(), typecheck all
     # the declaration expressions and call inputs
@@ -1550,7 +1582,7 @@ def _typecheck_workflow_body(
                     _translate_struct_mismatch(
                         doc,
                         lambda child=child: child.typecheck(
-                            self._type_env, check_quant=check_quant
+                            self._type_env, stdlib, check_quant=check_quant
                         ),
                     )
                 )
@@ -1560,7 +1592,7 @@ def _typecheck_workflow_body(
                         _translate_struct_mismatch(
                             doc,
                             lambda child=child: child.typecheck_input(
-                                self._type_env, check_quant=check_quant
+                                self._type_env, stdlib, check_quant=check_quant
                             ),
                         )
                     )
@@ -1572,7 +1604,9 @@ def _typecheck_workflow_body(
                     errors.try1(
                         _translate_struct_mismatch(
                             doc,
-                            lambda child=child: _typecheck_workflow_body(doc, check_quant, child),
+                            lambda child=child: _typecheck_workflow_body(
+                                doc, stdlib, check_quant, child
+                            ),
                         )
                     )
                     is False

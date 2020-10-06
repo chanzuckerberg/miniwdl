@@ -46,10 +46,10 @@ class Base(SourceNode, ABC):
     def infer_type(
         self,
         type_env: Env.Bindings[Type.Base],
-        stdlib: "Optional[StdLib.Base]" = None,
+        stdlib: StdLib.Base,
         check_quant: bool = True,
     ) -> "Base":
-        """infer_type(self, type_env : Env.Bindings[Type.Base]) -> WDL.Expr.Base
+        """infer_type(self, type_env : Env.Bindings[Type.Base], stdlib : StdLib.Base) -> WDL.Expr.Base
 
         Infer the expression's type within the given type environment. Must be
         invoked exactly once prior to use of other methods.
@@ -93,16 +93,12 @@ class Base(SourceNode, ABC):
         return self
 
     @abstractmethod
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         # to be overridden by subclasses. eval() calls this and deals with any
         # exceptions raised
         pass
 
-    def eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         """
         Evaluate the expression in the given environment
 
@@ -124,7 +120,7 @@ class Base(SourceNode, ABC):
         result can be an instance of ``WDL.Value.Null`` which is distinct from None.
         """
         if isinstance(self, (Boolean, Int, Float)):
-            return self._eval(Env.Bindings())
+            return self._eval(Env.Bindings(), None)  # pyre-fixme
         return None
 
 
@@ -150,9 +146,7 @@ class Boolean(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Boolean()
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Boolean:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Boolean:
         ""
         return Value.Boolean(self.value)
 
@@ -179,9 +173,7 @@ class Int(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Int()
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Int:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Int:
         ""
         return Value.Int(self.value)
 
@@ -211,9 +203,7 @@ class Float(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Float()
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Float:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Float:
         ""
         return Value.Float(self.value)
 
@@ -240,9 +230,7 @@ class Null(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Any(null=True)
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Null:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Null:
         ""
         return Value.Null()
 
@@ -268,6 +256,16 @@ class Placeholder(Base):
         self.options = options
         self.expr = expr
 
+        # preprocess expr to rewrite any Apply("_add") to Apply("_interpolation_add") for the
+        # special interpolation-only behavior of + for String? operands.
+        def rewrite_adds(ch: Base):
+            if isinstance(ch, Apply) and ch.function_name == "_add":
+                ch.function_name = "_interpolation_add"
+            for ch2 in ch.children:
+                rewrite_adds(ch2)
+
+        rewrite_adds(self.expr)
+
     def __str__(self):
         options = []
         for option in self.options:
@@ -278,18 +276,6 @@ class Placeholder(Base):
     @property
     def children(self) -> Iterable[SourceNode]:
         yield self.expr
-
-    def infer_type(
-        self,
-        type_env: Env.Bindings[Type.Base],
-        stdlib: "Optional[StdLib.Base]" = None,
-        check_quant: bool = True,
-    ) -> Base:
-        # override the + operator with the within-interpolation version which accepts String?
-        # operands and produces a String? result
-        stdlib = stdlib or StdLib.Base()
-        setattr(stdlib, "_add", StdLib.InterpolationAddOperator())
-        return super().infer_type(type_env, stdlib, check_quant)
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if isinstance(self.expr.type, Type.Array):
@@ -323,14 +309,8 @@ class Placeholder(Base):
                 )
         return Type.String()
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.String:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         ""
-        # override the + operator with the within-interpolation version which evaluates to None
-        # if either operand is None
-        stdlib = stdlib or StdLib.Base()
-        setattr(stdlib, "_add", StdLib.InterpolationAddOperator())
         v = self.expr.eval(env, stdlib)
         if isinstance(v, Value.Null):
             if "default" in self.options:
@@ -400,9 +380,7 @@ class String(Base):
         ""
         return super().typecheck(expected)  # pyre-ignore
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.String:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         ""
         ans = []
         for part in self.parts:
@@ -424,7 +402,7 @@ class String(Base):
     def literal(self) -> Optional[Value.Base]:
         if next((p for p in self.parts if not isinstance(p, str)), None):
             return None
-        return self._eval(Env.Bindings())
+        return self._eval(Env.Bindings(), None)  # pyre-fixme
 
 
 class Array(Base):
@@ -471,9 +449,7 @@ class Array(Base):
             return self
         return super().typecheck(expected)  # pyre-ignore
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Array:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Array:
         ""
         assert isinstance(self.type, Type.Array)
         return Value.Array(
@@ -528,9 +504,7 @@ class Pair(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.Pair(self.left.type, self.right.type)
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ""
         assert isinstance(self.type, Type.Pair)
         lv = self.left.eval(env, stdlib)
@@ -604,9 +578,7 @@ class Map(Base):
                     literal_keys = None
         return Type.Map((kty, vty), literal_keys=literal_keys)
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ""
         assert isinstance(self.type, Type.Map)
         keystrs = set()
@@ -672,9 +644,7 @@ class Struct(Base):
             member_types[k] = v.type
         return Type.Object(member_types)
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
@@ -757,9 +727,7 @@ class IfThenElse(Base):
             )
         return ty
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ""
         if self.condition.eval(env, stdlib).expect(Type.Boolean()).value:
             ans = self.consequent.eval(env, stdlib)
@@ -819,9 +787,7 @@ class Ident(Base):
             self.referee = referee
         return ans
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ""
         return env[self.name]
 
@@ -852,9 +818,7 @@ class _LeftName(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         raise NotImplementedError()
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         raise NotImplementedError()
 
     @property
@@ -932,6 +896,7 @@ class Get(Base):
                 raise Error.UnknownIdentifier(self)
         # attempt to typecheck expr, disambiguating whether it's an
         # intermediate value, a resolvable identifier, or neither
+        assert self._stdlib is not None
         try:
             self.expr.infer_type(type_env, self._stdlib, self._check_quant)
         except Error.UnknownIdentifier:
@@ -973,9 +938,7 @@ class Get(Base):
                 pass
         raise Error.NoSuchMember(self, self.member)
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         innard_value = self.expr.eval(env, stdlib)
         if not self.member:
             return innard_value
@@ -995,9 +958,6 @@ class Get(Base):
         return ""
 
 
-_base_stdlib = None  # memorized instance of the default WDL.StdLib.Base()
-
-
 def _add_parentheses(arguments, parent_operator):
     """
     Add parentheses around arguments if necessary.
@@ -1014,6 +974,7 @@ def _add_parentheses(arguments, parent_operator):
         "_div": 7,
         "_rem": 7,
         "_add": 6,
+        "_interpolation_add": 6,
         "_sub": 6,
         "_lt": 5,
         "_lte": 5,
@@ -1058,20 +1019,27 @@ class Apply(Base):
         self.arguments = arguments
 
     def __str__(self):
-        func = getattr(StdLib.Base(), self.function_name)
         arguments = _add_parentheses(self.arguments, self.function_name)
-        if isinstance(func, StdLib._ArithmeticOperator):
-            return "{} {} {}".format(arguments[0], func.name, arguments[1])
-        elif isinstance(func, StdLib._ComparisonOperator):
-            return "{} {} {}".format(arguments[0], func.name, arguments[1])
-        elif isinstance(func, StdLib._At):
+        infix = {
+            "_mul": "*",
+            "_div": "/",
+            "_rem": "%",
+            "_add": "+",
+            "_interpolation_add": "+",
+            "_sub": "-",
+            "_lt": "<",
+            "_lte": "<=",
+            "_gt": ">",
+            "_gte": ">=",
+            "_eqeq": "==",
+            "_neq": "!=",
+            "_land": "&&",
+            "_lor": "||",
+        }
+        if self.function_name in infix:
+            return "{} {} {}".format(arguments[0], infix[self.function_name], arguments[1])
+        elif self.function_name == "_at":
             return "{}[{}]".format(arguments[0], arguments[1])
-        elif isinstance(func, StdLib._And):
-            return "{} && {}".format(arguments[0], arguments[1])
-        elif isinstance(func, StdLib._Or):
-            return "{} || {}".format(arguments[0], arguments[1])
-        elif self.function_name == "_rem":
-            return "{} % {}".format(arguments[0], arguments[1])
         elif self.function_name == "_negate":
             return "!{}".format(arguments[0])
         else:
@@ -1084,24 +1052,15 @@ class Apply(Base):
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
 
-        global _base_stdlib
-        if not _base_stdlib:
-            _base_stdlib = StdLib.Base()
-        f = getattr(self._stdlib or _base_stdlib, self.function_name, None)
+        f = getattr(self._stdlib, self.function_name, None)
         if not f:
             raise Error.NoSuchFunction(self, self.function_name) from None
         assert isinstance(f, StdLib.Function)
         return f.infer_type(self)
 
-    def _eval(
-        self, env: Env.Bindings[Value.Base], stdlib: "Optional[StdLib.Base]" = None
-    ) -> Value.Base:
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ""
 
-        global _base_stdlib
-        if not _base_stdlib:
-            _base_stdlib = StdLib.Base()
-        stdlib = stdlib or _base_stdlib
         f = getattr(stdlib, self.function_name, None)
         assert isinstance(f, StdLib.Function)
         return f(self, env, stdlib)

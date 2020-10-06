@@ -568,8 +568,10 @@ class _StdLib(StdLib.Base):
     state: StateMachine
     cache: CallCache
 
-    def __init__(self, cfg: config.Loader, state: StateMachine, cache: CallCache) -> None:
-        super().__init__(write_dir=os.path.join(state.run_dir, "write_"))
+    def __init__(
+        self, wdl_version: str, cfg: config.Loader, state: StateMachine, cache: CallCache
+    ) -> None:
+        super().__init__(wdl_version, write_dir=os.path.join(state.run_dir, "write_"))
         self.cfg = cfg
         self.state = state
         self.cache = cache
@@ -753,7 +755,7 @@ def _workflow_main_loop(
                 if terminating():
                     raise Terminated()
                 # schedule all runnable calls
-                stdlib = _StdLib(cfg, state, cache)
+                stdlib = _StdLib(workflow.effective_wdl_version, cfg, state, cache)
                 next_call = state.step(cfg, stdlib)
                 while next_call:
                     call_dir = os.path.join(run_dir, next_call.id)
