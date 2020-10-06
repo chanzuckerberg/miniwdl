@@ -379,7 +379,7 @@ class Task(SourceNode):
             type_env = decl.add_to_type_env(struct_typedefs, type_env)
 
         with Error.multi_context() as errors:
-            stdlib = StdLib.Base()
+            stdlib = StdLib.Base(self.effective_wdl_version)
             # Pass through input & postinput declarations again, typecheck their
             # right-hand side expressions against the type environment.
             for decl in (self.inputs or []) + self.postinputs:
@@ -408,7 +408,7 @@ class Task(SourceNode):
                     type_env = type_env2
             errors.maybe_raise()
             # Typecheck the output expressions
-            stdlib = StdLib.TaskOutputs()
+            stdlib = StdLib.TaskOutputs(self.effective_wdl_version)
             for decl in self.outputs:
                 errors.try1(lambda: decl.typecheck(type_env, stdlib, check_quant=check_quant))
                 errors.try1(lambda: _check_serializable_map_keys(decl.type, decl.name, decl))
@@ -909,6 +909,12 @@ class Workflow(SourceNode):
 
     _nodes_by_id: Dict[str, WorkflowNode]  # memoizer
 
+    effective_wdl_version: str
+    """:type: str
+
+    Effective WDL version of the containing document
+    """
+
     def __init__(
         self,
         pos: SourcePosition,
@@ -932,6 +938,7 @@ class Workflow(SourceNode):
         self.meta = meta
         self.complete_calls = True
         self._nodes_by_id = {}
+        self.effective_wdl_version = ""  # overridden by Document.__init__
 
         # Hack: modify workflow node IDs for output decls since, in draft-2, they could reuse names
         # of earlier decls
@@ -1024,7 +1031,7 @@ class Workflow(SourceNode):
         _resolve_calls(doc)
         # 2. build type environments in the workflow and each scatter &
         #    conditional section therein
-        stdlib = StdLib.Base()
+        stdlib = StdLib.Base(self.effective_wdl_version)
         _build_workflow_type_env(doc, stdlib, check_quant)
         with Error.multi_context() as errors:
             # 3. typecheck the right-hand side expressions of each declaration
@@ -1256,6 +1263,8 @@ class Document(SourceNode):
         self.effective_wdl_version = wdl_version if wdl_version is not None else "draft-2"
         for task in self.tasks:
             task.effective_wdl_version = self.effective_wdl_version
+        if self.workflow:
+            self.workflow.effective_wdl_version = self.effective_wdl_version
         for comment in comments:
             assert self.source_comments[comment.pos.line - 1] is None
             assert self.source_lines[comment.pos.line - 1].endswith(comment.text)

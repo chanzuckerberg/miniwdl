@@ -68,7 +68,7 @@ class TestTasks(unittest.TestCase):
 
             task.typecheck()
 
-            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings(WDL.Env.Binding('in', WDL.Value.String("hello"))), WDL.StdLib.Base()).value, 'hello')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings(WDL.Env.Binding('in', WDL.Value.String("hello"))), WDL.StdLib.Base("1.0")).value, 'hello')
 
             self.assertFalse(task.command.parts[0].strip().startswith("{"))
             self.assertFalse(task.command.parts[0].strip().startswith("<<<"))
@@ -139,7 +139,7 @@ class TestTasks(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        stdlib = WDL.StdLib.Base()
+        stdlib = WDL.StdLib.Base("1.0")
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'yes')
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False)), stdlib).value, 'no')
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null()), stdlib).value, '')

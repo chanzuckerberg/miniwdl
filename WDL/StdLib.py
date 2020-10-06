@@ -21,9 +21,11 @@ class Base:
     output sections.
     """
 
+    wdl_version: str
     _write_dir: str  # directory in which write_* functions create files
 
-    def __init__(self, write_dir: str = ""):
+    def __init__(self, wdl_version: str, write_dir: str = ""):
+        self.wdl_version = wdl_version
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()
 
         # language built-ins
@@ -47,8 +49,6 @@ class Base:
         self._lte = _ComparisonOperator("<=", lambda l, r: l <= r)
         self._gt = _ComparisonOperator(">", lambda l, r: l > r)
         self._gte = _ComparisonOperator(">=", lambda l, r: l >= r)
-        self.min = _ArithmeticOperator("min", lambda l, r: min(l, r))
-        self.max = _ArithmeticOperator("max", lambda l, r: max(l, r))
 
         # static stdlib functions
         def static(
@@ -128,12 +128,16 @@ class Base:
         self.cross = _Cross()
         self.flatten = _Flatten()
         self.transpose = _Transpose()
-        self.quote = _Quote()
-        self.squote = _Quote(squote=True)
-        self.keys = _Keys()
-        self.as_map = _AsMap()
-        self.as_pairs = _AsPairs()
-        self.collect_by_key = _CollectByKey()
+
+        if self.wdl_version not in ["draft-2", "1.0"]:
+            self.min = _ArithmeticOperator("min", lambda l, r: min(l, r))
+            self.max = _ArithmeticOperator("max", lambda l, r: max(l, r))
+            self.quote = _Quote()
+            self.squote = _Quote(squote=True)
+            self.keys = _Keys()
+            self.as_map = _AsMap()
+            self.as_pairs = _AsPairs()
+            self.collect_by_key = _CollectByKey()
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -279,8 +283,8 @@ class TaskOutputs(Base):
     (Implementations left to by overridden by the task runtime)
     """
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         for (name, argument_types, return_type, F) in [
             ("stdout", [], Type.File(), _notimpl),
             ("stderr", [], Type.File(), _notimpl),

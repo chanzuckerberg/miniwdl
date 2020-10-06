@@ -59,7 +59,7 @@ class TestEval(unittest.TestCase):
         self.assertEqual(str(WDL.parse_expr(ifthenelsechain)), ifthenelsechain)
 
     def test_boolean(self):
-        stdlib = WDL.StdLib.Base()
+        stdlib = WDL.StdLib.Base("1.0")
         expr = WDL.parse_expr("true")
         expr.infer_type([], stdlib)
         self.assertIsInstance(expr.type, WDL.Type.Boolean)
@@ -84,7 +84,7 @@ class TestEval(unittest.TestCase):
         self.assertNotEqual(val, WDL.Value.Boolean(True))
 
     def _test_tuples(self, *tuples):
-        stdlib = WDL.StdLib.Base()
+        stdlib = WDL.StdLib.Base("development")
         for tuple in tuples:
             assert(len(tuple) >= 2)
             expr = tuple[0]
@@ -221,7 +221,7 @@ class TestEval(unittest.TestCase):
         )
 
     def test_array(self):
-        stdlib = WDL.StdLib.Base()
+        stdlib = WDL.StdLib.Base("1.0")
         expr = WDL.parse_expr("[true,false]")
         expr.infer_type([], stdlib)
         self.assertEqual(str(expr.type), "Array[Boolean]+")
@@ -350,7 +350,7 @@ class TestEval(unittest.TestCase):
             ("{(false, false): 0, (false, true): 1}", "", WDL.Type.Map((WDL.Type.Pair(WDL.Type.Boolean(), WDL.Type.Boolean()), WDL.Type.Int()))),
         )
         with self.assertRaisesRegex(WDL.Error.EvalError, "to JSON"):
-            stdlib = WDL.StdLib.Base()
+            stdlib = WDL.StdLib.Base("1.0")
             WDL.parse_expr("{(false, false): 0, (false, true): 1}").infer_type(WDL.Env.Bindings(), stdlib).eval(WDL.Env.Bindings(), stdlib).json
 
     def test_errors(self):
@@ -484,7 +484,7 @@ class TestValue(unittest.TestCase):
             else:
                 self.assertEqual(t[1], WDL.Value.from_json(t[0],t[1]).json)
 
-        stdlib = WDL.StdLib.Base()
+        stdlib = WDL.StdLib.Base("1.0")
         self.assertEqual(
             WDL.parse_expr('object {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}',
                            version="1.0").infer_type([], stdlib).eval([], stdlib).json,

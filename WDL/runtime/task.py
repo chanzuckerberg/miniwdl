@@ -162,7 +162,7 @@ def run_local_task(
                 container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
                 # evaluate runtime fields
-                stdlib = InputStdLib(logger, container)
+                stdlib = InputStdLib(task.effective_wdl_version, logger, container)
                 container.runtime_values = _eval_task_runtime(
                     cfg, logger, task, container, container_env, stdlib
                 )
@@ -352,7 +352,7 @@ def _eval_task_inputs(
 
     # evaluate each declaration in that order
     # note: the write_* functions call container.add_paths as a side-effect
-    stdlib = InputStdLib(logger, container)
+    stdlib = InputStdLib(task.effective_wdl_version, logger, container)
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
         v = Value.Null()
@@ -574,7 +574,7 @@ def _eval_task_outputs(
         # the -declared- output type is optional.
         return host_path  # pyre-fixme
 
-    stdlib = OutputStdLib(logger, container)
+    stdlib = OutputStdLib(task.effective_wdl_version, logger, container)
     outputs = Env.Bindings()
     for decl in task.outputs:
         assert decl.expr
@@ -726,8 +726,10 @@ class _StdLib(StdLib.Base):
     container: TaskContainer
     inputs_only: bool  # if True then only permit access to input files
 
-    def __init__(self, logger: logging.Logger, container: TaskContainer, inputs_only: bool) -> None:
-        super().__init__(write_dir=os.path.join(container.host_dir, "write_"))
+    def __init__(
+        self, wdl_version: str, logger: logging.Logger, container: TaskContainer, inputs_only: bool
+    ) -> None:
+        super().__init__(wdl_version, write_dir=os.path.join(container.host_dir, "write_"))
         self.logger = logger
         self.container = container
         self.inputs_only = inputs_only
@@ -752,14 +754,14 @@ class _StdLib(StdLib.Base):
 
 class InputStdLib(_StdLib):
     # StdLib for evaluation of task inputs and command
-    def __init__(self, logger: logging.Logger, container: TaskContainer) -> None:
-        super().__init__(logger, container, True)
+    def __init__(self, wdl_version: str, logger: logging.Logger, container: TaskContainer) -> None:
+        super().__init__(wdl_version, logger, container, True)
 
 
 class OutputStdLib(_StdLib):
     # StdLib for evaluation of task outputs
-    def __init__(self, logger: logging.Logger, container: TaskContainer) -> None:
-        super().__init__(logger, container, False)
+    def __init__(self, wdl_version: str, logger: logging.Logger, container: TaskContainer) -> None:
+        super().__init__(wdl_version, logger, container, False)
 
         setattr(
             self,

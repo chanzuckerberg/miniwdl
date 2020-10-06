@@ -974,6 +974,7 @@ def _add_parentheses(arguments, parent_operator):
         "_div": 7,
         "_rem": 7,
         "_add": 6,
+        "_interpolation_add": 6,
         "_sub": 6,
         "_lt": 5,
         "_lte": 5,
@@ -1018,20 +1019,27 @@ class Apply(Base):
         self.arguments = arguments
 
     def __str__(self):
-        func = getattr(StdLib.Base(), self.function_name)
         arguments = _add_parentheses(self.arguments, self.function_name)
-        if isinstance(func, StdLib._ArithmeticOperator):
-            return "{} {} {}".format(arguments[0], func.name, arguments[1])
-        elif isinstance(func, StdLib._ComparisonOperator):
-            return "{} {} {}".format(arguments[0], func.name, arguments[1])
-        elif isinstance(func, StdLib._At):
+        infix = {
+            "_mul": "*",
+            "_div": "/",
+            "_rem": "%",
+            "_add": "+",
+            "_interpolation_add": "+",
+            "_sub": "-",
+            "_lt": "<",
+            "_lte": "<=",
+            "_gt": ">",
+            "_gte": ">=",
+            "_eqeq": "==",
+            "_neq": "!=",
+            "_land": "&&",
+            "_lor": "||",
+        }
+        if self.function_name in infix:
+            return "{} {} {}".format(arguments[0], infix[self.function_name], arguments[1])
+        elif self.function_name == "_at":
             return "{}[{}]".format(arguments[0], arguments[1])
-        elif isinstance(func, StdLib._And):
-            return "{} && {}".format(arguments[0], arguments[1])
-        elif isinstance(func, StdLib._Or):
-            return "{} || {}".format(arguments[0], arguments[1])
-        elif self.function_name == "_rem":
-            return "{} % {}".format(arguments[0], arguments[1])
         elif self.function_name == "_negate":
             return "!{}".format(arguments[0])
         else:
