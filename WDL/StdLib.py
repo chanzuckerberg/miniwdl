@@ -34,6 +34,7 @@ class Base:
             "_negate", [Type.Boolean()], Type.Boolean(), lambda x: Value.Boolean(not x.value)
         )
         self._add = _AddOperator()
+        self._interpolation_add = _InterpolationAddOperator()
         self._sub = _ArithmeticOperator("-", lambda l, r: l - r)
         self._mul = _ArithmeticOperator("*", lambda l, r: l * r)
         self._div = _ArithmeticOperator("/", lambda l, r: l // r)
@@ -552,7 +553,7 @@ class _AddOperator(_ArithmeticOperator):
         return Value.String(ans)
 
 
-class InterpolationAddOperator(_AddOperator):
+class _InterpolationAddOperator(_AddOperator):
     # + operator within an interpolation; accepts String? operands, evaluating to None if either
     # operand is None.
 

@@ -162,13 +162,14 @@ def run_local_task(
                 container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
                 # evaluate runtime fields
+                stdlib = InputStdLib(logger, container)
                 container.runtime_values = _eval_task_runtime(
-                    cfg, logger, task, container, container_env
+                    cfg, logger, task, container, container_env, stdlib
                 )
 
                 # interpolate command
                 command = _util.strip_leading_whitespace(
-                    task.command.eval(container_env, stdlib=InputStdLib(logger, container)).value
+                    task.command.eval(container_env, stdlib).value
                 )[1]
                 logger.debug(_("command", command=command.strip()))
 
@@ -401,6 +402,7 @@ def _eval_task_runtime(
     task: Tree.Task,
     container: TaskContainer,
     env: Env.Bindings[Value.Base],
+    stdlib: StdLib.Base,
 ) -> Dict[str, Union[int, str]]:
     runtime_values = {}
     for key, v in cfg["task_runtime"].get_dict("defaults").items():
@@ -411,7 +413,7 @@ def _eval_task_runtime(
         else:
             raise Error.InputError(f"invalid default runtime setting {key} = {v}")
     for key, expr in task.runtime.items():
-        runtime_values[key] = expr.eval(env)
+        runtime_values[key] = expr.eval(env, stdlib)
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
