@@ -375,7 +375,7 @@ class FileCoherence(abc.ABC):
 
     def check_cache_younger_than_file(self, output_file_path: str) -> bool:
         output_file_modification_time = self.get_last_modified_time(output_file_path)
-        if self.cache_file_modification_time > output_file_modification_time:
+        if self.cache_file_modification_time >= output_file_modification_time:
             return True
         else:
             raise CacheOutputFileAgeError
