@@ -400,12 +400,36 @@ class _DocTransformer(_ExprTransformer):
         return d
 
     def call(self, items, meta):
-        return Tree.Call(self._sp(meta), items[0], None, items[1] if len(items) > 1 else dict())
+        after = []
+        i = 1
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
+        return Tree.Call(
+            self._sp(meta), items[0], None, items[i] if i < len(items) else dict(), after=after
+        )
 
     def call_as(self, items, meta):
         self._check_keyword(self._sp(meta), items[1].value)
+        after = list()
+        i = 2
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
         return Tree.Call(
-            self._sp(meta), items[0], items[1].value, items[2] if len(items) > 2 else dict()
+            self._sp(meta),
+            items[0],
+            items[1].value,
+            items[i] if i < len(items) else dict(),
+            after=after,
         )
 
     def scatter(self, items, meta):

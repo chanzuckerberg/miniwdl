@@ -434,6 +434,14 @@ class Call(WorkflowNode):
     """:type: string
 
     Call name, defaults to task/workflow name"""
+    after: List[str]
+    """:type: string
+
+    Call names on which this call depends (even if none of their outputs are used in this call's
+    inputs)
+    """
+    _after_node_ids: Set[str]
+
     inputs: Dict[str, Expr.Base]
     """
     :type: Dict[str,WDL.Expr.Base]
@@ -452,6 +460,7 @@ class Call(WorkflowNode):
         callee_id: List[str],
         alias: Optional[str],
         inputs: Dict[str, Expr.Base],
+        after: Optional[List[str]] = None,
     ) -> None:
         assert callee_id
         self.callee_id = callee_id
@@ -459,6 +468,8 @@ class Call(WorkflowNode):
         super().__init__("call-" + self.name, pos)
         self.inputs = inputs
         self.callee = None
+        self.after = after if after is not None else list()
+        self._after_node_ids = set()
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -515,8 +526,10 @@ class Call(WorkflowNode):
                     self.name, self.callee.name
                 ),
             )
-        # add empty namespace in case self.effective_outputs is empty
-        return Env.merge(self.effective_outputs, type_env.with_empty_namespace(self.name))
+        # add a dummy _present binding to ensure the namespace exists even if callee has no outputs
+        return Env.merge(
+            self.effective_outputs, type_env.bind(self.name + "." + "_present", Type.Any(), self)
+        )
 
     def typecheck_input(
         self, type_env: Env.Bindings[Type.Base], stdlib: StdLib.Base, check_quant: bool
@@ -524,6 +537,15 @@ class Call(WorkflowNode):
         # Check the input expressions against the callee's inputs. One-time use.
         # Returns True if the call supplies all required inputs, False otherwise.
         assert self.callee
+
+        # first resolve each self.after to a node ID (possibly a Gather node)
+        for call_after in self.after:
+            try:
+                self._after_node_ids.add(
+                    type_env.resolve_binding(call_after + "._present").info.workflow_node_id
+                )
+            except KeyError:
+                raise Error.NoSuchCall(self, call_after)
 
         # Make a set of the input names which are required for this call
         required_inputs = set(decl.name for decl in self.callee.required_inputs)
@@ -589,6 +611,8 @@ class Call(WorkflowNode):
         return ans
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        assert (not self.after) == (not self._after_node_ids)
+        yield from self._after_node_ids
         for expr in self.inputs.values():
             yield from _expr_workflow_node_dependencies(expr)
 
@@ -1111,7 +1135,8 @@ class Workflow(SourceNode):
                     assert isinstance(binding, Env.Binding)
                     binding_name = binding.name
                     assert isinstance(binding_name, str)
-                    output_idents.append(wildcard_namespace_parts + [binding_name])
+                    if not binding_name.startswith("_"):
+                        output_idents.append(wildcard_namespace_parts + [binding_name])
 
             for output_ident in output_idents:
                 # the output name is supposed to be 'fully qualified'

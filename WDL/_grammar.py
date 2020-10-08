@@ -295,8 +295,8 @@ scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 ?inner_workflow_element: any_decl | call | scatter | conditional
 
-call: "call" namespaced_ident call_body? -> call
-    | "call" namespaced_ident "as" CNAME call_body? -> call_as
+call: "call" namespaced_ident ("after" CNAME)* call_body? -> call
+    | "call" namespaced_ident "as" CNAME ("after" CNAME)* call_body? -> call_as
 namespaced_ident: CNAME ("." CNAME)*
 call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
