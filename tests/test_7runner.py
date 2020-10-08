@@ -338,7 +338,9 @@ class TestCallAfter(RunnerTestCase):
         wdl = R"""
         version development
         task nop {
-            input {}
+            input {
+                Int? y = 0
+            }
             command {}
             output {
                 Int x = 1
@@ -350,16 +352,54 @@ class TestCallAfter(RunnerTestCase):
                 call nop as B
             }
             if (false) {
-                call nop as C
+                call nop as C {
+                    input:
+                    y = 3
+                }
             }
             call nop as D after A after B after C
             scatter (i in range(2)) {
-                call nop after D
+                call nop after D {
+                    input:
+                        y = A.x
+                }
             }
         }
         """
         outp = self._run(wdl, {})
         assert outp["nop.x"] == [1, 1]
+
+        with self.assertRaises(WDL.Error.NoSuchCall):
+            self._run(R"""
+            version development
+            task nop {
+                input {}
+                command {}
+                output {
+                    Int x = 1
+                }
+            }
+            workflow w {
+                call nop as A
+                call nop after B
+            }
+            """)
+
+        with self.assertRaises(WDL.Error.CircularDependencies):
+            self._run(R"""
+            version development
+            task nop {
+                input {}
+                command {}
+                output {
+                    Int x = 1
+                }
+            }
+            workflow w {
+                call nop as A
+                call nop after A after nop
+            }
+            """)
 
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
