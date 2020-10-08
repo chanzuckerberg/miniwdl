@@ -89,25 +89,29 @@ class CallCache(AbstractContextManager):
         if not self._cfg["call_cache"].get_bool("get"):
             return None
 
+        cache = None
         try:
             with open(file_path, "rb") as file_reader:
-                contents = file_reader.read()
+                cache = values_from_json(json.loads(file_reader.read()), output_types)  # pyre-fixme
         except FileNotFoundError:
             self._logger.info(_("call cache miss", cache_path=file_path))
-            return None
-        contents = json.loads(contents)
-        self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
-        cache = values_from_json(contents, output_types)  # pyre-fixme
-        file_list = []
-        # check output and input files
+        except Exception as exn:
+            self._logger.warning(
+                _("call cache entry present, but unreadable", cache_path=file_path, error=str(exn))
+            )
+        if cache:
+            self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
+            file_list = []
+            # check output and input files
 
-        def get_files(file):
-            file_list.append(file)
+            def get_files(file):
+                file_list.append(file)
 
-        Value.rewrite_env_files(cache, get_files)
-        Value.rewrite_env_files(inputs, get_files)
-        if file_coherence_checker.check_files(file_path, file_list):
-            return cache
+            Value.rewrite_env_files(cache, get_files)
+            Value.rewrite_env_files(inputs, get_files)
+            if file_coherence_checker.check_files(file_path, file_list):
+                return cache
+        return None
 
     def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base]) -> None:
         """
@@ -347,7 +351,7 @@ class FileCoherence(abc.ABC):
     _logger: logging.Logger
 
     def __init__(self, logger):
-        self._logger = logger.getChild("FileCoherence")
+        self._logger = logger
         self.cache_file_modification_time = 0.0
 
     def check_files(self, cache_file_path: str, files: list) -> bool:
@@ -357,12 +361,23 @@ class FileCoherence(abc.ABC):
             try:
                 self.check_cache_younger_than_file(output_file_path=file_path)
             except (FileNotFoundError, CacheOutputFileAgeError):
-                self._logger.info(
-                    f"Issue with file referenced in cached task output. "
-                    f"Has {file_path} been deleted or updated since the cache was created?"
+                self._logger.warning(
+                    _(
+                        "cache entry invalid due to deleted or modified file",
+                        cache_path=file_path,
+                        file_changed=file_path,
+                    )
                 )
-                os.remove(cache_file_path)
-                self._logger.info("Deleted cached task output, running task")
+                try:
+                    os.remove(cache_file_path)
+                except Exception as exn:
+                    self._logger.warning(
+                        _(
+                            "unable to delete invalidated cache entry",
+                            cache_path=file_path,
+                            error=str(exn),
+                        )
+                    )
                 return False
         return True
 
