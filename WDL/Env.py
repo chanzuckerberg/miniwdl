@@ -44,16 +44,6 @@ class Binding(Generic[T]):
         return self._info
 
 
-class _EmptyNamespace:
-    # internal representation of a namespace which exists in an environment even if there are no
-    # actual bindings in it (e.g. a Call with no output values)
-    namespace: str
-
-    def __init__(self, namespace: str) -> None:
-        assert namespace.endswith(".")
-        self.namespace = namespace
-
-
 class Bindings(Generic[T]):
     """WDL.Env.Bindings(binding: Optional[WDL.Env.Binding[T]] = None, next: Optional[WDL.Env.Bindings[T]] = None)
 
@@ -68,13 +58,13 @@ class Bindings(Generic[T]):
 
     """
 
-    _binding: Union[None, Binding[T], _EmptyNamespace]
+    _binding: Optional[Binding[T]]
     _next: "Optional[Bindings[T]]"
     _namespaces: Optional[Set[str]] = None
 
     def __init__(
         self,
-        binding: Union[None, Binding[T], _EmptyNamespace] = None,
+        binding: Optional[Binding[T]] = None,
         next: "Optional[Bindings[T]]" = None,
     ) -> None:
         assert binding or not next
@@ -91,14 +81,6 @@ class Bindings(Generic[T]):
             if isinstance(pos._binding, Binding) and pos._binding.name not in mask:
                 mask.add(pos._binding.name)
                 yield pos._binding
-            pos = pos._next
-
-    @property
-    def _empty_namespaces(self) -> Iterator[str]:
-        pos = self
-        while pos is not None:
-            if isinstance(pos._binding, _EmptyNamespace):
-                yield pos._binding.namespace
             pos = pos._next
 
     def __len__(self) -> int:
@@ -186,8 +168,6 @@ class Bindings(Generic[T]):
         """
         if self._namespaces is None:
             self._namespaces = self._next.namespaces if self._next is not None else set()
-            if isinstance(self._binding, _EmptyNamespace):
-                self._namespaces.add(self._binding.namespace)
             if isinstance(self._binding, Binding):
                 names = self._binding.name.split(".")
                 if len(names) > 1:
@@ -232,26 +212,8 @@ class Bindings(Generic[T]):
                     Binding(namespace + pos._binding.name, pos._binding.value, pos._binding.info),
                     ans,
                 )
-            if isinstance(pos._binding, _EmptyNamespace):
-                ans = Bindings(_EmptyNamespace(namespace + pos._binding.namespace), ans)
             pos = pos._next
-        return _rev(ans.with_empty_namespace(namespace))
-
-    def with_empty_namespace(self, namespace: str) -> "Bindings[T]":
-        """
-        Return an environment with an empty namespace registered, which will appear in
-        ``namespaces`` and ``has_namespace()`` even if there are no actual bindings with the
-        namespace prefix.
-        """
-        if namespace.endswith("."):
-            namespace = namespace[:-1]
-        assert namespace
-        names = namespace.split(".")
-        ans = self
-        for i in range(len(names)):
-            ns = ".".join(names[: i + 1]) + "."
-            ans = Bindings(_EmptyNamespace(ns), ans)
-        return ans
+        return _rev(ans)
 
 
 def _rev(env: Bindings[T]) -> Bindings[T]:
@@ -270,7 +232,6 @@ def merge(*args: Bindings[T]) -> Bindings[T]:
     should be supplied as the last argument.
     """
     ans = [args[-1] if args else Bindings()]
-    empty_namespaces = set()
 
     def visit(b: Binding[T]) -> None:
         ans[0] = Bindings(b, ans[0])
@@ -279,7 +240,4 @@ def merge(*args: Bindings[T]) -> Bindings[T]:
         assert isinstance(env, Bindings)
         for b in _rev(env):
             visit(b)
-        empty_namespaces |= set(env._empty_namespaces)
-    for ns in empty_namespaces:
-        ans[0] = Bindings(_EmptyNamespace(ns), ans[0])
     return ans[0]

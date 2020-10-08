@@ -333,6 +333,34 @@ class TestNoneLiteral(RunnerTestCase):
         assert outp["c"]["model"] is None
         assert outp["a2"] == [42]
 
+class TestCallAfter(RunnerTestCase):
+    def test_call_after(self):
+        wdl = R"""
+        version development
+        task nop {
+            input {}
+            command {}
+            output {
+                Int x = 1
+            }
+        }
+        workflow w {
+            call nop as A
+            scatter (i in range(2)) {
+                call nop as B
+            }
+            if (false) {
+                call nop as C
+            }
+            call nop as D after A after B after C
+            scatter (i in range(2)) {
+                call nop after D
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        assert outp["nop.x"] == [1, 1]
+
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
         version 1.0

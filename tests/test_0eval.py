@@ -430,20 +430,8 @@ class TestEnv(unittest.TestCase):
         self.assertTrue(e.has_namespace("fruit."))
         self.assertFalse(e.has_namespace("fruit.apple.honeycrisp"))
 
-        e = WDL.Env.Bindings().with_empty_namespace("fruit.apple")
+        e = WDL.Env.Bindings().bind("apple.macintosh", 42).wrap_namespace("fruit")
         self.assertTrue(e.has_namespace("fruit.apple"))
-        self.assertTrue(e.has_namespace("fruit."))
-        self.assertFalse(e.has_namespace("fruit.apple.honeycrisp"))
-
-        e = WDL.Env.merge(WDL.Env.Bindings().with_empty_namespace("fruit.apple"),
-                          WDL.Env.Bindings().with_empty_namespace("fruit.orange"))
-        self.assertTrue(e.has_namespace("fruit.apple"))
-        self.assertTrue(e.has_namespace("fruit.orange"))
-        self.assertTrue(e.has_namespace("fruit."))
-
-        e = WDL.Env.Bindings().with_empty_namespace("apple.").with_empty_namespace("orange").wrap_namespace("fruit")
-        self.assertTrue(e.has_namespace("fruit.apple"))
-        self.assertTrue(e.has_namespace("fruit.orange"))
         self.assertTrue(e.has_namespace("fruit."))
 
 
@@ -536,4 +524,4 @@ class TestValue(unittest.TestCase):
 
         # misc functionality
         self.assertEqual(WDL.values_to_json(doc.workflow.required_inputs, "w"), {"w.s.who": "String"})
-        self.assertEqual(WDL.values_to_json(doc.workflow._type_env), {"s.message": "String"})
+        self.assertEqual(WDL.values_to_json(doc.workflow._type_env), {"s.message": "String", "s._present": "Any"})
