@@ -101,9 +101,9 @@ Details:
 
 ## Task output cache (experimental)
  
-Miniwdl can cache the output of task calls in a local directory, so that repeat runs of that task (with matching inputs) can reference those outputs via a digest of the task and its inputs.
+Miniwdl can cache the output of task calls in a local directory, so that repeat calls to a task (based on a digest of the source code and inputs) can return the prior outputs.
 
-The download cache functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
+The cache functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
 
 ```
 [call_cache]
@@ -116,5 +116,5 @@ Details:
 
 * With the cache enabled in persistent configuration, `--no-cache` disables it for one run.
 * Cached outputs are stored as `*.json` files in the cache directory, which can simply be deleted when no longer needed.
-* Cached output reuse currently assumes that output files haven't been modified or moved/deleted from their original locations. This will evolve in subsequent miniwdl versions.
-
+* Cache entries are invalidated if any referenced files have been deleted or show a modification timestamp (mtime) newer than the cache `*.json` file
+* The call cache does NOT take into account the contents of external URIs and docker images.

@@ -71,6 +71,14 @@ class DownloadFailed(_RuntimeError):
         _statusbar.abort()
 
 
+class CacheOutputFileAgeError(_RuntimeError):
+    """
+    Raised when an output file has been modified more recently than the cache file that refers to it
+    """
+
+    pass
+
+
 class RunFailed(_RuntimeError):
     """"""
 

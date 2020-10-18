@@ -9,5 +9,5 @@ ruamel.yaml>=0.15.37
 argcomplete~=1.11
 pygtail~=0.11
 coloredlogs>=11.0
-python-json-logger~=0.1
-lark-parser~=0.9
+python-json-logger~=2.0
+lark-parser~=0.10

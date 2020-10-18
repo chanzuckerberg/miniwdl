@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 57
+plan tests 68
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -299,3 +299,71 @@ MINIWDL__DOWNLOAD_CACHE__PUT=true MINIWDL__DOWNLOAD_CACHE__DIR="${DN}/test_local
     $miniwdl localize localize_me.wdl uri_inputs.json --uri gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt > localize.stdout
 is "$?" "0" "localize exit code"
 is "$(find "${DN}/test_localize/cache/files" -type f | wc -l)" "2" "localize cache"
+
+
+# test task call caching --
+cat << 'EOF' > call_cache.wdl
+version development
+workflow w {
+    input {
+        Int denom1
+        Int denom2
+        File file_in
+    }
+    call t as t1 {
+        input:
+            file_in = file_in, denominator = denom1
+    }
+    call t as t2 {
+        input:
+            file_in = t1.file_out, denominator = denom2
+    }
+}
+task t {
+    input {
+        File file_in
+        Int denominator
+    }
+    command {
+        cat ~{file_in} | wc -l > line_count.txt
+    }
+    output {
+        File file_out = "line_count.txt"
+        Int quotient = read_int("line_count.txt") / denominator
+    }
+}
+EOF
+export MINIWDL__CALL_CACHE__PUT=true
+export MINIWDL__CALL_CACHE__GET=true
+export MINIWDL__CALL_CACHE__DIR="${DN}/test_call_cache/cache"
+# t1 runs, t2 fails:
+$miniwdl run call_cache.wdl file_in=call_cache.wdl denom1=1 denom2=0
+is "$?" "2" "intended divide by zero"
+test -d _LAST/call-t1/work
+is "$?" "0" "call-t1 ran"
+test -d _LAST/call-t2/work
+is "$?" "0" "call-t2 ran"
+# repeat with adjusted t2, see t1 reused
+$miniwdl run call_cache.wdl file_in=call_cache.wdl denom1=1 denom2=1 --verbose
+is "$?" "0" "call-t2 succeeded"
+test -d _LAST/call-t1/work
+is "$?" "1" "call-t1 was cached"
+test -d _LAST/call-t2/work
+is "$?" "0" "call-t2 ran"
+cached_file=$(jq -r '.["w.t1.file_out"]' _LAST/outputs.json)
+cached_file=$(readlink -f "$cached_file")
+test -f "$cached_file"
+is "$?" "0" "$cached_file"
+# repeat again, see both reused
+$miniwdl run call_cache.wdl file_in=call_cache.wdl denom1=1 denom2=1
+test -d _LAST/call-t1/work
+is "$?" "1" "call-t1 was cached"
+test -d _LAST/call-t2/work
+is "$?" "1" "call-t2 was cached"
+# touch intermediate file & see cache invalidated
+touch "$cached_file"
+$miniwdl run call_cache.wdl file_in=call_cache.wdl denom1=1 denom2=1 --verbose
+test -d _LAST/call-t1/work
+is "$?" "0" "call-t1 ran"
+test -d _LAST/call-t2/work
+is "$?" "0" "call-t2 ran"
