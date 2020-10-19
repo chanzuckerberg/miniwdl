@@ -335,7 +335,7 @@ meta_kv: CNAME ":" meta_value
 
 // task runtime section (key-expression pairs)
 runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
-runtime_kv: CNAME ":" (expr | command2)
+runtime_kv: CNAME ":" expr
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // decl

@@ -340,10 +340,7 @@ class _DocTransformer(_ExprTransformer):
         return d
 
     def runtime_kv(self, items, meta):
-        expr = items[1]
-        if isinstance(expr, dict) and "command" in expr:  # command2 (e.g. inlineDockerfile)
-            expr = expr["command"]
-        return (items[0].value, expr)
+        return (items[0].value, items[1])
 
     def runtime_section(self, items, meta):
         d = dict()

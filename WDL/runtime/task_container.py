@@ -493,19 +493,21 @@ class SwarmContainer(TaskContainer):
         # connect to dockerd
         client = docker.from_env(version="auto", timeout=900)
 
-        # figure desired image, building inlineDockerfile if called for
-        if "inlineDockerfile" in self.runtime_values:
-            image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
-        else:
-            image_tag = self.runtime_values.get("docker", "ubuntu:18.04")
-        if ":" not in image_tag:
-            # seems we need to do this explicitly under some configurations -- issue #232
-            image_tag += ":latest"
-        logger.info(_("docker image", tag=image_tag))
-
         svc = None
         exit_code = None
         try:
+            # figure desired image, building inlineDockerfile if necessary
+            if "inlineDockerfile" in self.runtime_values:
+                image_tag = self.build_inline_dockerfile(
+                    logger.getChild("inlineDockerfile"), client
+                )
+            else:
+                image_tag = self.runtime_values.get("docker", "ubuntu:18.04")
+                if ":" not in image_tag:
+                    # seems we need to do this explicitly under some configurations -- issue #232
+                    image_tag += ":latest"
+            logger.info(_("docker image", tag=image_tag))
+
             # run container as a transient docker swarm service, letting docker handle the resource
             # scheduling (waiting until requested # of CPUs are available).
             kwargs = {
@@ -861,13 +863,28 @@ class SwarmContainer(TaskContainer):
         assert len(junk) == 24
         return f"wdl-{run_id[:34]}-{junk}"  # 4 + 34 + 1 + 24 = 63
 
+    _build_inline_dockerfile_lock: threading.Lock = threading.Lock()
+
     def build_inline_dockerfile(
         self,
         logger: logging.Logger,
         client: docker.DockerClient,
         tries: Optional[int] = None,
     ) -> str:
+        # formulate image tag using digest of dockerfile text
         dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
+        dockerfile_digest = hashlib.sha256(dockerfile_utf8).digest()
+        dockerfile_digest = base64.b32encode(dockerfile_digest[:15]).decode().lower()
+        tag_part1 = "miniwdl_auto_"
+        tag_part3 = ":" + dockerfile_digest
+        tag_part2 = self.run_id.lower()
+        if "-" in tag_part2:
+            tag_part2 = tag_part2.split("-")[1]
+        maxtag2 = 64 - len(tag_part1) - len(tag_part3)
+        assert maxtag2 > 0
+        tag = tag_part1 + tag_part2 + tag_part3
+
+        # prepare to tee docker build log to logger.verbose and a file
         build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log.txt")
 
         def write_log(stream: Iterable[Dict[str, str]]):
@@ -880,23 +897,12 @@ class SwarmContainer(TaskContainer):
                             logger.verbose(msg)
                             print(msg, file=outfile)
 
-        # formulate image tag
-        dockerfile_digest = hashlib.sha256(dockerfile_utf8).digest()
-        dockerfile_digest = base64.b32encode(dockerfile_digest[:15]).decode().lower()
-        tag_part1 = "miniwdl_auto_"
-        tag_part3 = ":" + dockerfile_digest
-        tag_part2 = self.run_id.lower()
-        if "-" in tag_part2:
-            tag_part2 = tag_part2.split("-")[1]
-        maxtag2 = 64 - len(tag_part1) - len(tag_part3)
-        assert maxtag2 > 0
-        tag = tag_part1 + tag_part2 + tag_part3
-
         # run docker build
         logger.info(_("starting docker build", tag=tag))
         logger.debug(_("Dockerfile", txt=self.runtime_values["inlineDockerfile"]))
         try:
-            image, build_log = client.images.build(fileobj=BytesIO(dockerfile_utf8), tag=tag)
+            with SwarmContainer._build_inline_dockerfile_lock:  # one build at a time
+                image, build_log = client.images.build(fileobj=BytesIO(dockerfile_utf8), tag=tag)
         except docker.errors.BuildError as exn:
             # potentially retry, if task has runtime.maxRetries
             if isinstance(tries, int):

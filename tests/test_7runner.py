@@ -697,10 +697,10 @@ class TestInlineDockerfile(RunnerTestCase):
                 fi
             >>>
             runtime {
-                inlineDockerfile: <<<
-                    FROM ubuntu:20.04
-                    RUN apt-get -qq update && apt-get install -y ~{sep(' ', apt_pkgs)}
-                >>>
+                inlineDockerfile: [
+                    "FROM ubuntu:20.04",
+                    "RUN apt-get -qq update && apt-get install -y ${sep(' ', apt_pkgs)}"
+                ]
                 maxRetries: 1
             }
         }
