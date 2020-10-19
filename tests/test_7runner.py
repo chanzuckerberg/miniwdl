@@ -679,6 +679,9 @@ class TestInlineDockerfile(RunnerTestCase):
     def test1(self):
         wdl = """
         version development
+        workflow w {
+            call t
+        }
         task t {
             input {
                 Array[String]+ apt_pkgs
@@ -702,6 +705,6 @@ class TestInlineDockerfile(RunnerTestCase):
             }
         }
         """
-        self._run(wdl, {"apt_pkgs": ["samtools", "tabix"]})
+        self._run(wdl, {"t.apt_pkgs": ["samtools", "tabix"]})
 
-        self._run(wdl, {"apt_pkgs": ["bogusfake123"]}, expected_exception=docker.errors.BuildError)
+        self._run(wdl, {"t.apt_pkgs": ["bogusfake123"]}, expected_exception=docker.errors.BuildError)
