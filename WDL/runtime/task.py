@@ -419,7 +419,11 @@ def _eval_task_runtime(
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
-    if "docker" in runtime_values:
+    if "inlineDockerfile" in runtime_values:
+        ans["inlineDockerfile"] = _util.strip_leading_whitespace(
+            runtime_values["inlineDockerfile"].coerce(Type.String()).value
+        )[1].strip()
+    elif "docker" in runtime_values:
         ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
 
     host_limits = container.__class__.detect_resource_limits(cfg, logger)

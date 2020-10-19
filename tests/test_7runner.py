@@ -673,3 +673,32 @@ class MiscRegressionTests(RunnerTestCase):
         euid = os.geteuid()
         for fn in outp["files_out"]:
             assert os.stat(fn).st_uid == euid
+
+
+class TestInlineDockerfile(RunnerTestCase):
+    def test1(self):
+        wdl = """
+        version development
+        task t {
+            input {
+                Array[String]+ apt_pkgs
+            }
+            command <<<
+                set -euxo pipefail
+                apt list --installed | tr '/' $'\t' | sort > installed.txt
+                sort "~{write_lines(apt_pkgs)}" > expected.txt
+                join -j 1 -v 2 installed.txt expected.txt > missing.txt
+                if [ -s missing.txt ]; then
+                    >&2 cat missing.txt
+                    exit 1
+                fi
+            >>>
+            runtime {
+                inlineDockerfile: <<<
+                    FROM ubuntu:20.04
+                    RUN apt-get -qq update && apt-get install -y ~{sep(' ', apt_pkgs)}
+                >>>
+            }
+        }
+        """
+        self._run(wdl, {"apt_pkgs": ["samtools", "tabix"]})

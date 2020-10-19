@@ -16,6 +16,7 @@ import shlex
 import stat
 from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Optional
 from abc import ABC, abstractmethod
+from io import BytesIO
 import docker
 from .. import Error
 from .._util import TerminationSignalFlag, path_really_within, chmod_R_plus, PygtailLogger
@@ -486,17 +487,22 @@ class SwarmContainer(TaskContainer):
             outfile.write(command)
 
         # prepare docker configuration
-        image_tag = self.runtime_values.get("docker", "ubuntu:18.04")
+        resources, user, groups = self.misc_config(logger)
+        mounts = self.prepare_mounts(logger)
+
+        # connect to dockerd
+        client = docker.from_env(version="auto", timeout=900)
+
+        # figure desired image, building inlineDockerfile if called for
+        if "inlineDockerfile" in self.runtime_values:
+            image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
+        else:
+            image_tag = self.runtime_values.get("docker", "ubuntu:18.04")
         if ":" not in image_tag:
             # seems we need to do this explicitly under some configurations -- issue #232
             image_tag += ":latest"
         logger.info(_("docker image", tag=image_tag))
 
-        mounts = self.prepare_mounts(logger)
-
-        # connect to dockerd
-        client = docker.from_env(version="auto", timeout=900)
-        resources, user, groups = self.misc_config(logger, client)
         svc = None
         exit_code = None
         try:
@@ -677,7 +683,7 @@ class SwarmContainer(TaskContainer):
         return mounts
 
     def misc_config(
-        self, logger: logging.Logger, client: docker.DockerClient
+        self, logger: logging.Logger
     ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
         resources = {}
         cpu = self.runtime_values.get("cpu", 0)
@@ -854,3 +860,53 @@ class SwarmContainer(TaskContainer):
         junk = base64.b32encode(junk).decode().lower()
         assert len(junk) == 24
         return f"wdl-{run_id[:34]}-{junk}"  # 4 + 34 + 1 + 24 = 63
+
+    def build_inline_dockerfile(
+        self,
+        logger: logging.Logger,
+        client: docker.DockerClient,
+        tries: Optional[int] = None,
+    ) -> str:
+        dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
+        dockerfile_sha256 = hashlib.sha256(dockerfile_utf8).hexdigest()
+        # TODO: check maximum tag length
+        tag = "miniwdl_inline_"
+        if "-" in self.run_id:
+            tag += self.run_id.split("-")[1].lower()
+        else:
+            tag += self.run_id.lower()
+        tag += ":" + dockerfile_sha256
+        build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log.txt")
+
+        def write_log(stream: Iterable[Dict[str, str]]):
+            # tee the log messages to logger.verbose and build_logfile
+            with open(build_logfile, "w") as outfile:
+                for d in stream:
+                    if "stream" in d:
+                        msg = d["stream"].strip()
+                        if msg:
+                            logger.verbose(msg)
+                            print(msg, file=outfile)
+
+        logger.info(_("starting docker build", tag=tag))
+        logger.debug(_("Dockerfile", txt=self.runtime_values["inlineDockerfile"]))
+        try:
+            image, build_log = client.images.build(fileobj=BytesIO(dockerfile_utf8), tag=tag)
+        except docker.errors.BuildError as exn:
+            if isinstance(tries, int):
+                tries -= 1
+            else:
+                tries = self.runtime_values.get("maxRetries", 0)
+            if tries > 0:
+                logger.error(
+                    _("failed docker build will be retried", tries_remaining=tries, msg=exn.msg)
+                )
+                return self.build_inline_dockerfile(logger, client, tries=tries)
+            else:
+                write_log(exn.build_log)
+                logger.error(_("docker build failed", msg=exn.msg, log=build_logfile))
+                raise Error.RuntimeError("inlineDockerfile build failed")
+
+        write_log(build_log)
+        logger.notice(_("docker build", tag=tag, log=build_logfile))  # pyre-ignore
+        return tag
