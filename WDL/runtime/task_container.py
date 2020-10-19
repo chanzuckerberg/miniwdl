@@ -898,10 +898,10 @@ class SwarmContainer(TaskContainer):
                             print(msg, file=outfile)
 
         # run docker build
-        logger.info(_("starting docker build", tag=tag))
         logger.debug(_("Dockerfile", txt=self.runtime_values["inlineDockerfile"]))
         try:
             with SwarmContainer._build_inline_dockerfile_lock:  # one build at a time
+                logger.info(_("starting docker build", tag=tag))
                 image, build_log = client.images.build(fileobj=BytesIO(dockerfile_utf8), tag=tag)
         except docker.errors.BuildError as exn:
             # potentially retry, if task has runtime.maxRetries
