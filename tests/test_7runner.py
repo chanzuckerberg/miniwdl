@@ -704,5 +704,4 @@ class TestInlineDockerfile(RunnerTestCase):
         """
         self._run(wdl, {"apt_pkgs": ["samtools", "tabix"]})
 
-        with self.assertRaises(docker.errors.BuildError):
-            self._run(wdl, {"apt_pkgs": ["bogusfake123"]})
+        self._run(wdl, {"apt_pkgs": ["bogusfake123"]}, expected_exception=docker.errors.BuildError)
