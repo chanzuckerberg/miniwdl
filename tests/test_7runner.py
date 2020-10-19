@@ -698,7 +698,11 @@ class TestInlineDockerfile(RunnerTestCase):
                     FROM ubuntu:20.04
                     RUN apt-get -qq update && apt-get install -y ~{sep(' ', apt_pkgs)}
                 >>>
+                maxRetries: 1
             }
         }
         """
         self._run(wdl, {"apt_pkgs": ["samtools", "tabix"]})
+
+        with self.assertRaises(docker.errors.BuildError):
+            self._run(wdl, {"apt_pkgs": ["bogusfake123"]})

@@ -868,14 +868,6 @@ class SwarmContainer(TaskContainer):
         tries: Optional[int] = None,
     ) -> str:
         dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
-        dockerfile_sha256 = hashlib.sha256(dockerfile_utf8).hexdigest()
-        # TODO: check maximum tag length
-        tag = "miniwdl_inline_"
-        if "-" in self.run_id:
-            tag += self.run_id.split("-")[1].lower()
-        else:
-            tag += self.run_id.lower()
-        tag += ":" + dockerfile_sha256
         build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log.txt")
 
         def write_log(stream: Iterable[Dict[str, str]]):
@@ -883,16 +875,30 @@ class SwarmContainer(TaskContainer):
             with open(build_logfile, "w") as outfile:
                 for d in stream:
                     if "stream" in d:
-                        msg = d["stream"].strip()
+                        msg = d["stream"].rstrip()
                         if msg:
                             logger.verbose(msg)
                             print(msg, file=outfile)
 
+        # formulate image tag
+        dockerfile_digest = hashlib.sha256(dockerfile_utf8).digest()
+        dockerfile_digest = base64.b32encode(dockerfile_digest[:15]).decode().lower()
+        tag_part1 = "miniwdl_auto_"
+        tag_part3 = ":" + dockerfile_digest
+        tag_part2 = self.run_id.lower()
+        if "-" in tag_part2:
+            tag_part2 = tag_part2.split("-")[1]
+        maxtag2 = 64 - len(tag_part1) - len(tag_part3)
+        assert maxtag2 > 0
+        tag = tag_part1 + tag_part2 + tag_part3
+
+        # run docker build
         logger.info(_("starting docker build", tag=tag))
         logger.debug(_("Dockerfile", txt=self.runtime_values["inlineDockerfile"]))
         try:
             image, build_log = client.images.build(fileobj=BytesIO(dockerfile_utf8), tag=tag)
         except docker.errors.BuildError as exn:
+            # potentially retry, if task has runtime.maxRetries
             if isinstance(tries, int):
                 tries -= 1
             else:
@@ -905,8 +911,8 @@ class SwarmContainer(TaskContainer):
             else:
                 write_log(exn.build_log)
                 logger.error(_("docker build failed", msg=exn.msg, log=build_logfile))
-                raise Error.RuntimeError("inlineDockerfile build failed")
+                raise exn
 
         write_log(build_log)
-        logger.notice(_("docker build", tag=tag, log=build_logfile))  # pyre-ignore
+        logger.notice(_("docker build", tag=image.tags[0], log=build_logfile))  # pyre-ignore
         return tag

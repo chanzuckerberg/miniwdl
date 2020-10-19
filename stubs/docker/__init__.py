@@ -27,7 +27,8 @@ class Images:
         ...
 
 class Image:
-    ...
+    id: str
+    tags: List[str]
 
 class Node:
     attrs: Dict[str,Any]
