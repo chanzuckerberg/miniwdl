@@ -716,7 +716,7 @@ class FlockHolder(AbstractContextManager):
     """
 
     _lock: threading.Lock
-    _flocks: Dict[str, Tuple[IO[Any], bool]]
+    _flocks: Dict[str, Tuple[int, bool]]
     _entries: int
     _logger: logging.Logger
 
@@ -739,10 +739,10 @@ class FlockHolder(AbstractContextManager):
         if self._entries == 0:
             exn = None
             with self._lock:
-                for fn, (fh, exclusive) in self._flocks.items():
+                for fn, (fd, exclusive) in self._flocks.items():
                     self._logger.debug(StructuredLogMessage("close", file=fn, exclusive=exclusive))
                     try:
-                        fh.close()
+                        os.close(fd)
                     except Exception as exn2:
                         exn = exn or exn2
                 self._flocks = {}
@@ -752,21 +752,21 @@ class FlockHolder(AbstractContextManager):
     def __del__(self) -> None:
         assert self._entries == 0 and not self._flocks, "FlockHolder context was not exited"
 
-    def flock(  # pyre-fixme
+    def flock(
         self,
         filename: str,
-        mode: str = "",
+        mode: Optional[int] = None,
         exclusive: bool = False,
         wait: bool = False,
         update_atime: bool = False,
-    ) -> IO[Any]:
+    ) -> int:
         """
-        Open a file and an advisory lock on it. The file is closed and the lock released upon exit
-        of the outermost context. Returns the open file, which the caller shouldn't close (this is
-        taken care of).
+        Open a file/directory and an advisory lock on it. The file is closed and the lock released
+        upon exit of the outermost context. Returns the open file descriptor, which the caller
+        shouldn't close (this is taken care of).
 
-        :param filename: file to open & lock
-        :param mode: open() mode, default: "r+b" if exclusive else "rb"
+        :param filename: file/directory to open & lock
+        :param mode: os.open() mode flags, default: OS.O_RDWR if exclusive else os.O_RDONLY
         :param exclusive: True to open an exclusive lock (default: shared lock)
         :param wait: True to wait as long as needed to obtain the lock, otherwise (default) raise
                      OSError if the lock isn't available immediately. Self-deadlock is possible;
@@ -787,7 +787,10 @@ class FlockHolder(AbstractContextManager):
                         )
                     )
                     return self._flocks[realfilename][0]
-                openfile = open(realfilename, mode or ("r+b" if exclusive else "rb"))
+                openfile = os.open(
+                    realfilename,
+                    mode if mode is not None else (os.O_RDWR if exclusive else os.O_RDONLY),
+                )
                 try:
                     op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
                     if not wait:
@@ -804,11 +807,9 @@ class FlockHolder(AbstractContextManager):
                     fcntl.flock(openfile, op)
                     # the flock will release whenever we ultimately openfile.close()
 
-                    file_st = os.stat(openfile.fileno())
+                    file_st = os.stat(openfile)
                     if update_atime:
-                        os.utime(
-                            openfile.fileno(), ns=(int(time.time() * 1e9), file_st.st_mtime_ns)
-                        )
+                        os.utime(openfile, ns=(int(time.time() * 1e9), file_st.st_mtime_ns))
 
                     # Even if all concurrent processes obey the advisory flocks, the filename link
                     # could have been replaced or removed in the duration between our open() and
@@ -836,9 +837,9 @@ class FlockHolder(AbstractContextManager):
                         self._flocks[realfilename] = (openfile, exclusive)
                         return openfile
                 except:
-                    openfile.close()
+                    os.close(openfile)
                     raise
-                openfile.close()
+                os.close(openfile)  # NOT finally -- for next while-loop iteration
 
 
 @export

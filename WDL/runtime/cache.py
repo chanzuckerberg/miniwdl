@@ -214,7 +214,7 @@ class CallCache(AbstractContextManager):
             # iff we can exclusive-flock it
             with FlockHolder(logger) as replace_flock:
                 try:
-                    replace_flock.flock(p, mode="rb", exclusive=True)
+                    replace_flock.flock(p, mode=os.O_RDONLY, exclusive=True)
                 except FileNotFoundError:
                     pass
                 except OSError:

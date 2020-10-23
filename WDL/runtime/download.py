@@ -83,6 +83,7 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
     gen = _downloader(cfg, uri)
     assert gen
     try:
+        logger.info(_("start download", uri=uri))
         with compose_coroutines([lambda kwargs: gen(cfg, logger, **kwargs)], {"uri": uri}) as cor:
             recv = next(cor)
 
@@ -105,6 +106,7 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
 
             ans = recv["outputs"]["file"]
             assert isinstance(ans, str) and os.path.isfile(ans)
+            logger.notice(_("downloaded", uri=uri, file=ans))  # pyre-ignore
             return ans
 
     except RunFailed as exn:
