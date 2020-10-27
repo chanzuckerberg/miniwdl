@@ -31,7 +31,7 @@ class RunnerTestCase(unittest.TestCase):
         if not getattr(self, "_keep_dir", False):
             shutil.rmtree(self._dir)
 
-    def _run(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
+    def _run(self, wdl:str, inputs = None, task = None, expected_exception: Exception = None, cfg = None):
         """
         run workflow/task & return outputs dict
         """
@@ -43,6 +43,9 @@ class RunnerTestCase(unittest.TestCase):
                 wdlfn = outfile.name
             doc = WDL.load(wdlfn)
             target = doc.workflow or doc.tasks[0]
+            if task:
+                target = next((t for t in doc.tasks if t.name == task), None)
+            assert target
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, target.available_inputs, target.required_inputs)
             rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir)
@@ -640,6 +643,17 @@ class TestDownload(RunnerTestCase):
             }
         }
         """
+
+        # uncached
+        inp = {"dir": "s3://1000genomes/phase3/integrated_sv_map/supporting/breakpoints/"}
+        outp = self._run(wdl6, inp, task="directory_files")
+        self.assertEqual(len(outp["files"]), 2)
+
+        outp = self._run(wdl6, inp)
+        self.assertEqual(outp["file_count"], 2)
+        logs = [str(record.msg) for record in capture.records]
+
+        # cached
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         cfg.override({
             "download_cache": {
@@ -649,12 +663,19 @@ class TestDownload(RunnerTestCase):
             },
             "logging": { "json": True }
         })
-        inp = {"dir": "s3://1000genomes/phase3/integrated_sv_map/supporting/breakpoints/"}
         self._run(wdl6, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if "processed input URIs" in str(record.msg)]
-        assert "'downloaded': 1" in logs[0], str(logs)
+        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        assert "'downloaded': 1" in next(msg for msg in new_logs if "processed input URIs" in msg), str(logs)
+        logs += new_logs
         self._run(wdl6, inp, cfg=cfg)
-        assert next((record for record in capture.records if "found in download cache" in str(record.msg)), False)
+        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        assert next((msg for msg in new_logs if "found in download cache" in msg), False)
+        logs += new_logs
+        outp = self._run(wdl6, inp, task="directory_files", cfg=cfg)
+        self.assertEqual(len(outp["files"]), 2)
+        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        assert next((msg for msg in new_logs if "found in download cache" in msg), False)
+        logs += new_logs
 
 
 class MiscRegressionTests(RunnerTestCase):
