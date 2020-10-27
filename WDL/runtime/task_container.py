@@ -275,6 +275,7 @@ class TaskContainer(ABC):
                     ans += "/".join(container_path_components[i:])
                     if container_path.endswith("/"):
                         ans += "/"
+                    assert path_really_within(ans, self.input_path_map_rev[container_path_prefix])
                     return ans
             if inputs_only:
                 raise Error.InputError(

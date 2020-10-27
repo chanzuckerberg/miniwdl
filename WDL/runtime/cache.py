@@ -143,7 +143,7 @@ class CallCache(AbstractContextManager):
         should exist (or None if the uri is not cacheable)
         """
         # check if URI is properly formatted & normalize
-        parts = urlparse(uri)
+        parts = urlparse(uri.rstrip("/"))
         if (
             parts.scheme
             and parts.netloc

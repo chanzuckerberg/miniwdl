@@ -1229,10 +1229,23 @@ def fill_localize_subparser(subparsers):
         help="name of task (for WDL documents with multiple tasks & no workflow)",
     )
     localize_parser.add_argument(
+        "--file",
+        metavar="URI",
+        action="append",
+        help="additional File URI to process; if present then WDL & JSON may be omitted",
+    )
+    localize_parser.add_argument(
+        "--directory",
+        metavar="URI",
+        action="append",
+        help="additional Directory URI to process; if present then WDL & JSON may be omitted",
+    )
+    localize_parser.add_argument(
         "--uri",
         metavar="URI",
         action="append",
-        help="additional URI to process; or, omit WDL & JSON and just specify one or more --uri",
+        dest="file",
+        help=SUPPRESS,  # vestigial, before splitting --file/--directory
     )
     localize_parser.add_argument(
         "--no-cache",
@@ -1249,13 +1262,27 @@ def fill_localize_subparser(subparsers):
             "or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"
         ),
     )
+    group = localize_parser.add_argument_group("logging")
+    group.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="increase logging detail & stream tasks' stderr",
+    )
+    group.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable colored logging and status bar on terminal (also set by NO_COLOR environment variable)",
+    )
+    group.add_argument("--log-json", action="store_true", help="write all logs in JSON")
     return localize_parser
 
 
 def localize(
     wdlfile=None,
     infile=None,
-    uri=None,
+    file=None,
+    directory=None,
     no_cache=False,
     task=None,
     cfg=None,
@@ -1263,9 +1290,20 @@ def localize(
     check_quant=True,
     **kwargs,
 ):
-    logging.basicConfig(level=NOTICE_LEVEL)
+    # set up logging
+    level = NOTICE_LEVEL
+    logging.raiseExceptions = False
+    if kwargs["verbose"]:
+        level = VERBOSE_LEVEL
+    if kwargs["no_color"]:
+        os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
+    log_json = kwargs["log_json"] or (
+        os.environ.get("MINIWDL__LOGGING__JSON", "").lower().strip()
+        in ("t", "y", "1", "true", "yes")
+    )
+    logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-localize")
-    with configure_logger() as set_status:
+    with configure_logger(json=log_json) as set_status:
 
         cfg_arg = None
         if cfg:
@@ -1288,8 +1326,8 @@ def localize(
             )
         )
 
-        uri = uri or []
-        uri = set(uri)
+        file = set(file or [])
+        directory = set(directory or [])
 
         if infile:
             # load WDL document
@@ -1305,17 +1343,16 @@ def localize(
             except Error.InputError as exn:
                 die(exn.args[0])
 
-            # scan for Files that appear to be downloadable URIs
-            def scan(x):
-                if isinstance(x, Value.File) and runtime.download.able(cfg, x.value):
-                    yield x.value
-                for y in x.children:
-                    yield from scan(y)
+            # scan inputs for donwloadable URIs that appear to be downloadable URIs
+            def scan(v):
+                is_directory = isinstance(v, Value.Directory)
+                if runtime.download.able(cfg, v.value, directory=is_directory):
+                    (directory if is_directory else file).add(v.value)
+                return v.value
 
-            for b in input_env:
-                uri |= set(scan(b.value))
+            Value.rewrite_env_paths(input_env, scan)
 
-        if not uri:
+        if not (file or directory):
             logger.warning(
                 "nothing to do; if inputs use special URI schemes, make sure necessary downloader plugin(s) are "
                 "installed and enabled"
@@ -1340,26 +1377,35 @@ def localize(
             sys.exit(2)
 
         with runtime.cache.CallCache(cfg, logger) as cache:
-            disabled = [u for u in uri if not cache.download_path(u)]
-        if disabled:
-            logger.notice(_("URIs found but not cacheable per configuration", uri=disabled))
-        uri = list(uri - set(disabled))
+            disabled_files = set(u for u in file if not cache.download_path(u))
+            disabled_dirs = set(u for u in directory if not cache.download_path(u, directory=True))
+        if disabled_files or disabled_dirs:
+            logger.notice(
+                _(
+                    "URIs found but not cacheable per configuration",
+                    uri=list(disabled_files | disabled_dirs),
+                )
+            )
+        file = list(file - disabled_files)
+        directory = list(directory - disabled_dirs)
 
-        if not uri:
+        if not (file or directory):
             logger.warning("nothing to do; check configured enable_patterns and disable_patterns")
             sys.exit(0)
-        logger.notice(_("starting downloads", uri=uri))
+        logger.notice(_("starting downloads", files=file, directories=directory))
 
         # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
         # runtime to download & cache them
         localizer_wdl = """
-            version 1.0
+            version development
             workflow localize {
                 input {
-                    Array[File] uris
+                    Array[File] files
+                    Array[Directory] directories
                 }
                 output {
-                    Array[File] files = uris
+                    Array[File] downloaded_files = files
+                    Array[Directory] downloaded_directories = directories
                 }
             }
             """
@@ -1369,12 +1415,19 @@ def localize(
         subdir, outputs = runtime.run(
             cfg,
             localizer.workflow,
-            values_from_json({"uris": uri}, localizer.workflow.available_inputs),
+            values_from_json(
+                {"files": file, "directories": directory}, localizer.workflow.available_inputs
+            ),
             run_dir=os.environ.get("TMPDIR", "/tmp"),
         )
+        outputs = values_to_json(outputs)
 
         logger.notice(
-            _("success", files=[os.path.realpath(p) for p in values_to_json(outputs)["files"]])
+            _(
+                "success",
+                files=[os.path.realpath(p) for p in outputs["downloaded_files"]],
+                directories=[os.path.realpath(p) for p in outputs["downloaded_directories"]],
+            )
         )
         if not original_get:
             logger.warning(
