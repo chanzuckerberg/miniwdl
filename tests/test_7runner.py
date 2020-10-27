@@ -28,7 +28,8 @@ class RunnerTestCase(unittest.TestCase):
         self._dir = tempfile.mkdtemp(prefix=f"miniwdl_test_{self.id()}_")
 
     def tearDown(self):
-        shutil.rmtree(self._dir)
+        if not getattr(self, "_keep_dir", False):
+            shutil.rmtree(self._dir)
 
     def _run(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
         """
@@ -487,7 +488,8 @@ class TestDownload(RunnerTestCase):
         self.assertTrue("downloaded: 1" in logs[1])
         assert next(record for record in capture.records if "AWS credentials" in str(record.msg))
 
-    def test_download_cache4(self):
+    @log_capture()
+    def test_download_cache4(self, capture):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         cfg.override({
             "download_cache": {
@@ -501,24 +503,17 @@ class TestDownload(RunnerTestCase):
         })
         inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx"]}
         self._run(self.count_wdl, inp, cfg=cfg)
-        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
-            downloaded = None
-            for line in logfile:
-                line = json.loads(line)
-                if "processed input URIs" in line["message"]:
-                    downloaded = line["downloaded"]
-            self.assertEqual(downloaded, 1)
+        logs = [str(record.msg) for record in capture.records if "processed input URIs" in str(record.msg)]
+        n_logs = len(logs)
+        assert "'downloaded': 1" in logs[0]
         self._run(self.count_wdl, inp, cfg=cfg)
         # cache used with ignore_query
-        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
-            downloaded = None
-            for line in logfile:
-                line = json.loads(line)
-                if "processed input URIs" in line["message"]:
-                    downloaded = line["downloaded"]
-            self.assertEqual(downloaded, 0)
+        logs = [str(record.msg) for record in capture.records if "processed input URIs" in str(record.msg)][n_logs:]
+        assert "'downloaded': 0" in logs[0], logs[0]
+        assert "'cached': 1" in logs[0]
 
-    def test_download_cache5(self):
+    @log_capture()
+    def test_download_cache5(self, capture):
         # passing workflow-level URI inputs through to task, which should find them in the cache
         wdl5 = """
         version 1.0
@@ -572,23 +567,23 @@ class TestDownload(RunnerTestCase):
             "u.f1": "https://google.com/robots.txt"
         }
         self._run(wdl5, inp, cfg=cfg)
-        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
-            for line in logfile:
-                line = json.loads(line)
-                if (
-                    "t:call-t" not in line["source"]
-                    and "t:call-u" not in line["source"]
-                    and "processed input URIs" in line["message"]
-                ):
-                    self.assertEqual(line["downloaded"], 4)
-                if "t:call-t" in line["source"] and "processed input URIs" in line["message"]:
-                    self.assertEqual(line["downloaded"], 0)
-                    self.assertEqual(line["cached"], 2)
-                if "t:call-u" in line["source"] and "processed input URIs" in line["message"]:
-                    self.assertEqual(line["downloaded"], 0)
-                    self.assertEqual(line["cached"], 2)
+        for record in capture.records:
+            msg = str(record.msg)
+            if (
+                "t:call-t" not in record.name
+                and "t:call-u" not in record.name
+                and "processed input URIs" in msg
+            ):
+                self.assertTrue("'downloaded': 4" in msg)
+            if "t:call-t" in record.name and "processed input URIs" in msg:
+                self.assertTrue("'downloaded': 0" in msg)
+                self.assertTrue("'cached': 2" in msg)
+            if "t:call-u" in record.name and "processed input URIs" in msg:
+                self.assertTrue("'downloaded': 0" in msg)
+                self.assertTrue("'cached': 2" in msg)
 
-    def test_directory(self):
+    @log_capture()
+    def test_directory(self, capture):
         wdl6 = R"""
         version development
         workflow count_dir {
@@ -627,21 +622,10 @@ class TestDownload(RunnerTestCase):
         })
         inp = {"dir": "s3://1000genomes/phase3/integrated_sv_map/supporting/breakpoints/"}
         self._run(wdl6, inp, cfg=cfg)
-        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
-            downloaded = None
-            for line in logfile:
-                line = json.loads(line)
-                if "processed input URIs" in line["message"] and "call-" not in line["source"]:
-                    downloaded = line["downloaded"]
-            self.assertEqual(downloaded, 1)
+        logs = [str(record.msg) for record in capture.records if "processed input URIs" in str(record.msg)]
+        assert "'downloaded': 1" in logs[0], str(logs)
         self._run(wdl6, inp, cfg=cfg)
-        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
-            downloaded = None
-            for line in logfile:
-                line = json.loads(line)
-                if "found in download cache" in line["message"]:
-                    downloaded = True
-            self.assertTrue(downloaded)
+        assert next((record for record in capture.records if "found in download cache" in str(record.msg)), False)
 
 
 class MiscRegressionTests(RunnerTestCase):
