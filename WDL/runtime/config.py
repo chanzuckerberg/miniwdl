@@ -314,6 +314,7 @@ DEFAULT_PLUGINS = {
             value="WDL.runtime.download:gsutil_downloader",
         )
     ],
+    "directory_download": [],
     "task": [],
     "workflow": [],
     "container_backend": [

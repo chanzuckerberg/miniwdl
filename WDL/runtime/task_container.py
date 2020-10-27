@@ -262,9 +262,20 @@ class TaskContainer(ABC):
                 return self.host_stdout_txt()
             if container_path == os.path.join(self.container_dir, "stderr.txt"):
                 return self.host_stderr_txt()
-            # handle output of an input file
+            # handle output of an input File or Directory
             if container_path in self.input_path_map_rev:
                 return self.input_path_map_rev[container_path]
+            # handle output of a File or subDirectory found within an input Directory
+            container_path_components = container_path.strip("/").split("/")
+            for i in range(len(container_path_components) - 1, 5, -1):
+                # 5 == len(['mnt', 'miniwdl_task_container', 'work', '_miniwdl_inputs', '0'])
+                container_path_prefix = "/" + "/".join(container_path_components[:i]) + "/"
+                if container_path_prefix in self.input_path_map_rev:
+                    ans = self.input_path_map_rev[container_path_prefix]
+                    ans += "/".join(container_path_components[i:])
+                    if container_path.endswith("/"):
+                        ans += "/"
+                    return ans
             if inputs_only:
                 raise Error.InputError(
                     "task inputs attempted to use a non-input or non-existent path "

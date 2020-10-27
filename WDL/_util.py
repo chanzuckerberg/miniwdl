@@ -560,6 +560,29 @@ def parse_byte_size(s: str) -> int:
     return int(N)
 
 
+@export
+def pathsize(path: str) -> int:
+    """
+    get byte size of file, or total size of all files under directory & subdirectories (symlinks
+    excluded)
+    """
+
+    if not os.path.isdir(path):
+        return os.path.getsize(path)
+
+    def raiser(exc: OSError):
+        raise exc
+
+    ans = 0
+    for root, subdirs, files in os.walk(path, onerror=raiser, followlinks=False):
+        for fn in files:
+            fn = os.path.join(root, fn)
+            if not os.path.islink(fn):
+                ans += os.path.getsize(fn)
+
+    return ans
+
+
 def splitall(path: str) -> List[str]:
     """
     https://www.oreilly.com/library/view/python-cookbook/0596001673/ch04s16.html

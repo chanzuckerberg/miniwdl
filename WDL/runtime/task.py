@@ -26,6 +26,7 @@ from .._util import (
     path_really_within,
     LoggingFileHandler,
     compose_coroutines,
+    pathsize,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -240,48 +241,48 @@ def _download_input_files(
     cache: CallCache,
 ) -> Env.Bindings[Value.Base]:
     """
-    Find all File values in the inputs (including any nested within compound values) that need
-    to / can be downloaded. Download them to some location under run_dir and return a copy of the
-    inputs with the URI values replaced by the downloaded filenames.
+    Find all File & Directory input values that are downloadable URIs (including any nested within
+    compound values). Download them to some location under run_dir and return a copy of the inputs
+    with the URI values replaced by the downloaded paths.
     """
 
     downloads = 0
     download_bytes = 0
     cached_hits = 0
-    cached_bytes = 0
 
-    def rewriter(uri: str) -> str:
-        nonlocal downloads, download_bytes, cached_hits, cached_bytes
+    def rewriter(v: Union[Value.Directory, Value.File]) -> str:
+        nonlocal downloads, download_bytes, cached_hits
+        directory = isinstance(v, Value.Directory)
+        uri = v.value
         if downloadable(cfg, uri):
-            logger.info(_("download input file", uri=uri))
+            logger.info(_(f"download input {'directory' if directory else 'file'}", uri=uri))
             cached, filename = download(
                 cfg,
                 logger,
                 cache,
                 uri,
+                directory=directory,
                 run_dir=os.path.join(run_dir, "download", str(downloads), "."),
                 logger_prefix=logger_prefix + [f"download{downloads}"],
             )
-            sz = os.path.getsize(filename)
             if cached:
                 cached_hits += 1
-                cached_bytes += sz
             else:
-                logger.info(_("downloaded input file", uri=uri, file=filename, bytes=sz))
+                sz = pathsize(filename)
+                logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
                 downloads += 1
                 download_bytes += sz
             return filename
         return uri
 
-    ans = Value.rewrite_env_files(inputs, rewriter)
+    ans = Value.rewrite_env_paths(inputs, rewriter)
     if downloads or cached_hits:
         logger.notice(  # pyre-fixme
             _(
-                "downloaded input files",
+                "processed input URIs",
                 downloaded=downloads,
                 downloaded_bytes=download_bytes,
                 cached=cached_hits,
-                cached_bytes=cached_bytes,
             )
         )
     return ans

@@ -1204,7 +1204,7 @@ def fill_localize_subparser(subparsers):
     localize_parser = subparsers.add_parser(
         "localize",
         help="Download URI input Files to local cache for use in subsequent runs",
-        description="Prime the local file download cache with URI File inputs found in Cromwell-style input JSON. "
+        description="Prime the local download cache with URI File/Directory inputs found in Cromwell-style input JSON. "
         "This is only needed if it's useful to perform downloads in advance rather than on next run start.",
     )
     localize_parser.add_argument(

@@ -442,7 +442,7 @@ class TestDownload(RunnerTestCase):
         inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
         self.assertTrue("downloaded: 2" in logs[0])
         # alyssa_ben.txt is cached on second run through (robots.txt not due to disable_patterns)
         self.assertTrue("downloaded: 1" in logs[1])
@@ -462,7 +462,7 @@ class TestDownload(RunnerTestCase):
         inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
         self.assertTrue("downloaded: 2" in logs[0])
         # alyssa_ben.txt is cached on second run through
         self.assertTrue("downloaded: 1" in logs[1])
@@ -481,7 +481,7 @@ class TestDownload(RunnerTestCase):
         inp = {"files": ["s3://1000genomes/CHANGELOG", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
         # cache isn't used for alyssa_ben.txt due to presence of query string
         self.assertTrue("downloaded: 2" in logs[0])
         self.assertTrue("downloaded: 1" in logs[1])
@@ -502,17 +502,21 @@ class TestDownload(RunnerTestCase):
         inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx"]}
         self._run(self.count_wdl, inp, cfg=cfg)
         with open(os.path.join(self._rundir, "workflow.log")) as logfile:
+            downloaded = None
             for line in logfile:
                 line = json.loads(line)
-                if "downloaded input files" in line["message"]:
-                    self.assertEqual(line["downloaded"], 1)
+                if "processed input URIs" in line["message"]:
+                    downloaded = line["downloaded"]
+            self.assertEqual(downloaded, 1)
         self._run(self.count_wdl, inp, cfg=cfg)
         # cache used with ignore_query
         with open(os.path.join(self._rundir, "workflow.log")) as logfile:
+            downloaded = None
             for line in logfile:
                 line = json.loads(line)
-                if "downloaded input files" in line["message"]:
-                    self.assertEqual(line["downloaded"], 0)
+                if "processed input URIs" in line["message"]:
+                    downloaded = line["downloaded"]
+            self.assertEqual(downloaded, 0)
 
     def test_download_cache5(self):
         # passing workflow-level URI inputs through to task, which should find them in the cache
@@ -574,15 +578,70 @@ class TestDownload(RunnerTestCase):
                 if (
                     "t:call-t" not in line["source"]
                     and "t:call-u" not in line["source"]
-                    and "downloaded input files" in line["message"]
+                    and "processed input URIs" in line["message"]
                 ):
                     self.assertEqual(line["downloaded"], 4)
-                if "t:call-t" in line["source"] and "downloaded input files" in line["message"]:
+                if "t:call-t" in line["source"] and "processed input URIs" in line["message"]:
                     self.assertEqual(line["downloaded"], 0)
                     self.assertEqual(line["cached"], 2)
-                if "t:call-u" in line["source"] and "downloaded input files" in line["message"]:
+                if "t:call-u" in line["source"] and "processed input URIs" in line["message"]:
                     self.assertEqual(line["downloaded"], 0)
                     self.assertEqual(line["cached"], 2)
+
+    def test_directory(self):
+        wdl6 = R"""
+        version development
+        workflow count_dir {
+            input {
+                Directory dir
+            }
+            call directory_files {
+                input:
+                    dir = dir
+            }
+            output {
+                Int file_count = length(directory_files.files)
+            }
+        }
+        task directory_files {
+            input {
+                Directory dir
+            }
+            command {
+                find "~{dir}" -type f > files.txt
+                >&2 cat files.txt
+            }
+            output {
+                Array[File] files = read_lines("files.txt")
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({
+            "download_cache": {
+                "put": True,
+                "get": True,
+                "dir": os.path.join(self._dir, "cache6")
+            },
+            "logging": { "json": True }
+        })
+        inp = {"dir": "s3://1000genomes/phase3/integrated_sv_map/supporting/breakpoints/"}
+        self._run(wdl6, inp, cfg=cfg)
+        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
+            downloaded = None
+            for line in logfile:
+                line = json.loads(line)
+                if "processed input URIs" in line["message"] and "call-" not in line["source"]:
+                    downloaded = line["downloaded"]
+            self.assertEqual(downloaded, 1)
+        self._run(wdl6, inp, cfg=cfg)
+        with open(os.path.join(self._rundir, "workflow.log")) as logfile:
+            downloaded = None
+            for line in logfile:
+                line = json.loads(line)
+                if "found in download cache" in line["message"]:
+                    downloaded = True
+            self.assertTrue(downloaded)
 
 
 class MiscRegressionTests(RunnerTestCase):
