@@ -38,9 +38,8 @@ def _load(cfg: config.Loader):
         "https": aria2c_downloader,
         "http": aria2c_downloader,
         "ftp": aria2c_downloader,
-        "s3": awscli_downloader,
     }
-    directory_downloaders = {"s3": awscli_directory_downloader}
+    directory_downloaders = {}
 
     # plugins
     for plugin_name, plugin_fn in config.load_plugins(cfg, "file_download"):

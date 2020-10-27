@@ -310,11 +310,22 @@ DEFAULT_PLUGINS = {
     "file_download": [
         importlib_metadata.EntryPoint(
             group="miniwdl.plugin.file_download",
+            name="s3",
+            value="WDL.runtime.download:awscli_downloader",
+        ),
+        importlib_metadata.EntryPoint(
+            group="miniwdl.plugin.file_download",
             name="gs",
             value="WDL.runtime.download:gsutil_downloader",
+        ),
+    ],
+    "directory_download": [
+        importlib_metadata.EntryPoint(
+            group="miniwdl.plugin.directory_download",
+            name="s3",
+            value="WDL.runtime.download:awscli_directory_downloader",
         )
     ],
-    "directory_download": [],
     "task": [],
     "workflow": [],
     "container_backend": [
@@ -331,8 +342,8 @@ def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
     assert group in DEFAULT_PLUGINS.keys(), group
     enable_patterns = cfg["plugins"].get_list("enable_patterns")
     disable_patterns = cfg["plugins"].get_list("disable_patterns")
-    for plugin in importlib_metadata.entry_points().get(
-        f"miniwdl.plugin.{group}", DEFAULT_PLUGINS[group]
+    for plugin in DEFAULT_PLUGINS[group] + list(
+        importlib_metadata.entry_points().get(f"miniwdl.plugin.{group}", [])
     ):
         enabled = next(
             (pat for pat in enable_patterns if fnmatchcase(plugin.value, pat)), False

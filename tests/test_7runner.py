@@ -188,6 +188,35 @@ class TestDirectoryIO(RunnerTestCase):
             """, {})
         assert outp["d_out"] is None
 
+    def test_output_input(self):
+        # test outputting files/subdirectories inside input Directory
+        wdl = R"""
+        version development
+        task t {
+            input {
+                Directory d
+            }
+            command {}
+            output {
+                Array[File] files = ["~{d}/alice.txt", "~{d}/sub/bob.txt"]
+                Array[Directory] dirs = ["~{d}/sub/dir"]
+            }
+        }
+        """
+        os.makedirs(os.path.join(self._dir, "d/sub/dir"))
+        with open(os.path.join(self._dir, "d/alice.txt"), mode="w") as outfile:
+            print("Alice", file=outfile)
+        with open(os.path.join(self._dir, "d/sub/bob.txt"), mode="w") as outfile:
+            print("Bob", file=outfile)
+        with open(os.path.join(self._dir, "d/sub/dir/carol.txt"), mode="w") as outfile:
+            print("Carol", file=outfile)
+        outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
+        assert len(outp["files"]) == 2
+        for fn in outp["files"]:
+            assert os.path.isfile(fn)
+        assert len(outp["dirs"]) == 1
+        assert os.path.isdir(outp["dirs"][0])
+
     def test_errors(self):
         self._run(R"""
             version development
