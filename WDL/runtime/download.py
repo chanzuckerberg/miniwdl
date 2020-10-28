@@ -187,9 +187,7 @@ def awscli_downloader(
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
     inputs = {"uri": uri}
     with ExitStack() as cleanup:
-        host_aws_credentials_file = prepare_aws_credentials(cfg, logger, cleanup)
-        if host_aws_credentials_file:
-            inputs["aws_credentials"] = host_aws_credentials_file
+        inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
         wdl = r"""
         task aws_s3_cp {
@@ -236,9 +234,7 @@ def awscli_directory_downloader(
     assert "*" not in uri and "?" not in uri  # should we handle wildcards?
     inputs = {"uri": uri}
     with ExitStack() as cleanup:
-        host_aws_credentials_file = prepare_aws_credentials(cfg, logger, cleanup)
-        if host_aws_credentials_file:
-            inputs["aws_credentials"] = host_aws_credentials_file
+        inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
         wdl = r"""
         task aws_s3_cp_directory {
