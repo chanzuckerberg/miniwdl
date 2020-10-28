@@ -140,7 +140,8 @@ def run_cached(
     if cached:
         return True, cached
     if cache.download_cacheable(uri):
-        # run the download within the cache directory
+        # run the download in a holding area under the cache directory, so that it can later be
+        # moved atomically into its final cache location
         run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
     filename = run(cfg, logger, uri, directory=directory, run_dir=run_dir, **kwargs)
     return False, cache.put_download(
@@ -185,7 +186,7 @@ def aria2c_downloader(
 def awscli_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs = {"uri": uri}
+    inputs: Dict[str, Any] = {"uri": uri}
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -231,8 +232,7 @@ def awscli_downloader(
 def awscli_directory_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    assert "*" not in uri and "?" not in uri  # should we handle wildcards?
-    inputs = {"uri": uri}
+    inputs: Dict[str, Any] = {"uri": uri}
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 

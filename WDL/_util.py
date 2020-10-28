@@ -14,6 +14,7 @@ import fcntl
 import subprocess
 import shutil
 import urllib
+import hashlib
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager, AbstractContextManager
@@ -172,6 +173,24 @@ def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
     with open(tn, "x") as outfile:
         print(contents, file=outfile, end=end)
     os.rename(tn, filename)
+
+
+@export
+def rmtree_atomic(path: str) -> None:
+    """
+    Recursively delete a directory (or single file) after first renaming it to a temporary name in
+    the same parent directory, to ensure the original path disappears atomically. In particular,
+    ensures a "partial" directory isn't left behind in the same location if something should go
+    wrong deleting everything within.
+    """
+    path = os.path.abspath(path)
+    assert path and path.strip("/")
+    tmp_path = os.path.join(
+        os.path.dirname(path), "._rmtree_atomic_" + hashlib.sha256(path.encode("utf-8")).hexdigest()
+    )
+    shutil.rmtree(tmp_path, ignore_errors=True)
+    os.renames(path, tmp_path)
+    shutil.rmtree(tmp_path)
 
 
 @export

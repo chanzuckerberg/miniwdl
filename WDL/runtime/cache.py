@@ -25,6 +25,7 @@ from .._util import (
     StructuredLogMessage as _,
     FlockHolder,
     write_atomic,
+    rmtree_atomic,
 )
 
 
@@ -161,11 +162,15 @@ class CallCache(AbstractContextManager):
             ):
                 (dn, fn) = os.path.split(parts.path)
                 if fn:
-                    # formulate path
+                    # formulate local subdirectory of the cache directory in which to put the
+                    # cached item, manipulating the URI path to ensure consistent local nesting
+                    # depth (that's assumed by clean_download_cache.sh when it's looking for items
+                    # to clean up)
                     dn = dn.strip("/")
                     if dn:
                         dn = dn.replace("_", "__")
                         dn = dn.replace("/", "_")
+                    dn = "_" + dn
                     return os.path.join(
                         self._cfg["download_cache"]["dir"],
                         ("dirs" if directory else "files"),
@@ -250,8 +255,10 @@ class CallCache(AbstractContextManager):
                     p = None
                 if p:
                     if directory and os.path.isdir(p):
-                        shutil.rmtree(p)
+                        rmtree_atomic(p)
                     os.renames(filename, p)
+                    # the renames() op should be atomic, because the download operation should have
+                    # been run under the cache directory (download.py:run_cached)
                     logger.info(_("stored in download cache", uri=uri, cache_path=p))
                     ans = p
         if not p:

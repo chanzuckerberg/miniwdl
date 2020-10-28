@@ -18,7 +18,13 @@ from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Option
 from abc import ABC, abstractmethod
 import docker
 from .. import Error
-from .._util import TerminationSignalFlag, path_really_within, chmod_R_plus, PygtailLogger
+from .._util import (
+    TerminationSignalFlag,
+    path_really_within,
+    chmod_R_plus,
+    PygtailLogger,
+    rmtree_atomic,
+)
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
@@ -232,7 +238,7 @@ class TaskContainer(ABC):
         deleted = []
         for p in to_delete:
             if os.path.isdir(p):
-                shutil.rmtree(p)
+                rmtree_atomic(p)
                 deleted.append(p)
             elif os.path.isfile(p):
                 os.unlink(p)
