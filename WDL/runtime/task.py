@@ -153,7 +153,7 @@ def run_local_task(
                     logger,
                     logger_prefix,
                     run_dir,
-                    _add_downloadable_default_files(cfg, task.available_inputs, inputs),
+                    _add_downloadable_defaults(cfg, task.available_inputs, inputs),
                     cache,
                 )
 
@@ -254,7 +254,7 @@ def _download_input_files(
         nonlocal downloads, download_bytes, cached_hits
         directory = isinstance(v, Value.Directory)
         uri = v.value
-        if downloadable(cfg, uri):
+        if downloadable(cfg, uri, directory=directory):
             logger.info(_(f"download input {'directory' if directory else 'file'}", uri=uri))
             cached, filename = download(
                 cfg,
@@ -288,13 +288,13 @@ def _download_input_files(
     return ans
 
 
-def _add_downloadable_default_files(
+def _add_downloadable_defaults(
     cfg: config.Loader, available_inputs: Env.Bindings[Tree.Decl], inputs: Env.Bindings[Value.Base]
 ) -> Env.Bindings[Value.Base]:
     """
-    Helper for File URI downloading: look for available File inputs that default to a string
-    constant appearing to be a downloadable URI. For each one, add the default binding to the
-    user-supplied inputs (if not already overridden in them).
+    Look for available File/Directory inputs that default to a string constant appearing to be a
+    downlodable URI. For each one, add a binding for that default to the user-supplied inputs (if
+    not already overridden in them).
 
     This is to trigger download of the default URIs even though we otherwise don't evaluate input
     declarations until after processing downloads.
@@ -302,13 +302,19 @@ def _add_downloadable_default_files(
     ans = inputs
     for b in available_inputs:
         if (
-            isinstance(b.value.type, Type.File)
+            isinstance(b.value.type, (Type.File, Type.Directory))
             and b.name not in ans
             and isinstance(b.value.expr, Expr.String)
         ):
+            directory = isinstance(b.value.type, Type.Directory)
             maybe_uri = b.value.expr.literal
-            if maybe_uri and downloadable(cfg, maybe_uri.value):
-                ans = ans.bind(b.name, Value.File(maybe_uri.value, b.value.expr))
+            if maybe_uri and downloadable(cfg, maybe_uri.value, directory=directory):
+                v = (
+                    Value.Directory(maybe_uri.value, b.value.expr)
+                    if directory
+                    else Value.File(maybe_uri.value, b.value.expr)
+                )
+                ans = ans.bind(b.name, v)
     return ans
 
 

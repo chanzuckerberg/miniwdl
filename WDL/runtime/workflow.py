@@ -45,7 +45,7 @@ from contextlib import ExitStack
 import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_default_files
+from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_defaults
 from .download import able as downloadable, run_cached as download
 from .._util import (
     write_atomic,
@@ -376,7 +376,9 @@ class StateMachine:
             # check input files against whitelist
             disallowed_filenames = _fspaths(call_inputs) - self.filename_whitelist
             disallowed_filenames = set(
-                fn for fn in disallowed_filenames if not downloadable(cfg, fn)
+                fn
+                for fn in disallowed_filenames
+                if not downloadable(cfg, fn, directory=fn.endswith("/"))
             )
             if disallowed_filenames:
                 raise InputError(
@@ -743,7 +745,7 @@ def _workflow_main_loop(
                 logger,
                 logger_id,
                 run_dir,
-                _add_downloadable_default_files(cfg, workflow.available_inputs, inputs),
+                _add_downloadable_defaults(cfg, workflow.available_inputs, inputs),
                 thread_pools[0],
                 cache,
             )

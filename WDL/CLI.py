@@ -617,9 +617,6 @@ def runner(
             doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
             # parse and validate the provided inputs
-            def file_found(fn):
-                return runtime.download.able(cfg, fn) or os.path.isfile(fn)
-
             eff_root = (
                 cfg["file_io"]["root"] if not cfg["file_io"].get_bool("copy_input_files") else "/"
             )
@@ -631,7 +628,7 @@ def runner(
                 empty,
                 none,
                 task=task,
-                file_found=file_found,
+                downloadable=lambda fn, is_dir: runtime.download.able(cfg, fn, directory=is_dir),
                 root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
             )
         except Error.InputError as exn:
@@ -779,7 +776,15 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
 
 
 def runner_input(
-    doc, inputs, input_file, empty, none, task=None, check_required=True, file_found=None, root="/"
+    doc,
+    inputs,
+    input_file,
+    empty,
+    none,
+    task=None,
+    check_required=True,
+    downloadable=None,
+    root="/",
 ):
     """
     - Determine the target workflow/task
@@ -809,7 +814,11 @@ def runner_input(
     # build up an values env of the provided inputs
     available_inputs = target.available_inputs
     input_env = runner_input_json_file(
-        available_inputs, (target.name if isinstance(target, Workflow) else ""), input_file, root
+        available_inputs,
+        (target.name if isinstance(target, Workflow) else ""),
+        input_file,
+        downloadable,
+        root,
     )
 
     # set explicitly empty arrays or strings
@@ -874,7 +883,7 @@ def runner_input(
             raise Error.InputError(f"No such input to {target.name}: {buf[0]}")
 
         # create a Value based on the expected type
-        v = runner_input_value(s_value, decl.type, file_found, root)
+        v = runner_input_value(s_value, decl.type, downloadable, root)
 
         # insert value into input_env
         try:
@@ -908,7 +917,7 @@ def runner_input(
     )
 
 
-def runner_input_json_file(available_inputs, namespace, input_file, root):
+def runner_input_json_file(available_inputs, namespace, input_file, downloadable, root):
     """
     Load user-supplied inputs JSON file, if any
     """
@@ -934,23 +943,12 @@ def runner_input_json_file(available_inputs, namespace, input_file, root):
         except Error.InputError as exn:
             raise Error.InputError("check JSON input; " + exn.args[0])
 
-        # join relative file paths to the cwd
-
-        def absolutify_files(v: Value.Base) -> Value.Base:
-            if isinstance(v, Value.File):
-                if "://" not in v.value:
-                    if not os.path.isabs(v.value):
-                        v.value = os.path.normpath(os.path.join(os.getcwd(), v.value))
-                    if not path_really_within(v.value, root):
-                        raise Error.InputError(
-                            f"all input files must be located within the configured `file_io.root' directory `{root}' "
-                            f"unlike `{v.value}'"
-                        )
-            for ch in v.children:
-                absolutify_files(ch)
-            return v
-
-        ans = ans.map(lambda binding: Env.Binding(binding.name, absolutify_files(binding.value)))
+        ans = Value.rewrite_env_paths(
+            ans,
+            lambda v: validate_input_path(
+                v.value, isinstance(v, Value.Directory), downloadable, root
+            ),
+        )
 
     return ans
 
@@ -1022,39 +1020,18 @@ def add_wrapped_parameter_meta(target, input_name, output_list):
         output_list.extend((" " * 4 + line) for line in textwrap.wrap(ans, 96))
 
 
-def runner_input_value(s_value, ty, file_found, root):
+def runner_input_value(s_value, ty, downloadable, root):
     """
     Given an input value from the command line (right-hand side of =) and the
     WDL type of the corresponding input decl, create an appropriate Value.
     """
     if isinstance(ty, Type.String):
         return Value.String(s_value)
-    if isinstance(ty, Type.File):
-        fn = os.path.expanduser(s_value)
-        if os.path.isfile(fn):
-            fn = os.path.abspath(fn)
-            if not path_really_within(fn, root):
-                raise Error.InputError(
-                    f"all input files must be located within the configured `file_io.root' directory `{root}' "
-                    f"unlike `{fn}'"
-                )
-        elif not (file_found and file_found(fn)):  # maybe URI
-            raise Error.InputError("File not found: " + fn)
-        return Value.File(fn)
-    if isinstance(ty, Type.Directory):
-        dn = os.path.expanduser(s_value)
-        if os.path.isdir(dn):
-            dn = os.path.abspath(dn)
-            if not path_really_within(dn, root):
-                raise Error.InputError(
-                    f"all input paths must be located within the configured `file_io.root' directory `{root}' "
-                    f"unlike `{dn}'"
-                )
-            # TODO: courtesy check for symlinks that have absolute paths or relatively point
-            # outside the directory
-        else:  # TODO: relax for URIs
-            raise Error.InputError("Directory not found: " + dn)
-        return Value.Directory(dn)
+    if isinstance(ty, (Type.File, Type.Directory)):
+        # check existence and absolutify path
+        directory = isinstance(ty, Type.Directory)
+        s_value = validate_input_path(os.path.expanduser(s_value), directory, downloadable, root)
+        return Value.Directory(s_value) if directory else Value.File(s_value)
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
@@ -1072,13 +1049,52 @@ def runner_input_value(s_value, ty, file_found, root):
     ):
         # just produce a length-1 array, to be combined ex post facto
         return Value.Array(
-            ty.item_type, [runner_input_value(s_value, ty.item_type, file_found, root)]
+            ty.item_type, [runner_input_value(s_value, ty.item_type, downloadable, root)]
         )
     raise Error.InputError(
         "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
             str(ty)
         )
     )
+
+
+def validate_input_path(path, directory, downloadable, root):
+    """
+    If the path is downloadable, return it back. Otherwise, return the absolute path after checking
+    1. exists and is a file or directory (according to directory: bool)
+    2. resides within root
+    3. contains no symlinks pointing outside or to absolute paths
+    """
+    if downloadable and downloadable(path, directory):
+        return path
+
+    if not ((directory and os.path.isdir(path)) or (not directory and os.path.isfile(path))):
+        raise Error.InputError(("Directory" if directory else "File") + " not found: " + path)
+
+    path = os.path.abspath(path)
+
+    if not path_really_within(path, root):
+        raise Error.InputError(
+            f"File & Directory inputs must be located within the configured `file_io.root' directory `{root}' "
+            f"unlike `{path}'"
+        )
+
+    if directory:
+
+        def raiser(exc: OSError):
+            raise exc
+
+        for root, subdirs, files in os.walk(path, onerror=raiser, followlinks=False):
+            for fn in files:
+                fn = os.path.join(root, fn)
+                if os.path.islink(fn) and (
+                    not os.path.exists(fn)
+                    or os.path.isabs(os.readlink(fn))
+                    or not path_really_within(fn, path)
+                ):
+                    raise Error.InputError("Input Directory contains unusable symlink: " + path)
+
+    return path
 
 
 def fill_run_self_test_subparser(subparsers):
@@ -1333,12 +1349,18 @@ def localize(
             # load WDL document
             doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
 
-            def file_found(fn):
-                return runtime.download.able(cfg, fn) or os.path.exists(fn)
-
             try:
                 target, input_env, input_json = runner_input(
-                    doc, [], infile, [], [], task=task, check_required=False, file_found=file_found
+                    doc,
+                    [],
+                    infile,
+                    [],
+                    [],
+                    task=task,
+                    check_required=False,
+                    downloadable=lambda fn, is_dir: runtime.download.able(
+                        cfg, fn, directory=is_dir
+                    ),
                 )
             except Error.InputError as exn:
                 die(exn.args[0])

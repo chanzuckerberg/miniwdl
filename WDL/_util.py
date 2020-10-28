@@ -179,9 +179,8 @@ def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
 def rmtree_atomic(path: str) -> None:
     """
     Recursively delete a directory (or single file) after first renaming it to a temporary name in
-    the same parent directory, to ensure the original path disappears atomically. In particular,
-    ensures a "partial" directory isn't left behind in the same location if something should go
-    wrong deleting everything within.
+    the same parent directory. The atomic rename step ensures a "partial" directory won't be left
+    behind in its original location, should anything go wrong whilst deleting its contents.
     """
     path = os.path.abspath(path)
     assert path and path.strip("/")

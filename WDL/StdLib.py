@@ -154,6 +154,7 @@ class Base:
         on the local host. Subclasses may further wish to forbid access to files outside of a
         designated directory or whitelist (by raising an exception)
         """
+        # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()
 
     def _write(
@@ -180,6 +181,7 @@ class Base:
         from a local path in write_dir, 'virtualize' into the filename as it should present in a
         File value
         """
+        # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()
 
     def _override_static(self, name: str, f: Callable) -> None:
