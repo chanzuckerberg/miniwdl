@@ -18,7 +18,13 @@ from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Option
 from abc import ABC, abstractmethod
 import docker
 from .. import Error
-from .._util import TerminationSignalFlag, path_really_within, chmod_R_plus, PygtailLogger
+from .._util import (
+    TerminationSignalFlag,
+    path_really_within,
+    chmod_R_plus,
+    PygtailLogger,
+    rmtree_atomic,
+)
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
@@ -232,7 +238,7 @@ class TaskContainer(ABC):
         deleted = []
         for p in to_delete:
             if os.path.isdir(p):
-                shutil.rmtree(p)
+                rmtree_atomic(p)
                 deleted.append(p)
             elif os.path.isfile(p):
                 os.unlink(p)
@@ -262,9 +268,21 @@ class TaskContainer(ABC):
                 return self.host_stdout_txt()
             if container_path == os.path.join(self.container_dir, "stderr.txt"):
                 return self.host_stderr_txt()
-            # handle output of an input file
+            # handle output of an input File or Directory
             if container_path in self.input_path_map_rev:
                 return self.input_path_map_rev[container_path]
+            # handle output of a File or subDirectory found within an input Directory
+            container_path_components = container_path.strip("/").split("/")
+            for i in range(len(container_path_components) - 1, 5, -1):
+                # 5 == len(['mnt', 'miniwdl_task_container', 'work', '_miniwdl_inputs', '0'])
+                container_path_prefix = "/" + "/".join(container_path_components[:i]) + "/"
+                if container_path_prefix in self.input_path_map_rev:
+                    ans = self.input_path_map_rev[container_path_prefix]
+                    ans += "/".join(container_path_components[i:])
+                    if container_path.endswith("/"):
+                        ans += "/"
+                    assert path_really_within(ans, self.input_path_map_rev[container_path_prefix])
+                    return ans
             if inputs_only:
                 raise Error.InputError(
                     "task inputs attempted to use a non-input or non-existent path "

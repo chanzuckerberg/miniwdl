@@ -1,7 +1,8 @@
 #!/bin/bash
-# Maintenance script for the miniwdl file download cache directory. Evicts (deletes) least-recently
-# used files until total space usage is below a threshold given in GB; while using flock to avoid
-# interfering with any concurrent miniwdl process. Waits if all fails are in use concurrently.
+# Maintenance script for the miniwdl File/Directory download cache directory. Evicts (deletes)
+# least-recently used items until total space usage is below a threshold given in GB; while using
+# lock to avoid interfering with any concurrent miniwdl process. Waits if all items are in use
+# concurrently.
 
 set -euo pipefail
 
@@ -9,7 +10,7 @@ DIR=$1
 MAX_GB=$2
 
 if [ -d "$DIR" ]; then
-    mkdir -p "${DIR}/ops" "${DIR}/files"  # avoid need for subsequent existence checks
+    mkdir -p "${DIR}/ops" "${DIR}/files" "${DIR}/dirs"  # avoid need for existence checks below
 else
     >&2 echo "${DIR} does not exist"
     exit 1
@@ -24,21 +25,25 @@ find "${DIR}/ops" -mindepth 1 -type d -ctime +2 -exec rm -rf {} +
 # repeat until success
 while true ; do
     # measure current space usage
-    used=$(du -sBG "${DIR}/files" | cut -f1 | head -c -2)
+    used=$(du -scBG "${DIR}/files" "${DIR}/dirs" | tail -n1 | cut -f1 | head -c -2)
     >&2 echo -e "cached files <= ${used}G, limit = ${MAX_GB}G\t${DIR}"
     if [ "$used" -le "$MAX_GB" ]; then
         # success
         exit 0
     fi
 
-    # iterate through files in order of increasing atime. (miniwdl explicitly bumps atime when
-    # it uses a cached file.)
+    # iterate through cache items in order of increasing atime. (miniwdl explicitly bumps atime
+    # when it uses an item)
     eviction=0
-    for fn in $(find "$DIR/files" -type f -printf "%A@\t%p\n" | sort -nk1 | cut -f2); do
-        # delete this file if we can get an exclusive flock on it. (miniwdl takes shared flocks
-        # on any cached files used by a running workflow.)
+    for fn in $( (find "${DIR}/dirs" -mindepth 4 -maxdepth 4 -type d -printf "%A@\t%p\n";
+                  find "${DIR}/files" -type f -printf "%A@\t%p\n") | sort -nk1 | cut -f2 ); do
+        # If we can get an exclusive flock, rename the file/directory and then delete it.
+        # - miniwdl takes shared flocks on any items in use by a running workflow
+        # - the rename step ensures cached directories disappear "atomically"
         flock_status=0
-        flock -xnE 142 "$fn" rm "$fn" || flock_status=$?
+        deleting_fn="${DIR}/ops/_deleting"
+        rm -rf "$deleting_fn"
+        (flock -xnE 142 "$fn" mv "$fn" "$deleting_fn" && rm -rf "$deleting_fn") || flock_status=$?
         if (( flock_status == 0 )); then
             >&2 echo "evicted: $fn"
             eviction=1

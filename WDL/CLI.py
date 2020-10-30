@@ -617,9 +617,6 @@ def runner(
             doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
 
             # parse and validate the provided inputs
-            def file_found(fn):
-                return runtime.download.able(cfg, fn) or os.path.isfile(fn)
-
             eff_root = (
                 cfg["file_io"]["root"] if not cfg["file_io"].get_bool("copy_input_files") else "/"
             )
@@ -631,7 +628,7 @@ def runner(
                 empty,
                 none,
                 task=task,
-                file_found=file_found,
+                downloadable=lambda fn, is_dir: runtime.download.able(cfg, fn, directory=is_dir),
                 root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
             )
         except Error.InputError as exn:
@@ -779,7 +776,15 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
 
 
 def runner_input(
-    doc, inputs, input_file, empty, none, task=None, check_required=True, file_found=None, root="/"
+    doc,
+    inputs,
+    input_file,
+    empty,
+    none,
+    task=None,
+    check_required=True,
+    downloadable=None,
+    root="/",
 ):
     """
     - Determine the target workflow/task
@@ -809,7 +814,11 @@ def runner_input(
     # build up an values env of the provided inputs
     available_inputs = target.available_inputs
     input_env = runner_input_json_file(
-        available_inputs, (target.name if isinstance(target, Workflow) else ""), input_file, root
+        available_inputs,
+        (target.name if isinstance(target, Workflow) else ""),
+        input_file,
+        downloadable,
+        root,
     )
 
     # set explicitly empty arrays or strings
@@ -874,7 +883,7 @@ def runner_input(
             raise Error.InputError(f"No such input to {target.name}: {buf[0]}")
 
         # create a Value based on the expected type
-        v = runner_input_value(s_value, decl.type, file_found, root)
+        v = runner_input_value(s_value, decl.type, downloadable, root)
 
         # insert value into input_env
         try:
@@ -908,7 +917,7 @@ def runner_input(
     )
 
 
-def runner_input_json_file(available_inputs, namespace, input_file, root):
+def runner_input_json_file(available_inputs, namespace, input_file, downloadable, root):
     """
     Load user-supplied inputs JSON file, if any
     """
@@ -934,23 +943,12 @@ def runner_input_json_file(available_inputs, namespace, input_file, root):
         except Error.InputError as exn:
             raise Error.InputError("check JSON input; " + exn.args[0])
 
-        # join relative file paths to the cwd
-
-        def absolutify_files(v: Value.Base) -> Value.Base:
-            if isinstance(v, Value.File):
-                if "://" not in v.value:
-                    if not os.path.isabs(v.value):
-                        v.value = os.path.normpath(os.path.join(os.getcwd(), v.value))
-                    if not path_really_within(v.value, root):
-                        raise Error.InputError(
-                            f"all input files must be located within the configured `file_io.root' directory `{root}' "
-                            f"unlike `{v.value}'"
-                        )
-            for ch in v.children:
-                absolutify_files(ch)
-            return v
-
-        ans = ans.map(lambda binding: Env.Binding(binding.name, absolutify_files(binding.value)))
+        ans = Value.rewrite_env_paths(
+            ans,
+            lambda v: validate_input_path(
+                v.value, isinstance(v, Value.Directory), downloadable, root
+            ),
+        )
 
     return ans
 
@@ -1022,39 +1020,18 @@ def add_wrapped_parameter_meta(target, input_name, output_list):
         output_list.extend((" " * 4 + line) for line in textwrap.wrap(ans, 96))
 
 
-def runner_input_value(s_value, ty, file_found, root):
+def runner_input_value(s_value, ty, downloadable, root):
     """
     Given an input value from the command line (right-hand side of =) and the
     WDL type of the corresponding input decl, create an appropriate Value.
     """
     if isinstance(ty, Type.String):
         return Value.String(s_value)
-    if isinstance(ty, Type.File):
-        fn = os.path.expanduser(s_value)
-        if os.path.isfile(fn):
-            fn = os.path.abspath(fn)
-            if not path_really_within(fn, root):
-                raise Error.InputError(
-                    f"all input files must be located within the configured `file_io.root' directory `{root}' "
-                    f"unlike `{fn}'"
-                )
-        elif not (file_found and file_found(fn)):  # maybe URI
-            raise Error.InputError("File not found: " + fn)
-        return Value.File(fn)
-    if isinstance(ty, Type.Directory):
-        dn = os.path.expanduser(s_value)
-        if os.path.isdir(dn):
-            dn = os.path.abspath(dn)
-            if not path_really_within(dn, root):
-                raise Error.InputError(
-                    f"all input paths must be located within the configured `file_io.root' directory `{root}' "
-                    f"unlike `{dn}'"
-                )
-            # TODO: courtesy check for symlinks that have absolute paths or relatively point
-            # outside the directory
-        else:  # TODO: relax for URIs
-            raise Error.InputError("Directory not found: " + dn)
-        return Value.Directory(dn)
+    if isinstance(ty, (Type.File, Type.Directory)):
+        # check existence and absolutify path
+        directory = isinstance(ty, Type.Directory)
+        s_value = validate_input_path(os.path.expanduser(s_value), directory, downloadable, root)
+        return Value.Directory(s_value) if directory else Value.File(s_value)
     if isinstance(ty, Type.Boolean):
         if s_value == "true":
             return Value.Boolean(True)
@@ -1072,13 +1049,52 @@ def runner_input_value(s_value, ty, file_found, root):
     ):
         # just produce a length-1 array, to be combined ex post facto
         return Value.Array(
-            ty.item_type, [runner_input_value(s_value, ty.item_type, file_found, root)]
+            ty.item_type, [runner_input_value(s_value, ty.item_type, downloadable, root)]
         )
     raise Error.InputError(
         "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
             str(ty)
         )
     )
+
+
+def validate_input_path(path, directory, downloadable, root):
+    """
+    If the path is downloadable, return it back. Otherwise, return the absolute path after checking
+    1. exists and is a file or directory (according to directory: bool)
+    2. resides within root
+    3. contains no symlinks pointing outside or to absolute paths
+    """
+    if downloadable and downloadable(path, directory):
+        return path
+
+    if not ((directory and os.path.isdir(path)) or (not directory and os.path.isfile(path))):
+        raise Error.InputError(("Directory" if directory else "File") + " not found: " + path)
+
+    path = os.path.abspath(path)
+
+    if not path_really_within(path, root):
+        raise Error.InputError(
+            f"File & Directory inputs must be located within the configured `file_io.root' directory `{root}' "
+            f"unlike `{path}'"
+        )
+
+    if directory:
+
+        def raiser(exc: OSError):
+            raise exc
+
+        for root, subdirs, files in os.walk(path, onerror=raiser, followlinks=False):
+            for fn in files:
+                fn = os.path.join(root, fn)
+                if os.path.islink(fn) and (
+                    not os.path.exists(fn)
+                    or os.path.isabs(os.readlink(fn))
+                    or not path_really_within(fn, path)
+                ):
+                    raise Error.InputError("Input Directory contains unusable symlink: " + path)
+
+    return path
 
 
 def fill_run_self_test_subparser(subparsers):
@@ -1204,7 +1220,7 @@ def fill_localize_subparser(subparsers):
     localize_parser = subparsers.add_parser(
         "localize",
         help="Download URI input Files to local cache for use in subsequent runs",
-        description="Prime the local file download cache with URI File inputs found in Cromwell-style input JSON. "
+        description="Prime the local download cache with URI File/Directory inputs found in Cromwell-style input JSON. "
         "This is only needed if it's useful to perform downloads in advance rather than on next run start.",
     )
     localize_parser.add_argument(
@@ -1229,10 +1245,23 @@ def fill_localize_subparser(subparsers):
         help="name of task (for WDL documents with multiple tasks & no workflow)",
     )
     localize_parser.add_argument(
+        "--file",
+        metavar="URI",
+        action="append",
+        help="additional File URI to process; if present then WDL & JSON may be omitted",
+    )
+    localize_parser.add_argument(
+        "--directory",
+        metavar="URI",
+        action="append",
+        help="additional Directory URI to process; if present then WDL & JSON may be omitted",
+    )
+    localize_parser.add_argument(
         "--uri",
         metavar="URI",
         action="append",
-        help="additional URI to process; or, omit WDL & JSON and just specify one or more --uri",
+        dest="file",
+        help=SUPPRESS,  # vestigial, before splitting --file/--directory
     )
     localize_parser.add_argument(
         "--no-cache",
@@ -1249,13 +1278,27 @@ def fill_localize_subparser(subparsers):
             "or XDG_CONFIG_{HOME,DIRS}/miniwdl.cfg)"
         ),
     )
+    group = localize_parser.add_argument_group("logging")
+    group.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="increase logging detail & stream tasks' stderr",
+    )
+    group.add_argument(
+        "--no-color",
+        action="store_true",
+        help="disable colored logging and status bar on terminal (also set by NO_COLOR environment variable)",
+    )
+    group.add_argument("--log-json", action="store_true", help="write all logs in JSON")
     return localize_parser
 
 
 def localize(
     wdlfile=None,
     infile=None,
-    uri=None,
+    file=None,
+    directory=None,
     no_cache=False,
     task=None,
     cfg=None,
@@ -1263,9 +1306,20 @@ def localize(
     check_quant=True,
     **kwargs,
 ):
-    logging.basicConfig(level=NOTICE_LEVEL)
+    # set up logging
+    level = NOTICE_LEVEL
+    logging.raiseExceptions = False
+    if kwargs["verbose"]:
+        level = VERBOSE_LEVEL
+    if kwargs["no_color"]:
+        os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
+    log_json = kwargs["log_json"] or (
+        os.environ.get("MINIWDL__LOGGING__JSON", "").lower().strip()
+        in ("t", "y", "1", "true", "yes")
+    )
+    logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-localize")
-    with configure_logger() as set_status:
+    with configure_logger(json=log_json) as set_status:
 
         cfg_arg = None
         if cfg:
@@ -1288,34 +1342,39 @@ def localize(
             )
         )
 
-        uri = uri or []
-        uri = set(uri)
+        file = set(file or [])
+        directory = set(directory or [])
 
         if infile:
             # load WDL document
             doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
 
-            def file_found(fn):
-                return runtime.download.able(cfg, fn) or os.path.exists(fn)
-
             try:
                 target, input_env, input_json = runner_input(
-                    doc, [], infile, [], [], task=task, check_required=False, file_found=file_found
+                    doc,
+                    [],
+                    infile,
+                    [],
+                    [],
+                    task=task,
+                    check_required=False,
+                    downloadable=lambda fn, is_dir: runtime.download.able(
+                        cfg, fn, directory=is_dir
+                    ),
                 )
             except Error.InputError as exn:
                 die(exn.args[0])
 
-            # scan for Files that appear to be downloadable URIs
-            def scan(x):
-                if isinstance(x, Value.File) and runtime.download.able(cfg, x.value):
-                    yield x.value
-                for y in x.children:
-                    yield from scan(y)
+            # scan inputs for donwloadable URIs that appear to be downloadable URIs
+            def scan(v):
+                is_directory = isinstance(v, Value.Directory)
+                if runtime.download.able(cfg, v.value, directory=is_directory):
+                    (directory if is_directory else file).add(v.value)
+                return v.value
 
-            for b in input_env:
-                uri |= set(scan(b.value))
+            Value.rewrite_env_paths(input_env, scan)
 
-        if not uri:
+        if not (file or directory):
             logger.warning(
                 "nothing to do; if inputs use special URI schemes, make sure necessary downloader plugin(s) are "
                 "installed and enabled"
@@ -1340,26 +1399,35 @@ def localize(
             sys.exit(2)
 
         with runtime.cache.CallCache(cfg, logger) as cache:
-            disabled = [u for u in uri if not cache.download_path(u)]
-        if disabled:
-            logger.notice(_("URIs found but not cacheable per configuration", uri=disabled))
-        uri = list(uri - set(disabled))
+            disabled_files = set(u for u in file if not cache.download_path(u))
+            disabled_dirs = set(u for u in directory if not cache.download_path(u, directory=True))
+        if disabled_files or disabled_dirs:
+            logger.notice(
+                _(
+                    "URIs found but not cacheable per configuration",
+                    uri=list(disabled_files | disabled_dirs),
+                )
+            )
+        file = list(file - disabled_files)
+        directory = list(directory - disabled_dirs)
 
-        if not uri:
+        if not (file or directory):
             logger.warning("nothing to do; check configured enable_patterns and disable_patterns")
             sys.exit(0)
-        logger.notice(_("starting downloads", uri=uri))
+        logger.notice(_("starting downloads", files=file, directories=directory))
 
         # cheesy trick: provide the list of URIs as File inputs to a dummy workflow, causing the
         # runtime to download & cache them
         localizer_wdl = """
-            version 1.0
+            version development
             workflow localize {
                 input {
-                    Array[File] uris
+                    Array[File] files
+                    Array[Directory] directories
                 }
                 output {
-                    Array[File] files = uris
+                    Array[File] downloaded_files = files
+                    Array[Directory] downloaded_directories = directories
                 }
             }
             """
@@ -1369,12 +1437,19 @@ def localize(
         subdir, outputs = runtime.run(
             cfg,
             localizer.workflow,
-            values_from_json({"uris": uri}, localizer.workflow.available_inputs),
+            values_from_json(
+                {"files": file, "directories": directory}, localizer.workflow.available_inputs
+            ),
             run_dir=os.environ.get("TMPDIR", "/tmp"),
         )
+        outputs = values_to_json(outputs)
 
         logger.notice(
-            _("success", files=[os.path.realpath(p) for p in values_to_json(outputs)["files"]])
+            _(
+                "success",
+                files=[os.path.realpath(p) for p in outputs["downloaded_files"]],
+                directories=[os.path.realpath(p) for p in outputs["downloaded_directories"]],
+            )
         )
         if not original_get:
             logger.warning(

@@ -45,7 +45,7 @@ from contextlib import ExitStack
 import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
-from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_default_files
+from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_defaults
 from .download import able as downloadable, run_cached as download
 from .._util import (
     write_atomic,
@@ -54,6 +54,7 @@ from .._util import (
     TerminationSignalFlag,
     LoggingFileHandler,
     compose_coroutines,
+    pathsize,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -375,7 +376,9 @@ class StateMachine:
             # check input files against whitelist
             disallowed_filenames = _fspaths(call_inputs) - self.filename_whitelist
             disallowed_filenames = set(
-                fn for fn in disallowed_filenames if not downloadable(cfg, fn)
+                fn
+                for fn in disallowed_filenames
+                if not downloadable(cfg, fn, directory=fn.endswith("/"))
             )
             if disallowed_filenames:
                 raise InputError(
@@ -742,7 +745,7 @@ def _workflow_main_loop(
                 logger,
                 logger_id,
                 run_dir,
-                _add_downloadable_default_files(cfg, workflow.available_inputs, inputs),
+                _add_downloadable_defaults(cfg, workflow.available_inputs, inputs),
                 thread_pools[0],
                 cache,
             )
@@ -849,28 +852,33 @@ def _download_input_files(
     cache: CallCache,
 ) -> None:
     """
-    Find all File values in the inputs, including any nested within compound values, that are
-    downloadable URIs, and ensure the cache is "primed" with them -- including performing actual
-    download tasks on thread_pool, if necessary. The inputs are not modified, but the CallCache
-    will be ready to quickly produce a local filename corresponding to any URI therein, because
-    it's either stored in the persistent download cache (if enabled), or downloaded to the
-    current/parent run directory and transiently memoized.
+    Find all File & Directory input values that are downloadable URIs (including any nested within
+    compound values), and ensure the cache is "primed" with them, performing any needed download
+    tasks on thread_pool. The inputs are not modified, but the CallCache will be ready to quickly
+    produce a local filename corresponding to any URI therein, because it's either stored in the
+    persistent download cache (if enabled), or downloaded to the current/parent run directory and
+    transiently memoized.
     """
 
     # scan for URIs and schedule their downloads on the thread pool
     ops = {}
     uris = set()
 
-    def schedule_download(uri: str) -> str:
+    def schedule_download(v: Union[Value.File, Value.Directory]) -> str:
         nonlocal ops, uris
-        if uri not in uris and downloadable(cfg, uri):
-            logger.info(_("schedule input file download", uri=uri))
+        directory = isinstance(v, Value.Directory)
+        uri = v.value
+        if uri not in uris and downloadable(cfg, uri, directory=directory):
+            logger.info(
+                _(f"schedule input {'directory' if directory else 'file'} download", uri=uri)
+            )
             future = thread_pool.submit(
                 download,
                 cfg,
                 logger,
                 cache,
                 uri,
+                directory=directory,
                 run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
                 logger_prefix=logger_prefix + [f"download{len(ops)}"],
             )
@@ -878,17 +886,15 @@ def _download_input_files(
             uris.add(uri)
         return uri
 
-    Value.rewrite_env_files(inputs, schedule_download)
+    Value.rewrite_env_paths(inputs, schedule_download)
     if not ops:
         return
-    logger.notice(_("downloading input files", count=len(ops)))  # pyre-fixme
+    logger.notice(_("downloading input URIs", count=len(ops)))  # pyre-fixme
 
     # collect the results, with "clean" fail-fast
     outstanding = ops.keys()
-    downloaded = {}
     downloaded_bytes = 0
     cached_hits = 0
-    cached_bytes = 0
     exn = None
     while outstanding:
         just_finished, still_outstanding = futures.wait(
@@ -903,13 +909,11 @@ def _download_input_files(
             if not future_exn:
                 uri = ops[future]
                 cached, filename = future.result()
-                downloaded[uri] = filename
-                sz = os.path.getsize(filename)
                 if cached:
                     cached_hits += 1
-                    cached_bytes += sz
                 else:
-                    logger.info(_("downloaded input file", uri=uri, file=filename, bytes=sz))
+                    sz = pathsize(filename)
+                    logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
                     downloaded_bytes += sz
             elif not exn:
                 # cancel pending ops and signal running ones to abort
@@ -921,10 +925,9 @@ def _download_input_files(
         raise exn
     logger.notice(  # pyre-fixme
         _(
-            "downloaded input files",
-            downloaded=(len(downloaded) - cached_hits),
-            downloaded_bytes=downloaded_bytes,
+            "processed input URIs",
             cached=cached_hits,
-            cached_bytes=cached_bytes,
+            downloaded=len(ops) - cached_hits,
+            downloaded_bytes=downloaded_bytes,
         )
     )

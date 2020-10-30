@@ -30,45 +30,47 @@ from .._util import StructuredLogMessage as _
 
 
 def _load(cfg: config.Loader):
-    table = getattr(cfg, "_downloaders", None)
-    if table:
-        return table
+    if getattr(cfg, "_downloaders", None):
+        return
 
     # default public URI downloaders
-    table = {
+    file_downloaders = {
         "https": aria2c_downloader,
         "http": aria2c_downloader,
         "ftp": aria2c_downloader,
-        "s3": awscli_downloader,
     }
+    directory_downloaders = {}
 
     # plugins
     for plugin_name, plugin_fn in config.load_plugins(cfg, "file_download"):
-        table[plugin_name] = plugin_fn
+        file_downloaders[plugin_name] = plugin_fn
+    for plugin_name, plugin_fn in config.load_plugins(cfg, "directory_download"):
+        directory_downloaders[plugin_name] = plugin_fn
 
-    setattr(cfg, "_downloaders", table)
-    return table
+    setattr(cfg, "_downloaders", (file_downloaders, directory_downloaders))
 
 
 def _downloader(
-    cfg: config.Loader, uri: str
+    cfg: config.Loader, uri: str, directory: bool = False
 ) -> Optional[Callable[..., Generator[Dict[str, Any], Dict[str, Any], None]]]:
     _load(cfg)
     colon = uri.find(":")
     if colon <= 0:
         return None
     scheme = uri[:colon]
-    return getattr(cfg, "_downloaders").get(scheme, None)
+    return getattr(cfg, "_downloaders")[1 if directory else 0].get(scheme, None)
 
 
-def able(cfg: config.Loader, uri: Optional[str]) -> bool:
+def able(cfg: config.Loader, uri: Optional[str], directory: bool = False) -> bool:
     """
     Returns True if uri appears to be a URI we know how to download
     """
-    return bool(uri and _downloader(cfg, uri) is not None)
+    return bool(uri and _downloader(cfg, uri, directory=directory) is not None)
 
 
-def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
+def run(
+    cfg: config.Loader, logger: logging.Logger, uri: str, directory: bool = False, **kwargs
+) -> str:
     """
     Download the URI and return the local filename.
 
@@ -80,16 +82,17 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
     from .task import run_local_task
     from .. import parse_document, values_from_json, values_to_json, Walker
 
-    gen = _downloader(cfg, uri)
+    gen = _downloader(cfg, uri, directory=directory)
     assert gen
     try:
+        logger.info(_(f"start {'directory ' if directory else ''}download", uri=uri))
         with compose_coroutines([lambda kwargs: gen(cfg, logger, **kwargs)], {"uri": uri}) as cor:
             recv = next(cor)
 
             if "task_wdl" in recv:
                 task_wdl, inputs = (recv[k] for k in ["task_wdl", "inputs"])
 
-                doc = parse_document(task_wdl, version="1.0")  # pyre-ignore
+                doc = parse_document(task_wdl, version="development")  # pyre-ignore
                 assert len(doc.tasks) == 1 and not doc.workflow
                 doc.typecheck()
                 Walker.SetParents()(doc)
@@ -103,8 +106,11 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
                     {"outputs": values_to_json(outputs_env), "dir": subdir}  # pyre-ignore
                 )
 
-            ans = recv["outputs"]["file"]
-            assert isinstance(ans, str) and os.path.isfile(ans)
+            ans = recv["outputs"]["directory" if directory else "file"]
+            assert isinstance(ans, str) and os.path.exists(ans)
+            logger.notice(  # pyre-ignore
+                _(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans)
+            )
             return ans
 
     except RunFailed as exn:
@@ -118,20 +124,29 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs) -> str:
 
 
 def run_cached(
-    cfg, logger: logging.Logger, cache: CallCache, uri: str, run_dir: str, **kwargs
+    cfg,
+    logger: logging.Logger,
+    cache: CallCache,
+    uri: str,
+    run_dir: str,
+    directory: bool = False,
+    **kwargs,
 ) -> Tuple[bool, str]:
     """
     Cached download logic: returns the file from the cache if available; otherwise, runs the
     download and puts it into the cache before returning
     """
-    cached = cache.get_download(uri, logger=logger)
+    cached = cache.get_download(uri, directory=directory, logger=logger)
     if cached:
         return True, cached
-    if cache.download_cacheable(uri):
-        # run the download within the cache directory
+    if cache.download_cacheable(uri, directory=directory):
+        # run the download in a holding area under the cache directory, so that it can later be
+        # moved atomically into its final cache location
         run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
-    filename = run(cfg, logger, uri, run_dir=run_dir, **kwargs)
-    return False, cache.put_download(uri, os.path.realpath(filename), logger=logger)
+    filename = run(cfg, logger, uri, directory=directory, run_dir=run_dir, **kwargs)
+    return False, cache.put_download(
+        uri, os.path.realpath(filename), directory=directory, logger=logger
+    )
 
 
 # WDL tasks for downloading a file based on its URI scheme
@@ -171,49 +186,9 @@ def aria2c_downloader(
 def awscli_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-
-    # get AWS credentials from boto3 (unless prevented by configuration)
-    host_aws_credentials = None
-    if cfg["download_awscli"].get_bool("host_credentials"):
-        try:
-            import boto3  # pyre-fixme
-
-            b3creds = boto3.session.Session().get_credentials()
-            host_aws_credentials = "\n".join(
-                f"export {k}='{v}'"
-                for (k, v) in {
-                    "AWS_ACCESS_KEY_ID": b3creds.access_key,
-                    "AWS_SECRET_ACCESS_KEY": b3creds.secret_key,
-                    "AWS_SESSION_TOKEN": b3creds.token,
-                }.items()
-                if v
-            )
-        except Exception:
-            pass
-
-    inputs = {"uri": uri}
+    inputs: Dict[str, Any] = {"uri": uri}
     with ExitStack() as cleanup:
-        if host_aws_credentials:
-            # write credentials to temp file that'll self-destruct afterwards
-            aws_credentials_file = cleanup.enter_context(
-                tempfile.NamedTemporaryFile(
-                    prefix=hashlib.sha256(host_aws_credentials.encode()).hexdigest(),
-                    delete=True,
-                    mode="w",
-                )
-            )
-            print(host_aws_credentials, file=aws_credentials_file, flush=True)
-            # make file group-readable to ensure it'll be usable if the docker image runs as non-root
-            os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
-            inputs["aws_credentials"] = aws_credentials_file.name
-            logger.getChild("awscli_downloader").info("loaded host AWS credentials")
-        else:
-            logger.getChild("awscli_downloader").info(
-                "no AWS credentials available via host awscli/boto3; if needed, "
-                "configure them and set [download_awscli] host_credentials=true. "
-                "(On EC2: awscli might still assume role from instance metadata "
-                "service.)"
-            )
+        inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
         wdl = r"""
         task aws_s3_cp {
@@ -252,6 +227,100 @@ def awscli_downloader(
         """
         recv = yield {"task_wdl": wdl, "inputs": inputs}
     yield recv  # pyre-ignore
+
+
+def awscli_directory_downloader(
+    cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
+) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+    inputs: Dict[str, Any] = {"uri": uri}
+    with ExitStack() as cleanup:
+        inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
+
+        wdl = r"""
+        task aws_s3_cp_directory {
+            input {
+                String uri
+                File? aws_credentials
+            }
+
+            String dnm = basename(uri, "/")
+
+            command <<<
+                set -euo pipefail
+                if [ -n "~{aws_credentials}" ]; then
+                    source "~{aws_credentials}"
+                fi
+                set -x
+                mkdir -p "__out/~{dnm}/"
+                if ! aws s3 cp --recursive "~{uri}" "__out/~{dnm}/" ; then
+                    # Retry with --no-sign-request in case the object is public. Without this flag,
+                    # the previous invocation could have failed either because (i) no AWS
+                    # credentials are available or (ii) the IAM policy restricts accessible S3
+                    # buckets regardless of whether the desired object is public.
+                    rm -f "__out/~{dnm}/*"
+                    aws s3 cp --recursive --no-sign-request "~{uri}" "__out/~{dnm}/"
+                fi
+            >>>
+
+            output {
+                Directory directory = "__out/" + dnm
+            }
+
+            runtime {
+                cpu: 4
+                memory: "1G"
+                docker: "amazon/aws-cli"
+            }
+        }
+        """
+        recv = yield {"task_wdl": wdl, "inputs": inputs}
+    yield recv  # pyre-ignore
+
+
+def prepare_aws_credentials(
+    cfg: config.Loader, logger: logging.Logger, cleanup: ExitStack
+) -> Optional[str]:
+    # get AWS credentials from boto3 (unless prevented by configuration)
+    host_aws_credentials = None
+    if cfg["download_awscli"].get_bool("host_credentials"):
+        try:
+            import boto3  # pyre-fixme
+
+            b3creds = boto3.session.Session().get_credentials()
+            host_aws_credentials = "\n".join(
+                f"export {k}='{v}'"
+                for (k, v) in {
+                    "AWS_ACCESS_KEY_ID": b3creds.access_key,
+                    "AWS_SECRET_ACCESS_KEY": b3creds.secret_key,
+                    "AWS_SESSION_TOKEN": b3creds.token,
+                }.items()
+                if v
+            )
+        except Exception:
+            pass
+
+    if host_aws_credentials:
+        # write credentials to temp file that'll self-destruct afterwards
+        aws_credentials_file = cleanup.enter_context(
+            tempfile.NamedTemporaryFile(
+                prefix=hashlib.sha256(host_aws_credentials.encode()).hexdigest(),
+                delete=True,
+                mode="w",
+            )
+        )
+        print(host_aws_credentials, file=aws_credentials_file, flush=True)
+        # make file group-readable to ensure it'll be usable if the docker image runs as non-root
+        os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
+        logger.getChild("awscli_downloader").info("loaded host AWS credentials")
+        return aws_credentials_file.name
+    else:
+        logger.getChild("awscli_downloader").info(
+            "no AWS credentials available via host awscli/boto3; if needed, "
+            "configure them and set [download_awscli] host_credentials=true. "
+            "(On EC2: awscli might still assume role from instance metadata "
+            "service.)"
+        )
+        return None
 
 
 def gsutil_downloader(

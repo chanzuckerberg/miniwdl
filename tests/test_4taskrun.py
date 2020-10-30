@@ -913,7 +913,7 @@ class TestTaskRunner(unittest.TestCase):
         inp = {"file": "https://google.com/robots.txt"}
         self._test_task(txt, inp, cfg=cfg)
         self._test_task(txt, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
         self.assertTrue("downloaded: 1" in logs[0])
         self.assertTrue("cached: 1" in logs[1])
 
