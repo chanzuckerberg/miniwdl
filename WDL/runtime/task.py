@@ -293,7 +293,7 @@ def _add_downloadable_defaults(
 ) -> Env.Bindings[Value.Base]:
     """
     Look for available File/Directory inputs that default to a string constant appearing to be a
-    downlodable URI. For each one, add a binding for that default to the user-supplied inputs (if
+    downloadable URI. For each one, add a binding for that default to the user-supplied inputs (if
     not already overridden in them).
 
     This is to trigger download of the default URIs even though we otherwise don't evaluate input

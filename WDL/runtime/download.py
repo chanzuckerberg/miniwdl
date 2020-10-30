@@ -109,7 +109,7 @@ def run(
             ans = recv["outputs"]["directory" if directory else "file"]
             assert isinstance(ans, str) and os.path.exists(ans)
             logger.notice(  # pyre-ignore
-                _(f"downloaded{' directory' if directory else ''}", uri=uri, file=ans)
+                _(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans)
             )
             return ans
 
@@ -139,14 +139,14 @@ def run_cached(
     cached = cache.get_download(uri, directory=directory, logger=logger)
     if cached:
         return True, cached
-    if cache.download_cacheable(uri):
+    if cache.download_cacheable(uri, directory=directory):
         # run the download in a holding area under the cache directory, so that it can later be
         # moved atomically into its final cache location
         run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
     filename = run(cfg, logger, uri, directory=directory, run_dir=run_dir, **kwargs)
     return False, cache.put_download(
         uri, os.path.realpath(filename), directory=directory, logger=logger
-    )  # , directory=directory)
+    )
 
 
 # WDL tasks for downloading a file based on its URI scheme
