@@ -207,7 +207,7 @@ class _DocTransformer(_ExprTransformer):
 
     def object_kv(self, items, meta):
         ans = super().object_kv(items, meta)
-        self._check_keyword(ans.pos, ans[0])
+        self._check_keyword(self._sp(meta), ans[0])
         return ans
 
     def left_name(self, items, meta) -> Expr.Base:
