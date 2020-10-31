@@ -23,6 +23,7 @@ class Base(SourceNode, ABC):
     _type: Optional[Type.Base] = None
     _check_quant: bool = True
     _stdlib: "Optional[StdLib.Base]" = None
+    _struct_types: Optional[Env.Bindings[Dict[str, Type.Base]]] = None
 
     @property
     def type(self) -> Type.Base:
@@ -48,6 +49,7 @@ class Base(SourceNode, ABC):
         type_env: Env.Bindings[Type.Base],
         stdlib: StdLib.Base,
         check_quant: bool = True,
+        struct_types: Optional[Env.Bindings[Dict[str, Type.Base]]] = None,
     ) -> "Base":
         """infer_type(self, type_env : Env.Bindings[Type.Base], stdlib : StdLib.Base) -> WDL.Expr.Base
 
@@ -69,13 +71,21 @@ class Base(SourceNode, ABC):
         with Error.multi_context() as errors:
             for child in self.children:
                 assert isinstance(child, Base)
-                errors.try1(lambda child=child: child.infer_type(type_env, stdlib, check_quant))
-        # invoke derived-class logic. we pass check_quant and stdlib hackily
-        # through instance variables since only some subclasses use them.
+                errors.try1(
+                    lambda child=child: child.infer_type(
+                        type_env, stdlib, check_quant, struct_types
+                    )
+                )
+        # invoke derived-class logic. we pass check_quant, stdlib, and struct_types hackily through
+        # instance variables since only some subclasses use them.
         self._check_quant = check_quant
         self._stdlib = stdlib
-        self._type = self._infer_type(type_env)
-        self._stdlib = None
+        self._struct_types = struct_types
+        try:
+            self._type = self._infer_type(type_env)
+        finally:
+            self._stdlib = None
+            self._struct_types = None
         assert self._type and isinstance(self.type, Type.Base)
         return self
 
@@ -619,13 +629,27 @@ class Struct(Base):
     can be coerced to a specific struct type during typechecking.
     """
 
-    def __init__(self, pos: SourcePosition, members: List[Tuple[str, Base]]):
+    struct_type_name: Optional[str]
+    """
+    :type: Optional[str]
+
+    In WDL 2.0+ each struct literal may specify the intended struct type name.
+    """
+
+    def __init__(
+        self,
+        pos: SourcePosition,
+        members: List[Tuple[str, Base]],
+        struct_type_name: Optional[str] = None,
+    ):
         super().__init__(pos)
         self.members = {}
         for (k, v) in members:
             if k in self.members:
                 raise Error.MultipleDefinitions(self.pos, "duplicate keys " + k)
             self.members[k] = v
+        self.struct_type_name = struct_type_name
+        assert struct_type_name is None or isinstance(struct_type_name, str), str(struct_type_name)
 
     def __str__(self):
         members = []
@@ -639,16 +663,44 @@ class Struct(Base):
         return self.members.values()
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
-        member_types = {}
-        for k, v in self.members.items():
-            member_types[k] = v.type
-        return Type.Object(member_types)
+        if not self.struct_type_name:
+            # pre-WDL 2.0: object literal with deferred typechecking
+            return Type.Object({k: v.type for k, v in self.members.items()})
+
+        # resolve struct type
+        type_members = None
+        if self._struct_types and self.struct_type_name in self._struct_types:
+            type_members = self._struct_types[self.struct_type_name]
+        if type_members is None:
+            raise Error.InvalidType(self, "Unknown type " + self.struct_type_name)
+
+        # typecheck members vs struct declaration
+        for member in self.members:
+            try:
+                self.members[member].typecheck(type_members[member])
+            except KeyError:
+                raise Error.NoSuchMember(self, member) from None
+
+        my_type = Type.StructInstance(self.struct_type_name)
+        my_type.members = type_members
+
+        # check for any missing members
+        missing = set(type_members.keys()) - set(self.members.keys())
+        if missing:
+            raise Error.StaticTypeMismatch(
+                self,
+                my_type,
+                Type.Object({k: v.type for k, v in self.members.items()}),
+                f"missing {self.struct_type_name} member(s) " + ", ".join(missing),
+            )
+
+        return my_type
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
-        assert isinstance(self.type, Type.Object)
+        assert isinstance(self.type, (Type.Object, Type.StructInstance))
         return Value.Struct(self.type, ans)
 
     @property
@@ -660,7 +712,7 @@ class Struct(Base):
                 ans[k] = vl
             else:
                 return None
-        assert isinstance(self.type, Type.Object)
+        assert isinstance(self.type, (Type.Object, Type.StructInstance))
         return Value.Struct(self.type, ans)
 
 

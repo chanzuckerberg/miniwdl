@@ -132,7 +132,9 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return (k, items[1])
 
     def obj(self, items, meta) -> Expr.Base:
-        return Expr.Struct(self._sp(meta), items)
+        if not items or isinstance(items[0], tuple):  # old-style "object" literal
+            return Expr.Struct(self._sp(meta), items)
+        return Expr.Struct(self._sp(meta), items[1:], (items[0] if items[0] != "object" else None))
 
     def ifthenelse(self, items, meta) -> Expr.Base:
         assert len(items) == 3
@@ -202,6 +204,11 @@ class _DocTransformer(_ExprTransformer):
             raise Error.SyntaxError(
                 pos, "unexpected keyword {}".format(name), self._version, self._declared_version
             )
+
+    def object_kv(self, items, meta):
+        ans = super().object_kv(items, meta)
+        self._check_keyword(ans.pos, ans[0])
+        return ans
 
     def left_name(self, items, meta) -> Expr.Base:
         ans = super().left_name(items, meta)
