@@ -617,7 +617,22 @@ class TestCalls(unittest.TestCase):
                 }
             }
         """)
-        with self.assertRaises(WDL.Error.NoSuchMember):
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = WDL.parse_document(defs + """
+            workflow w {
+                Car c = Car {
+                    make: "Toyota",
+                    model: "Camry",
+                    odometer: 139000,
+                    owner: Person {
+                        name: "Mario"
+                    }
+                }
+            }
+        """)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
             doc.typecheck()
 
         doc = WDL.parse_document(defs + """
@@ -634,19 +649,4 @@ class TestCalls(unittest.TestCase):
             }
         """)
         with self.assertRaises(WDL.Error.InvalidType):
-            doc.typecheck()
-
-        doc = WDL.parse_document(defs + """
-            workflow w {
-                Car c = Car {
-                    make: "Toyota",
-                    model: "Camry",
-                    odometer: 139000,
-                    owner: Person {
-                        name: "Mario"
-                    }
-                }
-            }
-        """)
-        with self.assertRaises(WDL.Error.StaticTypeMismatch):
             doc.typecheck()

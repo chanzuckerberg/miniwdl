@@ -663,38 +663,30 @@ class Struct(Base):
         return self.members.values()
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        object_type = Type.Object({k: v.type for k, v in self.members.items()})
         if not self.struct_type_name:
             # pre-WDL 2.0: object literal with deferred typechecking
-            return Type.Object({k: v.type for k, v in self.members.items()})
+            return object_type
 
         # resolve struct type
-        type_members = None
+        struct_type_members = None
         if self._struct_types and self.struct_type_name in self._struct_types:
-            type_members = self._struct_types[self.struct_type_name]
-        if type_members is None:
+            struct_type_members = self._struct_types[self.struct_type_name]
+        if struct_type_members is None:
             raise Error.InvalidType(self, "Unknown type " + self.struct_type_name)
 
+        struct_type = Type.StructInstance(self.struct_type_name)
+        struct_type.members = struct_type_members
+
         # typecheck members vs struct declaration
-        for member in self.members:
-            try:
-                self.members[member].typecheck(type_members[member])
-            except KeyError:
-                raise Error.NoSuchMember(self, member) from None
-
-        my_type = Type.StructInstance(self.struct_type_name)
-        my_type.members = type_members
-
-        # check for any missing members
-        missing = set(type_members.keys()) - set(self.members.keys())
-        if missing:
+        if not object_type.coerces(struct_type):
             raise Error.StaticTypeMismatch(
                 self,
-                my_type,
-                Type.Object({k: v.type for k, v in self.members.items()}),
-                f"missing {self.struct_type_name} member(s) " + ", ".join(missing),
+                struct_type,
+                object_type,
             )
 
-        return my_type
+        return struct_type
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ans = {}
