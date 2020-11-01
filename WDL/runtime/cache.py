@@ -84,7 +84,7 @@ class CallCache(AbstractContextManager):
         from .. import values_from_json
 
         file_path = os.path.join(self.call_cache_dir, f"{key}.json")
-        file_coherence_checker = FileCoherence(self._logger)
+        file_coherence_checker = FileCoherence(self._cfg, self._logger)
 
         if not self._cfg["call_cache"].get_bool("get"):
             return None
@@ -348,18 +348,26 @@ class FileCoherence(abc.ABC):
     for cache and referenced files) for files stored locally.
     """
 
+    _cfg: config.Loader
     _logger: logging.Logger
 
-    def __init__(self, logger):
+    def __init__(self, cfg: config.Loader, logger: logging.Logger):
+        self._cfg = cfg
         self._logger = logger
         self.cache_file_modification_time = 0.0
+
+        # working around circular import
+        from .download import able as downloadable
+
+        self._downloadable = downloadable
 
     def check_files(self, cache_file_path: str, files: list) -> bool:
         if self.cache_file_modification_time == 0.0:
             self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
         for file_path in files:
             try:
-                self.check_cache_younger_than_file(output_file_path=file_path)
+                if not self._downloadable(self._cfg, file_path):
+                    self.check_cache_younger_than_file(output_file_path=file_path)
             except (FileNotFoundError, CacheOutputFileAgeError):
                 self._logger.warning(
                     _(
