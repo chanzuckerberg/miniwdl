@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 69
+plan tests 72
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -372,3 +372,10 @@ test -d _LAST/call-t1/work
 is "$?" "0" "call-t1 ran"
 test -d _LAST/call-t2/work
 is "$?" "0" "call-t2 ran"
+# check cache works with URI
+$miniwdl run call_cache.wdl file_in=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt denom1=1 denom2=1 --verbose
+is "$?" 0
+$miniwdl run call_cache.wdl file_in=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt denom1=1 denom2=1 --verbose
+is "$?" 0
+test -d _LAST/call-t1/work
+is "$?" "1" "call-t1 ran"
