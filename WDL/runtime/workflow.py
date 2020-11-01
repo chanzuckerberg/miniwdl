@@ -96,7 +96,7 @@ class WorkflowOutputs(Tree.WorkflowNode):
         yield from self.output_node_ids
 
     def add_to_type_env(
-        self, struct_typedefs: Env.Bindings[Tree.StructTypeDef], type_env: Env.Bindings[Type.Base]
+        self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
         raise NotImplementedError()
 

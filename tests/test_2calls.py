@@ -537,3 +537,116 @@ class TestCalls(unittest.TestCase):
         self.assertEqual(str(doc.workflow.effective_outputs.resolve("hello.message")), "Array[String]")
         self.assertEqual(str(doc.workflow.effective_outputs.resolve("hello2.message")), "Array[String]?")
         self.assertEqual(str(doc.workflow.effective_outputs.resolve("hello3.message")), "String")
+
+    def test_new_struct_literals(self):
+        txt = r"""
+        version development
+        struct Person {
+            String name
+            Int age
+        }
+        struct Car {
+            String make
+            String model
+            Int odometer
+            Person owner
+        }
+        workflow garage {
+            call drive {
+                input:
+                car = Car {
+                    make: "Toyota",
+                    model: "Camry",
+                    odometer: 139000,
+                    owner: Person {
+                        name: "Mario",
+                        age: 42
+                    }
+                },
+                miles = 3000
+            }
+            output {
+                Car car = Car {
+                    make: drive.car_out.make,
+                    model: drive.car_out.model,
+                    odometer: drive.car_out.odometer,
+                    owner: Person {
+                        name: "Luigi",
+                        age: 39
+                    }
+                }
+            }
+        }
+        task drive {
+            input {
+                Car car
+                Int miles
+            }
+            command {}
+            output {
+                Car car_out = Car {
+                    make: car.make,
+                    model: car.model,
+                    odometer: car.odometer + miles,
+                    owner: car.owner
+                }
+            }
+        }
+        """
+        WDL.parse_document(txt).typecheck
+
+        defs = R"""
+        version development
+        struct Person {
+            String name
+            Int age
+        }
+        struct Car {
+            String make
+            String model
+            Int odometer
+            Person owner
+        }
+        """
+        
+        doc = WDL.parse_document(defs + """
+            workflow w {
+                Person p = Car {
+                    name: "Mario",
+                    age: 42
+                }
+            }
+        """)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = WDL.parse_document(defs + """
+            workflow w {
+                Car c = Car {
+                    make: "Toyota",
+                    model: "Camry",
+                    odometer: 139000,
+                    owner: Person {
+                        name: "Mario"
+                    }
+                }
+            }
+        """)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc.typecheck()
+
+        doc = WDL.parse_document(defs + """
+            workflow w {
+                Car c = Car {
+                    make: "Toyota",
+                    model: "Camry",
+                    odometer: 139000,
+                    owner: Bogus {
+                        name: "Mario",
+                        age: 42
+                    }
+                }
+            }
+        """)
+        with self.assertRaises(WDL.Error.InvalidType):
+            doc.typecheck()

@@ -409,9 +409,10 @@ optional_nonempty: "+?"
 
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
+          | CNAME "{" [object_kv ("," object_kv)* ","?] "}" -> obj
+
           | CNAME -> left_name
           | expr_core "." CNAME -> get_name
-          | "object" "{" [object_kv ("," object_kv)* ","?] "}" -> obj
 
 ?map_key: expr_core
 map_kv: map_key ":" expr

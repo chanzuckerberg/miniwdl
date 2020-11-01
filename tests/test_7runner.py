@@ -346,7 +346,7 @@ class TestNoneLiteral(RunnerTestCase):
             output {
                 Boolean b1 = defined(flag1)
                 Boolean b2 = defined(flag2)
-                Car c = object {
+                Car c = Car {
                     make: "One",
                     model: None
                 }
