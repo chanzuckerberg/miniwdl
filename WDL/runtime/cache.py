@@ -412,15 +412,13 @@ class FileCoherence(abc.ABC):
                     self.check_cache_younger_than_file(path)
                     if directory:
                         # check everything in directory
-                        for root, subdirs, files in os.walk(
+                        for root, subdirs, subfiles in os.walk(
                             path, onerror=raiser, followlinks=False
                         ):
                             for subdir in subdirs:
                                 self.check_cache_younger_than_file(os.path.join(root, subdir))
-                            for fn in files:
+                            for fn in subfiles:
                                 self.check_cache_younger_than_file(os.path.join(root, fn))
-                            files.extend(os.path.join(root, subdir) for subdir in subdirs)
-                            files.extend(os.path.join(root, fn) for fn in files)
             except (FileNotFoundError, NotADirectoryError, CacheOutputFileAgeError):
                 self._logger.warning(
                     _(
@@ -451,6 +449,8 @@ class FileCoherence(abc.ABC):
 
     def check_cache_younger_than_file(self, output_file_path: str) -> bool:
         output_file_modification_time = self.get_last_modified_time(output_file_path)
+        # self._logger.debug(_("check_cache_younger_than_file", path=output_file_path,
+        # mtime=output_file_modification_time/1e9, cache_mtime=self.cache_file_modification_time/1e9))
         if self.cache_file_modification_time >= output_file_modification_time:
             return True
         else:
