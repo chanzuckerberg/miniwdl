@@ -105,16 +105,16 @@ class CallCache(AbstractContextManager):
             )
         if cache:
             self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
-            file_list = []
-            dir_list = []
+            file_list = set()
+            dir_list = set()
             # check output and input file timestamps
 
             def get_files(v: Union[Value.File, Value.Directory]):
                 if isinstance(v, Value.File):
-                    file_list.append(v.value)
+                    file_list.add(v.value)
                 else:
                     assert isinstance(v, Value.Directory)
-                    dir_list.append(v.value)
+                    dir_list.add(v.value)
 
             Value.rewrite_env_paths(cache, get_files)
             Value.rewrite_env_paths(inputs, get_files)
