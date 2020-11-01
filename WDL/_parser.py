@@ -210,6 +210,11 @@ class _DocTransformer(_ExprTransformer):
         self._check_keyword(self._sp(meta), ans[0])
         return ans
 
+    def obj(self, items, meta):
+        if isinstance(items[0], str) and items[0] != "object":
+            self._check_keyword(self._sp(meta), items[0])
+        return super().obj(items, meta)
+
     def left_name(self, items, meta) -> Expr.Base:
         ans = super().left_name(items, meta)
         self._check_keyword(ans.pos, items[0])
