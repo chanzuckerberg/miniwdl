@@ -76,9 +76,22 @@ Any option can thus be set/changed temporarily without a configuration file.
 
 `miniwdl run` command-line arguments override the other sources. If in doubt, running with `--debug` logs the effective configuration and sources.
 
+## Task runtime attributes
+
+The default local implementation observes these task `runtime {}` attributes:
+
+* `docker` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:20.04`)
+* `cpu` (Int): container reserves, and is throttled to, this many CPUs
+  * Automatically rounds down to all host CPUs, if fewer
+  * Multiple tasks can run concurrently on the local host, if CPUs and memory are available to meet their total reservations, and the workflow dependencies allow
+* `memory` (Int/String): container reserves this many bytes of memory, or string with unit such as "8 GiB"
+  * Automatically rounds down to all host memory, if less
+  * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
+* `maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first)
+
 ## File and Directory downloads
 
-For File and Directory input values, miniwdl can accept URIs instead of local paths and automatically download them on run start. The following URI schemes have built-in support, which can be extended with plugins:
+Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. The following URI schemes have built-in support, which can be extended with plugins:
 
 * `http:`, `https:`, and `ftp:` downloads for Files
 * Amazon S3 `s3:` URIs for both File and Directory inputs
