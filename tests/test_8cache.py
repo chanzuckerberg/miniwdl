@@ -7,6 +7,7 @@ import shutil
 import tempfile
 import time
 import unittest
+import subprocess
 from unittest.mock import MagicMock, patch
 
 from WDL import values_from_json, values_to_json
@@ -14,7 +15,7 @@ from WDL.runtime.cache import CallCache
 from .context import WDL
 
 
-class TestTaskRunner(unittest.TestCase):
+class TestCallCache(unittest.TestCase):
     test_wdl: str = R"""
         version 1.0
         task hello_blank {
@@ -341,7 +342,7 @@ Int count = 12
         inputs = {"who": "Bethie"}
         self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         # change modified time on outputs
-        time.sleep(2)
+        time.sleep(0.1)
         for x in glob.glob(f"{self._dir}/*_hello/out/a_tsv/*"):
             os.utime(x)
 
@@ -356,7 +357,7 @@ Int count = 12
         inputs = {"who": "Bethie"}
         self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         # change modified time on outputs
-        time.sleep(2)
+        time.sleep(0.1)
         for x in glob.glob(f"{self._dir}/*_hello/out/a_tsv/*"):
             os.utime(x, follow_symlinks=False)
 
@@ -393,13 +394,13 @@ Int count = 12
                 """
 
         self._run(wdl, inputs, cfg=self.cfg)
-        time.sleep(2)
         #check cache used
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
         with patch('WDL.runtime.task._try_task', mock):
             self._run(wdl, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 0)
         # change time
+        time.sleep(0.1)
         for x in glob.glob(f"{self._dir}/*_return_file_array/work/files_out/file1"):
             os.utime(x)
         # check cache not used
@@ -432,16 +433,70 @@ Int count = 12
                 """
 
         self._run(wdl, inputs, cfg=self.cfg)
-        time.sleep(2)
         #check cache used
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
         with patch('WDL.runtime.task._try_task', mock):
             self._run(wdl, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 0)
         # change time on input file
+        time.sleep(0.1)
         for x in glob.glob(f"{self._dir}/butterfinger"):
             os.utime(x)
         # check cache not used
         with patch('WDL.runtime.task._try_task', mock):
             self._run(wdl, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
+
+    def test_directory_coherence(self):
+        # test outputting files/subdirectories inside input Directory
+        wdl = R"""
+        version development
+        task t {
+            input {
+                Directory d
+            }
+            command {}
+            output {
+                Array[File] files = ["~{d}/alice.txt", "~{d}/sub/bob.txt"]
+                Array[Directory] dirs = ["~{d}/sub/dir"]
+            }
+        }
+        """
+        os.makedirs(os.path.join(self._dir, "d/sub/dir"))
+        with open(os.path.join(self._dir, "d/alice.txt"), mode="w") as outfile:
+            print("Alice", file=outfile)
+        with open(os.path.join(self._dir, "d/sub/bob.txt"), mode="w") as outfile:
+            print("Bob", file=outfile)
+        with open(os.path.join(self._dir, "d/sub/dir/carol.txt"), mode="w") as outfile:
+            print("Carol", file=outfile)
+        inp = {"d": os.path.join(self._dir, "d")}
+        outp = self._run(wdl, inp, cfg=self.cfg)
+
+        WDL.Value.rewrite_env_files(outp[1], lambda fn: fn)  # game coverage of deprecated fn
+
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch('WDL.runtime.task._try_task', mock):
+            # control
+            self._run(wdl, inp, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 0)
+
+            # touch a file & check cache invalidated
+            subprocess.run(["touch", os.path.join(self._dir, "d/sub/dir/carol.txt")], check=True)
+            self._run(wdl, inp, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 1)
+
+            # add a symlink
+            time.sleep(0.1)
+            os.symlink("sub/dir", os.path.join(self._dir, "d/link1"))
+            self._run(wdl, inp, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 2)
+
+            # delete the symlink
+            time.sleep(0.1)
+            os.unlink(os.path.join(self._dir, "d/link1"))
+            self._run(wdl, inp, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 3)
+
+            # control
+            self._run(wdl, inp, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 3)
