@@ -10,6 +10,7 @@ import itertools
 import os
 import logging
 import shutil
+import base64
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Iterable, Union
 from contextlib import AbstractContextManager
@@ -69,13 +70,15 @@ class CallCache(AbstractContextManager):
         from .. import values_to_json
 
         json_inputs = json.dumps(values_to_json(inputs), sort_keys=True).encode("utf-8")
-        return hashlib.sha256(json_inputs).hexdigest()
+        sha256 = hashlib.sha256(json_inputs).digest()
+        return base64.b32encode(sha256[:20]).decode().lower()
 
     def get_digest_for_task(self, task):
         doc = getattr(task, "parent", None)
         assert isinstance(doc, Document)
-        task_string = _describe_task(doc, task)
-        return hashlib.sha256(task_string.encode("utf-8")).hexdigest()
+        task_string = _describe_task(doc, task).encode("utf-8")
+        sha256 = hashlib.sha256(task_string).digest()
+        return base64.b32encode(sha256[:20]).decode().lower()
 
     def get(
         self, key: str, output_types: Env.Bindings[Type.Base], inputs: Env.Bindings[Value.Base]
