@@ -472,7 +472,7 @@ Int count = 12
         inp = {"d": os.path.join(self._dir, "d")}
         outp = self._run(wdl, inp, cfg=self.cfg)
 
-        WDL.Value.rewrite_env_files(outp, lambda fn: fn)  # game coverage of deprecated fn
+        WDL.Value.rewrite_env_files(outp[1], lambda fn: fn)  # game coverage of deprecated fn
 
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
         with patch('WDL.runtime.task._try_task', mock):
