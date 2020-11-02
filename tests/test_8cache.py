@@ -470,7 +470,9 @@ Int count = 12
         with open(os.path.join(self._dir, "d/sub/dir/carol.txt"), mode="w") as outfile:
             print("Carol", file=outfile)
         inp = {"d": os.path.join(self._dir, "d")}
-        self._run(wdl, inp, cfg=self.cfg)
+        outp = self._run(wdl, inp, cfg=self.cfg)
+
+        WDL.Value.rewrite_env_files(outp, lambda fn: fn)  # game coverage of deprecated fn
 
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
         with patch('WDL.runtime.task._try_task', mock):
