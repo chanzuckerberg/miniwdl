@@ -76,11 +76,25 @@ Any option can thus be set/changed temporarily without a configuration file.
 
 `miniwdl run` command-line arguments override the other sources. If in doubt, running with `--debug` logs the effective configuration and sources.
 
-## File download cache
+## File and Directory downloads
 
-Miniwdl automatically downloads input files supplied as URIs instead of locally-mounted filenames. It's also able to cache these downloads in a local directory, so that multiple workflow runs can reference files by URI without downloading them repeatedly. This permits efficient use of WDL input templates referring to public databases by URI (e.g. reference genomes, sequence databases, interval lists), without having to rewrite them with local, non-portable paths.
+For File and Directory input values, miniwdl can accept URIs instead of local paths and automatically download them on run start. The following URI schemes have built-in support, which can be extended with plugins:
 
-The download cache functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[download_cache]`` section. A minimal configuration might include:
+* `http:`, `https:`, and `ftp:` downloads for Files
+* Amazon S3 `s3:` URIs for both File and Directory inputs
+  * On an EC2 instance, the downloader attempts to assume an [attached IAM role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) by contacting the [instance metadata service](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials)
+  * Outside EC2, to use AWS credentials from the invoking session (detected by [boto3](https://aws.amazon.com/sdk-for-python/)), set the configuration option `[download_awscli] host_credentials = true` (or environment `MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=true`)
+  * Downloads of public objects should work regardless
+  * Affix a trailing slash for Directory inputs
+* Google Cloud Storage `gs:` URIs for public Files
+  * On a GCE instance, the downloader attempts to use the [associated service account](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances) by contacting the [instance metadata service](https://cloud.google.com/compute/docs/storing-retrieving-metadata)
+  * Downloads of public objects should work regardless
+
+## Download cache
+
+By default, downloaded URI inputs are used only for the current run, stored under the run directory. Miniwdl can also store downloads in a central directory, where subsequent runs can reference them by URI without downloading them again. This permits efficient use of WDL input templates referring to public databases by URI (e.g. reference genomes, sequence databases, interval lists), without having to rewrite them with local, non-portable paths.
+
+The download cache must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[download_cache]`` section. A minimal configuration might include:
 
 ```
 [download_cache]
@@ -91,17 +105,16 @@ dir = /tmp/miniwdl_download_cache
 
 Details:
 
-* With the cache enabled in persistent configuration, `--no-cache` disables it for one run.
-* The cache is **keyed by URI**: when a workflow starts with a URI file input, a cached file is used if previously stored for the same URI. This doesn't depend on which task/workflow is running, and doesn't use checksums or timestamps of the file contents. Therefore, the cache should only be used with immutable remote files, or if there's no need for immediate coherence with remote content changes.
-* Enabling the cache changes **where downloaded files are stored**: if the cache is enabled, they're stored in the cache directory; otherwise, they're stored under the triggering run directory.
+* The cache is **keyed by URI**: a cached File or Directory is used if previously stored for the same URI. This doesn't depend on which task/workflow is running, and doesn't use timestamps or digests. Therefore, the cache should only be used with immutable remote content, or if there's no need for immediate coherence with remote changes.
 * URIs can be excluded from caching using the "pattern" options, in which case they'll be downloaded under the current run directory. Typically, write the patterns to **include reusable reference data while excluding any run-specific inputs** that might be supplied as URIs.
+* Cached content that's no longer needed can simply be **deleted from the cache directory**, once no longer in use by a running workflow.
+* Miniwdl doesn't delete anything from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached File or Directory it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used content that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
 * If needed, the `miniwdl localize` subcommand can **"prime" the local cache** with URIs found in a given JSON input template (or a simple list of URIs) before actually running any workflow.
-* Cached files that are no longer needed can simply be **deleted from the cache directory**, once they're no longer in use by a running workflow.
-* Miniwdl itself doesn't delete files from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached file it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used files that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
+* With the cache enabled in configuration, `--no-cache` disables it for one run.
 
-## Task output cache (experimental)
+## Task call cache
  
-Miniwdl can cache the output of task calls in a local directory, so that repeat calls to a task (based on a digest of the source code and inputs) can return the prior outputs.
+Miniwdl can cache task outputs to be  reused by subsequent repeat calls, keyed by digests of the task source code and input values.
 
 The cache functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
 
@@ -114,7 +127,8 @@ dir = ~/.cache/miniwdl
 
 Details:
 
-* With the cache enabled in persistent configuration, `--no-cache` disables it for one run.
-* Cached outputs are stored as `*.json` files in the cache directory, which can simply be deleted when no longer needed.
-* Cache entries are invalidated if any referenced files have been deleted or show a modification timestamp (mtime) newer than the cache `*.json` file
-* The call cache does NOT take into account the contents of external URIs and docker images.
+* Cached outputs are stored as `*.json` files under the cache directory, which can simply be deleted when no longer needed
+* Local File and Directory inputs & outputs are referenced at their original paths, not copied into the cache directory
+* Cache entries are automatically invalidated if any referenced local File or Directory is later modified or deleted (based on modification timestamps)
+  * However, the cache does NOT test whether downloaded URIs or docker images may have changed
+* With the cache enabled in configuration, `--no-cache` disables it for one run
