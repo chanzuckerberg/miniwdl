@@ -388,7 +388,8 @@ def fill_run_subparser(subparsers):
         metavar="input_key=value",
         type=str,
         nargs="*",
-        help="Workflow inputs. Arrays may be supplied by repeating, key=value1 key=value2 ...",
+        help="Workflow inputs. Optional space between = and value."
+        " For arrays repeat, key=value1 key=value2 ...",
     ).completer = runner_input_completer
     group = run_parser.add_argument_group("input")
     group.add_argument(

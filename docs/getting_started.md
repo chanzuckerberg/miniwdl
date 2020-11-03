@@ -74,6 +74,7 @@ $ miniwdl run pipes/WDL/workflows/assemble_refbased.wdl   \
 The workflow should finish in just a few minutes.
 
 * Adding ``--verbose`` shows more status detail, including a realtime log of each task's standard error stream (often informative for debugging).
+* A space may be included after a `=` and before an input value, allowing shell filename autocompletion on the latter.
 * Array inputs can be supplied on the command-line by repeating, e.g. `array_input1=/path/to/file1 array_input1=/path/to/file2` translates to `{"array_input1": ["/path/to/file1", "/path/to/file2"]}`
 * Strings with spaces can be supplied by quoting the whole pair, `"name=Wid L. Hacker"`
 * For other cases or to separate inputs from the invocation, you can supply a [Cromwell-style JSON](https://support.terra.bio/hc/en-us/articles/360037120252) file with `--input inputs.json`.
