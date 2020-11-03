@@ -188,9 +188,11 @@ def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
             to_type.right_type, from_type.right_type, base_to_type, extra_from_type
         )
     if isinstance(to_type, base_to_type):
+        coercible = list(base_to_type)
         if extra_from_type:
-            return not isinstance(from_type, (base_to_type, extra_from_type, Type.Any))
-        return not isinstance(from_type, (base_to_type, Type.Any))
+            coercible.append(extra_from_type)
+        coercible.append(Type.Any)
+        return not isinstance(from_type, tuple(coercible))
     return False
 
 
@@ -215,7 +217,7 @@ class StringCoercion(Linter):
         if obj.expr and _compound_coercion(
             obj.type,
             obj.expr.type,
-            Type.String,
+            (Type.String,),
             (Type.File if isinstance(_parent_executable(obj), Tree.Task) else None),
         ):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
@@ -250,7 +252,9 @@ class StringCoercion(Linter):
                         obj.pos,
                     )
             else:
-                F = getattr(StdLib.TaskOutputs(), obj.function_name)
+                F = getattr(
+                    StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name
+                )
                 if isinstance(F, StdLib.StaticFunction) and obj.function_name != "basename":
                     # ok for basename to take either String or File
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
@@ -259,7 +263,7 @@ class StringCoercion(Linter):
                         if _compound_coercion(
                             F_i,
                             arg_i.type,
-                            Type.String,
+                            (Type.String,),
                             (Type.File if isinstance(_parent_executable(obj), Tree.Task) else None),
                         ):
                             msg = "{} argument of {}() = :{}:".format(
@@ -287,7 +291,7 @@ class StringCoercion(Linter):
     def call(self, obj: Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if _compound_coercion(decl.type, inp_expr.type, Type.String):
+            if _compound_coercion(decl.type, inp_expr.type, (Type.String,)):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
 
@@ -316,7 +320,7 @@ class FileCoercion(Linter):
         super().decl(obj)
         if (
             obj.expr
-            and _compound_coercion(obj.type, obj.expr.type, Type.File)
+            and _compound_coercion(obj.type, obj.expr.type, (Type.File, Type.Directory))
             and not (
                 isinstance(obj.expr, Expr.String)
                 and obj.expr.literal
@@ -329,12 +333,12 @@ class FileCoercion(Linter):
         super().expr(obj)
         if isinstance(obj, Expr.Apply):
             # File function operands with String expression
-            F = getattr(StdLib.TaskOutputs(), obj.function_name)
+            F = getattr(StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
-                    if _compound_coercion(F_i, arg_i.type, Type.File):
+                    if _compound_coercion(F_i, arg_i.type, (Type.File, Type.Directory)):
                         msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
                         self.add(obj, msg, arg_i.pos)
             elif obj.function_name == "size":
@@ -354,7 +358,7 @@ class FileCoercion(Linter):
         super().call(obj)
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if _compound_coercion(decl.type, inp_expr.type, Type.File):
+            if _compound_coercion(decl.type, inp_expr.type, (Type.File, Type.Directory)):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
 
@@ -384,7 +388,7 @@ class ArrayCoercion(Linter):
 
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
-            F = getattr(StdLib.TaskOutputs(), obj.function_name)
+            F = getattr(StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]
@@ -431,7 +435,9 @@ class OptionalCoercion(Linter):
                         ),
                     )
             else:
-                F = getattr(StdLib.TaskOutputs(), obj.function_name)
+                F = getattr(
+                    StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name
+                )
                 if isinstance(F, StdLib.StaticFunction):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
@@ -477,7 +483,7 @@ class NonemptyCoercion(Linter):
     # An array of possibly-empty type where a nonempty array is expected
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
-            F = getattr(StdLib.TaskOutputs(), obj.function_name)
+            F = getattr(StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
                 for i in range(min(len(F.argument_types), len(obj.arguments))):
                     F_i = F.argument_types[i]

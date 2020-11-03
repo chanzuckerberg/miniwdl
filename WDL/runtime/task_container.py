@@ -13,11 +13,18 @@ import base64
 import uuid
 import hashlib
 import shlex
+import stat
 from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Optional
 from abc import ABC, abstractmethod
 import docker
 from .. import Error
-from .._util import TerminationSignalFlag, path_really_within, chmod_R_plus, PygtailLogger
+from .._util import (
+    TerminationSignalFlag,
+    path_really_within,
+    chmod_R_plus,
+    PygtailLogger,
+    rmtree_atomic,
+)
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
@@ -57,32 +64,41 @@ class TaskContainer(ABC):
     """
     :type: str
 
-    The host path to the scratch directory that will be mounted inside the
-    container.
+    The run directory (on the host)
     """
 
     container_dir: str
     """
     :type: str
 
-    The scratch directory's mounted path inside the container. The task
-    command's working directory will be ``{container_dir}/work/``.
+    The scratch directory inside the container. The task command's working directory will be
+    ``{container_dir}/work/``.
     """
 
-    input_file_map: Dict[str, str]
+    input_path_map: Dict[str, str]
     """
     :type: Dict[str,str]
 
-    A mapping of host input file paths to in-container mounted paths,
-    maintained by ``add_files``.
+    A mapping of host input file/directory paths to in-container mounted paths, maintained by
+    ``add_paths``. Directory paths are distinguished by trailing slashes on both keys and values;
+    the slashes often should be trimmed for use elsewhere.
     """
 
-    input_file_map_rev: Dict[str, str]
+    input_path_map_rev: Dict[str, str]
+
+    try_counter: int
+    """
+    :type: int
+
+    Counter for number of retries; starts at 1 on the first attempt. On subsequent attempts, the
+    names (on the host) of the working directory, stdout.txt, and stderr.txt will incorporate the
+    count, to ensure their uniqueness.
+    """
 
     runtime_values: Dict[str, Any]
     """
-    Evaluted task runtime{} section. Typically the TaskContainer backend needs to honor
-    cpu, memory_limit, memory_reservation, docker. Resources must have already been fit to
+    Evaluted task runtime{} section. Typically the TaskContainer backend needs to honor cpu,
+    memory_limit, memory_reservation, docker. Resources must have already been fit to
     get_resource_limits(). Retry logic (maxRetries, preemptible) is handled externally.
     """
 
@@ -100,74 +116,83 @@ class TaskContainer(ABC):
         self.run_id = run_id
         self.host_dir = host_dir
         self.container_dir = "/mnt/miniwdl_task_container"
-        self.input_file_map = {}
-        self.input_file_map_rev = {}
+        self.input_path_map = {}
+        self.input_path_map_rev = {}
         self.stderr_callback = None
+        self.try_counter = 1
         self._running = False
         self.runtime_values = {}
-        os.makedirs(os.path.join(self.host_dir, "work"))
+        os.makedirs(self.host_work_dir())
 
-    def add_files(self, host_files: Iterable[str]) -> None:
+    def add_paths(self, host_paths: Iterable[str]) -> None:
         """
-        Use before running the container to add a list of host files to mount
-        inside the container as inputs. The host-to-container path mapping is
-        maintained in ``input_file_map``.
+        Use before running the container to add a list of host paths to mount inside the container
+        as inputs. Directory paths should have a trailing slash. The host-to-container path mapping
+        is maintained in ``input_path_map``.
 
-        Although ``add_files`` can be used multiple times, files should be
-        added together where possible, as this allows heuristics for dealing
-        with any name collisions among them.
+        Although ``add_paths`` can be used multiple times, paths should be added together where
+        possible, as this allows heuristics for dealing with any name collisions among them.
         """
         assert not self._running
 
         # partition the files by host directory
-        host_files_by_dir = {}
-        for host_file in host_files:
-            if host_file not in self.input_file_map:
-                if not os.path.isfile(host_file):
-                    raise Error.InputError("input file not found: " + host_file)
-                host_files_by_dir.setdefault(os.path.dirname(host_file), set()).add(host_file)
+        host_paths_by_dir = {}
+        for host_path in host_paths:
+            host_path_strip = host_path.rstrip("/")
+            if host_path not in self.input_path_map and host_path_strip not in self.input_path_map:
+                if not os.path.exists(host_path_strip):
+                    raise Error.InputError("input path not found: " + host_path)
+                host_paths_by_dir.setdefault(os.path.dirname(host_path_strip), set()).add(host_path)
 
         # for each such partition of files
         # - if there are no basename collisions under input subdirectory 0, then mount them there.
         # - otherwise, mount them in a fresh subdirectory
-        for files in host_files_by_dir.values():
+        for paths in host_paths_by_dir.values():
             based = os.path.join(self.container_dir, "work/_miniwdl_inputs")
             subd = "0"
-            for host_file in files:
-                container_file = os.path.join(based, subd, os.path.basename(host_file))
-                if container_file in self.input_file_map_rev:
-                    subd = str(len(self.input_file_map) + 1)
-            for host_file in files:
-                container_file = os.path.join(based, subd, os.path.basename(host_file))
-                assert container_file not in self.input_file_map_rev
-                self.input_file_map[host_file] = container_file
-                self.input_file_map_rev[container_file] = host_file
+            for host_path in paths:
+                container_path = os.path.join(based, subd, os.path.basename(host_path.rstrip("/")))
+                if host_path.endswith("/"):
+                    container_path += "/"
+                if container_path in self.input_path_map_rev:
+                    assert subd == "0"
+                    subd = str(len(self.input_path_map) + 1)
+            for host_path in paths:
+                container_path = os.path.join(based, subd, os.path.basename(host_path.rstrip("/")))
+                if host_path.endswith("/"):
+                    container_path += "/"
+                assert container_path not in self.input_path_map_rev
+                self.input_path_map[host_path] = container_path
+                self.input_path_map_rev[container_path] = host_path
 
     def copy_input_files(self, logger: logging.Logger) -> None:
-        # After add_files has been used as needed, copy the input files from their original
+        # After add_paths has been used as needed, copy the input files from their original
         # locations to the appropriate subdirectories of the container working directory. This may
         # not be necessary e.g. if the container backend supports bind-mounting the input
         # files from their original host paths.
         # called once per task run (attempt)
-        for host_filename, container_filename in self.input_file_map.items():
-            assert container_filename.startswith(self.container_dir)
-            host_copy_filename = os.path.join(
-                self.host_dir, os.path.relpath(container_filename, self.container_dir)
+        for host_path, container_path in self.input_path_map.items():
+            assert container_path.startswith(self.container_dir)
+            host_copy_path = os.path.join(
+                self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
             )
 
-            logger.info(_("copy host input file", input=host_filename, copy=host_copy_filename))
-            os.makedirs(os.path.dirname(host_copy_filename), exist_ok=True)
-            shutil.copy(host_filename, host_copy_filename)
+            logger.info(_("copy host input file", input=host_path, copy=host_copy_path))
+            os.makedirs(os.path.dirname(host_copy_path), exist_ok=True)
+            if host_path.endswith("/"):
+                shutil.copytree(host_path.rstrip("/"), host_copy_path, symlinks=False)
+            else:
+                shutil.copy(host_path, host_copy_path)
 
     def run(self, logger: logging.Logger, command: str) -> None:
         """
         1. Container is instantiated with the configured mounts and resources
         2. The mounted directory and all subdirectories have u+rwx,g+rwx permission bits; all files
            within have u+rw,g+rw permission bits.
-        3. Command is executed in ``{host_dir}/work/`` (where {host_dir} is mounted to
-           {container_dir} inside the container)
-        4. Standard output is written to ``{host_dir}/stdout.txt``
-        5. Standard error is written to ``{host_dir}/stderr.txt`` and logged at VERBOSE level
+        3. Command is executed in host_work_dir() which is mounted to {container_dir}/work inside
+           the container.
+        4. Standard output is written to host_stdout_txt()
+        5. Standard error is written to host_stderr_txt() and logged at VERBOSE level
         6. Raises CommandFailed for nonzero exit code
         7. Raises Terminated if TerminationSignalFlag detected, or Interrupted if the backend
            cancels on us for some reason that isn't our fault.
@@ -189,7 +214,7 @@ class TaskContainer(ABC):
 
                 if exit_status != 0:
                     raise CommandFailed(
-                        exit_status, os.path.join(self.host_dir, "stderr.txt")
+                        exit_status, self.host_stderr_txt()
                     ) if not terminating() else Terminated()
 
     @abstractmethod
@@ -197,67 +222,121 @@ class TaskContainer(ABC):
         # run command in container & return exit status
         raise NotImplementedError()
 
-    def reset(self, logger: logging.Logger, retries: int, delete_work: bool = False) -> None:
+    def delete_work(self, logger: logging.Logger, delete_streams: bool = False) -> None:
+        """
+        After the container exits, delete all filesystem traces of it except for task.log. That
+        includes successful output files!
+
+        delete_streams: if True, delete stdout.txt and stderr.txt as well
+        """
+        to_delete = [self.host_work_dir(), os.path.join(self.host_dir, "write_")]
+        to_delete.append(os.path.join(self.host_dir, "command"))
+        if delete_streams:
+            to_delete.append(self.host_stdout_txt())
+            to_delete.append(self.host_stderr_txt())
+            to_delete.append(self.host_stderr_txt() + ".offset")
+        deleted = []
+        for p in to_delete:
+            if os.path.isdir(p):
+                rmtree_atomic(p)
+                deleted.append(p)
+            elif os.path.isfile(p):
+                os.unlink(p)
+                deleted.append(p)
+        if deleted:
+            logger.info(_("deleted task work artifacts", artifacts=deleted))
+
+    def reset(self, logger: logging.Logger) -> None:
         """
         After a container/command failure, reset the working directory state so that
         copy_input_files() and run() can be retried.
         """
-        artifacts_dir = os.path.join(self.host_dir, "failed_tries", str(retries))
-        artifacts = []
-        for artifact in ["work", "command", "stdout.txt", "stderr.txt", "stderr.txt.offset"]:
-            src = os.path.join(self.host_dir, artifact)
-            if os.path.exists(src):
-                artifacts.append(src)
-                if delete_work:
-                    (shutil.rmtree if os.path.isdir(src) else os.unlink)(src)
-                else:
-                    os.renames(src, os.path.join(artifacts_dir, artifact))
-        logger.info(
-            _("deleted failed task artifacts", artifacts=artifacts)
-            if delete_work
-            else _("archived failed task artifacts", artifacts=artifacts, dest=artifacts_dir)
-        )
-        os.makedirs(os.path.join(self.host_dir, "work"))
+        self.try_counter += 1
+        os.makedirs(self.host_work_dir())
 
-    def host_file(self, container_file: str, inputs_only: bool = False) -> Optional[str]:
+    def host_path(self, container_path: str, inputs_only: bool = False) -> Optional[str]:
         """
-        Map an output file's in-container path under ``container_dir`` to a host path under
-        ``host_dir``. Return None if the designated file does not exist.
+        Map the in-container path of an output File/Directory to a host path under ``host_dir``.
+        Directory paths should be given a trailing "/". Return None if the path does not exist.
 
-        SECURITY: except for input files, this method must only return host paths under
-        ``host_dir`` and prevent any reference to other host files (e.g. /etc/passwd), including
-        via sneaky symlinks
+        SECURITY: except for inputs, this method must only return host paths under ``host_dir``
+        and prevent any reference to other host files (e.g. /etc/passwd), including via symlinks.
         """
-        if os.path.isabs(container_file):
+        if os.path.isabs(container_path):
             # handle output of std{out,err}.txt
-            if container_file in [
-                os.path.join(self.container_dir, pipe_file)
-                for pipe_file in ["stdout.txt", "stderr.txt"]
-            ]:
-                return os.path.join(self.host_dir, os.path.basename(container_file))
-            # handle output of an input file
-            if container_file in self.input_file_map_rev:
-                return self.input_file_map_rev[container_file]
+            if container_path == os.path.join(self.container_dir, "stdout.txt"):
+                return self.host_stdout_txt()
+            if container_path == os.path.join(self.container_dir, "stderr.txt"):
+                return self.host_stderr_txt()
+            # handle output of an input File or Directory
+            if container_path in self.input_path_map_rev:
+                return self.input_path_map_rev[container_path]
+            # handle output of a File or subDirectory found within an input Directory
+            container_path_components = container_path.strip("/").split("/")
+            for i in range(len(container_path_components) - 1, 5, -1):
+                # 5 == len(['mnt', 'miniwdl_task_container', 'work', '_miniwdl_inputs', '0'])
+                container_path_prefix = "/" + "/".join(container_path_components[:i]) + "/"
+                if container_path_prefix in self.input_path_map_rev:
+                    ans = self.input_path_map_rev[container_path_prefix]
+                    ans += "/".join(container_path_components[i:])
+                    if container_path.endswith("/"):
+                        ans += "/"
+                    assert path_really_within(ans, self.input_path_map_rev[container_path_prefix])
+                    return ans
             if inputs_only:
                 raise Error.InputError(
-                    "task inputs attempted to use a non-input or non-existent file "
-                    + container_file
+                    "task inputs attempted to use a non-input or non-existent path "
+                    + container_path
                 )
             # relativize the path to the provisioned working directory
-            container_file = os.path.relpath(
-                container_file, os.path.join(self.container_dir, "work")
+            container_relpath = os.path.relpath(
+                container_path, os.path.join(self.container_dir, "work")
             )
+            if container_path.endswith("/") and not container_relpath.endswith("/"):
+                container_relpath += "/"
+            container_path = container_relpath
 
-        host_workdir = os.path.join(self.host_dir, "work")
-        ans = os.path.join(host_workdir, container_file)
-        if os.path.isfile(ans):
-            if path_really_within(ans, host_workdir):
-                return ans
+        ans = os.path.join(self.host_work_dir(), container_path)
+        if container_path.endswith("/") and not ans.endswith("/"):
+            ans += "/"
+        if not (
+            (container_path.endswith("/") and os.path.isdir(ans))
+            or (not container_path.endswith("/") and os.path.isfile(ans))
+        ):
+            return None
+        if not path_really_within(ans, self.host_work_dir()):
             raise OutputError(
-                "task outputs attempted to use a file outside its working directory: "
-                + container_file
+                "task outputs attempted to use a path outside its working directory: "
+                + container_path
             )
-        return None
+        if (
+            ans.endswith("/")
+            and self.input_path_map
+            and (
+                path_really_within(self.host_work_dir(), ans[:-1])
+                or path_really_within(
+                    ans[:-1], os.path.join(self.host_work_dir(), "_miniwdl_inputs")
+                )
+            )
+        ):
+            # prevent output of an input mount point
+            raise OutputError("unusable output directory: " + container_path)
+        return ans
+
+    def host_work_dir(self):
+        return os.path.join(
+            self.host_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
+        )
+
+    def host_stdout_txt(self):
+        return os.path.join(
+            self.host_dir, f"stdout{self.try_counter if self.try_counter > 1 else ''}.txt"
+        )
+
+    def host_stderr_txt(self):
+        return os.path.join(
+            self.host_dir, f"stderr{self.try_counter if self.try_counter > 1 else ''}.txt"
+        )
 
 
 _backends: Dict[str, Type[TaskContainer]] = dict()
@@ -421,7 +500,7 @@ class SwarmContainer(TaskContainer):
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         self._observed_states = set()
-        with open(os.path.join(self.host_dir, "command"), "x") as outfile:
+        with open(os.path.join(self.host_dir, "command"), "w") as outfile:
             outfile.write(command)
 
         # prepare docker configuration
@@ -432,10 +511,6 @@ class SwarmContainer(TaskContainer):
         logger.info(_("docker image", tag=image_tag))
 
         mounts = self.prepare_mounts(logger)
-        # we want g+rw on files (and g+rwx on directories) under host_dir, to ensure the container
-        # command will be able to access them regardless of what user id it runs as (we will
-        # configure docker to make the container a member of the invoking user's primary group)
-        chmod_R_plus(self.host_dir, file_bits=0o660, dir_bits=0o770)
 
         # connect to dockerd
         client = docker.from_env(version="auto", timeout=900)
@@ -473,7 +548,7 @@ class SwarmContainer(TaskContainer):
                 poll_stderr = cleanup.enter_context(
                     PygtailLogger(
                         logger,
-                        os.path.join(self.host_dir, "stderr.txt"),
+                        self.host_stderr_txt(),
                         callback=self.stderr_callback,
                     )
                 )
@@ -530,29 +605,33 @@ class SwarmContainer(TaskContainer):
                 logger.exception("failed to close docker-py client")
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
-        def touch_mount_point(container_file: str) -> None:
+        def touch_mount_point(host_path: str) -> None:
             # touching each mount point ensures they'll be owned by invoking user:group
-            assert container_file.startswith(self.container_dir + "/")
-            host_file = os.path.join(
-                self.host_dir, os.path.relpath(container_file, self.container_dir)
-            )
-            assert host_file.startswith(self.host_dir + "/")
-            os.makedirs(os.path.dirname(host_file), exist_ok=True)
-            with open(host_file, "x") as _:
-                pass
+            assert host_path.startswith(self.host_dir + "/")
+            if host_path.endswith("/"):
+                os.makedirs(host_path, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(host_path), exist_ok=True)
+                with open(host_path, "x") as _:
+                    pass
+            # providing g+rw on files (and g+rwx on directories) ensures the command will have
+            # permission to them regardless of which uid it runs as in the container (since we add
+            # the container to the invoking user's primary group)
+            chmod_R_plus(host_path.rstrip("/"), file_bits=0o660, dir_bits=0o770)
 
         def escape(s):
             # docker processes {{ interpolations }}
             return s.replace("{{", '{{"{{"}}')
 
         mounts = []
-        # mount input files and command
+        # mount input files/directories and command
         if self._bind_input_files:
             perm_warn = True
-            for host_path, container_path in self.input_file_map.items():
-                st = os.stat(host_path)
+            for host_path, container_path in self.input_path_map.items():
+                st = os.stat(host_path.rstrip("/"))
                 if perm_warn and not (
-                    (st.st_mode & 4) or (st.st_gid == os.getegid() and (st.st_mode & 0o40))
+                    (st.st_mode & stat.S_IROTH)
+                    or (st.st_gid == os.getegid() and (st.st_mode & stat.S_IRGRP))
                 ):
                     # file is neither world-readable, nor group-readable for the invoking user's primary group
                     logger.warning(
@@ -563,10 +642,20 @@ class SwarmContainer(TaskContainer):
                         )
                     )
                     perm_warn = False
-                touch_mount_point(container_path)
+                assert (not container_path.endswith("/")) or stat.S_ISDIR(st.st_mode)
+                host_mount_point = os.path.join(
+                    self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
+                )
+                if not os.path.exists(host_mount_point):
+                    touch_mount_point(
+                        host_mount_point + ("/" if container_path.endswith("/") else "")
+                    )
                 mounts.append(
                     docker.types.Mount(
-                        escape(container_path), escape(host_path), type="bind", read_only=True
+                        escape(container_path.rstrip("/")),
+                        escape(host_path.rstrip("/")),
+                        type="bind",
+                        read_only=True,
                     )
                 )
         mounts.append(
@@ -578,22 +667,31 @@ class SwarmContainer(TaskContainer):
             )
         )
         # mount stdout, stderr, and working directory read/write
-        for pipe_file in ["stdout.txt", "stderr.txt"]:
-            touch_mount_point(os.path.join(self.container_dir, pipe_file))
-            mounts.append(
-                docker.types.Mount(
-                    escape(os.path.join(self.container_dir, pipe_file)),
-                    escape(os.path.join(self.host_dir, pipe_file)),
-                    type="bind",
-                )
-            )
+        touch_mount_point(self.host_stdout_txt())
         mounts.append(
             docker.types.Mount(
-                escape(os.path.join(self.container_dir, "work")),
-                escape(os.path.join(self.host_dir, "work")),
+                escape(os.path.join(self.container_dir, "stdout.txt")),
+                escape(self.host_stdout_txt()),
                 type="bind",
             )
         )
+        touch_mount_point(self.host_stderr_txt())
+        mounts.append(
+            docker.types.Mount(
+                escape(os.path.join(self.container_dir, "stderr.txt")),
+                escape(self.host_stderr_txt()),
+                type="bind",
+            )
+        )
+        mounts.append(
+            docker.types.Mount(
+                escape(os.path.join(self.container_dir, "work")),
+                escape(self.host_work_dir()),
+                type="bind",
+            )
+        )
+        for p in [self.host_work_dir(), os.path.join(self.host_dir, "command")]:
+            chmod_R_plus(p, file_bits=0o660, dir_bits=0o770)
         return mounts
 
     def misc_config(
@@ -723,7 +821,11 @@ class SwarmContainer(TaskContainer):
         alternatives and their problems.
         """
         if not self.cfg["task_runtime"].get_bool("as_user") and (os.geteuid() or os.getegid()):
-            paste = shlex.quote(os.path.join(self.container_dir, "work"))
+            paste = shlex.quote(
+                os.path.join(
+                    self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
+                )
+            )
             script = f"""
             (find {paste} -type d -print0 && find {paste} -type f -print0) \
                 | xargs -0 -P 10 chown -P {os.geteuid()}:{os.getegid()}

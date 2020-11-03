@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 67
+plan tests 72
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -43,7 +43,7 @@ task echo {
         Array[String]+ a_s
         Array[File] a_f
         File? o_f
-        Array[String]? o_a_s
+        Array[String]? o_a_s = ["zzz"]
     }
 
     command {
@@ -52,14 +52,14 @@ task echo {
 
     output {
         Int out_i = i
-        Array[String]+ out_s = flatten([[s],a_s])
+        Array[String]+ out_s = flatten([[s],a_s,select_all([o_a_s])])
         Array[File]+ out_f = flatten([[f],a_f,select_all([o_f]),["fox"]])
     }
 }
 EOF
 touch quick brown fox
 
-$miniwdl run --dir taskrun/. echo_task.wdl s=foo i=42 f=quick a_s=bar a_f=brown | tee stdout
+$miniwdl run --dir taskrun/. echo_task.wdl s=foo i=42 f= quick a_s=bar a_f=brown --none o_a_s | tee stdout
 is "$?" "0" "task run"
 is "$(jq '.outputs["echo.out_i"]' stdout)" "42" "task stdout out_i"
 is "$(jq '.["echo.out_i"]' taskrun/outputs.json)" "42" "task outputs.json out_i"
@@ -188,14 +188,17 @@ is "$?" "42" "failer2000"
 is "$(jq '.cause.exit_status' failer2000.stdout)" "42" "workflow error stdout"
 is "$(jq '.cause.exit_status' failer2000/error.json)" "42" "workflow error.json"
 is "$(jq '.cause.exit_status' failer2000/call-failer/error.json)" "42" "task error.json"
+is `basename "$(jq -r '.cause.stderr_file' failer2000/error.json)"` "stderr3.txt" "error.json stderr.txt"
 grep -q beautiful failer2000/call-failer/stderr.txt
-is "$?" "0" "failer2000 stderr"
+is "$?" "0" "failer2000 try1 stderr"
+grep -q beautiful failer2000/call-failer/work/iwuzhere
+is "$?" "0" "failer2000 try1 iwuzhere"
 grep -q beautiful failer2000.log.txt
 is "$?" "0" "failer2000 stderr logged"
-grep -q beautiful failer2000/call-failer/failed_tries/1/stderr.txt
-is "$?" "0" "failer2000 try1 stderr"
-grep -q beautiful failer2000/call-failer/failed_tries/1/work/iwuzhere
-is "$?" "0" "failer2000 try1 iwuzhere"
+grep -q beautiful failer2000/call-failer/stderr3.txt
+is "$?" "0" "failer2000 try3 stderr"
+grep -q beautiful failer2000/call-failer/work3/iwuzhere
+is "$?" "0" "failer2000 try3 iwuzhere"
 
 
 cat << 'EOF' > multitask.wdl
@@ -246,21 +249,61 @@ $miniwdl run --copy-input-files mv_input_file.wdl file=quick
 is "$?" "0" "copy input files"
 is "$(basename `jq -r '.["mv_input_file.xxx"]' _LAST/outputs.json`)" "xxx" "updated _LAST"
 
+cat << 'EOF' > dir_io.wdl
+version development
+workflow w {
+    input {
+        Directory d
+    }
+    call t {
+        input:
+        d = d
+    }
+    output {
+        Int dsz = round(size(t.files))
+    }
+}
+task t {
+    input {
+        Directory d
+    }
+    command <<<
+        mkdir outdir
+        find ~{d} -type f | xargs -i{} cp {} outdir/
+    >>>
+    output {
+        Array[File] files = glob("outdir/*")
+    }
+}
+EOF
+
+mkdir -p indir/subdir
+echo alice > indir/alice.txt
+echo bob > indir/subdir/bob.txt
+$miniwdl run dir_io.wdl d=indir
+is "$?" "0" "directory input"
+is `jq -r '.["w.dsz"]' _LAST/outputs.json` "10" "use of directory input"
+
 cat << 'EOF' > uri_inputs.json
-{"my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
+{
+    "my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"],
+    "my_workflow.directories": ["s3://1000genomes/phase3/integrated_sv_map/supporting/breakpoints/"]
+}
 EOF
 cat << 'EOF' > localize_me.wdl
-version 1.0
+version development
 workflow my_workflow {
     input {
         Array[File] files
+        Array[Directory] directories
     }
 }
 EOF
 MINIWDL__DOWNLOAD_CACHE__PUT=true MINIWDL__DOWNLOAD_CACHE__DIR="${DN}/test_localize/cache" MINIWDL__DOWNLOAD_CACHE__ENABLE_PATTERNS='["*"]' MINIWDL__DOWNLOAD_CACHE__DISABLE_PATTERNS='["*/alyssa_ben.txt"]' \
-    $miniwdl localize localize_me.wdl uri_inputs.json --uri gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt > localize.stdout
+    $miniwdl localize localize_me.wdl uri_inputs.json --file gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt > localize.stdout
 is "$?" "0" "localize exit code"
-is "$(find "${DN}/test_localize/cache/files" -type f | wc -l)" "2" "localize cache"
+is "$(find "${DN}/test_localize/cache/files" -type f | wc -l)" "2" "localize cache files"
+is "$(find "${DN}/test_localize/cache/dirs" -type f | wc -l)" "2" "localize cache dirs"  # two files in downloaded directory
 
 
 # test task call caching --

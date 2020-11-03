@@ -57,7 +57,7 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """)
-        self.assertTrue("18.04" in outputs["issue"])
+        self.assertTrue("20.04" in outputs["issue"])
 
         outputs = self._test_task(R"""
         version 1.0
@@ -648,6 +648,9 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, inp, cfg=cfg)
         chk(outputs["outfiles"])
 
+        with self.assertRaises(WDL.Error.InputError):
+            self._test_task(txt, {"files": [os.path.join(self._dir, "a", "x") + "/"]})
+
     def test_topsort(self):
         txt = R"""
         version 1.0
@@ -910,7 +913,7 @@ class TestTaskRunner(unittest.TestCase):
         inp = {"file": "https://google.com/robots.txt"}
         self._test_task(txt, inp, cfg=cfg)
         self._test_task(txt, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
         self.assertTrue("downloaded: 1" in logs[0])
         self.assertTrue("cached: 1" in logs[1])
 

@@ -61,10 +61,16 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
     # pylint: disable=no-self-use,unused-argument
 
     def boolean_true(self, items, meta) -> Expr.Base:
+        assert not items
         return Expr.Boolean(self._sp(meta), True)
 
     def boolean_false(self, items, meta) -> Expr.Base:
+        assert not items
         return Expr.Boolean(self._sp(meta), False)
+
+    def null(self, items, meta) -> Expr.Base:
+        assert not items
+        return Expr.Null(self._sp(meta))
 
     def int(self, items, meta) -> Expr.Base:
         assert len(items) == 1
@@ -126,7 +132,9 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return (k, items[1])
 
     def obj(self, items, meta) -> Expr.Base:
-        return Expr.Struct(self._sp(meta), items)
+        if not items or isinstance(items[0], tuple):  # old-style "object" literal
+            return Expr.Struct(self._sp(meta), items)
+        return Expr.Struct(self._sp(meta), items[1:], (items[0] if items[0] != "object" else None))
 
     def ifthenelse(self, items, meta) -> Expr.Base:
         assert len(items) == 3
@@ -165,8 +173,58 @@ for op in [
     setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))  # pyre-fixme
 
 
-class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
+class _DocTransformer(_ExprTransformer):
     # pylint: disable=no-self-use,unused-argument
+
+    _keywords: Set[str]
+    _source_text: str
+    _comments: List[lark.Token]
+    _version: Optional[str]
+    _declared_version: Optional[str]
+
+    def __init__(
+        self,
+        source_text: str,
+        keywords: Set[str],
+        comments: List[lark.Token],
+        version: str,
+        declared_version: Optional[str],
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self._source_text = source_text
+        self._keywords = keywords
+        self._comments = comments
+        self._version = version
+        self._declared_version = declared_version
+
+    def _check_keyword(self, pos, name):
+        if name in self._keywords:
+            raise Error.SyntaxError(
+                pos, "unexpected keyword {}".format(name), self._version, self._declared_version
+            )
+
+    def object_kv(self, items, meta):
+        ans = super().object_kv(items, meta)
+        self._check_keyword(self._sp(meta), ans[0])
+        return ans
+
+    def obj(self, items, meta) -> Expr.Base:
+        if items and isinstance(items[0], str) and items[0] != "object":
+            self._check_keyword(self._sp(meta), items[0])
+        return super().obj(items, meta)
+
+    def left_name(self, items, meta) -> Expr.Base:
+        ans = super().left_name(items, meta)
+        self._check_keyword(ans.pos, items[0])
+        return ans
+
+    def get_name(self, items, meta) -> Expr.Base:
+        ans = super().get_name(items, meta)
+        if items[1] not in ("left", "right"):
+            self._check_keyword(ans.pos, items[1])
+        return ans
 
     def optional(self, items, meta):
         return set(["optional"])
@@ -204,6 +262,8 @@ class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
             "String": Type.String,
             "File": Type.File,
         }
+        if self._version not in ("draft-2", "1.0"):
+            atomic_types["Directory"] = Type.Directory
         if items[0].value in atomic_types:
             if param or param2:
                 raise Error.InvalidType(
@@ -233,39 +293,6 @@ class _TypeTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         ans = Type.StructInstance(items[0].value, "optional" in quantifiers)
         ans.pos = self._sp(meta)
         return ans
-
-
-class _DocTransformer(_ExprTransformer, _TypeTransformer):
-    # pylint: disable=no-self-use,unused-argument
-
-    _keywords: Set[str]
-    _source_text: str
-    _comments: List[lark.Token]
-    _version: Optional[str]
-    _declared_version: Optional[str]
-
-    def __init__(
-        self,
-        source_text: str,
-        keywords: Set[str],
-        comments: List[lark.Token],
-        version: str,
-        declared_version: Optional[str],
-        *args,
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        self._source_text = source_text
-        self._keywords = keywords
-        self._comments = comments
-        self._version = version
-        self._declared_version = declared_version
-
-    def _check_keyword(self, pos, name):
-        if name in self._keywords:
-            raise Error.SyntaxError(
-                pos, "unexpected keyword {}".format(name), self._version, self._declared_version
-            )
 
     def decl(self, items, meta):
         self._check_keyword(self._sp(meta), items[1].value)
@@ -385,12 +412,36 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
         return d
 
     def call(self, items, meta):
-        return Tree.Call(self._sp(meta), items[0], None, items[1] if len(items) > 1 else dict())
+        after = []
+        i = 1
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
+        return Tree.Call(
+            self._sp(meta), items[0], None, items[i] if i < len(items) else dict(), after=after
+        )
 
     def call_as(self, items, meta):
         self._check_keyword(self._sp(meta), items[1].value)
+        after = list()
+        i = 2
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
         return Tree.Call(
-            self._sp(meta), items[0], items[1].value, items[2] if len(items) > 2 else dict()
+            self._sp(meta),
+            items[0],
+            items[1].value,
+            items[i] if i < len(items) else dict(),
+            after=after,
         )
 
     def scatter(self, items, meta):
@@ -562,7 +613,7 @@ class _DocTransformer(_ExprTransformer, _TypeTransformer):
 
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
-for _klass in [_ExprTransformer, _TypeTransformer, _DocTransformer]:
+for _klass in [_ExprTransformer, _DocTransformer]:
     for name, method in inspect.getmembers(_klass, inspect.isfunction):
         if not name.startswith("_"):
             setattr(_klass, name, lark.v_args(meta=True)(method))  # pyre-fixme

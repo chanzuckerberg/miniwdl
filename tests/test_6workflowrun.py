@@ -176,7 +176,16 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, {"m": 4, "n": 2})
-        self.assertEqual(outputs["pairs"], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]])
+        self.assertEqual(outputs["pairs"], [
+            {"left": 0, "right": 0},
+            {"left": 0, "right": 1},
+            {"left": 1, "right": 0},
+            {"left": 1, "right": 1},
+            {"left": 2, "right": 0},
+            {"left": 2, "right": 1},
+            {"left": 3, "right": 0},
+            {"left": 3, "right": 1}
+        ])
 
         outputs = self._test_workflow("""
         version 1.0
@@ -213,7 +222,16 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, {"m": 4, "n": 2})
-        self.assertEqual(outputs["pairs"], [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1], [3, 0], [3, 1]])
+        self.assertEqual(outputs["pairs"], [
+            {"left": 0, "right": 0},
+            {"left": 0, "right": 1},
+            {"left": 1, "right": 0},
+            {"left": 1, "right": 1},
+            {"left": 2, "right": 0},
+            {"left": 2, "right": 1},
+            {"left": 3, "right": 0},
+            {"left": 3, "right": 1}
+        ])
 
     def test_ifs(self):
         outputs = self._test_workflow("""
@@ -973,6 +991,7 @@ class TestWorkflowRunner(unittest.TestCase):
             output {
                 Int start_time = start.time
                 Int finish_time = finish.time
+                File stdout_txt = finish.stdout_txt
             }
         }
         task start {
@@ -998,6 +1017,7 @@ class TestWorkflowRunner(unittest.TestCase):
             >>>
             output {
                 Int time = read_int(stdout())
+                File stdout_txt = stdout()
             }
             runtime {
                 maxRetries: 99
@@ -1007,9 +1027,12 @@ class TestWorkflowRunner(unittest.TestCase):
         """
         outputs = self._test_workflow(txt)
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
-        self.assertTrue(os.path.isfile(os.path.join(self._rundir, "call-finish", "failed_tries", "0", "work", "iwuzhere")))
+        self.assertTrue(os.path.isfile(os.path.join(self._rundir, "call-finish", "work2", "iwuzhere")))
+        self.assertTrue(os.path.isfile(outputs["stdout_txt"]))
+        self.assertTrue(outputs["stdout_txt"].endswith(".txt"))
+        self.assertFalse(outputs["stdout_txt"].endswith("stdout.txt"))
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"file_io": {"delete_work": "failure"}, "task_runtime": {"_mock_interruptions": 2}})
         outputs = self._test_workflow(txt, cfg=cfg)
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
-        self.assertFalse(os.path.isdir(os.path.join(self._rundir, "call-finish", "failed_tries")))
+        self.assertFalse(os.path.isdir(os.path.join(self._rundir, "call-finish", "work2")))

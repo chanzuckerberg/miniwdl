@@ -125,6 +125,11 @@ class NoSuchTask(ValidationError):
         super().__init__(node, "No such task/workflow: " + name)
 
 
+class NoSuchCall(ValidationError):
+    def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
+        super().__init__(node, "No such call in this workflow: " + name)
+
+
 class NoSuchFunction(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
         super().__init__(node, "No such function: " + name)

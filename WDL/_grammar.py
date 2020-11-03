@@ -148,7 +148,7 @@ STRING_INNER1: ("\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
-?map_key: literal | string
+?map_key: expr_core
 map_kv: map_key ":" expr
 
 // expression core (everything but infix)
@@ -260,7 +260,7 @@ versions["1.0"] = productions_common1 + productions_1_0
 
 keywords = {}
 keywords["draft-2"] = set(
-    "Array Float Int Map None Pair String as call command else false if import input left meta object output parameter_meta right runtime scatter task then true workflow".split(
+    "Array File Float Int Map None Pair String as call command else false if import input left meta object output parameter_meta right runtime scatter task then true workflow".split(
         " "
     )
 )
@@ -295,8 +295,8 @@ scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 ?inner_workflow_element: any_decl | call | scatter | conditional
 
-call: "call" namespaced_ident call_body? -> call
-    | "call" namespaced_ident "as" CNAME call_body? -> call_as
+call: "call" namespaced_ident ("after" CNAME)* call_body? -> call
+    | "call" namespaced_ident "as" CNAME ("after" CNAME)* call_body? -> call_as
 namespaced_ident: CNAME ("." CNAME)*
 call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
@@ -394,8 +394,6 @@ optional_nonempty: "+?"
 ?expr_infix5: expr_core
 
 // expression core (everything but infix)
-// we stuck this last down here so that further language-version-specific
-// productions can be added below
 ?expr_core: "(" expr ")"
           | literal
           | string
@@ -411,11 +409,12 @@ optional_nonempty: "+?"
 
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
+          | CNAME "{" [object_kv ("," object_kv)* ","?] "}" -> obj
+
           | CNAME -> left_name
           | expr_core "." CNAME -> get_name
-          | "object" "{" [object_kv ("," object_kv)* ","?] "}" -> obj
 
-?map_key: literal | string
+?map_key: expr_core
 map_kv: map_key ":" expr
 
 object_kv:  CNAME ":" expr
@@ -427,6 +426,7 @@ object_kv:  CNAME ":" expr
 
 ?literal: "true"-> boolean_true
         | "false" -> boolean_false
+        | "None" -> null
         | INT -> int
         | SIGNED_INT -> int
         | FLOAT -> float
@@ -479,7 +479,7 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore COMMENT
 """
 keywords["development"] = set(
-    "Array Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
+    "Array Directory File Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
         " "
     )
 )

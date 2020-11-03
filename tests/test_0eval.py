@@ -59,11 +59,12 @@ class TestEval(unittest.TestCase):
         self.assertEqual(str(WDL.parse_expr(ifthenelsechain)), ifthenelsechain)
 
     def test_boolean(self):
+        stdlib = WDL.StdLib.Base("1.0")
         expr = WDL.parse_expr("true")
-        expr.infer_type([])
+        expr.infer_type([], stdlib)
         self.assertIsInstance(expr.type, WDL.Type.Boolean)
         self.assertEqual(str(expr.type), "Boolean")
-        val = expr.eval([])
+        val = expr.eval([], stdlib)
         self.assertIsInstance(val, WDL.Value.Boolean)
         self.assertEqual(str(val.type), "Boolean")
         self.assertEqual(val.value, True)
@@ -73,9 +74,9 @@ class TestEval(unittest.TestCase):
         self.assertIsInstance(expr.literal, WDL.Value.Boolean)
 
         expr = WDL.parse_expr("false")
-        expr.infer_type([])
+        expr.infer_type([], stdlib)
         self.assertEqual(str(expr.type), "Boolean")
-        val = expr.eval([])
+        val = expr.eval([], stdlib)
         self.assertEqual(str(val.type), "Boolean")
         self.assertEqual(val.value, False)
         self.assertEqual(str(val), "false")
@@ -83,6 +84,7 @@ class TestEval(unittest.TestCase):
         self.assertNotEqual(val, WDL.Value.Boolean(True))
 
     def _test_tuples(self, *tuples):
+        stdlib = WDL.StdLib.Base("development")
         for tuple in tuples:
             assert(len(tuple) >= 2)
             expr = tuple[0]
@@ -108,13 +110,14 @@ class TestEval(unittest.TestCase):
                     type_env = type_env.bind(binding.name, binding.value.type)
             if exn:
                 with self.assertRaises(exn, msg=expected):
-                    x = WDL.parse_expr(expr, version=version).infer_type(type_env).eval(env)
+                    x = WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib).eval(env, stdlib)
             else:
-                ex = WDL.parse_expr(expr, version=version).infer_type(type_env)
-                v = ex.eval(env).expect(expected_type)
-                self.assertEqual(str(v), expected, str(expr))
-                if ex.literal:
-                    self.assertEqual(str(ex.literal), expected)
+                ex = WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib)
+                v = ex.eval(env, stdlib).expect(expected_type)
+                if expected:
+                    self.assertEqual(str(v), expected, str(expr))
+                    if ex.literal:
+                        self.assertEqual(str(ex.literal), expected)
 
     def test_logic(self):
         self._test_tuples(
@@ -152,7 +155,10 @@ class TestEval(unittest.TestCase):
             ("1--4/3","3"), # -4/3 == -2, is this right?
             ("4%2","0"),
             ("4%3","1"),
-            ("1 + false", "(Ln 1, Col 1) Non-numeric operand to + operator", WDL.Error.IncompatibleOperand)
+            ("min(0,1)","0"),
+            ("max(1,3.14)*2","6.28"),
+            ("1 + false", "(Ln 1, Col 1) Non-numeric operand to + operator", WDL.Error.IncompatibleOperand),
+            ("min(max(0,1),true)", "(Ln 1, Col 1) Non-numeric operand to min operator", WDL.Error.IncompatibleOperand),
         )
 
     def test_cmp(self):
@@ -215,12 +221,13 @@ class TestEval(unittest.TestCase):
         )
 
     def test_array(self):
+        stdlib = WDL.StdLib.Base("1.0")
         expr = WDL.parse_expr("[true,false]")
-        expr.infer_type([])
+        expr.infer_type([], stdlib)
         self.assertEqual(str(expr.type), "Array[Boolean]+")
 
         env = []
-        val = expr.eval(env)
+        val = expr.eval(env, stdlib)
         self.assertIsInstance(val, WDL.Value.Array)
         self.assertEqual(str(val.type), "Array[Boolean]+")
         self.assertEqual(str(val), "[true, false]")
@@ -337,10 +344,17 @@ class TestEval(unittest.TestCase):
             ("{'foo': 1, 'bar': 2, 'baz': 3.0}['bar']", "2.0", WDL.Type.Float()),
             ("{0: 1, 2: 3}[false]", "", WDL.Error.StaticTypeMismatch),
             ("{0: 1, 2: 3}['foo']", "", WDL.Error.EvalError),
+            ("{0: 1, 0: 3}", "", WDL.Error.EvalError),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
             ("{3: 1, false: 2}", "", WDL.Error.IndeterminateType),
-            ("{'foo': true, 'bar': 0,}", '{"foo": true, "bar": 0}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String())))
+            ("{'foo': true, 'bar': 0,}", '{"foo": true, "bar": 0}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))),
+            ("{[1,2]: true, []: false}", '{"[1, 2]": true, "[]": false}', WDL.Type.Map((WDL.Type.Array(WDL.Type.Int()), WDL.Type.Boolean()))),
+            ("{[1]: true, [1]: false}", "", WDL.Error.EvalError),
+            ("{(false, false): 0, (false, true): 1}", "", WDL.Type.Map((WDL.Type.Pair(WDL.Type.Boolean(), WDL.Type.Boolean()), WDL.Type.Int()))),
         )
+        with self.assertRaisesRegex(WDL.Error.EvalError, "to JSON"):
+            stdlib = WDL.StdLib.Base("1.0")
+            WDL.parse_expr("{(false, false): 0, (false, true): 1}").infer_type(WDL.Env.Bindings(), stdlib).eval(WDL.Env.Bindings(), stdlib).json
 
     def test_errors(self):
         self._test_tuples(
@@ -419,20 +433,8 @@ class TestEnv(unittest.TestCase):
         self.assertTrue(e.has_namespace("fruit."))
         self.assertFalse(e.has_namespace("fruit.apple.honeycrisp"))
 
-        e = WDL.Env.Bindings().with_empty_namespace("fruit.apple")
+        e = WDL.Env.Bindings().bind("apple.macintosh", 42).wrap_namespace("fruit")
         self.assertTrue(e.has_namespace("fruit.apple"))
-        self.assertTrue(e.has_namespace("fruit."))
-        self.assertFalse(e.has_namespace("fruit.apple.honeycrisp"))
-
-        e = WDL.Env.merge(WDL.Env.Bindings().with_empty_namespace("fruit.apple"),
-                          WDL.Env.Bindings().with_empty_namespace("fruit.orange"))
-        self.assertTrue(e.has_namespace("fruit.apple"))
-        self.assertTrue(e.has_namespace("fruit.orange"))
-        self.assertTrue(e.has_namespace("fruit."))
-
-        e = WDL.Env.Bindings().with_empty_namespace("apple.").with_empty_namespace("orange").wrap_namespace("fruit")
-        self.assertTrue(e.has_namespace("fruit.apple"))
-        self.assertTrue(e.has_namespace("fruit.orange"))
         self.assertTrue(e.has_namespace("fruit."))
 
 
@@ -456,7 +458,7 @@ class TestValue(unittest.TestCase):
             (WDL.Type.Map((WDL.Type.String(), WDL.Type.Int())), {"cats": 42, "dogs": 99}),
             (pty, {"name": "Alyssa", "age": 42, "pets": None}),
             (pty, {"name": "Alyssa", "age": 42, "pets": {"cats": 42, "dogs": 99}}),
-            (WDL.Type.Array(WDL.Type.Pair(WDL.Type.String(), WDL.Type.Int())), [["a",0],["b",1]]),
+            (WDL.Type.Array(WDL.Type.Pair(WDL.Type.String(), WDL.Type.Int())), [{"left": "a", "right": 0},{"left": "b", "right": 1}]),
 
             (WDL.Type.Boolean(), 42, WDL.Error.InputError),
             (WDL.Type.Float(), "your president", WDL.Error.InputError),
@@ -473,9 +475,10 @@ class TestValue(unittest.TestCase):
             else:
                 self.assertEqual(t[1], WDL.Value.from_json(t[0],t[1]).json)
 
+        stdlib = WDL.StdLib.Base("1.0")
         self.assertEqual(
             WDL.parse_expr('object {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}',
-                           version="1.0").infer_type([]).eval([]).json,
+                           version="1.0").infer_type([], stdlib).eval([], stdlib).json,
             {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}
         )
 
@@ -524,4 +527,4 @@ class TestValue(unittest.TestCase):
 
         # misc functionality
         self.assertEqual(WDL.values_to_json(doc.workflow.required_inputs, "w"), {"w.s.who": "String"})
-        self.assertEqual(WDL.values_to_json(doc.workflow._type_env), {"s.message": "String"})
+        self.assertEqual(WDL.values_to_json(doc.workflow._type_env), {"s.message": "String", "s._present": "Any"})

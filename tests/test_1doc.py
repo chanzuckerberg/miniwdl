@@ -68,7 +68,7 @@ class TestTasks(unittest.TestCase):
 
             task.typecheck()
 
-            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings(WDL.Env.Binding('in', WDL.Value.String("hello")))).value, 'hello')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings(WDL.Env.Binding('in', WDL.Value.String("hello"))), WDL.StdLib.Base("1.0")).value, 'hello')
 
             self.assertFalse(task.command.parts[0].strip().startswith("{"))
             self.assertFalse(task.command.parts[0].strip().startswith("<<<"))
@@ -139,9 +139,10 @@ class TestTasks(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'yes')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'no')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, '')
+        stdlib = WDL.StdLib.Base("1.0")
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'yes')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False)), stdlib).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null()), stdlib).value, '')
 
         task = WDL.parse_tasks("""
             task wc {
@@ -155,10 +156,10 @@ class TestTasks(unittest.TestCase):
             }
             """)[0]
         task.typecheck()
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'yes')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'no')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'yes')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False)), stdlib).value, 'no')
         with self.assertRaises(WDL.Error.NullValue):
-            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, '')
+            self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null()), stdlib).value, '')
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
@@ -205,9 +206,9 @@ class TestTasks(unittest.TestCase):
             """)[0]
         task.typecheck()
         foobar = WDL.Value.Array(WDL.Type.String(), [WDL.Value.String("foo"), WDL.Value.String("bar")])
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar)).value, 'foo, bar')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar), stdlib).value, 'foo, bar')
         foobar = WDL.Value.Array(WDL.Type.String(), [])
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar)).value, '')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar), stdlib).value, '')
         with self.assertRaises(WDL.Error.IncompatibleOperand):
             task = WDL.parse_tasks("""
             task wc {
@@ -243,9 +244,9 @@ class TestTasks(unittest.TestCase):
             """)[0]
         task.typecheck()
         self.assertTrue(task.inputs[0].type.optional)
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True))).value, 'true')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False))).value, 'false')
-        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null())).value, 'foo')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'true')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(False)), stdlib).value, 'false')
+        self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Null()), stdlib).value, 'foo')
 
         task = WDL.parse_tasks("""
             task wc {
@@ -514,6 +515,26 @@ class TestTypes(unittest.TestCase):
             }
             """)
             doc.typecheck()
+
+    def test_map_io(self):
+        with self.assertRaisesRegex(WDL.Error.ValidationError, "keys cannot"):
+            WDL.parse_document("""
+            workflow w {
+                input {
+                    Map[Pair[Int,Int],String] m
+                }
+            }
+            """).typecheck()
+
+        with self.assertRaisesRegex(WDL.Error.ValidationError, "keys cannot"):
+            WDL.parse_document("""
+            task t {
+                command {}
+                output {
+                    Map[Pair[Int,Int],String] m = read_json("bogus")
+                }
+            }
+            """).typecheck()
 
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
@@ -2295,3 +2316,82 @@ class TestStruct(unittest.TestCase):
             except WDL.Error.SyntaxError as err:
                 self.assertIsInstance(err.pos.line, int)
                 self.assertIsInstance(err.pos.column, int)
+
+class TestNoneLiteral(unittest.TestCase):
+    def test_none_expr(self):
+        doc = r"""
+        version development
+        struct Car {
+            String make
+            String model
+        }
+        workflow wf {
+            input {
+                Int? x = None
+                Array[Float?] ax = [3, None]
+                Array[Car?] ac = [None]
+            }
+            Array[Int?] a = [x, None]
+            if (x == None) {
+                Boolean y = true
+            }
+            output {
+                Boolean b = defined(y)
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+
+        assert WDL.Value.Null() == WDL.Value.Null()
+        assert str(WDL.Value.Null()) == "None"
+        assert str(doc.workflow.inputs[0]) == "Int? x = None"
+
+    def test_none_type_errors(self):
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(r"""version development
+            workflow w {
+                Int x = None
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(r"""version development
+            workflow w {
+                Array[Int] ax = [3, None]
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            doc = WDL.parse_document(r"""version development
+            workflow w {
+                Array[Float] ax = [3, None]
+            }
+            """)
+            doc.typecheck()
+            assert False, str(doc.workflow.body[0].expr.type)
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(r"""version development
+            struct Car {
+                String make
+                String model
+            }
+            workflow w {
+                Array[Car] ax = [None]
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.NoSuchMember):
+            WDL.parse_document(r"""version development
+            workflow w {
+                Int x = None.left
+            }
+            """).typecheck()
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(r"""version development
+            struct Car {
+                String make
+                String model
+            }
+            workflow w {
+                Car c
+                String s = c.None
+            }
+            """).typecheck()

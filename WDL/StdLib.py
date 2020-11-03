@@ -21,9 +21,11 @@ class Base:
     output sections.
     """
 
+    wdl_version: str
     _write_dir: str  # directory in which write_* functions create files
 
-    def __init__(self, write_dir: str = ""):
+    def __init__(self, wdl_version: str, write_dir: str = ""):
+        self.wdl_version = wdl_version
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()
 
         # language built-ins
@@ -34,6 +36,7 @@ class Base:
             "_negate", [Type.Boolean()], Type.Boolean(), lambda x: Value.Boolean(not x.value)
         )
         self._add = _AddOperator()
+        self._interpolation_add = _InterpolationAddOperator()
         self._sub = _ArithmeticOperator("-", lambda l, r: l - r)
         self._mul = _ArithmeticOperator("*", lambda l, r: l * r)
         self._div = _ArithmeticOperator("/", lambda l, r: l // r)
@@ -125,8 +128,16 @@ class Base:
         self.cross = _Cross()
         self.flatten = _Flatten()
         self.transpose = _Transpose()
-        self.quote = _Quote()
-        self.squote = _Quote(squote=True)
+
+        if self.wdl_version not in ["draft-2", "1.0"]:
+            self.min = _ArithmeticOperator("min", lambda l, r: min(l, r))
+            self.max = _ArithmeticOperator("max", lambda l, r: max(l, r))
+            self.quote = _Quote()
+            self.squote = _Quote(squote=True)
+            self.keys = _Keys()
+            self.as_map = _AsMap()
+            self.as_pairs = _AsPairs()
+            self.collect_by_key = _CollectByKey()
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -143,6 +154,7 @@ class Base:
         on the local host. Subclasses may further wish to forbid access to files outside of a
         designated directory or whitelist (by raising an exception)
         """
+        # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()
 
     def _write(
@@ -169,6 +181,7 @@ class Base:
         from a local path in write_dir, 'virtualize' into the filename as it should present in a
         File value
         """
+        # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()
 
     def _override_static(self, name: str, f: Callable) -> None:
@@ -272,8 +285,8 @@ class TaskOutputs(Base):
     (Implementations left to by overridden by the task runtime)
     """
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         for (name, argument_types, return_type, F) in [
             ("stdout", [], Type.File(), _notimpl),
             ("stderr", [], Type.File(), _notimpl),
@@ -546,7 +559,7 @@ class _AddOperator(_ArithmeticOperator):
         return Value.String(ans)
 
 
-class InterpolationAddOperator(_AddOperator):
+class _InterpolationAddOperator(_AddOperator):
     # + operator within an interpolation; accepts String? operands, evaluating to None if either
     # operand is None.
 
@@ -586,6 +599,10 @@ class _ComparisonOperator(EagerFunction):
             (
                 expr._check_quant
                 and expr.arguments[0].type.optional != expr.arguments[1].type.optional
+                and not (
+                    isinstance(expr.arguments[0], Expr.Null)
+                    or isinstance(expr.arguments[1], Expr.Null)
+                )
             )
             or (
                 self.name not in ["==", "!="]
@@ -595,6 +612,10 @@ class _ComparisonOperator(EagerFunction):
                 not (
                     expr.arguments[0].type.copy(optional=False)
                     == expr.arguments[1].type.copy(optional=False)
+                    or (
+                        isinstance(expr.arguments[0], Expr.Null)
+                        or isinstance(expr.arguments[1], Expr.Null)
+                    )
                     or (
                         isinstance(expr.arguments[0].type, Type.Int)
                         and isinstance(expr.arguments[1].type, Type.Float)
@@ -946,3 +967,113 @@ class _Quote(EagerFunction):
                 for s in arguments[0].value
             ],
         )
+
+
+class _Keys(EagerFunction):
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+        if not isinstance(arg0ty, Type.Map) or (expr._check_quant and arg0ty.optional):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Map((Type.Any(), Type.Any())), arg0ty
+            )
+        return Type.Array(arg0ty.item_type[0].copy())
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert isinstance(arguments[0], Value.Map)
+        mapty = arguments[0].type
+        assert isinstance(mapty, Type.Map)
+        return Value.Array(
+            mapty.item_type[0], [p[0].coerce(mapty.item_type[0]) for p in arguments[0].value], expr
+        )
+
+
+class _AsPairs(EagerFunction):
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+        if not isinstance(arg0ty, Type.Map) or (expr._check_quant and arg0ty.optional):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Map((Type.Any(), Type.Any())), arg0ty
+            )
+        return Type.Array(Type.Pair(arg0ty.item_type[0], arg0ty.item_type[1]))
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert isinstance(arguments[0], Value.Map)
+        mapty = arguments[0].type
+        assert isinstance(mapty, Type.Map)
+        pairty = Type.Pair(mapty.item_type[0], mapty.item_type[1])
+        return Value.Array(
+            pairty,
+            [Value.Pair(mapty.item_type[0], mapty.item_type[1], p) for p in arguments[0].value],
+            expr,
+        ).coerce(self.infer_type(expr))
+
+
+class _CollectByKey(EagerFunction):
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+        if (
+            not isinstance(arg0ty, Type.Array)
+            or not isinstance(arg0ty.item_type, Type.Pair)
+            or (expr._check_quant and (arg0ty.optional or arg0ty.item_type.optional))
+        ):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Array(Type.Pair(Type.Any(), Type.Any())), arg0ty
+            )
+        return Type.Map((arg0ty.item_type.left_type, Type.Array(arg0ty.item_type.right_type)))
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert isinstance(arguments[0], Value.Array)
+        arg0ty = arguments[0].type
+        assert isinstance(arg0ty, Type.Array)
+        pairty = arg0ty.item_type
+        assert isinstance(pairty, Type.Pair)
+
+        items = {}
+        for p in arguments[0].value:
+            assert isinstance(p, Value.Pair)
+            ek = p.value[0].coerce(pairty.left_type)
+            ev = p.value[1].coerce(pairty.right_type)
+            sk = str(ek)
+            if sk in items:
+                items[sk][1].append(ev)
+            else:
+                items[sk] = (ek, [ev])
+
+        return Value.Map(
+            (pairty.left_type, Type.Array(pairty.right_type)),
+            [(ek, Value.Array(pairty.right_type, evs)) for ek, evs in items.values()],
+            expr,
+        )
+
+
+class _AsMap(_CollectByKey):
+    # as_map(): run collect_by_key() and pluck the values out of the length-1 arrays
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        collectedty = super().infer_type(expr)
+        assert isinstance(collectedty, Type.Map)
+        arrayty = collectedty.item_type[1]
+        assert isinstance(arrayty, Type.Array)
+        return Type.Map((collectedty.item_type[0], arrayty.item_type))
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        collected = super()._call_eager(expr, arguments)
+        assert isinstance(collected, Value.Map)
+        collectedty = collected.type
+        assert isinstance(collectedty, Type.Map)
+        arrayty = collectedty.item_type[1]
+        assert isinstance(arrayty, Type.Array)
+        singletons = []
+        for k, vs in collected.value:
+            assert isinstance(vs, Value.Array)
+            assert len(vs.value) > 0
+            if len(vs.value) > 1:
+                raise Error.EvalError(expr, "duplicate keys supplied to as_map(): " + str(k))
+            singletons.append((k, vs.value[0]))
+        return Value.Map((collectedty.item_type[0], arrayty.item_type), singletons, expr)
