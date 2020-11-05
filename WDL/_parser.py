@@ -14,6 +14,14 @@ _lark_lock = threading.Lock()
 
 
 def parse(grammar: str, txt: str, start: str) -> Tuple[lark.Tree, List[lark.Token]]:
+    """
+    Parse a grammar string.
+
+    Args:
+        grammar: (str): write your description
+        txt: (str): write your description
+        start: (str): write your description
+    """
     with _lark_lock:
         if (grammar, start) not in _lark_cache:
             _lark_cache[(grammar, start)] = lark.Lark(
@@ -30,10 +38,22 @@ def parse(grammar: str, txt: str, start: str) -> Tuple[lark.Tree, List[lark.Toke
 
 
 def to_int(x):
+    """
+    Convert an integer to an integer.
+
+    Args:
+        x: (str): write your description
+    """
     return int(x)
 
 
 def to_float(x):
+    """
+    Convert a float to a float.
+
+    Args:
+        x: (todo): write your description
+    """
     return float(x)
 
 
@@ -42,11 +62,26 @@ def to_float(x):
 
 class _SourcePositionTransformerMixin:
     def __init__(self, uri: str = "(buffer)", abspath: str = "(buffer)", *args, **kwargs) -> None:
+        """
+        Initialize the uri.
+
+        Args:
+            self: (todo): write your description
+            uri: (str): write your description
+            abspath: (str): write your description
+        """
         super().__init__(*args, **kwargs)
         self.uri = uri
         self.abspath = abspath
 
     def _sp(self, meta):
+        """
+        Return the sparql source
+
+        Args:
+            self: (todo): write your description
+            meta: (str): write your description
+        """
         return SourcePosition(
             uri=self.uri,
             abspath=self.abspath,
@@ -61,26 +96,74 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
     # pylint: disable=no-self-use,unused-argument
 
     def boolean_true(self, items, meta) -> Expr.Base:
+        """
+        Return true if items is true false otherwise.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert not items
         return Expr.Boolean(self._sp(meta), True)
 
     def boolean_false(self, items, meta) -> Expr.Base:
+        """
+        Evaluate the given items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         assert not items
         return Expr.Boolean(self._sp(meta), False)
 
     def null(self, items, meta) -> Expr.Base:
+        """
+        Return the first row of the second.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert not items
         return Expr.Null(self._sp(meta))
 
     def int(self, items, meta) -> Expr.Base:
+        """
+        Return the integer value from the given items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) == 1
         return Expr.Int(self._sp(meta), to_int(items[0]))
 
     def float(self, items, meta) -> Expr.Base:
+        """
+        Return a float of items in items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) == 1
         return Expr.Float(self._sp(meta), to_float(items[0]))
 
     def string(self, items, meta) -> Expr.Base:
+        """
+        Convert a string representation of the string.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         parts = []
         for item in items:
             if isinstance(item, Expr.Base):
@@ -93,36 +176,108 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return Expr.String(self._sp(meta), parts)
 
     def string_literal(self, items, meta):
+        """
+        Return a string literal.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         assert len(items) == 1
         assert items[0].value.startswith('"') or items[0].value.startswith("'")
         return str.encode(items[0].value[1:-1]).decode("unicode_escape")
 
     def array(self, items, meta) -> Expr.Base:
+        """
+        Return an array of the array items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return Expr.Array(self._sp(meta), items)
 
     def apply(self, items, meta) -> Expr.Base:
+        """
+        Apply items to items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) >= 1
         assert not items[0].startswith("_")  # TODO enforce in grammar
         return Expr.Apply(self._sp(meta), items[0], items[1:])
 
     def negate(self, items, meta) -> Expr.Base:
+        """
+        Return a spprition with the item.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         return Expr.Apply(self._sp(meta), "_negate", items)
 
     def at(self, items, meta) -> Expr.Base:
+        """
+        Return the item at the given meta.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         return Expr.Apply(self._sp(meta), "_at", items)
 
     def pair(self, items, meta) -> Expr.Base:
+        """
+        Return the pair of items in meta.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         assert len(items) == 2
         return Expr.Pair(self._sp(meta), items[0], items[1])
 
     def map_kv(self, items, meta):
+        """
+        Return the first key in items from the first item.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) == 2
         return (items[0], items[1])
 
     def map(self, items, meta) -> Expr.Base:
+        """
+        Return a copy of the given items.
+
+        Args:
+            self: (todo): write your description
+            items: (array): write your description
+            meta: (str): write your description
+        """
         return Expr.Map(self._sp(meta), items)
 
     def object_kv(self, items, meta):
+        """
+        Convert kv ( kv ).
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) == 2
         k = items[0]
         if isinstance(k, lark.Token):
@@ -132,19 +287,51 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return (k, items[1])
 
     def obj(self, items, meta) -> Expr.Base:
+        """
+        Return the object for items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         if not items or isinstance(items[0], tuple):  # old-style "object" literal
             return Expr.Struct(self._sp(meta), items)
         return Expr.Struct(self._sp(meta), items[1:], (items[0] if items[0] != "object" else None))
 
     def ifthenelse(self, items, meta) -> Expr.Base:
+        """
+        Return a subset of items in the set of items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         assert len(items) == 3
         return Expr.IfThenElse(self._sp(meta), *items)
 
     def left_name(self, items, meta) -> Expr.Base:
+        """
+        Returns the name of the meta data.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) == 1 and isinstance(items[0], str)
         return Expr.Get(self._sp(meta), Expr._LeftName(self._sp(meta), items[0]), None)
 
     def get_name(self, items, meta) -> Expr.Base:
+        """
+        Return the name of items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         assert len(items) == 2 and isinstance(items[0], Expr.Base) and isinstance(items[1], str)
         return Expr.Get(self._sp(meta), items[0], items[1])
 
@@ -167,6 +354,16 @@ for op in [
 ]:
 
     def fn(self, items, meta, op=op):
+        """
+        Return the function for items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+            op: (todo): write your description
+            op: (todo): write your description
+        """
         assert len(items) == 2
         return Expr.Apply(self._sp(meta), "_" + op, items)
 
@@ -192,6 +389,20 @@ class _DocTransformer(_ExprTransformer):
         *args,
         **kwargs,
     ):
+        """
+        Initialize source_text.
+
+        Args:
+            self: (todo): write your description
+            source_text: (str): write your description
+            keywords: (dict): write your description
+            comments: (str): write your description
+            List: (str): write your description
+            lark: (todo): write your description
+            Token: (str): write your description
+            version: (todo): write your description
+            declared_version: (str): write your description
+        """
         super().__init__(*args, **kwargs)
         self._source_text = source_text
         self._keywords = keywords
@@ -200,42 +411,114 @@ class _DocTransformer(_ExprTransformer):
         self._declared_version = declared_version
 
     def _check_keyword(self, pos, name):
+        """
+        Checks if a keyword.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            name: (str): write your description
+        """
         if name in self._keywords:
             raise Error.SyntaxError(
                 pos, "unexpected keyword {}".format(name), self._version, self._declared_version
             )
 
     def object_kv(self, items, meta):
+        """
+        Returns a subset of given items for the given items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         ans = super().object_kv(items, meta)
         self._check_keyword(self._sp(meta), ans[0])
         return ans
 
     def obj(self, items, meta) -> Expr.Base:
+        """
+        Returns a subset of the given by default items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         if items and isinstance(items[0], str) and items[0] != "object":
             self._check_keyword(self._sp(meta), items[0])
         return super().obj(items, meta)
 
     def left_name(self, items, meta) -> Expr.Base:
+        """
+        Return the name of the meta.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         ans = super().left_name(items, meta)
         self._check_keyword(ans.pos, items[0])
         return ans
 
     def get_name(self, items, meta) -> Expr.Base:
+        """
+        Get the name of items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         ans = super().get_name(items, meta)
         if items[1] not in ("left", "right"):
             self._check_keyword(ans.pos, items[1])
         return ans
 
     def optional(self, items, meta):
+        """
+        Returns the given set of items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return set(["optional"])
 
     def nonempty(self, items, meta):
+        """
+        Return a new set from items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return set(["nonempty"])
 
     def optional_nonempty(self, items, meta):
+        """
+        Return a set of items that are not empty.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return set(["optional", "nonempty"])
 
     def type(self, items, meta):
+        """
+        Determine type of items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         quantifiers = set()
         if len(items) > 1 and isinstance(items[-1], set):
             quantifiers = items.pop()
@@ -295,22 +578,62 @@ class _DocTransformer(_ExprTransformer):
         return ans
 
     def decl(self, items, meta):
+        """
+        Return the set of items that are declared collection.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         self._check_keyword(self._sp(meta), items[1].value)
         return Tree.Decl(
             self._sp(meta), items[0], items[1].value, (items[2] if len(items) > 2 else None)
         )
 
     def input_decls(self, items, meta):
+        """
+        Returns a list of a given input dictionary.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         return {"inputs": items}
 
     def noninput_decl(self, items, meta):
+        """
+        Returns a dictionary of noninputs
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         return {"noninput_decl": items[0]}
 
     def placeholder_option(self, items, meta):
+        """
+        Return the value of the placeholder.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) == 2
         return (items[0].value, items[1])
 
     def placeholder(self, items, meta):
+        """
+        Return a new items to meta.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         options = dict(items[:-1])
         if len(options.items()) < len(items) - 1:
             raise Error.MultipleDefinitions(
@@ -319,6 +642,14 @@ class _DocTransformer(_ExprTransformer):
         return Expr.Placeholder(self._sp(meta), options, items[-1])
 
     def command(self, items, meta):
+        """
+        Convert items to the field.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         parts = []
         for item in items:
             if isinstance(item, Expr.Placeholder):
@@ -328,12 +659,36 @@ class _DocTransformer(_ExprTransformer):
         return {"command": Expr.String(self._sp(meta), parts, command=True)}
 
     def output_decls(self, items, meta):
+        """
+        Outputs a dict of the meta data
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return {"outputs": items}
 
     def meta_kv(self, items, meta):
+        """
+        Return the meta - value of a given key.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return (items[0].value, items[1])
 
     def meta_object(self, items, meta):
+        """
+        Add meta data to meta data.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         d = dict()
         for k, v in items:
             if k in d:
@@ -342,9 +697,25 @@ class _DocTransformer(_ExprTransformer):
         return d
 
     def meta_array(self, items, meta):
+        """
+        Return the array of meta data.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return items
 
     def meta_section(self, items, meta):
+        """
+        Return the meta section.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         kind = items[0].value
         assert kind in ["meta", "parameter_meta"]
         d = dict()
@@ -352,9 +723,25 @@ class _DocTransformer(_ExprTransformer):
         return d
 
     def runtime_kv(self, items, meta):
+        """
+        Evaluates of the given items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return (items[0].value, items[1])
 
     def runtime_section(self, items, meta):
+        """
+        Return a dictionary of runtime keys.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         d = dict()
         for k, v in items:
             # TODO: restore duplicate check, cf. https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/blob/89f11befc13abae97ab8fb1b457731f390c8728d/tasks_pipelines/qc.wdl#L288  # noqa
@@ -364,6 +751,14 @@ class _DocTransformer(_ExprTransformer):
         return {"runtime": d}
 
     def task(self, items, meta):
+        """
+        Return a task object for the given items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         d = {"noninput_decls": []}
         for item in items:
             if isinstance(item, dict):
@@ -394,16 +789,48 @@ class _DocTransformer(_ExprTransformer):
         )
 
     def tasks(self, items, meta):
+        """
+        Return the tasks in items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return items
 
     def namespaced_ident(self, items, meta) -> Expr.Base:
+        """
+        Return a list of items from items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert items
         return [item.value for item in items]
 
     def call_input(self, items, meta):
+        """
+        Calls the given items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         return (items[0].value, items[1])
 
     def call_inputs(self, items, meta):
+        """
+        Call the sparinitions.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         d = dict()
         for k, v in items:
             if k in d:
@@ -412,6 +839,14 @@ class _DocTransformer(_ExprTransformer):
         return d
 
     def call(self, items, meta):
+        """
+        Call the given items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         after = []
         i = 1
         while i < len(items):
@@ -426,6 +861,14 @@ class _DocTransformer(_ExprTransformer):
         )
 
     def call_as(self, items, meta):
+        """
+        Call the given items in the given dictionary.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         self._check_keyword(self._sp(meta), items[1].value)
         after = list()
         i = 2
@@ -445,23 +888,63 @@ class _DocTransformer(_ExprTransformer):
         )
 
     def scatter(self, items, meta):
+        """
+        Return the value for items in items.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         self._check_keyword(self._sp(meta), items[0].value)
         return Tree.Scatter(self._sp(meta), items[0].value, items[1], items[2:])
 
     def conditional(self, items, meta):
+        """
+        Return a new condition that is true.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return Tree.Conditional(self._sp(meta), items[0], items[1:])
 
     def workflow_wildcard_output(self, items, meta):
+        """
+        Return the output for a workflow.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         return items[0] + ["*"]
         # return Expr.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
 
     def workflow_output_decls(self, items, meta):
+        """
+        : parameter_decls
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         decls = [elt for elt in items if isinstance(elt, Tree.Decl)]
         idents = [elt for elt in items if isinstance(elt, list)]
         assert len(decls) + len(idents) == len(items)
         return {"outputs": decls, "output_idents": idents, "pos": self._sp(meta)}
 
     def workflow(self, items, meta):
+        """
+        Creates a dictionary of the workflow.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         elements = []
         inputs = None
         outputs = None
@@ -519,6 +1002,14 @@ class _DocTransformer(_ExprTransformer):
         )
 
     def struct(self, items, meta):
+        """
+        Return a structure of the structure.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) >= 1
         name = items[0]
         self._check_keyword(self._sp(meta), name)
@@ -531,11 +1022,27 @@ class _DocTransformer(_ExprTransformer):
         return Tree.StructTypeDef(self._sp(meta), name, members)
 
     def import_alias(self, items, meta):
+        """
+        Import an alias.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         assert len(items) == 2
         self._check_keyword(self._sp(meta), items[1].value)
         return (items[0].value, items[1].value)
 
     def import_doc(self, items, meta):
+        """
+        Parse docstrings into a doc.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (str): write your description
+        """
         pos = self._sp(meta)
         uri = items[0]
         if len(items) > 1 and isinstance(items[1], str):
@@ -560,6 +1067,14 @@ class _DocTransformer(_ExprTransformer):
         return Tree.DocImport(pos=pos, uri=uri, namespace=namespace, aliases=aliases, doc=None)
 
     def document(self, items, meta):
+        """
+        Creates a document.
+
+        Args:
+            self: (todo): write your description
+            items: (todo): write your description
+            meta: (todo): write your description
+        """
         imports = []
         structs = {}
         tasks = []
@@ -620,6 +1135,13 @@ for _klass in [_ExprTransformer, _DocTransformer]:
 
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
+    """
+    Parse an expression from a bel expression.
+
+    Args:
+        txt: (todo): write your description
+        version: (str): write your description
+    """
     try:
         return _ExprTransformer().transform(parse(_grammar.get(version)[0], txt, "expr")[0])
     except lark.exceptions.UnexpectedInput as exn:
@@ -637,6 +1159,13 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
 
 
 def parse_tasks(txt: str, version: str = "draft-2") -> List[Tree.Task]:
+    """
+    Parse a tasks.
+
+    Args:
+        txt: (str): write your description
+        version: (str): write your description
+    """
     try:
         (grammar, keywords) = _grammar.get(version)
         raw_ast, comments = parse(grammar, txt, "tasks")
@@ -654,6 +1183,15 @@ def parse_tasks(txt: str, version: str = "draft-2") -> List[Tree.Task]:
 def parse_document(
     txt: str, version: Optional[str] = None, uri: str = "", abspath: str = ""
 ) -> Tree.Document:
+    """
+    Parse a document.
+
+    Args:
+        txt: (str): write your description
+        version: (str): write your description
+        uri: (str): write your description
+        abspath: (str): write your description
+    """
     npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
     if not txt.strip():
         return Tree.Document(txt, npos, [], {}, [], None, [], None)

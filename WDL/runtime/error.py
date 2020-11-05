@@ -21,6 +21,15 @@ class CommandFailed(_RuntimeError):
     """
 
     def __init__(self, exit_status: int, stderr_file: str, message: str = "") -> None:
+        """
+        Initialize stderr.
+
+        Args:
+            self: (todo): write your description
+            exit_status: (str): write your description
+            stderr_file: (str): write your description
+            message: (str): write your description
+        """
         oom_hint = ", a possible indication that it ran out of memory" if exit_status == 137 else ""
         super().__init__(message or f"task command failed with exit status {exit_status}{oom_hint}")
         self.exit_status = exit_status
@@ -38,6 +47,13 @@ class Terminated(_RuntimeError):
     """
 
     def __init__(self, quiet: bool = False) -> None:
+        """
+        Initialize the progress bar.
+
+        Args:
+            self: (todo): write your description
+            quiet: (bool): write your description
+        """
         self.quiet = quiet
         _statusbar.abort()
 
@@ -66,6 +82,14 @@ class DownloadFailed(_RuntimeError):
     uri: str
 
     def __init__(self, uri: str, message: str = "") -> None:
+        """
+        Initialize the status.
+
+        Args:
+            self: (todo): write your description
+            uri: (str): write your description
+            message: (str): write your description
+        """
         super().__init__(message or ("unable to download " + uri))
         self.uri = uri
         _statusbar.abort()
@@ -87,6 +111,15 @@ class RunFailed(_RuntimeError):
     run_dir: str
 
     def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str) -> None:
+        """
+        Initialize the workflow.
+
+        Args:
+            self: (todo): write your description
+            exe: (todo): write your description
+            run_id: (str): write your description
+            run_dir: (str): write your description
+        """
         super().__init__(
             f"{'task' if isinstance(exe, _Task) else 'workflow'} {exe.name} "
             f"({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed"
@@ -103,6 +136,12 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
     """
 
     def pos_json(pos: SourcePosition) -> Dict[str, Any]:
+        """
+        Return a json - compatible dictionary.
+
+        Args:
+            pos: (dict): write your description
+        """
         return {"source": pos.abspath, "line": pos.line, "column": pos.column}
 
     info: Dict[str, Any] = {"error": exn.__class__.__name__}

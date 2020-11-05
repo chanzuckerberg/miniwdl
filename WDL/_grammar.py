@@ -488,5 +488,11 @@ assert set(versions.keys()) == set(keywords.keys())
 
 
 def get(version: Optional[str] = None) -> Tuple[str, Set[str]]:
+    """
+    Get a tuple of versions.
+
+    Args:
+        version: (str): write your description
+    """
     version = version or "1.0"
     return (versions[version], keywords[version])

@@ -25,6 +25,14 @@ class Base:
     _write_dir: str  # directory in which write_* functions create files
 
     def __init__(self, wdl_version: str, write_dir: str = ""):
+        """
+        Initialize a wdl
+
+        Args:
+            self: (todo): write your description
+            wdl_version: (str): write your description
+            write_dir: (str): write your description
+        """
         self.wdl_version = wdl_version
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()
 
@@ -70,6 +78,20 @@ class Base:
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
         def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
+            """
+            Substitute all occurrences of string.
+
+            Args:
+                input: (array): write your description
+                Value: (str): write your description
+                String: (str): write your description
+                pattern: (str): write your description
+                Value: (str): write your description
+                String: (str): write your description
+                replace: (bool): write your description
+                Value: (str): write your description
+                String: (str): write your description
+            """
             return Value.String(
                 regex.compile(pattern.value, flags=regex.POSIX).sub(replace.value, input.value)
             )
@@ -78,10 +100,29 @@ class Base:
 
         @static([Type.Any(optional=True)], Type.Boolean())
         def defined(v: Value.Base):
+            """
+            Convert the value is a valid.
+
+            Args:
+                v: (array): write your description
+                Value: (todo): write your description
+                Base: (str): write your description
+            """
             return Value.Boolean(not isinstance(v, Value.Null))
 
         @static([Type.String(), Type.Array(Type.String())], Type.String())
         def sep(sep: Value.String, iterable: Value.Array) -> Value.String:
+            """
+            Return an iterable * value.
+
+            Args:
+                sep: (todo): write your description
+                Value: (str): write your description
+                String: (str): write your description
+                iterable: (todo): write your description
+                Value: (str): write your description
+                Array: (array): write your description
+            """
             return Value.String(sep.value.join(v.value for v in iterable.value))
 
         # write_*
@@ -143,6 +184,14 @@ class Base:
         "generate read_* function implementation based on parse"
 
         def f(file: Value.File) -> Value.Base:
+            """
+            Returns the given file - like object
+
+            Args:
+                file: (str): write your description
+                Value: (todo): write your description
+                File: (str): write your description
+            """
             with open(self._devirtualize_filename(file.value), "r") as infile:
                 return parse(infile.read())
 
@@ -165,6 +214,14 @@ class Base:
         def _f(
             v: Value.Base,
         ) -> Value.File:
+            """
+            Create a temporary file.
+
+            Args:
+                v: (todo): write your description
+                Value: (todo): write your description
+                Base: (str): write your description
+            """
             os.makedirs(self._write_dir, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=self._write_dir, delete=False) as outfile:
                 outfile: BinaryIO = outfile  # pyre-ignore
@@ -185,6 +242,14 @@ class Base:
         raise NotImplementedError()
 
     def _override_static(self, name: str, f: Callable) -> None:
+        """
+        Add a static static static static static method.
+
+        Args:
+            self: (todo): write your description
+            name: (str): write your description
+            f: (todo): write your description
+        """
         # replace the implementation lambda of a StaticFunction (keeping its
         # types etc. the same)
         sf = getattr(self, name)
@@ -197,6 +262,13 @@ class Function(ABC):
 
     @abstractmethod
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         # Typecheck the Apply expression (including the argument expressions);
         # raise an exception or return the function's return type, which may
         # depend on the argument types.
@@ -206,6 +278,18 @@ class Function(ABC):
     def __call__(
         self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
     ) -> Value.Base:
+        """
+        Call the given environment.
+
+        Args:
+            self: (todo): write your description
+            expr: (array): write your description
+            env: (dict): write your description
+            Env: (dict): write your description
+            Bindings: (dict): write your description
+            Value: (str): write your description
+            stdlib: (todo): write your description
+        """
         # Invoke the function, evaluating the arguments as needed
         pass
 
@@ -217,11 +301,34 @@ class EagerFunction(Function):
 
     @abstractmethod
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call the given expression.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         pass
 
     def __call__(
         self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
     ) -> Value.Base:
+        """
+        Evaluate the given expression.
+
+        Args:
+            self: (todo): write your description
+            expr: (array): write your description
+            env: (dict): write your description
+            Env: (dict): write your description
+            Bindings: (dict): write your description
+            Value: (str): write your description
+            stdlib: (todo): write your description
+        """
         return self._call_eager(expr, [arg.eval(env, stdlib=stdlib) for arg in expr.arguments])
 
 
@@ -237,12 +344,34 @@ class StaticFunction(EagerFunction):
     def __init__(
         self, name: str, argument_types: List[Type.Base], return_type: Type.Base, F: Callable
     ) -> None:
+        """
+        Creates a type.
+
+        Args:
+            self: (todo): write your description
+            name: (str): write your description
+            argument_types: (str): write your description
+            List: (str): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+            return_type: (str): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+            F: (int): write your description
+        """
         self.name = name
         self.argument_types = argument_types
         self.return_type = return_type
         self.F = F
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         min_args = len(self.argument_types)
         for ty in reversed(self.argument_types):
             if ty.optional:
@@ -264,6 +393,17 @@ class StaticFunction(EagerFunction):
         return self.return_type
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         argument_values = [arg.coerce(ty) for arg, ty in zip(arguments, self.argument_types)]
         try:
             ans: Value.Base = self.F(*argument_values)
@@ -276,6 +416,11 @@ class StaticFunction(EagerFunction):
 
 
 def _notimpl(*args, **kwargs) -> None:
+    """
+    Calls the given arguments.
+
+    Args:
+    """
     exec("raise NotImplementedError('function not available in this context')")
 
 
@@ -286,6 +431,12 @@ class TaskOutputs(Base):
     """
 
     def __init__(self, *args, **kwargs):
+        """
+        Creates a new __type.
+
+        Args:
+            self: (todo): write your description
+        """
         super().__init__(*args, **kwargs)
         for (name, argument_types, return_type, F) in [
             ("stdout", [], Type.File(), _notimpl),
@@ -296,6 +447,11 @@ class TaskOutputs(Base):
 
 
 def basename(*args) -> Value.String:
+    """
+    Return the path of the given path.
+
+    Args:
+    """
     assert len(args) in (1, 2)
     assert isinstance(args[0], Value.String)
     path = args[0].value
@@ -308,6 +464,12 @@ def basename(*args) -> Value.String:
 
 
 def _parse_lines(s: str) -> Value.Array:
+    """
+    Parse a string into a list of lines.
+
+    Args:
+        s: (str): write your description
+    """
     ans = []
     if s:
         ans = [Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")]
@@ -315,6 +477,12 @@ def _parse_lines(s: str) -> Value.Array:
 
 
 def _parse_boolean(s: str) -> Value.Boolean:
+    """
+    Parse a boolean value.
+
+    Args:
+        s: (str): write your description
+    """
     s = s.rstrip()
     if s == "true":
         return Value.Boolean(True)
@@ -324,6 +492,12 @@ def _parse_boolean(s: str) -> Value.Boolean:
 
 
 def _parse_tsv(s: str) -> Value.Array:
+    """
+    Parse tsv string.
+
+    Args:
+        s: (str): write your description
+    """
     # TODO: should a blank line parse as [] or ['']?
     ans = [
         Value.Array(
@@ -336,6 +510,12 @@ def _parse_tsv(s: str) -> Value.Array:
 
 
 def _parse_map(s: str) -> Value.Map:
+    """
+    Parse a map.
+
+    Args:
+        s: (todo): write your description
+    """
     keys = set()
     ans = []
     for line in _parse_tsv(s).value:
@@ -350,16 +530,40 @@ def _parse_map(s: str) -> Value.Map:
 
 
 def _parse_json(s: str) -> Value.Base:
+    """
+    Parse a json string.
+
+    Args:
+        s: (todo): write your description
+    """
     return Value.from_json(Type.Any(), json.loads(s))
 
 
 def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
+    """
+    Serialize a list of byte array.
+
+    Args:
+        array: (array): write your description
+        Value: (todo): write your description
+        Array: (array): write your description
+        outfile: (todo): write your description
+    """
     for item in array.value:
         outfile.write(item.coerce(Type.String()).value.encode("utf-8"))
         outfile.write(b"\n")
 
 
 def _serialize_tsv(v: Value.Array, outfile: BinaryIO) -> None:
+    """
+    Serialize a tsv value into a tsv string.
+
+    Args:
+        v: (todo): write your description
+        Value: (todo): write your description
+        Array: (array): write your description
+        outfile: (str): write your description
+    """
     return _serialize_lines(
         Value.Array(
             Type.String(),
@@ -373,6 +577,15 @@ def _serialize_tsv(v: Value.Array, outfile: BinaryIO) -> None:
 
 
 def _serialize_map(map: Value.Map, outfile: BinaryIO) -> None:
+    """
+    Serialize a map.
+
+    Args:
+        map: (todo): write your description
+        Value: (todo): write your description
+        Map: (todo): write your description
+        outfile: (str): write your description
+    """
     lines = []
     for (k, v) in map.value:
         k = k.coerce(Type.String()).value
@@ -390,6 +603,13 @@ class _At(EagerFunction):
     #                   or map access map[key], returning the value type
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of the given expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         assert len(expr.arguments) == 2
         lhs = expr.arguments[0]
         rhs = expr.arguments[1]
@@ -418,6 +638,17 @@ class _At(EagerFunction):
         raise Error.NotAnArray(lhs)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call a callable function call.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         assert len(expr.arguments) == 2 and len(arguments) == 2
         lhs = arguments[0]
         rhs = arguments[1]
@@ -449,6 +680,13 @@ class _At(EagerFunction):
 class _And(Function):
     # logical && with short-circuit evaluation
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         assert len(expr.arguments) == 2
         for arg in expr.arguments:
             if not isinstance(arg.type, Type.Boolean):
@@ -460,6 +698,18 @@ class _And(Function):
     def __call__(
         self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
     ) -> Value.Base:
+        """
+        Calls the given expression.
+
+        Args:
+            self: (todo): write your description
+            expr: (array): write your description
+            env: (dict): write your description
+            Env: (dict): write your description
+            Bindings: (dict): write your description
+            Value: (str): write your description
+            stdlib: (todo): write your description
+        """
         lhs = expr.arguments[0].eval(env, stdlib=stdlib).expect(Type.Boolean()).value
         if not lhs:
             return Value.Boolean(False)
@@ -469,6 +719,13 @@ class _And(Function):
 class _Or(Function):
     # logical || with short-circuit evaluation
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         assert len(expr.arguments) == 2
         for arg in expr.arguments:
             if not isinstance(arg.type, Type.Boolean):
@@ -480,6 +737,18 @@ class _Or(Function):
     def __call__(
         self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
     ) -> Value.Base:
+        """
+        Call the given expression and return the result.
+
+        Args:
+            self: (todo): write your description
+            expr: (array): write your description
+            env: (dict): write your description
+            Env: (dict): write your description
+            Bindings: (dict): write your description
+            Value: (str): write your description
+            stdlib: (todo): write your description
+        """
         lhs = expr.arguments[0].eval(env, stdlib=stdlib).expect(Type.Boolean()).value
         if lhs:
             return Value.Boolean(True)
@@ -494,10 +763,25 @@ class _ArithmeticOperator(EagerFunction):
     op: Callable
 
     def __init__(self, name: str, op: Callable) -> None:
+        """
+        Initialize an op.
+
+        Args:
+            self: (todo): write your description
+            name: (str): write your description
+            op: (todo): write your description
+        """
         self.name = name
         self.op = op
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         assert len(expr.arguments) == 2
         rt = Type.Int()
         if isinstance(expr.arguments[0].type, Type.Float) or isinstance(
@@ -514,6 +798,17 @@ class _ArithmeticOperator(EagerFunction):
         return rt
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Infer eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         ans_type = self.infer_type(expr)
         ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
         if ans_type == Type.Int():
@@ -526,9 +821,22 @@ class _ArithmeticOperator(EagerFunction):
 class _AddOperator(_ArithmeticOperator):
     # + operator can also serve as concatenation for String.
     def __init__(self) -> None:
+        """
+        Initialize the state of this function.
+
+        Args:
+            self: (todo): write your description
+        """
         super().__init__("+", lambda l, r: l + r)
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         assert len(expr.arguments) == 2
         t2 = None
         if isinstance(expr.arguments[0].type, Type.String):
@@ -548,6 +856,17 @@ class _AddOperator(_ArithmeticOperator):
         return Type.String()
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Infer eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (str): write your description
+            Base: (todo): write your description
+        """
         ans_type = self.infer_type(expr)
         if not isinstance(ans_type, Type.String):
             return super()._call_eager(expr, arguments)
@@ -564,6 +883,13 @@ class _InterpolationAddOperator(_AddOperator):
     # operand is None.
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         either_string = sum(1 for arg in expr.arguments if isinstance(arg.type, Type.String)) > 0
         either_optional = sum(1 for arg in expr.arguments if arg.type.optional) > 0
         both_stringifiable = (
@@ -576,6 +902,17 @@ class _InterpolationAddOperator(_AddOperator):
         )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call a callable.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         if sum(1 for arg in arguments if isinstance(arg, Value.Null)):
             return Value.Null()
         return super()._call_eager(expr, arguments)
@@ -590,10 +927,25 @@ class _ComparisonOperator(EagerFunction):
     op: Callable
 
     def __init__(self, name: str, op: Callable) -> None:
+        """
+        Initialize an op.
+
+        Args:
+            self: (todo): write your description
+            name: (str): write your description
+            op: (todo): write your description
+        """
         self.name = name
         self.op = op
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         assert len(expr.arguments) == 2
         if (
             (
@@ -636,6 +988,17 @@ class _ComparisonOperator(EagerFunction):
         return Type.Boolean()
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         assert len(arguments) == 2
         return Value.Boolean(self.op(arguments[0].value, arguments[1].value))
 
@@ -645,9 +1008,23 @@ class _Size(EagerFunction):
     stdlib: Base
 
     def __init__(self, stdlib: Base) -> None:
+        """
+        Initialize the stdlib.
+
+        Args:
+            self: (todo): write your description
+            stdlib: (todo): write your description
+        """
         self.stdlib = stdlib
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if not expr.arguments:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
@@ -669,6 +1046,17 @@ class _Size(EagerFunction):
         return Type.Float()
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager function.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         # this default implementation attempts os.path.getsize() on the argument(s)
         files = arguments[0].coerce(Type.Array(Type.File(optional=True)))
         unit = arguments[1].coerce(Type.String()) if len(arguments) > 1 else None
@@ -693,6 +1081,13 @@ class _Size(EagerFunction):
 
 class _SelectFirst(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer an equivalent to the given expression.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
@@ -705,6 +1100,17 @@ class _SelectFirst(EagerFunction):
         return arg0ty.item_type.copy(optional=False)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager. call.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         arr = arguments[0].coerce(Type.Array(Type.Any()))
         assert isinstance(arr, Value.Array)
         for arg in arr.value:
@@ -715,6 +1121,13 @@ class _SelectFirst(EagerFunction):
 
 class _SelectAll(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer a expr expr and scalarity of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
@@ -727,6 +1140,17 @@ class _SelectAll(EagerFunction):
         return Type.Array(arg0ty.item_type.copy(optional=False))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager function.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         arr = arguments[0].coerce(Type.Array(Type.Any()))
         assert isinstance(arr, Value.Array)
         arrty = arr.type
@@ -739,6 +1163,13 @@ class _SelectAll(EagerFunction):
 class _ZipOrCross(EagerFunction):
     # 'a array -> 'b array -> ('a,'b) array
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 2:
             raise Error.WrongArity(expr, 2)
         arg0ty: Type.Base = expr.arguments[0].type
@@ -759,6 +1190,17 @@ class _ZipOrCross(EagerFunction):
     def _coerce_args(
         self, expr: "Expr.Apply", arguments: List[Value.Base]
     ) -> Tuple[Type.Array, Value.Array, Value.Array]:
+        """
+        Coerce the arguments of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (bool): write your description
+            Base: (todo): write your description
+        """
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         lhs = arguments[0].coerce(Type.Array(ty.item_type.left_type))
@@ -769,6 +1211,17 @@ class _ZipOrCross(EagerFunction):
 
 class _Zip(_ZipOrCross):
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Array:
+        """
+        Call an eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         ty, lhs, rhs = self._coerce_args(expr, arguments)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         if len(lhs.value) != len(rhs.value):
@@ -786,6 +1239,17 @@ class _Zip(_ZipOrCross):
 
 class _Cross(_ZipOrCross):
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Array:
+        """
+        Call an eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         ty, lhs, rhs = self._coerce_args(expr, arguments)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         return Value.Array(
@@ -802,6 +1266,13 @@ class _Flatten(EagerFunction):
     # t array array -> t array
     # TODO: if any of the input arrays are statically nonempty then so is output
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the given expression.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Array(Type.Any()))
@@ -819,6 +1290,17 @@ class _Flatten(EagerFunction):
         return Type.Array(arg0ty.item_type.item_type)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager function.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array)
         ans = []
@@ -831,6 +1313,13 @@ class _Transpose(EagerFunction):
     # t array array -> t array array
     # TODO: if any of the input arrays are statically nonempty then so is output
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the given expression.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Array(Type.Any()))
@@ -848,6 +1337,17 @@ class _Transpose(EagerFunction):
         return Type.Array(Type.Array(arg0ty.item_type.item_type))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Infer eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Array)
         mat = arguments[0].coerce(ty)
@@ -872,6 +1372,13 @@ class _Range(EagerFunction):
     # length(a_nonempty_array), then we can say the returned array is nonempty.
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Int())
@@ -886,6 +1393,17 @@ class _Range(EagerFunction):
         return Type.Array(Type.Int(), nonempty=nonempty)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager function.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         arg0 = arguments[0].coerce(Type.Int())
         assert isinstance(arg0, Value.Int)
         if arg0.value < 0:
@@ -898,6 +1416,13 @@ class _Prefix(EagerFunction):
     # if input array is nonempty then so is output
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 2:
             raise Error.WrongArity(expr, 2)
         expr.arguments[0].typecheck(Type.String())
@@ -908,6 +1433,17 @@ class _Prefix(EagerFunction):
         )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager ( eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         pfx = arguments[0].coerce(Type.String()).value
         return Value.Array(
             Type.String(),
@@ -921,6 +1457,13 @@ class _Suffix(EagerFunction):
     # Append a suffix to every element within the array
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 2:
             raise Error.WrongArity(expr, 2)
         expr.arguments[0].typecheck(Type.String())
@@ -931,6 +1474,17 @@ class _Suffix(EagerFunction):
         )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eagerce call. g.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         sfx = arguments[0].coerce(Type.String()).value
         return Value.Array(
             Type.String(),
@@ -944,12 +1498,26 @@ class _Quote(EagerFunction):
     # Append a suffix to every element within the array
 
     def __init__(self, squote: bool = False) -> None:
+        """
+        !
+
+        Args:
+            self: (todo): write your description
+            squote: (todo): write your description
+        """
         if squote:
             self.quote = "'"
         else:
             self.quote = '"'
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Array(Type.String()))
@@ -960,6 +1528,17 @@ class _Quote(EagerFunction):
         )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager function call.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         return Value.Array(
             Type.String(),
             [
@@ -971,6 +1550,13 @@ class _Quote(EagerFunction):
 
 class _Keys(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer a scalarity.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
@@ -981,6 +1567,17 @@ class _Keys(EagerFunction):
         return Type.Array(arg0ty.item_type[0].copy())
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eagery.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         assert isinstance(arguments[0], Value.Map)
         mapty = arguments[0].type
         assert isinstance(mapty, Type.Map)
@@ -991,6 +1588,13 @@ class _Keys(EagerFunction):
 
 class _AsPairs(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
@@ -1001,6 +1605,17 @@ class _AsPairs(EagerFunction):
         return Type.Array(Type.Pair(arg0ty.item_type[0], arg0ty.item_type[1]))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager. g.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         assert isinstance(arguments[0], Value.Map)
         mapty = arguments[0].type
         assert isinstance(mapty, Type.Map)
@@ -1014,6 +1629,13 @@ class _AsPairs(EagerFunction):
 
 class _CollectByKey(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
@@ -1028,6 +1650,17 @@ class _CollectByKey(EagerFunction):
         return Type.Map((arg0ty.item_type.left_type, Type.Array(arg0ty.item_type.right_type)))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Call an eager.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         assert isinstance(arguments[0], Value.Array)
         arg0ty = arguments[0].type
         assert isinstance(arg0ty, Type.Array)
@@ -1056,6 +1689,13 @@ class _AsMap(_CollectByKey):
     # as_map(): run collect_by_key() and pluck the values out of the length-1 arrays
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        """
+        Infer the type of the given expression.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         collectedty = super().infer_type(expr)
         assert isinstance(collectedty, Type.Map)
         arrayty = collectedty.item_type[1]
@@ -1063,6 +1703,17 @@ class _AsMap(_CollectByKey):
         return Type.Map((collectedty.item_type[0], arrayty.item_type))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        """
+        Eager function.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+            arguments: (todo): write your description
+            List: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         collected = super()._call_eager(expr, arguments)
         assert isinstance(collected, Value.Map)
         collectedty = collected.type

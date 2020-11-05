@@ -27,28 +27,85 @@ class Section:
     _parent: "Loader"
 
     def __init__(self, parent: "Loader", section: str):
+        """
+        Initialize this section.
+
+        Args:
+            self: (todo): write your description
+            parent: (todo): write your description
+            section: (todo): write your description
+        """
         self._parent = parent
         self._section = section
 
     def get(self, key: str) -> str:
+        """
+        Retrieves value of a given key.
+
+        Args:
+            self: (todo): write your description
+            key: (todo): write your description
+        """
         return self._parent.get(self._section, key)
 
     def __getitem__(self, key: str) -> str:
+        """
+        Return the value of a key.
+
+        Args:
+            self: (dict): write your description
+            key: (str): write your description
+        """
         return self.get(key)
 
     def get_int(self, key: str) -> int:
+        """
+        Get an int value from the config.
+
+        Args:
+            self: (todo): write your description
+            key: (str): write your description
+        """
         return self._parent.get_int(self._section, key)
 
     def get_float(self, key: str) -> float:
+        """
+        Gets the float value. float.
+
+        Args:
+            self: (todo): write your description
+            key: (str): write your description
+        """
         return self._parent.get_float(self._section, key)
 
     def get_bool(self, key: str) -> bool:
+        """
+        Gets the boolean value of the section.
+
+        Args:
+            self: (todo): write your description
+            key: (str): write your description
+        """
         return self._parent.get_bool(self._section, key)
 
     def get_dict(self, key: str) -> Dict[str, Any]:
+        """
+        Get the value of the key.
+
+        Args:
+            self: (todo): write your description
+            key: (str): write your description
+        """
         return self._parent.get_dict(self._section, key)
 
     def get_list(self, key: str) -> List[Any]:
+        """
+        Retrieves value from the list.
+
+        Args:
+            self: (todo): write your description
+            key: (str): write your description
+        """
         return self._parent.get_list(self._section, key)
 
 
@@ -85,6 +142,26 @@ class Loader:
         filenames: Optional[List[str]] = None,
         overrides: Optional[Dict[str, Dict[str, str]]] = None,
     ):
+        """
+        Initialize logging.
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+            filenames: (str): write your description
+            Optional: (todo): write your description
+            List: (str): write your description
+            str: (todo): write your description
+            overrides: (dict): write your description
+            Optional: (todo): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            str: (todo): write your description
+        """
         self._logger = logger
         self._used = set()
         self._used_env = set(["MINIWDL_CFG"])
@@ -124,6 +201,13 @@ class Loader:
             self.override(overrides)
 
     def override(self, options: Dict[str, Dict[str, Any]]) -> None:
+        """
+        Overrides the default method.
+
+        Args:
+            self: (todo): write your description
+            options: (dict): write your description
+        """
         options2 = {}
         for section in options:
             if options[section]:
@@ -139,6 +223,14 @@ class Loader:
             self._overrides.read_dict(options2)
 
     def get(self, section: str, key: str) -> str:
+        """
+        Get an environment variable value. env.
+
+        Args:
+            self: (todo): write your description
+            section: (todo): write your description
+            key: (todo): write your description
+        """
         section = str(section).lower()
         key = str(key).lower()
         common_kws = {}
@@ -178,6 +270,13 @@ class Loader:
         return _expand_env_var(ans)
 
     def has_section(self, section: str) -> bool:
+        """
+        Returns true if this section has a section.
+
+        Args:
+            self: (todo): write your description
+            section: (todo): write your description
+        """
         return (
             self._defaults.has_section(section)
             or self._options.has_section(section)
@@ -185,6 +284,14 @@ class Loader:
         )
 
     def has_option(self, section: str, option: str) -> bool:
+        """
+        Returns true if the given option.
+
+        Args:
+            self: (dict): write your description
+            section: (str): write your description
+            option: (str): write your description
+        """
         try:
             self.get(section, option)
             return True
@@ -192,9 +299,28 @@ class Loader:
             return False
 
     def __getitem__(self, section: str) -> Section:
+        """
+        Get an item with the given section.
+
+        Args:
+            self: (todo): write your description
+            section: (todo): write your description
+        """
         return Section(self, section)
 
     def _parse(self, section: str, key: str, ty: str, parse: Callable[[str], _T]) -> _T:
+        """
+        Parse a configuration value.
+
+        Args:
+            self: (todo): write your description
+            section: (str): write your description
+            key: (str): write your description
+            ty: (str): write your description
+            parse: (todo): write your description
+            Callable: (str): write your description
+            _T: (str): write your description
+        """
         ans = self.get(section, key)
         try:
             return parse(ans)
@@ -211,18 +337,58 @@ class Loader:
             raise ValueError(f"configuration option [{section}] {key} should be {ty}")
 
     def get_int(self, section: str, key: str) -> int:
+        """
+        Get an integer value from the value.
+
+        Args:
+            self: (todo): write your description
+            section: (todo): write your description
+            key: (str): write your description
+        """
         return self._parse(section, key, "int", int)
 
     def get_float(self, section: str, key: str) -> float:
+        """
+        Gets a float value from the section.
+
+        Args:
+            self: (todo): write your description
+            section: (todo): write your description
+            key: (str): write your description
+        """
         return self._parse(section, key, "float", float)
 
     def get_bool(self, section: str, key: str) -> bool:
+        """
+        Gets a boolean value from the section.
+
+        Args:
+            self: (todo): write your description
+            section: (todo): write your description
+            key: (str): write your description
+        """
         return self._parse(section, key, "bool", _parse_bool)
 
     def get_dict(self, section: str, key: str) -> Dict[str, Any]:
+        """
+        Returns the value of a dictionary.
+
+        Args:
+            self: (todo): write your description
+            section: (todo): write your description
+            key: (str): write your description
+        """
         return self._parse(section, key, "JSON dict", _parse_dict)
 
     def get_list(self, section: str, key: str) -> List[Any]:
+        """
+        Retrieves a value from the config.
+
+        Args:
+            self: (todo): write your description
+            section: (str): write your description
+            key: (str): write your description
+        """
         return self._parse(section, key, "JSON list", _parse_list)
 
     def log_all(self):
@@ -282,10 +448,23 @@ def _expand_env_var(env_var: str) -> str:
 
 
 def _env_var_name(section: str, key: str) -> str:
+    """
+    Get the variable name.
+
+    Args:
+        section: (str): write your description
+        key: (str): write your description
+    """
     return f"MINIWDL__{section.upper()}__{key.upper()}"
 
 
 def _parse_bool(v: str) -> bool:
+    """
+    Convert a boolean value into a bool.
+
+    Args:
+        v: (str): write your description
+    """
     v = v.lower()
     if v in ("t", "y", "1", "true", "yes"):
         return True
@@ -295,12 +474,24 @@ def _parse_bool(v: str) -> bool:
 
 
 def _parse_dict(v: str) -> Dict[str, Any]:
+    """
+    Parses a dictionary.
+
+    Args:
+        v: (todo): write your description
+    """
     ans = json.loads(v)
     assert isinstance(ans, dict)
     return ans
 
 
 def _parse_list(v: str) -> List[Any]:
+    """
+    Parse a list of strings.
+
+    Args:
+        v: (todo): write your description
+    """
     ans = json.loads(v)
     assert isinstance(ans, list)
     return ans
@@ -339,6 +530,13 @@ DEFAULT_PLUGINS = {
 
 
 def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
+    """
+    Load all plugins from the plugins.
+
+    Args:
+        cfg: (str): write your description
+        group: (str): write your description
+    """
     assert group in DEFAULT_PLUGINS.keys(), group
     enable_patterns = cfg["plugins"].get_list("enable_patterns")
     disable_patterns = cfg["plugins"].get_list("disable_patterns")
@@ -352,6 +550,13 @@ def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
 
 
 def load_plugins(cfg: Loader, group: str) -> Iterable[Tuple[str, Callable[..., Any]]]:
+    """
+    Loads all plugins in the given plugin.
+
+    Args:
+        cfg: (str): write your description
+        group: (str): write your description
+    """
     yield from (
         (plugin.name, plugin.load()) for enabled, plugin in load_all_plugins(cfg, group) if enabled
     )

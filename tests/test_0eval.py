@@ -3,6 +3,12 @@ from .context import WDL
 
 class TestEval(unittest.TestCase):
     def test_expr_render(self):
+        """
+        Renders expr expr.
+
+        Args:
+            self: (todo): write your description
+        """
         # types
         self.assertEqual(str(WDL.parse_expr("false")), "false")
         self.assertEqual(str(WDL.parse_expr("1")), "1")
@@ -59,6 +65,12 @@ class TestEval(unittest.TestCase):
         self.assertEqual(str(WDL.parse_expr(ifthenelsechain)), ifthenelsechain)
 
     def test_boolean(self):
+        """
+        Equal boolean.
+
+        Args:
+            self: (todo): write your description
+        """
         stdlib = WDL.StdLib.Base("1.0")
         expr = WDL.parse_expr("true")
         expr.infer_type([], stdlib)
@@ -84,6 +96,13 @@ class TestEval(unittest.TestCase):
         self.assertNotEqual(val, WDL.Value.Boolean(True))
 
     def _test_tuples(self, *tuples):
+        """
+        Check if the expression matches.
+
+        Args:
+            self: (todo): write your description
+            tuples: (str): write your description
+        """
         stdlib = WDL.StdLib.Base("development")
         for tuple in tuples:
             assert(len(tuple) >= 2)
@@ -120,6 +139,12 @@ class TestEval(unittest.TestCase):
                         self.assertEqual(str(ex.literal), expected)
 
     def test_logic(self):
+        """
+        Run test test test test test test test.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ("true && true", "true", WDL.Type.Boolean()),
             ("true && false", "false"),
@@ -142,6 +167,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_arithmetic(self):
+        """
+        Generate arithmetic.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ("1", "1"),
             ("-1","-1"),
@@ -162,6 +193,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_cmp(self):
+        """
+        Generate test test test test test test test test test test test test.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ("1 == 1","true"),
             ("1 == 0","false"),
@@ -182,6 +219,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_str(self):
+        """
+        Generate test string *
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ('"true"', '"true"', WDL.Type.String()),
             ('"true" == "true"', 'true', WDL.Type.Boolean()),
@@ -205,6 +248,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_if(self):
+        """
+        Test if if the i.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ("if false then 0 else 1","1", WDL.Type.Int()),
             ("if true then 0 else 1","0"),
@@ -221,6 +270,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_array(self):
+        """
+        Infer an array.
+
+        Args:
+            self: (todo): write your description
+        """
         stdlib = WDL.StdLib.Base("1.0")
         expr = WDL.parse_expr("[true,false]")
         expr.infer_type([], stdlib)
@@ -249,6 +304,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_float_coercion(self):
+        """
+        Test for float coercion.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ("1 + 1.0", "2.0", WDL.Type.Float()),
             ("1.0 + 1", "2.0", WDL.Type.Float()),
@@ -264,6 +325,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_ident(self):
+        """
+        Test if the environment.
+
+        Args:
+            self: (todo): write your description
+        """
         env = cons_env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
                         ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)),
                         ("true_rep_only", WDL.Value.Boolean(False)),
@@ -282,6 +349,12 @@ class TestEval(unittest.TestCase):
 
 
     def test_interpolation(self):
+        """
+        Interpolate test.
+
+        Args:
+            self: (todo): write your description
+        """
         env = cons_env(("pi", WDL.Value.Float(3.14159)), ("e", WDL.Value.Float(2.71828)),
                         ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)),
                         ("s", WDL.Value.String("foo")))
@@ -318,6 +391,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_pair(self):
+        """
+        Generate the environment.
+
+        Args:
+            self: (todo): write your description
+        """
         env = cons_env(("p", WDL.Value.Pair(WDL.Type.Float(), WDL.Type.Float(),
                                             (WDL.Value.Float(3.14159), WDL.Value.Float(2.71828)))),
                         ("q", WDL.Value.Pair(WDL.Type.Pair(WDL.Type.Int(), WDL.Type.Int()),
@@ -339,6 +418,12 @@ class TestEval(unittest.TestCase):
         )
 
     def test_map(self):
+        """
+        Test if the map of the map.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ("{'foo': 1, 'bar': 2}['bar']", "2"),
             ("{'foo': 1, 'bar': 2, 'baz': 3.0}['bar']", "2.0", WDL.Type.Float()),
@@ -357,11 +442,23 @@ class TestEval(unittest.TestCase):
             WDL.parse_expr("{(false, false): 0, (false, true): 1}").infer_type(WDL.Env.Bindings(), stdlib).eval(WDL.Env.Bindings(), stdlib).json
 
     def test_errors(self):
+        """
+        Run test test test results.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ("1 + bogus(2)", "(Ln 1, Col 5) No such function: bogus", WDL.Error.NoSuchFunction)
         )
 
     def test_short_circuit(self):
+        """
+        Test if the circuit is circular.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_tuples(
             ("true && 1/0 == 1", "", WDL.Error.EvalError),
             ("false && 1/0 == 1", "false"),
@@ -370,6 +467,12 @@ class TestEval(unittest.TestCase):
         )
 
 def cons_env(*bindings):
+    """
+    Return a new environment variables.
+
+    Args:
+        bindings: (dict): write your description
+    """
     b = WDL.Env.Bindings()
     for (x,y) in bindings:
         b = WDL.Env.Bindings(WDL.Env.Binding(x,y), b)
@@ -381,6 +484,12 @@ class TestEnv(unittest.TestCase):
     """
 
     def test_bind(self):
+        """
+        Binds a set of the class.
+
+        Args:
+            self: (todo): write your description
+        """
         e = WDL.Env.Bindings(WDL.Env.Binding("foo", "bar"))
         self.assertEqual(e.resolve("foo"), "bar")
         e = e.bind("fruit.orange", "a")
@@ -402,6 +511,12 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(e.resolve("fruit.apple.macintosh"), "d")
 
     def test_subtract(self):
+        """
+        Subtracts and bsp.
+
+        Args:
+            self: (todo): write your description
+        """
         e = WDL.Env.Bindings()
         e = e.bind("foo", "bar").bind("fruit.orange", "a").bind("fruit.pear", "b")
         e = e.bind("fruit.apple.honeycrisp", "c").bind("fruit.apple.macintosh", "d")
@@ -428,6 +543,12 @@ class TestEnv(unittest.TestCase):
         self.assertEqual(e.resolve("fruit.grape.green"), "f")
 
     def test_namespaces(self):
+        """
+        Check that all namespaces have a namespace
+
+        Args:
+            self: (todo): write your description
+        """
         e = WDL.Env.Bindings().bind("fruit.apple.honeycrisp", 42)
         self.assertTrue(e.has_namespace("fruit.apple"))
         self.assertTrue(e.has_namespace("fruit."))
@@ -440,6 +561,12 @@ class TestEnv(unittest.TestCase):
 
 class TestValue(unittest.TestCase):
     def test_json(self):
+        """
+        Convert json to json
+
+        Args:
+            self: (todo): write your description
+        """
         pty = WDL.Type.StructInstance("Person")
         pty.members = {
             "name": WDL.Type.String(), "age": WDL.Type.Int(),
@@ -483,6 +610,12 @@ class TestValue(unittest.TestCase):
         )
 
     def test_env_json(self):
+        """
+        Test the env env.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = WDL.parse_document(R"""
         version 1.0
 
@@ -504,6 +637,13 @@ class TestValue(unittest.TestCase):
         doc.typecheck()
 
         def rt(exe, d):
+            """
+            Execute the workflow.
+
+            Args:
+                exe: (todo): write your description
+                d: (todo): write your description
+            """
             namespace = ""
             if isinstance(exe, WDL.Workflow):
                 namespace = exe.name

@@ -56,6 +56,12 @@ def task(cfg, logger, run_id, run_dir, task, **recv):
 
         # for each file under out/
         def _raise(ex):
+            """
+            Raise an exception if an exception.
+
+            Args:
+                ex: (array): write your description
+            """
             raise ex
 
         links_dir = os.path.join(run_dir, "out")
@@ -105,8 +111,24 @@ def workflow(cfg, logger, run_id, run_dir, workflow, **recv):
 
 
 def write_outputs_s3_json(logger, outputs, run_dir, s3prefix, namespace):
+    """
+    Write json to s3.
+
+    Args:
+        logger: (todo): write your description
+        outputs: (todo): write your description
+        run_dir: (str): write your description
+        s3prefix: (str): write your description
+        namespace: (str): write your description
+    """
     # rewrite uploaded files to their S3 URIs
     def rewriter(fn):
+        """
+        Rewriter files to uploaded files.
+
+        Args:
+            fn: (todo): write your description
+        """
         try:
             return _uploaded_files[inode(fn)]
         except:
@@ -133,6 +155,14 @@ def write_outputs_s3_json(logger, outputs, run_dir, s3prefix, namespace):
 
 
 def s3cp(logger, fn, s3uri):
+    """
+    Run s3cp s3
+
+    Args:
+        logger: (todo): write your description
+        fn: (todo): write your description
+        s3uri: (str): write your description
+    """
     # shell out to `aws s3 cp` instead of calling boto3 directly, to minimize contention added to
     # miniwdl's GIL
     cmd = ["aws", "s3", "cp", fn, s3uri, "--follow-symlinks", "--only-show-errors"]
@@ -151,5 +181,11 @@ def s3cp(logger, fn, s3uri):
 
 
 def inode(link):
+    """
+    Inode the link to the given link
+
+    Args:
+        link: (str): write your description
+    """
     st = os.stat(os.path.realpath(link))
     return (st.st_dev, st.st_ino)

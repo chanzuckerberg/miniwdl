@@ -251,6 +251,17 @@ def _download_input_files(
     cached_hits = 0
 
     def rewriter(v: Union[Value.Directory, Value.File]) -> str:
+        """
+        Rewriter a directory.
+
+        Args:
+            v: (int): write your description
+            Union: (str): write your description
+            Value: (str): write your description
+            Directory: (str): write your description
+            Value: (str): write your description
+            File: (str): write your description
+        """
         nonlocal downloads, download_bytes, cached_hits
         directory = isinstance(v, Value.Directory)
         uri = v.value
@@ -324,12 +335,40 @@ def _eval_task_inputs(
     posix_inputs: Env.Bindings[Value.Base],
     container: TaskContainer,
 ) -> Env.Bindings[Value.Base]:
+    """
+    : param task_inputs. task input.
+
+    Args:
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        task: (todo): write your description
+        Tree: (todo): write your description
+        Task: (todo): write your description
+        posix_inputs: (todo): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Value: (todo): write your description
+        Base: (str): write your description
+        container: (todo): write your description
+    """
 
     # Map all the provided input File & Directory paths to in-container paths
     container.add_paths(_fspaths(posix_inputs))
 
     # copy posix_inputs with all File & Directory values mapped to their in-container paths
     def map_paths(fn: Union[Value.File, Value.Directory]) -> str:
+        """
+        Map a directory.
+
+        Args:
+            fn: (todo): write your description
+            Union: (str): write your description
+            Value: (todo): write your description
+            File: (str): write your description
+            Value: (todo): write your description
+            Directory: (str): write your description
+        """
         p = fn.value.rstrip("/")
         if isinstance(fn, Value.Directory):
             p += "/"
@@ -392,6 +431,14 @@ def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
     ans = set()
 
     def collector(v: Value.Base) -> None:
+        """
+        Recursively recursively.
+
+        Args:
+            v: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+        """
         if isinstance(v, Value.File):
             assert not v.value.endswith("/")
             ans.add(v.value)
@@ -413,6 +460,29 @@ def _eval_task_runtime(
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
 ) -> Dict[str, Union[int, str]]:
+    """
+    Evaluate a task. : parameter container.
+
+    Args:
+        cfg: (todo): write your description
+        config: (dict): write your description
+        Loader: (todo): write your description
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        task: (todo): write your description
+        Tree: (str): write your description
+        Task: (todo): write your description
+        container: (str): write your description
+        env: (todo): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Value: (todo): write your description
+        Base: (str): write your description
+        stdlib: (todo): write your description
+        StdLib: (todo): write your description
+        Base: (str): write your description
+    """
     runtime_values = {}
     for key, v in cfg["task_runtime"].get_dict("defaults").items():
         if isinstance(v, str):
@@ -556,9 +626,38 @@ def _try_task(
 def _eval_task_outputs(
     logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
 ) -> Env.Bindings[Value.Base]:
+    """
+    : param task_task_outputs ( task_path )
+
+    Args:
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        task: (todo): write your description
+        Tree: (todo): write your description
+        Task: (todo): write your description
+        env: (todo): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Value: (todo): write your description
+        Base: (str): write your description
+        container: (todo): write your description
+    """
 
     # helper to rewrite File/Directory from in-container paths to host paths
     def rewriter(v: Union[Value.File, Value.Directory], output_name: str) -> str:
+        """
+        Rewriter a container into a container.
+
+        Args:
+            v: (int): write your description
+            Union: (str): write your description
+            Value: (str): write your description
+            File: (str): write your description
+            Value: (str): write your description
+            Directory: (str): write your description
+            output_name: (str): write your description
+        """
         container_path = v.value
         if isinstance(v, Value.Directory) and not container_path.endswith("/"):
             container_path += "/"
@@ -629,6 +728,12 @@ def _check_directory(host_path: str, output_name: str) -> None:
     """
 
     def raiser(exc: OSError):
+        """
+        Raise an exception.
+
+        Args:
+            exc: (todo): write your description
+        """
         raise exc
 
     for root, subdirs, files in os.walk(host_path, onerror=raiser, followlinks=False):
@@ -653,6 +758,15 @@ def link_outputs(
     """
 
     def map_paths(v: Value.Base, dn: str) -> Value.Base:
+        """
+        Recursively to a set of fd.
+
+        Args:
+            v: (todo): write your description
+            Value: (todo): write your description
+            Base: (todo): write your description
+            dn: (todo): write your description
+        """
         if isinstance(v, (Value.File, Value.Directory)):
             if os.path.exists(v.value):
                 target = os.path.realpath(v.value)
@@ -716,6 +830,19 @@ def link_outputs(
 def _delete_work(
     cfg: config.Loader, logger: logging.Logger, container: Optional[TaskContainer], success: bool
 ) -> None:
+    """
+    Delete a work.
+
+    Args:
+        cfg: (todo): write your description
+        config: (todo): write your description
+        Loader: (todo): write your description
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        container: (todo): write your description
+        success: (str): write your description
+    """
     opt = cfg["file_io"]["delete_work"].strip().lower()
     if container and (
         opt == "always" or (success and opt == "success") or (not success and opt == "failure")
@@ -736,12 +863,31 @@ class _StdLib(StdLib.Base):
     def __init__(
         self, wdl_version: str, logger: logging.Logger, container: TaskContainer, inputs_only: bool
     ) -> None:
+        """
+        Initialize the container.
+
+        Args:
+            self: (todo): write your description
+            wdl_version: (str): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+            container: (todo): write your description
+            inputs_only: (bool): write your description
+        """
         super().__init__(wdl_version, write_dir=os.path.join(container.host_dir, "write_"))
         self.logger = logger
         self.container = container
         self.inputs_only = inputs_only
 
     def _devirtualize_filename(self, filename: str) -> str:
+        """
+        Return a filename.
+
+        Args:
+            self: (todo): write your description
+            filename: (str): write your description
+        """
         # check allowability of reading this file, & map from in-container to host
         ans = self.container.host_path(filename, inputs_only=self.inputs_only)
         if ans is None:
@@ -750,6 +896,13 @@ class _StdLib(StdLib.Base):
         return ans
 
     def _virtualize_filename(self, filename: str) -> str:
+        """
+        Virtualize the container name.
+
+        Args:
+            self: (todo): write your description
+            filename: (str): write your description
+        """
         # register new file with container input_path_map
         self.container.add_paths([filename])
         self.logger.debug(
@@ -762,12 +915,34 @@ class _StdLib(StdLib.Base):
 class InputStdLib(_StdLib):
     # StdLib for evaluation of task inputs and command
     def __init__(self, wdl_version: str, logger: logging.Logger, container: TaskContainer) -> None:
+        """
+        Initialize the underlying logger.
+
+        Args:
+            self: (todo): write your description
+            wdl_version: (str): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+            container: (todo): write your description
+        """
         super().__init__(wdl_version, logger, container, True)
 
 
 class OutputStdLib(_StdLib):
     # StdLib for evaluation of task outputs
     def __init__(self, wdl_version: str, logger: logging.Logger, container: TaskContainer) -> None:
+        """
+        Initialize a container.
+
+        Args:
+            self: (todo): write your description
+            wdl_version: (str): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+            container: (todo): write your description
+        """
         super().__init__(wdl_version, logger, container, False)
 
         setattr(
@@ -792,6 +967,16 @@ class OutputStdLib(_StdLib):
         )
 
         def _glob(pattern: Value.String, lib: OutputStdLib = self) -> Value.Array:
+            """
+            Return a list of all files matching pattern.
+
+            Args:
+                pattern: (str): write your description
+                Value: (todo): write your description
+                String: (str): write your description
+                lib: (todo): write your description
+                self: (todo): write your description
+            """
             pat = pattern.coerce(Type.String()).value
             if not pat:
                 raise OutputError("empty glob() pattern")

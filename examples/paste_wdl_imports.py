@@ -27,6 +27,11 @@ import WDL
 
 
 def main():
+    """
+    Main function.
+
+    Args:
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-o",
@@ -82,6 +87,12 @@ def main():
 
 
 def calls(element):
+    """
+    Generate : class : class objects from an element.
+
+    Args:
+        element: (todo): write your description
+    """
     # Yield each Call in the workflow, including those nested withis scatter/conditional sections
     for ch in element.children:
         if isinstance(ch, WDL.Call):
@@ -91,6 +102,15 @@ def calls(element):
 
 
 def rewrite_line(line, keyword, new_name, old_name="[0-9A-Za-z_\\.]+"):
+    """
+    Rewrite a string with new_name.
+
+    Args:
+        line: (str): write your description
+        keyword: (str): write your description
+        new_name: (str): write your description
+        old_name: (str): write your description
+    """
     # given a line like:
     #   call OLD_NAME {
     # replace OLD_NAME with new_name
@@ -100,6 +120,12 @@ def rewrite_line(line, keyword, new_name, old_name="[0-9A-Za-z_\\.]+"):
 
 
 def task_source_lines(task):
+    """
+    Return a list of the source.
+
+    Args:
+        task: (todo): write your description
+    """
     # copy the source lines of the given task and change the task name
     task_doc = task
     while not isinstance(task_doc, WDL.Document):

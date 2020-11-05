@@ -17,6 +17,16 @@ class SyntaxError(Exception):
     def __init__(
         self, pos: SourcePosition, msg: str, wdl_version: str, declared_wdl_version: Optional[str]
     ) -> None:
+        """
+        Initialize the message.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            msg: (str): write your description
+            wdl_version: (str): write your description
+            declared_wdl_version: (todo): write your description
+        """
         super().__init__(msg)
         self.pos = pos
         self.wdl_version = wdl_version
@@ -31,6 +41,15 @@ class ImportError(Exception):
     pos: SourcePosition
 
     def __init__(self, pos: SourcePosition, import_uri: str, message: Optional[str] = None) -> None:
+        """
+        Initialize a message.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            import_uri: (str): write your description
+            message: (str): write your description
+        """
         msg = "Failed to import " + import_uri
         if message:
             msg = msg + ", " + message
@@ -53,9 +72,23 @@ class SourceNode:
     """
 
     def __init__(self, pos: SourcePosition) -> None:
+        """
+        Initialize the next position.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+        """
         self.pos = pos
 
     def __lt__(self, rhs: TVSourceNode) -> bool:
+        """
+        Determine if rhs - rhs is within a pos.
+
+        Args:
+            self: (todo): write your description
+            rhs: (todo): write your description
+        """
         if isinstance(rhs, SourceNode):
             return (
                 self.pos.abspath,
@@ -73,6 +106,13 @@ class SourceNode:
         return False
 
     def __eq__(self, rhs: TVSourceNode) -> bool:
+        """
+        Returns true if rhs is equal false otherwise false.
+
+        Args:
+            self: (todo): write your description
+            rhs: (todo): write your description
+        """
         assert isinstance(rhs, SourceNode)
         return self.pos == rhs.pos
 
@@ -104,6 +144,14 @@ class ValidationError(Exception):
     The complete source text of the WDL document (if available)"""
 
     def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
+        """
+        Initialize the node
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            message: (str): write your description
+        """
         if isinstance(node, SourceNode):
             self.node = node
             self.pos = node.pos
@@ -122,21 +170,53 @@ class IndeterminateType(ValidationError):
 
 class NoSuchTask(ValidationError):
     def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
+        """
+        Initializes the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            name: (str): write your description
+        """
         super().__init__(node, "No such task/workflow: " + name)
 
 
 class NoSuchCall(ValidationError):
     def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
+        """
+        Initializes the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            name: (str): write your description
+        """
         super().__init__(node, "No such call in this workflow: " + name)
 
 
 class NoSuchFunction(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
+        """
+        Initialize a node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            name: (str): write your description
+        """
         super().__init__(node, "No such function: " + name)
 
 
 class WrongArity(ValidationError):
     def __init__(self, node: SourceNode, expected: int) -> None:
+        """
+        Initialize the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            expected: (str): write your description
+        """
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Apply)
         msg = "{} expects {} argument(s)".format(getattr(node, "function_name"), expected)
@@ -145,11 +225,26 @@ class WrongArity(ValidationError):
 
 class NotAnArray(ValidationError):
     def __init__(self, node: SourceNode) -> None:
+        """
+        Initialize the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+        """
         super().__init__(node, "Not an array")
 
 
 class NoSuchMember(ValidationError):
     def __init__(self, node: SourceNode, member: str) -> None:
+        """
+        Initialize the given member.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            member: (todo): write your description
+        """
         super().__init__(node, "No such member '{}'".format(member))
 
 
@@ -159,12 +254,32 @@ class StaticTypeMismatch(ValidationError):
     def __init__(
         self, node: SourceNode, expected: Type.Base, actual: Type.Base, message: str = ""
     ) -> None:
+        """
+        Initialize the message.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            expected: (str): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+            actual: (todo): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+            message: (str): write your description
+        """
         self.expected = expected
         self.actual = actual
         self.message = message
         super().__init__(node, message)
 
     def __str__(self) -> str:
+        """
+        Returns a string representation
+
+        Args:
+            self: (todo): write your description
+        """
         msg = f"Expected {self.expected} instead of {self.actual}"
         if self.message:
             msg += "; " + self.message
@@ -175,11 +290,26 @@ class StaticTypeMismatch(ValidationError):
 
 class IncompatibleOperand(ValidationError):
     def __init__(self, node: SourceNode, message: str) -> None:
+        """
+        Initialize the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            message: (str): write your description
+        """
         super().__init__(node, message)
 
 
 class UnknownIdentifier(ValidationError):
     def __init__(self, node: SourceNode) -> None:
+        """
+        Initialize the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+        """
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Ident)
         super().__init__(node, "Unknown identifier " + str(node))
@@ -187,11 +317,27 @@ class UnknownIdentifier(ValidationError):
 
 class NoSuchInput(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
+        """
+        Initialize a node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            name: (str): write your description
+        """
         super().__init__(node, "No such input " + name)
 
 
 class UncallableWorkflow(ValidationError):
     def __init__(self, node: SourceNode, name: str) -> None:
+        """
+        Initialize the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            name: (str): write your description
+        """
         super().__init__(
             node,
             (
@@ -211,6 +357,13 @@ class StrayInputDeclaration(ValidationError):
 
 class CircularDependencies(ValidationError):
     def __init__(self, node: SourceNode) -> None:
+        """
+        Initialize the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+        """
         msg = "circular dependencies"
         nm = next(
             (getattr(node, attr) for attr in ("name", "workflow_node_id") if hasattr(node, attr)),
@@ -230,6 +383,16 @@ class MultipleValidationErrors(Exception):
     def __init__(
         self, *exceptions: List[Union[ValidationError, "MultipleValidationErrors"]]
     ) -> None:
+        """
+        Initialize the exception.
+
+        Args:
+            self: (todo): write your description
+            exceptions: (todo): write your description
+            List: (str): write your description
+            Union: (todo): write your description
+            ValidationError: (bool): write your description
+        """
         super().__init__()
         self.exceptions = []
         for exn in exceptions:
@@ -248,9 +411,24 @@ class _MultiContext:
     _exceptions: List[Union[ValidationError, MultipleValidationErrors]]
 
     def __init__(self) -> None:
+        """
+        Initialize the exception.
+
+        Args:
+            self: (todo): write your description
+        """
         self._exceptions = []
 
     def try1(self, fn: Callable[[], Any]) -> Optional[Any]:  # pyre-ignore
+        """
+        Try to call the given callable.
+
+        Args:
+            self: (todo): write your description
+            fn: (todo): write your description
+            Callable: (str): write your description
+            Any: (todo): write your description
+        """
         try:
             return fn()
         except (ValidationError, MultipleValidationErrors) as exn:
@@ -258,9 +436,22 @@ class _MultiContext:
             return None
 
     def append(self, exn: Union[ValidationError, MultipleValidationErrors]) -> None:
+        """
+        Add an item to the list.
+
+        Args:
+            self: (todo): write your description
+            exn: (str): write your description
+        """
         self._exceptions.append(exn)
 
     def maybe_raise(self) -> None:
+        """
+        Raise an exception if any.
+
+        Args:
+            self: (todo): write your description
+        """
         if len(self._exceptions) == 1:
             raise self._exceptions[0]
         if self._exceptions:
@@ -313,6 +504,14 @@ class EvalError(RuntimeError):
     """:type: Optional[SourceNode]"""
 
     def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
+        """
+        Initialize the node
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+            message: (str): write your description
+        """
         if isinstance(node, SourceNode):
             self.node = node
             self.pos = node.pos
@@ -323,16 +522,37 @@ class EvalError(RuntimeError):
 
 class OutOfBounds(EvalError):
     def __init__(self, node: SourceNode) -> None:
+        """
+        Initialize the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+        """
         super().__init__(node, "Array index out of bounds")
 
 
 class EmptyArray(EvalError):
     def __init__(self, node: SourceNode) -> None:
+        """
+        Initialize the node.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+        """
         super().__init__(node, "Empty array for Array+ input/declaration")
 
 
 class NullValue(EvalError):
     def __init__(self, node: Union[SourceNode, SourcePosition]) -> None:
+        """
+        Initializes the node
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+        """
         super().__init__(node, "Null value")
 
 

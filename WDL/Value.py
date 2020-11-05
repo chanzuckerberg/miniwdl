@@ -30,20 +30,51 @@ class Base(ABC):
     """
 
     def __init__(self, type: Type.Base, value: Any, expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Initialize this type.
+
+        Args:
+            self: (todo): write your description
+            type: (str): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+        """
         assert isinstance(type, Type.Base)
         self.type = type
         self.value = value
         self.expr = expr
 
     def __eq__(self, other) -> bool:
+        """
+        Return true if two values are equal.
+
+        Args:
+            self: (todo): write your description
+            other: (todo): write your description
+        """
         if self.value is None:
             return other.value is None
         return self.type == other.type and self.value == other.value
 
     def __str__(self) -> str:
+        """
+        : return : class : ~.
+
+        Args:
+            self: (todo): write your description
+        """
         return json.dumps(self.json)
 
     def __deepcopy__(self, memo: Dict[int, Any]) -> Any:
+        """
+        Return a deep copy of this object.
+
+        Args:
+            self: (todo): write your description
+            memo: (dict): write your description
+        """
         cls = self.__class__
         cp = cls.__new__(cls)
         shallow = ("expr", "type")  # avoid deep-copying large, immutable structures
@@ -108,6 +139,12 @@ class Base(ABC):
 
     @property
     def children(self) -> "Iterable[Base]":
+        """
+        Return the children of this node.
+
+        Args:
+            self: (todo): write your description
+        """
         return []
 
 
@@ -115,6 +152,14 @@ class Boolean(Base):
     """``value`` has Python type ``bool``"""
 
     def __init__(self, value: bool, expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Initialize a boolean.
+
+        Args:
+            self: (todo): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+        """
         super().__init__(Type.Boolean(), value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
@@ -128,6 +173,14 @@ class Float(Base):
     """``value`` has Python type ``float``"""
 
     def __init__(self, value: float, expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Initialize the expr.
+
+        Args:
+            self: (todo): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+        """
         super().__init__(Type.Float(), value, expr)
 
 
@@ -135,6 +188,14 @@ class Int(Base):
     """``value`` has Python type ``int``"""
 
     def __init__(self, value: int, expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Initialize an unsigned integer.
+
+        Args:
+            self: (todo): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+        """
         super().__init__(Type.Int(), value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
@@ -150,6 +211,18 @@ class String(Base):
     def __init__(
         self, value: str, expr: "Optional[Expr.Base]" = None, subtype: Optional[Type.Base] = None
     ) -> None:
+        """
+        Initialize the subtype.
+
+        Args:
+            self: (todo): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+            subtype: (str): write your description
+            Optional: (todo): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+        """
         subtype = subtype or Type.String()
         super().__init__(subtype, value, expr)
 
@@ -175,6 +248,14 @@ class File(String):
     """``value`` has Python type ``str``"""
 
     def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Initialize the given expression.
+
+        Args:
+            self: (todo): write your description
+            value: (str): write your description
+            expr: (todo): write your description
+        """
         super().__init__(value, expr=expr, subtype=Type.File())
         if value != value.rstrip("/"):
             raise Error.InputError("WDL.Value.File invalid path: " + value)
@@ -195,6 +276,14 @@ class Directory(String):
     """``value`` has Python type ``str``"""
 
     def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Initialize a subtype.
+
+        Args:
+            self: (todo): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+        """
         super().__init__(value, expr=expr, subtype=Type.Directory())
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
@@ -217,6 +306,16 @@ class Array(Base):
     def __init__(
         self, item_type: Type.Base, value: List[Base], expr: "Optional[Expr.Base]" = None
     ) -> None:
+        """
+        Initialize item_type.
+
+        Args:
+            self: (todo): write your description
+            item_type: (str): write your description
+            Type: (str): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+        """
         self.value = []
         self.type = Type.Array(item_type, nonempty=(len(value) > 0))
         super().__init__(self.type, value, expr)
@@ -228,6 +327,12 @@ class Array(Base):
 
     @property
     def children(self) -> Iterable[Base]:
+        """
+        Return the list of child nodes.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.value
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
@@ -261,11 +366,35 @@ class Map(Base):
         value: List[Tuple[Base, Base]],
         expr: "Optional[Expr.Base]" = None,
     ) -> None:
+        """
+        Convert item type from a value.
+
+        Args:
+            self: (todo): write your description
+            item_type: (str): write your description
+            Tuple: (todo): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+            value: (todo): write your description
+            List: (str): write your description
+            Tuple: (todo): write your description
+            Base: (float): write your description
+            Base: (float): write your description
+            expr: (todo): write your description
+        """
         self.value = []
         self.type = Type.Map(item_type)
         super().__init__(self.type, value, expr)
 
     def __str__(self) -> str:
+        """
+        : return : class : ~.
+
+        Args:
+            self: (todo): write your description
+        """
         return json.dumps(self.json)
 
     @property
@@ -283,6 +412,12 @@ class Map(Base):
 
     @property
     def children(self) -> Iterable[Base]:
+        """
+        Iterate over all children.
+
+        Args:
+            self: (todo): write your description
+        """
         for (k, v) in self.value:
             yield k
             yield v
@@ -320,11 +455,29 @@ class Pair(Base):
         value: Tuple[Base, Base],
         expr: "Optional[Expr.Base]" = None,
     ) -> None:
+        """
+        Initialize the expr.
+
+        Args:
+            self: (todo): write your description
+            left_type: (str): write your description
+            Type: (str): write your description
+            right_type: (str): write your description
+            Type: (str): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+        """
         self.value = value
         self.type = Type.Pair(left_type, right_type)
         super().__init__(self.type, value, expr)
 
     def __str__(self) -> str:
+        """
+        Returns a human - readable string.
+
+        Args:
+            self: (todo): write your description
+        """
         assert isinstance(self.value, tuple)
         return "(" + str(self.value[0]) + "," + str(self.value[1]) + ")"
 
@@ -335,6 +488,12 @@ class Pair(Base):
 
     @property
     def children(self) -> Iterable[Base]:
+        """
+        Iterate over all children.
+
+        Args:
+            self: (todo): write your description
+        """
         yield self.value[0]
         yield self.value[1]
 
@@ -358,6 +517,13 @@ class Null(Base):
     ``type`` and ``value`` are both None."""
 
     def __init__(self, expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Initialize expr. expr.
+
+        Args:
+            self: (todo): write your description
+            expr: (todo): write your description
+        """
         super().__init__(Type.Any(optional=True), None, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
@@ -375,6 +541,12 @@ class Null(Base):
         return self
 
     def __str__(self) -> str:
+        """
+        Returns the string representation of the string.
+
+        Args:
+            self: (todo): write your description
+        """
         return "None"
 
     @property
@@ -392,6 +564,20 @@ class Struct(Base):
         value: Dict[str, Base],
         expr: "Optional[Expr.Base]" = None,
     ) -> None:
+        """
+        Initialize the type of this class.
+
+        Args:
+            self: (todo): write your description
+            type: (str): write your description
+            Union: (todo): write your description
+            Type: (str): write your description
+            Object: (todo): write your description
+            Type: (str): write your description
+            StructInstance: (str): write your description
+            value: (todo): write your description
+            expr: (todo): write your description
+        """
         super().__init__(type, value, expr)
         self.value = dict(value)
         if isinstance(type, Type.StructInstance):
@@ -414,6 +600,12 @@ class Struct(Base):
         return self
 
     def __str__(self) -> str:
+        """
+        : return : class : ~.
+
+        Args:
+            self: (todo): write your description
+        """
         return json.dumps(self.json)
 
     @property
@@ -426,6 +618,12 @@ class Struct(Base):
 
     @property
     def children(self) -> Iterable[Base]:
+        """
+        Return the children.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.value.values()
 
 
@@ -489,6 +687,12 @@ def from_json(type: Type.Base, value: Any) -> Base:
 
 
 def _infer_from_json(j: Any) -> Base:
+    """
+    Infer a json string into a json object.
+
+    Args:
+        j: (todo): write your description
+    """
     if isinstance(j, str):
         return String(j)
     if isinstance(j, bool):
@@ -519,6 +723,12 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], str]) -> Base:
     mapped_paths = set()
 
     def map_paths(v2: Base) -> Base:
+        """
+        Map a list of paths.
+
+        Args:
+            v2: (todo): write your description
+        """
         if isinstance(v2, (File, Directory)):
             assert id(v2) not in mapped_paths, f"File/Directory {id(v2)} reused in deepcopy"
             v2.value = f(v2)

@@ -112,6 +112,17 @@ class TaskContainer(ABC):
     _running: bool
 
     def __init__(self, cfg: config.Loader, run_id: str, host_dir: str) -> None:
+        """
+        Initialize the container.
+
+        Args:
+            self: (todo): write your description
+            cfg: (todo): write your description
+            config: (todo): write your description
+            Loader: (todo): write your description
+            run_id: (str): write your description
+            host_dir: (str): write your description
+        """
         self.cfg = cfg
         self.run_id = run_id
         self.host_dir = host_dir
@@ -166,6 +177,15 @@ class TaskContainer(ABC):
                 self.input_path_map_rev[container_path] = host_path
 
     def copy_input_files(self, logger: logging.Logger) -> None:
+        """
+        Copy a copy of a directory.
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            logging: (str): write your description
+            Logger: (todo): write your description
+        """
         # After add_paths has been used as needed, copy the input files from their original
         # locations to the appropriate subdirectories of the container working directory. This may
         # not be necessary e.g. if the container backend supports bind-mounting the input
@@ -219,6 +239,19 @@ class TaskContainer(ABC):
 
     @abstractmethod
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
+        """
+        Run a command.
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            logging: (bool): write your description
+            Logger: (todo): write your description
+            terminating: (bool): write your description
+            Callable: (str): write your description
+            bool: (todo): write your description
+            command: (list): write your description
+        """
         # run command in container & return exit status
         raise NotImplementedError()
 
@@ -324,16 +357,34 @@ class TaskContainer(ABC):
         return ans
 
     def host_work_dir(self):
+        """
+        Returns the path to the host directory.
+
+        Args:
+            self: (todo): write your description
+        """
         return os.path.join(
             self.host_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
         )
 
     def host_stdout_txt(self):
+        """
+        Return the host_dir
+
+        Args:
+            self: (todo): write your description
+        """
         return os.path.join(
             self.host_dir, f"stdout{self.try_counter if self.try_counter > 1 else ''}.txt"
         )
 
     def host_stderr_txt(self):
+        """
+        Return the host path
+
+        Args:
+            self: (todo): write your description
+        """
         return os.path.join(
             self.host_dir, f"stderr{self.try_counter if self.try_counter > 1 else ''}.txt"
         )
@@ -371,6 +422,18 @@ class SwarmContainer(TaskContainer):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
+        """
+        Initialize the global docker container.
+
+        Args:
+            cls: (todo): write your description
+            cfg: (todo): write your description
+            config: (todo): write your description
+            Loader: (todo): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+        """
         client = docker.from_env(version="auto")
         worker_nodes = []
         try:
@@ -482,6 +545,18 @@ class SwarmContainer(TaskContainer):
 
     @classmethod
     def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+        """
+        Return a list of a resource limits.
+
+        Args:
+            cls: (callable): write your description
+            cfg: (todo): write your description
+            config: (todo): write your description
+            Loader: (todo): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+        """
         assert cls._limits, f"{cls.__name__}.global_init"
         return cls._limits
 
@@ -492,6 +567,15 @@ class SwarmContainer(TaskContainer):
     _observed_states: Optional[Set[str]] = None
 
     def copy_input_files(self, logger: logging.Logger) -> None:
+        """
+        Copy a copy of the input directory.
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            logging: (str): write your description
+            Logger: (todo): write your description
+        """
         assert self._bind_input_files
         super().copy_input_files(logger)
         # now that files have been copied into the working dir, it won't be necessary to bind-mount
@@ -499,6 +583,19 @@ class SwarmContainer(TaskContainer):
         self._bind_input_files = False
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
+        """
+        Run this image.
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            logging: (bool): write your description
+            Logger: (todo): write your description
+            terminating: (bool): write your description
+            Callable: (str): write your description
+            bool: (todo): write your description
+            command: (list): write your description
+        """
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "w") as outfile:
             outfile.write(command)
@@ -605,7 +702,22 @@ class SwarmContainer(TaskContainer):
                 logger.exception("failed to close docker-py client")
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
+        """
+        Prepares all mountpoints
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+        """
         def touch_mount_point(host_path: str) -> None:
+            """
+            Touch a mount point on the filesystem.
+
+            Args:
+                host_path: (str): write your description
+            """
             # touching each mount point ensures they'll be owned by invoking user:group
             assert host_path.startswith(self.host_dir + "/")
             if host_path.endswith("/"):
@@ -620,6 +732,12 @@ class SwarmContainer(TaskContainer):
             chmod_R_plus(host_path.rstrip("/"), file_bits=0o660, dir_bits=0o770)
 
         def escape(s):
+            """
+            Replace special characters.
+
+            Args:
+                s: (str): write your description
+            """
             # docker processes {{ interpolations }}
             return s.replace("{{", '{{"{{"}}')
 
@@ -697,6 +815,18 @@ class SwarmContainer(TaskContainer):
     def misc_config(
         self, logger: logging.Logger, client: docker.DockerClient
     ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
+        """
+        Misc config from docker config.
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+            client: (todo): write your description
+            docker: (todo): write your description
+            DockerClient: (todo): write your description
+        """
         resources = {}
         cpu = self.runtime_values.get("cpu", 0)
         if cpu > 0:
@@ -734,6 +864,21 @@ class SwarmContainer(TaskContainer):
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
     ) -> Optional[int]:
+        """
+        Check if a service
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+            svc: (todo): write your description
+            docker: (todo): write your description
+            models: (todo): write your description
+            services: (todo): write your description
+            Service: (todo): write your description
+            verbose: (bool): write your description
+        """
         status = {"State": "(UNKNOWN)"}
 
         svc.reload()
@@ -856,6 +1001,13 @@ class SwarmContainer(TaskContainer):
                 logger.exception("post-task chown also failed")
 
     def unique_service_name(self, run_id: str) -> str:
+        """
+        Generate a unique name for a service.
+
+        Args:
+            self: (todo): write your description
+            run_id: (str): write your description
+        """
         # We need to give each service a name unique on the swarm; collisions cause the service
         # create request to fail. Considerations:
         # 1. [0-9A-Za-z-]{1,63} -- case is remembered, but comparison ignores it.

@@ -14,7 +14,21 @@ skylab_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../test
 WDL_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../WDL"))
 
 def stage_skylab_test_inputs(test_inputs_json_filename, dir="."):
+    """
+    Stage genes in a json file.
+
+    Args:
+        test_inputs_json_filename: (str): write your description
+        dir: (str): write your description
+    """
     def rw(v, index=None):
+        """
+        Find the path to the path of - > path
+
+        Args:
+            v: (str): write your description
+            index: (int): write your description
+        """
         if isinstance(v, list):
             return list(map(lambda p: rw(p[1],index=p[0]), enumerate(v)))
         if isinstance(v, str) and v.startswith("gs://"): 

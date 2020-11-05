@@ -76,6 +76,14 @@ class Base(ABC):
         ) and self._check_optional(rhs, check_quant)
 
     def _check_optional(self, rhs: "Base", check_quant: bool) -> bool:
+        """
+        Checks if the optional optional optional optional optional.
+
+        Args:
+            self: (todo): write your description
+            rhs: (todo): write your description
+            check_quant: (bool): write your description
+        """
         return not (
             check_quant and (self.optional and not rhs.optional and not isinstance(rhs, Any))
         )
@@ -111,9 +119,22 @@ class Base(ABC):
         return ans
 
     def __str__(self) -> str:
+        """
+        Return the string representation of the type.
+
+        Args:
+            self: (todo): write your description
+        """
         return type(self).__name__ + ("?" if self.optional else "")
 
     def __eq__(self, rhs: "Base") -> bool:
+        """
+        Returns true if rhs is equal false otherwise.
+
+        Args:
+            self: (todo): write your description
+            rhs: (todo): write your description
+        """
         return isinstance(rhs, Base) and str(self) == str(rhs)
 
 
@@ -126,14 +147,37 @@ class Any(Base):
     """
 
     def __init__(self, optional: bool = False, null: bool = False) -> None:
+        """
+        Initialize the parser.
+
+        Args:
+            self: (todo): write your description
+            optional: (todo): write your description
+            null: (todo): write your description
+        """
         self._optional = null  # True only for None literals
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+        """
+        Determine whether the given a : func : py : class : rhs.
+
+        Args:
+            self: (todo): write your description
+            rhs: (todo): write your description
+            check_quant: (bool): write your description
+        """
         return self._check_optional(rhs, check_quant)
 
 
 class Boolean(Base):
     def __init__(self, optional: bool = False) -> None:
+        """
+        Initialize the parser.
+
+        Args:
+            self: (todo): write your description
+            optional: (todo): write your description
+        """
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
@@ -145,6 +189,13 @@ class Boolean(Base):
 
 class Float(Base):
     def __init__(self, optional: bool = False) -> None:
+        """
+        Initialize the parser.
+
+        Args:
+            self: (todo): write your description
+            optional: (todo): write your description
+        """
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
@@ -156,6 +207,13 @@ class Float(Base):
 
 class Int(Base):
     def __init__(self, optional: bool = False) -> None:
+        """
+        Initialize the parser.
+
+        Args:
+            self: (todo): write your description
+            optional: (todo): write your description
+        """
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
@@ -169,6 +227,13 @@ class Int(Base):
 
 class File(Base):
     def __init__(self, optional: bool = False) -> None:
+        """
+        Initialize the parser.
+
+        Args:
+            self: (todo): write your description
+            optional: (todo): write your description
+        """
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
@@ -180,6 +245,13 @@ class File(Base):
 
 class Directory(Base):
     def __init__(self, optional: bool = False) -> None:
+        """
+        Initialize the parser.
+
+        Args:
+            self: (todo): write your description
+            optional: (todo): write your description
+        """
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
@@ -191,6 +263,13 @@ class Directory(Base):
 
 class String(Base):
     def __init__(self, optional: bool = False) -> None:
+        """
+        Initialize the parser.
+
+        Args:
+            self: (todo): write your description
+            optional: (todo): write your description
+        """
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
@@ -214,6 +293,15 @@ class Array(Base):
     _nonempty: bool
 
     def __init__(self, item_type: Base, optional: bool = False, nonempty: bool = False) -> None:
+        """
+        Initialize a new item.
+
+        Args:
+            self: (todo): write your description
+            item_type: (str): write your description
+            optional: (todo): write your description
+            nonempty: (todo): write your description
+        """
         assert item_type
         self.item_type = item_type
         assert isinstance(nonempty, bool)
@@ -221,6 +309,12 @@ class Array(Base):
         self._nonempty = nonempty
 
     def __str__(self) -> str:
+        """
+        Return a string representation of this item.
+
+        Args:
+            self: (todo): write your description
+        """
         ans = (
             "Array["
             + str(self.item_type)
@@ -241,6 +335,12 @@ class Array(Base):
 
     @property
     def parameters(self) -> Iterable[Base]:
+        """
+        A list of the parameters.
+
+        Args:
+            self: (todo): write your description
+        """
         yield self.item_type
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
@@ -256,6 +356,14 @@ class Array(Base):
         return False
 
     def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
+        """
+        Returns a copy of this set.
+
+        Args:
+            self: (todo): write your description
+            optional: (todo): write your description
+            nonempty: (todo): write your description
+        """
         ans = super().copy(optional)
         if nonempty is not None:
             ans._nonempty = nonempty
@@ -286,6 +394,18 @@ class Map(Base):
         optional: bool = False,
         literal_keys: Optional[Set[str]] = None,
     ) -> None:
+        """
+        Initialize item_type.
+
+        Args:
+            self: (todo): write your description
+            item_type: (str): write your description
+            optional: (todo): write your description
+            literal_keys: (str): write your description
+            Optional: (todo): write your description
+            Set: (todo): write your description
+            str: (todo): write your description
+        """
         self._optional = optional
         if item_type is None:
             item_type = (Any(), Any())
@@ -293,6 +413,12 @@ class Map(Base):
         self.literal_keys = literal_keys
 
     def __str__(self) -> str:
+        """
+        Return a string representation of this item.
+
+        Args:
+            self: (todo): write your description
+        """
         return (
             "Map["
             + (
@@ -306,6 +432,12 @@ class Map(Base):
 
     @property
     def parameters(self) -> Iterable[Base]:
+        """
+        Return an iterator over all parameters.
+
+        Args:
+            self: (todo): write your description
+        """
         yield self.item_type[0]
         yield self.item_type[1]
 
@@ -352,11 +484,26 @@ class Pair(Base):
     """
 
     def __init__(self, left_type: Base, right_type: Base, optional: bool = False) -> None:
+        """
+        Initialize this item.
+
+        Args:
+            self: (todo): write your description
+            left_type: (str): write your description
+            right_type: (str): write your description
+            optional: (todo): write your description
+        """
         self._optional = optional
         self.left_type = left_type
         self.right_type = right_type
 
     def __str__(self) -> str:
+        """
+        Return a string representation of the field.
+
+        Args:
+            self: (todo): write your description
+        """
         return (
             "Pair["
             + (str(self.left_type) + "," + str(self.right_type))
@@ -366,6 +513,12 @@ class Pair(Base):
 
     @property
     def parameters(self) -> Iterable[Base]:
+        """
+        Iterate over all parameters.
+
+        Args:
+            self: (todo): write your description
+        """
         yield self.left_type
         yield self.right_type
 
@@ -408,11 +561,25 @@ class StructInstance(Base):
     """
 
     def __init__(self, type_name: str, optional: bool = False) -> None:
+        """
+        Initialize this type.
+
+        Args:
+            self: (todo): write your description
+            type_name: (str): write your description
+            optional: (todo): write your description
+        """
         self._optional = optional
         self.type_name = type_name
         self.members = None
 
     def __str__(self) -> str:
+        """
+        The type name of this field.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.type_name + ("?" if self.optional else "")
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
@@ -436,11 +603,23 @@ class StructInstance(Base):
 
     @property
     def parameters(self) -> Iterable[Base]:
+        """
+        A list of this parameter.
+
+        Args:
+            self: (todo): write your description
+        """
         assert self.members is not None
         return self.members.values()
 
 
 def _struct_type_id(members: Dict[str, Base]) -> str:
+    """
+    Generate a struct type.
+
+    Args:
+        members: (dict): write your description
+    """
     # generates a content hash of the struct type definition, used to recognize
     # equivalent struct types going by different aliases
     ans = []
@@ -465,9 +644,22 @@ class Object(Base):
     members: Dict[str, Base]
 
     def __init__(self, members: Dict[str, Base]) -> None:
+        """
+        Initializes the members of the given members.
+
+        Args:
+            self: (todo): write your description
+            members: (todo): write your description
+        """
         self.members = members
 
     def __str__(self) -> str:
+        """
+        Returns a string representation of this element.
+
+        Args:
+            self: (todo): write your description
+        """
         ans = []
         for name, ty in sorted(self.members.items()):
             ans.append(name + " : " + str(ty))
@@ -475,9 +667,23 @@ class Object(Base):
 
     @property
     def parameters(self) -> Iterable[Base]:
+        """
+        A list of parameters.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.members.values()
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+        """
+        Determine if the given rhs.
+
+        Args:
+            self: (todo): write your description
+            rhs: (todo): write your description
+            check_quant: (bool): write your description
+        """
         if isinstance(rhs, (StructInstance, Object)):
             rhs_members = rhs.members
             assert rhs_members is not None

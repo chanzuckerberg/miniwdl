@@ -56,6 +56,11 @@ quant_warning = False
 
 
 def main(args=None):
+    """
+    Main function.
+
+    Args:
+    """
     sys.setrecursionlimit(1_000_000)  # permit as much call stack depth as OS can give us
 
     parser = create_arg_parser()
@@ -101,6 +106,11 @@ def main(args=None):
 
 
 def create_arg_parser():
+    """
+    Create an argparse argument parser.
+
+    Args:
+    """
     parser = ArgumentParser("miniwdl")
     parser.add_argument(
         "--version",
@@ -120,6 +130,16 @@ def create_arg_parser():
 
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
+        """
+        Call the parser.
+
+        Args:
+            self: (todo): write your description
+            parser: (todo): write your description
+            namespace: (str): write your description
+            values: (array): write your description
+            option_string: (str): write your description
+        """
         try:
             print(f"miniwdl v{importlib_metadata.version('miniwdl')}")
         except importlib_metadata.PackageNotFoundError:
@@ -139,6 +159,13 @@ class PipVersionAction(Action):
 
 
 def fill_common(subparser, path=True):
+    """
+    Add common common common common common options.
+
+    Args:
+        subparser: (todo): write your description
+        path: (str): write your description
+    """
     group = subparser.add_argument_group("language")
     group.add_argument(
         "--no-quant-check",
@@ -165,6 +192,12 @@ def fill_common(subparser, path=True):
 
 
 def fill_check_subparser(subparsers):
+    """
+    Adds a subcommand to the argument parser.
+
+    Args:
+        subparsers: (todo): write your description
+    """
     check_parser = subparsers.add_parser(
         "check",
         help="Validate a WDL document; show an outline with lint warnings",
@@ -202,6 +235,17 @@ def fill_check_subparser(subparsers):
 def check(
     uri=None, path=None, check_quant=True, shellcheck=True, strict=False, show_all=False, **kwargs
 ):
+    """
+    Check if a :: 0.
+
+    Args:
+        uri: (str): write your description
+        path: (str): write your description
+        check_quant: (str): write your description
+        shellcheck: (bool): write your description
+        strict: (bool): write your description
+        show_all: (bool): write your description
+    """
     # Load the document (read, parse, and typecheck)
     if not shellcheck:
         Lint._shellcheck_available = False
@@ -238,12 +282,33 @@ def check(
 
 
 def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown=None):
+    """
+    Prints a list.
+
+    Args:
+        obj: (todo): write your description
+        level: (int): write your description
+        file: (str): write your description
+        sys: (todo): write your description
+        stdout: (todo): write your description
+        show_called: (bool): write your description
+        show_all: (bool): write your description
+        shown: (bool): write your description
+    """
     # recursively pretty-print a brief outline of the workflow
     s = "".join(" " for i in range(level * 4))
 
     first_descent = []
 
     def descend(dobj=None, first_descent=first_descent):
+        """
+        Descend all the dobj.
+
+        Args:
+            dobj: (todo): write your description
+            first_descent: (str): write your description
+            first_descent: (str): write your description
+        """
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
             for (pos, cls, msg, suppressed) in sorted(obj.lint, key=lambda t: t[0]):
@@ -321,6 +386,12 @@ def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown
 
 
 def print_error(exn):
+    """
+    Prints the error message.
+
+    Args:
+        exn: (str): write your description
+    """
     global quant_warning
     if isinstance(exn, Error.MultipleValidationErrors):
         for exn1 in exn.exceptions:
@@ -359,6 +430,14 @@ def print_error(exn):
 
 
 async def read_source(uri, path, importer):
+      """
+      Read source from uri.
+
+      Args:
+          uri: (str): write your description
+          path: (str): write your description
+          importer: (todo): write your description
+      """
     if uri.startswith("http:") or uri.startswith("https:"):
         fn = os.path.join(
             tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
@@ -376,6 +455,12 @@ async def read_source(uri, path, importer):
 
 
 def fill_run_subparser(subparsers):
+    """
+    Creates a subcommand
+
+    Args:
+        subparsers: (todo): write your description
+    """
     run_parser = subparsers.add_parser(
         "run",
         help="Run workflow/task locally with built-in runtime",
@@ -519,6 +604,31 @@ def runner(
     log_json=False,
     **kwargs,
 ):
+    """
+    Execute a runner.
+
+    Args:
+        uri: (str): write your description
+        task: (todo): write your description
+        inputs: (array): write your description
+        input_file: (str): write your description
+        empty: (todo): write your description
+        none: (str): write your description
+        json_only: (bool): write your description
+        run_dir: (str): write your description
+        path: (str): write your description
+        check_quant: (bool): write your description
+        cfg: (todo): write your description
+        runtime_cpu_max: (int): write your description
+        runtime_memory_max: (int): write your description
+        runtime_defaults: (str): write your description
+        max_tasks: (int): write your description
+        copy_input_files: (str): write your description
+        as_me: (str): write your description
+        no_cache: (todo): write your description
+        error_json: (todo): write your description
+        log_json: (todo): write your description
+    """
     # set up logging
     level = NOTICE_LEVEL
     if kwargs["verbose"]:
@@ -733,6 +843,13 @@ def runner(
 
 
 def runner_input_completer(prefix, parsed_args, **kwargs):
+    """
+    Execute completion of - completion.
+
+    Args:
+        prefix: (str): write your description
+        parsed_args: (todo): write your description
+    """
     # argcomplete completer for `miniwdl run` and `miniwdl cromwell`
     if "uri" in parsed_args:
         # load document. in the completer setting, we need to substitute the home directory
@@ -955,7 +1072,19 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
 
 
 def runner_input_help(target):
+    """
+    Run help command help
+
+    Args:
+        target: (todo): write your description
+    """
     def bold(line):
+        """
+        Prints a string of the terminal.
+
+        Args:
+            line: (str): write your description
+        """
         if sys.stderr.isatty():
             return f"{ANSI.BOLD}{line}{ANSI.RESET}"
         return line
@@ -1010,6 +1139,14 @@ def is_constant_expr(expr):
 
 
 def add_wrapped_parameter_meta(target, input_name, output_list):
+    """
+    Add a meta - style docstring to the input_name.
+
+    Args:
+        target: (todo): write your description
+        input_name: (str): write your description
+        output_list: (list): write your description
+    """
     ans = ""
     if input_name in target.parameter_meta:
         entry = target.parameter_meta[input_name]
@@ -1083,6 +1220,12 @@ def validate_input_path(path, directory, downloadable, root):
     if directory:
 
         def raiser(exc: OSError):
+            """
+            Raise an exception.
+
+            Args:
+                exc: (todo): write your description
+            """
             raise exc
 
         for root, subdirs, files in os.walk(path, onerror=raiser, followlinks=False):
@@ -1099,6 +1242,12 @@ def validate_input_path(path, directory, downloadable, root):
 
 
 def fill_run_self_test_subparser(subparsers):
+    """
+    Sets a subcommand.
+
+    Args:
+        subparsers: (todo): write your description
+    """
     run_parser = subparsers.add_parser(
         "run_self_test", help="Run a short built-in workflow to test system configuration"
     )
@@ -1126,6 +1275,11 @@ def fill_run_self_test_subparser(subparsers):
 
 
 def run_self_test(**kwargs):
+    """
+    Run test test.
+
+    Args:
+    """
     dn = kwargs["dir"]
     if not dn:
         dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
@@ -1218,6 +1372,12 @@ def run_self_test(**kwargs):
 
 
 def fill_localize_subparser(subparsers):
+    """
+    Create a subcommand parser.
+
+    Args:
+        subparsers: (todo): write your description
+    """
     localize_parser = subparsers.add_parser(
         "localize",
         help="Download URI input Files to local cache for use in subsequent runs",
@@ -1307,6 +1467,20 @@ def localize(
     check_quant=True,
     **kwargs,
 ):
+    """
+    Localize local variables.
+
+    Args:
+        wdlfile: (str): write your description
+        infile: (str): write your description
+        file: (str): write your description
+        directory: (str): write your description
+        no_cache: (todo): write your description
+        task: (todo): write your description
+        cfg: (todo): write your description
+        path: (str): write your description
+        check_quant: (bool): write your description
+    """
     # set up logging
     level = NOTICE_LEVEL
     logging.raiseExceptions = False
@@ -1368,6 +1542,12 @@ def localize(
 
             # scan inputs for donwloadable URIs that appear to be downloadable URIs
             def scan(v):
+                """
+                Scan a directory.
+
+                Args:
+                    v: (float): write your description
+                """
                 is_directory = isinstance(v, Value.Directory)
                 if runtime.download.able(cfg, v.value, directory=is_directory):
                     (directory if is_directory else file).add(v.value)
@@ -1460,6 +1640,13 @@ def localize(
 
 
 def die(msg, status=2):
+    """
+    Print an error.
+
+    Args:
+        msg: (str): write your description
+        status: (str): write your description
+    """
     msg = "\n".join(textwrap.wrap(msg, 100))
     if sys.stderr.isatty():
         print(f"\n{ANSI.BHRED}{msg}{ANSI.RESET}\n", file=sys.stderr)

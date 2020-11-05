@@ -4,6 +4,12 @@ from .context import WDL
 
 class TestTasks(unittest.TestCase):
     def test_wc(self):
+        """
+        Execute a wc test.
+
+        Args:
+            self: (todo): write your description
+        """
         variants = [
         """
         task wc {
@@ -76,6 +82,12 @@ class TestTasks(unittest.TestCase):
             self.assertFalse(task.command.parts[-1].strip().endswith(">>>"))
 
     def test_errors(self):
+        """
+        Check that all errors.
+
+        Args:
+            self: (todo): write your description
+        """
         with self.assertRaises(WDL.Error.InvalidType):
             WDL.parse_tasks("""
             task wc {
@@ -128,6 +140,12 @@ class TestTasks(unittest.TestCase):
             """)[0].typecheck()
 
     def test_placeholders(self):
+        """
+        Test for placeholders.
+
+        Args:
+            self: (todo): write your description
+        """
         task = WDL.parse_tasks("""
             task wc {
                 input {
@@ -282,6 +300,12 @@ class TestTasks(unittest.TestCase):
                 """)[0]
 
     def test_meta(self):
+        """
+        Runs a meta - link of the given task.
+
+        Args:
+            self: (todo): write your description
+        """
         task = WDL.parse_tasks("""
         task wc {
             input {
@@ -347,6 +371,12 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(task.meta['description'], "it's a task")
 
     def test_compare_md5sums(self):
+        """
+        Compare md5 checksum md5 md5.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = """
 task compare_md5sum {
 	Array[String] labels
@@ -450,7 +480,20 @@ task compare_md5sum {
 
 class TestTypes(unittest.TestCase):
     def test_parser(self):
+        """
+        Parse the given a docstring.
+
+        Args:
+            self: (todo): write your description
+        """
         def check(t,v):
+            """
+            Parse a docstring.
+
+            Args:
+                t: (todo): write your description
+                v: (todo): write your description
+            """
             doc_txt = r"""
             workflow contrived {{
                 {t} x
@@ -472,7 +515,20 @@ class TestTypes(unittest.TestCase):
             check(t, "1.0")
 
     def test_invalid(self):
+        """
+        Check that the document.
+
+        Args:
+            self: (todo): write your description
+        """
         def check(t,v):
+            """
+            Check that the document is_txt is_document.
+
+            Args:
+                t: (todo): write your description
+                v: (todo): write your description
+            """
             doc_txt = r"""
             workflow contrived {{
                 {t} x
@@ -487,6 +543,12 @@ class TestTypes(unittest.TestCase):
                 check(t,"1.0")
 
     def test_unify(self):
+        """
+        Unify a test.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = WDL.parse_document("""
         workflow unify {
             String s
@@ -517,6 +579,12 @@ class TestTypes(unittest.TestCase):
             doc.typecheck()
 
     def test_map_io(self):
+        """
+        Test the document.
+
+        Args:
+            self: (todo): write your description
+        """
         with self.assertRaisesRegex(WDL.Error.ValidationError, "keys cannot"):
             WDL.parse_document("""
             workflow w {
@@ -538,6 +606,12 @@ class TestTypes(unittest.TestCase):
 
 class TestDoc(unittest.TestCase):
     def test_count_foo(self):
+        """
+        Parse docstrings.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""#foo
 workflow count_lines_matching {
     call grep
@@ -583,6 +657,12 @@ task count_lines {
         self.assertEqual(doc.source_comments[32].text, "   #bas ")
 
     def test_bam_chrom_counter(self):
+        """
+        Test baml document
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         workflow bam_chrom_counter {
             File bam
@@ -649,6 +729,12 @@ task count_lines {
         doc.typecheck()
 
     def test_nested_scatter(self):
+        """
+        Test for a document.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         import "x.wdl"
         task sum {
@@ -691,6 +777,12 @@ task count_lines {
         self.assertEqual(doc.imports[1].namespace, "z")
 
     def test_scatter_conditional(self):
+        """
+        Test if the document children.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         task sum {
             Int x
@@ -732,6 +824,13 @@ task count_lines {
 
         b = [False]
         def check_scatter_depth(node, d=0):
+            """
+            Check the validity of the node.
+
+            Args:
+                node: (todo): write your description
+                d: (todo): write your description
+            """
             self.assertEqual(node.scatter_depth, d)
             if d>0:
                 b[0] = True
@@ -743,6 +842,12 @@ task count_lines {
         assert b[0]
 
     def test_errors(self):
+        """
+        Check if the error.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
         task sum {
@@ -971,6 +1076,12 @@ task count_lines {
             doc.typecheck()
 
     def test_task_forward_reference(self):
+        """
+        Test if a forward task task.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
         task sum {
@@ -993,6 +1104,12 @@ task count_lines {
         # TODO: test circular reference
 
     def test_draft2_workflow_outputs(self):
+        """
+        Test for draft docstring
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         task sum {
             Int x
@@ -1222,6 +1339,12 @@ task count_lines {
         doc.typecheck()
 
     def test_workflow_inputs(self):
+        """
+        Test for the workflow inputs.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
         task sum {
@@ -1406,6 +1529,12 @@ task count_lines {
         doc.typecheck()
 
     def test_multi_errors(self):
+        """
+        Check if multiple errors.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
         task bogus1 {
@@ -1495,6 +1624,12 @@ task count_lines {
             self.assertEqual(len(multi.exceptions), 2)
 
     def test_issue135_workflow_available_inputs(self):
+        """
+        Test for some available workflows.
+
+        Args:
+            self: (todo): write your description
+        """
         # Workflow.available_inputs should not include declarations in the
         # output section
         doc = r"""
@@ -1511,6 +1646,12 @@ task count_lines {
         self.assertEqual(list(doc.workflow.available_inputs)[0].name, "in")
 
     def test_issue173_workflow_section_order(self):
+        """
+        Test if the document is a built - link.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
         workflow a {
@@ -1532,6 +1673,12 @@ task count_lines {
         WDL.parse_document(doc).typecheck()
 
     def test_issue233_version_development(self):
+        """
+        Test if the version of the version_version.
+
+        Args:
+            self: (todo): write your description
+        """
         # bug where "version development" resulted in draft-2 grammar
         doc = r"""
         version development
@@ -1546,6 +1693,12 @@ task count_lines {
 
 class TestCycleDetection(unittest.TestCase):
     def test_task(self):
+        """
+        Test if the task.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
         task cyclic {
@@ -1594,6 +1747,12 @@ class TestCycleDetection(unittest.TestCase):
             doc.typecheck()
 
     def test_workflow(self):
+        """
+        Test if a workflow.
+
+        Args:
+            self: (todo): write your description
+        """
         add = r"""
         task add {
             input {
@@ -1693,6 +1852,12 @@ class TestCycleDetection(unittest.TestCase):
 
 class TestStruct(unittest.TestCase):
     def test_parser(self):
+        """
+        Parse a parser.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
 
@@ -1737,6 +1902,12 @@ class TestStruct(unittest.TestCase):
             doc = WDL.parse_document(doc)
 
     def test_decl(self):
+        """
+        Parse a declaration.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
 
@@ -2111,6 +2282,12 @@ class TestStruct(unittest.TestCase):
             doc.typecheck()
 
     def test_import(self):
+        """
+        Writes the docfn to a file
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
         import "../test_corpi/gatk-workflows/five-dollar-genome-analysis-pipeline/structs/GermlineStructs.wdl"
@@ -2188,6 +2365,12 @@ class TestStruct(unittest.TestCase):
         os.unlink(docfn)
 
     def test_object_literal(self):
+        """
+        Parse a python object *
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version 1.0
 
@@ -2294,6 +2477,12 @@ class TestStruct(unittest.TestCase):
         doc.typecheck()
 
     def test_keywords(self):
+        """
+        Determine the keywords.
+
+        Args:
+            self: (todo): write your description
+        """
         templ = r"""
         version 1.0
 
@@ -2319,6 +2508,12 @@ class TestStruct(unittest.TestCase):
 
 class TestNoneLiteral(unittest.TestCase):
     def test_none_expr(self):
+        """
+        Check that the none is none if the case.
+
+        Args:
+            self: (todo): write your description
+        """
         doc = r"""
         version development
         struct Car {
@@ -2348,6 +2543,12 @@ class TestNoneLiteral(unittest.TestCase):
         assert str(doc.workflow.inputs[0]) == "Int? x = None"
 
     def test_none_type_errors(self):
+        """
+        Check that the given type of the given a type is none.
+
+        Args:
+            self: (todo): write your description
+        """
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_document(r"""version development
             workflow w {

@@ -64,6 +64,16 @@ class StructTypeDef(SourceNode):
         members: Dict[str, Type.Base],
         imported: "Optional[Tuple[Document,StructTypeDef]]" = None,
     ) -> None:
+        """
+        Initialize the class.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            name: (str): write your description
+            members: (todo): write your description
+            imported: (list): write your description
+        """
         super().__init__(pos)
         self.name = name
         self.members = members
@@ -111,6 +121,14 @@ class WorkflowNode(SourceNode, ABC):
     _memo_workflow_node_dependencies: Optional[Set[str]] = None
 
     def __init__(self, workflow_node_id: str, pos: SourcePosition):
+        """
+        Initialize a workflow.
+
+        Args:
+            self: (todo): write your description
+            workflow_node_id: (str): write your description
+            pos: (int): write your description
+        """
         super().__init__(pos)
         self.workflow_node_id = workflow_node_id
         self.scatter_depth = 0
@@ -131,6 +149,12 @@ class WorkflowNode(SourceNode, ABC):
 
     @abstractmethod
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        """
+        Sets the node dependencies.
+
+        Args:
+            self: (todo): write your description
+        """
         # to be supplied by subclasses
         raise NotImplementedError()
 
@@ -138,11 +162,35 @@ class WorkflowNode(SourceNode, ABC):
     def add_to_type_env(
         self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
+        """
+        Add the given struct type to_type.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         # typechecking helper -- add this node to the type environment; for sections, this includes
         # everything in the section body as visible outside of the section.
         raise NotImplementedError()
 
     def _increment_scatter_depth(self) -> None:
+        """
+        Increment the number of a depth.
+
+        Args:
+            self: (todo): write your description
+        """
         for ch in self.children:
             if isinstance(ch, WorkflowNode):
                 ch._increment_scatter_depth()
@@ -178,12 +226,34 @@ class Decl(WorkflowNode):
         expr: Optional[Expr.Base] = None,
         id_prefix="decl",
     ) -> None:
+        """
+        Initialize a new scope.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            type: (str): write your description
+            Type: (str): write your description
+            Base: (float): write your description
+            name: (str): write your description
+            expr: (todo): write your description
+            Optional: (todo): write your description
+            Expr: (todo): write your description
+            Base: (float): write your description
+            id_prefix: (str): write your description
+        """
         super().__init__(id_prefix + "-" + name, pos)
         self.type = type
         self.name = name
         self.expr = expr
 
     def __str__(self) -> str:
+        """
+        Return a human - readable string representation.
+
+        Args:
+            self: (todo): write your description
+        """
         if self.expr is None:
             return "{} {}".format(str(self.type), self.name)
         return "{} {} = {}".format(str(self.type), self.name, str(self.expr))
@@ -202,6 +272,25 @@ class Decl(WorkflowNode):
         type_env: Env.Bindings[Type.Base],
         collision_ok: bool = False,
     ) -> Env.Bindings[Type.Base]:
+        """
+        Add a type to this struct.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            collision_ok: (str): write your description
+        """
         # Add an appropriate binding in the type env, after checking for name
         # collision.
         if not collision_ok:
@@ -221,6 +310,28 @@ class Decl(WorkflowNode):
         struct_types: Env.Bindings[Dict[str, Type.Base]],
         check_quant: bool = True,
     ) -> None:
+        """
+        Check that the given type is of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+            stdlib: (todo): write your description
+            StdLib: (todo): write your description
+            Base: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+            check_quant: (bool): write your description
+        """
         # Infer the expression's type and ensure it checks against the declared
         # type. One time use!
         if self.expr:
@@ -229,6 +340,12 @@ class Decl(WorkflowNode):
             ).typecheck(self.type)
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        """
+        Yields the node dependencies of the node.
+
+        Args:
+            self: (todo): write your description
+        """
         yield from _expr_workflow_node_dependencies(self.expr)
 
 
@@ -284,6 +401,23 @@ class Task(SourceNode):
         runtime: Dict[str, Expr.Base],
         meta: Dict[str, Any],
     ) -> None:
+        """
+        Do some setup after initializations.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            name: (str): write your description
+            inputs: (list): write your description
+            Optional: (todo): write your description
+            postinputs: (todo): write your description
+            command: (str): write your description
+            String: (todo): write your description
+            outputs: (str): write your description
+            parameter_meta: (str): write your description
+            runtime: (int): write your description
+            meta: (float): write your description
+        """
         super().__init__(pos)
         self.name = name
         self.inputs = inputs
@@ -362,6 +496,21 @@ class Task(SourceNode):
         struct_types: Optional[Env.Bindings[Dict[str, Type.Base]]] = None,
         check_quant: bool = True,
     ) -> None:
+        """
+        Check the type of the struct.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Optional: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            check_quant: (bool): write your description
+        """
         struct_types = struct_types or Env.Bindings()
         # warm-up check: if input{} section exists then all postinput decls
         # must be bound
@@ -471,6 +620,17 @@ class Call(WorkflowNode):
         inputs: Dict[str, Expr.Base],
         after: Optional[List[str]] = None,
     ) -> None:
+        """
+        Initializes the input graph.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            callee_id: (str): write your description
+            alias: (str): write your description
+            inputs: (list): write your description
+            after: (todo): write your description
+        """
         assert callee_id
         self.callee_id = callee_id
         self.name = alias if alias is not None else self.callee_id[-1]
@@ -487,6 +647,13 @@ class Call(WorkflowNode):
             yield ex
 
     def resolve(self, doc: "Document") -> None:
+        """
+        Resolve a single document.
+
+        Args:
+            self: (todo): write your description
+            doc: (str): write your description
+        """
         # Set self.callee to the Task/Workflow being called. Use exactly once
         # prior to add_to_type_env() or typecheck_input()
         if self.callee:
@@ -523,6 +690,24 @@ class Call(WorkflowNode):
     def add_to_type_env(
         self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
+        """
+        Add a type to this struct type.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
         assert self.callee
@@ -547,6 +732,28 @@ class Call(WorkflowNode):
         stdlib: StdLib.Base,
         check_quant: bool,
     ) -> bool:
+        """
+        Check input checks on the input.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (str): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            stdlib: (todo): write your description
+            StdLib: (todo): write your description
+            Base: (todo): write your description
+            check_quant: (bool): write your description
+        """
         # Check the input expressions against the callee's inputs. One-time use.
         # Returns True if the call supplies all required inputs, False otherwise.
         assert self.callee
@@ -624,6 +831,12 @@ class Call(WorkflowNode):
         return ans
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        """
+        Yields the dependencies of the node.
+
+        Args:
+            self: (todo): write your description
+        """
         assert (not self.after) == (not self._after_node_ids)
         yield from self._after_node_ids
         for expr in self.inputs.values():
@@ -659,6 +872,14 @@ class Gather(WorkflowNode):
     """
 
     def __init__(self, section: "WorkflowSection", referee: "Union[Decl, Call, Gather]") -> None:
+        """
+        Initialize a workflow
+
+        Args:
+            self: (todo): write your description
+            section: (todo): write your description
+            referee: (str): write your description
+        """
         super().__init__("gather-" + referee.workflow_node_id, referee.pos)
         self.section = section
         self.referee = referee
@@ -666,9 +887,33 @@ class Gather(WorkflowNode):
     def add_to_type_env(
         self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
+        """
+        Add the given struct type to_type.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         raise NotImplementedError()
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        """
+        Yields all the dependency dependencies of the node.
+
+        Args:
+            self: (todo): write your description
+        """
         yield self.referee.workflow_node_id
 
     @property
@@ -724,6 +969,13 @@ class WorkflowSection(WorkflowNode):
     """
 
     def __init__(self, body: List[WorkflowNode], *args, **kwargs):
+        """
+        Initialize the workflow.
+
+        Args:
+            self: (todo): write your description
+            body: (str): write your description
+        """
         super().__init__(*args, **kwargs)
         self.body = body
         # TODO: add dependency on self to each body node?
@@ -750,6 +1002,12 @@ class WorkflowSection(WorkflowNode):
     @property
     @abstractmethod
     def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        """
+        Returns a list of the outputs.
+
+        Args:
+            self: (todo): write your description
+        """
         raise NotImplementedError()
 
 
@@ -770,6 +1028,18 @@ class Scatter(WorkflowSection):
     def __init__(
         self, pos: SourcePosition, variable: str, expr: Expr.Base, body: List[WorkflowNode]
     ) -> None:
+        """
+        Initialize a variable.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            variable: (todo): write your description
+            expr: (todo): write your description
+            Expr: (todo): write your description
+            Base: (float): write your description
+            body: (str): write your description
+        """
         super().__init__(body, "scatter-L{}C{}-{}".format(pos.line, pos.column, variable), pos)
         self.variable = variable
         self.expr = expr
@@ -787,6 +1057,24 @@ class Scatter(WorkflowSection):
     def add_to_type_env(
         self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
+        """
+        Add a type to this type.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as Array[T] outside)
@@ -800,6 +1088,16 @@ class Scatter(WorkflowSection):
 
         # array-ize each inner type binding and add gather nodes
         def arrayize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            """
+            Create a new : class.
+
+            Args:
+                binding: (int): write your description
+                Env: (todo): write your description
+                Binding: (int): write your description
+                Type: (todo): write your description
+                Base: (str): write your description
+            """
             return Env.Binding(  # pyre-ignore
                 binding.name,
                 Type.Array(binding.value, nonempty=nonempty),
@@ -810,6 +1108,12 @@ class Scatter(WorkflowSection):
 
     @property
     def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        """
+        Evaluate the output of this type.
+
+        Args:
+            self: (todo): write your description
+        """
         # Yield the outputs of calls in this section and subsections, typed
         # and namespaced appropriately, as they'll be propagated if the
         # workflow lacks an explicit output{} section
@@ -821,6 +1125,16 @@ class Scatter(WorkflowSection):
                 inner_outputs = Env.merge(elt.effective_outputs, inner_outputs)
 
         def arrayize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            """
+            Create a new : class.
+
+            Args:
+                binding: (int): write your description
+                Env: (todo): write your description
+                Binding: (int): write your description
+                Type: (todo): write your description
+                Base: (str): write your description
+            """
             return Env.Binding(  # pyre-ignore
                 binding.name,
                 Type.Array(binding.value, nonempty=nonempty),
@@ -830,6 +1144,12 @@ class Scatter(WorkflowSection):
         return inner_outputs.map(arrayize)  # pyre-ignore
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        """
+        Yields the node dependencies of the node.
+
+        Args:
+            self: (todo): write your description
+        """
         yield from _expr_workflow_node_dependencies(self.expr)
 
 
@@ -843,6 +1163,17 @@ class Conditional(WorkflowSection):
     Boolean expression"""
 
     def __init__(self, pos: SourcePosition, expr: Expr.Base, body: List[WorkflowNode]) -> None:
+        """
+        Initialize the node under the subclasses.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            expr: (todo): write your description
+            Expr: (todo): write your description
+            Base: (float): write your description
+            body: (str): write your description
+        """
         super().__init__(body, "if-L{}C{}".format(pos.line, pos.column), pos)
         # TODO: add to id the name of 'shallowest' (closest to root) ident in expr
         self.expr = expr
@@ -856,6 +1187,24 @@ class Conditional(WorkflowSection):
     def add_to_type_env(
         self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
+        """
+        Add a new type to this type.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
         # seen as T? outside)
@@ -866,6 +1215,16 @@ class Conditional(WorkflowSection):
 
         # optional-ize each inner type binding and add gather nodes
         def optionalize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            """
+            Creates a binding.
+
+            Args:
+                binding: (str): write your description
+                Env: (todo): write your description
+                Binding: (str): write your description
+                Type: (str): write your description
+                Base: (todo): write your description
+            """
             return Env.Binding(
                 binding.name,
                 binding.value.copy(optional=True),
@@ -876,6 +1235,12 @@ class Conditional(WorkflowSection):
 
     @property
     def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        """
+        The output of the output.
+
+        Args:
+            self: (todo): write your description
+        """
         # Yield the outputs of calls in this section and subsections, typed
         # and namespaced appropriately, as they'll be propagated if the
         # workflow lacks an explicit output{} section
@@ -885,6 +1250,16 @@ class Conditional(WorkflowSection):
                 inner_outputs = Env.merge(elt.effective_outputs, inner_outputs)
 
         def optionalize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            """
+            Creates a binding.
+
+            Args:
+                binding: (str): write your description
+                Env: (todo): write your description
+                Binding: (str): write your description
+                Type: (str): write your description
+                Base: (todo): write your description
+            """
             return Env.Binding(
                 binding.name,
                 binding.value.copy(optional=True),
@@ -894,6 +1269,12 @@ class Conditional(WorkflowSection):
         return inner_outputs.map(optionalize)  # pyre-ignore
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        """
+        Yields the node dependencies of the node.
+
+        Args:
+            self: (todo): write your description
+        """
         yield from _expr_workflow_node_dependencies(self.expr)
 
 
@@ -964,6 +1345,23 @@ class Workflow(SourceNode):
         output_idents: Optional[List[List[str]]] = None,
         output_idents_pos: Optional[SourcePosition] = None,
     ) -> None:
+        """
+        Initialize the workflow
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            name: (str): write your description
+            inputs: (list): write your description
+            Decl: (todo): write your description
+            body: (str): write your description
+            outputs: (str): write your description
+            Decl: (todo): write your description
+            parameter_meta: (str): write your description
+            meta: (float): write your description
+            output_idents: (str): write your description
+            output_idents_pos: (str): write your description
+        """
         super().__init__(pos)
         self.name = name
         self.inputs = inputs
@@ -1062,6 +1460,14 @@ class Workflow(SourceNode):
             yield d
 
     def typecheck(self, doc: "Document", check_quant: bool) -> None:
+        """
+        Check for checking of a workflow type.
+
+        Args:
+            self: (todo): write your description
+            doc: (todo): write your description
+            check_quant: (bool): write your description
+        """
         assert doc.workflow is self
         assert self._type_env is None
         # 1. resolve all calls and check for call name collisions
@@ -1133,6 +1539,12 @@ class Workflow(SourceNode):
         _detect_cycles(_workflow_dependency_matrix(self))
 
     def _rewrite_output_idents(self) -> None:
+        """
+        Rewrite the output of _idents.
+
+        Args:
+            self: (todo): write your description
+        """
         # for pre-1.0 workflow output sections with a list of namespaced
         # identifiers (instead of bound decls)
         assert self._type_env is not None
@@ -1194,6 +1606,12 @@ class Workflow(SourceNode):
         if not self._nodes_by_id:
 
             def visit(node: SourceNode) -> None:
+                """
+                Visit a node.
+
+                Args:
+                    node: (todo): write your description
+                """
                 if isinstance(node, WorkflowNode):
                     self._nodes_by_id[node.workflow_node_id] = node
                     for ch in node.children:
@@ -1297,6 +1715,20 @@ class Document(SourceNode):
         comments: List[SourceComment],
         wdl_version: Optional[str],
     ) -> None:
+        """
+        Initialize the workflow.
+
+        Args:
+            self: (todo): write your description
+            source_text: (str): write your description
+            pos: (int): write your description
+            imports: (list): write your description
+            struct_typedefs: (dict): write your description
+            tasks: (str): write your description
+            workflow: (todo): write your description
+            comments: (str): write your description
+            wdl_version: (str): write your description
+        """
         super().__init__(pos)
         self.imports = imports
         self.struct_typedefs = Env.Bindings()
@@ -1373,6 +1805,14 @@ class Document(SourceNode):
 
 
 async def resolve_file_import(uri: str, path: List[str], importer: Optional[Document]) -> str:
+      """
+      Resolve a file or directory.
+
+      Args:
+          uri: (str): write your description
+          path: (str): write your description
+          importer: (todo): write your description
+      """
     if uri.startswith("http://") or uri.startswith("https://"):
         # for now we do nothing with web URIs
         return uri
@@ -1405,6 +1845,14 @@ ReadSourceResult = NamedTuple("ReadSourceResult", [("source_text", str), ("abspa
 async def read_source_default(
     uri: str, path: List[str], importer: Optional[Document]
 ) -> ReadSourceResult:
+      """
+      Read source file.
+
+      Args:
+          uri: (str): write your description
+          path: (str): write your description
+          importer: (todo): write your description
+      """
     abspath = await resolve_file_import(uri, path, importer)
     # TODO: actual async read
     with open(abspath, "r") as infile:
@@ -1421,6 +1869,22 @@ async def _load_async(
     import_max_depth: int = 10,
     importer: Optional[Document] = None,
 ) -> Document:
+      """
+      Load an arbitrary load balancer.
+
+      Args:
+          uri: (str): write your description
+          path: (str): write your description
+          List: (todo): write your description
+          check_quant: (bool): write your description
+          read_source: (str): write your description
+          Callable: (str): write your description
+          List: (todo): write your description
+          Awaitable: (int): write your description
+          ReadSourceResult: (todo): write your description
+          import_max_depth: (int): write your description
+          importer: (todo): write your description
+      """
     path = list(path) if path is not None else []
     read_source = read_source or read_source_default
     uri = uri if uri != "-" else "/dev/stdin"
@@ -1480,6 +1944,22 @@ def _load(
     import_max_depth: int = 10,
     importer: Optional[Document] = None,
 ) -> Document:
+    """
+    Load a urllib.
+
+    Args:
+        uri: (str): write your description
+        path: (str): write your description
+        List: (todo): write your description
+        check_quant: (str): write your description
+        read_source: (str): write your description
+        Callable: (str): write your description
+        List: (todo): write your description
+        Awaitable: (str): write your description
+        ReadSourceResult: (str): write your description
+        import_max_depth: (int): write your description
+        importer: (str): write your description
+    """
     return asyncio.get_event_loop().run_until_complete(
         _load_async(
             uri,
@@ -1498,6 +1978,12 @@ def _load(
 
 
 def _calls(element: Union[Workflow, WorkflowSection]) -> Generator[Call, None, None]:
+    """
+    Yields all the children of - workflow.
+
+    Args:
+        element: (todo): write your description
+    """
     # Yield each Call in the workflow, including those nested within scatter/conditional sections
     for ch in element.children:
         if isinstance(ch, Call):
@@ -1507,6 +1993,12 @@ def _calls(element: Union[Workflow, WorkflowSection]) -> Generator[Call, None, N
 
 
 def _resolve_calls(doc: Document) -> None:
+    """
+    Resolve all callable.
+
+    Args:
+        doc: (str): write your description
+    """
     # Resolve all calls in the workflow (descending into scatter & conditional
     # sections).
     if doc.workflow:
@@ -1522,6 +2014,27 @@ def _build_workflow_type_env(
     self: Optional[Union[Workflow, WorkflowSection]] = None,
     outer_type_env: Optional[Env.Bindings[Type.Base]] = None,
 ) -> None:
+    """
+    Build a workflow type definition.
+
+    Args:
+        doc: (str): write your description
+        stdlib: (todo): write your description
+        StdLib: (todo): write your description
+        Base: (str): write your description
+        check_quant: (bool): write your description
+        self: (todo): write your description
+        Optional: (todo): write your description
+        Union: (str): write your description
+        Workflow: (todo): write your description
+        WorkflowSection: (todo): write your description
+        outer_type_env: (str): write your description
+        Optional: (todo): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Type: (str): write your description
+        Base: (str): write your description
+    """
     # Populate each Workflow, Scatter, and Conditional object with its
     # _type_env attribute containing the type environment available in the body
     # of the respective section. This is tricky because:
@@ -1627,6 +2140,21 @@ def _typecheck_workflow_body(
     check_quant: bool,
     self: Optional[Union[Workflow, WorkflowSection]] = None,
 ) -> bool:
+    """
+    Translate a workflow type.
+
+    Args:
+        doc: (str): write your description
+        stdlib: (todo): write your description
+        StdLib: (todo): write your description
+        Base: (str): write your description
+        check_quant: (bool): write your description
+        self: (todo): write your description
+        Optional: (todo): write your description
+        Union: (str): write your description
+        Workflow: (todo): write your description
+        WorkflowSection: (todo): write your description
+    """
     # following _resolve_calls() and _build_workflow_type_env(), typecheck all
     # the declaration expressions and call inputs
     self = self or doc.workflow
@@ -1678,12 +2206,30 @@ def _typecheck_workflow_body(
 
 
 def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callable[[], Any]:
+    """
+    Translate a document into a primitive.
+
+    Args:
+        doc: (todo): write your description
+        stmt: (todo): write your description
+        Callable: (str): write your description
+        Any: (todo): write your description
+    """
     # When we get a StaticTypeMismatch error during workflow typechecking,
     # which involves a struct type imported from another document, the error
     # message may require translation from the struct type's original name
     # within in the imported document to its aliased name in the current
     # document.
     def f(doc=doc, stmt=stmt):
+        """
+        Convert a statement.
+
+        Args:
+            doc: (str): write your description
+            doc: (str): write your description
+            stmt: (todo): write your description
+            stmt: (todo): write your description
+        """
         try:
             return stmt()
         except Error.StaticTypeMismatch as exc:
@@ -1707,6 +2253,15 @@ def _translate_struct_mismatch(doc: Document, stmt: Callable[[], Any]) -> Callab
 
 
 def _expr_workflow_node_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]:
+    """
+    Yields a tuple of a expr.
+
+    Args:
+        expr: (todo): write your description
+        Optional: (todo): write your description
+        Expr: (todo): write your description
+        Base: (str): write your description
+    """
     # Given some Expr within a workflow, yield the workflow node IDs of the referees of each
     # Expr.Ident subexpression. These referees can include
     #   - Decl: reference to a named value
@@ -1724,6 +2279,12 @@ def _expr_workflow_node_dependencies(expr: Optional[Expr.Base]) -> Iterable[str]
 
 
 def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[str, Decl], _util.AdjM[str]]:
+    """
+    Returns a list of tuples of the dependency graph.
+
+    Args:
+        decls: (todo): write your description
+    """
     # Given decls (e.g. in a task), produce mapping of workflow node id to the objects, and the
     # AdjM of their dependencies (edge from o1 to o2 = o2 depends on o1)
     # IGNORES dependencies that aren't among decls to begin with (the task runtime omits decls that
@@ -1746,6 +2307,12 @@ def _decl_dependency_matrix(decls: List[Decl]) -> Tuple[Dict[str, Decl], _util.A
 def _workflow_dependency_matrix(
     workflow: Workflow,
 ) -> Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]:
+    """
+    Computes the dependency graph for each node.
+
+    Args:
+        workflow: (todo): write your description
+    """
     # Given workflow, produce mapping of workflow node id to each node, and the AdjM of their
     # dependencies (edge from o1 to o2 = o2 depends on o1). Considers each Scatter and Conditional
     # node a dependency of each of its body nodes.
@@ -1753,6 +2320,12 @@ def _workflow_dependency_matrix(
     adj = _util.AdjM()
 
     def visit(obj: WorkflowNode) -> None:
+        """
+        Creates a workflow as a dependency graph.
+
+        Args:
+            obj: (todo): write your description
+        """
         oid = obj.workflow_node_id
         objs_by_id[oid] = obj
         adj.add_node(oid)
@@ -1776,6 +2349,19 @@ def _workflow_dependency_matrix(
 
 
 def _detect_cycles(p: Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]) -> None:
+    """
+    Detectencies.
+
+    Args:
+        p: (todo): write your description
+        Tuple: (todo): write your description
+        Dict: (todo): write your description
+        str: (todo): write your description
+        WorkflowNode: (todo): write your description
+        _util: (str): write your description
+        AdjM: (todo): write your description
+        str: (todo): write your description
+    """
     # given the result of _dependency_matrix, detect if there exists a cycle
     # and if so, then raise WDL.Error.CircularDependencies with a relevant
     # SourceNode.
@@ -1787,6 +2373,12 @@ def _detect_cycles(p: Tuple[Dict[str, WorkflowNode], _util.AdjM[str]]) -> None:
 
 
 def _import_structs(doc: Document):
+    """
+    Import all of the document classes.
+
+    Args:
+        doc: (todo): write your description
+    """
     # Add imported structs to doc.struct_typedefs, with collision checks
     for imp in [
         imp for imp in doc.imports if imp.doc
@@ -1851,6 +2443,24 @@ def _resolve_struct_type(
     ty: Type.StructInstance,
     struct_types: Env.Bindings[Dict[str, Type.Base]],
 ):
+    """
+    Resolve struct type of a struct_types.
+
+    Args:
+        pos: (int): write your description
+        Error: (todo): write your description
+        SourcePosition: (todo): write your description
+        ty: (todo): write your description
+        Type: (str): write your description
+        StructInstance: (todo): write your description
+        struct_types: (str): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Dict: (todo): write your description
+        str: (todo): write your description
+        Type: (str): write your description
+        Base: (str): write your description
+    """
     # On construction, WDL.Type.StructInstance is not yet resolved to the
     # struct type definition. Here, given the Env.Bindings[StructTypeDef] computed
     # on document construction, we populate 'members' with the dict of member
@@ -1867,6 +2477,28 @@ def _resolve_struct_types(
     struct_types: Env.Bindings[Dict[str, Type.Base]],
     members_dict_ids: Optional[List[int]] = None,
 ):
+    """
+    Resolve types of - of - tuples.
+
+    Args:
+        pos: (int): write your description
+        Error: (todo): write your description
+        SourcePosition: (str): write your description
+        ty: (todo): write your description
+        Type: (str): write your description
+        Base: (str): write your description
+        struct_types: (str): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Dict: (todo): write your description
+        str: (todo): write your description
+        Type: (str): write your description
+        Base: (str): write your description
+        members_dict_ids: (str): write your description
+        Optional: (todo): write your description
+        List: (todo): write your description
+        int: (todo): write your description
+    """
     members_dict_ids = members_dict_ids or []
     # resolve all StructInstance within a potentially compound type
     if isinstance(ty, Type.StructInstance):
@@ -1882,6 +2514,22 @@ def _resolve_struct_types(
 def _initialize_struct_typedefs(
     struct_typedefs: Env.Bindings[StructTypeDef], struct_types: Env.Bindings[Dict[str, Type.Base]]
 ):
+    """
+    Initialize struct_typeds.
+
+    Args:
+        struct_typedefs: (str): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        StructTypeDef: (str): write your description
+        struct_types: (str): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Dict: (todo): write your description
+        str: (todo): write your description
+        Type: (str): write your description
+        Base: (str): write your description
+    """
     # bootstrap struct typechecking: resolve all StructInstance members of the
     # struct types; also detect & error circular struct definitions
     for b in struct_typedefs:
@@ -1896,6 +2544,21 @@ def _initialize_struct_typedefs(
 def _add_struct_instance_to_type_env(
     namespace: str, ty: Type.StructInstance, type_env: Env.Bindings[Type.Base], ctx: Any
 ):
+    """
+    Creates a struct type to an instance.
+
+    Args:
+        namespace: (str): write your description
+        ty: (todo): write your description
+        Type: (todo): write your description
+        StructInstance: (str): write your description
+        type_env: (todo): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Type: (todo): write your description
+        Base: (todo): write your description
+        ctx: (todo): write your description
+    """
     # populate the type env with a binding for the struct instance and a
     # namespace containing its members (recursing if any members are themselves
     # struct instances)
@@ -1912,6 +2575,16 @@ def _add_struct_instance_to_type_env(
 
 
 def _check_serializable_map_keys(t: Type.Base, name: str, node: SourceNode) -> None:
+    """
+    Check if a map of - serializable map of types.
+
+    Args:
+        t: (todo): write your description
+        Type: (todo): write your description
+        Base: (str): write your description
+        name: (str): write your description
+        node: (todo): write your description
+    """
     # For any Map[K,V] in an input or output declaration, K must be coercible to & from String, so
     # that it can be de/serialized as JSON.
     if isinstance(t, Type.Map):

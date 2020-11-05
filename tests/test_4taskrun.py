@@ -13,14 +13,36 @@ class TestTaskRunner(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """
+        Configure the logger.
+
+        Args:
+            cls: (todo): write your description
+        """
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
 
     def setUp(self):
+        """
+        Create a temporary directory.
+
+        Args:
+            self: (todo): write your description
+        """
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
 
     def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None, **kwargs):
+        """
+        Execute the input task.
+
+        Args:
+            self: (todo): write your description
+            wdl: (str): write your description
+            inputs: (todo): write your description
+            expected_exception: (todo): write your description
+            cfg: (str): write your description
+        """
         cfg = cfg or WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         try:
             doc = WDL.parse_document(wdl)
@@ -46,6 +68,12 @@ class TestTaskRunner(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
     def test_docker(self):
+        """
+        Run docker test test test is running
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task hello {
@@ -124,6 +152,13 @@ class TestTaskRunner(unittest.TestCase):
 
     @log_capture()
     def test_logging_std_err(self, capture):
+        """
+        Test for test test test information.
+
+        Args:
+            self: (todo): write your description
+            capture: (todo): write your description
+        """
         self._test_task(R"""
         version 1.0
         task std_err_log_check {
@@ -158,6 +193,13 @@ class TestTaskRunner(unittest.TestCase):
 
     @log_capture()
     def test_logging_std_err_captures_full_line(self, capture):
+        """
+        Test for test test test test for test.
+
+        Args:
+            self: (todo): write your description
+            capture: (todo): write your description
+        """
         self._test_task(R"""
                 version 1.0
                 task std_err_log_check {
@@ -185,6 +227,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(std_error_msgs[0].msg, "Part onePart two")
 
     def test_hello_blank(self):
+        """
+        Test if the test test test test.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_task(R"""
         version 1.0
         task hello_blank {
@@ -198,6 +246,12 @@ class TestTaskRunner(unittest.TestCase):
         """, {"who": "Alyssa"})
 
     def test_hello_file(self):
+        """
+        Create a test test test.
+
+        Args:
+            self: (todo): write your description
+        """
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
             outfile.write("Alyssa")
         hello = R"""
@@ -259,6 +313,12 @@ class TestTaskRunner(unittest.TestCase):
             self.assertEqual(infile.read(), "Hello, Alyssa!")
 
     def test_command_escaping(self):
+        """
+        Equal a test test command.
+
+        Args:
+            self: (todo): write your description
+        """
         # miniwdl evaluates escape sequences in WDL string constants, but in commands it should
         # leave them for the shell to deal with
         output = self._test_task(R"""
@@ -295,6 +355,12 @@ class TestTaskRunner(unittest.TestCase):
 
 
     def test_weird_output_files(self):
+        """
+        Test for test test test files.
+
+        Args:
+            self: (todo): write your description
+        """
         # nonexistent output file
         self._test_task(R"""
         version 1.0
@@ -413,6 +479,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
 
     def test_command_failure(self):
+        """
+        Test if the test is expected.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_task(R"""
         version 1.0
         task hello {
@@ -423,6 +495,12 @@ class TestTaskRunner(unittest.TestCase):
         """, expected_exception=WDL.runtime.CommandFailed)
 
     def test_write_lines(self):
+        """
+        Test for test test lines to test.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
             version 1.0
             task hello_friends {
@@ -459,6 +537,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(outputs["messages"], " Hello, Alyssa! Hello, Ben!")
 
     def test_compound_files(self):
+        """
+        Test the compound of the compound
+
+        Args:
+            self: (todo): write your description
+        """
         # tests filename mappings when Files are embedded in compound types
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
             outfile.write("Alyssa\n")
@@ -494,6 +578,12 @@ class TestTaskRunner(unittest.TestCase):
             self.assertEqual(infile.read(), "Alyssa,")
 
     def test_optional_inputs(self):
+        """
+        Test for optional inputs.
+
+        Args:
+            self: (todo): write your description
+        """
         code = R"""
         version 1.0
         task defaults {
@@ -539,6 +629,12 @@ class TestTaskRunner(unittest.TestCase):
         """)
 
     def test_coercion(self):
+        """
+        Run test coefficients.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_task(R"""
         version 1.0
         task t {
@@ -575,6 +671,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(outputs["car2"], {"model": "Toyota", "year": None, "mileage": None})
 
     def test_errors(self):
+        """
+        Makes the test results.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_task(R"""
         version 1.0
         task t {
@@ -599,6 +701,12 @@ class TestTaskRunner(unittest.TestCase):
         """, expected_exception=WDL.Error.EmptyArray)
 
     def test_filename_collisions(self):
+        """
+        Saves the mongodisions.
+
+        Args:
+            self: (todo): write your description
+        """
         os.mkdir(os.path.join(self._dir, "a"))
         with open(os.path.join(self._dir, "a", "x"), "w") as outfile:
             outfile.write("x\n")
@@ -631,6 +739,12 @@ class TestTaskRunner(unittest.TestCase):
             os.path.join(self._dir, "b", "x.y") # intentional duplicate
         ]}
         def chk(outfiles):
+            """
+            Check if the output of the chk file.
+
+            Args:
+                outfiles: (str): write your description
+            """
             self.assertEqual(len(outfiles), 5)
             self.assertEqual(os.path.basename(outfiles[0]), "x")
             self.assertEqual(os.path.basename(outfiles[1]), "x.y")
@@ -652,6 +766,12 @@ class TestTaskRunner(unittest.TestCase):
             self._test_task(txt, {"files": [os.path.join(self._dir, "a", "x") + "/"]})
 
     def test_topsort(self):
+        """
+        Run test test test.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = R"""
         version 1.0
         task t {
@@ -670,6 +790,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(self._test_task(txt, {"x": 22, "y": 99})["yy"], 99)
 
     def test_signal(self):
+        """
+        Configure the signal.
+
+        Args:
+            self: (todo): write your description
+        """
         # also just covering codepaths for stderr status bar logging:
         with WDL._util.configure_logger(force_tty=True) as set_status, WDL.runtime._statusbar.enable(set_status):
             signal.alarm(10)
@@ -688,6 +814,12 @@ class TestTaskRunner(unittest.TestCase):
             pass
 
     def test_orphan_background_process(self):
+        """
+        Test if the test test test test process.
+
+        Args:
+            self: (todo): write your description
+        """
         # TODO: https://github.com/chanzuckerberg/miniwdl/issues/211
         output = self._test_task(R"""
         version 1.0
@@ -707,6 +839,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertAlmostEqual(output["logsize"], 0.0)
 
     def test_cpu_limit(self):
+        """
+        Execute the number of examples.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = R"""
         version 1.0
         task spin {
@@ -753,6 +891,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertGreaterEqual(outputs["wall_seconds"], 8)
 
     def test_runtime_memory(self):
+        """
+        Test if the runtime test runtime.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = R"""
         version 1.0
         task nop {
@@ -780,6 +924,12 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)
 
     def test_runtime_memory_limit(self):
+        """
+        Test if runtime runtime runtime runtime runtime.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = R"""
         version 1.0
         task limit {
@@ -806,6 +956,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertLess(outputs["memory_limit_in_bytes"], 300*1024*1024)
 
     def test_input_files_rw(self):
+        """
+        Test for the input files.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = R"""
         version 1.0
         task clobber {
@@ -852,6 +1008,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self._dir, "alyssa.txt")))
 
     def test_optional_file_outputs(self):
+        """
+        Test for optional optional optional optional arguments.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task rmdir {
@@ -869,6 +1031,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertIsNone(outputs["files"][1])
 
     def test_download_input_files(self):
+        """
+        Test for input files.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_task(R"""
         version 1.0
         task lines {
@@ -887,6 +1055,13 @@ class TestTaskRunner(unittest.TestCase):
 
     @log_capture()
     def test_download_cache(self, capture):
+        """
+        Test if the cache
+
+        Args:
+            self: (todo): write your description
+            capture: (str): write your description
+        """
         logger = logging.getLogger(self.id())
         cfg = WDL.runtime.config.Loader(logger)
         cfg.override({
@@ -926,6 +1101,12 @@ class TestTaskRunner(unittest.TestCase):
                 cache._flocker.flock(cache.download_path("https://google.com/robots.txt"), exclusive=True)
 
     def test_workdir_ownership(self):
+        """
+        Create a new workdir
+
+        Args:
+            self: (todo): write your description
+        """
         # verify that everything within working directory is owned by the invoking user
         txt = R"""
         version 1.0
@@ -953,6 +1134,12 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(outputs["uids"][0], os.geteuid())
 
     def test_delete_work(self):
+        """
+        Delete the contents of - workflows
+
+        Args:
+            self: (todo): write your description
+        """
         txt = R"""
         version 1.0
         task xxx {
@@ -989,7 +1176,24 @@ class TestTaskRunner(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self._rundir, "work", "foo.txt")))
 
     def test_plugins(self):
+        """
+        Executes the plugins and runs.
+
+        Args:
+            self: (todo): write your description
+        """
         def my_plugin(cfg, logger, task, run_id, run_dir, **recv):
+            """
+            A context manager that runs a plugin.
+
+            Args:
+                cfg: (todo): write your description
+                logger: (todo): write your description
+                task: (todo): write your description
+                run_id: (str): write your description
+                run_dir: (str): write your description
+                recv: (todo): write your description
+            """
             logger = logger.getChild("my_plugin")
             logger.critical("hello")
             yv = None
@@ -1060,12 +1264,24 @@ class TestTaskRunner(unittest.TestCase):
 class TestConfigLoader(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        """
+        Configure the logger.
+
+        Args:
+            cls: (todo): write your description
+        """
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
 
     # trigger various codepaths of the config loader that wouldn't be exercised otherwise
     def test_basic(self):
+        """
+        Test if basic test.
+
+        Args:
+            self: (todo): write your description
+        """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
         self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), False)
@@ -1088,6 +1304,12 @@ class TestConfigLoader(unittest.TestCase):
             cfg.get_bool("file_io", "copy_input_files")
 
     def test_env(self):
+        """
+        Test environment variables. env.
+
+        Args:
+            self: (todo): write your description
+        """
         with tempfile.NamedTemporaryFile(mode="w+", delete=False) as tmp:
             assert(os.path.isabs(tmp.name))
             print("""

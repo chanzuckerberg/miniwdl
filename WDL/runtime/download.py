@@ -30,6 +30,14 @@ from .._util import StructuredLogMessage as _
 
 
 def _load(cfg: config.Loader):
+    """
+    Loads all available plugins.
+
+    Args:
+        cfg: (str): write your description
+        config: (todo): write your description
+        Loader: (todo): write your description
+    """
     if getattr(cfg, "_downloaders", None):
         return
 
@@ -53,6 +61,16 @@ def _load(cfg: config.Loader):
 def _downloader(
     cfg: config.Loader, uri: str, directory: bool = False
 ) -> Optional[Callable[..., Generator[Dict[str, Any], Dict[str, Any], None]]]:
+    """
+    Download the downloader.
+
+    Args:
+        cfg: (str): write your description
+        config: (todo): write your description
+        Loader: (str): write your description
+        uri: (str): write your description
+        directory: (str): write your description
+    """
     _load(cfg)
     colon = uri.find(":")
     if colon <= 0:
@@ -155,6 +173,18 @@ def run_cached(
 def aria2c_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+    """
+    Downloads a generator which can be a generator.
+
+    Args:
+        cfg: (todo): write your description
+        config: (todo): write your description
+        Loader: (todo): write your description
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        uri: (str): write your description
+    """
     wdl = r"""
     task aria2c {
         input {
@@ -186,6 +216,18 @@ def aria2c_downloader(
 def awscli_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+    """
+    Yield downloader
+
+    Args:
+        cfg: (todo): write your description
+        config: (todo): write your description
+        Loader: (todo): write your description
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        uri: (str): write your description
+    """
     inputs: Dict[str, Any] = {"uri": uri}
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
@@ -232,6 +274,18 @@ def awscli_downloader(
 def awscli_directory_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+    """
+    Download a context manager.
+
+    Args:
+        cfg: (todo): write your description
+        config: (todo): write your description
+        Loader: (todo): write your description
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        uri: (str): write your description
+    """
     inputs: Dict[str, Any] = {"uri": uri}
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
@@ -280,6 +334,18 @@ def awscli_directory_downloader(
 def prepare_aws_credentials(
     cfg: config.Loader, logger: logging.Logger, cleanup: ExitStack
 ) -> Optional[str]:
+    """
+    Prepare aws credentials.
+
+    Args:
+        cfg: (todo): write your description
+        config: (todo): write your description
+        Loader: (todo): write your description
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        cleanup: (todo): write your description
+    """
     # get AWS credentials from boto3 (unless prevented by configuration)
     host_aws_credentials = None
     if cfg["download_awscli"].get_bool("host_credentials"):

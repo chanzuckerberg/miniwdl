@@ -18,6 +18,12 @@ tsk = r"""
 class TestCalls(unittest.TestCase):
 
     def test_missing_input(self):
+        """
+        Test for missing input.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = tsk + r"""
         workflow contrived {
             call sum
@@ -54,6 +60,12 @@ class TestCalls(unittest.TestCase):
         self.assertTrue(doc.workflow.complete_calls)
 
     def test_duplicate_input(self):
+        """
+        Parse input.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = tsk + r"""
         workflow contrived {
             Int x
@@ -67,6 +79,12 @@ class TestCalls(unittest.TestCase):
             doc = WDL.parse_document(txt)
 
     def test_optional(self):
+        """
+        Parse the given optional docstring.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = tsk + r"""
         workflow contrived {
             Int? x
@@ -123,6 +141,12 @@ class TestCalls(unittest.TestCase):
         # TODO: test quant checking in Map & other composite types
 
     def test_nonempty(self):
+        """
+        Test if the document.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = r"""
         task p {
             Array[Int]+ x
@@ -181,6 +205,12 @@ class TestCalls(unittest.TestCase):
         doc.typecheck()
 
     def test_array_coercion(self):
+        """
+        Convert a coercion.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = tsk + r"""
         workflow contrived {
             Array[Int] x = 1
@@ -193,6 +223,12 @@ class TestCalls(unittest.TestCase):
         doc.typecheck(check_quant=False)
 
     def test_collision(self):
+        """
+        Test for the document.
+
+        Args:
+            self: (todo): write your description
+        """
         tasks = tsk + r"""
         task p {
             Array[Int]+ x
@@ -333,6 +369,12 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
 
     def test_if_defined(self):
+        """
+        Parse a document.
+
+        Args:
+            self: (todo): write your description
+        """
         # test how we typecheck a construct like
         #   if defined(x) then EXPR_WITH_x else SOME_DEFAULT
         txt = r"""
@@ -392,6 +434,12 @@ class TestCalls(unittest.TestCase):
         self.assertEqual(len(list(doc.workflow.effective_outputs)), 2)
 
     def test_forward_reference(self):
+        """
+        Parse a docstring.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = tsk + r"""
         workflow contrived {
             Int y = x
@@ -478,6 +526,12 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
 
     def test_recursion(self):
+        """
+        Test if the test test.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = r"""
         workflow self {
             call self as c
@@ -491,6 +545,12 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
 
     def test_io_propagation(self):
+        """
+        Loads the documentation of the workflow.
+
+        Args:
+            self: (todo): write your description
+        """
         # should not be able to call a workflow containing an incomplete call
         with self.assertRaises(WDL.Error.UncallableWorkflow):
             WDL.load(os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_call.wdl"))
@@ -539,6 +599,12 @@ class TestCalls(unittest.TestCase):
         self.assertEqual(str(doc.workflow.effective_outputs.resolve("hello3.message")), "String")
 
     def test_new_struct_literals(self):
+        """
+        Parse a new struct.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = r"""
         version development
         struct Person {

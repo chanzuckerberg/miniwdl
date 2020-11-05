@@ -6,6 +6,12 @@ class Lint(unittest.TestCase):
     # test programmatic access to linter results
     # this code should be kept in sync with the example shown in the WDL/Lint.py docstring.
     def test_api(self):
+        """
+        Test if lint api
+
+        Args:
+            self: (todo): write your description
+        """
         doc = WDL.load("ZarrUtils.wdl", path=["test_corpi/HumanCellAtlas/skylab/library/tasks"])
         WDL.Lint._shellcheck_available = False
         lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
@@ -31,6 +37,14 @@ class Lint(unittest.TestCase):
 
 
 async def read_source(uri, path, importer_uri):
+      """
+      Read source from uri.
+
+      Args:
+          uri: (str): write your description
+          path: (str): write your description
+          importer_uri: (str): write your description
+      """
     if uri.startswith("http:") or uri.startswith("https:"):
         # Note: we should permit web imports only in corpi which are careful to pin a specific and
         # highly-available revision
@@ -42,7 +56,23 @@ async def read_source(uri, path, importer_uri):
 
 
 def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
+    """
+    Decor function.
+
+    Args:
+        dir: (str): write your description
+        path: (str): write your description
+        blacklist: (list): write your description
+        expected_lint: (todo): write your description
+        check_quant: (bool): write your description
+    """
     def decorator(test_klass):
+        """
+        Decorator for class decorators.
+
+        Args:
+            test_klass: (todo): write your description
+        """
 
         test_klass._lint_count = {}
         test_klass._expected_lint = expected_lint
@@ -67,6 +97,14 @@ def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
                     name += "_"
 
                 def t(self, fn=fn):
+                    """
+                    Load a function.
+
+                    Args:
+                        self: (todo): write your description
+                        fn: (todo): write your description
+                        fn: (todo): write your description
+                    """
                     # load & lint the document to verify the lint count
                     try:
                         doc = WDL.load(
@@ -116,6 +154,12 @@ def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
 
 
 def check_lint(cls):
+    """
+    Check if the validity of lint.
+
+    Args:
+        cls: (todo): write your description
+    """
     if "CommandShellCheck" in cls._lint_count:
         # because we don't control installed shellcheck version
         del cls._lint_count["CommandShellCheck"]
@@ -128,7 +172,20 @@ def check_lint(cls):
 
 
 def validate_workflow_graph(workflow):
+    """
+    Validate a workflow graph.
+
+    Args:
+        workflow: (todo): write your description
+    """
     def visit_section(body, outside_nodes):
+        """
+        Add a function to the workflow.
+
+        Args:
+            body: (todo): write your description
+            outside_nodes: (int): write your description
+        """
         body_nodes = set()
         body_gathers = set()
         for node in body:
