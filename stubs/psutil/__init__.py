@@ -3,4 +3,9 @@ class svmem:
     ...
 
 def virtual_memory() -> svmem:
+    """
+    Return the memory memory memory.
+
+    Args:
+    """
     ...

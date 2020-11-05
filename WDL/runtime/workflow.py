@@ -75,6 +75,15 @@ class WorkflowOutputs(Tree.WorkflowNode):
     output_node_ids: Set[str]
 
     def __init__(self, workflow: Tree.Workflow) -> None:
+        """
+        Initializes the workflow.
+
+        Args:
+            self: (todo): write your description
+            workflow: (todo): write your description
+            Tree: (dict): write your description
+            Workflow: (todo): write your description
+        """
         super().__init__("outputs", workflow.pos)
 
         self.output_node_ids = set()
@@ -93,15 +102,45 @@ class WorkflowOutputs(Tree.WorkflowNode):
                             self.output_node_ids.add(g.workflow_node_id)
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
+        """
+        Yields of dependencies of this node.
+
+        Args:
+            self: (todo): write your description
+        """
         yield from self.output_node_ids
 
     def add_to_type_env(
         self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
+        """
+        Add the given struct type to_type.
+
+        Args:
+            self: (todo): write your description
+            struct_types: (str): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Dict: (todo): write your description
+            str: (todo): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         raise NotImplementedError()
 
     @property
     def children(self) -> Iterable[Tree.SourceNode]:
+        """
+        Return the list of child nodes.
+
+        Args:
+            self: (todo): write your description
+        """
         return []
 
 
@@ -305,6 +344,13 @@ class StateMachine:
         self.running.remove(job_id)
 
     def _schedule(self, job: _Job) -> None:
+        """
+        Schedule a job to run.
+
+        Args:
+            self: (todo): write your description
+            job: (array): write your description
+        """
         self.logger.debug(_("schedule", node=job.id, dependencies=list(job.dependencies)))
         assert job.id not in self.jobs
         self.jobs[job.id] = job
@@ -313,6 +359,19 @@ class StateMachine:
     def _do_job(
         self, cfg: config.Loader, stdlib: StdLib.Base, job: _Job
     ) -> "Union[StateMachine.CallInstructions, Env.Bindings[Value.Base]]":
+        """
+        Run a workflow.
+
+        Args:
+            self: (todo): write your description
+            cfg: (int): write your description
+            config: (todo): write your description
+            Loader: (todo): write your description
+            stdlib: (todo): write your description
+            StdLib: (todo): write your description
+            Base: (str): write your description
+            job: (int): write your description
+        """
         if isinstance(job.node, Tree.Gather):
             return _gather(
                 job.node, dict((dep_id, self.job_outputs[dep_id]) for dep_id in job.dependencies)
@@ -403,6 +462,12 @@ class StateMachine:
 
     @property
     def logger(self) -> logging.Logger:
+        """
+        Returns the logger instance.
+
+        Args:
+            self: (todo): write your description
+        """
         if not self._logger:
             self._logger = logging.getLogger(self.logger_id)
             # TODO: if we were truly unpickling in a new process, we'd need to add a new
@@ -410,6 +475,12 @@ class StateMachine:
         return self._logger
 
     def __getstate__(self) -> Dict[str, Any]:
+        """
+        Get the state of the state.
+
+        Args:
+            self: (todo): write your description
+        """
         ans = dict(self.__dict__)
         del ans["_logger"]  # for Python pre-3.7 loggers: https://bugs.python.org/issue30520
         return ans
@@ -422,6 +493,36 @@ def _scatter(
     scatter_stack: List[Tuple[str, Env.Binding[Value.Base]]],
     stdlib: StdLib.Base,
 ) -> Iterable[_Job]:
+    """
+    Creates a workflow.
+
+    Args:
+        workflow: (todo): write your description
+        Tree: (str): write your description
+        Workflow: (todo): write your description
+        section: (todo): write your description
+        Union: (str): write your description
+        Tree: (str): write your description
+        Scatter: (bool): write your description
+        Tree: (str): write your description
+        Conditional: (todo): write your description
+        env: (str): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Value: (todo): write your description
+        Base: (str): write your description
+        scatter_stack: (todo): write your description
+        List: (todo): write your description
+        Tuple: (str): write your description
+        str: (str): write your description
+        Env: (todo): write your description
+        Binding: (str): write your description
+        Value: (todo): write your description
+        Base: (str): write your description
+        stdlib: (str): write your description
+        StdLib: (str): write your description
+        Base: (str): write your description
+    """
     # we'll be tracking, for each body node ID, the IDs of the potentially multiple corresponding
     # jobs scheduled
     multiplex = {}
@@ -509,12 +610,28 @@ def _scatter(
 
 
 def _append_scatter_indices(node_id: str, scatter_indices: List[str]) -> str:
+    """
+    Append indices to the indices.
+
+    Args:
+        node_id: (str): write your description
+        scatter_indices: (array): write your description
+    """
     return "-".join([node_id] + scatter_indices)
 
 
 def _gather(
     gather: Tree.Gather, dependencies: Dict[str, Env.Bindings[Value.Base]]
 ) -> Env.Bindings[Value.Base]:
+    """
+    Recursively formatted tree structure asciiings.
+
+    Args:
+        gather: (todo): write your description
+        Tree: (todo): write your description
+        Gather: (todo): write your description
+        dependencies: (todo): write your description
+    """
     # important: the dependency job IDs must sort lexicographically in the desired array order!
     dep_ids = sorted(dependencies.keys())
 
@@ -574,12 +691,31 @@ class _StdLib(StdLib.Base):
     def __init__(
         self, wdl_version: str, cfg: config.Loader, state: StateMachine, cache: CallCache
     ) -> None:
+        """
+        Initialize the config.
+
+        Args:
+            self: (todo): write your description
+            wdl_version: (str): write your description
+            cfg: (todo): write your description
+            config: (todo): write your description
+            Loader: (todo): write your description
+            state: (int): write your description
+            cache: (todo): write your description
+        """
         super().__init__(wdl_version, write_dir=os.path.join(state.run_dir, "write_"))
         self.cfg = cfg
         self.state = state
         self.cache = cache
 
     def _devirtualize_filename(self, filename: str) -> str:
+        """
+        Return the filename of a given filename.
+
+        Args:
+            self: (todo): write your description
+            filename: (str): write your description
+        """
         if downloadable(self.cfg, filename):
             cached = self.cache.get_download(filename)
             if cached:
@@ -589,6 +725,13 @@ class _StdLib(StdLib.Base):
         raise InputError("attempted read from unknown or inaccessible file " + filename)
 
     def _virtualize_filename(self, filename: str) -> str:
+        """
+        Add a filename.
+
+        Args:
+            self: (todo): write your description
+            filename: (str): write your description
+        """
         self.state.filename_whitelist.add(filename)
         return filename
 
@@ -721,6 +864,38 @@ def _workflow_main_loop(
     terminating: Callable[[], bool],
     _test_pickle: bool,
 ) -> Env.Bindings[Value.Base]:
+    """
+    The main loop.
+
+    Args:
+        cfg: (todo): write your description
+        config: (todo): write your description
+        Loader: (todo): write your description
+        workflow: (todo): write your description
+        Tree: (str): write your description
+        Workflow: (todo): write your description
+        inputs: (array): write your description
+        Env: (todo): write your description
+        Bindings: (dict): write your description
+        Value: (str): write your description
+        Base: (str): write your description
+        run_id_stack: (str): write your description
+        run_dir: (str): write your description
+        logger: (todo): write your description
+        logging: (todo): write your description
+        Logger: (todo): write your description
+        logger_id: (str): write your description
+        thread_pools: (int): write your description
+        Tuple: (todo): write your description
+        futures: (todo): write your description
+        ThreadPoolExecutor: (str): write your description
+        futures: (todo): write your description
+        ThreadPoolExecutor: (str): write your description
+        cache: (bool): write your description
+        terminating: (todo): write your description
+        Callable: (str): write your description
+        _test_pickle: (todo): write your description
+    """
     assert isinstance(cfg, config.Loader)
     call_futures = {}
     try:
@@ -865,6 +1040,17 @@ def _download_input_files(
     uris = set()
 
     def schedule_download(v: Union[Value.File, Value.Directory]) -> str:
+        """
+        Schedule a download function.
+
+        Args:
+            v: (str): write your description
+            Union: (str): write your description
+            Value: (str): write your description
+            File: (str): write your description
+            Value: (str): write your description
+            Directory: (str): write your description
+        """
         nonlocal ops, uris
         directory = isinstance(v, Value.Directory)
         uri = v.value

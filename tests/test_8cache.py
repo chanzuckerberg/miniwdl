@@ -86,6 +86,12 @@ class TestCallCache(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """
+        Initialize the logger.
+
+        Args:
+            cls: (todo): write your description
+        """
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         cls.logger = logging.getLogger(cls.__name__)
         cls.cfg = WDL.runtime.config.Loader(cls.logger, [])
@@ -104,6 +110,12 @@ class TestCallCache(unittest.TestCase):
         self._dir = tempfile.mkdtemp(prefix=f"miniwdl_test_{self.id()}_")
 
     def tearDown(self):
+        """
+        Tear down the cache.
+
+        Args:
+            self: (todo): write your description
+        """
         shutil.rmtree(self._dir)
         try:
             shutil.rmtree(self.cache_dir)
@@ -139,6 +151,12 @@ class TestCallCache(unittest.TestCase):
         return rundir, outputs
 
     def test_input_digest_sorts_keys(self):
+        """
+        : return : meth : json_digest_sorts
+
+        Args:
+            self: (todo): write your description
+        """
         # Note this fails if input array is reordered
 
         ordered_inputs = values_from_json(
@@ -155,6 +173,12 @@ class TestCallCache(unittest.TestCase):
         self.assertEqual(ordered_digest, unordered_digest)
 
     def test_normalization(self):
+        """
+        Called when a task is done.
+
+        Args:
+            self: (todo): write your description
+        """
         desc = WDL.runtime.cache._describe_task(self.doc, self.doc.tasks[0])
         self.assertEqual(desc, R"""
 version 1.0
@@ -175,6 +199,12 @@ Int count = 12
         """.strip())
 
     def test_task_input_cache_matches_output(self):
+        """
+        Test for each task *
+
+        Args:
+            self: (todo): write your description
+        """
         # run task, check output matches what was stored in run_dir
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
@@ -187,6 +217,12 @@ Int count = 12
         self.assertEqual(read_data, WDL.values_to_json(outputs))
 
     def test_cache_prevents_task_rerun(self):
+        """
+        Test for a new task cache.
+
+        Args:
+            self: (todo): write your description
+        """
         # run task twice, check _try_task not called for second run
 
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
@@ -208,6 +244,12 @@ Int count = 12
         self.assertEqual(new_mock.call_count, 0)
 
     def test_default_config_does_not_use_cache(self):
+        """
+        Test if the default test configuration.
+
+        Args:
+            self: (todo): write your description
+        """
         # run task twice, check _try_task called for second run
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
@@ -228,6 +270,12 @@ Int count = 12
         self.assertEqual(new_mock.call_count, 1)
 
     def test_get_cache_return_value_matches_outputs(self):
+        """
+        * get the cache of the task
+
+        Args:
+            self: (todo): write your description
+        """
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
@@ -240,6 +288,12 @@ Int count = 12
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
+        """
+        Test if a new task and update the result.
+
+        Args:
+            self: (todo): write your description
+        """
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""
                version 1.0
@@ -270,6 +324,12 @@ Int count = 12
         self.assertEqual(mock.call_count, 1)
 
     def test_a_task_with_the_same_inputs_and_different_outputs_doesnt_pull_from_the_cache(self):
+        """
+        Test if the task inputs of the same task.
+
+        Args:
+            self: (todo): write your description
+        """
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""
                   version 1.0
@@ -300,6 +360,12 @@ Int count = 12
         self.assertEqual(mock.call_count, 1)
 
     def test_struct_handling(self):
+        """
+        Run struct struct struct structs
+
+        Args:
+            self: (todo): write your description
+        """
         with open(os.path.join(self._dir, "randomFile.txt"), "w") as outfile:
             outfile.write("Gotta put something here")
         inputs = {"box": {"str": [os.path.join(self._dir, "randomFile.txt")]}}
@@ -319,6 +385,12 @@ Int count = 12
         self.assertEqual(new_mock.call_count, 0)
 
     def test_cache_not_used_when_output_files_deleted(self):
+        """
+        Runs the cache test test test test.
+
+        Args:
+            self: (todo): write your description
+        """
         inputs = {"who": "Alyssa"}
         self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         # test mock is not called once cache is available
@@ -339,6 +411,12 @@ Int count = 12
         self.assertEqual(mock.call_count, 1)
 
     def test_cache_not_used_when_output_files_updated_after_cache_creation(self):
+        """
+        Test for cache cache files exist.
+
+        Args:
+            self: (todo): write your description
+        """
         inputs = {"who": "Bethie"}
         self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         # change modified time on outputs
@@ -354,6 +432,12 @@ Int count = 12
         self.assertEqual(mock.call_count, 1)
 
     def test_cache_not_used_when_output_files_but_not__sym_links_updated_after_cache_creation(self):
+        """
+        Determine_wd has been closed.
+
+        Args:
+            self: (todo): write your description
+        """
         inputs = {"who": "Bethie"}
         self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         # change modified time on outputs
@@ -368,6 +452,12 @@ Int count = 12
         self.assertEqual(mock.call_count, 1)
 
     def test_cache_not_used_when_file_in_array_recently_updated(self):
+        """
+        Run cache of the cache of all cache
+
+        Args:
+            self: (todo): write your description
+        """
         filenames = ["file1", "file2", "file3", "butterfinger"]
         inputs = {"files": []}
         for fn in filenames:
@@ -409,6 +499,12 @@ Int count = 12
         self.assertEqual(mock.call_count, 1)
 
     def test_cache_not_used_when_input_file_recently_updated(self):
+        """
+        Runs the cache changes made for all cache.
+
+        Args:
+            self: (todo): write your description
+        """
         filenames = ["file1", "file2", "file3", "butterfinger"]
         inputs = {"files": []}
         for fn in filenames:
@@ -448,6 +544,12 @@ Int count = 12
         self.assertEqual(mock.call_count, 1)
 
     def test_directory_coherence(self):
+        """
+        Create a test directory.
+
+        Args:
+            self: (todo): write your description
+        """
         # test outputting files/subdirectories inside input Directory
         wdl = R"""
         version development

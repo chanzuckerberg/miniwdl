@@ -13,6 +13,11 @@ import graphviz
 
 
 def main(args=None):
+    """
+    Main function.
+
+    Args:
+    """
     # read command-line arguments
     parser = argparse.ArgumentParser(
         description="Visualize a WDL workflow using miniwdl and graphviz"
@@ -72,6 +77,17 @@ def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False):
     # recursively add graphviz nodes for each decl/call/scatter/conditional workflow node.
 
     def add_node(graph: graphviz.Digraph, node: WDL.WorkflowNode):
+        """
+        Add a node to the graph.
+
+        Args:
+            graph: (todo): write your description
+            graphviz: (todo): write your description
+            Digraph: (todo): write your description
+            node: (todo): write your description
+            WDL: (todo): write your description
+            WorkflowNode: (todo): write your description
+        """
         nonlocal node_ids
         if isinstance(node, WDL.WorkflowSection):
             # scatter/conditional section: add a cluster subgraph to contain its body
@@ -120,6 +136,12 @@ def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False):
 
     # add edge for each dependency between workflow nodes
     def add_edges(node):
+        """
+        Adds a new graph edges to the graph.
+
+        Args:
+            node: (todo): write your description
+        """
         for dep_id in node.workflow_node_dependencies:
             dep = workflow.get_node(dep_id)
             # leave Gather nodes invisible by replacing any dependencies on them with their

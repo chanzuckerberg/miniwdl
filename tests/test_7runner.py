@@ -17,6 +17,12 @@ class RunnerTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """
+        Configure the logger.
+
+        Args:
+            cls: (todo): write your description
+        """
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
@@ -28,6 +34,12 @@ class RunnerTestCase(unittest.TestCase):
         self._dir = tempfile.mkdtemp(prefix=f"miniwdl_test_{self.id()}_")
 
     def tearDown(self):
+        """
+        Tear down the directory.
+
+        Args:
+            self: (todo): write your description
+        """
         if not getattr(self, "_keep_dir", False):
             shutil.rmtree(self._dir)
 
@@ -62,12 +74,24 @@ class RunnerTestCase(unittest.TestCase):
 
 class TestDirectoryIO(RunnerTestCase):
     def test_coercion(self):
+        """
+        Assign a coercion.
+
+        Args:
+            self: (todo): write your description
+        """
         assert WDL.Type.Directory().coerces(WDL.Type.String())
         d = WDL.Value.String("foo").coerce(WDL.Type.Directory())
         assert isinstance(d, WDL.Value.Directory)
         assert d.value == "foo"
 
     def test_basic_directory(self):
+        """
+        Test if the test directory.
+
+        Args:
+            self: (todo): write your description
+        """
         wdl = R"""
         version development
         workflow w {
@@ -118,6 +142,12 @@ class TestDirectoryIO(RunnerTestCase):
         assert outp["dsz"] == 10
 
     def test_directory_output(self):
+        """
+        Output the test directory.
+
+        Args:
+            self: (todo): write your description
+        """
         wdl = R"""
         version development
         workflow w {
@@ -192,6 +222,12 @@ class TestDirectoryIO(RunnerTestCase):
         assert outp["d_out"] is None
 
     def test_output_input(self):
+        """
+        Test for input files.
+
+        Args:
+            self: (todo): write your description
+        """
         # test outputting files/subdirectories inside input Directory
         wdl = R"""
         version development
@@ -221,6 +257,12 @@ class TestDirectoryIO(RunnerTestCase):
         assert os.path.isdir(outp["dirs"][0])
 
     def test_errors(self):
+        """
+        Runs test test errors.
+
+        Args:
+            self: (todo): write your description
+        """
         self._run(R"""
             version development
             task t {
@@ -325,6 +367,12 @@ class TestDirectoryIO(RunnerTestCase):
 
 class TestNoneLiteral(RunnerTestCase):
     def test_none_eval(self):
+        """
+        Evaluate the test.
+
+        Args:
+            self: (todo): write your description
+        """
         wdl = R"""
         version development
         struct Car {
@@ -368,6 +416,12 @@ class TestNoneLiteral(RunnerTestCase):
 
 class TestCallAfter(RunnerTestCase):
     def test_call_after(self):
+        """
+        Test if call after call.
+
+        Args:
+            self: (todo): write your description
+        """
         wdl = R"""
         version development
         task nop {
@@ -451,6 +505,12 @@ class TestDownload(RunnerTestCase):
         """
 
     def test_download_input_files(self):
+        """
+        Downloads input files.
+
+        Args:
+            self: (todo): write your description
+        """
         self._run(self.count_wdl, {"files": [
             "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt",
             "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"
@@ -463,6 +523,13 @@ class TestDownload(RunnerTestCase):
 
     @log_capture()
     def test_download_cache1(self, capture):
+        """
+        Downloads the cache of the cache.
+
+        Args:
+            self: (todo): write your description
+            capture: (str): write your description
+        """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         cfg.override({
             "download_cache": {
@@ -483,6 +550,13 @@ class TestDownload(RunnerTestCase):
 
     @log_capture()
     def test_download_cache2(self, capture):
+        """
+        Downloads the cache.
+
+        Args:
+            self: (todo): write your description
+            capture: (str): write your description
+        """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         cfg.override({
             "download_cache": {
@@ -503,6 +577,13 @@ class TestDownload(RunnerTestCase):
 
     @log_capture()
     def test_download_cache3(self, capture):
+        """
+        Downloads the cache for the cache.
+
+        Args:
+            self: (todo): write your description
+            capture: (str): write your description
+        """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         cfg.override({
             "download_cache": {
@@ -522,6 +603,13 @@ class TestDownload(RunnerTestCase):
 
     @log_capture()
     def test_download_cache4(self, capture):
+        """
+        Test if the test log4.
+
+        Args:
+            self: (todo): write your description
+            capture: (str): write your description
+        """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         cfg.override({
             "download_cache": {
@@ -546,6 +634,13 @@ class TestDownload(RunnerTestCase):
 
     @log_capture()
     def test_download_cache5(self, capture):
+        """
+        Downloads the cache has been set
+
+        Args:
+            self: (todo): write your description
+            capture: (str): write your description
+        """
         # passing workflow-level URI inputs through to task, which should find them in the cache
         wdl5 = """
         version 1.0
@@ -616,6 +711,13 @@ class TestDownload(RunnerTestCase):
 
     @log_capture()
     def test_directory(self, capture):
+        """
+        Run test test test.
+
+        Args:
+            self: (todo): write your description
+            capture: (str): write your description
+        """
         wdl6 = R"""
         version development
         workflow count_dir {
@@ -680,6 +782,12 @@ class TestDownload(RunnerTestCase):
 
 class MiscRegressionTests(RunnerTestCase):
     def test_repeated_file_rewriting(self):
+        """
+        Test if a test test test.
+
+        Args:
+            self: (todo): write your description
+        """
         wdl = """
         version 1.0
         task t {
@@ -712,6 +820,12 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["t.out"], ["Alice", "Alice"])
 
     def test_weird_filenames(self):
+        """
+        Generate filenames from filenames.
+
+        Args:
+            self: (todo): write your description
+        """
         chars = [c for c in (chr(i) for i in range(1,256)) if c not in ('/')]
         filenames = []
         for c in chars:

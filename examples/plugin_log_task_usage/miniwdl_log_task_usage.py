@@ -15,6 +15,17 @@ import WDL
 
 
 def main(cfg, logger, run_id, run_dir, task, **recv):
+    """
+    Main entry point.
+
+    Args:
+        cfg: (todo): write your description
+        logger: (todo): write your description
+        run_id: (str): write your description
+        run_dir: (str): write your description
+        task: (int): write your description
+        recv: (int): write your description
+    """
     # do nothing with inputs
     recv = yield recv
 

@@ -42,12 +42,24 @@ __all__: List[str] = []
 
 
 def export(obj) -> str:  # pyre-ignore
+    """
+    Export an object as a string.
+
+    Args:
+        obj: (todo): write your description
+    """
     __all__.append(obj.__name__)
     return obj
 
 
 @export
 def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
+    """
+    Strips leading leading whitespace from a string.
+
+    Args:
+        txt: (str): write your description
+    """
     # Given a multi-line string, determine the largest w such that each line
     # begins with at least w whitespace characters. Return w and the string
     # with w characters removed from the beginning of each line.
@@ -85,30 +97,69 @@ class AdjM(Generic[T]):
     _unconstrained: Set[T]
 
     def __init__(self) -> None:
+        """
+        Initialize the graph.
+
+        Args:
+            self: (todo): write your description
+        """
         self._forward = dict()
         self._reverse = dict()
         self._unconstrained = set()
 
     def sinks(self, source: T) -> Iterable[T]:
+        """
+        Yieldsinks from * source.
+
+        Args:
+            self: (todo): write your description
+            source: (str): write your description
+        """
         for sink in self._forward.get(source, []):
             yield sink
 
     def sources(self, sink: T) -> Iterable[T]:
+        """
+        Return a generator yielding all sources.
+
+        Args:
+            self: (todo): write your description
+            sink: (todo): write your description
+        """
         for source in self._reverse.get(sink, []):
             yield source
 
     @property
     def nodes(self) -> Iterable[T]:
+        """
+        Iterate over all nodes.
+
+        Args:
+            self: (todo): write your description
+        """
         for node in self._forward:
             yield node
 
     @property
     def unconstrained(self) -> Iterable[T]:
+        """
+        Unconstrained nodes.
+
+        Args:
+            self: (todo): write your description
+        """
         for n in self._unconstrained:
             assert not self._reverse[n]
             yield n
 
     def add_node(self, node: T) -> None:
+        """
+        Add a node to the graph.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+        """
         if node not in self._forward:
             assert node not in self._reverse
             self._forward[node] = set()
@@ -118,6 +169,14 @@ class AdjM(Generic[T]):
             assert node in self._reverse
 
     def add_edge(self, source: T, sink: T) -> None:
+        """
+        Add an edge between two nodes.
+
+        Args:
+            self: (todo): write your description
+            source: (todo): write your description
+            sink: (todo): write your description
+        """
         self.add_node(source)
         self.add_node(sink)
         if sink not in self._forward[source]:
@@ -130,6 +189,14 @@ class AdjM(Generic[T]):
             assert sink not in self._unconstrained
 
     def remove_edge(self, source: T, sink: T) -> None:
+        """
+        Removes an edge from the graph.
+
+        Args:
+            self: (todo): write your description
+            source: (todo): write your description
+            sink: (todo): write your description
+        """
         if source in self._forward and sink in self._forward[source]:
             self._forward[source].remove(sink)
             self._reverse[sink].remove(source)
@@ -139,6 +206,13 @@ class AdjM(Generic[T]):
             assert not (sink in self._reverse and source in self._reverse[sink])
 
     def remove_node(self, node: T) -> None:
+        """
+        Removes the node from the graph.
+
+        Args:
+            self: (todo): write your description
+            node: (todo): write your description
+        """
         for source in list(self.sources(node)):
             self.remove_edge(source, node)
         for sink in list(self.sinks(node)):
@@ -150,6 +224,12 @@ class AdjM(Generic[T]):
 
 @export
 def topsort(adj: AdjM[T]) -> List[T]:
+    """
+    Perform a directed graph.
+
+    Args:
+        adj: (todo): write your description
+    """
     # topsort node IDs in adj (destroys adj)
     # if there's a cycle, raises err: StopIteration with err.node = ID of a
     # node involved in a cycle.
@@ -169,6 +249,14 @@ def topsort(adj: AdjM[T]) -> List[T]:
 
 @export
 def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
+    """
+    Write the contents of a file.
+
+    Args:
+        contents: (str): write your description
+        filename: (str): write your description
+        end: (todo): write your description
+    """
     tn = filename + ".tmp"
     with open(tn, "x") as outfile:
         print(contents, file=outfile, end=end)
@@ -196,6 +284,14 @@ def rmtree_atomic(path: str) -> None:
 def write_values_json(
     values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""  # noqa
 ) -> None:
+    """
+    Writes the values to a dictionary.
+
+    Args:
+        values_env: (list): write your description
+        filename: (str): write your description
+        namespace: (str): write your description
+    """
     from . import values_to_json
 
     write_atomic(
@@ -206,6 +302,14 @@ def write_values_json(
 
 @export
 def provision_run_dir(name: str, parent_dir: Optional[str], last_link: bool = False) -> str:
+    """
+    Create a run directory.
+
+    Args:
+        name: (str): write your description
+        parent_dir: (str): write your description
+        last_link: (str): write your description
+    """
     here = (
         (parent_dir in [".", "./"] or parent_dir.endswith("/.") or parent_dir.endswith("/./"))
         if parent_dir
@@ -251,10 +355,23 @@ class StructuredLogMessage:
 
     # from https://docs.python.org/3.8/howto/logging-cookbook.html#implementing-structured-logging
     def __init__(self, _message: str, **kwargs) -> None:  # pyre-fixme
+        """
+        Initialize a message.
+
+        Args:
+            self: (todo): write your description
+            _message: (str): write your description
+        """
         self.message = _message
         self.kwargs = kwargs
 
     def __str__(self) -> str:
+        """
+        Return the string representation of the string.
+
+        Args:
+            self: (todo): write your description
+        """
         return (
             f"{self.message} :: {', '.join(k+ ': ' + json.dumps(v) for k,v in self.kwargs.items())}"
         )
@@ -264,6 +381,15 @@ class StructuredLogMessageJSONFormatter(jsonlogger.JsonFormatter):
     "JSON formatter for StructuredLogMessages"
 
     def format(self, rec: logging.LogRecord) -> str:
+        """
+        Format log message.
+
+        Args:
+            self: (todo): write your description
+            rec: (todo): write your description
+            logging: (todo): write your description
+            LogRecord: (todo): write your description
+        """
         if isinstance(rec.msg, StructuredLogMessage):
             ans = {"level": rec.levelname, "message": rec.msg.message}
             for k, v in rec.msg.kwargs.items():
@@ -275,6 +401,17 @@ class StructuredLogMessageJSONFormatter(jsonlogger.JsonFormatter):
     def add_fields(
         self, log_record: Dict[str, Any], record: logging.LogRecord, message_dict: Dict[str, Any]
     ) -> None:
+        """
+        Add log fields.
+
+        Args:
+            self: (todo): write your description
+            log_record: (todo): write your description
+            record: (todo): write your description
+            logging: (todo): write your description
+            LogRecord: (todo): write your description
+            message_dict: (dict): write your description
+        """
         super().add_fields(log_record, record, message_dict)
         log_record["timestamp"] = round(record.created, 3)
         log_record["source"] = record.name
@@ -288,6 +425,14 @@ logging.addLevelName(VERBOSE_LEVEL, "VERBOSE")
 
 
 def verbose(self, message, *args, **kws):  # pyre-fixme
+    """
+    Convenience function.
+
+    Args:
+        self: (todo): write your description
+        message: (str): write your description
+        kws: (todo): write your description
+    """
     if self.isEnabledFor(VERBOSE_LEVEL):
         self._log(VERBOSE_LEVEL, message, args, **kws)
 
@@ -299,6 +444,14 @@ logging.addLevelName(NOTICE_LEVEL, "NOTICE")
 
 
 def notice(self, message, *args, **kws):  # pyre-fixme
+    """
+    Log a message with severity.
+
+    Args:
+        self: (todo): write your description
+        message: (str): write your description
+        kws: (int): write your description
+    """
     if self.isEnabledFor(NOTICE_LEVEL):
         self._log(NOTICE_LEVEL, message, args, **kws)
 
@@ -324,6 +477,12 @@ class ANSI:
 
 
 def _ansilen(parts: List[str]) -> int:
+    """
+    Return the sum of a list.
+
+    Args:
+        parts: (array): write your description
+    """
     return sum([len(s) for s in parts if s[0] != "\x1b"])
 
 
@@ -338,11 +497,26 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
     _status: str = ""
 
     def __init__(self, *args, **kwargs):  # pyre-ignore
+        """
+        Initialize the class.
+
+        Args:
+            self: (todo): write your description
+        """
         super().__init__(*args, **kwargs)
         assert not self.__class__._singleton
         self.__class__._singleton = self
 
     def emit(self, record: logging.LogRecord) -> None:
+        """
+        Emit a record.
+
+        Args:
+            self: (todo): write your description
+            record: (todo): write your description
+            logging: (todo): write your description
+            LogRecord: (todo): write your description
+        """
         self.acquire()
         try:
             sys.stderr.write(ANSI.CLEAR)
@@ -352,6 +526,12 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
             self.release()
 
     def emit_status(self) -> None:
+        """
+        Emits the status.
+
+        Args:
+            self: (todo): write your description
+        """
         self.acquire()
         try:
             sys.stderr.write(ANSI.CLEAR + self._status + ANSI.RESET)
@@ -360,6 +540,13 @@ class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
             self.release()
 
     def set_status(self, new_status: List[str]) -> None:
+        """
+        Sets the status of the status.
+
+        Args:
+            self: (todo): write your description
+            new_status: (array): write your description
+        """
         cols = shutil.get_terminal_size().columns
         if _ansilen(new_status) > cols:
             new_status = new_status.copy()
@@ -450,12 +637,23 @@ def PygtailLogger(
     logger2 = logger.getChild("stderr")
 
     def default_callback(line: str) -> None:
+        """
+        Default callback.
+
+        Args:
+            line: (str): write your description
+        """
         assert len(line) <= 4096, "line > 4KB"
         logger2.verbose(line.rstrip())  # pyre-fixme
 
     callback = callback or default_callback
 
     def poll() -> None:
+        """
+        Poll for python interpreter.
+
+        Args:
+        """
         nonlocal pygtail
         if pygtail:
             try:
@@ -503,6 +701,13 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
     ]
 
     def handle_signal(sig: int, frame: FrameType) -> None:
+        """
+        Handles sigint signal.
+
+        Args:
+            sig: (int): write your description
+            frame: (todo): write your description
+        """
         global _terminating
         if not _terminating:
             if sig != signal.SIGUSR1:
@@ -589,6 +794,12 @@ def pathsize(path: str) -> int:
         return os.path.getsize(path)
 
     def raiser(exc: OSError):
+        """
+        Raise an exception.
+
+        Args:
+            exc: (todo): write your description
+        """
         raise exc
 
     ans = 0
@@ -638,11 +849,24 @@ def chmod_R_plus(path: str, file_bits: int = 0, dir_bits: int = 0) -> None:
     """
 
     def do1(path1: str, bits: int) -> None:
+        """
+        Change the current mode ::
+
+        Args:
+            path1: (str): write your description
+            bits: (int): write your description
+        """
         assert 0 <= bits < 0o10000
         if not os.path.islink(path1) and path_really_within(path1, path):
             os.chmod(path1, (os.stat(path1).st_mode & 0o7777) | bits)
 
     def raiser(exc: OSError):
+        """
+        Raise an exception.
+
+        Args:
+            exc: (todo): write your description
+        """
         raise exc
 
     if os.path.isdir(path):
@@ -695,6 +919,11 @@ def compose_coroutines(  # pyre-fixme
     """
 
     def _impl() -> Generator[Any, Any, None]:  # pyre-fixme
+        """
+        A coroutine that yields a coroutine.
+
+        Args:
+        """
         # start the coroutines by invoking each generator and taking the first value it yields
         nonlocal x
         cors = []
@@ -762,6 +991,16 @@ class FlockHolder(AbstractContextManager):
     _logger: logging.Logger
 
     def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+        """
+        Initialize the logger.
+
+        Args:
+            self: (todo): write your description
+            logger: (todo): write your description
+            Optional: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+        """
         self._lock = threading.Lock()
         self._flocks = {}
         self._entries = 0
@@ -770,11 +1009,24 @@ class FlockHolder(AbstractContextManager):
         )
 
     def __enter__(self) -> "FlockHolder":
+        """
+        Return the number of entries in this node.
+
+        Args:
+            self: (todo): write your description
+        """
         assert self._entries > 0 or not self._flocks
         self._entries += 1
         return self
 
     def __exit__(self, *exc_details) -> None:  # pyre-fixme
+        """
+        Called bytestring.
+
+        Args:
+            self: (todo): write your description
+            exc_details: (todo): write your description
+        """
         assert self._entries > 0, "FlockHolder context exited prematurely"
         self._entries -= 1
         if self._entries == 0:
@@ -791,6 +1043,12 @@ class FlockHolder(AbstractContextManager):
                 raise exn
 
     def __del__(self) -> None:
+        """
+        Deletes the document.
+
+        Args:
+            self: (todo): write your description
+        """
         assert self._entries == 0 and not self._flocks, "FlockHolder context was not exited"
 
     def flock(
@@ -886,5 +1144,11 @@ class FlockHolder(AbstractContextManager):
 @export
 class RepeatTimer(threading.Timer):
     def run(self) -> None:
+        """
+        Execute the given function until the thread.
+
+        Args:
+            self: (todo): write your description
+        """
         while not self.finished.wait(self.interval):  # pyre-ignore
             self.function(*self.args, **self.kwargs)  # pyre-ignore

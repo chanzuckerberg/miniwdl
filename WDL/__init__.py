@@ -215,6 +215,13 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
 
 
 def parse_tasks(txt: str, version: Optional[str] = None) -> List[Task]:
+    """
+    Parse tasks from a tasks.
+
+    Args:
+        txt: (str): write your description
+        version: (str): write your description
+    """
     return _parser.parse_tasks(txt, version)
 
 

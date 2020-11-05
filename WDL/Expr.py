@@ -40,6 +40,17 @@ class Base(SourceNode, ABC):
 
     @abstractmethod
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the type of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         # Abstract protected method called by infer_type(): return the inferred
         # type with no side-effects, obeying self._check_quant.
         pass
@@ -104,6 +115,20 @@ class Base(SourceNode, ABC):
 
     @abstractmethod
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+        """
+        Evaluate an executable.
+
+        Args:
+            self: (todo): write your description
+            env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Value: (todo): write your description
+            Base: (str): write your description
+            stdlib: (todo): write your description
+            StdLib: (todo): write your description
+            Base: (str): write your description
+        """
         # to be overridden by subclasses. eval() calls this and deals with any
         # exceptions raised
         pass
@@ -147,13 +172,38 @@ class Boolean(Base):
     """
 
     def __init__(self, pos: SourcePosition, literal: bool) -> None:
+        """
+        !
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            literal: (todo): write your description
+        """
         super().__init__(pos)
         self.value = literal
 
     def __str__(self):
+        """
+        Returns the string representation of the string.
+
+        Args:
+            self: (todo): write your description
+        """
         return str(self.value).lower()
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the type for the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         return Type.Boolean()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Boolean:
@@ -174,13 +224,38 @@ class Int(Base):
     """
 
     def __init__(self, pos: SourcePosition, literal: int) -> None:
+        """
+        !
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            literal: (todo): write your description
+        """
         super().__init__(pos)
         self.value = literal
 
     def __str__(self):
+        """
+        Returns the string representation of this object.
+
+        Args:
+            self: (todo): write your description
+        """
         return str(self.value)
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the type of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         return Type.Int()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Int:
@@ -204,13 +279,38 @@ class Float(Base):
     """
 
     def __init__(self, pos: SourcePosition, literal: float) -> None:
+        """
+        !
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            literal: (todo): write your description
+        """
         super().__init__(pos)
         self.value = literal
 
     def __str__(self):
+        """
+        Returns the string representation of this object.
+
+        Args:
+            self: (todo): write your description
+        """
         return str(self.value)
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Returns the type of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         return Type.Float()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Float:
@@ -231,13 +331,37 @@ class Null(Base):
     """
 
     def __init__(self, pos: SourcePosition) -> None:
+        """
+        Initializes the initial position.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+        """
         super().__init__(pos)
         self.value = None
 
     def __str__(self):
+        """
+        Return a string representation of this object.
+
+        Args:
+            self: (todo): write your description
+        """
         return "None"
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Returns the type of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         return Type.Any(null=True)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Null:
@@ -262,6 +386,15 @@ class Placeholder(Base):
     """
 
     def __init__(self, pos: SourcePosition, options: Dict[str, str], expr: Base) -> None:
+        """
+        Initialize the context manager.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            options: (dict): write your description
+            expr: (todo): write your description
+        """
         super().__init__(pos)
         self.options = options
         self.expr = expr
@@ -269,6 +402,12 @@ class Placeholder(Base):
         # preprocess expr to rewrite any Apply("_add") to Apply("_interpolation_add") for the
         # special interpolation-only behavior of + for String? operands.
         def rewrite_adds(ch: Base):
+            """
+            Rewrite all the children.
+
+            Args:
+                ch: (todo): write your description
+            """
             if isinstance(ch, Apply) and ch.function_name == "_add":
                 ch.function_name = "_interpolation_add"
             for ch2 in ch.children:
@@ -277,6 +416,12 @@ class Placeholder(Base):
         rewrite_adds(self.expr)
 
     def __str__(self):
+        """
+        Returns a string representation of the option.
+
+        Args:
+            self: (todo): write your description
+        """
         options = []
         for option in self.options:
             options.append('{}="{}"'.format(option, self.options[option]))
@@ -285,9 +430,26 @@ class Placeholder(Base):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Iterate all child nodes.
+
+        Args:
+            self: (todo): write your description
+        """
         yield self.expr
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the type of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         if isinstance(self.expr.type, Type.Array):
             if "sep" not in self.options:
                 raise Error.IncompatibleOperand(
@@ -364,11 +526,30 @@ class String(Base):
     def __init__(
         self, pos: SourcePosition, parts: List[Union[str, Placeholder]], command: bool = False
     ) -> None:
+        """
+        Initialize the command.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            parts: (todo): write your description
+            List: (str): write your description
+            Union: (todo): write your description
+            str: (todo): write your description
+            Placeholder: (todo): write your description
+            command: (str): write your description
+        """
         super().__init__(pos)
         self.parts = parts
         self.command = command
 
     def __str__(self):
+        """
+        Return a string representation of the part.
+
+        Args:
+            self: (todo): write your description
+        """
         parts = []
         for part in self.parts:
             if isinstance(part, Placeholder):
@@ -379,11 +560,28 @@ class String(Base):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Yield all direct children of this node.
+
+        Args:
+            self: (todo): write your description
+        """
         for p in self.parts:
             if isinstance(p, Base):
                 yield p
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Returns the type of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         return Type.String()
 
     def typecheck(self, expected: Optional[Type.Base]) -> Base:
@@ -410,6 +608,12 @@ class String(Base):
 
     @property
     def literal(self) -> Optional[Value.Base]:
+        """
+        Return literal literal.
+
+        Args:
+            self: (todo): write your description
+        """
         if next((p for p in self.parts if not isinstance(p, str)), None):
             return None
         return self._eval(Env.Bindings(), None)  # pyre-fixme
@@ -428,10 +632,24 @@ class Array(Base):
     """
 
     def __init__(self, pos: SourcePosition, items: List[Base]) -> None:
+        """
+        Initialize items.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            items: (todo): write your description
+        """
         super(Array, self).__init__(pos)
         self.items = items
 
     def __str__(self):
+        """
+        Return a string representation of this item.
+
+        Args:
+            self: (todo): write your description
+        """
         items = []
         for item in self.items:
             items.append(str(item))
@@ -439,10 +657,27 @@ class Array(Base):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Return an iterator over the children of this node.
+
+        Args:
+            self: (todo): write your description
+        """
         for it in self.items:
             yield it
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the specified type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         if not self.items:
             return Type.Array(Type.Any())
         item_type = Type.unify(
@@ -469,6 +704,12 @@ class Array(Base):
 
     @property
     def literal(self) -> Optional[Value.Base]:
+        """
+        A literal literal as literal
+
+        Args:
+            self: (todo): write your description
+        """
         assert isinstance(self.type, Type.Array)
         ans = []
         for item in self.items:
@@ -499,19 +740,51 @@ class Pair(Base):
     """
 
     def __init__(self, pos: SourcePosition, left: Base, right: Base) -> None:
+        """
+        Make a new item.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            left: (float): write your description
+            right: (float): write your description
+        """
         super().__init__(pos)
         self.left = left
         self.right = right
 
     def __str__(self):
+        """
+        Return the string representation of the table.
+
+        Args:
+            self: (todo): write your description
+        """
         return "({}, {})".format(str(self.left), str(self.right))
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Return an iterator over all child nodes.
+
+        Args:
+            self: (todo): write your description
+        """
         yield self.left
         yield self.right
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the type for the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         return Type.Pair(self.left.type, self.right.type)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
@@ -523,6 +796,12 @@ class Pair(Base):
 
     @property
     def literal(self) -> Optional[Value.Base]:
+        """
+        The literal literal.
+
+        Args:
+            self: (todo): write your description
+        """
         assert isinstance(self.type, Type.Pair)
         lv = self.left.literal
         rv = self.right.literal
@@ -544,10 +823,28 @@ class Map(Base):
     """
 
     def __init__(self, pos: SourcePosition, items: List[Tuple[Base, Base]]) -> None:
+        """
+        Initialize items in - memory.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            items: (todo): write your description
+            List: (str): write your description
+            Tuple: (todo): write your description
+            Base: (float): write your description
+            Base: (float): write your description
+        """
         super().__init__(pos)
         self.items = items
 
     def __str__(self):
+        """
+        Return a string representation of this item.
+
+        Args:
+            self: (todo): write your description
+        """
         items = []
         for item in self.items:
             items.append("{}: {}".format(str(item[0]), str(item[1])))
@@ -555,11 +852,28 @@ class Map(Base):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Iterate over all children of the children.
+
+        Args:
+            self: (todo): write your description
+        """
         for k, v in self.items:
             yield k
             yield v
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer a type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         if not self.items:
             return Type.Map((Type.Any(), Type.Any()), literal_keys=set())
         kty = Type.unify([k.type for (k, _) in self.items], check_quant=self._check_quant)
@@ -604,6 +918,12 @@ class Map(Base):
 
     @property
     def literal(self) -> Optional[Value.Base]:
+        """
+        The literal literal literal.
+
+        Args:
+            self: (todo): write your description
+        """
         assert isinstance(self.type, Type.Map)
         items = []
         for k, v in self.items:
@@ -642,6 +962,18 @@ class Struct(Base):
         members: List[Tuple[str, Base]],
         struct_type_name: Optional[str] = None,
     ):
+        """
+        Initialize struct_type.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            members: (todo): write your description
+            List: (str): write your description
+            Tuple: (todo): write your description
+            Base: (float): write your description
+            struct_type_name: (str): write your description
+        """
         super().__init__(pos)
         self.members = {}
         for (k, v) in members:
@@ -652,6 +984,12 @@ class Struct(Base):
         assert struct_type_name is None or isinstance(struct_type_name, str), str(struct_type_name)
 
     def __str__(self):
+        """
+        Returns a string representation of the table.
+
+        Args:
+            self: (todo): write your description
+        """
         members = []
         for member in self.members:
             members.append('"{}": {}'.format(member, str(self.members[member])))
@@ -660,9 +998,26 @@ class Struct(Base):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Return the list of child nodes.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.members.values()
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the struct type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (todo): write your description
+            Base: (todo): write your description
+        """
         object_type = Type.Object({k: v.type for k, v in self.members.items()})
         if not self.struct_type_name:
             # pre-WDL 2.0: object literal with deferred typechecking
@@ -689,6 +1044,20 @@ class Struct(Base):
         return struct_type
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+        """
+        Evaluate a type.
+
+        Args:
+            self: (todo): write your description
+            env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Value: (todo): write your description
+            Base: (str): write your description
+            stdlib: (todo): write your description
+            StdLib: (todo): write your description
+            Base: (str): write your description
+        """
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
@@ -697,6 +1066,12 @@ class Struct(Base):
 
     @property
     def literal(self) -> Optional[Value.Base]:
+        """
+        A literal literal as a literal.
+
+        Args:
+            self: (todo): write your description
+        """
         ans = {}
         for k, v in self.members.items():
             vl = v.literal
@@ -737,23 +1112,56 @@ class IfThenElse(Base):
     def __init__(
         self, pos: SourcePosition, condition: Base, consequent: Base, alternative: Base
     ) -> None:
+        """
+        Initialize the layer.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            condition: (dict): write your description
+            consequent: (todo): write your description
+            alternative: (todo): write your description
+        """
         super().__init__(pos)
         self.condition = condition
         self.consequent = consequent
         self.alternative = alternative
 
     def __str__(self):
+        """
+        Returns a string representation of this condition.
+
+        Args:
+            self: (todo): write your description
+        """
         return "if {} then {} else {}".format(
             str(self.condition), str(self.consequent), str(self.alternative)
         )
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Iterate over this node s children.
+
+        Args:
+            self: (todo): write your description
+        """
         yield self.condition
         yield self.consequent
         yield self.alternative
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         # check for Boolean condition
         if self.condition.type != Type.Boolean():
             raise Error.StaticTypeMismatch(
@@ -802,19 +1210,50 @@ class Ident(Base):
     """
 
     def __init__(self, pos: SourcePosition, name: str) -> None:
+        """
+        Initialize the reference.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            name: (str): write your description
+        """
         super().__init__(pos)
         assert name and not name.endswith(".") and not name.startswith(".") and ".." not in name
         self.name = name
         self.referee = None
 
     def __str__(self):
+        """
+        Return the string representation of this object.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.name
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Return a list of children.
+
+        Args:
+            self: (todo): write your description
+        """
         return []
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer a type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         # The following Env.resolve will never fail, as Get._infer_type does
         # the heavy lifting for us.
         b = type_env.resolve_binding(self.name)
@@ -837,6 +1276,12 @@ class Ident(Base):
 
     @property
     def _ident(self) -> str:
+        """
+        Return the identifier of the node.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.name
 
 
@@ -852,21 +1297,66 @@ class _LeftName(Base):
     name: str
 
     def __init__(self, pos: SourcePosition, name: str) -> None:
+        """
+        Initialize a new position.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            name: (str): write your description
+        """
         super().__init__(pos)
         assert name
         self.name = name
 
     def __str__(self):
+        """
+        Return the string representation of this object.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.name
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         raise NotImplementedError()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+        """
+        Evaluate an environment.
+
+        Args:
+            self: (todo): write your description
+            env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Value: (todo): write your description
+            Base: (str): write your description
+            stdlib: (todo): write your description
+            StdLib: (todo): write your description
+            Base: (str): write your description
+        """
         raise NotImplementedError()
 
     @property
     def _ident(self) -> str:
+        """
+        Return the identifier of the node.
+
+        Args:
+            self: (todo): write your description
+        """
         return self.name
 
 
@@ -914,23 +1404,55 @@ class Get(Base):
     """
 
     def __init__(self, pos: SourcePosition, expr: Base, member: Optional[str]) -> None:
+        """
+        Initialize the given member.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            expr: (todo): write your description
+            member: (todo): write your description
+        """
         super().__init__(pos)
         assert expr
         self.expr = expr
         self.member = member
 
     def __str__(self):
+        """
+        Return the string representation of the expression.
+
+        Args:
+            self: (todo): write your description
+        """
         if self.member is not None:
             return "{}.{}".format(str(self.expr), self.member)
         return str(self.expr)
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Return all child nodes.
+
+        Args:
+            self: (todo): write your description
+        """
         if self._type:
             # suppress children until resolution/typechecking is complete
             yield self.expr
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the type of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
         if isinstance(self.expr, _LeftName):
             # expr is a lone "name" -- try to resolve it as an identifier,
             # and if that works, transform it to Ident("name")
@@ -983,6 +1505,20 @@ class Get(Base):
         raise Error.NoSuchMember(self, self.member)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+        """
+        Evaluate an environment.
+
+        Args:
+            self: (todo): write your description
+            env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Value: (todo): write your description
+            Base: (str): write your description
+            stdlib: (todo): write your description
+            StdLib: (todo): write your description
+            Base: (str): write your description
+        """
         innard_value = self.expr.eval(env, stdlib)
         if not self.member:
             return innard_value
@@ -995,6 +1531,12 @@ class Get(Base):
 
     @property
     def _ident(self) -> str:
+        """
+        Return the identifier of the expression.
+
+        Args:
+            self: (todo): write your description
+        """
         # helper for the resolution logic above -- get the partial identifier
         # recursing into nested Gets, if there's a _LeftName at the bottom.
         if isinstance(self.expr, (_LeftName, Get)) and self.expr._ident:
@@ -1058,11 +1600,26 @@ class Apply(Base):
     """
 
     def __init__(self, pos: SourcePosition, function: str, arguments: List[Base]) -> None:
+        """
+        Initialize the function.
+
+        Args:
+            self: (todo): write your description
+            pos: (int): write your description
+            function: (callable): write your description
+            arguments: (dict): write your description
+        """
         super().__init__(pos)
         self.function_name = function
         self.arguments = arguments
 
     def __str__(self):
+        """
+        Return a string representing the function arguments.
+
+        Args:
+            self: (todo): write your description
+        """
         arguments = _add_parentheses(self.arguments, self.function_name)
         infix = {
             "_mul": "*",
@@ -1091,10 +1648,27 @@ class Apply(Base):
 
     @property
     def children(self) -> Iterable[SourceNode]:
+        """
+        Yields all children ) children.
+
+        Args:
+            self: (todo): write your description
+        """
         for arg in self.arguments:
             yield arg
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
+        """
+        Infer the type of the given type.
+
+        Args:
+            self: (todo): write your description
+            type_env: (todo): write your description
+            Env: (todo): write your description
+            Bindings: (dict): write your description
+            Type: (str): write your description
+            Base: (todo): write your description
+        """
 
         f = getattr(self._stdlib, self.function_name, None)
         if not f:

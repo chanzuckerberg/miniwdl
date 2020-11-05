@@ -33,10 +33,28 @@ class Base:
     descend_imports: bool
 
     def __init__(self, auto_descend: bool = False, descend_imports: bool = True) -> None:
+        """
+        Initialize the auto_descriptor.
+
+        Args:
+            self: (todo): write your description
+            auto_descend: (str): write your description
+            descend_imports: (list): write your description
+        """
         self.auto_descend = auto_descend
         self.descend_imports = descend_imports
 
     def __call__(self, obj: Error.SourceNode, descend: Optional[bool] = None) -> Any:
+        """
+        Call the workflow call.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Error: (todo): write your description
+            SourceNode: (str): write your description
+            descend: (list): write your description
+        """
         ans = None
         if isinstance(obj, Tree.Document):
             ans = self.document(obj)
@@ -69,39 +87,138 @@ class Base:
         return ans
 
     def _descend(self, obj: Error.SourceNode) -> Any:
+        """
+        Recursendendendend the given object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Error: (todo): write your description
+            SourceNode: (todo): write your description
+        """
         if not self.auto_descend:
             for ch in obj.children:
                 if not isinstance(ch, Tree.Document) or self.descend_imports:
                     self(ch)
 
     def document(self, obj: Tree.Document) -> Any:
+        """
+        Add a document to the document.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Document: (todo): write your description
+        """
         self._descend(obj)
 
     def workflow(self, obj: Tree.Workflow) -> Any:
+        """
+        Describe the given object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Workflow: (todo): write your description
+        """
         self._descend(obj)
 
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Recursively call the given object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         self._descend(obj)
 
     def scatter(self, obj: Tree.Scatter) -> Any:
+        """
+        Scatter the object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Scatter: (bool): write your description
+        """
         self._descend(obj)
 
     def conditional(self, obj: Tree.Conditional) -> Any:
+        """
+        Conditional the given an object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Conditional: (str): write your description
+        """
         self._descend(obj)
 
     def gather(self, obj: Tree.Gather) -> Any:
+        """
+        Gathers the object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Gather: (todo): write your description
+        """
         self._descend(obj)
 
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Add a declaration of the declaration
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         self._descend(obj)
 
     def task(self, obj: Tree.Task) -> Any:
+        """
+        Describe the given task.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         self._descend(obj)
 
     def struct_typedef(self, obj: Tree.StructTypeDef) -> Any:
+        """
+        Describe the specified object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            StructTypeDef: (str): write your description
+        """
         self._descend(obj)
 
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Add an object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         self._descend(obj)
 
 
@@ -115,48 +232,146 @@ class Multi(Base):
     _walkers: List[Base]
 
     def __init__(self, walkers: List[Base], descend_imports: bool = True) -> None:
+        """
+        Initialize all auto - related fields.
+
+        Args:
+            self: (todo): write your description
+            walkers: (todo): write your description
+            descend_imports: (list): write your description
+        """
         for w in walkers:
             assert w.auto_descend
         self._walkers = walkers
         super().__init__(auto_descend=True, descend_imports=descend_imports)
 
     def document(self, obj: Tree.Document) -> Any:
+        """
+        Parse the given the given document.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Document: (todo): write your description
+        """
         for w in self._walkers:
             w.document(obj)
 
     def workflow(self, obj: Tree.Workflow) -> Any:
+        """
+        Walk the given workflows.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Workflow: (todo): write your description
+        """
         for w in self._walkers:
             w.workflow(obj)
 
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Recursively callers.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         for w in self._walkers:
             w.call(obj)
 
     def scatter(self, obj: Tree.Scatter) -> Any:
+        """
+        Scatter the given object.
+
+        Args:
+            self: (str): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Scatter: (bool): write your description
+        """
         for w in self._walkers:
             w.scatter(obj)
 
     def conditional(self, obj: Tree.Conditional) -> Any:
+        """
+        Conditional the walkers.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Conditional: (str): write your description
+        """
         for w in self._walkers:
             w.conditional(obj)
 
     def gather(self, obj: Tree.Gather) -> Any:
+        """
+        Gathers all the nodes. gathers.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Gather: (todo): write your description
+        """
         for w in self._walkers:
             w.gather(obj)
 
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Implements
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         for w in self._walkers:
             w.decl(obj)
 
     def task(self, obj: Tree.Task) -> Any:
+        """
+        Walk the given task ( obj ).
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         for w in self._walkers:
             w.task(obj)
 
     def struct_typedef(self, obj: Tree.StructTypeDef) -> Any:
+        """
+        Walk through the superty.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            StructTypeDef: (str): write your description
+        """
         for w in self._walkers:
             w.struct_typedef(obj)
 
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Evaluate an expression.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         for w in self._walkers:
             w.expr(obj)
 
@@ -183,6 +398,15 @@ class SetParents(Base):
     _placeholder_depth = 0
 
     def document(self, obj: Tree.Document) -> None:
+        """
+        Document the given document.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Document: (todo): write your description
+        """
         super().document(obj)
         obj.parent = None
         for imp in obj.imports:
@@ -196,17 +420,44 @@ class SetParents(Base):
             obj.workflow.parent = obj
 
     def workflow(self, obj: Tree.Workflow) -> None:
+        """
+        Workaround for the given object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Workflow: (todo): write your description
+        """
         super().workflow(obj)
         obj.parent = None
         for elt in (obj.inputs or []) + obj.body + (obj.outputs or []):
             elt.parent = obj
 
     def call(self, obj: Tree.Call) -> None:
+        """
+        Called by the parent.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         self._parent_stack.append(obj)
         super().call(obj)
         self._parent_stack.pop()
 
     def scatter(self, obj: Tree.Scatter) -> None:
+        """
+        Scatter a scatter.
+
+        Args:
+            self: (str): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Scatter: (bool): write your description
+        """
         self._parent_stack.append(obj)
         super().scatter(obj)
         self._parent_stack.pop()
@@ -215,6 +466,15 @@ class SetParents(Base):
             elt.parent = obj
 
     def conditional(self, obj: Tree.Conditional) -> None:
+        """
+        Conditional all child elements.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Conditional: (str): write your description
+        """
         self._parent_stack.append(obj)
         super().conditional(obj)
         self._parent_stack.pop()
@@ -223,6 +483,15 @@ class SetParents(Base):
             elt.parent = obj
 
     def task(self, obj: Tree.Task) -> None:
+        """
+        Recursively iterable objects.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         self._parent_stack.append(obj)
         super().task(obj)
         self._parent_stack.pop()
@@ -231,11 +500,29 @@ class SetParents(Base):
             elt.parent = obj
 
     def decl(self, obj: Tree.Decl) -> None:
+        """
+        Add a new declaration to the declaration.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         self._parent_stack.append(obj)
         super().decl(obj)
         self._parent_stack.pop()
 
     def expr(self, obj: Expr.Base) -> None:
+        """
+        Recursively placeholder.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(obj, Expr.Placeholder):
             self._placeholder_depth += 1
         self._parent_stack.append(obj)
@@ -260,10 +547,28 @@ class MarkCalled(Base):
     marking: bool = False  # True while recursing from the top-level workflow
 
     def task(self, obj: Tree.Task) -> None:
+        """
+        Task for the given task.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         obj.called = getattr(obj, "called", False)
         super().task(obj)
 
     def workflow(self, obj: Tree.Workflow) -> None:
+        """
+        Makes the given workflow.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Workflow: (todo): write your description
+        """
         obj.called = getattr(obj, "called", False)
         if obj.parent.parent is None:  # pyre-ignore
             assert not self.marking
@@ -275,6 +580,15 @@ class MarkCalled(Base):
             super().workflow(obj)
 
     def call(self, obj: Tree.Call) -> None:
+        """
+        Call the given callable.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         assert self.marking
         if isinstance(obj.callee, Tree.Workflow):
             self(obj.callee)
@@ -290,9 +604,24 @@ class MarkImportsUsed(Base):
     """
 
     def __init__(self):
+        """
+        Initialize the internal state.
+
+        Args:
+            self: (todo): write your description
+        """
         super().__init__(auto_descend=True)
 
     def document(self, obj: Tree.Document) -> None:
+        """
+        Add the document.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Document: (todo): write your description
+        """
         obj.imports_used = set()
         for stb in obj.struct_typedefs:
             st: Tree.StructTypeDef = stb.value
@@ -301,6 +630,15 @@ class MarkImportsUsed(Base):
                 self._mark_structs(obj, ty)
 
     def call(self, obj: Tree.Call) -> None:
+        """
+        Call a callers.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         doc = obj
         while not isinstance(doc, Tree.Document):
             doc = getattr(doc, "parent")
@@ -315,12 +653,33 @@ class MarkImportsUsed(Base):
                 getattr(doc, "imports_used").add(imp.namespace)
 
     def decl(self, obj: Tree.Decl) -> None:
+        """
+        Declare a declaration.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         doc = obj
         while not isinstance(doc, Tree.Document):
             doc = getattr(doc, "parent")
         self._mark_structs(doc, obj.type)
 
     def _mark_structs(self, doc: Tree.Document, ty: Type.Base) -> None:
+        """
+        Mark all the docstring to the document.
+
+        Args:
+            self: (todo): write your description
+            doc: (str): write your description
+            Tree: (todo): write your description
+            Document: (todo): write your description
+            ty: (todo): write your description
+            Type: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(ty, Type.StructInstance):
             st: Tree.StructTypeDef = doc.struct_typedefs[ty.type_name]
             if st.imported:
@@ -342,9 +701,24 @@ class SetReferrers(Base):
     """
 
     def __init__(self):
+        """
+        Initialize the internal state.
+
+        Args:
+            self: (todo): write your description
+        """
         super().__init__(auto_descend=True)
 
     def expr(self, obj: Expr.Base) -> None:
+        """
+        Convert the given object
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(obj, Expr.Ident):
             referee = obj.referee
             if isinstance(referee, Tree.Gather):

@@ -25,6 +25,11 @@ _counters_lock = threading.Lock()
 
 
 def task_backlogged() -> None:
+    """
+    Return the lock backlogged.
+
+    Args:
+    """
     # workflow.py calls this when enqueueing a task onto the thread pool
     with _counters_lock:
         _counters["tasks_backlogged"] += 1
@@ -32,6 +37,11 @@ def task_backlogged() -> None:
 
 @contextmanager
 def task_slotted() -> Iterator[None]:
+    """
+    A context manager for counter counter counter.
+
+    Args:
+    """
     # task.py opens this context while a thread has picked up the task
     with _counters_lock:
         _counters["tasks_backlogged"] = max(0, _counters["tasks_backlogged"] - 1)
@@ -46,6 +56,13 @@ def task_slotted() -> Iterator[None]:
 
 @contextmanager
 def task_running(cpu: int, mem_bytes: int) -> Iterator[None]:
+    """
+    A context manager to running running running running running running running running running commands.
+
+    Args:
+        cpu: (todo): write your description
+        mem_bytes: (todo): write your description
+    """
     # task.py opens this context while the task container is actually running
     # it's possible for a task to succeed without this occurring (if the container exits instantly)
     with _counters_lock:
@@ -62,6 +79,11 @@ def task_running(cpu: int, mem_bytes: int) -> Iterator[None]:
 
 
 def abort() -> None:
+    """
+    Abort all counters.
+
+    Args:
+    """
     # called by runner error __init__ methods and misc exception handlers
     _counters["abort"] = True
 
@@ -86,10 +108,25 @@ _KITT: List[str] = [
 
 @contextmanager
 def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
+    """
+    Context manager that temporarily temporarily temporarily.
+
+    Args:
+        set_status: (todo): write your description
+        Optional: (todo): write your description
+        Callable: (str): write your description
+        List: (todo): write your description
+        str: (todo): write your description
+    """
     # set_status comes from .._util.configure_logger to set the status bar contents
     t0 = time.time()
 
     def update() -> None:
+        """
+        Updates the status.
+
+        Args:
+        """
         if set_status:
             elapsed = time.time() - t0
             elapsed5 = int(elapsed * 5)

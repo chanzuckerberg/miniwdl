@@ -10,14 +10,36 @@ class TestStdLib(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """
+        Configure the logger.
+
+        Args:
+            cls: (todo): write your description
+        """
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
 
     def setUp(self):
+        """
+        Create a temporary directory.
+
+        Args:
+            self: (todo): write your description
+        """
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_stdlib_")
 
     def _test_task(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
+        """
+        Executes a test task.
+
+        Args:
+            self: (todo): write your description
+            wdl: (str): write your description
+            inputs: (todo): write your description
+            expected_exception: (todo): write your description
+            cfg: (str): write your description
+        """
         cfg = cfg or WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         try:
             doc = WDL.parse_document(wdl)
@@ -42,6 +64,12 @@ class TestStdLib(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
     def test_size_polytype(self):
+        """
+        Determine the size of the document.
+
+        Args:
+            self: (todo): write your description
+        """
         tmpl = """
         version 1.0
         task test_size {{
@@ -78,6 +106,12 @@ class TestStdLib(unittest.TestCase):
                 doc.typecheck()
 
     def test_length_defined_range(self):
+        """
+        Test that the range of the range of the range.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task test_length {
@@ -110,6 +144,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
     def test_floor_ceil_round(self):
+        """
+        Round the test test.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task test_floor_ceil_round {
@@ -127,6 +167,12 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs, {"ans": [3, -3, 42, 43]})
 
     def test_basename_prefix(self):
+        """
+        Creates the prefix.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task test_basename_prefix {
@@ -153,6 +199,12 @@ class TestStdLib(unittest.TestCase):
         })
 
     def test_select(self):
+        """
+        Perform a test.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task test_select {
@@ -217,6 +269,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.IndeterminateType)
 
     def test_sub(self):
+        """
+        Test for test test.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task test_sub {
@@ -264,6 +322,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
     def test_flatten(self):
+        """
+        Flattens the test case
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task hello {
@@ -287,6 +351,12 @@ class TestStdLib(unittest.TestCase):
         ])
 
     def test_size(self):
+        """
+        Determine the test test size
+
+        Args:
+            self: (todo): write your description
+        """
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
             outfile.write("Alyssa\n")
         with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
@@ -356,6 +426,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
     def test_glob(self):
+        """
+        This function will run the glances.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task hello {
@@ -412,6 +488,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
     def test_concat(self):
+        """
+        A test test test.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task hello {
@@ -439,6 +521,12 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["s"], "foobar\nfoobar42\n\n\n\n\n\nfoo::bar::\nfoo::::bar")
 
     def test_read(self):
+        """
+        Reads a test results
+
+        Args:
+            self: (todo): write your description
+        """
         with open(os.path.join(self._dir, "strings.txt"), "w") as outfile:
             outfile.write("foo\nbar\nbas\n")
         outputs = self._test_task(R"""
@@ -487,6 +575,12 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2", "..": "tricky"})
 
     def test_read_json(self):
+        """
+        Test for json - serialization.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task hello {
@@ -577,6 +671,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.InputError)
 
     def test_read_map_ints(self):
+        """
+        Read the test - test - test results.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task test {
@@ -597,6 +697,12 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["my_ints"], {"key_0": 0, "key_1": 1, "key_2": 2})
 
     def test_write(self):
+        """
+        Writes out to json file
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task hello {
@@ -630,6 +736,12 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2"})
 
     def test_bad_map(self):
+        """
+        Assigns the result in the badge.
+
+        Args:
+            self: (todo): write your description
+        """
         self._test_task(R"""
         version 1.0
         task bad_map {
@@ -665,6 +777,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
     def test_transpose(self):
+        """
+        Transpose the task.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task hello {
@@ -687,6 +805,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
     def test_zip_cross(self):
+        """
+        Test the cross - validation
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task hello {
@@ -728,6 +852,12 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
     def test_sep(self):
+        """
+        This function to see if the task.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version development
         task SepTest {
@@ -773,6 +903,12 @@ class TestStdLib(unittest.TestCase):
 
 
     def test_suffix(self):
+        """
+        Creates a test test.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version 1.0
         task test_suffix {
@@ -830,6 +966,12 @@ class TestStdLib(unittest.TestCase):
 
 
     def test_quote(self):
+        """
+        Test for test.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version development
         task test_quote {
@@ -889,6 +1031,12 @@ class TestStdLib(unittest.TestCase):
 
 
     def test_squote(self):
+        """
+        Squote test test.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version development
         task test_squote {
@@ -935,6 +1083,12 @@ class TestStdLib(unittest.TestCase):
         """,expected_exception=WDL.Error.StaticTypeMismatch)
 
     def test_keys(self):
+        """
+        Test if the test keys.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version development
         task test_keys {
@@ -970,6 +1124,12 @@ class TestStdLib(unittest.TestCase):
             """)
 
     def test_map_pairs(self):
+        """
+        Test that map pairs.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_task(R"""
         version development
         task test_map_pairs {

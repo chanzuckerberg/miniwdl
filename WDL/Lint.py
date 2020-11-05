@@ -66,6 +66,14 @@ class Linter(Walker.Base):
     """
 
     def __init__(self, auto_descend: bool = True, descend_imports: bool = True):
+        """
+        Initialize the auto - import.
+
+        Args:
+            self: (todo): write your description
+            auto_descend: (str): write your description
+            descend_imports: (list): write your description
+        """
         super().__init__(auto_descend=auto_descend, descend_imports=descend_imports)
 
     def add(
@@ -144,10 +152,24 @@ def lint(doc, descend_imports: bool = True):
 
 class _Collector(Walker.Base):
     def __init__(self):
+        """
+        Initialize the internal state
+
+        Args:
+            self: (todo): write your description
+        """
         super().__init__(auto_descend=True)
         self.lint = []
 
     def __call__(self, obj, descend: Optional[bool] = None):
+        """
+        Calls the lint method.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            descend: (list): write your description
+        """
         if hasattr(obj, "lint"):
             self.lint.extend(getattr(obj, "lint"))
         super().__call__(obj, descend=descend)
@@ -164,11 +186,29 @@ def collect(doc):
 
 
 def _find_input_decl(obj: Tree.Call, name: str) -> Tree.Decl:
+    """
+    Finds the declaration of the given declaration.
+
+    Args:
+        obj: (todo): write your description
+        Tree: (todo): write your description
+        Call: (todo): write your description
+        name: (str): write your description
+    """
     assert isinstance(obj.callee, (Tree.Task, Tree.Workflow))
     return obj.callee.available_inputs[name]
 
 
 def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
+    """
+    Convert a coercion to a compound.
+
+    Args:
+        to_type: (str): write your description
+        from_type: (str): write your description
+        base_to_type: (str): write your description
+        extra_from_type: (todo): write your description
+    """
     # helper for StringCoercion and FileCoercion to detect coercions implied
     # within compound types like arrays
     if isinstance(to_type, Type.Array) and isinstance(from_type, Type.Array):
@@ -197,6 +237,14 @@ def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
 
 
 def _parent_executable(obj: Error.SourceNode) -> Optional[Union[Tree.Task, Tree.Workflow]]:
+    """
+    : parameter - executable.
+
+    Args:
+        obj: (todo): write your description
+        Error: (todo): write your description
+        SourceNode: (todo): write your description
+    """
     if isinstance(obj, (Tree.Task, Tree.Workflow)):
         return obj
     if hasattr(obj, "parent_executable"):
@@ -214,6 +262,15 @@ class StringCoercion(Linter):
     # File-to-String coercions are normal in tasks, but flagged at the workflow level.
 
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Declare a declaration.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         if obj.expr and _compound_coercion(
             obj.type,
             obj.expr.type,
@@ -223,6 +280,15 @@ class StringCoercion(Linter):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Generate a string representation of a function.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(obj, Expr.Apply):
             # String function operands with non-String expression
             if obj.function_name == "_add":
@@ -289,6 +355,15 @@ class StringCoercion(Linter):
                 self.add(obj, msg, obj.pos)
 
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Implementation details
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _compound_coercion(decl.type, inp_expr.type, (Type.String,)):
@@ -302,9 +377,25 @@ class FileCoercion(Linter):
     # problematic elsewhere.
 
     def __init__(self, descend_imports: bool = True):
+        """
+        Initialize the list of - imports.
+
+        Args:
+            self: (todo): write your description
+            descend_imports: (list): write your description
+        """
         super().__init__(auto_descend=False, descend_imports=descend_imports)
 
     def task(self, obj: Tree.Task) -> Any:
+        """
+        Run a task on - placeinput.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         # descend into everything but outputs
         for d in obj.inputs or []:
             self(d)
@@ -317,6 +408,15 @@ class FileCoercion(Linter):
     # File declaration with String rhs expression
     # exception: when rhs looks like a URI constant (typically a default reference database)
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Add declaration declaration.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         super().decl(obj)
         if (
             obj.expr
@@ -330,6 +430,15 @@ class FileCoercion(Linter):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Add a function definitions expression.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         super().expr(obj)
         if isinstance(obj, Expr.Apply):
             # File function operands with String expression
@@ -355,6 +464,15 @@ class FileCoercion(Linter):
                     )
 
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Implementation details
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         super().call(obj)
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
@@ -364,12 +482,32 @@ class FileCoercion(Linter):
 
 
 def _array_levels(ty: Type.Base, l=0):
+    """
+    Return an array of all the elements.
+
+    Args:
+        ty: (array): write your description
+        Type: (todo): write your description
+        Base: (str): write your description
+        l: (array): write your description
+    """
     if isinstance(ty, Type.Array):
         return _array_levels(ty.item_type, l + 1)
     return l
 
 
 def _is_array_coercion(value_type: Type.Base, expr_type: Type.Base):
+    """
+    Return true if the given value is a coercion.
+
+    Args:
+        value_type: (str): write your description
+        Type: (todo): write your description
+        Base: (todo): write your description
+        expr_type: (str): write your description
+        Type: (todo): write your description
+        Base: (todo): write your description
+    """
     return (
         isinstance(value_type, Type.Array)
         and _array_levels(value_type) > _array_levels(expr_type)
@@ -382,11 +520,29 @@ def _is_array_coercion(value_type: Type.Base, expr_type: Type.Base):
 class ArrayCoercion(Linter):
     # implicit promotion of T to Array[T]
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Add declaration declaration.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
             msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
             self.add(obj, msg)
 
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Generate a c ++.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(obj, Expr.Apply):
             F = getattr(StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
@@ -398,6 +554,15 @@ class ArrayCoercion(Linter):
                         self.add(obj, msg, arg_i.pos)
 
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Implementation details
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _is_array_coercion(decl.type, inp_expr.type):
@@ -412,6 +577,15 @@ class OptionalCoercion(Linter):
     # older WDLs.
     # TODO: suppress within 'if (defined(x))' consequent
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Generate a function that represents an object.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(obj, Expr.Apply):
             if obj.function_name in ["_add", "_sub", "_mul", "_div", "_land", "_lor"]:
                 assert len(obj.arguments) == 2
@@ -451,6 +625,15 @@ class OptionalCoercion(Linter):
                             self.add(obj, msg, obj.arguments[i].pos)
 
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Add declaration
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         if (
             obj.expr
             and not obj.expr.type.coerces(obj.type, check_quant=True)
@@ -459,6 +642,15 @@ class OptionalCoercion(Linter):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Implementation details
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if not inp_expr.type.coerces(decl.type, check_quant=True) and not _is_array_coercion(
@@ -469,6 +661,17 @@ class OptionalCoercion(Linter):
 
 
 def _is_nonempty_coercion(value_type: Type.Base, expr_type: Type.Base):
+    """
+    Return true if the given value is a coercion.
+
+    Args:
+        value_type: (str): write your description
+        Type: (todo): write your description
+        Base: (todo): write your description
+        expr_type: (str): write your description
+        Type: (todo): write your description
+        Base: (todo): write your description
+    """
     return (
         isinstance(value_type, Type.Array)
         and isinstance(expr_type, Type.Array)
@@ -482,6 +685,15 @@ def _is_nonempty_coercion(value_type: Type.Base, expr_type: Type.Base):
 class NonemptyCoercion(Linter):
     # An array of possibly-empty type where a nonempty array is expected
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Generate a function definition.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(obj, Expr.Apply):
             F = getattr(StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name)
             if isinstance(F, StdLib.StaticFunction):
@@ -495,6 +707,15 @@ class NonemptyCoercion(Linter):
                         self.add(obj, msg, obj.arguments[i].pos)
 
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Implements
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         # heuristic exception for: Array[File]+ outp = glob(...)
         if (
             obj.expr
@@ -507,6 +728,15 @@ class NonemptyCoercion(Linter):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Implementation details
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _is_nonempty_coercion(decl.type, inp_expr.type):
@@ -518,6 +748,15 @@ class NonemptyCoercion(Linter):
 class IncompleteCall(Linter):
     # Call without all required inputs (allowed for top-level workflow)
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Call the callable.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         assert obj.callee is not None
         required_inputs = set(decl.name for decl in obj.callee.required_inputs)
         for name, _ in obj.inputs.items():
@@ -550,6 +789,15 @@ class NameCollision(Linter):
     # - struct type/alias and import
     # These are allowed, but confusing.
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Recursively.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
@@ -564,6 +812,15 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Declare a new declaration.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         doc = _find_doc(obj)
         assert isinstance(doc, Tree.Document)
         for imp in doc.imports:
@@ -588,6 +845,15 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def scatter(self, obj: Tree.Scatter) -> Any:
+        """
+        Add a scatter variable.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Scatter: (bool): write your description
+        """
         doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.variable:
@@ -611,6 +877,15 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def workflow(self, obj: Tree.Workflow) -> Any:
+        """
+        Add a new workflow to the workflow.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Workflow: (todo): write your description
+        """
         doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
@@ -627,6 +902,15 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def task(self, obj: Tree.Task) -> Any:
+        """
+        Add a new task.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
@@ -641,6 +925,15 @@ class NameCollision(Linter):
                 self.add(obj, msg)
 
     def document(self, obj: Tree.Document) -> Any:
+        """
+        Add a document to document.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Document: (todo): write your description
+        """
         for imp in obj.imports:
             for stb in obj.struct_typedefs:
                 assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
@@ -658,6 +951,15 @@ class UnusedImport(Linter):
     #       the same struct definitions were imported from a different document E (probably because
     #       E itself imported D)
     def document(self, obj: Tree.Document) -> Any:
+        """
+        Add a document to the document.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Document: (todo): write your description
+        """
         for imp in obj.imports:
             if imp.namespace not in getattr(obj, "imports_used"):
                 self.add(
@@ -672,6 +974,15 @@ class UnusedImport(Linter):
 class ForwardReference(Linter):
     # Ident referencing a value or call output lexically precedes Decl/Call
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Add an object
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(obj, Expr.Ident):
             referee = obj.referee
             if isinstance(referee, Tree.Gather):
@@ -693,6 +1004,15 @@ class ForwardReference(Linter):
 class UnusedDeclaration(Linter):
     # Nothing references a (non-input) Decl
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Add a declaration
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         pt = getattr(obj, "parent")
         is_output = (
             isinstance(pt, (Tree.Workflow, Tree.Task))
@@ -742,6 +1062,15 @@ class UnusedCall(Linter):
     # the outputs of a Call are neither used nor propagated
 
     def call(self, obj: Tree.Call) -> Any:
+        """
+        Call the workflow.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Call: (array): write your description
+        """
         if obj.effective_outputs and not getattr(obj, "referrers", []):
             workflow = obj
             while not isinstance(workflow, Tree.Workflow):
@@ -766,6 +1095,15 @@ class UnnecessaryQuantifier(Linter):
     # e.g. File? optional_file_output = "filename.txt"
 
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Declare declaration
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         if obj.type.optional and obj.expr and not obj.expr.type.optional:
             tw = obj
             while not isinstance(tw, (Tree.Task, Tree.Workflow)):
@@ -807,6 +1145,12 @@ class CommandShellCheck(Linter):
     _suppressions = [1009, 1072, 1083, 2043, 2050, 2157, 2193]
 
     def __init__(self, *args, **kwargs):
+        """
+        Initialize a new shell.
+
+        Args:
+            self: (todo): write your description
+        """
         super().__init__(*args, **kwargs)
         self._tmpdir = tempfile.mkdtemp(prefix="miniwdl_shellcheck_")
         global _shellcheck_available
@@ -814,9 +1158,24 @@ class CommandShellCheck(Linter):
             _shellcheck_available = shutil.which("shellcheck") is not None
 
     def __del__(self):
+        """
+        Delete the directory.
+
+        Args:
+            self: (todo): write your description
+        """
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def task(self, obj: Tree.Task) -> Any:
+        """
+        Add task
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         global _shellcheck_available
         if not _shellcheck_available:
             return
@@ -894,6 +1253,13 @@ class CommandShellCheck(Linter):
 
 
 def _shellcheck_dummy_value(ty, pos):
+    """
+    Returns a random dummy value.
+
+    Args:
+        ty: (todo): write your description
+        pos: (int): write your description
+    """
     if isinstance(ty, Type.Array):
         return _shellcheck_dummy_value(ty.item_type, pos)
     if isinstance(ty, Type.Boolean):
@@ -915,6 +1281,15 @@ def _shellcheck_dummy_value(ty, pos):
 class MixedIndentation(Linter):
     # Line of task command mixes tab and space indentation
     def task(self, obj: Tree.Task) -> Any:
+        """
+        Add a task to the task.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         command_lines = "".join(
             (s if isinstance(s, str) else "$") for s in obj.command.parts
         ).split("\n")
@@ -940,6 +1315,15 @@ class MixedIndentation(Linter):
 class SelectArray(Linter):
     # application of select_first or select_all on a non-optional array
     def expr(self, obj: Expr.Base) -> Any:
+        """
+        Expr : expr
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Expr: (todo): write your description
+            Base: (str): write your description
+        """
         if isinstance(obj, Expr.Apply) and obj.function_name in ["select_first", "select_all"]:
             arg0 = obj.arguments[0]
             if isinstance(arg0.type, Type.Array) and not arg0.type.item_type.optional:
@@ -988,6 +1372,15 @@ class UnknownRuntimeKey(Linter):
     )
 
     def task(self, obj: Tree.Task) -> Any:
+        """
+        Add task to the task )
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (str): write your description
+            Task: (str): write your description
+        """
         for k in obj.runtime:
             if k not in self.known_keys:
                 self.add(obj, "unknown entry in task runtime section: " + k, obj.runtime[k].pos)
@@ -996,6 +1389,15 @@ class UnknownRuntimeKey(Linter):
 @a_linter
 class MissingVersion(Linter):
     def document(self, obj: Tree.Document) -> Any:
+        """
+        Adds a document.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Document: (todo): write your description
+        """
         first_sloc = next(
             (
                 p
@@ -1025,6 +1427,15 @@ class MissingVersion(Linter):
 class UnboundDeclaration(Linter):
     # Unbound declaration outside of input{} section in WDL 1.0+
     def decl(self, obj: Tree.Decl) -> Any:
+        """
+        Declare a declaration.
+
+        Args:
+            self: (todo): write your description
+            obj: (todo): write your description
+            Tree: (todo): write your description
+            Decl: (todo): write your description
+        """
         if not obj.expr:
             doc = _find_doc(obj)
             if doc.wdl_version and doc.wdl_version != "draft-2":

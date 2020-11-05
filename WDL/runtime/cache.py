@@ -43,6 +43,18 @@ class CallCache(AbstractContextManager):
     _lock: Lock
 
     def __init__(self, cfg: config.Loader, logger: logging.Logger):
+        """
+        Initialize the workflow.
+
+        Args:
+            self: (todo): write your description
+            cfg: (todo): write your description
+            config: (todo): write your description
+            Loader: (todo): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+        """
         self._cfg = cfg
         self._logger = logger.getChild("CallCache")
         self._flocker = FlockHolder(self._logger)
@@ -57,10 +69,22 @@ class CallCache(AbstractContextManager):
             pass
 
     def __enter__(self) -> "CallCache":
+        """
+        Return a copy of this context.
+
+        Args:
+            self: (todo): write your description
+        """
         self._flocker.__enter__()
         return self
 
     def __exit__(self, *args) -> None:
+        """
+        Execute the exit.
+
+        Args:
+            self: (todo): write your description
+        """
         self._flocker.__exit__(*args)
 
     def get_digest_for_inputs(self, inputs: Env.Bindings[Value.Base]):
@@ -74,6 +98,13 @@ class CallCache(AbstractContextManager):
         return base64.b32encode(sha256[:20]).decode().lower()
 
     def get_digest_for_task(self, task):
+        """
+        Return digest digest for task.
+
+        Args:
+            self: (todo): write your description
+            task: (str): write your description
+        """
         doc = getattr(task, "parent", None)
         assert isinstance(doc, Document)
         task_string = _describe_task(doc, task).encode("utf-8")
@@ -113,6 +144,17 @@ class CallCache(AbstractContextManager):
             # check output and input file timestamps
 
             def get_files(v: Union[Value.File, Value.Directory]):
+                """
+                Returns a list.
+
+                Args:
+                    v: (str): write your description
+                    Union: (str): write your description
+                    Value: (str): write your description
+                    File: (str): write your description
+                    Value: (str): write your description
+                    Directory: (str): write your description
+                """
                 if isinstance(v, Value.File):
                     file_list.add(v.value)
                 else:
@@ -278,11 +320,27 @@ class CallCache(AbstractContextManager):
         return ans
 
     def download_cacheable(self, uri: str, directory: bool = False) -> Optional[str]:
+        """
+        Download a boolean indicating if it s cached.
+
+        Args:
+            self: (todo): write your description
+            uri: (str): write your description
+            directory: (str): write your description
+        """
         if not self._cfg["download_cache"].get_bool("put"):
             return None
         return self.download_path(uri, directory=directory)
 
     def flock(self, filename: str, exclusive: bool = False) -> None:
+        """
+        Flock a mock.
+
+        Args:
+            self: (todo): write your description
+            filename: (str): write your description
+            exclusive: (todo): write your description
+        """
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
 
 
@@ -354,6 +412,14 @@ def _excerpt(
     """
 
     def clean(line: int, column: int = 1, end_column: Optional[int] = None) -> List[str]:
+        """
+        Clean the docstrings of the docstrings.
+
+        Args:
+            line: (str): write your description
+            column: (str): write your description
+            end_column: (list): write your description
+        """
         literal = next(
             (True for lit in literals if line >= lit.line and line <= lit.end_line), False
         )
@@ -391,6 +457,18 @@ class FileCoherence(abc.ABC):
     _logger: logging.Logger
 
     def __init__(self, cfg: config.Loader, logger: logging.Logger):
+        """
+        Initialize logger.
+
+        Args:
+            self: (todo): write your description
+            cfg: (todo): write your description
+            config: (todo): write your description
+            Loader: (todo): write your description
+            logger: (todo): write your description
+            logging: (todo): write your description
+            Logger: (todo): write your description
+        """
         self._cfg = cfg
         self._logger = logger
         self.cache_file_modification_time = 0.0
@@ -401,10 +479,25 @@ class FileCoherence(abc.ABC):
         self._downloadable = downloadable
 
     def check_files(self, cache_file_path: str, files: Iterable[str], dirs: Iterable[str]) -> bool:
+        """
+        Check if the cache file has changed.
+
+        Args:
+            self: (todo): write your description
+            cache_file_path: (str): write your description
+            files: (list): write your description
+            dirs: (str): write your description
+        """
         if self.cache_file_modification_time == 0.0:
             self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
 
         def raiser(exc):
+            """
+            Raise an exception that will raise an exception.
+
+            Args:
+                exc: (todo): write your description
+            """
             raise exc
 
         for directory, path in itertools.chain(
@@ -444,6 +537,13 @@ class FileCoherence(abc.ABC):
         return True
 
     def get_last_modified_time(self, file_path: str) -> float:
+        """
+        Get the last modified modification time of a file.
+
+        Args:
+            self: (todo): write your description
+            file_path: (str): write your description
+        """
         # max mtime of hardlink & symlink pointing to it (if applicable)
         return max(
             os.stat(file_path, follow_symlinks=False).st_mtime_ns,
@@ -451,6 +551,13 @@ class FileCoherence(abc.ABC):
         )
 
     def check_cache_younger_than_file(self, output_file_path: str) -> bool:
+        """
+        Determine if the cache file was modified.
+
+        Args:
+            self: (todo): write your description
+            output_file_path: (str): write your description
+        """
         output_file_modification_time = self.get_last_modified_time(output_file_path)
         # self._logger.debug(_("check_cache_younger_than_file", path=output_file_path,
         # mtime=output_file_modification_time/1e9, cache_mtime=self.cache_file_modification_time/1e9))

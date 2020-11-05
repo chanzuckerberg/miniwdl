@@ -11,14 +11,36 @@ class TestWorkflowRunner(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        """
+        Configure the logger.
+
+        Args:
+            cls: (todo): write your description
+        """
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
 
     def setUp(self):
+        """
+        Create a temporary directory.
+
+        Args:
+            self: (todo): write your description
+        """
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
 
     def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
+        """
+        Test if a workflow.
+
+        Args:
+            self: (todo): write your description
+            wdl: (todo): write your description
+            inputs: (list): write your description
+            expected_exception: (todo): write your description
+            cfg: (todo): write your description
+        """
         sys.setrecursionlimit(200)  # set artificially low in unit tests to detect excessive recursion (issue #239)
         logger = logging.getLogger(self.id())
         cfg = cfg or WDL.runtime.config.Loader(logger, [])
@@ -53,6 +75,12 @@ class TestWorkflowRunner(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
     def test_hello(self):
+        """
+        Evaluate the workflow
+
+        Args:
+            self: (todo): write your description
+        """
         self.assertEqual(self._test_workflow("""
         version 1.0
 
@@ -111,6 +139,12 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["meanings"], [42, 42])
 
     def test_scatters(self):
+        """
+        Test for a set of the flow
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_workflow("""
         version 1.0
 
@@ -234,6 +268,12 @@ class TestWorkflowRunner(unittest.TestCase):
         ])
 
     def test_ifs(self):
+        """
+        Test if the output of the set of - workflow.
+
+        Args:
+            self: (todo): write your description
+        """
         outputs = self._test_workflow("""
         version 1.0
 
@@ -352,6 +392,12 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs, {"out": [[0, 1], None, [4, 5]]})
 
     def test_io(self):
+        """
+        Test for a set of the workflow
+
+        Args:
+            self: (todo): write your description
+        """
         txt = """
         version 1.0
 
@@ -491,6 +537,12 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["null2"], [None, None, None])
 
     def test_errors(self):
+        """
+        Makes sure the expected by the test.
+
+        Args:
+            self: (todo): write your description
+        """
         exn = self._test_workflow("""
         version 1.0
 
@@ -526,6 +578,12 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(exn.job_id, "decl-y")
 
     def test_order(self):
+        """
+        Order the order is_order.
+
+        Args:
+            self: (todo): write your description
+        """
         txt = """
         version 1.0
 
@@ -551,6 +609,12 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(self._test_workflow(txt, {"b": False})["z_out"], [[None, 2], [None, 2]])
 
     def test_subworkflow(self):
+        """
+        Test for all the subworkflow workflow.
+
+        Args:
+            self: (todo): write your description
+        """
         subwf = """
         version 1.0
 
@@ -627,6 +691,12 @@ class TestWorkflowRunner(unittest.TestCase):
         self._test_workflow(subwf_input, {"summer.sum_sq.n": 3})
 
     def test_host_file_access(self):
+        """
+        Test to set the host was successful.
+
+        Args:
+            self: (todo): write your description
+        """
         exn = self._test_workflow("""
         version 1.0
         workflow hacker9000 {
@@ -728,6 +798,12 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["tweets"], ["yo", "Hello, world!"])
 
     def test_stdlib_io(self):
+        """
+        Test if the i / test files. io file.
+
+        Args:
+            self: (todo): write your description
+        """
         with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
             outfile.write("Alyssa\n")
             outfile.write("Ben\n")
@@ -793,6 +869,12 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
 
     def test_index_file_localization(self):
+        """
+        Test if the test test test file.
+
+        Args:
+            self: (todo): write your description
+        """
         # from a data file we call a task to generate an index file; and in a subsequent task
         # expect both files to be localized in the same working directory, even though they'll be
         # located separately on the host.
@@ -858,6 +940,12 @@ class TestWorkflowRunner(unittest.TestCase):
         """)
 
     def test_task_parallelization(self):
+        """
+        Create a new jobs in parallel.
+
+        Args:
+            self: (todo): write your description
+        """
         start = time.time()
         sleep_time = 10
         with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
@@ -918,6 +1006,12 @@ class TestWorkflowRunner(unittest.TestCase):
         assert test_time < sleep_time * len(outputs["messages"])
 
     def test_task_parallelization_error_handling(self):
+        """
+        Test for error in - to write
+
+        Args:
+            self: (todo): write your description
+        """
         start = time.time()
         with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
             outfile.write("Alyssa P. Hacker\n")
@@ -980,6 +1074,12 @@ class TestWorkflowRunner(unittest.TestCase):
         assert test_time < 30
 
     def test_retry(self):
+        """
+        Test for retry
+
+        Args:
+            self: (todo): write your description
+        """
         txt = R"""
         version 1.0
         workflow test_retry {

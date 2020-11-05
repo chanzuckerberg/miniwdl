@@ -21,6 +21,15 @@ class Binding(Generic[T]):
     _info: Any  # pyre-ignore
 
     def __init__(self, name: str, value: T, info: Any = None) -> None:  # pyre-ignore
+        """
+        Initialize a new instance.
+
+        Args:
+            self: (todo): write your description
+            name: (str): write your description
+            value: (todo): write your description
+            info: (bool): write your description
+        """
         self._name = name
         self._value = value
         self._info = info
@@ -67,14 +76,37 @@ class Bindings(Generic[T]):
         binding: Optional[Binding[T]] = None,
         next: "Optional[Bindings[T]]" = None,
     ) -> None:
+        """
+        Initialize the binding.
+
+        Args:
+            self: (todo): write your description
+            binding: (int): write your description
+            Optional: (todo): write your description
+            Binding: (int): write your description
+            T: (int): write your description
+            next: (str): write your description
+        """
         assert binding or not next
         self._binding = binding
         self._next = next
 
     def __bool__(self) -> bool:
+        """
+        Returns the next iterable.
+
+        Args:
+            self: (todo): write your description
+        """
         return next(self.__iter__(), None) is not None
 
     def __iter__(self) -> Iterator[Binding[T]]:
+        """
+        Iterate over the binding.
+
+        Args:
+            self: (todo): write your description
+        """
         mask = set()
         pos = self
         while pos is not None:
@@ -84,6 +116,12 @@ class Bindings(Generic[T]):
             pos = pos._next
 
     def __len__(self) -> int:
+        """
+        The number of the number of - 1.
+
+        Args:
+            self: (todo): write your description
+        """
         return sum(1 for _ in self)
 
     def bind(self, name: str, value: T, info: Any = None) -> "Bindings[T]":  # pyre-ignore
@@ -114,6 +152,13 @@ class Bindings(Generic[T]):
         return self.resolve_binding(name).value
 
     def __getitem__(self, name: str) -> T:
+        """
+        Return the value of the named name.
+
+        Args:
+            self: (todo): write your description
+            name: (str): write your description
+        """
         return self.resolve(name)
 
     def has_binding(self, name: str) -> bool:
@@ -127,6 +172,13 @@ class Bindings(Generic[T]):
             return False
 
     def __contains__(self, name: str) -> bool:
+        """
+        Return true if the given name is contained in this component.
+
+        Args:
+            self: (todo): write your description
+            name: (str): write your description
+        """
         if isinstance(name, str):
             return self.has_binding(name)
         return False
@@ -151,6 +203,12 @@ class Bindings(Generic[T]):
         "Copy the environment excluding any binding for which ``rhs`` has a binding with the same name"
 
         def flt(b: Binding[T]) -> bool:
+            """
+            Determine whether a b is a b.
+
+            Args:
+                b: (todo): write your description
+            """
             try:
                 rhs.resolve(b.name)
                 return False
@@ -193,6 +251,12 @@ class Bindings(Generic[T]):
             namespace += "."
 
         def enter(b: Binding[T]) -> Optional[Binding[T]]:
+            """
+            Returns a binding.
+
+            Args:
+                b: (todo): write your description
+            """
             if b.name.startswith(namespace):
                 return Binding(b.name[len(namespace) :], b.value, b.info)
             return None
@@ -217,6 +281,12 @@ class Bindings(Generic[T]):
 
 
 def _rev(env: Bindings[T]) -> Bindings[T]:
+    """
+    Return a list of paths.
+
+    Args:
+        env: (todo): write your description
+    """
     ans = Bindings()
     pos = env
     while pos is not None:
@@ -234,6 +304,12 @@ def merge(*args: Bindings[T]) -> Bindings[T]:
     ans = [args[-1] if args else Bindings()]
 
     def visit(b: Binding[T]) -> None:
+        """
+        Perform binding.
+
+        Args:
+            b: (todo): write your description
+        """
         ans[0] = Bindings(b, ans[0])
 
     for env in reversed(args[:-1]):
