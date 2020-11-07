@@ -971,6 +971,7 @@ def runner_input_help(target):
         ans.append(bold(f"  {str(b.value.type)} {b.name}"))
         add_wrapped_parameter_meta(target, b.name, ans)
     optional_inputs = target.available_inputs.subtract(target.required_inputs)
+    optional_inputs = optional_inputs.filter(lambda b: not b.value.name.startswith("_"))
     if target.inputs is None:
         # if the target doesn't have an input{} section (pre WDL 1.0), exclude
         # declarations bound to a non-constant expression (heuristic)
