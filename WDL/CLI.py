@@ -877,9 +877,18 @@ def runner_input(
         name, s_value = buf
 
         # find corresponding input declaration
-        try:
-            decl = available_inputs[name]
-        except KeyError:
+        decl = available_inputs.get(name)
+
+        if not decl:
+            # allow arbitrary runtime/hints overrides
+            nmparts = name.split(".")
+            runtime_idx = next(
+                (i for i, term in enumerate(nmparts) if term in ("runtime", "hints")), -1
+            )
+            if runtime_idx >= 0 and len(nmparts) > (runtime_idx + 1):
+                decl = available_inputs.get(".".join(nmparts[:runtime_idx] + ["_runtime"]))
+
+        if not decl:
             runner_input_help(target)
             raise Error.InputError(f"No such input to {target.name}: {buf[0]}")
 
@@ -887,10 +896,7 @@ def runner_input(
         v = runner_input_value(s_value, decl.type, downloadable, root)
 
         # insert value into input_env
-        try:
-            existing = input_env[name]
-        except KeyError:
-            existing = None
+        existing = input_env.get(name)
         if existing:
             if isinstance(v, Value.Array):
                 assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
@@ -1053,6 +1059,17 @@ def runner_input_value(s_value, ty, downloadable, root):
         return Value.Array(
             ty.item_type, [runner_input_value(s_value, ty.item_type, downloadable, root)]
         )
+    if isinstance(ty, Type.Any):
+        # infer dynamically-typed runtime/hints overrides
+        try:
+            return Value.Int(int(s_value))
+        except ValueError:
+            pass
+        try:
+            return Value.Float(float(s_value))
+        except ValueError:
+            pass
+        return Value.String(s_value)
     raise Error.InputError(
         "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
             str(ty)

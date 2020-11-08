@@ -105,6 +105,16 @@ class Bindings(Generic[T]):
                 return b
         raise KeyError()
 
+    def get(self, name: str, default: Optional[T] = None) -> Optional[T]:
+        """
+        Look up a bound value by name, returning the default value or ``None`` if there's no such
+        binding.
+        """
+        try:
+            return self.resolve_binding(name).value
+        except KeyError:
+            return default
+
     def resolve(self, name: str) -> T:
         """
         Look up a bound value by name. Equivalently, ``env[name]``

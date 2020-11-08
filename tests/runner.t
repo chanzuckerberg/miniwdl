@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 72
+plan tests 74
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -202,7 +202,7 @@ is "$?" "0" "failer2000 try3 iwuzhere"
 
 
 cat << 'EOF' > multitask.wdl
-version 1.0
+version development
 workflow multi {
     call first
 }
@@ -219,16 +219,20 @@ task first {
 task second {
     command {
         echo -n two
+        cp /etc/issue issue
     }
     output {
         String msg = read_string(stdout())
+        File issue = "issue"
     }
 }
 EOF
 
-$miniwdl run multitask.wdl --task second
+$miniwdl run multitask.wdl runtime.docker=ubuntu:20.10 --task second
 is "$?" "0" "multitask"
 is "$(jq -r '.["second.msg"]' _LAST/outputs.json)" "two" "multitask stdout & _LAST"
+grep -q 20.10 _LAST/out/issue/issue
+is "$?" "0" "override runtime.docker"
 
 cat << 'EOF' > mv_input_file.wdl
 version 1.0
@@ -261,6 +265,7 @@ workflow w {
     }
     output {
         Int dsz = round(size(t.files))
+        File issue = t.issue
     }
 }
 task t {
@@ -268,11 +273,13 @@ task t {
         Directory d
     }
     command <<<
+        cp /etc/issue issue
         mkdir outdir
         find ~{d} -type f | xargs -i{} cp {} outdir/
     >>>
     output {
         Array[File] files = glob("outdir/*")
+        File issue = "issue"
     }
 }
 EOF
@@ -280,9 +287,11 @@ EOF
 mkdir -p indir/subdir
 echo alice > indir/alice.txt
 echo bob > indir/subdir/bob.txt
-$miniwdl run dir_io.wdl d=indir
+$miniwdl run dir_io.wdl d=indir t.runtime.docker=ubuntu:20.10
 is "$?" "0" "directory input"
 is `jq -r '.["w.dsz"]' _LAST/outputs.json` "10" "use of directory input"
+grep -q 20.10 _LAST/out/issue/issue
+is "$?" "0" "override t.runtime.docker"
 
 cat << 'EOF' > uri_inputs.json
 {
