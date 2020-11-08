@@ -792,6 +792,9 @@ class MiscRegressionTests(RunnerTestCase):
             output {
                 Array[File] files_out = glob("files_out/*")
             }
+            runtime {
+                docker: ["ubuntu:20.04"]
+            }
         }
         """
 

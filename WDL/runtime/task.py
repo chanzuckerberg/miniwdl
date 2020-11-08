@@ -429,8 +429,12 @@ def _eval_task_runtime(
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
-    if "docker" in runtime_values:
-        ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
+    docker_value = runtime_values.get("docker", runtime_values.get("container"))
+    if docker_value:
+        if isinstance(docker_value, Value.Array) and len(docker_value.value):
+            # TODO: ask TaskContainer to choose preferred candidate
+            docker_value = docker_value.value[0]
+        ans["docker"] = docker_value.coerce(Type.String()).value
 
     host_limits = container.__class__.detect_resource_limits(cfg, logger)
     if "cpu" in runtime_values:
