@@ -710,7 +710,7 @@ class RuntimeOverride(RunnerTestCase):
         """
         outp = self._run(wdl, {
             "who": "Alice",
-            "t.runtime.docker": "ubuntu:20.10"
+            "t.runtime.container": ["ubuntu:20.10"]
         })
         assert "20.10" in outp["t.issue"]
 

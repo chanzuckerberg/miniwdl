@@ -426,10 +426,12 @@ def _eval_task_runtime(
         runtime_values[key] = expr.eval(env, stdlib)
     for b in inputs.enter_namespace("runtime"):
         runtime_values[b.name] = b.value  # input overrides
+    if "container" in runtime_values:  # alias
+        runtime_values["docker"] = runtime_values["container"]
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
-    docker_value = runtime_values.get("docker", runtime_values.get("container", None))
+    docker_value = runtime_values.get("docker", None)
     if docker_value:
         if isinstance(docker_value, Value.Array) and len(docker_value.value):
             # TODO: ask TaskContainer to choose preferred candidate
