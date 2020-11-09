@@ -766,7 +766,7 @@ class MiscRegressionTests(RunnerTestCase):
             inputs["files"].append(fn)
 
         wdl = """
-        version 1.0
+        version development
         workflow w {
             input {
                 Array[File] files
@@ -793,7 +793,12 @@ class MiscRegressionTests(RunnerTestCase):
                 Array[File] files_out = glob("files_out/*")
             }
             runtime {
-                docker: ["ubuntu:20.04"]
+                container: ["ubuntu:20.04"]
+            }
+            hints {
+                foo: {
+                    bar: ["bas", 42]
+                }
             }
         }
         """

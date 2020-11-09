@@ -429,7 +429,7 @@ def _eval_task_runtime(
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
-    docker_value = runtime_values.get("docker", runtime_values.get("container"))
+    docker_value = runtime_values.get("docker", runtime_values.get("container", None))
     if docker_value:
         if isinstance(docker_value, Value.Array) and len(docker_value.value):
             # TODO: ask TaskContainer to choose preferred candidate

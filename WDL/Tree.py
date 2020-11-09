@@ -317,7 +317,7 @@ class Task(SourceNode):
         """
         ans = Env.Bindings()
 
-        if self.effective_wdl_version not in ["draft-2", "1.0"]:
+        if self.effective_wdl_version not in ("draft-2", "1.0"):
             # synthetic placeholder to expose runtime & hints overrides
             ans = ans.bind("_runtime", Decl(self.pos, Type.Any(), "_runtime"))
 
@@ -1174,13 +1174,11 @@ class Workflow(SourceNode):
                 # into the decl name with a ., which is a weird corner
                 # case!
                 synthetic_output_name = ".".join(output_ident)
-                try:
-                    ty = self._type_env.resolve(synthetic_output_name)
-                except KeyError:
+                ty = self._type_env.get(synthetic_output_name)
+                if not ty:
                     raise Error.UnknownIdentifier(
                         Expr.Ident(self._output_idents_pos, synthetic_output_name)
                     ) from None
-                assert isinstance(ty, Type.Base)
                 output_ident_decls.append(
                     Decl(
                         self.pos,
