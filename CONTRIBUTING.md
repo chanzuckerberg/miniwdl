@@ -7,6 +7,8 @@ Feedback and contributions to miniwdl are welcome, via issues and pull requests 
 * [Starter issues](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Astarter) are suitable entry points for new contributors
 * [Pull request template](https://github.com/chanzuckerberg/miniwdl/blob/main/.github/pull_request_template.md) includes a preparation checklist
 
+## Development environment
+
 To set up your Linux development environment,
 
 1. `git clone --recursive` this repository or your fork thereof, and `cd` into it
@@ -28,6 +30,16 @@ To quickly run only a relevant subset of the tests, you can e.g. `python3 -m uni
 **macOS:** isn't preferred for miniwdl development due to some [test suite incompatibilities](https://github.com/chanzuckerberg/miniwdl/issues/145); but at least simple changes can be prototyped under macOS.
 
 Read the Docs currently builds from the [mlin/miniwdl](https://github.com/mlin/miniwdl) fork of this repository. Locally, `make doc` generates the docs under `docs/_build/html/`.
+
+## Releases, tags, and branches
+
+Release version numbers follow the semantic versioning convention (vA.B.C; A=Major B=Minor C=Patch). Each release is created from a git tag of the version number, then published through GitHub, PyPI, and conda-forge.
+
+The repository has the following principal branches:
+
+* **main** is the trunk, with all diffs pending for the upcoming mainline release
+* **release** should be set to the most up-to-date mainline release
+* **vA.B.x** track older release lineages, kept in case of need to release patched versions thereof
 
 ## Security
 
