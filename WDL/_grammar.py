@@ -300,7 +300,7 @@ call: "call" namespaced_ident ("after" CNAME)* call_body? -> call
 namespaced_ident: CNAME ("." CNAME)*
 call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
-call_input: CNAME "=" expr
+call_input: CNAME ["=" expr]
 
 ?workflow_outputs: output_decls
 
