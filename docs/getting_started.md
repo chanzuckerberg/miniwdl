@@ -1,5 +1,7 @@
 # Getting Started
 
+<img src="https://github.com/chanzuckerberg/miniwdl/blob/main/docs/miniwdl-logo.png" width="200"  />
+
 [miniwdl](https://github.com/chanzuckerberg/miniwdl/) is a local runner and developer toolkit for
 the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/).  In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.
 
