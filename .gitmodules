@@ -58,3 +58,6 @@
 [submodule "test_corpi/biowdl/small-rna"]
 	path = test_corpi/biowdl/small-rna
 	url = https://github.com/biowdl/small-rna.git
+[submodule "test_corpi/broadinstitute/warp"]
+	path = test_corpi/broadinstitute/warp
+	url = https://github.com/broadinstitute/warp.git

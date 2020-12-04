@@ -507,3 +507,53 @@ class BioWDLSomaticVariantCalling(unittest.TestCase):
 )
 class BioWDLSmallRNA(unittest.TestCase):
     pass
+
+
+@wdl_corpus(
+    ["test_corpi/broadinstitute/warp/pipelines/broad/**"],
+    path=[["test_corpi/broadinstitute/warp/tasks"]],
+    # has a task with a name collision between output & input
+    blacklist=[
+        "JointGenotyping",
+        "JointGenotypingByChromosomePartOne",
+        "JointGenotypingByChromosomePartTwo",
+    ],
+    expected_lint={
+        "UnusedImport": 22,
+        "StringCoercion": 63,
+        "UnusedDeclaration": 79,
+        "NameCollision": 12,
+        "ForwardReference": 4,
+        "NonemptyCoercion": 4,
+        "FileCoercion": 3,
+    },
+    check_quant=False,
+)
+class warp_pipelines_broad(unittest.TestCase):
+    pass
+
+
+@wdl_corpus(
+    ["test_corpi/broadinstitute/warp/pipelines/cemba/**"],
+    expected_lint={
+        "UnusedDeclaration": 1,
+    },
+    check_quant=False,
+)
+class warp_pipelines_cemba(unittest.TestCase):
+    pass
+
+
+@wdl_corpus(
+    ["test_corpi/broadinstitute/warp/pipelines/skylab/**"],
+    expected_lint={
+        "UnusedDeclaration": 3,
+        "UnnecessaryQuantifier": 3,
+        "StringCoercion": 4,
+        "FileCoercion": 3,
+        "NameCollision": 3,
+    },
+    check_quant=False,
+)
+class warp_pipelines_skylab(unittest.TestCase):
+    pass
