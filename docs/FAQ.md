@@ -36,7 +36,7 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 
 - Q: what is simplest way to test running a WDL workflow on miniwdl?
   - run ```miniwdl run_self_test``` - it includes an example workflow
-  - verify this job return ```ok``` and ```done``` as expected
+  - verify this job returns the ```ok``` and ```done``` messages as expected
 
 - Q: how can I run a quick ```hello.wdl``` WDL workflow?
   - copy [this file](https://github.com/openwdl/learn-wdl/blob/master/6_miniwdl_course/1_hello.wdl) to your miniwdl dev env 
