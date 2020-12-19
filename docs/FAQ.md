@@ -3,9 +3,11 @@
 <img src="https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/docs/miniwdl-logo.png" width="200"  />
 
 [miniwdl](https://github.com/chanzuckerberg/miniwdl/) is a local runner and developer toolkit for
-the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/).  In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.
+the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/). 
 
-TIP: If you are new to working with WDL workflow language, you may want to review the open source 'learn-wdl' course' - [link](https://github.com/openwdl/learn-wdl).  Also there is an embedded short course 'learn-miniwdl' which includes screencast reviewing the tutorial on this page in more detail - [link](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course)
+TIP: If you are new to working with WDL workflow language, you may want to review the open source 'learn-wdl' course' - [link](https://github.com/openwdl/learn-wdl).   
+ 
+Also there is an embedded short course 'learn-miniwdl' which includes screencast reviewing the tutorial on this page in more detail - [link](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course)
 
 ## Common Questions
 
