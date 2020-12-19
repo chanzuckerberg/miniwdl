@@ -6,7 +6,7 @@
 the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/). 
 
 TIP: If you are new to working with WDL workflow language, you may want to review the open source 'learn-wdl' course' - [link](https://github.com/openwdl/learn-wdl).   
- 
+
 Also there is an embedded short course 'learn-miniwdl' which includes screencast reviewing the tutorial on this page in more detail - [link](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course)
 
 ## Common Questions
@@ -32,7 +32,7 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 
 ---
 
-### Run simple WDl workflows on miniwdl
+### Run WDL workflow with the ```miniwdl run``` command
 
 - Q: what is simplest way to test running a WDL workflow on miniwdl?
   - run ```miniwdl run_self_test``` - it includes an example workflow
