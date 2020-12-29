@@ -1,0 +1,28 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+
+  target:
+    strategy:
+      matrix:
+        ci_target:
+          - ci_housekeeping
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+        submodules: recursive
+    - name: docker build
+      run: |
+        docker build -t miniwdl_deps --target deps . # --cache-from $DOCKER_CACHE_TAG .
+        docker build -t miniwdl . # --cache-from miniwdl_deps .
+      run: sudo pip3 install --system pre-commit black flake8 pylint
+    - name: make ${{ matrix.ci_target }}
+      run: |
+        chmod -R ugo+rw .
+        docker run
+          --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $(pwd):/miniwdl -v /tmp:/tmp \
+          miniwdl make ${{ matrix.ci_target }}
