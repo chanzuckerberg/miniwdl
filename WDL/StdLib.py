@@ -353,7 +353,7 @@ def _parse_objects(s: str) -> Value.Array:
     for row in strmat.value[1:]:
         if len(row.value) != len(keys):
             raise Error.InputError("read_objects(): file has inconsistent # columns per row")
-        maps.append(Value.Map((Type.String(), Type.String()), zip(keys, row.value)))
+        maps.append(Value.Map((Type.String(), Type.String()), list(zip(keys, row.value))))
     return Value.Array(Type.Map((Type.String(), Type.String())), maps)
 
 
@@ -361,7 +361,9 @@ def _parse_object(s: str) -> Value.Map:
     maps = _parse_objects(s)
     if len(maps.value) != 1:
         raise Error.InputError("read_object(): file must have exactly one object")
-    return maps.value[0]
+    map0 = maps.value[0]
+    assert isinstance(map0, Value.Map)
+    return map0
 
 
 def _parse_map(s: str) -> Value.Map:
