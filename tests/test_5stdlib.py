@@ -596,6 +596,83 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs["my_ints"], {"key_0": 0, "key_1": 1, "key_2": 2})
 
+    def test_struct_from_read(self):
+        # initialize a struct via Map[String,String] from read_{map,object[s],json}
+
+        alice = {"name": "Alice", "lane": 3, "barcode": "GATTACA"}
+        samplesheet2 = [
+            {"name": "Alice", "lane": 3, "barcode": "GATTACA"},
+            {"name": "Bob", "lane": 4, "barcode": "TGTAATC"},
+        ]
+
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo -e "name\tAlice" >> alice.txt
+                echo -e "lane\t3" >> alice.txt
+                echo -e "barcode\tGATTACA" >> alice.txt
+            >>>
+            output {
+                Sample alice = read_map("alice.txt")
+            }
+        }
+        """)
+        self.assertEqual(outputs["alice"], alice)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo -e "name\tlane\tbarcode" >> alice.txt
+                echo -e "Alice\t3\tGATTACA" >> alice.txt
+                cp alice.txt samplesheet2.txt
+                echo -e "Bob\t4\tTGTAATC" >> samplesheet2.txt
+            >>>
+            output {
+                Sample alice = read_object("alice.txt")
+                Array[Sample] samplesheet2 = read_objects("samplesheet2.txt")
+            }
+        }
+        """)
+        self.assertEqual(outputs["alice"], alice)
+        self.assertEqual(outputs["samplesheet2"], samplesheet2)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo '{"name":"Alice","lane":3,"barcode":"GATTACA"}' >> alice.txt
+                echo '[' >> samplesheet2.txt
+                cat alice.txt >> samplesheet2.txt
+                echo ',{"name":"Bob","lane":4,"barcode":"TGTAATC"}]' >> samplesheet2.txt
+            >>>
+            output {
+                Sample alice = read_json("alice.txt")
+                Array[Sample] samplesheet2 = read_json("samplesheet2.txt")
+            }
+        }
+        """)
+        self.assertEqual(outputs["alice"], alice)
+        self.assertEqual(outputs["samplesheet2"], samplesheet2)
+
+        
+
     def test_write(self):
         outputs = self._test_task(R"""
         version 1.0

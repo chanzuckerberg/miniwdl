@@ -115,6 +115,12 @@ class Base:
             self._read(_parse_tsv)
         )
         static([Type.File()], Type.Any(), "read_json")(self._read(_parse_json))
+        static([Type.File()], Type.Map((Type.String(), Type.String())), "read_object")(
+            self._read(_parse_object)
+        )
+        static([Type.File()], Type.Array(Type.Map((Type.String(), Type.String()))), "read_objects")(
+            self._read(_parse_objects)
+        )
 
         # polymorphically typed stdlib functions which require specialized
         # infer_type logic
@@ -333,6 +339,29 @@ def _parse_tsv(s: str) -> Value.Array:
     ]
     # pyre-ignore
     return Value.Array(Type.Array(Type.String()), ans)
+
+
+def _parse_objects(s: str) -> Value.Array:
+    strmat = _parse_tsv(s)
+    if len(strmat.value) < 1 or len(strmat.value[0].value) < 1:
+        return Value.Array(Type.Map((Type.String(), Type.String())), [])
+    keys = strmat.value[0].value
+    literal_keys = set(key.value for key in strmat.value[0].value if key.value)
+    if len(literal_keys) < len(keys):
+        raise Error.InputError("read_objects(): file has empty or duplicate column names")
+    maps = []
+    for row in strmat.value[1:]:
+        if len(row.value) != len(keys):
+            raise Error.InputError("read_objects(): file has inconsistent # columns per row")
+        maps.append(Value.Map((Type.String(), Type.String()), zip(keys, row.value)))
+    return Value.Array(Type.Map((Type.String(), Type.String())), maps)
+
+
+def _parse_object(s: str) -> Value.Map:
+    maps = _parse_objects(s)
+    if len(maps.value) != 1:
+        raise Error.InputError("read_object(): file must have exactly one object")
+    return maps.value[0]
 
 
 def _parse_map(s: str) -> Value.Map:
