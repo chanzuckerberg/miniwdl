@@ -400,6 +400,7 @@ class dxWDL(unittest.TestCase):
         "SelectArray": 1,
         "MissingVersion": 7,
         "UnboundDeclaration": 1,
+        "UnverifiedStruct": 3,
     },
     blacklist=["check_quant", "incomplete_call"],
 )
@@ -424,6 +425,7 @@ class Contrived(unittest.TestCase):
         "SelectArray": 4,
         "MissingVersion": 11,
         "UnboundDeclaration": 1,
+        "UnverifiedStruct": 3,
     },
     check_quant=False,
     blacklist=["incomplete_call"],
@@ -445,6 +447,7 @@ class Contrived2(unittest.TestCase):
         "NonemptyCoercion": 1,
         "NameCollision": 1,
         "SelectArray": 1,
+        "UnverifiedStruct": 1,
     },
 )
 class BioWDLTasks(unittest.TestCase):
@@ -458,6 +461,7 @@ class BioWDLTasks(unittest.TestCase):
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 1,
         "NameCollision": 1,
+        "UnverifiedStruct": 1
     },
     check_quant=False,
 )
@@ -472,6 +476,7 @@ class BioWDLAligning(unittest.TestCase):
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 3,
         "NameCollision": 1,
+        "UnverifiedStruct": 1,
     },
     check_quant=False,
 )
@@ -502,6 +507,7 @@ class BioWDLSomaticVariantCalling(unittest.TestCase):
         "OptionalCoercion": 2,
         "NonemptyCoercion": 3,
         "UnusedCall": 1,
+        "UnverifiedStruct": 1,
     },
     check_quant=False,
 )

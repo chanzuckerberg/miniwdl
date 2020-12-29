@@ -168,31 +168,31 @@ def _find_input_decl(obj: Tree.Call, name: str) -> Tree.Decl:
     return obj.callee.available_inputs[name]
 
 
-def _compound_coercion(to_type, from_type, base_to_type, extra_from_type=None):
+def _compound_coercion(to_type, from_type, base_to_type, from_type_predicate=None):
     # helper for StringCoercion and FileCoercion to detect coercions implied
     # within compound types like arrays
     if isinstance(to_type, Type.Array) and isinstance(from_type, Type.Array):
         return _compound_coercion(
-            to_type.item_type, from_type.item_type, base_to_type, extra_from_type
+            to_type.item_type, from_type.item_type, base_to_type, from_type_predicate
         )
     if isinstance(to_type, Type.Map) and isinstance(from_type, Type.Map):
         return _compound_coercion(
-            to_type.item_type[0], from_type.item_type[0], base_to_type, extra_from_type
+            to_type.item_type[0], from_type.item_type[0], base_to_type, from_type_predicate
         ) or _compound_coercion(
-            to_type.item_type[1], from_type.item_type[1], base_to_type, extra_from_type
+            to_type.item_type[1], from_type.item_type[1], base_to_type, from_type_predicate
         )
     if isinstance(to_type, Type.Pair) and isinstance(from_type, Type.Pair):
         return _compound_coercion(
-            to_type.left_type, from_type.left_type, base_to_type, extra_from_type
+            to_type.left_type, from_type.left_type, base_to_type, from_type_predicate
         ) or _compound_coercion(
-            to_type.right_type, from_type.right_type, base_to_type, extra_from_type
+            to_type.right_type, from_type.right_type, base_to_type, from_type_predicate
         )
     if isinstance(to_type, base_to_type):
-        coercible = list(base_to_type)
-        if extra_from_type:
-            coercible.append(extra_from_type)
-        coercible.append(Type.Any)
-        return not isinstance(from_type, tuple(coercible))
+        if not from_type_predicate:
+            from_type_predicate = lambda ty: not isinstance(  # noqa: disable=E731
+                ty, (base_to_type, Type.Any)
+            )
+        return from_type_predicate(from_type)
     return False
 
 
@@ -218,7 +218,14 @@ class StringCoercion(Linter):
             obj.type,
             obj.expr.type,
             (Type.String,),
-            (Type.File if isinstance(_parent_executable(obj), Tree.Task) else None),
+            lambda from_type: not isinstance(
+                from_type,
+                (
+                    (Type.Any, Type.String, Type.File)  # pyre-ignore
+                    if isinstance(_parent_executable(obj), Tree.Task)
+                    else (Type.Any, Type.String)
+                ),
+            ),
         ):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
@@ -264,7 +271,14 @@ class StringCoercion(Linter):
                             F_i,
                             arg_i.type,
                             (Type.String,),
-                            (Type.File if isinstance(_parent_executable(obj), Tree.Task) else None),
+                            lambda from_type: not isinstance(
+                                from_type,
+                                (
+                                    (Type.Any, Type.String, Type.File)  # pyre-ignore
+                                    if isinstance(_parent_executable(obj), Tree.Task)
+                                    else (Type.Any, Type.String)
+                                ),
+                            ),
                         ):
                             msg = "{} argument of {}() = :{}:".format(
                                 str(F_i), F.name, str(arg_i.type)
@@ -402,6 +416,41 @@ class ArrayCoercion(Linter):
             decl = _find_input_decl(obj, name)
             if _is_array_coercion(decl.type, inp_expr.type):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                self.add(obj, msg, inp_expr.pos)
+
+
+@a_linter
+class UnverifiedStruct(Linter):
+    # non-statically-verified initialization of StructInstance from Map[String,Any]
+
+    def decl(self, obj: Tree.Decl) -> Any:
+        if obj.expr and _compound_coercion(
+            obj.type,
+            obj.expr.type,
+            (Type.StructInstance,),
+            lambda from_type: isinstance(from_type, Type.Any)
+            or (isinstance(from_type, Type.Map) and from_type.literal_keys is None),
+        ):
+            self.add(
+                obj,
+                "{} {} = :{}: -- struct initialization isn't statically verified".format(
+                    str(obj.type), obj.name, str(obj.expr.type)
+                ),
+            )
+
+    def call(self, obj: Tree.Call) -> Any:
+        for name, inp_expr in obj.inputs.items():
+            decl = _find_input_decl(obj, name)
+            if _compound_coercion(
+                decl.type,
+                inp_expr.type,
+                (Type.StructInstance,),
+                lambda from_type: isinstance(from_type, Type.Any)
+                or (isinstance(from_type, Type.Map) and from_type.literal_keys is None),
+            ):
+                msg = "input {} {} = :{}: -- struct initialization isn't statically verified".format(
+                    str(decl.type), decl.name, str(inp_expr.type)
+                )
                 self.add(obj, msg, inp_expr.pos)
 
 
