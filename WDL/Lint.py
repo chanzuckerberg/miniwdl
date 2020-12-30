@@ -433,7 +433,7 @@ class UnverifiedStruct(Linter):
         ):
             self.add(
                 obj,
-                "{} {} = :{}: -- struct initialization isn't statically verified".format(
+                "{} {} = :{}: -- struct initializer isn't statically verified".format(
                     str(obj.type), obj.name, str(obj.expr.type)
                 ),
             )
@@ -448,10 +448,8 @@ class UnverifiedStruct(Linter):
                 lambda from_type: isinstance(from_type, Type.Any)
                 or (isinstance(from_type, Type.Map) and from_type.literal_keys is None),
             ):
-                msg = (
-                    "input {} {} = :{}: -- struct initialization isn't statically verified".format(
-                        str(decl.type), decl.name, str(inp_expr.type)
-                    )
+                msg = "input {} {} = :{}: -- struct initializer isn't statically verified".format(
+                    str(decl.type), decl.name, str(inp_expr.type)
                 )
                 self.add(obj, msg, inp_expr.pos)
 

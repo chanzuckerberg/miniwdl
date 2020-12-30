@@ -712,6 +712,25 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo -e "name\tlane" >> samplesheet2.txt
+                echo -e "Alice\t3" >> samplesheet2.txt
+                echo -e "Bob\t4" >> samplesheet2.txt
+            >>>
+            output {
+                Array[Sample] samplesheet2 = read_objects("samplesheet2.txt")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
     def test_bad_boolean(self):
         self._test_task(R"""
         version 1.0

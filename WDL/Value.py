@@ -299,6 +299,18 @@ class Map(Base):
                 self.expr,
             )
         if isinstance(desired_type, Type.StructInstance):
+            if self.type.item_type[0] == Type.String():
+                # Run-time typecheck for initializing struct from read_{object[s],map,json}
+                # This couldn't have been checked statically because the map keys weren't known.
+                litty = Type.Map(
+                    self.type.item_type, self.type.optional, set(kv[0].value for kv in self.value)
+                )
+                if not litty.coerces(desired_type):
+                    msg = "runtime struct initializer doesn't have the required fields with the expected types"
+                    raise Error.EvalError(
+                        self.expr,
+                        msg,
+                    ) if self.expr else Error.RuntimeError(msg)
             assert desired_type.members
             ans = {}
             for k, v in self.value:
