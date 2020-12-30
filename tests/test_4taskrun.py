@@ -103,7 +103,7 @@ class TestTaskRunner(unittest.TestCase):
                 docker: "nonexistent:202407"
             }
         }
-        """, expected_exception=RuntimeError)
+        """, expected_exception=WDL.Error.RuntimeError)
 
         # issue #232
         outputs = self._test_task(R"""

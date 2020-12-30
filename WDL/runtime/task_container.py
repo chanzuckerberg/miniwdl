@@ -614,13 +614,15 @@ class SwarmContainer(TaskContainer):
                 client.images.pull(image_tag)
                 image_attrs = client.images.get(image_tag).attrs
             except docker.errors.ImageNotFound:
-                raise Error.RuntimeError("docker image not found: " + image_tag)
+                raise Error.RuntimeError("docker image not found: " + image_tag) from None
         image_log = {"tag": image_tag, "id": image_attrs["Id"]}
-        if image_tag not in image_attrs.get("RepoDigests", []):
-            # resolve mutable tag to precise RepoDigest, to ensure identical image will be used
-            # across a multi-node swarm
-            image_tag = image_attrs["RepoDigests"][0]
-            image_log["resolvedRepoDigest"] = image_tag
+        # resolve mutable tag to immutable RepoDigest if possible, to ensure identical image will
+        # be used across a multi-node swarm
+        image_digest = bool(image_attrs.get("RepoDigests"))
+        if image_digest and image_tag not in image_attrs["RepoDigests"]:
+            image_digest = image_attrs["RepoDigests"][0]
+            image_tag = image_digest
+        image_log["RepoDigest"] = image_digest
         logger.notice(_("docker image", **image_log))  # pyre-fixme
         return image_tag
 
