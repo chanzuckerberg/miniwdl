@@ -10,18 +10,28 @@ jobs:
           - ci_housekeeping
     runs-on: ubuntu-20.04
     steps:
+    - name: Login to GitHub Packages Docker Registry
+      uses: docker/login-action@v1
+      with:
+        registry: docker.pkg.github.com
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     - uses: actions/checkout@v2
       with:
         fetch-depth: 0
         submodules: recursive
     - name: docker build
       run: |
-        docker build -t miniwdl_deps --target deps . # --cache-from $DOCKER_CACHE_TAG .
-        docker build -t miniwdl . # --cache-from miniwdl_deps .
+        TAG="docker.pkg.github.com/chanzuckerberg/miniwdl/miniwdl_ci:latest"
+        # docker pull docker.pkg.github.com/chanzuckerberg/miniwdl/miniwdl_ci
+        docker build -t $TAG --target deps . # --cache-from $DOCKER_CACHE_TAG .
+        docker push $TAG
+        docker build -t miniwdl_ci --cache-from $TAG .
+
     - name: make ${{ matrix.ci_target }}
       run: |
         chmod -R ugo+rw .
         docker run
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
-          -v $(pwd):/miniwdl -v /tmp:/tmp \
-          miniwdl make ${{ matrix.ci_target }}
+          -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
+          miniwdl make -C miniwdl ${{ matrix.ci_target }}
