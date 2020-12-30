@@ -22,16 +22,16 @@ jobs:
         submodules: recursive
     - name: docker build
       run: |
-        TAG="docker.pkg.github.com/chanzuckerberg/miniwdl/miniwdl_ci:latest"
-        # docker pull docker.pkg.github.com/chanzuckerberg/miniwdl/miniwdl_ci
-        docker build -t $TAG --target deps . # --cache-from $DOCKER_CACHE_TAG .
-        docker push $TAG
-        docker build -t miniwdl_ci --cache-from $TAG .
-
+        # Cache the dependency-installation image layer on GitHub Packages to speed up CI. Use a
+        # year/month tag to ensure we do refresh them occasionally.
+        TAG="docker.pkg.github.com/chanzuckerberg/miniwdl/miniwdl_ci:$(date +%Y%m)"
+        docker pull $TAG
+        docker build -t $TAG --cache-from $DOCKER_CACHE_TAG .
+        docker push $TAG 
     - name: make ${{ matrix.ci_target }}
       run: |
         chmod -R ugo+rw .
-        docker run
+        docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
           -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
           miniwdl make -C miniwdl ${{ matrix.ci_target }}
