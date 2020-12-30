@@ -23,17 +23,15 @@ class Base(ABC):
     value: Any
     """The "raw" Python value"""
 
-    expr: "Optional[Expr.Base]"
-    """
-    Reference to the WDL expression that generated this value, if it originated
-    from ``WDL.Expr.eval``
-    """
+    _expr: "Optional[Expr.Base]"
 
     def __init__(self, type: Type.Base, value: Any, expr: "Optional[Expr.Base]" = None) -> None:
         assert isinstance(type, Type.Base)
         self.type = type
         self.value = value
-        self.expr = expr
+        self._expr = None
+        if expr:
+            self.expr = expr
 
     def __eq__(self, other) -> bool:
         if self.value is None:
@@ -46,7 +44,7 @@ class Base(ABC):
     def __deepcopy__(self, memo: Dict[int, Any]) -> Any:
         cls = self.__class__
         cp = cls.__new__(cls)
-        shallow = ("expr", "type")  # avoid deep-copying large, immutable structures
+        shallow = ("_expr", "type")  # avoid deep-copying large, immutable structures
         for k, v in self.__dict__.items():
             if k != "value":
                 setattr(cp, k, copy.deepcopy(v, memo) if k not in shallow else v)
@@ -75,6 +73,27 @@ class Base(ABC):
             assert self.value is None or isinstance(self.value, (int, float, bool, str))
             cp.value = self.value
         return cp
+
+    @property
+    def expr(self) -> "Optional[Expr.Base]":
+        """
+        Reference to the WDL expression that generated this value, if it originated
+        from ``WDL.Expr.eval``
+        """
+        return self._expr
+
+    @expr.setter
+    def expr(self, rhs: "Expr.Base"):
+        old_expr = self._expr  # possibly None
+        if rhs is not old_expr:
+            self._expr = rhs
+            # recursively replace old_expr in children
+            stack = [ch for ch in self.children]
+            while stack:
+                desc = stack.pop()
+                if desc.expr is old_expr:
+                    desc._expr = rhs
+                    stack.extend(desc2 for desc2 in desc.children)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> "Base":
         """
@@ -299,6 +318,18 @@ class Map(Base):
                 self.expr,
             )
         if isinstance(desired_type, Type.StructInstance):
+            if self.type.item_type[0] == Type.String():
+                # Runtime typecheck for initializing struct from read_{object[s],map,json}
+                # This couldn't have been checked statically because the map keys weren't known.
+                litty = Type.Map(
+                    self.type.item_type, self.type.optional, set(kv[0].value for kv in self.value)
+                )
+                if not litty.coerces(desired_type):
+                    msg = "runtime struct initializer doesn't have the required fields with the expected types"
+                    raise Error.EvalError(
+                        self.expr,
+                        msg,
+                    ) if self.expr else Error.RuntimeError(msg)
             assert desired_type.members
             ans = {}
             for k, v in self.value:
@@ -392,20 +423,21 @@ class Struct(Base):
         value: Dict[str, Base],
         expr: "Optional[Expr.Base]" = None,
     ) -> None:
-        super().__init__(type, value, expr)
-        self.value = dict(value)
+        value = dict(value)
         if isinstance(type, Type.StructInstance):
             assert type.members
             # coerce values to member types
-            for k in self.value:
+            for k in value:
                 assert k in type.members
-                self.value[k] = self.value[k].coerce(type.members[k])
+                value[k] = value[k].coerce(type.members[k])
             # if initializer (map or object literal) omits optional members,
             # fill them in with null
             for k in type.members:
-                if k not in self.value:
+                if k not in value:
                     assert type.members[k].optional
-                    self.value[k] = Null()
+                    value[k] = Null()
+        self.value = value
+        super().__init__(type, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
@@ -476,12 +508,22 @@ def from_json(type: Type.Base, value: Any) -> Base:
         isinstance(type, Type.StructInstance)
         and isinstance(value, dict)
         and type.members
-        and set(type.members.keys()) == set(value.keys())
+        and not set(value.keys()).difference(set(type.members.keys()))
     ):
+        for k, ty in type.members.items():
+            if k not in value and not ty.optional:
+                raise Error.InputError(
+                    f"initializer for struct {str(type)} omits required field(s)"
+                )
         items = {}
         for k, v in value.items():
             assert isinstance(k, str)
-            items[k] = from_json(type.members[k], v)
+            try:
+                items[k] = from_json(type.members[k], v)
+            except Error.InputError:
+                raise Error.InputError(
+                    f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
+                ) from None
         return Struct(Type.Object(type.members), items)
     if type.optional and value is None:
         return Null()
