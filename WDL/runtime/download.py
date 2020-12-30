@@ -159,6 +159,7 @@ def aria2c_downloader(
     task aria2c {
         input {
             String uri
+            String docker
             Int connections = 10
         }
         command <<<
@@ -175,18 +176,21 @@ def aria2c_downloader(
         runtime {
             cpu: 4
             memory: "1G"
-            docker: "hobbsau/aria2"
+            docker: docker
         }
     }
     """
-    recv = yield {"task_wdl": wdl, "inputs": {"uri": uri}}
+    recv = yield {
+        "task_wdl": wdl,
+        "inputs": {"uri": uri, "docker": cfg["download_aria2c"]["docker"]},
+    }
     yield recv  # pyre-ignore
 
 
 def awscli_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs: Dict[str, Any] = {"uri": uri}
+    inputs: Dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -194,6 +198,7 @@ def awscli_downloader(
         task aws_s3_cp {
             input {
                 String uri
+                String docker
                 File? aws_credentials
             }
 
@@ -221,7 +226,7 @@ def awscli_downloader(
             runtime {
                 cpu: 4
                 memory: "1G"
-                docker: "amazon/aws-cli"
+                docker: docker
             }
         }
         """
@@ -232,7 +237,7 @@ def awscli_downloader(
 def awscli_directory_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs: Dict[str, Any] = {"uri": uri}
+    inputs: Dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -240,6 +245,7 @@ def awscli_directory_downloader(
         task aws_s3_cp_directory {
             input {
                 String uri
+                String docker
                 File? aws_credentials
             }
 
@@ -269,7 +275,7 @@ def awscli_directory_downloader(
             runtime {
                 cpu: 4
                 memory: "1G"
-                docker: "amazon/aws-cli"
+                docker: docker
             }
         }
         """
@@ -338,6 +344,7 @@ def gsutil_downloader(
     task gsutil_cp {
         input {
             String uri
+            String docker
         }
         command <<<
             set -euxo pipefail
@@ -350,8 +357,10 @@ def gsutil_downloader(
         runtime {
             cpu: 4
             memory: "1G"
-            docker: "google/cloud-sdk:slim"
+            docker: docker
         }
     }
     """
-    yield (yield {"task_wdl": wdl, "inputs": {"uri": uri}})  # pyre-ignore
+    yield (  # pyre-ignore
+        yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
+    )
