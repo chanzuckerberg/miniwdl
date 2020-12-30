@@ -2,3 +2,4 @@
 omit =
     WDL/__main__.py
     WDL/CLI.py
+relative_files = True

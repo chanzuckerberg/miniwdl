@@ -300,7 +300,7 @@ workflow my_workflow {
 }
 EOF
 MINIWDL__DOWNLOAD_CACHE__PUT=true MINIWDL__DOWNLOAD_CACHE__DIR="${DN}/test_localize/cache" MINIWDL__DOWNLOAD_CACHE__ENABLE_PATTERNS='["*"]' MINIWDL__DOWNLOAD_CACHE__DISABLE_PATTERNS='["*/alyssa_ben.txt"]' \
-    $miniwdl localize localize_me.wdl uri_inputs.json --file gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt > localize.stdout
+    $miniwdl localize localize_me.wdl uri_inputs.json --file gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt --verbose > localize.stdout
 is "$?" "0" "localize exit code"
 is "$(find "${DN}/test_localize/cache/files" -type f | wc -l)" "2" "localize cache files"
 is "$(find "${DN}/test_localize/cache/dirs" -type f | wc -l)" "2" "localize cache dirs"  # two files in downloaded directory

@@ -280,27 +280,27 @@ def awscli_directory_downloader(
 def prepare_aws_credentials(
     cfg: config.Loader, logger: logging.Logger, cleanup: ExitStack
 ) -> Optional[str]:
+    host_aws_credentials = {}
+    if "AWS_EC2_METADATA_DISABLED" in os.environ:
+        # https://github.com/aws/aws-cli/issues/5623
+        host_aws_credentials["AWS_EC2_METADATA_DISABLED"] = os.environ["AWS_EC2_METADATA_DISABLED"]
     # get AWS credentials from boto3 (unless prevented by configuration)
-    host_aws_credentials = None
     if cfg["download_awscli"].get_bool("host_credentials"):
         try:
             import boto3  # pyre-fixme
 
             b3creds = boto3.session.Session().get_credentials()
-            host_aws_credentials = "\n".join(
-                f"export {k}='{v}'"
-                for (k, v) in {
-                    "AWS_ACCESS_KEY_ID": b3creds.access_key,
-                    "AWS_SECRET_ACCESS_KEY": b3creds.secret_key,
-                    "AWS_SESSION_TOKEN": b3creds.token,
-                }.items()
-                if v
-            )
+            host_aws_credentials["AWS_ACCESS_KEY_ID"] = b3creds.access_key
+            host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
+            host_aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
         except Exception:
             pass
 
     if host_aws_credentials:
         # write credentials to temp file that'll self-destruct afterwards
+        host_aws_credentials = (
+            "\n".join(f"export {k}='{v}'" for (k, v) in host_aws_credentials.items()) + "\n"
+        )
         aws_credentials_file = cleanup.enter_context(
             tempfile.NamedTemporaryFile(
                 prefix=hashlib.sha256(host_aws_credentials.encode()).hexdigest(),
