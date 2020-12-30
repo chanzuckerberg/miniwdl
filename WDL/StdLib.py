@@ -334,7 +334,8 @@ def _parse_tsv(s: str) -> Value.Array:
         Value.Array(
             Type.Array(Type.String()), [Value.String(field) for field in line.value.split("\t")]
         )
-        for line in _parse_lines(s).value if line
+        for line in _parse_lines(s).value
+        if line
     ]
     # pyre-ignore
     return Value.Array(Type.Array(Type.String()), ans)
