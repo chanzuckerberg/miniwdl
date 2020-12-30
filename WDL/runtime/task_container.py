@@ -822,7 +822,7 @@ class SwarmContainer(TaskContainer):
             #   - state shutdown, orphaned, remove
             #   - desired_state shutdown
             # also see GitHub issue #374
-            raise (RuntimeError if state == "rejected" else Interrupted)(  # pyre-ignore
+            raise (Error.RuntimeError if state == "rejected" else Interrupted)(
                 f"docker task {state}"
                 + (
                     (", desired state " + status["DesiredState"])
