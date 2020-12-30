@@ -33,7 +33,6 @@ viral_refbased:
 ci_housekeeping: sopretty check_check check doc
 
 ci_unit_tests: unit_tests
-	coveralls
 
 check:
 	pyre \
