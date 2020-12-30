@@ -504,27 +504,10 @@ class SwarmContainer(TaskContainer):
             outfile.write(command)
 
         # prepare docker configuration
-        image_tag = self.runtime_values.get("docker", "ubuntu:18.04")
-        if ":" not in image_tag:
-            # seems we need to do this explicitly under some configurations -- issue #232
-            image_tag += ":latest"
         client = docker.from_env(version="auto", timeout=900)
-        try:
-            image_attrs = client.images.get(image_tag).attrs
-        except docker.errors.ImageNotFound:
-            try:
-                client.images.pull(image_tag)
-                image_attrs = client.images.get(image_tag).attrs
-            except docker.errors.ImageNotFound:
-                raise Error.RuntimeError("docker image not found: " + image_tag)
-        image_log = {"tag": image_tag, "id": image_attrs["Id"]}
-        if image_tag not in image_attrs.get("RepoDigests", []):
-            # resolve mutable tag to precise RepoDigest, to ensure identical image will be used
-            # across a multi-node swarm
-            image_tag = image_attrs["RepoDigests"][0]
-            image_log["resolvedRepoDigest"] = image_tag
-        logger.notice(_("docker image", **image_log))  # pyre-fixme
-
+        image_tag = self.resolve_tag(
+            logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
+        )
         mounts = self.prepare_mounts(logger)
         resources, user, groups = self.misc_config(logger, client)
 
@@ -616,6 +599,30 @@ class SwarmContainer(TaskContainer):
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
+
+    def resolve_tag(
+        self, logger: logging.Logger, client: docker.DockerClient, image_tag: str
+    ) -> str:
+        if ":" not in image_tag:
+            # seems we need to do this explicitly under some configurations -- issue #232
+            image_tag += ":latest"
+        # fetch image info
+        try:
+            image_attrs = client.images.get(image_tag).attrs
+        except docker.errors.ImageNotFound:
+            try:
+                client.images.pull(image_tag)
+                image_attrs = client.images.get(image_tag).attrs
+            except docker.errors.ImageNotFound:
+                raise Error.RuntimeError("docker image not found: " + image_tag)
+        image_log = {"tag": image_tag, "id": image_attrs["Id"]}
+        if image_tag not in image_attrs.get("RepoDigests", []):
+            # resolve mutable tag to precise RepoDigest, to ensure identical image will be used
+            # across a multi-node swarm
+            image_tag = image_attrs["RepoDigests"][0]
+            image_log["resolvedRepoDigest"] = image_tag
+        logger.notice(_("docker image", **image_log))  # pyre-fixme
+        return image_tag
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
         def touch_mount_point(host_path: str) -> None:
