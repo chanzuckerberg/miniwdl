@@ -19,7 +19,7 @@ class TestWorkflowRunner(unittest.TestCase):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
 
     def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
-        sys.setrecursionlimit(250)  # set artificially low in unit tests to detect excessive recursion (issue #239)
+        sys.setrecursionlimit(200)  # set artificially low in unit tests to detect excessive recursion (issue #239)
         logger = logging.getLogger(self.id())
         cfg = cfg or WDL.runtime.config.Loader(logger, [])
         try:

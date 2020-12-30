@@ -88,9 +88,12 @@ class Base(ABC):
         if rhs is not old_expr:
             self._expr = rhs
             # recursively replace old_expr in children
-            for ch in self.children:
-                if ch.expr is old_expr:
-                    ch.expr = rhs
+            stack = [ch for ch in self.children]
+            while stack:
+                desc = stack.pop()
+                if desc.expr is old_expr:
+                    desc._expr = rhs
+                    stack.extend(desc2 for desc2 in desc.children)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> "Base":
         """
