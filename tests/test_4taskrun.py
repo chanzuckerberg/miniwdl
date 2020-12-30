@@ -744,9 +744,9 @@ class TestTaskRunner(unittest.TestCase):
         self.assertGreaterEqual(outputs["wall_seconds"], 4)
         # 8 concurrent spinners on >1 cpus should take <8 seconds
         # (disabled in GitHub CI with only 2 vCPUs and multiple tests running in parallel)
-        if os.environ.get("CI") != "true":
+        if os.environ.get("CI", "false").strip().lower() not in ["true", "t", "y", "yes", "1"]:
             outputs = self._test_task(txt, {"n": 8, "cpu": 4})
-        self.assertLess(outputs["wall_seconds"], 8)
+            self.assertLess(outputs["wall_seconds"], 8)
         # check task with overkill number of CPUs gets scheduled
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
         self.assertLess(outputs["wall_seconds"], 8)
