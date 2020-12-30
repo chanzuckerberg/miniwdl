@@ -46,7 +46,7 @@ jobs:
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
           -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
-          -e AWS_EC2_METADATA_DISABLED=true \
+          -e AWS_EC2_METADATA_DISABLED=true -e CI=true \
           "$DOCKER_TAG" make -C miniwdl ${{ matrix.ci_target }}
     - name: Coveralls
       if: ${{ matrix.ci_target == 'ci_unit_tests' }}
