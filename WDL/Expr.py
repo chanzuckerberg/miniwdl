@@ -117,9 +117,6 @@ class Base(SourceNode, ABC):
         try:
             ans = self._eval(env, stdlib)
             ans.expr = self
-            for ch in ans.children:
-                if not ch.expr:
-                    ch.expr = self
             return ans
         except Error.RuntimeError:
             raise
