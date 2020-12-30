@@ -42,10 +42,11 @@ jobs:
     - name: make ${{ matrix.ci_target }}
       run: |
         chmod -R ugo+rw .
+        # AWS_EC2_METADATA_DISABLED needed on Azure: https://github.com/aws/aws-cli/issues/5623
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
           -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
-          -e AWS_EC2_METADATA_DISABLED=true \  # https://github.com/aws/aws-cli/issues/5623
+          -e AWS_EC2_METADATA_DISABLED=true \
           "$DOCKER_TAG" make -C miniwdl ${{ matrix.ci_target }}
     - name: Coveralls
       if: ${{ matrix.ci_target == 'ci_unit_tests' }}
