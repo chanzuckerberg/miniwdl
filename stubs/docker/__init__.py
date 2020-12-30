@@ -62,6 +62,18 @@ class Nodes:
     def list(**kwargs) -> List[Node]:
         ...
 
+class Image:
+    @property
+    def attrs(self) -> Dict[str,Any]:
+        ...
+
+class Images:
+    def get(self, tag: str, **kwargs) -> Image:
+        ...
+
+    def pull(self, tag: str, **kwargs) -> None:
+        ...
+
 class types:
     def RestartPolicy(p: str) -> Any:
         ...
@@ -79,6 +91,10 @@ class types:
     class Mount:
         def __init__(self, *args, **kwargs):
             ...
+
+class errors:
+    class ImageNotFound(Exception):
+        pass
 
 class DockerClient:
     @property
@@ -104,6 +120,10 @@ class DockerClient:
 
     @property
     def nodes(self) -> Nodes:
+        ...
+
+    @property
+    def images(self) -> Images:
         ...
 
 def from_env(version: Optional[str] = None, timeout: Optional[int] = None) -> DockerClient:
