@@ -50,6 +50,6 @@ jobs:
           "$DOCKER_TAG" make -C miniwdl ${{ matrix.ci_target }}
     - name: Coveralls
       if: ${{ matrix.ci_target == 'ci_unit_tests' }}
-      uses: coverallsapp/github-action@master
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
+      # https://github.com/coverallsapp/github-action/issues/30
+      # https://github.com/marketplace/actions/coveralls-python
+      uses: AndreMiras/coveralls-python-action@develop
