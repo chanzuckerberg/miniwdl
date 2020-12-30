@@ -14,16 +14,16 @@ RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y 
 # add and become 'wdler' user -- it's useful to run the test suite as some arbitrary uid, because
 # the runner has numerous file permissions-related constraints
 RUN useradd -ms /bin/bash -u 1337 wdler
-USER wdler
 
 # pip install the requirements files -- we do this before adding the rest of the source tree, so
 # that docker build doesn't have to reinstall the pip packages for every minor source change
-COPY requirements.txt requirements.dev.txt /home/wdler/
-RUN bash -o pipefail -c "env -C /home/wdler pip3 install --user -r requirements.dev.txt"
+COPY --chown=wdler:wdler requirements.txt requirements.dev.txt /home/wdler/
+RUN sudo -u wdler bash -o pipefail -c "cd /home/wdler && pip3 install --user -r requirements.dev.txt"
 
 FROM deps as all
 # mount point for the source tree
-RUN mkdir /miniwdl
+RUN mkdir /miniwdl && chown -R wdler /miniwdl
+USER wdler
 WORKDIR /miniwdl
 
 # finishing touches
