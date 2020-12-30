@@ -25,9 +25,12 @@ jobs:
         # Cache the dependency-installation image layer on GitHub Packages to speed up CI. Use a
         # year/month tag to ensure we do refresh them occasionally.
         TAG="docker.pkg.github.com/chanzuckerberg/miniwdl/miniwdl_ci:$(date +%Y%m)"
-        docker pull $TAG
-        docker build -t $TAG --cache-from $DOCKER_CACHE_TAG .
-        docker push $TAG 
+        if docker pull "$TAG"; then
+          docker build -t "$TAG" --cache-from "$TAG" .
+        else
+          docker build -t "$TAG" .
+        fi
+        docker push "$TAG"
     - name: make ${{ matrix.ci_target }}
       run: |
         chmod -R ugo+rw .
