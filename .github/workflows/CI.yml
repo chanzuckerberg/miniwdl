@@ -41,13 +41,14 @@ jobs:
         fi
     - name: make ${{ matrix.ci_target }}
       run: |
-        # explicitly block EC2 IMDS endpoint to work around awscli issue on Azure instances:
-        # https://github.com/aws/aws-cli/issues/5234#issuecomment-635459464
-        # https://github.com/aws/aws-cli/issues/5262
-        sudo ip route add blackhole 169.254.169.254
-
         chmod -R ugo+rw .
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
           -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
+          -e AWS_EC2_METADATA_DISABLED=true \  # https://github.com/aws/aws-cli/issues/5623
           "$DOCKER_TAG" make -C miniwdl ${{ matrix.ci_target }}
+    - name: Coveralls
+      if: ${{ matrix.ci_target == 'ci_unit_tests' }}
+      uses: coverallsapp/github-action@master
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
