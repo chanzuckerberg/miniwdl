@@ -284,6 +284,11 @@ $miniwdl run dir_io.wdl d=indir
 is "$?" "0" "directory input"
 is `jq -r '.["w.dsz"]' _LAST/outputs.json` "10" "use of directory input"
 
+for img in hobbsau/aria2 amazon/aws-cli:latest google/cloud-sdk:slim ; do
+    docker pull "$img"
+    docker images --digests "$img"
+done
+
 cat << 'EOF' > uri_inputs.json
 {
     "my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"],

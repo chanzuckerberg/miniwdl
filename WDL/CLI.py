@@ -1312,6 +1312,8 @@ def localize(
     logging.raiseExceptions = False
     if kwargs["verbose"]:
         level = VERBOSE_LEVEL
+    if kwargs["debug"]:
+        level = logging.DEBUG
     if kwargs["no_color"]:
         os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
     log_json = kwargs["log_json"] or (
