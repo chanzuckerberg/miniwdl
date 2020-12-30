@@ -12,9 +12,11 @@ If your production workload uses many tasks that take only seconds each, conside
 
 Except as needed for workflow orchestration (e.g. scatter arrays), pass large datasets through Files instead of WDL data structures (Arrays, Maps, structs, etc.). Excessively large WDL data structures might bottleneck the workflow, as they're handled within the miniwdl orchestrator process.
 
-### Treat input files as read-only
+Passing large `Array[File]` through task inputs/outputs (more than dozens of files, regardless of their individual sizes) can be especially costly, due to overhead localizing and mounting each one into the task's container. Instead, consider `Directory` inputs/outputs (available in the WDL `development` version), or consolidating the files into tar or zip archives to extract inside the task.
 
-By default, miniwdl mounts task input files read-only, blocking attempts to open them for writing, or more commonly, to move or rename them. Tasks that do so must be run with `--copy-input-files`, which should be avoided because it consumes more time and disk space.
+### Read-only input files
+
+By default, miniwdl mounts task input files & directories read-only, blocking attempts to open them for writing, or more commonly, to move or rename them. Tasks that do so must be run with `--copy-input-files`, which should be avoided because it consumes more time and disk space.
 
 If you just need to rename an input file to satisfy some tool's convention, try symlinking the desired name to the input file at the beginning of the task command script.
 
