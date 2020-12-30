@@ -44,7 +44,7 @@ class Base(ABC):
     def __deepcopy__(self, memo: Dict[int, Any]) -> Any:
         cls = self.__class__
         cp = cls.__new__(cls)
-        shallow = ("expr", "type")  # avoid deep-copying large, immutable structures
+        shallow = ("_expr", "type")  # avoid deep-copying large, immutable structures
         for k, v in self.__dict__.items():
             if k != "value":
                 setattr(cp, k, copy.deepcopy(v, memo) if k not in shallow else v)
