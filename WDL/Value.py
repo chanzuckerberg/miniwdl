@@ -300,7 +300,7 @@ class Map(Base):
             )
         if isinstance(desired_type, Type.StructInstance):
             if self.type.item_type[0] == Type.String():
-                # Run-time typecheck for initializing struct from read_{object[s],map,json}
+                # Runtime typecheck for initializing struct from read_{object[s],map,json}
                 # This couldn't have been checked statically because the map keys weren't known.
                 litty = Type.Map(
                     self.type.item_type, self.type.optional, set(kv[0].value for kv in self.value)
@@ -488,12 +488,22 @@ def from_json(type: Type.Base, value: Any) -> Base:
         isinstance(type, Type.StructInstance)
         and isinstance(value, dict)
         and type.members
-        and set(type.members.keys()) == set(value.keys())
+        and not set(value.keys()).difference(set(type.members.keys()))
     ):
         items = {}
+        omitted = set(type.members.keys())
         for k, v in value.items():
             assert isinstance(k, str)
-            items[k] = from_json(type.members[k], v)
+            try:
+                items[k] = from_json(type.members[k], v)
+            except Error.InputError:
+                raise Error.InputError(
+                    f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
+                ) from None
+            omitted.remove(k)
+        for k in omitted:
+            if not type.members[k].optional:
+                raise Error.InputError(f"initializer for struct {str(type)} omits required fields")
         return Struct(Type.Object(type.members), items)
     if type.optional and value is None:
         return Null()
