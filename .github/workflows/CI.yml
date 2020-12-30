@@ -18,7 +18,6 @@ jobs:
       run: |
         docker build -t miniwdl_deps --target deps . # --cache-from $DOCKER_CACHE_TAG .
         docker build -t miniwdl . # --cache-from miniwdl_deps .
-      run: sudo pip3 install --system pre-commit black flake8 pylint
     - name: make ${{ matrix.ci_target }}
       run: |
         chmod -R ugo+rw .
