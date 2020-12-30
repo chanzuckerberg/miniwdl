@@ -508,18 +508,31 @@ class SwarmContainer(TaskContainer):
         if ":" not in image_tag:
             # seems we need to do this explicitly under some configurations -- issue #232
             image_tag += ":latest"
-        logger.info(_("docker image", tag=image_tag))
+        client = docker.from_env(version="auto", timeout=900)
+        try:
+            image_attrs = client.images.get(image_tag).attrs
+        except docker.errors.ImageNotFound:
+            try:
+                client.images.pull(image_tag)
+                image_attrs = client.images.get(image_tag).attrs
+            except docker.errors.ImageNotFound:
+                raise Error.RuntimeError("docker image not found: " + image_tag)
+        image_log = {"tag": image_tag, "id": image_attrs["Id"]}
+        if image_tag not in image_attrs.get("RepoDigests", []):
+            # resolve mutable tag to precise RepoDigest, to ensure identical image will be used
+            # across a multi-node swarm
+            image_tag = image_attrs["RepoDigests"][0]
+            image_log["resolvedRepoDigest"] = image_tag
+        logger.notice(_("docker image", **image_log))  # pyre-fixme
 
         mounts = self.prepare_mounts(logger)
-
-        # connect to dockerd
-        client = docker.from_env(version="auto", timeout=900)
         resources, user, groups = self.misc_config(logger, client)
+
+        # run container as a transient docker swarm service, letting docker handle the resource
+        # scheduling (e.g. waiting until requested # of CPUs are available).
         svc = None
         exit_code = None
         try:
-            # run container as a transient docker swarm service, letting docker handle the resource
-            # scheduling (waiting until requested # of CPUs are available).
             kwargs = {
                 # unique name with some human readability; docker limits to 63 chars (issue #327)
                 "name": self.unique_service_name(self.run_id),
