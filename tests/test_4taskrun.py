@@ -749,7 +749,7 @@ class TestTaskRunner(unittest.TestCase):
             self.assertLess(outputs["wall_seconds"], 8)
         # check task with overkill number of CPUs gets scheduled
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
-        self.assertLess(outputs["wall_seconds"], 8)
+        self.assertLessEqual(outputs["wall_seconds"], 8)
         # check runtime_cpu_max set to 1 causes serialization
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, cfg=WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides={"task_runtime": {"cpu_max": 1}}))
         self.assertGreaterEqual(outputs["wall_seconds"], 8)

@@ -638,15 +638,18 @@ class TestStdLib(unittest.TestCase):
                 echo -e "Alice\t3\tGATTACA" >> alice.txt
                 cp alice.txt samplesheet2.txt
                 echo -e "Bob\t4\tTGTAATC" >> samplesheet2.txt
+                touch empty
             >>>
             output {
                 Sample alice = read_object("alice.txt")
                 Array[Sample] samplesheet2 = read_objects("samplesheet2.txt")
+                Array[Sample] empty = read_objects("empty")
             }
         }
         """)
         self.assertEqual(outputs["alice"], alice)
         self.assertEqual(outputs["samplesheet2"], samplesheet2)
+        self.assertEqual(outputs["empty"], [])
 
         outputs = self._test_task(R"""
         version 1.0
@@ -671,7 +674,56 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["alice"], alice)
         self.assertEqual(outputs["samplesheet2"], samplesheet2)
 
-        
+    def test_bad_object(self):
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                touch empty
+            >>>
+            output {
+                Map[String,String] map = read_object("empty")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                echo -e "one\tone\ttwo" > dup
+            >>>
+            output {
+                Map[String,String] map = read_object("dup")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                echo -e "one\ttwo\tthree" > ragged
+                echo -e "1\t2\t3\t4" >> ragged
+            >>>
+            output {
+                Map[String,String] map = read_object("ragged")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+    def test_bad_boolean(self):
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                echo foo > bool
+            >>>
+            output {
+                Boolean b = read_boolean("bool")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_write(self):
         outputs = self._test_task(R"""

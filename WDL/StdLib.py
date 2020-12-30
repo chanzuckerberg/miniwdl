@@ -321,7 +321,7 @@ def _parse_lines(s: str) -> Value.Array:
 
 
 def _parse_boolean(s: str) -> Value.Boolean:
-    s = s.rstrip()
+    s = s.rstrip().lower()
     if s == "true":
         return Value.Boolean(True)
     if s == "false":
@@ -330,12 +330,11 @@ def _parse_boolean(s: str) -> Value.Boolean:
 
 
 def _parse_tsv(s: str) -> Value.Array:
-    # TODO: should a blank line parse as [] or ['']?
     ans = [
         Value.Array(
             Type.Array(Type.String()), [Value.String(field) for field in line.value.split("\t")]
         )
-        for line in _parse_lines(s).value
+        for line in _parse_lines(s).value if line
     ]
     # pyre-ignore
     return Value.Array(Type.Array(Type.String()), ans)
@@ -352,7 +351,7 @@ def _parse_objects(s: str) -> Value.Array:
     maps = []
     for row in strmat.value[1:]:
         if len(row.value) != len(keys):
-            raise Error.InputError("read_objects(): file has inconsistent # columns per row")
+            raise Error.InputError("read_objects(): file's tab-separated lines are ragged")
         maps.append(Value.Map((Type.String(), Type.String()), list(zip(keys, row.value))))
     return Value.Array(Type.Map((Type.String(), Type.String())), maps)
 
