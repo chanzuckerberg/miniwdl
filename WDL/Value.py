@@ -85,11 +85,12 @@ class Base(ABC):
     @expr.setter
     def expr(self, rhs: "Expr.Base"):
         old_expr = self._expr  # possibly None
-        self._expr = rhs
-        # recursively replace old_expr in children
-        for ch in self.children:
-            if ch.expr is old_expr:
-                ch.expr = rhs
+        if rhs is not old_expr:
+            self._expr = rhs
+            # recursively replace old_expr in children
+            for ch in self.children:
+                if ch.expr is old_expr:
+                    ch.expr = rhs
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> "Base":
         """
