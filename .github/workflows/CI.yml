@@ -41,6 +41,11 @@ jobs:
         fi
     - name: make ${{ matrix.ci_target }}
       run: |
+        # explicitly block EC2 IMDS endpoint to work around awscli issue on Azure instances:
+        # https://github.com/aws/aws-cli/issues/5234#issuecomment-635459464
+        # https://github.com/aws/aws-cli/issues/5262
+        sudo ip route add blackhole 169.254.169.254
+
         chmod -R ugo+rw .
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
