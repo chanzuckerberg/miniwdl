@@ -8,6 +8,11 @@ jobs:
       matrix:
         ci_target:
           - ci_housekeeping
+          - ci_unit_tests
+          - integration_tests
+          - viral_refbased
+          - viral_assemble
+          - skylab_bulk_rna
     runs-on: ubuntu-20.04
     steps:
     - name: Login to GitHub Packages Docker Registry
@@ -31,7 +36,9 @@ jobs:
         else
           docker build -t "$DOCKER_TAG" .
         fi
-        docker push "$DOCKER_TAG"
+        if [ "${{ matrix.ci_target }}" == "ci_housekeeping" ]; then
+          docker push "$DOCKER_TAG"
+        fi
     - name: make ${{ matrix.ci_target }}
       run: |
         chmod -R ugo+rw .
