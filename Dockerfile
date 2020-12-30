@@ -19,7 +19,7 @@ USER wdler
 # pip install the requirements files -- we do this before adding the rest of the source tree, so
 # that docker build doesn't have to reinstall the pip packages for every minor source change
 COPY requirements.txt requirements.dev.txt /home/wdler/
-RUN bash -o pipefail -c "pip3 install --user -r /home/wdler/requirements.dev.txt"
+RUN bash -o pipefail -c "env -C /home/wdler pip3 install --user -r requirements.dev.txt"
 
 FROM deps as all
 # mount point for the source tree
