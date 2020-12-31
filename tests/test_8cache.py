@@ -150,12 +150,12 @@ class TestCallCache(unittest.TestCase):
                 "who": "Alyssa"
             }, self.doc.tasks[0].available_inputs)
 
-        ordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(ordered_inputs)
-        unordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(unordered_inputs)
+        ordered_digest = WDL.Value.digest_env(ordered_inputs)
+        unordered_digest = WDL.Value.digest_env(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
 
     def test_normalization(self):
-        desc = WDL.runtime.cache._describe_task(self.doc, self.doc.tasks[0])
+        desc = self.doc.tasks[0]._digest_source()
         self.assertEqual(desc, R"""
 version 1.0
 task hello_blank {
@@ -180,9 +180,9 @@ Int count = 12
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        input_digest = cache.get_digest_for_inputs(inputs)
-        task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
-        with open(os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}_{task_digest}/{input_digest}.json")) as f:
+        input_digest = WDL.Value.digest_env(inputs)
+        task_digest = self.doc.tasks[0].digest
+        with open(os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}/{task_digest}/{input_digest}.json")) as f:
             read_data = json.loads(f.read())
         self.assertEqual(read_data, WDL.values_to_json(outputs))
 
@@ -232,9 +232,9 @@ Int count = 12
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        input_digest = cache.get_digest_for_inputs(inputs)
-        task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
-        cache_value = cache.get(key=f"{self.doc.tasks[0].name}_{task_digest}/{input_digest}",
+        input_digest = WDL.Value.digest_env(inputs)
+        task_digest = self.doc.tasks[0].digest
+        cache_value = cache.get(key=f"{self.doc.tasks[0].name}/{task_digest}/{input_digest}",
                                 output_types=self.doc.tasks[0].effective_outputs,
                                 inputs=inputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))

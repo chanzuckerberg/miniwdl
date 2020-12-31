@@ -209,11 +209,11 @@ class TestEval(unittest.TestCase):
             (r'''"\u"''', None, WDL.Error.SyntaxError),
             (r'''"\uvwxyz"''', None, WDL.Error.SyntaxError),
         )
-        chars = [c for c in (chr(i) for i in range(1,256)) if c not in ("'", '"', '\\', '\n')]
+        chars = [c for c in (chr(i) for i in range(1,4096)) if c not in "\"'\\\n"]
         junk = []
         for c in chars:
             junk.append(c)
-            junk.append(c + ''.join(random.choices(chars,k=11)))
+            junk.append(c + ''.join(random.choices(chars,k=15)))
         for i in range(len(junk)):
             junk[i] = ('"' + junk[i] + '"', json.dumps(junk[i]))
         self._test_tuples(*junk)

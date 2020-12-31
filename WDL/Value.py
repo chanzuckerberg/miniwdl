@@ -9,6 +9,8 @@ Each value is represented by an instance of a Python class inheriting from
 """
 import json
 import copy
+import base64
+import hashlib
 from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
 from . import Error, Type, Env, Expr
@@ -600,3 +602,15 @@ def rewrite_env_files(env: Env.Bindings[Base], f: Callable[[str], str]) -> Env.B
     (deprecated: use ``rewrite_env_paths`` to handle Directory values as well)
     """
     return env.map(lambda binding: Env.Binding(binding.name, rewrite_files(binding.value, f)))
+
+
+def digest_env(env: Env.Bindings[Base]) -> str:
+    """
+    Digest the Value Env, for use e.g. as a cache key. The digest is an opaque string of a few
+    dozen alphanumeric characters.
+    """
+    from . import values_to_json
+
+    env_json = json.dumps(values_to_json(env), separators=(",", ":"), sort_keys=True)  # pyre-ignore
+    sha256 = hashlib.sha256(env_json.encode("utf-8")).digest()
+    return base64.b32encode(sha256[:20]).decode().lower()
