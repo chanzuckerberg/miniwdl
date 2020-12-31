@@ -102,10 +102,9 @@ def run_local_task(
 
         container = None
         try:
-            input_digest = cache.get_digest_for_inputs(inputs)
-            task_digest = cache.get_digest_for_task(task)
+            cache_key = f"{task.name}/{task.digest}/{Value.digest_env(inputs)}"
             cached = cache.get(
-                key=f"{task.name}_{task_digest}/{input_digest}",
+                key=cache_key,
                 output_types=task.effective_outputs,
                 inputs=inputs,
             )
@@ -207,7 +206,7 @@ def run_local_task(
                 )
                 logger.notice("done")  # pyre-fixme
                 if not run_id.startswith("download-"):
-                    cache.put(f"{task.name}_{task_digest}", input_digest, outputs)
+                    cache.put(cache_key, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())
