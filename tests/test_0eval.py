@@ -1,4 +1,4 @@
-import unittest, inspect, json
+import unittest, inspect, json, random
 from .context import WDL
 
 class TestEval(unittest.TestCase):
@@ -203,6 +203,20 @@ class TestEval(unittest.TestCase):
             (r"""'The fact is that many anonymous sources don\'t even exist.'""",
              r'''"The fact is that many anonymous sources don't even exist."''')
         )
+        self._test_tuples(
+            (r'''"\\\n\t\'\"\012\x0aనేనుÆды\u0000"''', json.dumps("\\\n\t'\"\n\nనేనుÆды\x00")),
+            (r'''"\xyz"''', None, WDL.Error.SyntaxError),
+            (r'''"\u"''', None, WDL.Error.SyntaxError),
+            (r'''"\uvwxyz"''', None, WDL.Error.SyntaxError),
+        )
+        chars = [c for c in (chr(i) for i in range(1,256)) if c not in ("'", '"', '\\', '\n')]
+        junk = []
+        for c in chars:
+            junk.append(c)
+            junk.append(c + ''.join(random.choices(chars,k=11)))
+        for i in range(len(junk)):
+            junk[i] = ('"' + junk[i] + '"', json.dumps(junk[i]))
+        self._test_tuples(*junk)
 
     def test_if(self):
         self._test_tuples(
