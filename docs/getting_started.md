@@ -1,9 +1,13 @@
 # Getting Started
 
-<img src="https://github.com/chanzuckerberg/miniwdl/blob/main/docs/miniwdl-logo.png" width="200"  />
+<img src="https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/docs/miniwdl-logo.png" width="200"  />
 
 [miniwdl](https://github.com/chanzuckerberg/miniwdl/) is a local runner and developer toolkit for
-the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/).  In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.
+the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/).  In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.  
+
+TIP: If you are new to working with WDL workflow language, you may want to review the open source 'learn-wdl' course' - [link](https://github.com/openwdl/learn-wdl).    
+
+Also there is an embedded short course 'learn-miniwdl' which includes screencasts reviewing the tutorial on this page in more detail - [link](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course)
 
 ## Install miniwdl
 
@@ -27,7 +31,7 @@ Then open a command prompt and try,
 
 ...to test the installation with a trivial built-in workflow. This should print numerous log messages, and conclude with `miniwdl run_self_test OK` in about 30 seconds.
 
-On macOS, you'll first need to override the `TMPDIR` environment variable, e.g. `export TMPDIR=/tmp`, to allow Docker containers to mount shared working directories. Please [file any other issues](https://github.com/chanzuckerberg/miniwdl/issues) that arise!
+NOTE: On macOS, you'll first need to override the `TMPDIR` environment variable, e.g. `export TMPDIR=/tmp`, to allow Docker containers to mount shared working directories. Please [file any other issues](https://github.com/chanzuckerberg/miniwdl/issues) that arise!
 
 ## Fetch viral-pipelines
 
