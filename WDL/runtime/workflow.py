@@ -647,11 +647,38 @@ def run_local_workflow(
             )
         )
         logger.debug(_("thread", ident=threading.get_ident()))
+        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
-        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
+        # query call cache
+        cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
+        cache_key = f"{workflow.name}/{workflow.digest}/{Value.digest_env(inputs)}"
+        cached = cache.get(
+            key=cache_key,
+            output_types=workflow.effective_outputs,
+            inputs=inputs,
+        )
+        if cached is not None:
+            for outp in workflow.effective_outputs:
+                v = cached[outp.name]
+                vj = json.dumps(v.json)
+                logger.info(
+                    _(
+                        "cached output",
+                        name=outp.name,
+                        value=(v.json if len(vj) < 4096 else "(((large)))"),
+                    )
+                )
+            outputs = link_outputs(
+                cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+            )
+            write_values_json(
+                cached, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
+            )
+            logger.notice("done (cached)")  # pyre-fixme
+            return (run_dir, cached)
 
-        # if we're the top-level workflow, provision CallCache and thread pools
+        # if we're the top-level workflow, provision thread pools
         if not _run_id_stack:
             try:
                 version = "v" + importlib_metadata.version("miniwdl")
@@ -660,7 +687,6 @@ def run_local_workflow(
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
             assert not _thread_pools
             wdl_doc = getattr(workflow, "parent")
-            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
@@ -677,9 +703,8 @@ def run_local_workflow(
             cleanup.callback(futures.ThreadPoolExecutor.shutdown, subwf_pool)
             thread_pools = (task_pool, subwf_pool)
         else:
-            assert _thread_pools and _cache
             thread_pools = _thread_pools
-            cache = _cache
+            assert thread_pools and cache
 
         try:
             # run workflow state machine
@@ -704,6 +729,8 @@ def run_local_workflow(
                 # TerminationSignalFlag)
                 os.kill(os.getpid(), signal.SIGUSR1)
             raise
+
+        cache.put(cache_key, outputs)
 
     return (run_dir, outputs)
 
