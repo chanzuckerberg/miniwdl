@@ -507,6 +507,7 @@ class SwarmContainer(TaskContainer):
         # prepare docker configuration
         client = docker.from_env(version="auto", timeout=900)
         if "inlineDockerfile" in self.runtime_values:
+            logger.warning("runtime.inlineDockerfile is an experimental extension, subject to change")
             image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
         else:
             image_tag = self.resolve_tag(

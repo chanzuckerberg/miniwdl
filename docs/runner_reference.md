@@ -32,6 +32,31 @@ When miniwdl creates a new timestamp-named subdirectory for a run, it also creat
 
 The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/blob/main/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
 
+## Task runtime attributes
+
+The default local scheduler observes these task `runtime {}` attributes:
+
+* `docker` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:20.04`)
+* `cpu` (Int): container reserves, and is throttled to, this many CPUs
+  * Automatically rounds down to all host CPUs, if fewer
+  * Multiple tasks can run concurrently on the local host, if CPUs and memory are available to meet their total reservations, and the workflow dependencies allow
+* `memory` (Int/String): container reserves this many bytes of memory, or string with unit such as "8 GiB"
+  * Automatically rounds down to all host memory, if less
+  * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
+* `maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first)
+
+## File & Directory URI downloads
+
+Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. The following URI schemes have built-in support, which can be extended with plugins:
+
+* `http:`, `https:`, and `ftp:` downloads for Files
+* Amazon S3 `s3:` URIs for both File and Directory inputs
+  * On an EC2 instance, the downloader attempts to assume an [attached IAM role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) by contacting the [instance metadata service](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials)
+  * Outside EC2, to use AWS credentials from the invoking session (detected by [boto3](https://aws.amazon.com/sdk-for-python/)), set the configuration option `[download_awscli] host_credentials = true` (or environment `MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=true`)
+  * Affix a trailing slash for Directory inputs
+* Google Cloud Storage `gs:` URIs for Files
+  * On a GCE instance, the downloader attempts to use the [associated service account](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances) by contacting the [instance metadata service](https://cloud.google.com/compute/docs/storing-retrieving-metadata)
+
 ## Configuration
 
 The miniwdl runner's configuration loader sources from command-line options, environment variables, and a configuration file, in that priority order.
@@ -54,56 +79,49 @@ Upon starting, miniwdl looks for a custom configuration file in the following lo
 Miniwdl loads *only the first file found* in this priority order, and merges its options into the defaults; so the file needs only contain selected sections & options to override. For example, the following overrides the default docker image (used when a task doesn't specify `runtime.docker`), leaving other defaults in place:
 
 ```
-$ cat << 'EOF' > ${HOME}/.config/miniwdl.cfg
+$ cat << 'EOF' > ~/.config/miniwdl.cfg
 [task_runtime]
 defaults = {
-        "docker": "ubuntu:19.10"
+        "docker": "ubuntu:20.10"
     }
 EOF
 ```
 
 **Environment and command line**
 
-Environment variables following the convention `MINIWDL__SECTION__KEY=VALUE` override individual cfg file and default options. Note the variable name is all-uppercase and delimited with *double* underscores (as section and key names may contain underscores). Reusing the previous example, the default docker image may be changed by setting in miniwdl's environment:
+Environment variables following the convention `MINIWDL__SECTION__KEY=VALUE` override individual cfg file and default options. Note the variable name is all-uppercase and delimited with *double* underscores (as section and key names may contain underscores). Reusing the previous example, the default docker image may be changed by setting in the environment:
 
 ```
-MINIWDL__TASK_RUNTIME__DEFAULTS='{"docker":"ubuntu:19.10"}'
+MINIWDL__TASK_RUNTIME__DEFAULTS='{"docker":"ubuntu:20.10"}'
 ```
 
 Any option can thus be set/changed temporarily without a configuration file.
 
 `miniwdl run` command-line arguments override the other sources. If in doubt, running with `--debug` logs the effective configuration and sources.
 
-## Task runtime attributes
+### Call cache
 
-The default local implementation observes these task `runtime {}` attributes:
+Miniwdl can cache task & workflow outputs, reusing them for repeat calls with the same inputs, for example while debugging an intermediate task or sub-workflow, or resuming from a transient error. This functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
 
-* `docker` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:20.04`)
-* `cpu` (Int): container reserves, and is throttled to, this many CPUs
-  * Automatically rounds down to all host CPUs, if fewer
-  * Multiple tasks can run concurrently on the local host, if CPUs and memory are available to meet their total reservations, and the workflow dependencies allow
-* `memory` (Int/String): container reserves this many bytes of memory, or string with unit such as "8 GiB"
-  * Automatically rounds down to all host memory, if less
-  * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
-* `maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first)
+```
+[call_cache]
+put = true
+get = true
+dir = ~/.cache/miniwdl
+```
 
-## File and Directory downloads
+Details:
 
-Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. The following URI schemes have built-in support, which can be extended with plugins:
+* The call cache is keyed by opaque digests of (i) the WDL source code for each task/workflow, and (ii) the inputs given to it
+* Cached outputs are stored as `*.json` files under the cache directory, which can simply be deleted when no longer needed
+* Local File and Directory inputs & outputs are referenced at their original paths, not copied into the cache directory
+* Cache entries are automatically invalidated if any referenced local File or Directory is later modified or deleted (based on modification timestamps)
+  * However, the cache does NOT test whether downloaded URIs or docker images may have changed
+* With the cache enabled in configuration, `--no-cache` disables it for one run
 
-* `http:`, `https:`, and `ftp:` downloads for Files
-* Amazon S3 `s3:` URIs for both File and Directory inputs
-  * On an EC2 instance, the downloader attempts to assume an [attached IAM role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) by contacting the [instance metadata service](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials)
-  * Outside EC2, to use AWS credentials from the invoking session (detected by [boto3](https://aws.amazon.com/sdk-for-python/)), set the configuration option `[download_awscli] host_credentials = true` (or environment `MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=true`)
-  * Downloads of public objects should work regardless
-  * Affix a trailing slash for Directory inputs
-* Google Cloud Storage `gs:` URIs for public Files
-  * On a GCE instance, the downloader attempts to use the [associated service account](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances) by contacting the [instance metadata service](https://cloud.google.com/compute/docs/storing-retrieving-metadata)
-  * Downloads of public objects should work regardless
+### Download cache
 
-## Download cache
-
-By default, downloaded URI inputs are used only for the current run, stored under the run directory. Miniwdl can also store downloads in a central directory, where subsequent runs can reference them by URI without downloading them again. This permits efficient use of WDL input templates referring to public databases by URI (e.g. reference genomes, sequence databases, interval lists), without having to rewrite them with local, non-portable paths.
+By default, downloaded URI inputs are used only for the current run, stored under the run directory. Miniwdl can also store downloads in a central directory, where subsequent runs (even of different tasks and workflows) can reference them by URI without downloading them again. This permits efficient use of WDL input templates referring to public databases by URI (e.g. reference genomes, sequence databases, interval lists), without having to rewrite them with local, non-portable paths.
 
 The download cache must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[download_cache]`` section. A minimal configuration might include:
 
@@ -123,22 +141,23 @@ Details:
 * If needed, the `miniwdl localize` subcommand can **"prime" the local cache** with URIs found in a given JSON input template (or a simple list of URIs) before actually running any workflow.
 * With the cache enabled in configuration, `--no-cache` disables it for one run.
 
-## Call cache
- 
-Miniwdl can cache task & workflow outputs, reusing them for repeat calls with the same inputs, for example while debugging an intermediate task or sub-workflow, or resuming from a transient error. This functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
+## WDL interoperability
 
-```
-[call_cache]
-put = true
-get = true
-dir = ~/.cache/miniwdl
-```
+The runner supports draft-2 and `version 1.0` of the [WDL specification](https://github.com/openwdl/wdl), with known errata:
 
-Details:
+* `Object` type is unsupported except for initializing WDL 1.0 `struct` types, which should be used instead.
+  * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
+* Task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
+* Rejects certain name collisions that Cromwell admits (spec-ambiguous), such as between:
+  * scatter variable and prior declaration
+  * output declaration and prior non-output declaration
+  * task and workflow in the same WDL file
 
-* The call cache is keyed by opaque digests of (i) the WDL source code for each task/workflow, and (ii) the inputs given to it
-* Cached outputs are stored as `*.json` files under the cache directory, which can simply be deleted when no longer needed
-* Local File and Directory inputs & outputs are referenced at their original paths, not copied into the cache directory
-* Cache entries are automatically invalidated if any referenced local File or Directory is later modified or deleted (based on modification timestamps)
-  * However, the cache does NOT test whether downloaded URIs or docker images may have changed
-* With the cache enabled in configuration, `--no-cache` disables it for one run
+Please [file an issue](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Ainterop) for any other incompatibilities observed.
+
+Additionally, miniwdl's `version development` strives to implement [features and changes pending](https://github.com/openwdl/wdl/pulls?q=is%3Apr+is%3Aclosed) for the next specification release, though this is best-effort and potentially unstable. Current examples include:
+
+* `Directory` type
+* struct literals
+* abbreviated syntax for passthrough call inputs
+* several library functions
