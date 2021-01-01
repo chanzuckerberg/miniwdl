@@ -125,7 +125,7 @@ Details:
 
 ## Call cache
  
-Miniwdl can cache task & workflow outputs, preventing duplication of work in repeated calls with the same inputs, for example while debugging an intermediate task or sub-workflow, or resuming from a transient error. This functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
+Miniwdl can cache task & workflow outputs, reusing them for repeat calls with the same inputs, for example while debugging an intermediate task or sub-workflow, or resuming from a transient error. This functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
 
 ```
 [call_cache]
