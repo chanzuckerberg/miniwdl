@@ -323,7 +323,7 @@ output_decls: "output" "{" bound_decl* "}"
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
 placeholder: expr
 
-?command: command1 | command2
+?command: "command" (command1 | command2)
 
 // meta/parameter_meta sections (effectively JSON)
 meta_object: "{" [meta_kv (","? meta_kv)*] "}"
@@ -452,11 +452,11 @@ string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRA
 
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
+command1: "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
 
 COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
+command2: "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 

@@ -14,6 +14,7 @@ import shutil
 import re
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any, Union
 from contextlib import ExitStack
+from docker.errors import BuildError as DockerBuildError
 
 from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
 from .._util import (
@@ -425,7 +426,14 @@ def _eval_task_runtime(
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
-    if "docker" in runtime_values:
+    if "inlineDockerfile" in runtime_values:
+        # join Array[String]
+        dockerfile = runtime_values["inlineDockerfile"]
+        if not isinstance(dockerfile, Value.Array):
+            dockerfile = Value.Array(dockerfile.type, [dockerfile])
+        dockerfile = "\n".join(elt.coerce(Type.String()).value for elt in dockerfile.value)
+        ans["inlineDockerfile"] = dockerfile
+    elif "docker" in runtime_values:
         ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
 
     host_limits = container.__class__.detect_resource_limits(cfg, logger)
@@ -535,7 +543,7 @@ def _try_task(
                     )
                 )
                 interruptions += 1
-            elif not isinstance(exn, Terminated) and retries < max_retries:
+            elif not isinstance(exn, (Terminated, DockerBuildError)) and retries < max_retries:
                 logger.error(
                     _(
                         "failed task will be retried",

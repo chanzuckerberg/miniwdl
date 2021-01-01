@@ -16,6 +16,7 @@ import shlex
 import stat
 from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Optional
 from abc import ABC, abstractmethod
+from io import BytesIO
 import docker
 from .. import Error
 from .._util import (
@@ -505,11 +506,14 @@ class SwarmContainer(TaskContainer):
 
         # prepare docker configuration
         client = docker.from_env(version="auto", timeout=900)
-        image_tag = self.resolve_tag(
-            logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
-        )
+        if "inlineDockerfile" in self.runtime_values:
+            image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
+        else:
+            image_tag = self.resolve_tag(
+                logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
+            )
         mounts = self.prepare_mounts(logger)
-        resources, user, groups = self.misc_config(logger, client)
+        resources, user, groups = self.misc_config(logger)
 
         # run container as a transient docker swarm service, letting docker handle the resource
         # scheduling (e.g. waiting until requested # of CPUs are available).
@@ -717,7 +721,7 @@ class SwarmContainer(TaskContainer):
         return mounts
 
     def misc_config(
-        self, logger: logging.Logger, client: docker.DockerClient
+        self, logger: logging.Logger
     ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
         resources = {}
         cpu = self.runtime_values.get("cpu", 0)
@@ -894,3 +898,73 @@ class SwarmContainer(TaskContainer):
         junk = base64.b32encode(junk).decode().lower()
         assert len(junk) == 24
         return f"wdl-{run_id[:34]}-{junk}"  # 4 + 34 + 1 + 24 = 63
+
+    _build_inline_dockerfile_lock: threading.Lock = threading.Lock()
+
+    def build_inline_dockerfile(
+        self,
+        logger: logging.Logger,
+        client: docker.DockerClient,
+        tries: Optional[int] = None,
+    ) -> str:
+        # formulate image tag using digest of dockerfile text
+        dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
+        dockerfile_digest = hashlib.sha256(dockerfile_utf8).digest()
+        dockerfile_digest = base64.b32encode(dockerfile_digest[:15]).decode().lower()
+        tag_part1 = "miniwdl_auto_"
+        tag_part3 = ":" + dockerfile_digest
+        tag_part2 = self.run_id.lower()
+        if "-" in tag_part2:
+            tag_part2 = tag_part2.split("-")[1]
+        maxtag2 = 64 - len(tag_part1) - len(tag_part3)
+        assert maxtag2 > 0
+        tag = tag_part1 + tag_part2 + tag_part3
+
+        # short-circuit if digest-tagged image already exists
+        try:
+            existing = client.images.get(tag)
+            logger.notice(_("docker build cached", tag=tag, id=existing.id))  # pyre-ignore
+            return tag
+        except docker.errors.ImageNotFound:
+            pass
+
+        # prepare to tee docker build log to logger.verbose and a file
+        build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log.txt")
+
+        def write_log(stream: Iterable[Dict[str, str]]):
+            # tee the log messages to logger.verbose and build_logfile
+            with open(build_logfile, "w") as outfile:
+                for d in stream:
+                    if "stream" in d:
+                        msg = d["stream"].rstrip()
+                        if msg:
+                            logger.verbose(msg)
+                            print(msg, file=outfile)
+
+        # run docker build
+        try:
+            with SwarmContainer._build_inline_dockerfile_lock:  # one build at a time
+                logger.info(_("starting docker build", tag=tag))
+                logger.debug(_("Dockerfile", txt=self.runtime_values["inlineDockerfile"]))
+                image, build_log = client.images.build(fileobj=BytesIO(dockerfile_utf8), tag=tag)
+        except docker.errors.BuildError as exn:
+            # potentially retry, if task has runtime.maxRetries
+            if isinstance(tries, int):
+                tries -= 1
+            else:
+                tries = self.runtime_values.get("maxRetries", 0)
+            if tries > 0:
+                logger.error(
+                    _("failed docker build will be retried", tries_remaining=tries, msg=exn.msg)
+                )
+                return self.build_inline_dockerfile(logger, client, tries=tries)
+            else:
+                write_log(exn.build_log)
+                logger.error(_("docker build failed", msg=exn.msg, log=build_logfile))
+                raise exn
+
+        write_log(build_log)
+        logger.notice(  # pyre-ignore
+            _("docker build", tag=image.tags[0], id=image.id, log=build_logfile)
+        )
+        return tag

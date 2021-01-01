@@ -5,6 +5,7 @@ import random
 import os
 import shutil
 import json
+import time
 import docker
 from testfixtures import log_capture
 from .context import WDL
@@ -766,6 +767,47 @@ class MiscRegressionTests(RunnerTestCase):
         euid = os.geteuid()
         for fn in outp["files_out"]:
             assert os.stat(fn).st_uid == euid
+
+
+class TestInlineDockerfile(RunnerTestCase):
+    @log_capture()
+    def test1(self, capture):
+        wdl = """
+        version development
+        workflow w {
+            call t
+        }
+        task t {
+            input {
+                Array[String]+ apt_pkgs
+                Float timestamp
+            }
+            command <<<
+                set -euxo pipefail
+                apt list --installed | tr '/' $'\t' | sort > installed.txt
+                sort "~{write_lines(apt_pkgs)}" > expected.txt
+                join -j 1 -v 2 installed.txt expected.txt > missing.txt
+                if [ -s missing.txt ]; then
+                    >&2 cat missing.txt
+                    exit 1
+                fi
+            >>>
+            runtime {
+                inlineDockerfile: [
+                    "FROM ubuntu:20.04",
+                    "RUN apt-get -qq update && apt-get install -y ${sep(' ', apt_pkgs)}",
+                    "RUN touch ${timestamp}"
+                ]
+                maxRetries: 1
+            }
+        }
+        """
+        t = time.time()  # to ensure the image is built anew on every test run
+        self._run(wdl, {"t.apt_pkgs": ["samtools", "tabix"], "t.timestamp": t})
+        self._run(wdl, {"t.apt_pkgs": ["samtools", "tabix"], "t.timestamp": t})
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("docker build cached")]
+        self.assertEqual(len(logs), 1)
+        self._run(wdl, {"t.apt_pkgs": ["bogusfake123"], "t.timestamp": t}, expected_exception=docker.errors.BuildError)
 
 
 class TestAbbreviatedCallInput(RunnerTestCase):
