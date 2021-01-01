@@ -681,14 +681,13 @@ def run_local_workflow(
         # if we're the top-level workflow, provision thread pools
         if not _thread_pools:
             assert not _run_id_stack
+            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
             try:
+                # log version into workflow.log
                 version = "v" + importlib_metadata.version("miniwdl")
             except importlib_metadata.PackageNotFoundError:
                 version = "UNKNOWN"
             logger.notice(_("miniwdl", version=version))  # pyre-fixme
-            assert not _thread_pools
-            wdl_doc = getattr(workflow, "parent")
-            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
 
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
             # be possible for all threads to be taken up by sub-workflows, deadlocking with no
