@@ -3,8 +3,8 @@
 
 ![Project Status](https://img.shields.io/badge/status-beta-yellow.svg)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/main/LICENSE)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/ambv/black)
-[![Build Status](https://travis-ci.org/chanzuckerberg/miniwdl.svg?branch=main)](https://travis-ci.org/chanzuckerberg/miniwdl) [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=main)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=main)
+[![CI](https://github.com/chanzuckerberg/miniwdl/workflows/CI/badge.svg?branch=main)](https://github.com/chanzuckerberg/miniwdl/actions?query=workflow%3ACI)
+[![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=main)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=main)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
 ## Getting Started

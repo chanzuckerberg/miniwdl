@@ -1,4 +1,4 @@
-import unittest, inspect, json
+import unittest, inspect, json, random
 from .context import WDL
 
 class TestEval(unittest.TestCase):
@@ -203,6 +203,20 @@ class TestEval(unittest.TestCase):
             (r"""'The fact is that many anonymous sources don\'t even exist.'""",
              r'''"The fact is that many anonymous sources don't even exist."''')
         )
+        self._test_tuples(
+            (r'''"\\\n\t\'\"\012\x0aనేనుÆды\u0000"''', json.dumps("\\\n\t'\"\n\nనేనుÆды\x00")),
+            (r'''"\xyz"''', None, WDL.Error.SyntaxError),
+            (r'''"\u"''', None, WDL.Error.SyntaxError),
+            (r'''"\uvwxyz"''', None, WDL.Error.SyntaxError),
+        )
+        chars = [c for c in (chr(i) for i in range(1,4096)) if c not in "\"'\\\n$~"]
+        junk = []
+        for c in chars:
+            junk.append(c)
+            junk.append(c + ''.join(random.choices(chars,k=15)))
+        for i in range(len(junk)):
+            junk[i] = ('"' + junk[i] + '"', json.dumps(junk[i]))
+        self._test_tuples(*junk)
 
     def test_if(self):
         self._test_tuples(
@@ -457,14 +471,15 @@ class TestValue(unittest.TestCase):
             (WDL.Type.Array(WDL.Type.String(optional=True)), ["apple", "orange", None]),
             (WDL.Type.Map((WDL.Type.String(), WDL.Type.Int())), {"cats": 42, "dogs": 99}),
             (pty, {"name": "Alyssa", "age": 42, "pets": None}),
+            (pty, {"name": "Alyssa", "age": 42}),
             (pty, {"name": "Alyssa", "age": 42, "pets": {"cats": 42, "dogs": 99}}),
             (WDL.Type.Array(WDL.Type.Pair(WDL.Type.String(), WDL.Type.Int())), [{"left": "a", "right": 0},{"left": "b", "right": 1}]),
 
             (WDL.Type.Boolean(), 42, WDL.Error.InputError),
             (WDL.Type.Float(), "your president", WDL.Error.InputError),
             (WDL.Type.String(), None, WDL.Error.InputError),
+            (pty, {"name": "Alyssa"}, WDL.Error.InputError),
             (pty, {"name": "Alyssa", "age": None, "pets": None}, WDL.Error.InputError),
-            (pty, {"name": "Alyssa", "age": 42}, WDL.Error.InputError),
             (pty, {"name": "Alyssa", "age": 42, "pets": None, "address": "No 4, Privet Drive"}, WDL.Error.InputError),
         ]
 

@@ -13,6 +13,8 @@ import os
 import errno
 import itertools
 import asyncio
+import hashlib
+import base64
 from typing import (
     Any,
     List,
@@ -136,7 +138,7 @@ class WorkflowNode(SourceNode, ABC):
 
     @abstractmethod
     def add_to_type_env(
-        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+        self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
         # typechecking helper -- add this node to the type environment; for sections, this includes
         # everything in the section body as visible outside of the section.
@@ -198,7 +200,7 @@ class Decl(WorkflowNode):
 
     def add_to_type_env(
         self,
-        struct_typedefs: Env.Bindings[StructTypeDef],
+        struct_types: Env.Bindings[Dict[str, Type.Base]],
         type_env: Env.Bindings[Type.Base],
         collision_ok: bool = False,
     ) -> Env.Bindings[Type.Base]:
@@ -209,7 +211,7 @@ class Decl(WorkflowNode):
                 raise Error.MultipleDefinitions(self, "Multiple declarations of " + self.name)
             if type_env.has_namespace(self.name):
                 raise Error.MultipleDefinitions(self, "Value/call name collision on " + self.name)
-        _resolve_struct_typedefs(self.pos, self.type, struct_typedefs)
+        _resolve_struct_types(self.pos, self.type, struct_types)
         if isinstance(self.type, Type.StructInstance):
             return _add_struct_instance_to_type_env(self.name, self.type, type_env, ctx=self)
         return type_env.bind(self.name, self.type, self)
@@ -218,12 +220,15 @@ class Decl(WorkflowNode):
         self,
         type_env: Env.Bindings[Type.Base],
         stdlib: StdLib.Base,
+        struct_types: Env.Bindings[Dict[str, Type.Base]],
         check_quant: bool = True,
     ) -> None:
         # Infer the expression's type and ensure it checks against the declared
         # type. One time use!
         if self.expr:
-            self.expr.infer_type(type_env, stdlib, check_quant=check_quant).typecheck(self.type)
+            self.expr.infer_type(
+                type_env, stdlib, check_quant=check_quant, struct_types=struct_types
+            ).typecheck(self.type)
 
     def _workflow_node_dependencies(self) -> Iterable[str]:
         yield from _expr_workflow_node_dependencies(self.expr)
@@ -356,10 +361,10 @@ class Task(SourceNode):
 
     def typecheck(
         self,
-        struct_typedefs: Optional[Env.Bindings[StructTypeDef]] = None,
+        struct_types: Optional[Env.Bindings[Dict[str, Type.Base]]] = None,
         check_quant: bool = True,
     ) -> None:
-        struct_typedefs = struct_typedefs or Env.Bindings()
+        struct_types = struct_types or Env.Bindings()
         # warm-up check: if input{} section exists then all postinput decls
         # must be bound
         if self.inputs is not None:
@@ -376,18 +381,22 @@ class Task(SourceNode):
         # in their right-hand side expressions.
         type_env = Env.Bindings()
         for decl in (self.inputs or []) + self.postinputs:
-            type_env = decl.add_to_type_env(struct_typedefs, type_env)
+            type_env = decl.add_to_type_env(struct_types, type_env)
 
         with Error.multi_context() as errors:
             stdlib = StdLib.Base(self.effective_wdl_version)
             # Pass through input & postinput declarations again, typecheck their
             # right-hand side expressions against the type environment.
             for decl in (self.inputs or []) + self.postinputs:
-                errors.try1(lambda: decl.typecheck(type_env, stdlib, check_quant=check_quant))
+                errors.try1(
+                    lambda: decl.typecheck(
+                        type_env, stdlib, check_quant=check_quant, struct_types=struct_types
+                    )
+                )
             # Typecheck the command (string)
             errors.try1(
                 lambda: self.command.infer_type(
-                    type_env, stdlib, check_quant=check_quant
+                    type_env, stdlib, check_quant=check_quant, struct_types=struct_types
                 ).typecheck(Type.String())
             )
             for b in self.available_inputs:
@@ -396,13 +405,13 @@ class Task(SourceNode):
             for _, runtime_expr in self.runtime.items():
                 errors.try1(
                     lambda runtime_expr=runtime_expr: runtime_expr.infer_type(
-                        type_env, stdlib, check_quant=check_quant
+                        type_env, stdlib, check_quant=check_quant, struct_types=struct_types
                     ).typecheck(Type.String())
                 )
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(
-                    lambda decl=decl: decl.add_to_type_env(struct_typedefs, type_env)
+                    lambda decl=decl: decl.add_to_type_env(struct_types, type_env)
                 )
                 if type_env2:
                     type_env = type_env2
@@ -410,7 +419,9 @@ class Task(SourceNode):
             # Typecheck the output expressions
             stdlib = StdLib.TaskOutputs(self.effective_wdl_version)
             for decl in self.outputs:
-                errors.try1(lambda: decl.typecheck(type_env, stdlib, check_quant=check_quant))
+                errors.try1(
+                    lambda: decl.typecheck(type_env, stdlib, struct_types, check_quant=check_quant)
+                )
                 errors.try1(lambda: _check_serializable_map_keys(decl.type, decl.name, decl))
 
         # check for cyclic dependencies among decls
@@ -418,6 +429,44 @@ class Task(SourceNode):
             # pyre-ignore
             _decl_dependency_matrix([ch for ch in self.children if isinstance(ch, Decl)])
         )
+
+    _digest: str = ""
+
+    @property
+    def digest(self) -> str:
+        """
+        Content digest of the task, for use e.g. as a cache key. The digest is an opaque string of
+        a few dozen alphanumeric characters, sensitive to the task's source code (with best effort
+        to exclude comments and whitespace).
+        """
+        if self._digest:
+            return self._digest
+        sha256 = hashlib.sha256(self._digest_source().encode("utf-8")).digest()
+        self._digest = base64.b32encode(sha256[:20]).decode().lower()
+        return self._digest
+
+    def _digest_source(self) -> str:
+        doc = getattr(self, "parent", None)
+        assert isinstance(doc, Document)
+
+        # For now we just excerpt the task's source code, minus comments and blank lines, plus
+        # annotations for the WDL version and struct types.
+        source_lines = []
+        if doc.wdl_version:
+            source_lines.append("version " + doc.wdl_version)
+
+        # Insert comments describing struct types used in the task.
+        structs = _describe_struct_types(self)
+        for struct_name in sorted(structs.keys()):
+            source_lines.append(f"# {struct_name} :: {structs[struct_name]}")
+
+        # excerpt task{} from document
+        # Possible future improvements:
+        # excise the meta & parameter_meta sections
+        # normalize order of declarations
+        # normalize whitespace within lines (not leading/trailing)
+        source_lines += _source_excerpt(doc, self.pos, [self.command.pos])
+        return "\n".join(source_lines).strip()
 
 
 class Call(WorkflowNode):
@@ -512,7 +561,7 @@ class Call(WorkflowNode):
         assert isinstance(self.callee, (Task, Workflow))
 
     def add_to_type_env(
-        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+        self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
         # Add the call's outputs to the type environment under the appropriate
         # namespace, after checking for namespace collisions.
@@ -532,7 +581,11 @@ class Call(WorkflowNode):
         )
 
     def typecheck_input(
-        self, type_env: Env.Bindings[Type.Base], stdlib: StdLib.Base, check_quant: bool
+        self,
+        struct_types: Env.Bindings[Dict[str, Type.Base]],
+        type_env: Env.Bindings[Type.Base],
+        stdlib: StdLib.Base,
+        check_quant: bool,
     ) -> bool:
         # Check the input expressions against the callee's inputs. One-time use.
         # Returns True if the call supplies all required inputs, False otherwise.
@@ -557,7 +610,7 @@ class Call(WorkflowNode):
                     decl = self.callee.available_inputs[name]
                     errors.try1(
                         lambda expr=expr, decl=decl: expr.infer_type(
-                            type_env, stdlib, check_quant=check_quant
+                            type_env, stdlib, check_quant=check_quant, struct_types=struct_types
                         ).typecheck(decl.type)
                     )
                 except KeyError:
@@ -651,7 +704,7 @@ class Gather(WorkflowNode):
         self.referee = referee
 
     def add_to_type_env(
-        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+        self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
         raise NotImplementedError()
 
@@ -772,7 +825,7 @@ class Scatter(WorkflowSection):
         yield from super().children
 
     def add_to_type_env(
-        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+        self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
@@ -780,7 +833,7 @@ class Scatter(WorkflowSection):
 
         inner_type_env = Env.Bindings()
         for elt in self.body:
-            inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
+            inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
         # Subtlety: if the scatter array is statically nonempty, then so too
         # are the arrayized values.
         nonempty = isinstance(self.expr._type, Type.Array) and self.expr._type.nonempty
@@ -841,7 +894,7 @@ class Conditional(WorkflowSection):
         yield from super().children
 
     def add_to_type_env(
-        self, struct_typedefs: Env.Bindings[StructTypeDef], type_env: Env.Bindings[Type.Base]
+        self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
     ) -> Env.Bindings[Type.Base]:
         # Add declarations and call outputs in this section as they'll be
         # available outside of the section (i.e. a declaration of type T is
@@ -849,7 +902,7 @@ class Conditional(WorkflowSection):
 
         inner_type_env = Env.Bindings()
         for elt in self.body:
-            inner_type_env = elt.add_to_type_env(struct_typedefs, inner_type_env)
+            inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
 
         # optional-ize each inner type binding and add gather nodes
         def optionalize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
@@ -1064,7 +1117,10 @@ class Workflow(SourceNode):
             for decl in self.inputs or []:
                 errors.try1(
                     lambda decl=decl: decl.typecheck(
-                        self._type_env, stdlib, check_quant=check_quant
+                        self._type_env,
+                        stdlib,
+                        check_quant=check_quant,
+                        struct_types=doc._struct_types,
                     )
                 )
             if errors.try1(lambda: _typecheck_workflow_body(doc, stdlib, check_quant)) is False:
@@ -1097,13 +1153,16 @@ class Workflow(SourceNode):
                     # 2. we still want to typecheck the output expression againsnt the 'old' type
                     #    environment
                     output_type_env2 = output.add_to_type_env(
-                        doc.struct_typedefs,
+                        doc._struct_types,
                         output_type_env,
                         collision_ok=getattr(output, "_rewritten_ident", False),
                     )
                     errors.try1(
                         lambda output=output: output.typecheck(
-                            output_type_env, stdlib, check_quant=check_quant
+                            output_type_env,
+                            stdlib,
+                            check_quant=check_quant,
+                            struct_types=doc._struct_types,
                         )
                     )
                     output_type_env = output_type_env2
@@ -1184,6 +1243,47 @@ class Workflow(SourceNode):
                 visit(ch)
         return self._nodes_by_id[workflow_node_id]
 
+    _digest: str = ""
+
+    @property
+    def digest(self) -> str:
+        """
+        Content digest of the workflow, for use e.g. as a cache key. The digest is an opaque string
+        of a few dozen alphanumeric characters, sensitive to the workflow's source code (with best
+        effort to exclude comments and whitespace) and the tasks and subworkflows it calls.
+        """
+        if self._digest:
+            return self._digest
+        sha256 = hashlib.sha256(self._digest_source().encode("utf-8")).digest()
+        self._digest = base64.b32encode(sha256[:20]).decode().lower()
+        return self._digest
+
+    def _digest_source(self) -> str:
+        doc = getattr(self, "parent", None)
+        assert isinstance(doc, Document)
+
+        # For now we just excerpt the workflow's source code, minus comments and blank lines, plus
+        # annotations for the WDL version, struct types, and called tasks & subworkflows.
+        source_lines = []
+        if doc.wdl_version:
+            source_lines.append("version " + doc.wdl_version)
+
+        # Insert comments describing struct types used in the workflow
+        structs = _describe_struct_types(self)
+        for struct_name in sorted(structs.keys()):
+            source_lines.append(f"# {struct_name} :: {structs[struct_name]}")
+
+        # Insert comments with the digests of called tasks & subworkflows (to ensure the workflow
+        # digest will be sensitive to changes in those).
+        for call in _calls(self):
+            callee = call.callee
+            assert isinstance(call, Call) and isinstance(callee, (Task, Workflow))
+            source_lines.append(f"# {'.'.join(call.callee_id)} :: {callee.digest}")
+
+        # excerpt workflow{} from document
+        source_lines += _source_excerpt(doc, self.pos)
+        return "\n".join(source_lines).strip()
+
 
 SourceComment = NamedTuple("SourceComment", [("pos", Error.SourcePosition), ("text", str)])
 """
@@ -1258,6 +1358,10 @@ class Document(SourceNode):
     Imported documents"""
     struct_typedefs: Env.Bindings[StructTypeDef]
     """:type: Env.Bindings[WDL.Tree.StructTypeDef]"""
+
+    _struct_types: Env.Bindings[Dict[str, Type.Base]]
+    # simpler mapping of struct names to their members, used for typechecking ops
+
     tasks: List[Task]
     """:type: List[WDL.Tree.Task]"""
     workflow: Optional[Workflow]
@@ -1279,6 +1383,7 @@ class Document(SourceNode):
         self.struct_typedefs = Env.Bindings()
         for name, struct_typedef in struct_typedefs.items():
             self.struct_typedefs = self.struct_typedefs.bind(name, struct_typedef)
+        self._struct_types = Env.Bindings()
         self.tasks = tasks
         self.workflow = workflow
         self.source_text = source_text
@@ -1321,7 +1426,11 @@ class Document(SourceNode):
                 )
             names.add(imp.namespace)
         _import_structs(self)
-        _initialize_struct_typedefs(self.struct_typedefs)
+        for struct_binding in self.struct_typedefs:
+            self._struct_types = self._struct_types.bind(
+                struct_binding.name, struct_binding.value.members
+            )
+        _initialize_struct_typedefs(self.struct_typedefs, self._struct_types)
         names = set()
         # typecheck each task
         with Error.multi_context() as errors:
@@ -1332,7 +1441,7 @@ class Document(SourceNode):
                     )
                 names.add(task.name)
                 errors.try1(
-                    lambda task=task: task.typecheck(self.struct_typedefs, check_quant=check_quant)
+                    lambda task=task: task.typecheck(self._struct_types, check_quant=check_quant)
                 )
         # typecheck the workflow
         if self.workflow:
@@ -1529,10 +1638,12 @@ def _build_workflow_type_env(
     if isinstance(self, Workflow):
         # start with workflow inputs
         for decl in self.inputs or []:
-            type_env = decl.add_to_type_env(doc.struct_typedefs, type_env)
+            type_env = decl.add_to_type_env(doc._struct_types, type_env)
     elif isinstance(self, Scatter):
         # typecheck scatter array
-        self.expr.infer_type(type_env, stdlib, check_quant=check_quant)
+        self.expr.infer_type(
+            type_env, stdlib, check_quant=check_quant, struct_types=doc._struct_types
+        )
         if not isinstance(self.expr.type, Type.Array):
             raise Error.NotAnArray(self.expr)
         if isinstance(self.expr.type.item_type, Type.Any):
@@ -1549,7 +1660,9 @@ def _build_workflow_type_env(
         type_env = type_env.bind(self.variable, self.expr.type.item_type, self)
     elif isinstance(self, Conditional):
         # typecheck the condition
-        self.expr.infer_type(type_env, stdlib, check_quant=check_quant)
+        self.expr.infer_type(
+            type_env, stdlib, check_quant=check_quant, struct_types=doc._struct_types
+        )
         if not self.expr.type.coerces(Type.Boolean()):
             raise Error.StaticTypeMismatch(self.expr, Type.Boolean(), self.expr.type)
     else:
@@ -1564,7 +1677,7 @@ def _build_workflow_type_env(
             for sibling in self.body:
                 if sibling is not child:
                     child_outer_type_env = sibling.add_to_type_env(
-                        doc.struct_typedefs, child_outer_type_env
+                        doc._struct_types, child_outer_type_env
                     )
             _build_workflow_type_env(doc, stdlib, check_quant, child, child_outer_type_env)
         elif isinstance(child, Decl) and not child.type.optional and not child.expr:
@@ -1585,7 +1698,7 @@ def _build_workflow_type_env(
 
     # finally, populate self._type_env with all our children
     for child in self.body:
-        type_env = child.add_to_type_env(doc.struct_typedefs, type_env)
+        type_env = child.add_to_type_env(doc._struct_types, type_env)
     self._type_env = type_env
 
 
@@ -1607,7 +1720,10 @@ def _typecheck_workflow_body(
                     _translate_struct_mismatch(
                         doc,
                         lambda child=child: child.typecheck(
-                            self._type_env, stdlib, check_quant=check_quant
+                            self._type_env,
+                            stdlib,
+                            check_quant=check_quant,
+                            struct_types=doc._struct_types,
                         ),
                     )
                 )
@@ -1617,7 +1733,7 @@ def _typecheck_workflow_body(
                         _translate_struct_mismatch(
                             doc,
                             lambda child=child: child.typecheck_input(
-                                self._type_env, stdlib, check_quant=check_quant
+                                doc._struct_types, self._type_env, stdlib, check_quant=check_quant
                             ),
                         )
                     )
@@ -1811,46 +1927,49 @@ def _import_structs(doc: Document):
                 doc.struct_typedefs = doc.struct_typedefs.bind(name, st2)
 
 
-def _resolve_struct_typedef(
-    pos: Error.SourcePosition, ty: Type.StructInstance, struct_typedefs: Env.Bindings[StructTypeDef]
+def _resolve_struct_type(
+    pos: Error.SourcePosition,
+    ty: Type.StructInstance,
+    struct_types: Env.Bindings[Dict[str, Type.Base]],
 ):
     # On construction, WDL.Type.StructInstance is not yet resolved to the
     # struct type definition. Here, given the Env.Bindings[StructTypeDef] computed
     # on document construction, we populate 'members' with the dict of member
     # types and names.
     try:
-        struct_typedef = struct_typedefs[ty.type_name]
+        ty.members = struct_types[ty.type_name]
     except KeyError:
         raise Error.InvalidType(pos, "Unknown type " + ty.type_name) from None
-    ty.members = struct_typedef.members
 
 
-def _resolve_struct_typedefs(
+def _resolve_struct_types(
     pos: Error.SourcePosition,
     ty: Type.Base,
-    struct_typedefs: Env.Bindings[StructTypeDef],
+    struct_types: Env.Bindings[Dict[str, Type.Base]],
     members_dict_ids: Optional[List[int]] = None,
 ):
     members_dict_ids = members_dict_ids or []
     # resolve all StructInstance within a potentially compound type
     if isinstance(ty, Type.StructInstance):
-        _resolve_struct_typedef(pos, ty, struct_typedefs)
+        _resolve_struct_type(pos, ty, struct_types)
         if id(ty.members) in members_dict_ids:
             # circular struct types!
             raise StopIteration
         members_dict_ids = [id(ty.members)] + (members_dict_ids or [])
     for p in ty.parameters:
-        _resolve_struct_typedefs(pos, p, struct_typedefs, members_dict_ids=members_dict_ids)
+        _resolve_struct_types(pos, p, struct_types, members_dict_ids=members_dict_ids)
 
 
-def _initialize_struct_typedefs(struct_typedefs: Env.Bindings[StructTypeDef]):
+def _initialize_struct_typedefs(
+    struct_typedefs: Env.Bindings[StructTypeDef], struct_types: Env.Bindings[Dict[str, Type.Base]]
+):
     # bootstrap struct typechecking: resolve all StructInstance members of the
     # struct types; also detect & error circular struct definitions
     for b in struct_typedefs:
         assert isinstance(b, Env.Binding)
         for member_ty in b.value.members.values():
             try:
-                _resolve_struct_typedefs(b.value.pos, member_ty, struct_typedefs)
+                _resolve_struct_types(b.value.pos, member_ty, struct_types)
             except StopIteration:
                 raise Error.CircularDependencies(b.value) from None
 
@@ -1885,3 +2004,74 @@ def _check_serializable_map_keys(t: Type.Base, name: str, node: SourceNode) -> N
             )
     for p in t.parameters:
         _check_serializable_map_keys(p, name, node)
+
+
+def _describe_struct_types(exe: Union[Task, Workflow]) -> Dict[str, str]:
+    """
+    Traverse the task/workflow AST to find all struct types used; produce a mapping from struct
+    name to its type_id (a string describing the struct's members, independent of the struct name,
+    as the latter can differ across documents).
+    """
+    structs = {}
+    items: List[Any] = list(exe.children)
+    while items:
+        item = items.pop()
+        if isinstance(item, Type.StructInstance):
+            structs[item.type_name] = item.type_id
+        elif isinstance(item, Type.Base):
+            # descent into compound types so we'll cover e.g. Array[MyStructType]
+            for par_ty in item.parameters:
+                items.append(par_ty)
+        elif isinstance(item, Expr.Base):
+            # descent into expressions to find struct literals
+            if isinstance(item, Expr.Struct):
+                items.append(item.type)
+            items.extend(item.children)
+        elif isinstance(item, Decl):
+            items.append(item.type)
+            items.append(item.expr)
+        elif isinstance(item, WorkflowSection):
+            items.extend(item.children)
+        elif isinstance(item, Call):
+            items.extend(item.available_inputs)
+            for b in item.effective_outputs:
+                items.append(b.value)
+    return structs
+
+
+def _source_excerpt(
+    doc: Document, pos: SourcePosition, literals: Optional[List[SourcePosition]] = None
+) -> List[str]:
+    """
+    Excerpt the document's source lines indicated by pos : WDL.SourcePosition. Delete comments,
+    blank lines, and leading/trailing whitespace from each line -- except those indicated by
+    literals.
+    """
+    literals = literals if literals else []
+
+    def clean(line: int, column: int = 1, end_column: Optional[int] = None) -> List[str]:
+        literal = next(
+            (True for lit in literals if line >= lit.line and line <= lit.end_line), False
+        )
+        comment = doc.source_comments[line - 1]
+        if comment and not literal:
+            assert comment.pos.line == line
+            if end_column is None:
+                end_column = comment.pos.column - 1
+            else:
+                end_column = min(end_column, comment.pos.column - 1)
+        txt = doc.source_lines[line - 1][(column - 1) : end_column]
+        if literal:
+            return [txt]
+        txt = txt.strip()
+        return [txt] if txt else []
+
+    if pos.end_line == pos.line:
+        return clean(pos.line, pos.column, pos.end_column)
+    return list(
+        itertools.chain(
+            clean(pos.line, pos.column),
+            *(clean(line_nr) for line_nr in range(pos.line + 1, pos.end_line)),
+            clean(pos.end_line, 1, pos.end_column),
+        )
+    )

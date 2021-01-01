@@ -23,6 +23,7 @@ class Base(SourceNode, ABC):
     _type: Optional[Type.Base] = None
     _check_quant: bool = True
     _stdlib: "Optional[StdLib.Base]" = None
+    _struct_types: Optional[Env.Bindings[Dict[str, Type.Base]]] = None
 
     @property
     def type(self) -> Type.Base:
@@ -48,6 +49,7 @@ class Base(SourceNode, ABC):
         type_env: Env.Bindings[Type.Base],
         stdlib: StdLib.Base,
         check_quant: bool = True,
+        struct_types: Optional[Env.Bindings[Dict[str, Type.Base]]] = None,
     ) -> "Base":
         """infer_type(self, type_env : Env.Bindings[Type.Base], stdlib : StdLib.Base) -> WDL.Expr.Base
 
@@ -69,13 +71,21 @@ class Base(SourceNode, ABC):
         with Error.multi_context() as errors:
             for child in self.children:
                 assert isinstance(child, Base)
-                errors.try1(lambda child=child: child.infer_type(type_env, stdlib, check_quant))
-        # invoke derived-class logic. we pass check_quant and stdlib hackily
-        # through instance variables since only some subclasses use them.
+                errors.try1(
+                    lambda child=child: child.infer_type(
+                        type_env, stdlib, check_quant, struct_types
+                    )
+                )
+        # invoke derived-class logic. we pass check_quant, stdlib, and struct_types hackily through
+        # instance variables since only some subclasses use them.
         self._check_quant = check_quant
         self._stdlib = stdlib
-        self._type = self._infer_type(type_env)
-        self._stdlib = None
+        self._struct_types = struct_types
+        try:
+            self._type = self._infer_type(type_env)
+        finally:
+            self._stdlib = None
+            self._struct_types = None
         assert self._type and isinstance(self.type, Type.Base)
         return self
 
@@ -336,10 +346,12 @@ class String(Base):
     """
     :type: List[Union[str,WDL.Expr.Placeholder]]
 
-    The parts list begins and ends with matching single- or double- quote
-    marks. Between these is a sequence of literal strings and/or
-    interleaved placeholder expressions. Escape sequences in the literals
-    have NOT been decoded.
+    The parts list begins and ends with matching single- or double- quote marks. Between these is
+    a sequence of literal strings and/or interleaved placeholder expressions. Escape sequences in
+    the literals will NOT have been decoded (although the parser will have checked they're valid).
+    Strings arising from task commands leave escape sequences to be interpreted by the shell in the
+    task container. Other string literals have their escape sequences interpreted upon evaluation
+    to string values.
     """
 
     command: bool
@@ -391,8 +403,9 @@ class String(Base):
                 if self.command:
                     ans.append(part)
                 else:
-                    # use python builtins to decode escape sequences
-                    ans.append(str.encode(part).decode("unicode_escape"))
+                    from ._parser import decode_escapes  # avoiding circular import
+
+                    ans.append(decode_escapes(self.pos, part))
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
@@ -619,13 +632,27 @@ class Struct(Base):
     can be coerced to a specific struct type during typechecking.
     """
 
-    def __init__(self, pos: SourcePosition, members: List[Tuple[str, Base]]):
+    struct_type_name: Optional[str]
+    """
+    :type: Optional[str]
+
+    In WDL 2.0+ each struct literal may specify the intended struct type name.
+    """
+
+    def __init__(
+        self,
+        pos: SourcePosition,
+        members: List[Tuple[str, Base]],
+        struct_type_name: Optional[str] = None,
+    ):
         super().__init__(pos)
         self.members = {}
         for (k, v) in members:
             if k in self.members:
                 raise Error.MultipleDefinitions(self.pos, "duplicate keys " + k)
             self.members[k] = v
+        self.struct_type_name = struct_type_name
+        assert struct_type_name is None or isinstance(struct_type_name, str), str(struct_type_name)
 
     def __str__(self):
         members = []
@@ -639,16 +666,36 @@ class Struct(Base):
         return self.members.values()
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
-        member_types = {}
-        for k, v in self.members.items():
-            member_types[k] = v.type
-        return Type.Object(member_types)
+        object_type = Type.Object({k: v.type for k, v in self.members.items()})
+        if not self.struct_type_name:
+            # pre-WDL 2.0: object literal with deferred typechecking
+            return object_type
+
+        # resolve struct type
+        struct_type_members = None
+        if self._struct_types and self.struct_type_name in self._struct_types:
+            struct_type_members = self._struct_types[self.struct_type_name]
+        if struct_type_members is None:
+            raise Error.InvalidType(self, "Unknown type " + self.struct_type_name)
+
+        struct_type = Type.StructInstance(self.struct_type_name)
+        struct_type.members = struct_type_members
+
+        # typecheck members vs struct declaration
+        if not object_type.coerces(struct_type):
+            raise Error.StaticTypeMismatch(
+                self,
+                struct_type,
+                object_type,
+            )
+
+        return struct_type
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
-        assert isinstance(self.type, Type.Object)
+        assert isinstance(self.type, (Type.Object, Type.StructInstance))
         return Value.Struct(self.type, ans)
 
     @property
@@ -660,7 +707,7 @@ class Struct(Base):
                 ans[k] = vl
             else:
                 return None
-        assert isinstance(self.type, Type.Object)
+        assert isinstance(self.type, (Type.Object, Type.StructInstance))
         return Value.Struct(self.type, ans)
 
 

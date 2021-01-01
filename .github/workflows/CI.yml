@@ -1,0 +1,55 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+
+  target:
+    strategy:
+      matrix:
+        ci_target:
+          - ci_housekeeping
+          - ci_unit_tests
+          - integration_tests
+          - viral_refbased
+          - viral_assemble
+          - skylab_bulk_rna
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Login to GitHub Packages Docker Registry
+      uses: docker/login-action@v1
+      with:
+        registry: docker.pkg.github.com
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+        submodules: recursive
+    - name: docker build
+      run: |
+        # Cache the dependency-installation image layer on GitHub Packages to speed up CI. Use a
+        # year/month tag to ensure we do refresh them occasionally.
+        DOCKER_TAG="docker.pkg.github.com/chanzuckerberg/miniwdl/miniwdl_ci:$(date +%Y%m)"
+        echo "DOCKER_TAG=${DOCKER_TAG}" >> $GITHUB_ENV
+        if docker pull "$DOCKER_TAG"; then
+          docker build -t "$DOCKER_TAG" --cache-from "$DOCKER_TAG" .
+        else
+          docker build -t "$DOCKER_TAG" .
+        fi
+        if [ "${{ matrix.ci_target }}" == "ci_housekeeping" ]; then
+          docker push "$DOCKER_TAG"
+        fi
+    - name: make ${{ matrix.ci_target }}
+      run: |
+        chmod -R ugo+rw .
+        # AWS_EC2_METADATA_DISABLED needed on Azure: https://github.com/aws/aws-cli/issues/5623
+        docker run \
+          --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
+          -e AWS_EC2_METADATA_DISABLED=true -e CI=true \
+          "$DOCKER_TAG" make -C miniwdl ${{ matrix.ci_target }}
+    - name: Coveralls
+      if: ${{ matrix.ci_target == 'ci_unit_tests' }}
+      # https://github.com/coverallsapp/github-action/issues/30
+      # https://github.com/marketplace/actions/coveralls-python
+      uses: AndreMiras/coveralls-python-action@develop

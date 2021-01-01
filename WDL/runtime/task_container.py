@@ -19,7 +19,13 @@ from abc import ABC, abstractmethod
 from io import BytesIO
 import docker
 from .. import Error
-from .._util import TerminationSignalFlag, path_really_within, chmod_R_plus, PygtailLogger
+from .._util import (
+    TerminationSignalFlag,
+    path_really_within,
+    chmod_R_plus,
+    PygtailLogger,
+    rmtree_atomic,
+)
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
@@ -233,7 +239,7 @@ class TaskContainer(ABC):
         deleted = []
         for p in to_delete:
             if os.path.isdir(p):
-                shutil.rmtree(p)
+                rmtree_atomic(p)
                 deleted.append(p)
             elif os.path.isfile(p):
                 os.unlink(p)
@@ -263,9 +269,21 @@ class TaskContainer(ABC):
                 return self.host_stdout_txt()
             if container_path == os.path.join(self.container_dir, "stderr.txt"):
                 return self.host_stderr_txt()
-            # handle output of an input file
+            # handle output of an input File or Directory
             if container_path in self.input_path_map_rev:
                 return self.input_path_map_rev[container_path]
+            # handle output of a File or subDirectory found within an input Directory
+            container_path_components = container_path.strip("/").split("/")
+            for i in range(len(container_path_components) - 1, 5, -1):
+                # 5 == len(['mnt', 'miniwdl_task_container', 'work', '_miniwdl_inputs', '0'])
+                container_path_prefix = "/" + "/".join(container_path_components[:i]) + "/"
+                if container_path_prefix in self.input_path_map_rev:
+                    ans = self.input_path_map_rev[container_path_prefix]
+                    ans += "/".join(container_path_components[i:])
+                    if container_path.endswith("/"):
+                        ans += "/"
+                    assert path_really_within(ans, self.input_path_map_rev[container_path_prefix])
+                    return ans
             if inputs_only:
                 raise Error.InputError(
                     "task inputs attempted to use a non-input or non-existent path "
@@ -487,29 +505,21 @@ class SwarmContainer(TaskContainer):
             outfile.write(command)
 
         # prepare docker configuration
-        resources, user, groups = self.misc_config(logger)
-        mounts = self.prepare_mounts(logger)
-
-        # connect to dockerd
         client = docker.from_env(version="auto", timeout=900)
+        if "inlineDockerfile" in self.runtime_values:
+            image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
+        else:
+            image_tag = self.resolve_tag(
+                logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
+            )
+        mounts = self.prepare_mounts(logger)
+        resources, user, groups = self.misc_config(logger)
 
+        # run container as a transient docker swarm service, letting docker handle the resource
+        # scheduling (e.g. waiting until requested # of CPUs are available).
         svc = None
         exit_code = None
         try:
-            # figure desired image, building inlineDockerfile if necessary
-            if "inlineDockerfile" in self.runtime_values:
-                image_tag = self.build_inline_dockerfile(
-                    logger.getChild("inlineDockerfile"), client
-                )
-            else:
-                image_tag = self.runtime_values.get("docker", "ubuntu:18.04")
-                if ":" not in image_tag:
-                    # seems we need to do this explicitly under some configurations -- issue #232
-                    image_tag += ":latest"
-            logger.info(_("docker image", tag=image_tag))
-
-            # run container as a transient docker swarm service, letting docker handle the resource
-            # scheduling (waiting until requested # of CPUs are available).
             kwargs = {
                 # unique name with some human readability; docker limits to 63 chars (issue #327)
                 "name": self.unique_service_name(self.run_id),
@@ -593,6 +603,32 @@ class SwarmContainer(TaskContainer):
                 client.close()
             except:
                 logger.exception("failed to close docker-py client")
+
+    def resolve_tag(
+        self, logger: logging.Logger, client: docker.DockerClient, image_tag: str
+    ) -> str:
+        if ":" not in image_tag:
+            # seems we need to do this explicitly under some configurations -- issue #232
+            image_tag += ":latest"
+        # fetch image info
+        try:
+            image_attrs = client.images.get(image_tag).attrs
+        except docker.errors.ImageNotFound:
+            try:
+                client.images.pull(image_tag)
+                image_attrs = client.images.get(image_tag).attrs
+            except docker.errors.ImageNotFound:
+                raise Error.RuntimeError("docker image not found: " + image_tag) from None
+        image_log = {"tag": image_tag, "id": image_attrs["Id"]}
+        # resolve mutable tag to immutable RepoDigest if possible, to ensure identical image will
+        # be used across a multi-node swarm
+        image_digest = bool(image_attrs.get("RepoDigests"))
+        if image_digest and image_tag not in image_attrs["RepoDigests"]:
+            image_digest = image_attrs["RepoDigests"][0]
+            image_tag = image_digest
+        image_log["RepoDigest"] = image_digest
+        logger.notice(_("docker image", **image_log))  # pyre-fixme
+        return image_tag
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
         def touch_mount_point(host_path: str) -> None:
@@ -790,7 +826,7 @@ class SwarmContainer(TaskContainer):
             #   - state shutdown, orphaned, remove
             #   - desired_state shutdown
             # also see GitHub issue #374
-            raise (RuntimeError if state == "rejected" else Interrupted)(  # pyre-ignore
+            raise (Error.RuntimeError if state == "rejected" else Interrupted)(
                 f"docker task {state}"
                 + (
                     (", desired state " + status["DesiredState"])
@@ -884,6 +920,8 @@ class SwarmContainer(TaskContainer):
         assert maxtag2 > 0
         tag = tag_part1 + tag_part2 + tag_part3
 
+        # TODO: short-circuit if image with this digest tag already exists
+
         # prepare to tee docker build log to logger.verbose and a file
         build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log.txt")
 
@@ -920,5 +958,7 @@ class SwarmContainer(TaskContainer):
                 raise exn
 
         write_log(build_log)
-        logger.notice(_("docker build", tag=image.tags[0], log=build_logfile))  # pyre-ignore
+        logger.notice(  # pyre-ignore
+            _("docker build", tag=image.tags[0], id=image.id, log=build_logfile)
+        )
         return tag

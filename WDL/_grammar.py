@@ -184,12 +184,12 @@ type: BUILTIN_TYPE _quant?
 BUILTIN_TYPE.2: "Int" | "Float" | "Boolean" | "String" | "File" | "Array" | "Map" | "Pair"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$']/
+STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$'\n]/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? /\$/* "${" expr "}")* STRING1_FRAGMENT? /\$/* /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{$"]/
+STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{$"\n]/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? /\$/* "${" expr "}")* STRING2_FRAGMENT? /\$/* /"/ -> string
 
@@ -229,12 +229,12 @@ type: CNAME _quant?
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~']/ | /\~[^{$~']/
+STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~'\n]/ | /\~[^{$~']/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"]/ | /~[^{$~"]/
+STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"\n]/ | /~[^{$~"]/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
 
@@ -300,7 +300,7 @@ call: "call" namespaced_ident ("after" CNAME)* call_body? -> call
 namespaced_ident: CNAME ("." CNAME)*
 call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
-call_input: CNAME "=" expr
+call_input: CNAME ["=" expr]
 
 ?workflow_outputs: output_decls
 
@@ -409,9 +409,10 @@ optional_nonempty: "+?"
 
           | CNAME "(" [expr ("," expr)*] ")" -> apply
 
+          | CNAME "{" [object_kv ("," object_kv)* ","?] "}" -> obj
+
           | CNAME -> left_name
           | expr_core "." CNAME -> get_name
-          | "object" "{" [object_kv ("," object_kv)* ","?] "}" -> obj
 
 ?map_key: expr_core
 map_kv: map_key ":" expr
@@ -440,12 +441,12 @@ string_literal: ESCAPED_STRING | ESCAPED_STRING1
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~']/ | /\~[^{$~']/
+STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~'\n]/ | /\~[^{$~']/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"]/ | /~[^{$~"]/
+STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"\n]/ | /~[^{$~"]/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
 

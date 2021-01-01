@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 68
+plan tests 72
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -285,20 +285,25 @@ is "$?" "0" "directory input"
 is `jq -r '.["w.dsz"]' _LAST/outputs.json` "10" "use of directory input"
 
 cat << 'EOF' > uri_inputs.json
-{"my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
+{
+    "my_workflow.files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"],
+    "my_workflow.directories": ["s3://1000genomes/phase3/integrated_sv_map/supporting/breakpoints/"]
+}
 EOF
 cat << 'EOF' > localize_me.wdl
-version 1.0
+version development
 workflow my_workflow {
     input {
         Array[File] files
+        Array[Directory] directories
     }
 }
 EOF
 MINIWDL__DOWNLOAD_CACHE__PUT=true MINIWDL__DOWNLOAD_CACHE__DIR="${DN}/test_localize/cache" MINIWDL__DOWNLOAD_CACHE__ENABLE_PATTERNS='["*"]' MINIWDL__DOWNLOAD_CACHE__DISABLE_PATTERNS='["*/alyssa_ben.txt"]' \
-    $miniwdl localize localize_me.wdl uri_inputs.json --uri gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt > localize.stdout
+    $miniwdl localize localize_me.wdl uri_inputs.json --file gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt --verbose > localize.stdout
 is "$?" "0" "localize exit code"
-is "$(find "${DN}/test_localize/cache/files" -type f | wc -l)" "2" "localize cache"
+is "$(find "${DN}/test_localize/cache/files" -type f | wc -l)" "2" "localize cache files"
+is "$(find "${DN}/test_localize/cache/dirs" -type f | wc -l)" "2" "localize cache dirs"  # two files in downloaded directory
 
 
 # test task call caching --
@@ -367,3 +372,10 @@ test -d _LAST/call-t1/work
 is "$?" "0" "call-t1 ran"
 test -d _LAST/call-t2/work
 is "$?" "0" "call-t2 ran"
+# check cache works with URI
+$miniwdl run call_cache.wdl file_in=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt denom1=1 denom2=1 --verbose
+is "$?" 0
+$miniwdl run call_cache.wdl file_in=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt denom1=1 denom2=1 --verbose
+is "$?" 0
+test -d _LAST/call-t1/work
+is "$?" "1" "call-t1 ran"

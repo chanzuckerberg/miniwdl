@@ -57,7 +57,7 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """)
-        self.assertTrue("18.04" in outputs["issue"])
+        self.assertTrue("20.04" in outputs["issue"])
 
         outputs = self._test_task(R"""
         version 1.0
@@ -103,7 +103,7 @@ class TestTaskRunner(unittest.TestCase):
                 docker: "nonexistent:202407"
             }
         }
-        """, expected_exception=RuntimeError)
+        """, expected_exception=WDL.Error.RuntimeError)
 
         # issue #232
         outputs = self._test_task(R"""
@@ -743,11 +743,13 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"n": 4, "cpu": 1})
         self.assertGreaterEqual(outputs["wall_seconds"], 4)
         # 8 concurrent spinners on >1 cpus should take <8 seconds
-        outputs = self._test_task(txt, {"n": 8, "cpu": 4})
-        self.assertLess(outputs["wall_seconds"], 8)
+        # (disabled in GitHub CI with only 2 vCPUs and multiple tests running in parallel)
+        if os.environ.get("CI", "false").strip().lower() not in ["true", "t", "y", "yes", "1"]:
+            outputs = self._test_task(txt, {"n": 8, "cpu": 4})
+            self.assertLess(outputs["wall_seconds"], 8)
         # check task with overkill number of CPUs gets scheduled
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
-        self.assertLess(outputs["wall_seconds"], 8)
+        self.assertLessEqual(outputs["wall_seconds"], 8)
         # check runtime_cpu_max set to 1 causes serialization
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, cfg=WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides={"task_runtime": {"cpu_max": 1}}))
         self.assertGreaterEqual(outputs["wall_seconds"], 8)
@@ -913,7 +915,7 @@ class TestTaskRunner(unittest.TestCase):
         inp = {"file": "https://google.com/robots.txt"}
         self._test_task(txt, inp, cfg=cfg)
         self._test_task(txt, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("downloaded input files")]
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
         self.assertTrue("downloaded: 1" in logs[0])
         self.assertTrue("cached: 1" in logs[1])
 

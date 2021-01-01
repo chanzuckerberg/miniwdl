@@ -27,6 +27,7 @@ from .._util import (
     path_really_within,
     LoggingFileHandler,
     compose_coroutines,
+    pathsize,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -102,10 +103,9 @@ def run_local_task(
 
         container = None
         try:
-            input_digest = cache.get_digest_for_inputs(inputs)
-            task_digest = cache.get_digest_for_task(task)
+            cache_key = f"{task.name}/{task.digest}/{Value.digest_env(inputs)}"
             cached = cache.get(
-                key=f"{task.name}_{task_digest}/{input_digest}",
+                key=cache_key,
                 output_types=task.effective_outputs,
                 inputs=inputs,
             )
@@ -153,7 +153,7 @@ def run_local_task(
                     logger,
                     logger_prefix,
                     run_dir,
-                    _add_downloadable_default_files(cfg, task.available_inputs, inputs),
+                    _add_downloadable_defaults(cfg, task.available_inputs, inputs),
                     cache,
                 )
 
@@ -207,7 +207,7 @@ def run_local_task(
                 )
                 logger.notice("done")  # pyre-fixme
                 if not run_id.startswith("download-"):
-                    cache.put(f"{task.name}_{task_digest}", input_digest, outputs)
+                    cache.put(cache_key, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())
@@ -241,60 +241,60 @@ def _download_input_files(
     cache: CallCache,
 ) -> Env.Bindings[Value.Base]:
     """
-    Find all File values in the inputs (including any nested within compound values) that need
-    to / can be downloaded. Download them to some location under run_dir and return a copy of the
-    inputs with the URI values replaced by the downloaded filenames.
+    Find all File & Directory input values that are downloadable URIs (including any nested within
+    compound values). Download them to some location under run_dir and return a copy of the inputs
+    with the URI values replaced by the downloaded paths.
     """
 
     downloads = 0
     download_bytes = 0
     cached_hits = 0
-    cached_bytes = 0
 
-    def rewriter(uri: str) -> str:
-        nonlocal downloads, download_bytes, cached_hits, cached_bytes
-        if downloadable(cfg, uri):
-            logger.info(_("download input file", uri=uri))
+    def rewriter(v: Union[Value.Directory, Value.File]) -> str:
+        nonlocal downloads, download_bytes, cached_hits
+        directory = isinstance(v, Value.Directory)
+        uri = v.value
+        if downloadable(cfg, uri, directory=directory):
+            logger.info(_(f"download input {'directory' if directory else 'file'}", uri=uri))
             cached, filename = download(
                 cfg,
                 logger,
                 cache,
                 uri,
+                directory=directory,
                 run_dir=os.path.join(run_dir, "download", str(downloads), "."),
                 logger_prefix=logger_prefix + [f"download{downloads}"],
             )
-            sz = os.path.getsize(filename)
             if cached:
                 cached_hits += 1
-                cached_bytes += sz
             else:
-                logger.info(_("downloaded input file", uri=uri, file=filename, bytes=sz))
+                sz = pathsize(filename)
+                logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
                 downloads += 1
                 download_bytes += sz
             return filename
         return uri
 
-    ans = Value.rewrite_env_files(inputs, rewriter)
+    ans = Value.rewrite_env_paths(inputs, rewriter)
     if downloads or cached_hits:
         logger.notice(  # pyre-fixme
             _(
-                "downloaded input files",
+                "processed input URIs",
                 downloaded=downloads,
                 downloaded_bytes=download_bytes,
                 cached=cached_hits,
-                cached_bytes=cached_bytes,
             )
         )
     return ans
 
 
-def _add_downloadable_default_files(
+def _add_downloadable_defaults(
     cfg: config.Loader, available_inputs: Env.Bindings[Tree.Decl], inputs: Env.Bindings[Value.Base]
 ) -> Env.Bindings[Value.Base]:
     """
-    Helper for File URI downloading: look for available File inputs that default to a string
-    constant appearing to be a downloadable URI. For each one, add the default binding to the
-    user-supplied inputs (if not already overridden in them).
+    Look for available File/Directory inputs that default to a string constant appearing to be a
+    downloadable URI. For each one, add a binding for that default to the user-supplied inputs (if
+    not already overridden in them).
 
     This is to trigger download of the default URIs even though we otherwise don't evaluate input
     declarations until after processing downloads.
@@ -302,13 +302,19 @@ def _add_downloadable_default_files(
     ans = inputs
     for b in available_inputs:
         if (
-            isinstance(b.value.type, Type.File)
+            isinstance(b.value.type, (Type.File, Type.Directory))
             and b.name not in ans
             and isinstance(b.value.expr, Expr.String)
         ):
+            directory = isinstance(b.value.type, Type.Directory)
             maybe_uri = b.value.expr.literal
-            if maybe_uri and downloadable(cfg, maybe_uri.value):
-                ans = ans.bind(b.name, Value.File(maybe_uri.value, b.value.expr))
+            if maybe_uri and downloadable(cfg, maybe_uri.value, directory=directory):
+                v = (
+                    Value.Directory(maybe_uri.value, b.value.expr)
+                    if directory
+                    else Value.File(maybe_uri.value, b.value.expr)
+                )
+                ans = ans.bind(b.name, v)
     return ans
 
 
@@ -706,8 +712,6 @@ def link_outputs(
         return v
 
     os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
-    # out/ used to be called output_links/ -- symlink this name to ease transition
-    os.symlink("out", os.path.join(run_dir, "output_links"))
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
