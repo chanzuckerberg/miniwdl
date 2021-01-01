@@ -82,13 +82,13 @@ class CallCache(AbstractContextManager):
             with open(file_path, "rb") as file_reader:
                 cache = values_from_json(json.loads(file_reader.read()), output_types)  # pyre-fixme
         except FileNotFoundError:
-            self._logger.info(_("call cache miss", cache_path=file_path))
+            self._logger.info(_("call cache miss", cache_file=file_path))
         except Exception as exn:
             self._logger.warning(
-                _("call cache entry present, but unreadable", cache_path=file_path, error=str(exn))
+                _("call cache entry present, but unreadable", cache_file=file_path, error=str(exn))
             )
         if cache:
-            self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
+            self._logger.notice(_("call cache hit", cache_file=file_path))  # pyre-fixme
             # check that no files/directories referenced by the inputs & cached outputs are newer
             # than the cache file itself
             if _check_files_coherence(
@@ -103,7 +103,7 @@ class CallCache(AbstractContextManager):
                     self._logger.warning(
                         _(
                             "unable to delete invalidated cache entry",
-                            cached=file_path,
+                            cache_file=file_path,
                             error=str(exn),
                         )
                     )
@@ -119,10 +119,10 @@ class CallCache(AbstractContextManager):
             filename = os.path.join(self.call_cache_dir, key + ".json")
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             write_atomic(json.dumps(values_to_json(outputs), indent=2), filename)  # pyre-ignore
-            self._logger.info(_("call cache insert", cache_path=filename))
+            self._logger.info(_("call cache insert", cache_file=filename))
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
-    # and looked up in URI-derived folder structure instead of sqlite db)
+    # and looked up folder structure based on URI instead of opaque digests)
 
     def download_path(self, uri: str, directory: bool = False) -> Optional[str]:
         """
@@ -306,7 +306,7 @@ def _check_files_coherence(
                 logger.warning(
                     _(
                         "cache entry invalid due to deleted or modified file/directory",
-                        cached=cache_file,
+                        cache_file=cache_file,
                         changed=v.value,
                     )
                 )

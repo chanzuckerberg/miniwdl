@@ -435,9 +435,9 @@ class Task(SourceNode):
     @property
     def digest(self) -> str:
         """
-        Digest the task abstract syntax tree, for use e.g. as a cache key identifying the task. The
-        digest is a string of a few dozen alphanumeric characters, sensitive to the task's source
-        code with best effort to exclude comments and whitespace.
+        Content digest of the task, for use e.g. as a cache key. The digest is an opaque string of
+        a few dozen alphanumeric characters, sensitive to the task's source code (with best effort
+        to exclude comments and whitespace).
         """
         if self._digest:
             return self._digest
@@ -1243,6 +1243,47 @@ class Workflow(SourceNode):
                 visit(ch)
         return self._nodes_by_id[workflow_node_id]
 
+    _digest: str = ""
+
+    @property
+    def digest(self) -> str:
+        """
+        Content digest of the workflow, for use e.g. as a cache key. The digest is an opaque string
+        of a few dozen alphanumeric characters, sensitive to the workflow's source code (with best
+        effort to exclude comments and whitespace) and the tasks and subworkflows it calls.
+        """
+        if self._digest:
+            return self._digest
+        sha256 = hashlib.sha256(self._digest_source().encode("utf-8")).digest()
+        self._digest = base64.b32encode(sha256[:20]).decode().lower()
+        return self._digest
+
+    def _digest_source(self) -> str:
+        doc = getattr(self, "parent", None)
+        assert isinstance(doc, Document)
+
+        # For now we just excerpt the workflow's source code, minus comments and blank lines, plus
+        # annotations for the WDL version, struct types, and called tasks & subworkflows.
+        source_lines = []
+        if doc.wdl_version:
+            source_lines.append("version " + doc.wdl_version)
+
+        # Insert comments describing struct types used in the workflow
+        structs = _describe_struct_types(self)
+        for struct_name in sorted(structs.keys()):
+            source_lines.append(f"# {struct_name} :: {structs[struct_name]}")
+
+        # Insert comments with the digests of called tasks & subworkflows (to ensure the workflow
+        # digest will be sensitive to changes in those).
+        for call in _calls(self):
+            callee = call.callee
+            assert isinstance(call, Call) and isinstance(callee, (Task, Workflow))
+            source_lines.append(f"# {'.'.join(call.callee_id)} :: {callee.digest}")
+
+        # excerpt workflow{} from document
+        source_lines += _source_excerpt(doc, self.pos)
+        return "\n".join(source_lines).strip()
+
 
 SourceComment = NamedTuple("SourceComment", [("pos", Error.SourcePosition), ("text", str)])
 """
@@ -1999,13 +2040,14 @@ def _describe_struct_types(exe: Union[Task, Workflow]) -> Dict[str, str]:
 
 
 def _source_excerpt(
-    doc: Document, pos: SourcePosition, literals: List[SourcePosition]
+    doc: Document, pos: SourcePosition, literals: Optional[List[SourcePosition]] = None
 ) -> List[str]:
     """
     Excerpt the document's source lines indicated by pos : WDL.SourcePosition. Delete comments,
     blank lines, and leading/trailing whitespace from each line -- except those indicated by
     literals.
     """
+    literals = literals if literals else []
 
     def clean(line: int, column: int = 1, end_column: Optional[int] = None) -> List[str]:
         literal = next(

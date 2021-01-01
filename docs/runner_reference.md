@@ -123,11 +123,9 @@ Details:
 * If needed, the `miniwdl localize` subcommand can **"prime" the local cache** with URIs found in a given JSON input template (or a simple list of URIs) before actually running any workflow.
 * With the cache enabled in configuration, `--no-cache` disables it for one run.
 
-## Task call cache
+## Call cache
  
-Miniwdl can cache task outputs to be  reused by subsequent repeat calls, keyed by digests of the task source code and input values.
-
-The cache functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
+Miniwdl can cache task & workflow outputs, reusing them for repeat calls with the same inputs, for example while debugging an intermediate task or sub-workflow, or resuming from a transient error. This functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
 
 ```
 [call_cache]
@@ -138,6 +136,7 @@ dir = ~/.cache/miniwdl
 
 Details:
 
+* The call cache is keyed by opaque digests of (i) the WDL source code for each task/workflow, and (ii) the inputs given to it
 * Cached outputs are stored as `*.json` files under the cache directory, which can simply be deleted when no longer needed
 * Local File and Directory inputs & outputs are referenced at their original paths, not copied into the cache directory
 * Cache entries are automatically invalidated if any referenced local File or Directory is later modified or deleted (based on modification timestamps)
