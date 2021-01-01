@@ -920,7 +920,13 @@ class SwarmContainer(TaskContainer):
         assert maxtag2 > 0
         tag = tag_part1 + tag_part2 + tag_part3
 
-        # TODO: short-circuit if image with this digest tag already exists
+        # short-circuit if digest-tagged image already exists
+        try:
+            existing = client.images.get(tag)
+            logger.notice(_("docker build cached", tag=tag, id=existing.id))  # pyre-ignore
+            return tag
+        except docker.errors.ImageNotFound:
+            pass
 
         # prepare to tee docker build log to logger.verbose and a file
         build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log.txt")
