@@ -66,6 +66,10 @@ The record of invocations left by `set -x` goes well with `miniwdl run --verbose
 
 ## Host configuration
 
+### Enable call and download caches
+
+Miniwdl can cache task & workflow call outputs and downloaded URIs for reuse across multiple runs, but these features must be enabled in the [runner configuration](runner_reference.html#configuration).
+
 ### Use local disks for Docker storage
 
 Docker images and containers should reside on fast local disks, rather than a network file system, to optimize container startup and scratch I/O performance. These typically reside under `/var/lib/docker`, which on a cloud instance would usually be on the network-attached root file system. Suppose your instance has a local scratch disk mounted to `/mnt`. You can [change the Docker storage location](https://linuxconfig.org/how-to-move-docker-s-default-var-lib-docker-to-another-directory-on-ubuntu-debian-linux) using a procedure like this:
