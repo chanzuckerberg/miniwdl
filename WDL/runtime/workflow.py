@@ -651,7 +651,7 @@ def run_local_workflow(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
         # query call cache
-        cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
+        cache = _cache if _cache else cleanup.enter_context(CallCache(cfg, logger))
         cache_key = f"{workflow.name}/{workflow.digest}/{Value.digest_env(inputs)}"
         cached = cache.get(
             key=cache_key,
@@ -679,7 +679,8 @@ def run_local_workflow(
             return (run_dir, cached)
 
         # if we're the top-level workflow, provision thread pools
-        if not _run_id_stack:
+        if not _thread_pools:
+            assert not _run_id_stack
             try:
                 version = "v" + importlib_metadata.version("miniwdl")
             except importlib_metadata.PackageNotFoundError:
@@ -703,8 +704,8 @@ def run_local_workflow(
             cleanup.callback(futures.ThreadPoolExecutor.shutdown, subwf_pool)
             thread_pools = (task_pool, subwf_pool)
         else:
+            assert _run_id_stack
             thread_pools = _thread_pools
-            assert thread_pools and cache
 
         try:
             # run workflow state machine
