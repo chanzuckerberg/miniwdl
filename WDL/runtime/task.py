@@ -487,7 +487,7 @@ def _eval_task_runtime(
     if ans:
         logger.info(_("effective runtime", **ans))
     unused_keys = list(
-        key for key in runtime_values if key not in ("cpu", "memory") and key not in ans
+        key for key in runtime_values if key not in ("cpu", "memory", "docker") and key not in ans
     )
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))

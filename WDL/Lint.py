@@ -1025,6 +1025,7 @@ class UnknownRuntimeKey(Linter):
             "gpu",
             "gpuCount",
             "gpuType",
+            "inlineDockerfile",
             "maxRetries",
             "memory",
             "noAddress",
