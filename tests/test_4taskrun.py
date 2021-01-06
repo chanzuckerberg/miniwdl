@@ -6,6 +6,7 @@ import docker
 import signal
 import time
 import json
+import platform
 from .context import WDL
 from testfixtures import log_capture
 
@@ -14,8 +15,7 @@ class TestTaskRunner(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
-        logger = logging.getLogger(cls.__name__)
-        cfg = WDL.runtime.config.Loader(logger, [])
+        cls.logger = logging.getLogger(cls.__name__)
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
@@ -207,6 +207,8 @@ class TestTaskRunner(unittest.TestCase):
                 File who
             }
             command <<<
+                set -e
+                [ -s "~{who}" ]
                 echo -n "Hello, $(cat ~{who})!" > message.txt
             >>>
             output {
@@ -236,7 +238,7 @@ class TestTaskRunner(unittest.TestCase):
             }
             """,
             {"who": os.path.join(self._dir, "alyssa.txt")})
-        self.assertEqual(os.path.realpath(outputs["who2"]), os.path.join(self._dir, "alyssa.txt"))
+        self.assertEqual(os.path.realpath(outputs["who2"]), os.path.realpath(os.path.join(self._dir, "alyssa.txt")))
 
         # stdout()
         outputs = self._test_task(R"""
@@ -246,6 +248,8 @@ class TestTaskRunner(unittest.TestCase):
                     File who
                 }
                 command <<<
+                    set -e
+                    [ -s "~{who}" ]
                     echo -n "Hello, $(cat ~{who})!"
                 >>>
                 output {
@@ -927,6 +931,7 @@ class TestTaskRunner(unittest.TestCase):
             with self.assertRaises(OSError):
                 cache._flocker.flock(cache.download_path("https://google.com/robots.txt"), exclusive=True)
 
+    @unittest.skipIf(platform.system() == "Darwin", reason="https://stackoverflow.com/a/43213455")
     def test_workdir_ownership(self):
         # verify that everything within working directory is owned by the invoking user
         txt = R"""
