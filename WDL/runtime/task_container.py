@@ -621,6 +621,7 @@ class SwarmContainer(TaskContainer):
             image_attrs = client.images.get(image_tag).attrs
         except docker.errors.ImageNotFound:
             try:
+                logger.info(_("docker pull", tag=image_tag))
                 client.images.pull(image_tag)
                 image_attrs = client.images.get(image_tag).attrs
             except docker.errors.ImageNotFound:

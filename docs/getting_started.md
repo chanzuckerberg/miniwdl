@@ -13,7 +13,7 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 
 Requirements:
 
-1. Linux or [macOS (limited support)](https://github.com/chanzuckerberg/miniwdl/issues/145)
+1. GNU/Linux or [macOS (specific steps required)](https://github.com/chanzuckerberg/miniwdl/issues/145)
 2. Python 3.6 or higher
 3. [Docker Engine](https://docs.docker.com/install/) 17 or higher
 4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
@@ -22,7 +22,7 @@ Requirements:
 Installation options:
 
 * via PyPI: `pip3 install miniwdl`
-* via conda: `conda install --channel conda-forge miniwdl`
+* via conda: `conda install -c conda-forge miniwdl`
 * see the [GitHub repo README](https://github.com/chanzuckerberg/miniwdl/) to install from source
 
 Then open a command prompt and try,
@@ -30,8 +30,6 @@ Then open a command prompt and try,
 ```miniwdl run_self_test```
 
 ...to test the installation with a trivial built-in workflow. This should print numerous log messages, and conclude with `miniwdl run_self_test OK` in about 30 seconds.
-
-NOTE: On macOS, you'll first need to override the `TMPDIR` environment variable, e.g. `export TMPDIR=/tmp`, to allow Docker containers to mount shared working directories. Please [file any other issues](https://github.com/chanzuckerberg/miniwdl/issues) that arise!
 
 ## Fetch viral-pipelines
 
