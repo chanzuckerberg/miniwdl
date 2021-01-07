@@ -713,7 +713,6 @@ class MiscRegressionTests(RunnerTestCase):
         outp = self._run(wdl, {"file": os.path.join(self._dir, "alice.txt")})
         self.assertEqual(outp["t.out"], ["Alice", "Alice"])
 
-    @unittest.skipIf(platform.system() == "Darwin", "FIXME on macOS")
     def test_weird_filenames(self):
         chars = [c for c in (chr(i) for i in range(1,256)) if c not in ('/')]
         filenames = []
@@ -722,6 +721,8 @@ class MiscRegressionTests(RunnerTestCase):
                 filenames.append(c)
             filenames.append(c + ''.join(random.choices(chars,k=11)))
         assert filenames == list(sorted(filenames))
+        if platform.system() == "Darwin":  # macOS is case-insensitive
+            filenames = list(set(fn.lower() for fn in filenames))
         filenames.append('ThisIs{{AVeryLongFilename }}abc...}}xzy1234567890!@{{నేనుÆды.test.ext')
 
         inputs = {"files": []}
