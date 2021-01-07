@@ -597,11 +597,14 @@ class SwarmContainer(TaskContainer):
             return exit_code
         finally:
             if svc:
-                try:
-                    svc.remove()
-                except:
-                    logger.exception("failed to remove docker service")
-                self.chown(logger, client, exit_code == 0)
+                for attempt in range(3):
+                    try:
+                        svc.remove()
+                        break
+                    except:
+                        logger.exception("failed to remove docker service")
+                        time.sleep(2)
+            self.chown(logger, client, exit_code == 0)
             try:
                 client.close()
             except:

@@ -6,6 +6,8 @@ import docker
 import signal
 import time
 import json
+import platform
+import multiprocessing
 from .context import WDL
 from testfixtures import log_capture
 
@@ -14,8 +16,7 @@ class TestTaskRunner(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
-        logger = logging.getLogger(cls.__name__)
-        cfg = WDL.runtime.config.Loader(logger, [])
+        cls.logger = logging.getLogger(cls.__name__)
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_taskrun_")
@@ -207,6 +208,8 @@ class TestTaskRunner(unittest.TestCase):
                 File who
             }
             command <<<
+                set -e
+                [ -s "~{who}" ]
                 echo -n "Hello, $(cat ~{who})!" > message.txt
             >>>
             output {
@@ -236,7 +239,7 @@ class TestTaskRunner(unittest.TestCase):
             }
             """,
             {"who": os.path.join(self._dir, "alyssa.txt")})
-        self.assertEqual(os.path.realpath(outputs["who2"]), os.path.join(self._dir, "alyssa.txt"))
+        self.assertEqual(os.path.realpath(outputs["who2"]), os.path.realpath(os.path.join(self._dir, "alyssa.txt")))
 
         # stdout()
         outputs = self._test_task(R"""
@@ -246,6 +249,8 @@ class TestTaskRunner(unittest.TestCase):
                     File who
                 }
                 command <<<
+                    set -e
+                    [ -s "~{who}" ]
                     echo -n "Hello, $(cat ~{who})!"
                 >>>
                 output {
@@ -743,13 +748,13 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"n": 4, "cpu": 1})
         self.assertGreaterEqual(outputs["wall_seconds"], 4)
         # 8 concurrent spinners on >1 cpus should take <8 seconds
-        # (disabled in GitHub CI with only 2 vCPUs and multiple tests running in parallel)
-        if os.environ.get("CI", "false").strip().lower() not in ["true", "t", "y", "yes", "1"]:
+        # (disabled on systems with <4 cpus)
+        if multiprocessing.cpu_count() >= 4:
             outputs = self._test_task(txt, {"n": 8, "cpu": 4})
             self.assertLess(outputs["wall_seconds"], 8)
-        # check task with overkill number of CPUs gets scheduled
-        outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
-        self.assertLessEqual(outputs["wall_seconds"], 8)
+            # check task with overkill number of CPUs gets scheduled
+            outputs = self._test_task(txt, {"n": 8, "cpu": 9999})
+            self.assertLessEqual(outputs["wall_seconds"], 8)
         # check runtime_cpu_max set to 1 causes serialization
         outputs = self._test_task(txt, {"n": 8, "cpu": 9999}, cfg=WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides={"task_runtime": {"cpu_max": 1}}))
         self.assertGreaterEqual(outputs["wall_seconds"], 8)
@@ -927,6 +932,7 @@ class TestTaskRunner(unittest.TestCase):
             with self.assertRaises(OSError):
                 cache._flocker.flock(cache.download_path("https://google.com/robots.txt"), exclusive=True)
 
+    @unittest.skipIf(platform.system() == "Darwin", reason="https://stackoverflow.com/a/43213455")
     def test_workdir_ownership(self):
         # verify that everything within working directory is owned by the invoking user
         txt = R"""

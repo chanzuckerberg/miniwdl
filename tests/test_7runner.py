@@ -7,6 +7,7 @@ import shutil
 import json
 import time
 import docker
+import platform
 from testfixtures import log_capture
 from .context import WDL
 
@@ -160,7 +161,7 @@ class TestDirectoryIO(RunnerTestCase):
 
         assert len(outp["d_out"]) == 2
         assert os.path.islink(outp["d_out"][0])
-        assert os.path.realpath(outp["d_out"][0]) == os.path.join(self._dir, "d")
+        assert os.path.realpath(outp["d_out"][0]) == os.path.realpath(os.path.join(self._dir, "d"))
         assert os.path.isdir(outp["d_out"][1])
         assert os.path.islink(outp["d_out"][1])
         assert os.path.basename(outp["d_out"][1]) == "outdir"
@@ -173,7 +174,7 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl, {"d": os.path.join(self._dir, "d")}, cfg=cfg)
         assert len(outp["d_out"]) == 2
         assert not os.path.islink(outp["d_out"][0])
-        assert os.path.realpath(outp["d_out"][0]) != os.path.join(self._dir, "d")
+        assert os.path.realpath(outp["d_out"][0]) != os.path.realpath(os.path.join(self._dir, "d"))
         assert os.path.isdir(outp["d_out"][1])
         assert not os.path.islink(outp["d_out"][1])
         assert os.path.basename(outp["d_out"][1]) == "outdir"
@@ -720,6 +721,8 @@ class MiscRegressionTests(RunnerTestCase):
                 filenames.append(c)
             filenames.append(c + ''.join(random.choices(chars,k=11)))
         assert filenames == list(sorted(filenames))
+        if platform.system() == "Darwin":  # macOS is case-insensitive
+            filenames = list(set(fn.lower() for fn in filenames))
         filenames.append('ThisIs{{AVeryLongFilename }}abc...}}xzy1234567890!@{{నేనుÆды.test.ext')
 
         inputs = {"files": []}
