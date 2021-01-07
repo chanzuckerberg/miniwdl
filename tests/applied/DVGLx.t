@@ -4,7 +4,11 @@ set -eo pipefail
 cd "$(dirname $0)/../.."
 SOURCE_DIR="$(pwd)"
 
-DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)
+if [[ -z $TMPDIR ]]; then
+    TMPDIR=/tmp
+fi
+DN=$(mktemp -d "${TMPDIR}/miniwdl_runner_tests_XXXXXX")
+DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
 

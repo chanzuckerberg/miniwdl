@@ -7,7 +7,11 @@ SOURCE_DIR="$(pwd)"
 
 pip3 install .  # make sure gs:// downloader is registered
 
-DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)
+if [[ -z $TMPDIR ]]; then
+    TMPDIR=/tmp
+fi
+DN=$(mktemp -d "${TMPDIR}/miniwdl_runner_tests_XXXXXX")
+DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
 

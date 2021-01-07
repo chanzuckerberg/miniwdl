@@ -16,7 +16,11 @@ plan tests 72
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
 
-DN=$(mktemp -d --tmpdir miniwdl_runner_tests_XXXXXX)
+if [[ -z $TMPDIR ]]; then
+    TMPDIR=/tmp
+fi
+DN=$(mktemp -d "${TMPDIR}/miniwdl_runner_tests_XXXXXX")
+DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
 
@@ -151,8 +155,12 @@ MINIWDL__FILE_IO__OUTPUT_HARDLINKS=true $miniwdl run --dir scatterrun/. scatter_
 is "$?" "0" "scatter run"
 is "$(ls scatterrun/out/t.out_f/0/2)" "fox" "scatter product 0 fox link"
 is "$(ls scatterrun/out/t.out_f/1/2)" "fox" "scatter product 1 fox link"
-is "$(find scatterrun/out -type l | wc -l)" "0" "scatter product hardlinks"
-is "$(find scatterrun/ | xargs -n 1 stat -c %U | sort | uniq)" "$(whoami)" "scatter files all owned by $(whoami)"
+is "$(find scatterrun/out -type l | wc -l | tr -d ' ')" "0" "scatter product hardlinks"
+statflag=-c
+if (echo $OSTYPE | grep darwin); then
+    statflag=-f
+fi
+is "$(find scatterrun/ | xargs -n 1 stat $statflag %u | sort | uniq)" "$(id -u)" "scatter files all owned by $(whoami)"
 cmp -s scatter_echo.wdl scatterrun/wdl/scatter_echo.wdl
 is "$?" "0" "copy_source scatter_echo.wdl"
 cmp -s echo_task.wdl scatterrun/wdl/echo_task.wdl
@@ -302,8 +310,8 @@ EOF
 MINIWDL__DOWNLOAD_CACHE__PUT=true MINIWDL__DOWNLOAD_CACHE__DIR="${DN}/test_localize/cache" MINIWDL__DOWNLOAD_CACHE__ENABLE_PATTERNS='["*"]' MINIWDL__DOWNLOAD_CACHE__DISABLE_PATTERNS='["*/alyssa_ben.txt"]' \
     $miniwdl localize localize_me.wdl uri_inputs.json --file gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt --verbose > localize.stdout
 is "$?" "0" "localize exit code"
-is "$(find "${DN}/test_localize/cache/files" -type f | wc -l)" "2" "localize cache files"
-is "$(find "${DN}/test_localize/cache/dirs" -type f | wc -l)" "2" "localize cache dirs"  # two files in downloaded directory
+is "$(find "${DN}/test_localize/cache/files" -type f | wc -l | tr -d ' ')" "2" "localize cache files"
+is "$(find "${DN}/test_localize/cache/dirs" -type f | wc -l | tr -d ' ')" "2" "localize cache dirs"  # two files in downloaded directory
 
 
 # test task call caching --
@@ -356,7 +364,7 @@ is "$?" "1" "call-t1 was cached"
 test -d _LAST/call-t2/work
 is "$?" "0" "call-t2 ran"
 cached_file=$(jq -r '.["w.t1.file_out"]' _LAST/outputs.json)
-cached_file=$(readlink -f "$cached_file")
+cached_file=$(realpath "$cached_file")
 test -f "$cached_file"
 is "$?" "0" "$cached_file"
 # repeat again, see both reused
