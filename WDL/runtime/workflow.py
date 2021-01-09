@@ -653,11 +653,7 @@ def run_local_workflow(
         # query call cache
         cache = _cache if _cache else cleanup.enter_context(new_call_cache(cfg, logger))
         cache_key = f"{workflow.name}/{workflow.digest}/{Value.digest_env(inputs)}"
-        cached = cache.get(
-            key=cache_key,
-            output_types=workflow.effective_outputs,
-            inputs=inputs,
-        )
+        cached = cache.get(cache_key, inputs, workflow.effective_outputs)
         if cached is not None:
             for outp in workflow.effective_outputs:
                 v = cached[outp.name]

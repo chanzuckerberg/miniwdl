@@ -63,7 +63,7 @@ class CallCache(AbstractContextManager):
         self._flocker.__exit__(*args)
 
     def get(
-        self, key: str, output_types: Env.Bindings[Type.Base], inputs: Env.Bindings[Value.Base]
+        self, key: str, inputs: Env.Bindings[Value.Base], output_types: Env.Bindings[Type.Base]
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found, check to ensure the

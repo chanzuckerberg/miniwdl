@@ -104,11 +104,7 @@ def run_local_task(
         container = None
         try:
             cache_key = f"{task.name}/{task.digest}/{Value.digest_env(inputs)}"
-            cached = cache.get(
-                key=cache_key,
-                output_types=task.effective_outputs,
-                inputs=inputs,
-            )
+            cached = cache.get(cache_key, inputs, task.effective_outputs)
             if cached is not None:
                 for decl in task.outputs:
                     v = cached[decl.name]
