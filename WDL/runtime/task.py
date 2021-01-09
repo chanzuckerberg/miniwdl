@@ -32,7 +32,7 @@ from .._util import (
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
-from .cache import CallCache
+from .cache import CallCache, new as new_call_cache
 from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
 from .task_container import TaskContainer, new as new_task_container
 
@@ -95,7 +95,7 @@ def run_local_task(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
-            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
+            cache = _cache or cleanup.enter_context(new_call_cache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
         else:
             cache = _cache
@@ -104,11 +104,7 @@ def run_local_task(
         container = None
         try:
             cache_key = f"{task.name}/{task.digest}/{Value.digest_env(inputs)}"
-            cached = cache.get(
-                key=cache_key,
-                output_types=task.effective_outputs,
-                inputs=inputs,
-            )
+            cached = cache.get(cache_key, inputs, task.effective_outputs)
             if cached is not None:
                 for decl in task.outputs:
                     v = cached[decl.name]

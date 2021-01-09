@@ -63,7 +63,7 @@ class CallCache(AbstractContextManager):
         self._flocker.__exit__(*args)
 
     def get(
-        self, key: str, output_types: Env.Bindings[Type.Base], inputs: Env.Bindings[Value.Base]
+        self, key: str, inputs: Env.Bindings[Value.Base], output_types: Env.Bindings[Type.Base]
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found, check to ensure the
@@ -214,7 +214,7 @@ class CallCache(AbstractContextManager):
     ) -> str:
         """
         Move the downloaded file to the cache location & return the new path; or if the uri isn't
-        cacheable, return the given path.
+        cacheable, memoize the association and return the given path.
         """
         if directory:
             uri = uri.rstrip("/")
@@ -243,22 +243,34 @@ class CallCache(AbstractContextManager):
                     if directory and os.path.isdir(p):
                         rmtree_atomic(p)
                     os.renames(filename, p)
+                    self.flock(p)
                     # the renames() op should be atomic, because the download operation should have
                     # been run under the cache directory (download.py:run_cached)
                     logger.info(_("stored in download cache", uri=uri, cache_path=p))
                     ans = p
         if not p:
-            with self._lock:
-                (self._workflow_directory_downloads if directory else self._workflow_downloads)[
-                    uri
-                ] = ans
-        self.flock(ans)
+            self.memo_download(uri, filename, directory=directory)
         return ans
 
     def download_cacheable(self, uri: str, directory: bool = False) -> Optional[str]:
         if not self._cfg["download_cache"].get_bool("put"):
             return None
         return self.download_path(uri, directory=directory)
+
+    def memo_download(
+        self,
+        uri: str,
+        filename: str,
+        directory: bool = False,
+    ) -> None:
+        """
+        Memoize (for the lifetime of self) that filename is a local copy of uri; flock it as well.
+        """
+        with self._lock:
+            memo = self._workflow_directory_downloads if directory else self._workflow_downloads
+            if uri not in memo:
+                memo[uri] = filename
+                self.flock(filename)
 
     def flock(self, filename: str, exclusive: bool = False) -> None:
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
@@ -317,3 +329,23 @@ def _check_files_coherence(
         return True
     except StopIteration:
         return False
+
+
+_backends_lock = Lock()
+_backends = {}
+
+
+def new(cfg: config.Loader, logger: logging.Logger) -> CallCache:
+    """
+    Instantiate a CallCache, either the built-in implementation or a plugin-defined subclass per
+    the configuration.
+    """
+    global _backends
+    with _backends_lock:
+        if not _backends:
+            for plugin_name, plugin_cls in config.load_plugins(cfg, "cache_backend"):
+                _backends[plugin_name] = plugin_cls
+        impl_cls = _backends[cfg["call_cache"]["backend"]]
+    ans = impl_cls(cfg, logger)
+    assert isinstance(ans, CallCache)
+    return ans
