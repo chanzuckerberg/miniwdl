@@ -335,6 +335,13 @@ DEFAULT_PLUGINS = {
             value="WDL.runtime.task_container:SwarmContainer",
         )
     ],
+    "cache": [
+        importlib_metadata.EntryPoint(
+            group="miniwdl.plugin.cache",
+            name="default",
+            value="WDL.runtime.cache:CallCache",
+        )
+    ],
 }
 
 

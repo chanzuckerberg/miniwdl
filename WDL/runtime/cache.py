@@ -317,3 +317,23 @@ def _check_files_coherence(
         return True
     except StopIteration:
         return False
+
+
+_implementations_lock = Lock()
+_implementations = {}
+
+
+def new(cfg: config.Loader, logger: logging.Logger) -> CallCache:
+    """
+    Instantiate a CallCache, either the built-in implementation or a plugin-defined subclass per
+    the configuration.
+    """
+    global _implementations
+    with _implementations_lock:
+        if not _implementations:
+            for plugin_name, plugin_cls in config.load_plugins(cfg, "cache"):
+                _implementations[plugin_name] = plugin_cls
+        impl_cls = _implementations[cfg["call_cache"]["implementation"]]
+    ans = impl_cls(cfg, logger)
+    assert isinstance(ans, CallCache)
+    return ans

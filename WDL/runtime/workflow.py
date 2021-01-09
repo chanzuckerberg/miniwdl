@@ -58,7 +58,7 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
-from .cache import CallCache
+from .cache import CallCache, new as new_call_cache
 from .error import RunFailed, Terminated, error_json
 
 
@@ -651,7 +651,7 @@ def run_local_workflow(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
         # query call cache
-        cache = _cache if _cache else cleanup.enter_context(CallCache(cfg, logger))
+        cache = _cache if _cache else cleanup.enter_context(new_call_cache(cfg, logger))
         cache_key = f"{workflow.name}/{workflow.digest}/{Value.digest_env(inputs)}"
         cached = cache.get(
             key=cache_key,
