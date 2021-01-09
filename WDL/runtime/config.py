@@ -338,7 +338,7 @@ DEFAULT_PLUGINS = {
     "cache_backend": [
         importlib_metadata.EntryPoint(
             group="miniwdl.plugin.cache_backend",
-            name="default",
+            name="dir",
             value="WDL.runtime.cache:CallCache",
         )
     ],
