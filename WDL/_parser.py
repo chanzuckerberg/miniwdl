@@ -49,7 +49,7 @@ class BadCharacterEncoding(Exception):
 # characters. Inspired by: https://stackoverflow.com/a/24519338/13393076 however that solution
 # fails to reject some invalid escape sequences.
 ASCII_PARTS_RE = regex.compile(r"[\x01-\x7f]+", regex.UNICODE)
-#INVALID_ESCAPE_RE = regex.compile(r'\\(?=[^\n\\\'"abfnrtv0-7xNuU])')
+# INVALID_ESCAPE_RE = regex.compile(r'\\(?=[^\n\\\'"abfnrtv0-7xNuU])')
 
 
 def decode_escapes(pos: SourcePosition, s: str):
