@@ -14,7 +14,6 @@ import shutil
 import re
 from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any, Union
 from contextlib import ExitStack
-from docker.errors import BuildError as DockerBuildError
 
 from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
 from .._util import (
@@ -34,7 +33,6 @@ from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
 from .cache import CallCache, new as new_call_cache
 from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
-from .task_container import TaskContainer, new as new_task_container
 
 
 def run_local_task(
@@ -59,6 +57,7 @@ def run_local_task(
                     (defaults to current working directory).
                     If the final path component is ".", then operate in run_dir directly.
     """
+    from .task_container import new as new_task_container  # delay heavy import
 
     _run_id_stack = _run_id_stack or []
     run_id = run_id or task.name
@@ -318,7 +317,7 @@ def _eval_task_inputs(
     logger: logging.Logger,
     task: Tree.Task,
     posix_inputs: Env.Bindings[Value.Base],
-    container: TaskContainer,
+    container: "runtime.task_container.TaskContainer",
 ) -> Env.Bindings[Value.Base]:
 
     # Map all the provided input File & Directory paths to in-container paths
@@ -405,7 +404,7 @@ def _eval_task_runtime(
     cfg: config.Loader,
     logger: logging.Logger,
     task: Tree.Task,
-    container: TaskContainer,
+    container: "runtime.task_container.TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
 ) -> Dict[str, Union[int, str]]:
@@ -494,7 +493,7 @@ def _eval_task_runtime(
 def _try_task(
     cfg: config.Loader,
     logger: logging.Logger,
-    container: TaskContainer,
+    container: "runtime.task_container.TaskContainer",
     command: str,
     terminating: Callable[[], bool],
 ) -> None:
@@ -502,6 +501,8 @@ def _try_task(
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
     Interrupted errors, plus up to runtime.maxRetries occurrences of any error.
     """
+    from docker.errors import BuildError as DockerBuildError  # delay heavy import
+
     max_retries = container.runtime_values.get("maxRetries", 0)
     max_interruptions = container.runtime_values.get("preemptible", 0)
     retries = 0
@@ -557,7 +558,10 @@ def _try_task(
 
 
 def _eval_task_outputs(
-    logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
+    logger: logging.Logger,
+    task: Tree.Task,
+    env: Env.Bindings[Value.Base],
+    container: "runtime.task_container.TaskContainer",
 ) -> Env.Bindings[Value.Base]:
 
     # helper to rewrite File/Directory from in-container paths to host paths
@@ -717,7 +721,10 @@ def link_outputs(
 
 
 def _delete_work(
-    cfg: config.Loader, logger: logging.Logger, container: Optional[TaskContainer], success: bool
+    cfg: config.Loader,
+    logger: logging.Logger,
+    container: "Optional[runtime.task_container.TaskContainer]",
+    success: bool,
 ) -> None:
     opt = cfg["file_io"]["delete_work"].strip().lower()
     if container and (
@@ -733,11 +740,15 @@ def _delete_work(
 
 class _StdLib(StdLib.Base):
     logger: logging.Logger
-    container: TaskContainer
+    container: "runtime.task_container.TaskContainer"
     inputs_only: bool  # if True then only permit access to input files
 
     def __init__(
-        self, wdl_version: str, logger: logging.Logger, container: TaskContainer, inputs_only: bool
+        self,
+        wdl_version: str,
+        logger: logging.Logger,
+        container: "runtime.task_container.TaskContainer",
+        inputs_only: bool,
     ) -> None:
         super().__init__(wdl_version, write_dir=os.path.join(container.host_dir, "write_"))
         self.logger = logger
@@ -764,13 +775,23 @@ class _StdLib(StdLib.Base):
 
 class InputStdLib(_StdLib):
     # StdLib for evaluation of task inputs and command
-    def __init__(self, wdl_version: str, logger: logging.Logger, container: TaskContainer) -> None:
+    def __init__(
+        self,
+        wdl_version: str,
+        logger: logging.Logger,
+        container: "runtime.task_container.TaskContainer",
+    ) -> None:
         super().__init__(wdl_version, logger, container, True)
 
 
 class OutputStdLib(_StdLib):
     # StdLib for evaluation of task outputs
-    def __init__(self, wdl_version: str, logger: logging.Logger, container: TaskContainer) -> None:
+    def __init__(
+        self,
+        wdl_version: str,
+        logger: logging.Logger,
+        container: "runtime.task_container.TaskContainer",
+    ) -> None:
         super().__init__(wdl_version, logger, container, False)
 
         setattr(

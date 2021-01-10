@@ -20,7 +20,6 @@ import logging
 import traceback
 import tempfile
 import hashlib
-import importlib_metadata
 from contextlib import ExitStack
 from typing import Optional, List, Generator, Dict, Any, Tuple, Callable
 from . import config

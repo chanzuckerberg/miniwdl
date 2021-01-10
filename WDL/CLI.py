@@ -16,13 +16,9 @@ import textwrap
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
-import importlib_metadata
-from ruamel.yaml import YAML
 from . import (
     load,
-    runtime,
     Error,
-    Lint,
     Value,
     Type,
     Expr,
@@ -120,6 +116,9 @@ def create_arg_parser():
 
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
+        import importlib_metadata
+        from . import runtime
+
         try:
             print(f"miniwdl v{importlib_metadata.version('miniwdl')}")
         except importlib_metadata.PackageNotFoundError:
@@ -202,6 +201,8 @@ def fill_check_subparser(subparsers):
 def check(
     uri=None, path=None, check_quant=True, shellcheck=True, strict=False, show_all=False, **kwargs
 ):
+    from . import Lint
+
     # Load the document (read, parse, and typecheck)
     if not shellcheck:
         Lint._shellcheck_available = False
@@ -551,6 +552,8 @@ def runner(
             )
 
         # load configuration & apply command-line overrides
+        from . import runtime
+
         cfg_arg = None
         if cfg:
             assert os.path.isfile(cfg), "--cfg file not found"
@@ -646,6 +649,8 @@ def runner(
             sys.exit(0)
 
         # debug logging
+        import importlib_metadata  # delayed heavy import
+
         versionlog = {"python": sys.version}
         for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
             try:
@@ -669,7 +674,7 @@ def runner(
 
         enabled_plugins = []
         disabled_plugins = []
-        for group in runtime.config.DEFAULT_PLUGINS.keys():
+        for group in runtime.config.default_plugins(cfg).keys():
             for enabled, plugin in runtime.config.load_all_plugins(cfg, group):
                 (enabled_plugins if enabled else disabled_plugins).append(
                     f"{plugin.name} = {plugin.value}"
@@ -927,6 +932,8 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
     if input_file:
         input_file = input_file.strip()
     if input_file:
+        from ruamel.yaml import YAML  # delayed heavy import
+
         input_json = None
         if input_file[0] == "{":
             input_json = input_file
@@ -1323,6 +1330,7 @@ def localize(
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-localize")
     with configure_logger(json=log_json) as set_status:
+        from . import runtime
 
         cfg_arg = None
         if cfg:

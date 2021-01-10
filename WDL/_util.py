@@ -34,9 +34,7 @@ from typing import (
     Any,
 )
 from types import FrameType
-import coloredlogs
 from pythonjsonlogger import jsonlogger
-from pygtail import Pygtail
 
 __all__: List[str] = []
 
@@ -327,48 +325,6 @@ def _ansilen(parts: List[str]) -> int:
     return sum([len(s) for s in parts if s[0] != "\x1b"])
 
 
-class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
-    """
-    This subclass augments coloredlogs.StandardErrorHandler to maintain a "status line" which
-    remains in place at the bottom of the screen as log records scroll by. The content of the
-    status line can be set at any time. It will be truncated to the terminal width.
-    """
-
-    _singleton: "Optional[_StatusLineStandardErrorHandler]" = None
-    _status: str = ""
-
-    def __init__(self, *args, **kwargs):  # pyre-ignore
-        super().__init__(*args, **kwargs)
-        assert not self.__class__._singleton
-        self.__class__._singleton = self
-
-    def emit(self, record: logging.LogRecord) -> None:
-        self.acquire()
-        try:
-            sys.stderr.write(ANSI.CLEAR)
-            super().emit(record)
-            self.emit_status()
-        finally:
-            self.release()
-
-    def emit_status(self) -> None:
-        self.acquire()
-        try:
-            sys.stderr.write(ANSI.CLEAR + self._status + ANSI.RESET)
-            self.flush()
-        finally:
-            self.release()
-
-    def set_status(self, new_status: List[str]) -> None:
-        cols = shutil.get_terminal_size().columns
-        if _ansilen(new_status) > cols:
-            new_status = new_status.copy()
-            while new_status and (_ansilen(new_status) > cols or new_status[-1][0] == "\x1b"):
-                new_status.pop()
-        self._status = "".join(new_status)
-        self.emit_status()
-
-
 LOGGING_FORMAT = "%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(message)s"
 COLORED_LOGGING_FORMAT = "%(asctime)s.%(msecs)03d %(name)s %(message)s"  # colors obviate levelname
 __all__.append("LOGGING_FORMAT")
@@ -383,6 +339,49 @@ def configure_logger(
     contextmanager to set up the root/stderr logger; yields a function to set the status line at
     the bottom of the screen (if stderr isatty, else it does nothing)
     """
+    import coloredlogs  # delayed heavy import
+
+    class _StatusLineStandardErrorHandler(coloredlogs.StandardErrorHandler):
+        """
+        This subclass augments coloredlogs.StandardErrorHandler to maintain a "status line" which
+        remains in place at the bottom of the screen as log records scroll by. The content of the
+        status line can be set at any time. It will be truncated to the terminal width.
+        """
+
+        _singleton: "Optional[_StatusLineStandardErrorHandler]" = None
+        _status: str = ""
+
+        def __init__(self, *args, **kwargs):  # pyre-ignore
+            super().__init__(*args, **kwargs)
+            assert not self.__class__._singleton
+            self.__class__._singleton = self
+
+        def emit(self, record: logging.LogRecord) -> None:
+            self.acquire()
+            try:
+                sys.stderr.write(ANSI.CLEAR)
+                super().emit(record)
+                self.emit_status()
+            finally:
+                self.release()
+
+        def emit_status(self) -> None:
+            self.acquire()
+            try:
+                sys.stderr.write(ANSI.CLEAR + self._status + ANSI.RESET)
+                self.flush()
+            finally:
+                self.release()
+
+        def set_status(self, new_status: List[str]) -> None:
+            cols = shutil.get_terminal_size().columns
+            if _ansilen(new_status) > cols:
+                new_status = new_status.copy()
+                while new_status and (_ansilen(new_status) > cols or new_status[-1][0] == "\x1b"):
+                    new_status.pop()
+            self._status = "".join(new_status)
+            self.emit_status()
+
     logger = logging.getLogger()
 
     if json:
@@ -444,6 +443,8 @@ def PygtailLogger(
 
     Stops if it sees a line greater than 4KB, in case writer goes haywire.
     """
+    from pygtail import Pygtail  # delayed heavy import
+
     pygtail = None
     if logger.isEnabledFor(VERBOSE_LEVEL):
         pygtail = Pygtail(filename, full_lines=True)
