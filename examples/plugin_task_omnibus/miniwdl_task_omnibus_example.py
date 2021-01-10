@@ -31,6 +31,7 @@ they start concurrent invocations of plugin coroutines.
 """
 
 import WDL
+import WDL.runtime
 
 
 def main(cfg, logger, run_id, run_dir, task, **recv):
