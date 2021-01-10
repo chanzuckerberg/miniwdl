@@ -1,5 +1,6 @@
-import unittest, inspect, subprocess, tempfile, os, glob, json, urllib
+import unittest, inspect, subprocess, tempfile, os, glob, json, urllib, urllib.request
 from .context import WDL
+import WDL.Lint
 
 
 class Lint(unittest.TestCase):
