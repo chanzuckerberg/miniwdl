@@ -119,7 +119,7 @@ is "$?" "2" "import_multi_error.wdl --no-quant-check --strict --no-suppress"
 is "$(grep OptionalCoercion import_multi_error.no_quant_check.strict_all.out | wc -l | tr -d ' ')" "2" "import_multi_error.wdl --no-quant-check --strict --no-suppress OptionalCoercion"
 is "$(grep UnusedDeclaration import_multi_error.no_quant_check.strict_all.out | wc -l | tr -d ' ')" "2" "import_multi_error.wdl --no-quant-check --strict --no-suppress UnusedDeclaration"
 
-$miniwdl check --no-shellcheck $SOURCE_DIR/test_corpi/DataBiosphere/topmed-workflows/CRAM-no-header-md5sum/CRAM_md5sum_checker_wrapper.wdl > import_uri.out 2> import_uri.err
+$miniwdl check --no-shellcheck $SOURCE_DIR/test_corpi/DataBiosphere/topmed-workflows/CRAM-no-header-md5sum/CRAM_md5sum_checker_wrapper.wdl > import_uri.out
 is "$?" "0" "URI import"
 
 rm -rf $DN

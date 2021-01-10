@@ -9,7 +9,6 @@ import tempfile
 import json
 import argcomplete
 import logging
-import urllib
 import asyncio
 import atexit
 import textwrap
@@ -360,19 +359,21 @@ def print_error(exn):
 
 
 async def read_source(uri, path, importer):
+    from urllib import parse, request
+
     if uri.startswith("http:") or uri.startswith("https:"):
         fn = os.path.join(
             tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
-            os.path.basename(urllib.parse.urlsplit(uri).path),
+            os.path.basename(parse.urlsplit(uri).path),
         )
-        urllib.request.urlretrieve(uri, filename=fn)
+        request.urlretrieve(uri, filename=fn)
         with open(fn, "r") as infile:
             return ReadSourceResult(infile.read(), uri)
     elif importer and (
         importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
     ):
         assert not os.path.isabs(uri), "absolute import from downloaded WDL"
-        return await read_source(urllib.parse.urljoin(importer.pos.abspath, uri), [], importer)
+        return await read_source(parse.urljoin(importer.pos.abspath, uri), [], importer)
     return await read_source_default(uri, path, importer)
 
 
