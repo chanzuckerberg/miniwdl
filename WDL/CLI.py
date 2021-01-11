@@ -9,20 +9,15 @@ import tempfile
 import json
 import argcomplete
 import logging
-import urllib
 import asyncio
 import atexit
 import textwrap
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
-import importlib_metadata
-from ruamel.yaml import YAML
 from . import (
     load,
-    runtime,
     Error,
-    Lint,
     Value,
     Type,
     Expr,
@@ -120,6 +115,9 @@ def create_arg_parser():
 
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
+        import importlib_metadata
+        from . import runtime
+
         try:
             print(f"miniwdl v{importlib_metadata.version('miniwdl')}")
         except importlib_metadata.PackageNotFoundError:
@@ -202,6 +200,8 @@ def fill_check_subparser(subparsers):
 def check(
     uri=None, path=None, check_quant=True, shellcheck=True, strict=False, show_all=False, **kwargs
 ):
+    from . import Lint
+
     # Load the document (read, parse, and typecheck)
     if not shellcheck:
         Lint._shellcheck_available = False
@@ -359,19 +359,21 @@ def print_error(exn):
 
 
 async def read_source(uri, path, importer):
+    from urllib import parse, request
+
     if uri.startswith("http:") or uri.startswith("https:"):
         fn = os.path.join(
             tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
-            os.path.basename(urllib.parse.urlsplit(uri).path),
+            os.path.basename(parse.urlsplit(uri).path),
         )
-        urllib.request.urlretrieve(uri, filename=fn)
+        request.urlretrieve(uri, filename=fn)
         with open(fn, "r") as infile:
             return ReadSourceResult(infile.read(), uri)
     elif importer and (
         importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
     ):
         assert not os.path.isabs(uri), "absolute import from downloaded WDL"
-        return await read_source(urllib.parse.urljoin(importer.pos.abspath, uri), [], importer)
+        return await read_source(parse.urljoin(importer.pos.abspath, uri), [], importer)
     return await read_source_default(uri, path, importer)
 
 
@@ -551,6 +553,8 @@ def runner(
             )
 
         # load configuration & apply command-line overrides
+        from . import runtime
+
         cfg_arg = None
         if cfg:
             assert os.path.isfile(cfg), "--cfg file not found"
@@ -646,6 +650,8 @@ def runner(
             sys.exit(0)
 
         # debug logging
+        import importlib_metadata  # delayed heavy import
+
         versionlog = {"python": sys.version}
         for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
             try:
@@ -669,7 +675,7 @@ def runner(
 
         enabled_plugins = []
         disabled_plugins = []
-        for group in runtime.config.DEFAULT_PLUGINS.keys():
+        for group in runtime.config.default_plugins(cfg).keys():
             for enabled, plugin in runtime.config.load_all_plugins(cfg, group):
                 (enabled_plugins if enabled else disabled_plugins).append(
                     f"{plugin.name} = {plugin.value}"
@@ -927,6 +933,8 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
     if input_file:
         input_file = input_file.strip()
     if input_file:
+        from ruamel.yaml import YAML  # delayed heavy import
+
         input_json = None
         if input_file[0] == "{":
             input_json = input_file
@@ -1323,6 +1331,7 @@ def localize(
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-localize")
     with configure_logger(json=log_json) as set_status:
+        from . import runtime
 
         cfg_arg = None
         if cfg:

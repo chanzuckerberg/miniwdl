@@ -8,7 +8,6 @@ import os
 import configparser
 import logging
 import json
-import importlib_metadata
 from fnmatch import fnmatchcase
 from typing import Optional, List, Dict, Any, Callable, TypeVar, Set, Tuple, Iterable
 from xdg import XDG_CONFIG_DIRS, XDG_CONFIG_HOME
@@ -306,50 +305,57 @@ def _parse_list(v: str) -> List[Any]:
     return ans
 
 
-DEFAULT_PLUGINS = {
-    "file_download": [
-        importlib_metadata.EntryPoint(
-            group="miniwdl.plugin.file_download",
-            name="s3",
-            value="WDL.runtime.download:awscli_downloader",
-        ),
-        importlib_metadata.EntryPoint(
-            group="miniwdl.plugin.file_download",
-            name="gs",
-            value="WDL.runtime.download:gsutil_downloader",
-        ),
-    ],
-    "directory_download": [
-        importlib_metadata.EntryPoint(
-            group="miniwdl.plugin.directory_download",
-            name="s3",
-            value="WDL.runtime.download:awscli_directory_downloader",
-        )
-    ],
-    "task": [],
-    "workflow": [],
-    "container_backend": [
-        importlib_metadata.EntryPoint(
-            group="miniwdl.plugin.container_backend",
-            name="docker_swarm",
-            value="WDL.runtime.task_container:SwarmContainer",
-        )
-    ],
-    "cache_backend": [
-        importlib_metadata.EntryPoint(
-            group="miniwdl.plugin.cache_backend",
-            name="dir",
-            value="WDL.runtime.cache:CallCache",
-        )
-    ],
-}
+def default_plugins(cfg: Loader) -> "Dict[str,List[importlib_metadata.EntryPoint]]":
+    import importlib_metadata  # delayed heavy import
+
+    return {
+        "file_download": [
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.file_download",
+                name="s3",
+                value="WDL.runtime.download:awscli_downloader",
+            ),
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.file_download",
+                name="gs",
+                value="WDL.runtime.download:gsutil_downloader",
+            ),
+        ],
+        "directory_download": [
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.directory_download",
+                name="s3",
+                value="WDL.runtime.download:awscli_directory_downloader",
+            )
+        ],
+        "task": [],
+        "workflow": [],
+        "container_backend": [
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.container_backend",
+                name="docker_swarm",
+                value="WDL.runtime.task_container:SwarmContainer",
+            )
+        ],
+        "cache_backend": [
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.cache_backend",
+                name="dir",
+                value="WDL.runtime.cache:CallCache",
+            )
+        ],
+    }
 
 
 def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
-    assert group in DEFAULT_PLUGINS.keys(), group
+    import importlib_metadata  # delayed heavy import
+
+    defaults = default_plugins(cfg)
+
+    assert group in defaults, group
     enable_patterns = cfg["plugins"].get_list("enable_patterns")
     disable_patterns = cfg["plugins"].get_list("disable_patterns")
-    for plugin in DEFAULT_PLUGINS[group] + list(
+    for plugin in defaults[group] + list(
         importlib_metadata.entry_points().get(f"miniwdl.plugin.{group}", [])
     ):
         enabled = next(

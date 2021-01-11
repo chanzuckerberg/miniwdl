@@ -4,6 +4,9 @@ Annotate WDL document AST with hygiene warnings (underlies ``miniwdl check``)
 
 Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
 
+    import WDL
+    import WDL.Lint
+
     lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
     for (pos, lint_class, message, suppressed) in lint:
         assert isinstance(pos, WDL.SourcePosition)

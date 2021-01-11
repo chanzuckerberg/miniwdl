@@ -1,4 +1,4 @@
 [flake8]
 max-line-length=120
-ignore=W503,E203,E265,E722,E741,F401,F841
+ignore=W503,E203,E265,E722,E741,F401,F841,F821
 exclude=WDL/_grammar.py

@@ -36,6 +36,9 @@ def run(
 
     .. code-block:: python
 
+       import WDL
+       import WDL.runtime
+
        # Convert JSON-like inputs dict to WDL environment, validating them against exe's available
        # and required inputs. The dict keys should NOT be namespaced by the executable name;
        # if namespaces are present, then add namespace=exe.name to effectively remove them.

@@ -42,7 +42,6 @@ import threading
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
-import importlib_metadata
 from .. import Env, Type, Value, Tree, StdLib
 from ..Error import InputError
 from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_defaults
@@ -676,6 +675,8 @@ def run_local_workflow(
 
         # if we're the top-level workflow, provision thread pools
         if not _thread_pools:
+            import importlib_metadata  # delayed heavy import
+
             assert not _run_id_stack
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
             try:
