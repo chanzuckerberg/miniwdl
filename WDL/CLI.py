@@ -760,26 +760,34 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
             )
             return []
         # resolve target
-        if doc.workflow:
+        if parsed_args.task:
+            target = next((t for t in doc.tasks if t.name == parsed_args.task), None)
+            if not target:
+                argcomplete.warn(f"no such task {parsed_args.task} in document")
+                return []
+        elif doc.workflow:
             target = doc.workflow
         elif len(doc.tasks) == 1:
             target = doc.tasks[0]
         elif len(doc.tasks) > 1:
-            argcomplete.warn("WDL document contains multiple tasks and no workflow")
+            argcomplete.warn("specify --task for WDL document with multiple tasks and no workflow")
             return []
         else:
-            argcomplete.warn("WDL document is empty")
+            argcomplete.warn("Empty WDL document")
             return []
         assert target
         # figure the available input names (starting with prefix, if any)
-        available_input_names = [nm + "=" for nm in values_to_json(target.available_inputs)]
+        completed_input_names = [nm + "=" for nm in values_to_json(target.required_inputs)]
         if prefix and prefix.find("=") == -1:
-            available_input_names = [nm for nm in available_input_names if nm.startswith(prefix)]
-        # TODO idea -- complete only required inputs until they're all present, then start
-        # completing the non-required inputs. Tricky with arrays, because we want to keep
-        # allowing their completion even after already supplied.
-        # compute set of inputs already supplied
-        return available_input_names
+            completed_input_names = [nm for nm in completed_input_names if nm.startswith(prefix)]
+            if not completed_input_names:
+                # suggest optional inputs only if nothing else matches prefix
+                completed_input_names = [
+                    nm + "="
+                    for nm in values_to_json(target.available_inputs)
+                    if nm.startswith(prefix)
+                ]
+        return completed_input_names
 
 
 def runner_input(

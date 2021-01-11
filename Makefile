@@ -7,11 +7,13 @@ test: check_check check unit_tests integration_tests
 qtest:
 	python3 tests/no_docker_services.py
 	pytest -vx --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
+	python3 -m unittest tests.test_cli_argcomplete
 	prove -v tests/{check,runner}.t
 	python3 tests/no_docker_services.py
 
 unit_tests:
 	pytest -v --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
+	python3 -m unittest tests.test_cli_argcomplete
 	python3 tests/no_docker_services.py
 
 integration_tests:

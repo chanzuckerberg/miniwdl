@@ -10,9 +10,9 @@ import unittest
 import subprocess
 from unittest.mock import MagicMock, patch
 
+from .context import WDL
 from WDL import values_from_json, values_to_json
 from WDL.runtime.cache import CallCache
-from .context import WDL
 
 
 class TestCallCache(unittest.TestCase):
