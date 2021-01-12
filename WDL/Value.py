@@ -105,7 +105,7 @@ class Base(ABC):
         :raises: ReferenceError for a null value and non-optional type
         """
         if isinstance(desired_type, Type.String):
-            return String(str(self.value), self.expr)
+            return String(str(self), self.expr)
         if isinstance(desired_type, Type.Array) and self.type.coerces(
             desired_type.item_type, check_quant=False
         ):
@@ -138,18 +138,15 @@ class Boolean(Base):
     def __init__(self, value: bool, expr: "Optional[Expr.Base]" = None) -> None:
         super().__init__(Type.Boolean(), value, expr)
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
-        if isinstance(desired_type, Type.String):
-            return String(str(self), self.expr)
-        return super().coerce(desired_type)
-
 
 class Float(Base):
     """``value`` has Python type ``float``"""
 
     def __init__(self, value: float, expr: "Optional[Expr.Base]" = None) -> None:
         super().__init__(Type.Float(), value, expr)
+
+    def __str__(self) -> str:
+        return "{:.6f}".format(self.value)
 
 
 class Int(Base):
@@ -176,6 +173,8 @@ class String(Base):
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         ""
+        if isinstance(desired_type, Type.String):
+            return String(self.value, self.expr)
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
             return File(self.value, self.expr)
         if isinstance(desired_type, Type.Directory) and not isinstance(self, Directory):
@@ -247,6 +246,10 @@ class Array(Base):
         ""
         return [item.json for item in self.value]
 
+    def __str__(self) -> Any:
+        # nb: this is NOT json.dumps(self.json) because it applies item __str__ overrides
+        return "[" + ", ".join(str(item) for item in self.value) + "]"
+
     @property
     def children(self) -> Iterable[Base]:
         return self.value
@@ -267,8 +270,6 @@ class Array(Base):
             return Array(
                 desired_type, [v.coerce(desired_type.item_type) for v in self.value], self.expr
             )
-        if isinstance(desired_type, Type.String):
-            return String(json.dumps(self.json))
         return super().coerce(desired_type)
 
 
@@ -286,9 +287,6 @@ class Map(Base):
         self.type = Type.Map(item_type)
         super().__init__(self.type, value, expr)
 
-    def __str__(self) -> str:
-        return json.dumps(self.json)
-
     @property
     def json(self) -> Any:
         ""
@@ -301,6 +299,12 @@ class Map(Base):
             if kstr not in ans:
                 ans[kstr] = v.json
         return ans
+
+    def __str__(self) -> Any:
+        items = {}
+        for k, v in self.value:
+            items[str(k)] = str(v)
+        return "{" + ", ".join(f"{k}: {v}" for k, v in items.items()) + "}"
 
     @property
     def children(self) -> Iterable[Base]:
@@ -447,8 +451,8 @@ class Struct(Base):
             return Struct(desired_type, self.value, self.expr)
         return self
 
-    def __str__(self) -> str:
-        return json.dumps(self.json)
+    def __str__(self) -> Any:
+        return "{" + ", ".join(f"{k}: {str(v)}" for k, v in self.value.items()) + "}"
 
     @property
     def json(self) -> Any:
