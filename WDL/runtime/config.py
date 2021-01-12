@@ -78,6 +78,8 @@ class Loader:
     _used: Set[Tuple[str, str]]
     _used_env: Set[str]
 
+    cfg_filename: Optional[str] = None
+
     def __init__(
         self,
         logger: logging.Logger,
@@ -115,6 +117,7 @@ class Loader:
         if filenames:
             self._logger.info(_("read configuration file", path=filenames[0]))
             self._options.read(filenames)
+            self.cfg_filename = filenames[0]
         else:
             self._logger.info("no configuration file found")
 
@@ -165,16 +168,7 @@ class Loader:
             raise ConfigMissing(f"missing config option [{section}] {key}")
 
         self._used.add((section, key))
-        ans = ans.strip()
-        if len(ans) >= 2 and (
-            (
-                ans.startswith("'")
-                and ans.endswith("'")
-                or (ans.startswith('"') and ans.endswith('"'))
-            )
-        ):
-            ans = ans[1:-1]
-        return _expand_env_var(ans)
+        return _expand_env_var(_strip(ans))
 
     def has_section(self, section: str) -> bool:
         return (
@@ -224,10 +218,7 @@ class Loader:
     def get_list(self, section: str, key: str) -> List[Any]:
         return self._parse(section, key, "JSON list", _parse_list)
 
-    def log_all(self):
-        """
-        Write a debug log message with all options
-        """
+    def get_all(self, defaults=True):
         options = set()
         for section in self._overrides.sections():
             options |= set((section, key) for key in self._overrides.options(section))
@@ -238,10 +229,18 @@ class Loader:
 
         all = {}
         for (section, key) in options:
-            all[section] = all.get(section, dict())
-            all[section][key] = self.get(section, key)
+            value = self.get(section, key)
+            if defaults or value != _expand_env_var(_strip(self._defaults.get(section, key))):
+                all[section] = all.get(section, dict())
+                all[section][key] = value
 
-        self._logger.debug(_("configuration", **all))
+        return all
+
+    def log_all(self):
+        """
+        Write a debug log message with all options
+        """
+        self._logger.debug(_("configuration", **self.get_all()))
 
     def log_unused_options(self):
         """
@@ -266,6 +265,21 @@ class Loader:
         ev_unused = evs - self._used_env
         if ev_unused:
             self._logger.warning(_("unused environment", variables=list(ev_unused)))
+
+
+def _strip(value):
+    ans = value
+    if ans:
+        ans = value.strip()
+        if len(ans) >= 2 and (
+            (
+                ans.startswith("'")
+                and ans.endswith("'")
+                or (ans.startswith('"') and ans.endswith('"'))
+            )
+        ):
+            ans = ans[1:-1]
+    return ans
 
 
 def _expand_env_var(env_var: str) -> str:
@@ -305,7 +319,7 @@ def _parse_list(v: str) -> List[Any]:
     return ans
 
 
-def default_plugins(cfg: Loader) -> "Dict[str,List[importlib_metadata.EntryPoint]]":
+def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
     import importlib_metadata  # delayed heavy import
 
     return {
@@ -350,7 +364,7 @@ def default_plugins(cfg: Loader) -> "Dict[str,List[importlib_metadata.EntryPoint
 def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
     import importlib_metadata  # delayed heavy import
 
-    defaults = default_plugins(cfg)
+    defaults = default_plugins()
 
     assert group in defaults, group
     enable_patterns = cfg["plugins"].get_list("enable_patterns")

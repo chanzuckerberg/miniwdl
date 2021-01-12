@@ -69,6 +69,8 @@ Miniwdl loads these defaults from the locally installed copy of that file.
 
 **Custom configuration files**
 
+First step: `miniwdl configure` interactively drafts a configuration file with common options in the default location. Subsequently, running this command will display the effective configuration.
+
 Upon starting, miniwdl looks for a custom configuration file in the following locations:
 
 1. File named by `--cfg` command-line argument

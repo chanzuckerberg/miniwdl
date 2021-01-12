@@ -135,7 +135,9 @@ The `out` links are often more convenient to consume than the JSON, but they onl
 
 ## Next steps
 
-The following pages document features, configuration, and optimization for `miniwdl run`. To aid the workflow development cycle, miniwdl also includes a static code quality checker, `miniwdl check`. Lastly, installing miniwdl makes available a Python `WDL` package, providing programmatic access to miniwdl's WDL parser and runtime.
+The following pages document features and optimization for `miniwdl run`, including numerous available configuration options. Use `miniwdl configure` to create a configuration file with common options interactively.
+
+To aid the workflow development cycle, miniwdl also includes a static code quality checker, `miniwdl check`. Lastly, installing miniwdl makes available a Python `WDL` package, providing programmatic access to miniwdl's WDL parser and runtime.
 
 ### Links
 
