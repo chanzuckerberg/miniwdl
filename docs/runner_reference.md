@@ -36,7 +36,7 @@ The miniwdl source repository includes several [example scripts](https://github.
 
 The default local scheduler observes these task `runtime {}` attributes:
 
-* `docker` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:20.04`)
+* `docker`/`container` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:20.04`)
 * `cpu` (Int): container reserves, and is throttled to, this many CPUs
   * Automatically rounds down to all host CPUs, if fewer
   * Multiple tasks can run concurrently on the local host, if CPUs and memory are available to meet their total reservations, and the workflow dependencies allow
@@ -150,6 +150,7 @@ The runner supports draft-2 and `version 1.0` of the [WDL specification](https:/
 * `Object` type is unsupported except for initializing WDL 1.0 `struct` types, which should be used instead.
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
 * Task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
+* The following task runtime values are ignored: `gpu` `disks` `returnCodes`
 * Rejects certain name collisions that Cromwell admits (spec-ambiguous), such as between:
   * scatter variable and prior declaration
   * output declaration and prior non-output declaration
@@ -157,9 +158,4 @@ The runner supports draft-2 and `version 1.0` of the [WDL specification](https:/
 
 Please [file an issue](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Ainterop) for any other incompatibilities observed.
 
-Additionally, miniwdl's `version development` strives to implement [features and changes pending](https://github.com/openwdl/wdl/pulls?q=is%3Apr+is%3Aclosed) for the next specification release, though this is best-effort and potentially unstable. Current examples include:
-
-* `Directory` type
-* struct literals
-* abbreviated syntax for passthrough call inputs
-* several library functions
+Additionally, miniwdl's `version development` strives to implement [features and changes pending](https://github.com/openwdl/wdl/pulls?q=is%3Apr+is%3Aclosed) for the next specification release (best-effort & potentially unstable). The `Directory` type is a salient current example.

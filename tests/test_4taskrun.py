@@ -739,7 +739,7 @@ class TestTaskRunner(unittest.TestCase):
                 Int wall_seconds = read_int("wall_seconds")
             }
             runtime {
-                docker: "continuumio/miniconda3"
+                container: ["continuumio/miniconda3"]
                 cpu: cpu
             }
         }

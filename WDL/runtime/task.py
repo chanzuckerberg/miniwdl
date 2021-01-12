@@ -419,6 +419,8 @@ def _eval_task_runtime(
             raise Error.InputError(f"invalid default runtime setting {key} = {v}")
     for key, expr in task.runtime.items():
         runtime_values[key] = expr.eval(env, stdlib)
+    if "container" in runtime_values:  # alias
+        runtime_values["docker"] = runtime_values["container"]
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
@@ -430,7 +432,11 @@ def _eval_task_runtime(
         dockerfile = "\n".join(elt.coerce(Type.String()).value for elt in dockerfile.value)
         ans["inlineDockerfile"] = dockerfile
     elif "docker" in runtime_values:
-        ans["docker"] = runtime_values["docker"].coerce(Type.String()).value
+        docker_value = runtime_values["docker"]
+        if isinstance(docker_value, Value.Array) and len(docker_value.value):
+            # TODO: ask TaskContainer to choose preferred candidate
+            docker_value = docker_value.value[0]
+        ans["docker"] = docker_value.coerce(Type.String()).value
 
     host_limits = container.__class__.detect_resource_limits(cfg, logger)
     if "cpu" in runtime_values:
@@ -483,7 +489,9 @@ def _eval_task_runtime(
     if ans:
         logger.info(_("effective runtime", **ans))
     unused_keys = list(
-        key for key in runtime_values if key not in ("cpu", "memory", "docker") and key not in ans
+        key
+        for key in runtime_values
+        if key not in ("cpu", "memory", "docker", "container") and key not in ans
     )
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
