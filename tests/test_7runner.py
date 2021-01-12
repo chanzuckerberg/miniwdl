@@ -11,7 +11,6 @@ import platform
 from testfixtures import log_capture
 from .context import WDL
 
-
 class RunnerTestCase(unittest.TestCase):
     """
     Base class for new runner test cases
@@ -328,7 +327,7 @@ class TestDirectoryIO(RunnerTestCase):
 class TestNoneLiteral(RunnerTestCase):
     def test_none_eval(self):
         wdl = R"""
-        version development
+        version 1.1
         struct Car {
             String make
             String? model
@@ -371,7 +370,7 @@ class TestNoneLiteral(RunnerTestCase):
 class TestCallAfter(RunnerTestCase):
     def test_call_after(self):
         wdl = R"""
-        version development
+        version 1.1
         task nop {
             input {
                 Int? y = 0
@@ -406,7 +405,7 @@ class TestCallAfter(RunnerTestCase):
 
         with self.assertRaises(WDL.Error.NoSuchCall):
             self._run(R"""
-            version development
+            version 1.1
             task nop {
                 input {}
                 command {}
@@ -422,7 +421,7 @@ class TestCallAfter(RunnerTestCase):
 
         with self.assertRaises(WDL.Error.CircularDependencies):
             self._run(R"""
-            version development
+            version 1.1
             task nop {
                 input {}
                 command {}
@@ -817,7 +816,7 @@ class TestAbbreviatedCallInput(RunnerTestCase):
 
     def test_docker(self):
         caller = R"""
-        version development
+        version 1.1
         workflow caller {
             input {
                 String message
