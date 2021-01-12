@@ -96,6 +96,7 @@ def run_local_task(
         if not _run_id_stack:
             cache = _cache or cleanup.enter_context(new_call_cache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
+            cache.flock(run_dir, exclusive=True)
         else:
             cache = _cache
         assert cache

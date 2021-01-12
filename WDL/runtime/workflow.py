@@ -679,6 +679,7 @@ def run_local_workflow(
 
             assert not _run_id_stack
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
+            cache.flock(run_dir, exclusive=True)
             try:
                 # log version into workflow.log
                 version = "v" + importlib_metadata.version("miniwdl")

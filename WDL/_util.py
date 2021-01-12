@@ -831,7 +831,7 @@ class FlockHolder(AbstractContextManager):
                     return self._flocks[realfilename][0]
                 openfile = os.open(
                     realfilename,
-                    mode if mode is not None else (os.O_RDWR if exclusive else os.O_RDONLY),
+                    mode if mode is not None else os.O_RDONLY,
                 )
                 try:
                     op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH

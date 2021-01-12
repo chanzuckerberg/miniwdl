@@ -26,7 +26,7 @@ The top-level run directory also contains:
 
 * `wdl/` a copy of the original WDL that was run, including imported documents (except any referenced by URI or absolute path)
 * `rerun` can be "sourced" to run the WDL (as found in the original location, possibly updated) using the same inputs
-* The top-level `workflow.log` file is "flocked" while `miniwdl run` is still in progress (`task.log` if running a task directly)
+* The top-level run directory is "flocked" while `miniwdl run` is still in progress
 
 When miniwdl creates a new timestamp-named subdirectory for a run, it also creates a symbolic link `_LAST` to it in the same parent directory. (For convenience referring to the most recent run; should not be relied upon if multiple runs can start concurrently.)
 
