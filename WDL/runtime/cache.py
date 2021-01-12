@@ -3,16 +3,11 @@ Caching outputs of task/workflow calls (incl. file URI downloader tasks) based o
 inputs. When cached outputs are found for reuse, opens advisory locks (flocks) on any local files
 referenced therein, and updates their access timestamps (atime).
 """
-import abc
-import hashlib
 import json
-import itertools
 import os
 import logging
-import shutil
-import base64
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Iterable, Union
+from typing import Dict, Optional, Union
 from contextlib import AbstractContextManager
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
@@ -20,7 +15,7 @@ from threading import Lock
 
 from . import config
 
-from .. import Env, Value, Type, Document, Tree, Error
+from .. import Env, Value, Type
 from .._util import (
     StructuredLogMessage as _,
     FlockHolder,

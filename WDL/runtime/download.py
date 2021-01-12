@@ -21,7 +21,7 @@ import traceback
 import tempfile
 import hashlib
 from contextlib import ExitStack
-from typing import Optional, List, Generator, Dict, Any, Tuple, Callable
+from typing import Optional, Generator, Dict, Any, Tuple, Callable
 from . import config
 from .cache import CallCache
 from .._util import compose_coroutines

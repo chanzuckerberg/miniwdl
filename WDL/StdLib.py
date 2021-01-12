@@ -1,11 +1,11 @@
 # pylint: disable=protected-access,exec-used
 import math
 import os
-import regex
 import json
 import tempfile
 from typing import List, Tuple, Callable, BinaryIO, Optional
 from abc import ABC, abstractmethod
+import regex
 from . import Type, Value, Expr, Env, Error
 from ._util import byte_size_units, chmod_R_plus
 

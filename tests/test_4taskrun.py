@@ -836,7 +836,7 @@ class TestTaskRunner(unittest.TestCase):
             outfile.write("Ben\n")
 
         self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
-                        expected_exception=WDL.runtime.task.CommandFailed)
+                        expected_exception=WDL.runtime.CommandFailed)
 
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"file_io": {"copy_input_files": True}})
@@ -855,7 +855,7 @@ class TestTaskRunner(unittest.TestCase):
             >>>
         }
         """, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]},
-             expected_exception=WDL.runtime.task.CommandFailed)
+             expected_exception=WDL.runtime.CommandFailed)
         self.assertTrue(os.path.exists(os.path.join(self._dir, "alyssa.txt")))
 
     def test_optional_file_outputs(self):

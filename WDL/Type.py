@@ -42,8 +42,6 @@ import copy
 from abc import ABC
 from typing import Optional, Tuple, Dict, Iterable, Set, List
 
-from ._error_util import SourcePosition
-
 
 class Base(ABC):
     """The abstract base class for WDL types

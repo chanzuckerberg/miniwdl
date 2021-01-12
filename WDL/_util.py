@@ -6,14 +6,10 @@ import os
 import json
 import logging
 import signal
-import tempfile
 import threading
 import time
-import copy
 import fcntl
-import subprocess
 import shutil
-import urllib
 import hashlib
 from time import sleep
 from datetime import datetime
@@ -30,7 +26,6 @@ from typing import (
     Optional,
     Callable,
     Generator,
-    IO,
     Any,
 )
 from types import FrameType

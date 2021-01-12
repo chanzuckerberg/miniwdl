@@ -7,7 +7,6 @@ import os
 import platform
 import tempfile
 import json
-import argcomplete
 import logging
 import asyncio
 import atexit
@@ -15,6 +14,7 @@ import textwrap
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
+import argcomplete
 from . import (
     load,
     Error,
@@ -653,8 +653,6 @@ def runner(
             sys.exit(0)
 
         # debug logging
-        import importlib_metadata  # delayed heavy import
-
         versionlog = {"python": sys.version}
         for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
             pkver = pkg_version(pkg)

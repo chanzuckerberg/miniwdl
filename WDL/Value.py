@@ -13,7 +13,7 @@ import base64
 import hashlib
 from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
-from . import Error, Type, Env, Expr
+from . import Error, Type, Env
 
 
 class Base(ABC):

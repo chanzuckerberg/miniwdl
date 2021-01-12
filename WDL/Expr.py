@@ -14,7 +14,7 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable
 from .Error import SourcePosition, SourceNode
-from . import Type, Value, Env, Error, StdLib, Tree
+from . import Type, Value, Env, Error, StdLib
 
 
 class Base(SourceNode, ABC):

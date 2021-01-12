@@ -28,7 +28,7 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
-from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
+from .error import OutputError, Interrupted, Terminated, CommandFailed
 
 
 class TaskContainer(ABC):
