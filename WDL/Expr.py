@@ -14,7 +14,7 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable
 from .Error import SourcePosition, SourceNode
-from . import Type, Value, Env, Error, StdLib, Tree
+from . import Type, Value, Env, Error, StdLib
 
 
 class Base(SourceNode, ABC):
@@ -346,10 +346,12 @@ class String(Base):
     """
     :type: List[Union[str,WDL.Expr.Placeholder]]
 
-    The parts list begins and ends with matching single- or double- quote
-    marks. Between these is a sequence of literal strings and/or
-    interleaved placeholder expressions. Escape sequences in the literals
-    have NOT been decoded.
+    The parts list begins and ends with matching single- or double- quote marks. Between these is
+    a sequence of literal strings and/or interleaved placeholder expressions. Escape sequences in
+    the literals will NOT have been decoded (although the parser will have checked they're valid).
+    Strings arising from task commands leave escape sequences to be interpreted by the shell in the
+    task container. Other string literals have their escape sequences interpreted upon evaluation
+    to string values.
     """
 
     command: bool
@@ -401,8 +403,9 @@ class String(Base):
                 if self.command:
                     ans.append(part)
                 else:
-                    # use python builtins to decode escape sequences
-                    ans.append(str.encode(part).decode("unicode_escape"))
+                    from ._parser import decode_escapes  # avoiding circular import
+
+                    ans.append(decode_escapes(self.pos, part))
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes

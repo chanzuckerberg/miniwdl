@@ -3,25 +3,19 @@ Caching outputs of task/workflow calls (incl. file URI downloader tasks) based o
 inputs. When cached outputs are found for reuse, opens advisory locks (flocks) on any local files
 referenced therein, and updates their access timestamps (atime).
 """
-import abc
-import hashlib
 import json
-import itertools
 import os
 import logging
-import shutil
-import base64
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Iterable, Union
+from typing import Dict, Optional, Union
 from contextlib import AbstractContextManager
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
 from threading import Lock
 
 from . import config
-from .error import CacheOutputFileAgeError
 
-from .. import Env, Value, Type, Document, Tree, Error
+from .. import Env, Value, Type
 from .._util import (
     StructuredLogMessage as _,
     FlockHolder,
@@ -63,25 +57,8 @@ class CallCache(AbstractContextManager):
     def __exit__(self, *args) -> None:
         self._flocker.__exit__(*args)
 
-    def get_digest_for_inputs(self, inputs: Env.Bindings[Value.Base]):
-        """
-        Return sha256 for json of sorted inputs
-        """
-        from .. import values_to_json
-
-        json_inputs = json.dumps(values_to_json(inputs), sort_keys=True).encode("utf-8")
-        sha256 = hashlib.sha256(json_inputs).digest()
-        return base64.b32encode(sha256[:20]).decode().lower()
-
-    def get_digest_for_task(self, task):
-        doc = getattr(task, "parent", None)
-        assert isinstance(doc, Document)
-        task_string = _describe_task(doc, task).encode("utf-8")
-        sha256 = hashlib.sha256(task_string).digest()
-        return base64.b32encode(sha256[:20]).decode().lower()
-
     def get(
-        self, key: str, output_types: Env.Bindings[Type.Base], inputs: Env.Bindings[Value.Base]
+        self, key: str, inputs: Env.Bindings[Value.Base], output_types: Env.Bindings[Type.Base]
     ) -> Optional[Env.Bindings[Value.Base]]:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found, check to ensure the
@@ -91,7 +68,6 @@ class CallCache(AbstractContextManager):
         from .. import values_from_json
 
         file_path = os.path.join(self.call_cache_dir, f"{key}.json")
-        file_coherence_checker = FileCoherence(self._cfg, self._logger)
 
         if not self._cfg["call_cache"].get_bool("get"):
             return None
@@ -101,50 +77,47 @@ class CallCache(AbstractContextManager):
             with open(file_path, "rb") as file_reader:
                 cache = values_from_json(json.loads(file_reader.read()), output_types)  # pyre-fixme
         except FileNotFoundError:
-            self._logger.info(_("call cache miss", cache_path=file_path))
+            self._logger.info(_("call cache miss", cache_file=file_path))
         except Exception as exn:
             self._logger.warning(
-                _("call cache entry present, but unreadable", cache_path=file_path, error=str(exn))
+                _("call cache entry present, but unreadable", cache_file=file_path, error=str(exn))
             )
         if cache:
-            self._logger.notice(_("call cache hit", cache_path=file_path))  # pyre-fixme
-            file_list = set()
-            dir_list = set()
-            # check output and input file timestamps
-
-            def get_files(v: Union[Value.File, Value.Directory]):
-                if isinstance(v, Value.File):
-                    file_list.add(v.value)
-                else:
-                    assert isinstance(v, Value.Directory)
-                    dir_list.add(v.value)
-
-            Value.rewrite_env_paths(cache, get_files)
-            Value.rewrite_env_paths(inputs, get_files)
-            if file_coherence_checker.check_files(file_path, file_list, dir_list):
+            self._logger.notice(_("call cache hit", cache_file=file_path))  # pyre-fixme
+            # check that no files/directories referenced by the inputs & cached outputs are newer
+            # than the cache file itself
+            if _check_files_coherence(
+                self._cfg, self._logger, file_path, inputs
+            ) and _check_files_coherence(self._cfg, self._logger, file_path, cache):
                 return cache
+            else:
+                # otherwise, clean it up
+                try:
+                    os.remove(file_path)
+                except Exception as exn:
+                    self._logger.warning(
+                        _(
+                            "unable to delete invalidated cache entry",
+                            cache_file=file_path,
+                            error=str(exn),
+                        )
+                    )
         return None
 
-    def put(self, task_key: str, input_digest: str, outputs: Env.Bindings[Value.Base]) -> None:
+    def put(self, key: str, outputs: Env.Bindings[Value.Base]) -> None:
         """
         Store call outputs for future reuse
         """
         from .. import values_to_json
 
         if self._cfg["call_cache"].get_bool("put"):
-
-            filepath = os.path.join(self.call_cache_dir, task_key)
-            filename = os.path.join(self.call_cache_dir, f"{task_key}/{input_digest}.json")
-
-            Path(filepath).mkdir(parents=True, exist_ok=True)
-
-            write_atomic(
-                json.dumps(values_to_json(outputs, namespace=""), indent=2), filename  # pyre-ignore
-            )
-            self._logger.info(_("call cache insert", cache_path=filename))
+            filename = os.path.join(self.call_cache_dir, key + ".json")
+            Path(filename).parent.mkdir(parents=True, exist_ok=True)
+            write_atomic(json.dumps(values_to_json(outputs), indent=2), filename)  # pyre-ignore
+            self._logger.info(_("call cache insert", cache_file=filename))
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
-    # and looked up in URI-derived folder structure instead of sqlite db)
+    # and looked up folder structure based on URI instead of opaque digests)
 
     def download_path(self, uri: str, directory: bool = False) -> Optional[str]:
         """
@@ -236,7 +209,7 @@ class CallCache(AbstractContextManager):
     ) -> str:
         """
         Move the downloaded file to the cache location & return the new path; or if the uri isn't
-        cacheable, return the given path.
+        cacheable, memoize the association and return the given path.
         """
         if directory:
             uri = uri.rstrip("/")
@@ -265,16 +238,13 @@ class CallCache(AbstractContextManager):
                     if directory and os.path.isdir(p):
                         rmtree_atomic(p)
                     os.renames(filename, p)
+                    self.flock(p)
                     # the renames() op should be atomic, because the download operation should have
                     # been run under the cache directory (download.py:run_cached)
                     logger.info(_("stored in download cache", uri=uri, cache_path=p))
                     ans = p
         if not p:
-            with self._lock:
-                (self._workflow_directory_downloads if directory else self._workflow_downloads)[
-                    uri
-                ] = ans
-        self.flock(ans)
+            self.memo_download(uri, filename, directory=directory)
         return ans
 
     def download_cacheable(self, uri: str, directory: bool = False) -> Optional[str]:
@@ -282,179 +252,95 @@ class CallCache(AbstractContextManager):
             return None
         return self.download_path(uri, directory=directory)
 
+    def memo_download(
+        self,
+        uri: str,
+        filename: str,
+        directory: bool = False,
+    ) -> None:
+        """
+        Memoize (for the lifetime of self) that filename is a local copy of uri; flock it as well.
+        """
+        with self._lock:
+            memo = self._workflow_directory_downloads if directory else self._workflow_downloads
+            if uri not in memo:
+                memo[uri] = filename
+                self.flock(filename)
+
     def flock(self, filename: str, exclusive: bool = False) -> None:
         self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
 
 
-def _describe_task(doc, task: Tree.Task) -> str:
+def _check_files_coherence(
+    cfg: config.Loader, logger: logging.Logger, cache_file: str, values: Env.Bindings[Value.Base]
+) -> bool:
     """
-    Generate a string describing the content of a WDL task. Right now this is just the task
-    definition excerpted from the WDL document, with some extra bits to cover any struct types
-    used.
+    Verify that none of the files/directories referenced by values are newer than cache_file itself
+    (based on posix mtimes).
     """
-    output_lines = []
+    from .download import able as downloadable
 
-    # WDL version declaration, if any
-    if doc.wdl_version:
-        output_lines.append("version " + doc.wdl_version)
-
-    # Insert comments describing struct types used in the task.
-    # Originally, we wanted to excerpt/generate the full struct type definitions and produce valid
-    # standalone WDL. But, there were complications: because a struct type can be imported from
-    # another document and aliased to a different name while doing so, it's possible that the task
-    # document refers to the struct by a different name than its original definition. Moreover, the
-    # struct might have members that are other structs, which could also be aliased in the current
-    # document. So generating valid WDL would involve tricky rewriting of the original struct
-    # definitions using one consistent set of names.
-    # To avoid dealing with this, instead we just generate comments describing the members of each
-    # struct type as named in the task's document. This description (type_id) applies recursively
-    # for any members that are themselves structs, making it independent of all struct type names.
-    #   https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.StructTypeDef.type_id
-    structs = _describe_struct_types(task)
-    for struct_name in sorted(structs.keys()):
-        output_lines.append(f"# {struct_name} :: {structs[struct_name]}")
-
-    # excerpt task{} from document
-    # Possible future improvements:
-    # excise the meta & parameter_meta sections
-    # normalize order of declarations
-    # normalize whitespace within lines (not leading/trailing)
-    output_lines += _excerpt(doc, task.pos, [task.command.pos])
-
-    return "\n".join(output_lines).strip()
-
-
-def _describe_struct_types(task: Tree.Task) -> Dict[str, str]:
-    """
-    Scan all declarations in the task for uses of struct types; produce a mapping from struct name
-    to its type_id (a string describing the struct's members, independent of struct names).
-    """
-    structs = {}
-    items: List[Any] = list(task.children)
-    while items:
-        item = items.pop()
-        if isinstance(item, Tree.Decl):
-            items.append(item.type)
-        elif isinstance(item, Type.StructInstance):
-            structs[item.type_name] = item.type_id
-        elif isinstance(item, Type.Base):
-            # descent into compound types so we'll cover e.g. Array[MyStructType]
-            for par_ty in item.parameters:
-                items.append(par_ty)
-    return structs
-
-
-def _excerpt(
-    doc: Tree.Document, pos: Error.SourcePosition, literals: List[Error.SourcePosition]
-) -> List[str]:
-    """
-    Excerpt the document's source lines indicated by pos : WDL.SourcePosition. Delete comments,
-    blank lines, and leading/trailing whitespace from each line -- except those indicated by
-    literals.
-    """
-
-    def clean(line: int, column: int = 1, end_column: Optional[int] = None) -> List[str]:
-        literal = next(
-            (True for lit in literals if line >= lit.line and line <= lit.end_line), False
-        )
-        comment = doc.source_comments[line - 1]
-        if comment and not literal:
-            assert comment.pos.line == line
-            if end_column is None:
-                end_column = comment.pos.column - 1
-            else:
-                end_column = min(end_column, comment.pos.column - 1)
-        txt = doc.source_lines[line - 1][(column - 1) : end_column]
-        if literal:
-            return [txt]
-        txt = txt.strip()
-        return [txt] if txt else []
-
-    if pos.end_line == pos.line:
-        return clean(pos.line, pos.column, pos.end_column)
-    return list(
-        itertools.chain(
-            clean(pos.line, pos.column),
-            *(clean(line_nr) for line_nr in range(pos.line + 1, pos.end_line)),
-            clean(pos.end_line, 1, pos.end_column),
-        )
-    )
-
-
-class FileCoherence(abc.ABC):
-    """
-    Class to check for file coherence when utilizing an output caching system (based on last modification time
-    for cache and referenced files) for files stored locally.
-    """
-
-    _cfg: config.Loader
-    _logger: logging.Logger
-
-    def __init__(self, cfg: config.Loader, logger: logging.Logger):
-        self._cfg = cfg
-        self._logger = logger
-        self.cache_file_modification_time = 0.0
-
-        # working around circular import
-        from .download import able as downloadable
-
-        self._downloadable = downloadable
-
-    def check_files(self, cache_file_path: str, files: Iterable[str], dirs: Iterable[str]) -> bool:
-        if self.cache_file_modification_time == 0.0:
-            self.cache_file_modification_time = self.get_last_modified_time(cache_file_path)
-
-        def raiser(exc):
-            raise exc
-
-        for directory, path in itertools.chain(
-            ((False, f) for f in files), ((True, d) for d in dirs)
-        ):
-            try:
-                if not self._downloadable(self._cfg, path):
-                    self.check_cache_younger_than_file(path)
-                    if directory:
-                        # check everything in directory
-                        for root, subdirs, subfiles in os.walk(
-                            path, onerror=raiser, followlinks=False
-                        ):
-                            for subdir in subdirs:
-                                self.check_cache_younger_than_file(os.path.join(root, subdir))
-                            for fn in subfiles:
-                                self.check_cache_younger_than_file(os.path.join(root, fn))
-            except (FileNotFoundError, NotADirectoryError, CacheOutputFileAgeError):
-                self._logger.warning(
-                    _(
-                        "cache entry invalid due to deleted or modified file/directory",
-                        cache_path=path,
-                        file_changed=path,
-                    )
-                )
-                try:
-                    os.remove(cache_file_path)
-                except Exception as exn:
-                    self._logger.warning(
-                        _(
-                            "unable to delete invalidated cache entry",
-                            cache_path=path,
-                            error=str(exn),
-                        )
-                    )
-                return False
-        return True
-
-    def get_last_modified_time(self, file_path: str) -> float:
+    def mtime(path: str) -> float:
         # max mtime of hardlink & symlink pointing to it (if applicable)
         return max(
-            os.stat(file_path, follow_symlinks=False).st_mtime_ns,
-            os.stat(file_path, follow_symlinks=True).st_mtime_ns,
+            os.stat(path, follow_symlinks=False).st_mtime_ns,
+            os.stat(path, follow_symlinks=True).st_mtime_ns,
         )
 
-    def check_cache_younger_than_file(self, output_file_path: str) -> bool:
-        output_file_modification_time = self.get_last_modified_time(output_file_path)
-        # self._logger.debug(_("check_cache_younger_than_file", path=output_file_path,
-        # mtime=output_file_modification_time/1e9, cache_mtime=self.cache_file_modification_time/1e9))
-        if self.cache_file_modification_time >= output_file_modification_time:
-            return True
-        else:
-            raise CacheOutputFileAgeError
+    def raiser(exc):
+        raise exc
+
+    cache_file_mtime = mtime(cache_file)
+
+    def check_one(v: Union[Value.File, Value.Directory]):
+        assert isinstance(v, (Value.File, Value.Directory))
+        if not downloadable(cfg, v.value):
+            try:
+                if mtime(v.value) > cache_file_mtime:
+                    raise StopIteration
+                if isinstance(v, Value.Directory):
+                    # check everything in directory
+                    for root, subdirs, subfiles in os.walk(
+                        v.value, onerror=raiser, followlinks=False
+                    ):
+                        for subdir in subdirs:
+                            if mtime(os.path.join(root, subdir)) > cache_file_mtime:
+                                raise StopIteration
+                        for fn in subfiles:
+                            if mtime(os.path.join(root, fn)) > cache_file_mtime:
+                                raise StopIteration
+            except (FileNotFoundError, NotADirectoryError, StopIteration):
+                logger.warning(
+                    _(
+                        "cache entry invalid due to deleted or modified file/directory",
+                        cache_file=cache_file,
+                        changed=v.value,
+                    )
+                )
+                raise StopIteration
+
+    try:
+        Value.rewrite_env_paths(values, check_one)
+        return True
+    except StopIteration:
+        return False
+
+
+_backends_lock = Lock()
+_backends = {}
+
+
+def new(cfg: config.Loader, logger: logging.Logger) -> CallCache:
+    """
+    Instantiate a CallCache, either the built-in implementation or a plugin-defined subclass per
+    the configuration.
+    """
+    global _backends
+    with _backends_lock:
+        if not _backends:
+            for plugin_name, plugin_cls in config.load_plugins(cfg, "cache_backend"):
+                _backends[plugin_name] = plugin_cls
+        impl_cls = _backends[cfg["call_cache"]["backend"]]
+    ans = impl_cls(cfg, logger)
+    assert isinstance(ans, CallCache)
+    return ans

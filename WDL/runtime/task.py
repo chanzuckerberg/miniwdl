@@ -12,7 +12,7 @@ import glob
 import threading
 import shutil
 import re
-from typing import Tuple, List, Dict, Optional, Callable, Iterable, Set, Any, Union
+from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union
 from contextlib import ExitStack
 
 from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
@@ -31,9 +31,8 @@ from .._util import (
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
-from .cache import CallCache
-from .error import OutputError, Interrupted, Terminated, CommandFailed, RunFailed, error_json
-from .task_container import TaskContainer, new as new_task_container
+from .cache import CallCache, new as new_call_cache
+from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
 
 
 def run_local_task(
@@ -58,6 +57,7 @@ def run_local_task(
                     (defaults to current working directory).
                     If the final path component is ".", then operate in run_dir directly.
     """
+    from .task_container import new as new_task_container  # delay heavy import
 
     _run_id_stack = _run_id_stack or []
     run_id = run_id or task.name
@@ -94,21 +94,17 @@ def run_local_task(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"))
 
         if not _run_id_stack:
-            cache = _cache or cleanup.enter_context(CallCache(cfg, logger))
+            cache = _cache or cleanup.enter_context(new_call_cache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
+            cache.flock(run_dir, exclusive=True)
         else:
             cache = _cache
         assert cache
 
         container = None
         try:
-            input_digest = cache.get_digest_for_inputs(inputs)
-            task_digest = cache.get_digest_for_task(task)
-            cached = cache.get(
-                key=f"{task.name}_{task_digest}/{input_digest}",
-                output_types=task.effective_outputs,
-                inputs=inputs,
-            )
+            cache_key = f"{task.name}/{task.digest}/{Value.digest_env(inputs)}"
+            cached = cache.get(cache_key, inputs, task.effective_outputs)
             if cached is not None:
                 for decl in task.outputs:
                     v = cached[decl.name]
@@ -207,7 +203,7 @@ def run_local_task(
                 )
                 logger.notice("done")  # pyre-fixme
                 if not run_id.startswith("download-"):
-                    cache.put(f"{task.name}_{task_digest}", input_digest, outputs)
+                    cache.put(cache_key, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
             logger.debug(traceback.format_exc())
@@ -322,7 +318,7 @@ def _eval_task_inputs(
     logger: logging.Logger,
     task: Tree.Task,
     posix_inputs: Env.Bindings[Value.Base],
-    container: TaskContainer,
+    container: "runtime.task_container.TaskContainer",
 ) -> Env.Bindings[Value.Base]:
 
     # Map all the provided input File & Directory paths to in-container paths
@@ -410,7 +406,7 @@ def _eval_task_runtime(
     logger: logging.Logger,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
-    container: TaskContainer,
+    container: "runtime.task_container.TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
 ) -> Dict[str, Union[int, str]]:
@@ -431,8 +427,15 @@ def _eval_task_runtime(
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
     ans = {}
 
-    docker_value = runtime_values.get("docker", None)
-    if docker_value:
+    if "inlineDockerfile" in runtime_values:
+        # join Array[String]
+        dockerfile = runtime_values["inlineDockerfile"]
+        if not isinstance(dockerfile, Value.Array):
+            dockerfile = Value.Array(dockerfile.type, [dockerfile])
+        dockerfile = "\n".join(elt.coerce(Type.String()).value for elt in dockerfile.value)
+        ans["inlineDockerfile"] = dockerfile
+    elif "docker" in runtime_values:
+        docker_value = runtime_values["docker"]
         if isinstance(docker_value, Value.Array) and len(docker_value.value):
             # TODO: ask TaskContainer to choose preferred candidate
             docker_value = docker_value.value[0]
@@ -491,7 +494,7 @@ def _eval_task_runtime(
     unused_keys = list(
         key
         for key in runtime_values
-        if key not in ("cpu", "memory", "container") and key not in ans
+        if key not in ("cpu", "memory", "docker", "container") and key not in ans
     )
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
@@ -502,7 +505,7 @@ def _eval_task_runtime(
 def _try_task(
     cfg: config.Loader,
     logger: logging.Logger,
-    container: TaskContainer,
+    container: "runtime.task_container.TaskContainer",
     command: str,
     terminating: Callable[[], bool],
 ) -> None:
@@ -510,6 +513,8 @@ def _try_task(
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
     Interrupted errors, plus up to runtime.maxRetries occurrences of any error.
     """
+    from docker.errors import BuildError as DockerBuildError  # delay heavy import
+
     max_retries = container.runtime_values.get("maxRetries", 0)
     max_interruptions = container.runtime_values.get("preemptible", 0)
     retries = 0
@@ -547,7 +552,7 @@ def _try_task(
                     )
                 )
                 interruptions += 1
-            elif not isinstance(exn, Terminated) and retries < max_retries:
+            elif not isinstance(exn, (Terminated, DockerBuildError)) and retries < max_retries:
                 logger.error(
                     _(
                         "failed task will be retried",
@@ -565,7 +570,10 @@ def _try_task(
 
 
 def _eval_task_outputs(
-    logger: logging.Logger, task: Tree.Task, env: Env.Bindings[Value.Base], container: TaskContainer
+    logger: logging.Logger,
+    task: Tree.Task,
+    env: Env.Bindings[Value.Base],
+    container: "runtime.task_container.TaskContainer",
 ) -> Env.Bindings[Value.Base]:
 
     # helper to rewrite File/Directory from in-container paths to host paths
@@ -725,7 +733,10 @@ def link_outputs(
 
 
 def _delete_work(
-    cfg: config.Loader, logger: logging.Logger, container: Optional[TaskContainer], success: bool
+    cfg: config.Loader,
+    logger: logging.Logger,
+    container: "Optional[runtime.task_container.TaskContainer]",
+    success: bool,
 ) -> None:
     opt = cfg["file_io"]["delete_work"].strip().lower()
     if container and (
@@ -741,11 +752,15 @@ def _delete_work(
 
 class _StdLib(StdLib.Base):
     logger: logging.Logger
-    container: TaskContainer
+    container: "runtime.task_container.TaskContainer"
     inputs_only: bool  # if True then only permit access to input files
 
     def __init__(
-        self, wdl_version: str, logger: logging.Logger, container: TaskContainer, inputs_only: bool
+        self,
+        wdl_version: str,
+        logger: logging.Logger,
+        container: "runtime.task_container.TaskContainer",
+        inputs_only: bool,
     ) -> None:
         super().__init__(wdl_version, write_dir=os.path.join(container.host_dir, "write_"))
         self.logger = logger
@@ -772,13 +787,23 @@ class _StdLib(StdLib.Base):
 
 class InputStdLib(_StdLib):
     # StdLib for evaluation of task inputs and command
-    def __init__(self, wdl_version: str, logger: logging.Logger, container: TaskContainer) -> None:
+    def __init__(
+        self,
+        wdl_version: str,
+        logger: logging.Logger,
+        container: "runtime.task_container.TaskContainer",
+    ) -> None:
         super().__init__(wdl_version, logger, container, True)
 
 
 class OutputStdLib(_StdLib):
     # StdLib for evaluation of task outputs
-    def __init__(self, wdl_version: str, logger: logging.Logger, container: TaskContainer) -> None:
+    def __init__(
+        self,
+        wdl_version: str,
+        logger: logging.Logger,
+        container: "runtime.task_container.TaskContainer",
+    ) -> None:
         super().__init__(wdl_version, logger, container, False)
 
         setattr(

@@ -13,6 +13,8 @@ import os
 import errno
 import itertools
 import asyncio
+import hashlib
+import base64
 from typing import (
     Any,
     List,
@@ -438,6 +440,44 @@ class Task(SourceNode):
             # pyre-ignore
             _decl_dependency_matrix([ch for ch in self.children if isinstance(ch, Decl)])
         )
+
+    _digest: str = ""
+
+    @property
+    def digest(self) -> str:
+        """
+        Content digest of the task, for use e.g. as a cache key. The digest is an opaque string of
+        a few dozen alphanumeric characters, sensitive to the task's source code (with best effort
+        to exclude comments and whitespace).
+        """
+        if self._digest:
+            return self._digest
+        sha256 = hashlib.sha256(self._digest_source().encode("utf-8")).digest()
+        self._digest = base64.b32encode(sha256[:20]).decode().lower()
+        return self._digest
+
+    def _digest_source(self) -> str:
+        doc = getattr(self, "parent", None)
+        assert isinstance(doc, Document)
+
+        # For now we just excerpt the task's source code, minus comments and blank lines, plus
+        # annotations for the WDL version and struct types.
+        source_lines = []
+        if doc.wdl_version:
+            source_lines.append("version " + doc.wdl_version)
+
+        # Insert comments describing struct types used in the task.
+        structs = _describe_struct_types(self)
+        for struct_name in sorted(structs.keys()):
+            source_lines.append(f"# {struct_name} :: {structs[struct_name]}")
+
+        # excerpt task{} from document
+        # Possible future improvements:
+        # excise the meta & parameter_meta sections
+        # normalize order of declarations
+        # normalize whitespace within lines (not leading/trailing)
+        source_lines += _source_excerpt(doc, self.pos, [self.command.pos])
+        return "\n".join(source_lines).strip()
 
 
 class Call(WorkflowNode):
@@ -1212,6 +1252,47 @@ class Workflow(SourceNode):
                 visit(ch)
         return self._nodes_by_id[workflow_node_id]
 
+    _digest: str = ""
+
+    @property
+    def digest(self) -> str:
+        """
+        Content digest of the workflow, for use e.g. as a cache key. The digest is an opaque string
+        of a few dozen alphanumeric characters, sensitive to the workflow's source code (with best
+        effort to exclude comments and whitespace) and the tasks and subworkflows it calls.
+        """
+        if self._digest:
+            return self._digest
+        sha256 = hashlib.sha256(self._digest_source().encode("utf-8")).digest()
+        self._digest = base64.b32encode(sha256[:20]).decode().lower()
+        return self._digest
+
+    def _digest_source(self) -> str:
+        doc = getattr(self, "parent", None)
+        assert isinstance(doc, Document)
+
+        # For now we just excerpt the workflow's source code, minus comments and blank lines, plus
+        # annotations for the WDL version, struct types, and called tasks & subworkflows.
+        source_lines = []
+        if doc.wdl_version:
+            source_lines.append("version " + doc.wdl_version)
+
+        # Insert comments describing struct types used in the workflow
+        structs = _describe_struct_types(self)
+        for struct_name in sorted(structs.keys()):
+            source_lines.append(f"# {struct_name} :: {structs[struct_name]}")
+
+        # Insert comments with the digests of called tasks & subworkflows (to ensure the workflow
+        # digest will be sensitive to changes in those).
+        for call in _calls(self):
+            callee = call.callee
+            assert isinstance(call, Call) and isinstance(callee, (Task, Workflow))
+            source_lines.append(f"# {'.'.join(call.callee_id)} :: {callee.digest}")
+
+        # excerpt workflow{} from document
+        source_lines += _source_excerpt(doc, self.pos)
+        return "\n".join(source_lines).strip()
+
 
 SourceComment = NamedTuple("SourceComment", [("pos", Error.SourcePosition), ("text", str)])
 """
@@ -1932,3 +2013,74 @@ def _check_serializable_map_keys(t: Type.Base, name: str, node: SourceNode) -> N
             )
     for p in t.parameters:
         _check_serializable_map_keys(p, name, node)
+
+
+def _describe_struct_types(exe: Union[Task, Workflow]) -> Dict[str, str]:
+    """
+    Traverse the task/workflow AST to find all struct types used; produce a mapping from struct
+    name to its type_id (a string describing the struct's members, independent of the struct name,
+    as the latter can differ across documents).
+    """
+    structs = {}
+    items: List[Any] = list(exe.children)
+    while items:
+        item = items.pop()
+        if isinstance(item, Type.StructInstance):
+            structs[item.type_name] = item.type_id
+        elif isinstance(item, Type.Base):
+            # descent into compound types so we'll cover e.g. Array[MyStructType]
+            for par_ty in item.parameters:
+                items.append(par_ty)
+        elif isinstance(item, Expr.Base):
+            # descent into expressions to find struct literals
+            if isinstance(item, Expr.Struct):
+                items.append(item.type)
+            items.extend(item.children)
+        elif isinstance(item, Decl):
+            items.append(item.type)
+            items.append(item.expr)
+        elif isinstance(item, WorkflowSection):
+            items.extend(item.children)
+        elif isinstance(item, Call):
+            items.extend(item.available_inputs)
+            for b in item.effective_outputs:
+                items.append(b.value)
+    return structs
+
+
+def _source_excerpt(
+    doc: Document, pos: SourcePosition, literals: Optional[List[SourcePosition]] = None
+) -> List[str]:
+    """
+    Excerpt the document's source lines indicated by pos : WDL.SourcePosition. Delete comments,
+    blank lines, and leading/trailing whitespace from each line -- except those indicated by
+    literals.
+    """
+    literals = literals if literals else []
+
+    def clean(line: int, column: int = 1, end_column: Optional[int] = None) -> List[str]:
+        literal = next(
+            (True for lit in literals if line >= lit.line and line <= lit.end_line), False
+        )
+        comment = doc.source_comments[line - 1]
+        if comment and not literal:
+            assert comment.pos.line == line
+            if end_column is None:
+                end_column = comment.pos.column - 1
+            else:
+                end_column = min(end_column, comment.pos.column - 1)
+        txt = doc.source_lines[line - 1][(column - 1) : end_column]
+        if literal:
+            return [txt]
+        txt = txt.strip()
+        return [txt] if txt else []
+
+    if pos.end_line == pos.line:
+        return clean(pos.line, pos.column, pos.end_column)
+    return list(
+        itertools.chain(
+            clean(pos.line, pos.column),
+            *(clean(line_nr) for line_nr in range(pos.line + 1, pos.end_line)),
+            clean(pos.end_line, 1, pos.end_column),
+        )
+    )

@@ -2,7 +2,7 @@
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
-from typing import Optional, TypeVar, Generic, Any, Callable, Union, Set, Iterator
+from typing import Optional, TypeVar, Generic, Any, Callable, Set, Iterator
 
 T = TypeVar("T")
 S = TypeVar("S")

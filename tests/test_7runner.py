@@ -5,10 +5,11 @@ import random
 import os
 import shutil
 import json
+import time
 import docker
+import platform
 from testfixtures import log_capture
 from .context import WDL
-
 
 class RunnerTestCase(unittest.TestCase):
     """
@@ -159,7 +160,7 @@ class TestDirectoryIO(RunnerTestCase):
 
         assert len(outp["d_out"]) == 2
         assert os.path.islink(outp["d_out"][0])
-        assert os.path.realpath(outp["d_out"][0]) == os.path.join(self._dir, "d")
+        assert os.path.realpath(outp["d_out"][0]) == os.path.realpath(os.path.join(self._dir, "d"))
         assert os.path.isdir(outp["d_out"][1])
         assert os.path.islink(outp["d_out"][1])
         assert os.path.basename(outp["d_out"][1]) == "outdir"
@@ -172,7 +173,7 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl, {"d": os.path.join(self._dir, "d")}, cfg=cfg)
         assert len(outp["d_out"]) == 2
         assert not os.path.islink(outp["d_out"][0])
-        assert os.path.realpath(outp["d_out"][0]) != os.path.join(self._dir, "d")
+        assert os.path.realpath(outp["d_out"][0]) != os.path.realpath(os.path.join(self._dir, "d"))
         assert os.path.isdir(outp["d_out"][1])
         assert not os.path.islink(outp["d_out"][1])
         assert os.path.basename(outp["d_out"][1]) == "outdir"
@@ -326,7 +327,7 @@ class TestDirectoryIO(RunnerTestCase):
 class TestNoneLiteral(RunnerTestCase):
     def test_none_eval(self):
         wdl = R"""
-        version development
+        version 1.1
         struct Car {
             String make
             String? model
@@ -369,7 +370,7 @@ class TestNoneLiteral(RunnerTestCase):
 class TestCallAfter(RunnerTestCase):
     def test_call_after(self):
         wdl = R"""
-        version development
+        version 1.1
         task nop {
             input {
                 Int? y = 0
@@ -404,7 +405,7 @@ class TestCallAfter(RunnerTestCase):
 
         with self.assertRaises(WDL.Error.NoSuchCall):
             self._run(R"""
-            version development
+            version 1.1
             task nop {
                 input {}
                 command {}
@@ -420,7 +421,7 @@ class TestCallAfter(RunnerTestCase):
 
         with self.assertRaises(WDL.Error.CircularDependencies):
             self._run(R"""
-            version development
+            version 1.1
             task nop {
                 input {}
                 command {}
@@ -756,6 +757,8 @@ class MiscRegressionTests(RunnerTestCase):
                 filenames.append(c)
             filenames.append(c + ''.join(random.choices(chars,k=11)))
         assert filenames == list(sorted(filenames))
+        if platform.system() == "Darwin":  # macOS is case-insensitive
+            filenames = list(set(fn.lower() for fn in filenames))
         filenames.append('ThisIs{{AVeryLongFilename }}abc...}}xzy1234567890!@{{నేనుÆды.test.ext')
 
         inputs = {"files": []}
@@ -811,3 +814,91 @@ class MiscRegressionTests(RunnerTestCase):
         euid = os.geteuid()
         for fn in outp["files_out"]:
             assert os.stat(fn).st_uid == euid
+
+
+class TestInlineDockerfile(RunnerTestCase):
+    @log_capture()
+    def test1(self, capture):
+        wdl = """
+        version development
+        workflow w {
+            call t
+        }
+        task t {
+            input {
+                Array[String]+ apt_pkgs
+                Float timestamp
+            }
+            command <<<
+                set -euxo pipefail
+                apt list --installed | tr '/' $'\t' | sort > installed.txt
+                sort "~{write_lines(apt_pkgs)}" > expected.txt
+                join -j 1 -v 2 installed.txt expected.txt > missing.txt
+                if [ -s missing.txt ]; then
+                    >&2 cat missing.txt
+                    exit 1
+                fi
+            >>>
+            runtime {
+                inlineDockerfile: [
+                    "FROM ubuntu:20.04",
+                    "RUN apt-get -qq update && apt-get install -y ${sep(' ', apt_pkgs)}",
+                    "RUN touch ${timestamp}"
+                ]
+                maxRetries: 1
+            }
+        }
+        """
+        t = time.time()  # to ensure the image is built anew on every test run
+        self._run(wdl, {"t.apt_pkgs": ["samtools", "tabix"], "t.timestamp": t})
+        self._run(wdl, {"t.apt_pkgs": ["samtools", "tabix"], "t.timestamp": t})
+        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("docker build cached")]
+        self.assertEqual(len(logs), 1)
+        self._run(wdl, {"t.apt_pkgs": ["bogusfake123"], "t.timestamp": t}, expected_exception=docker.errors.BuildError)
+
+
+class TestAbbreviatedCallInput(RunnerTestCase):
+
+    def test_docker(self):
+        caller = R"""
+        version 1.1
+        workflow caller {
+            input {
+                String message
+                String docker
+            }
+            call contrived as contrived1 {
+                input:
+                message = "~{message}1",
+                docker
+            }
+            call contrived as contrived2 {
+                input:
+                message = "~{message}2",
+                docker
+            }
+            output {
+                Array[String] results = [contrived1.result, contrived2.result]
+            }
+        }
+        task contrived {
+            input {
+                String message
+                String docker
+            }
+            command <<<
+                echo "~{message}"
+                cat /etc/issue
+            >>>
+            output {
+                String result = read_string(stdout())
+            }
+            runtime {
+                docker: docker
+            }
+        }
+        """
+        outputs = self._run(caller, {"message": "hello", "docker": "ubuntu:bionic"})
+        assert sum("18.04" in msg for msg in outputs["results"]) == 2
+        outputs = self._run(caller, {"message": "hello", "docker": "ubuntu:focal"})
+        assert sum("20.04" in msg for msg in outputs["results"]) == 2

@@ -1,4 +1,4 @@
-import unittest, inspect, json
+import unittest, inspect, json, random
 from .context import WDL
 
 class TestEval(unittest.TestCase):
@@ -156,7 +156,7 @@ class TestEval(unittest.TestCase):
             ("4%2","0"),
             ("4%3","1"),
             ("min(0,1)","0"),
-            ("max(1,3.14)*2","6.28"),
+            ("max(1,3.14)*2","6.280000"),
             ("1 + false", "(Ln 1, Col 1) Non-numeric operand to + operator", WDL.Error.IncompatibleOperand),
             ("min(max(0,1),true)", "(Ln 1, Col 1) Non-numeric operand to min operator", WDL.Error.IncompatibleOperand),
         )
@@ -190,8 +190,11 @@ class TestEval(unittest.TestCase):
             ('"true" != "bar"', 'true', WDL.Type.Boolean()),
             ('"foo" + "bar"', '"foobar"'),
             ('"foo" + 1', '"foo1"'),
-            ('2.0 + "bar"', '"2.0bar"'),
+            ('2.0 + "bar"', '"2.000000bar"'),
             ('17 + "42"', '"1742"'),
+            ('3.141 + ""', '"3.141000"'),
+            ('3.141 * 1E-10 + ""', '"0.000000"'),
+            ('3.141 * 1E10 + ""', '"31410000000.000000"'),
             (""" 'foo' + "bar" """, '"foobar"'),
             ('"{"', '"{"', WDL.Type.String()),
             ('"$" + "$"', '"$$"', WDL.Type.String()))
@@ -202,6 +205,30 @@ class TestEval(unittest.TestCase):
              r'''"CNN is working frantically to find their \"source.\""'''),
             (r"""'The fact is that many anonymous sources don\'t even exist.'""",
              r'''"The fact is that many anonymous sources don't even exist."''')
+        )
+        self._test_tuples(
+            (r'''"\\\n\t\'\"\012\x0aనేనుÆды\u0000"''', json.dumps("\\\n\t'\"\n\nనేనుÆды\x00")),
+            (r'''"\xyz"''', None, WDL.Error.SyntaxError),
+            (r'''"\u"''', None, WDL.Error.SyntaxError),
+            (r'''"\uvwxyz"''', None, WDL.Error.SyntaxError),
+        )
+        chars = [c for c in (chr(i) for i in range(1,4096)) if c not in "\"'\\\n$~"]
+        junk = []
+        for c in chars:
+            junk.append(c)
+            junk.append(c + ''.join(random.choices(chars,k=15)))
+        for i in range(len(junk)):
+            junk[i] = ('"' + junk[i] + '"', json.dumps(junk[i]))
+        self._test_tuples(*junk)
+
+    def test_compound_equality(self):
+        self._test_tuples(
+            ("[1, 2, 3] == [1,2,3]", "true"),
+            ("[1, 2, 3] == [2, 1, 3]", "false"),
+            ('{"a": 1, "b": 2} == {"a": 1, "b": 2}', "true"),
+            ('{"a": 1, "b": 2} == {"b": 2, "a": 1}', "false"),
+            ('1 == None', "false", "development"),
+            ('None == None', "true", "development")
         )
 
     def test_if(self):
@@ -214,10 +241,10 @@ class TestEval(unittest.TestCase):
             ("if 1>0 then if true then 1 else 2 else 3","1"),            
             ("if 3.14 then 0 else 1", "(Ln 1, Col 1) Expected Boolean instead of Float; in if condition", WDL.Error.StaticTypeMismatch),
             ("if 0 < 1 then 0 else false", "(Ln 1, Col 1) Expected Int instead of Boolean (unable to unify consequent & alternative types)", WDL.Error.StaticTypeMismatch),
-            ("if true then 1 else 2.0", "1.0", WDL.Type.Float()),
-            ("if false then 1 else 2.0", "2.0", WDL.Type.Float()),
-            ("if true then 1.0 else 2", "1.0", WDL.Type.Float()),
-            ("if false then 1.0 else 2", "2.0", WDL.Type.Float())
+            ("if true then 1 else 2.0", "1.000000", WDL.Type.Float()),
+            ("if false then 1 else 2.0", "2.000000", WDL.Type.Float()),
+            ("if true then 1.0 else 2", "1.000000", WDL.Type.Float()),
+            ("if false then 1.0 else 2", "2.000000", WDL.Type.Float())
         )
 
     def test_array(self):
@@ -250,15 +277,15 @@ class TestEval(unittest.TestCase):
 
     def test_float_coercion(self):
         self._test_tuples(
-            ("1 + 1.0", "2.0", WDL.Type.Float()),
-            ("1.0 + 1", "2.0", WDL.Type.Float()),
+            ("1 + 1.0", "2.000000", WDL.Type.Float()),
+            ("1.0 + 1", "2.000000", WDL.Type.Float()),
             ("1 == 1.0", "true"),
             ("1 == 1.1", "false"),
             ("1 != 1.1", "true"),
             ("1 < 1.0", "false"),
             ("1 <= 1.0", "true"),
-            ("[1, 2.0]", "[1.0, 2.0]", WDL.Type.Array(WDL.Type.Float())),
-            ("[1, 2.0][0]", "1.0", WDL.Type.Float()),
+            ("[1, 2.0]", "[1.000000, 2.000000]", WDL.Type.Array(WDL.Type.Float())),
+            ("[1, 2.0][0]", "1.000000", WDL.Type.Float()),
             # TODO: more sophisticated unification algo to handle this
             # ("[[1],[2.0]]", "[[1.0], [2.0]]", WDL.Type.Array(WDL.Type.Float())),
         )
@@ -270,11 +297,11 @@ class TestEval(unittest.TestCase):
                         ("lefty", WDL.Value.Boolean(False)),
                         ("left_recursive", WDL.Value.Boolean(False)))
         self._test_tuples(
-            ("pi", "3.14159", WDL.Type.Float(), env),
+            ("pi", "3.141590", WDL.Type.Float(), env),
             ("bogus", "(Ln 1, Col 1) Unknown identifier", WDL.Error.UnknownIdentifier, env),
-            ("pi+e", "5.85987", env),
+            ("pi+e", "5.859870", env),
             ("t||f", "true", WDL.Type.Boolean(), env),
-            ("if t then pi else e", "3.14159", env),
+            ("if t then pi else e", "3.141590", env),
             ("true_rep_only", "false", env),
             ("lefty", "false", env),
             ("left_recursive", "false", env)
@@ -286,9 +313,9 @@ class TestEval(unittest.TestCase):
                         ("t", WDL.Value.Boolean(True)), ("f", WDL.Value.Boolean(False)),
                         ("s", WDL.Value.String("foo")))
         self._test_tuples(
-            ('"${pi}"', '"3.14159"', env),
-            ('"pi = ${pi}!"', '"pi = 3.14159!"', env),
-            ('"pi+e = ${pi+e}!"', '"pi+e = 5.85987!"', env),
+            ('"${pi}"', '"3.141590"', env),
+            ('"pi = ${pi}!"', '"pi = 3.141590!"', env),
+            ('"pi+e = ${pi+e}!"', '"pi+e = 5.859870!"', env),
             ("'This is ${t}'", '"This is true"', env),
             ("'${f} is ${f}'", '"false is false"', env),
             ("'${s}bar'", '"foobar"', env),
@@ -298,23 +325,23 @@ class TestEval(unittest.TestCase):
             ("'The U.$. is re$pected again!'",'"The U.$. is re$pected again!"')
         )
         self._test_tuples(
-            ('"${pi} ~{pi}$"', '"3.14159 ~{pi}$"', env, "draft-2"),
-            ("'${pi} ~{pi}$'", '"3.14159 ~{pi}$"', env, "draft-2"),
-            ('"${pi} ~{pi}$"', '"3.14159 3.14159$"', env, "1.0"),
-            ("'${pi} ~{pi}~'", '"3.14159 3.14159~"', env, "1.0"),
-            ("'$${pi}$'", '"$3.14159$"', env, "draft-2"),
-            ('"$${pi}$$"', '"$3.14159$$"', env, "draft-2"),
-            ("'$${pi}$'", '"$3.14159$"', env, "1.0"),
-            ("'$${pi}$$'", '"$3.14159$$"', env, "1.0"),
-            ("'$$${pi}~'", '"$$3.14159~"', env, "1.0"),
-            ("'~~{pi}~'", '"~3.14159~"', env, "1.0"),
-            ('"~~{pi}~"', '"~3.14159~"', env, "1.0"),
-            ("'~~${pi}~'", '"~~3.14159~"', env, "1.0"),
-            ("'$~{pi}~~'", '"$3.14159~~"', env, "1.0"),
-            ("'$~${pi}~~'", '"$~3.14159~~"', env, "1.0"),
-            ("'~{if f then '~{pi}' else '~{e}'}'", '"2.71828"', env, "1.0"),
-            ("""'~{if f then "~{pi}" else "~{e}"}'""", '"2.71828"', env, "1.0"),
-            (""" "~{if f then "~{pi}" else "~{e}"}" """, '"2.71828"', env, "1.0"),
+            ('"${pi} ~{pi}$"', '"3.141590 ~{pi}$"', env, "draft-2"),
+            ("'${pi} ~{pi}$'", '"3.141590 ~{pi}$"', env, "draft-2"),
+            ('"${pi} ~{pi}$"', '"3.141590 3.141590$"', env, "1.0"),
+            ("'${pi} ~{pi}~'", '"3.141590 3.141590~"', env, "1.0"),
+            ("'$${pi}$'", '"$3.141590$"', env, "draft-2"),
+            ('"$${pi}$$"', '"$3.141590$$"', env, "draft-2"),
+            ("'$${pi}$'", '"$3.141590$"', env, "1.0"),
+            ("'$${pi}$$'", '"$3.141590$$"', env, "1.0"),
+            ("'$$${pi}~'", '"$$3.141590~"', env, "1.0"),
+            ("'~~{pi}~'", '"~3.141590~"', env, "1.0"),
+            ('"~~{pi}~"', '"~3.141590~"', env, "1.0"),
+            ("'~~${pi}~'", '"~~3.141590~"', env, "1.0"),
+            ("'$~{pi}~~'", '"$3.141590~~"', env, "1.0"),
+            ("'$~${pi}~~'", '"$~3.141590~~"', env, "1.0"),
+            ("'~{if f then '~{pi}' else '~{e}'}'", '"2.718280"', env, "1.0"),
+            ("""'~{if f then "~{pi}" else "~{e}"}'""", '"2.718280"', env, "1.0"),
+            (""" "~{if f then "~{pi}" else "~{e}"}" """, '"2.718280"', env, "1.0"),
         )
 
     def test_pair(self):
@@ -332,8 +359,8 @@ class TestEval(unittest.TestCase):
             ("(false,[1,2]).right[1]", "2"),
             ("[1,2].left", "", WDL.Error.NoSuchMember),
             ("false.right", "", WDL.Error.NoSuchMember),
-            ("p.left", "3.14159", env),
-            ("p.right", "2.71828", env),
+            ("p.left", "3.141590", env),
+            ("p.right", "2.718280", env),
             ("q.left.left", "4", env),
             ("q.left.right", "2", env)
         )
@@ -341,14 +368,14 @@ class TestEval(unittest.TestCase):
     def test_map(self):
         self._test_tuples(
             ("{'foo': 1, 'bar': 2}['bar']", "2"),
-            ("{'foo': 1, 'bar': 2, 'baz': 3.0}['bar']", "2.0", WDL.Type.Float()),
+            ("{'foo': 1, 'bar': 2, 'baz': 3.0}['bar']", "2.000000", WDL.Type.Float()),
             ("{0: 1, 2: 3}[false]", "", WDL.Error.StaticTypeMismatch),
             ("{0: 1, 2: 3}['foo']", "", WDL.Error.EvalError),
             ("{0: 1, 0: 3}", "", WDL.Error.EvalError),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
             ("{3: 1, false: 2}", "", WDL.Error.IndeterminateType),
             ("{'foo': true, 'bar': 0,}", '{"foo": true, "bar": 0}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))),
-            ("{[1,2]: true, []: false}", '{"[1, 2]": true, "[]": false}', WDL.Type.Map((WDL.Type.Array(WDL.Type.Int()), WDL.Type.Boolean()))),
+            ("{[1,2]: true, []: false}", '{[1, 2]: true, []: false}', WDL.Type.Map((WDL.Type.Array(WDL.Type.Int()), WDL.Type.Boolean()))),
             ("{[1]: true, [1]: false}", "", WDL.Error.EvalError),
             ("{(false, false): 0, (false, true): 1}", "", WDL.Type.Map((WDL.Type.Pair(WDL.Type.Boolean(), WDL.Type.Boolean()), WDL.Type.Int()))),
         )
@@ -457,14 +484,15 @@ class TestValue(unittest.TestCase):
             (WDL.Type.Array(WDL.Type.String(optional=True)), ["apple", "orange", None]),
             (WDL.Type.Map((WDL.Type.String(), WDL.Type.Int())), {"cats": 42, "dogs": 99}),
             (pty, {"name": "Alyssa", "age": 42, "pets": None}),
+            (pty, {"name": "Alyssa", "age": 42}),
             (pty, {"name": "Alyssa", "age": 42, "pets": {"cats": 42, "dogs": 99}}),
             (WDL.Type.Array(WDL.Type.Pair(WDL.Type.String(), WDL.Type.Int())), [{"left": "a", "right": 0},{"left": "b", "right": 1}]),
 
             (WDL.Type.Boolean(), 42, WDL.Error.InputError),
             (WDL.Type.Float(), "your president", WDL.Error.InputError),
             (WDL.Type.String(), None, WDL.Error.InputError),
+            (pty, {"name": "Alyssa"}, WDL.Error.InputError),
             (pty, {"name": "Alyssa", "age": None, "pets": None}, WDL.Error.InputError),
-            (pty, {"name": "Alyssa", "age": 42}, WDL.Error.InputError),
             (pty, {"name": "Alyssa", "age": 42, "pets": None, "address": "No 4, Privet Drive"}, WDL.Error.InputError),
         ]
 

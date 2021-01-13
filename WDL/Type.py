@@ -42,8 +42,6 @@ import copy
 from abc import ABC
 from typing import Optional, Tuple, Dict, Iterable, Set, List
 
-from ._error_util import SourcePosition
-
 
 class Base(ABC):
     """The abstract base class for WDL types
@@ -331,6 +329,16 @@ class Map(Base):
             for opt_k in rhs_keys - self.literal_keys:
                 if not rhs_members[opt_k].optional:
                     return False
+            return True
+        if (
+            isinstance(rhs, StructInstance)
+            and self.literal_keys is None
+            and self.item_type[0] == String()
+        ):
+            # Allow attempt to runtime-coerce a non-literal Map[String,_] to StructInstance.
+            # Unlike a literal, we don't (during static validation) know what the keys will be, so
+            # we can't typecheck it thoroughly (Lint warning will apply). This is used initializing
+            # structs from read_json() or read_objects().
             return True
         if isinstance(rhs, Any):
             return self._check_optional(rhs, check_quant)

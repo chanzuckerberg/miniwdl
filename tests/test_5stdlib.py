@@ -596,6 +596,154 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs["my_ints"], {"key_0": 0, "key_1": 1, "key_2": 2})
 
+    def test_struct_from_read(self):
+        # initialize a struct via Map[String,String] from read_{map,object[s],json}
+
+        alice = {"name": "Alice", "lane": 3, "barcode": "GATTACA"}
+        samplesheet2 = [
+            {"name": "Alice", "lane": 3, "barcode": "GATTACA"},
+            {"name": "Bob", "lane": 4, "barcode": "TGTAATC"},
+        ]
+
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo -e "name\tAlice" >> alice.txt
+                echo -e "lane\t3" >> alice.txt
+                echo -e "barcode\tGATTACA" >> alice.txt
+            >>>
+            output {
+                Sample alice = read_map("alice.txt")
+            }
+        }
+        """)
+        self.assertEqual(outputs["alice"], alice)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo -e "name\tlane\tbarcode" >> alice.txt
+                echo -e "Alice\t3\tGATTACA" >> alice.txt
+                cp alice.txt samplesheet2.txt
+                echo -e "Bob\t4\tTGTAATC" >> samplesheet2.txt
+                touch empty
+            >>>
+            output {
+                Sample alice = read_object("alice.txt")
+                Array[Sample] samplesheet2 = read_objects("samplesheet2.txt")
+                Array[Sample] empty = read_objects("empty")
+            }
+        }
+        """)
+        self.assertEqual(outputs["alice"], alice)
+        self.assertEqual(outputs["samplesheet2"], samplesheet2)
+        self.assertEqual(outputs["empty"], [])
+
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo '{"name":"Alice","lane":3,"barcode":"GATTACA"}' >> alice.txt
+                echo '[' >> samplesheet2.txt
+                cat alice.txt >> samplesheet2.txt
+                echo ',{"name":"Bob","lane":4,"barcode":"TGTAATC"}]' >> samplesheet2.txt
+            >>>
+            output {
+                Sample alice = read_json("alice.txt")
+                Array[Sample] samplesheet2 = read_json("samplesheet2.txt")
+            }
+        }
+        """)
+        self.assertEqual(outputs["alice"], alice)
+        self.assertEqual(outputs["samplesheet2"], samplesheet2)
+
+    def test_bad_object(self):
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                touch empty
+            >>>
+            output {
+                Map[String,String] map = read_object("empty")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                echo -e "one\tone\ttwo" > dup
+            >>>
+            output {
+                Map[String,String] map = read_object("dup")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                echo -e "one\ttwo\tthree" > ragged
+                echo -e "1\t2\t3\t4" >> ragged
+            >>>
+            output {
+                Map[String,String] map = read_object("ragged")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo -e "name\tlane" >> samplesheet2.txt
+                echo -e "Alice\t3" >> samplesheet2.txt
+                echo -e "Bob\t4" >> samplesheet2.txt
+            >>>
+            output {
+                Array[Sample] samplesheet2 = read_objects("samplesheet2.txt")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+    def test_bad_boolean(self):
+        self._test_task(R"""
+        version 1.0
+        task bad_map {
+            command <<<
+                echo foo > bool
+            >>>
+            output {
+                Boolean b = read_boolean("bool")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
     def test_write(self):
         outputs = self._test_task(R"""
         version 1.0

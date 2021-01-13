@@ -2,6 +2,7 @@
 import inspect
 import threading
 import regex
+import codecs
 from typing import List, Optional, Set, Tuple
 import lark
 from .Error import SourcePosition
@@ -37,7 +38,27 @@ def to_float(x):
     return float(x)
 
 
-# Transformer from lark.Tree to WDL.Expr
+class BadCharacterEncoding(Exception):
+    pos: SourcePosition
+
+    def __init__(self, pos: SourcePosition):
+        self.pos = pos
+
+
+# Decode backslash-escape sequences in a str that may also contain unescaped, non-ASCII unicode
+# characters. Inspired by: https://stackoverflow.com/a/24519338/13393076 however that solution
+# fails to reject some invalid escape sequences.
+ASCII_PARTS_RE = regex.compile(r"[\x01-\x7f]+", regex.UNICODE)
+# INVALID_ESCAPE_RE = regex.compile(r'\\(?=[^\n\\\'"abfnrtv0-7xNuU])')
+
+
+def decode_escapes(pos: SourcePosition, s: str):
+    # if INVALID_ESCAPE_RE.search(s):
+    #     raise BadCharacterEncoding(pos)
+    try:
+        return ASCII_PARTS_RE.sub(lambda match: codecs.decode(match.group(0), "unicode-escape"), s)
+    except (SyntaxError, ValueError, UnicodeError):
+        raise BadCharacterEncoding(pos)
 
 
 class _SourcePositionTransformerMixin:
@@ -57,6 +78,7 @@ class _SourcePositionTransformerMixin:
         )
 
 
+# Transformer from lark.Tree to WDL.Expr
 class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
     # pylint: disable=no-self-use,unused-argument
 
@@ -86,6 +108,9 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
             if isinstance(item, Expr.Base):
                 parts.append(Expr.Placeholder(item.pos, {}, item))
             else:
+                # validate escape sequences...
+                decode_escapes(self._sp(meta), item.value)
+                # ...but preserve originals in AST.
                 parts.append(item.value)
         assert len(parts) >= 2
         assert parts[0] in ['"', "'"]
@@ -95,7 +120,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
     def string_literal(self, items, meta):
         assert len(items) == 1
         assert items[0].value.startswith('"') or items[0].value.startswith("'")
-        return str.encode(items[0].value[1:-1]).decode("unicode_escape")
+        return decode_escapes(self._sp(meta), items[0].value[1:-1])
 
     def array(self, items, meta) -> Expr.Base:
         return Expr.Array(self._sp(meta), items)
@@ -262,7 +287,7 @@ class _DocTransformer(_ExprTransformer):
             "String": Type.String,
             "File": Type.File,
         }
-        if self._version not in ("draft-2", "1.0"):
+        if self._version not in ("draft-2", "1.0", "1.1"):
             atomic_types["Directory"] = Type.Directory
         if items[0].value in atomic_types:
             if param or param2:
@@ -405,7 +430,9 @@ class _DocTransformer(_ExprTransformer):
         return [item.value for item in items]
 
     def call_input(self, items, meta):
-        return (items[0].value, items[1])
+        if len(items) > 1:
+            return (items[0].value, items[1])
+        return (items[0].value, Expr.Ident(self._sp(meta), items[0].value))
 
     def call_inputs(self, items, meta):
         d = dict()
@@ -637,7 +664,11 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
         )
         raise Error.SyntaxError(pos, str(exn), "1.0", None) from None
     except lark.exceptions.VisitError as exn:
-        raise exn.__context__
+        if isinstance(exn.__context__, BadCharacterEncoding):
+            raise Error.SyntaxError(
+                exn.__context__.pos, "Invalid character encoding", "1.0", None
+            ) from None
+        raise exn.__context__ from None
 
 
 def parse_tasks(txt: str, version: str = "draft-2") -> List[Tree.Task]:
@@ -652,7 +683,11 @@ def parse_tasks(txt: str, version: str = "draft-2") -> List[Tree.Task]:
             declared_version=None,
         ).transform(raw_ast)
     except lark.exceptions.VisitError as exn:
-        raise exn.__context__
+        if isinstance(exn.__context__, BadCharacterEncoding):
+            raise Error.SyntaxError(
+                exn.__context__.pos, "Invalid character encoding", version, None
+            ) from None
+        raise exn.__context__ from None
 
 
 def parse_document(
@@ -701,4 +736,11 @@ def parse_document(
         )
         raise Error.SyntaxError(pos, str(exn), version, declared_version) from None
     except lark.exceptions.VisitError as exn:
-        raise exn.__context__
+        if isinstance(exn.__context__, BadCharacterEncoding):
+            raise Error.SyntaxError(
+                exn.__context__.pos,
+                "Bad escape sequence in string literal",
+                version,
+                declared_version,
+            ) from None
+        raise exn.__context__ from None

@@ -1,13 +1,19 @@
 # Getting Started
 
+<img src="https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/docs/miniwdl-logo.png" width="200"  />
+
 [miniwdl](https://github.com/chanzuckerberg/miniwdl/) is a local runner and developer toolkit for
-the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/).  In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.
+the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/).  In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.  
+
+TIP: If you are new to working with WDL workflow language, you may want to review the open source 'learn-wdl' course' - [link](https://github.com/openwdl/learn-wdl).    
+
+Also there is an embedded short course 'learn-miniwdl' which includes screencasts reviewing the tutorial on this page in more detail - [link](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course)
 
 ## Install miniwdl
 
 Requirements:
 
-1. Linux or [macOS (limited support)](https://github.com/chanzuckerberg/miniwdl/issues/145)
+1. GNU/Linux or [macOS (specific steps required)](https://github.com/chanzuckerberg/miniwdl/issues/145)
 2. Python 3.6 or higher
 3. [Docker Engine](https://docs.docker.com/install/) 17 or higher
 4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
@@ -16,7 +22,7 @@ Requirements:
 Installation options:
 
 * via PyPI: `pip3 install miniwdl`
-* via conda: `conda install --channel conda-forge miniwdl`
+* via conda: `conda install -c conda-forge miniwdl`
 * see the [GitHub repo README](https://github.com/chanzuckerberg/miniwdl/) to install from source
 
 Then open a command prompt and try,
@@ -24,8 +30,6 @@ Then open a command prompt and try,
 ```miniwdl run_self_test```
 
 ...to test the installation with a trivial built-in workflow. This should print numerous log messages, and conclude with `miniwdl run_self_test OK` in about 30 seconds.
-
-On macOS, you'll first need to override the `TMPDIR` environment variable, e.g. `export TMPDIR=/tmp`, to allow Docker containers to mount shared working directories. Please [file any other issues](https://github.com/chanzuckerberg/miniwdl/issues) that arise!
 
 ## Fetch viral-pipelines
 
@@ -131,7 +135,9 @@ The `out` links are often more convenient to consume than the JSON, but they onl
 
 ## Next steps
 
-The following pages document features, configuration, and optimization for `miniwdl run`. To aid the workflow development cycle, miniwdl also includes a static code quality checker, `miniwdl check`. Lastly, installing miniwdl makes available a Python `WDL` package, providing programmatic access to miniwdl's WDL parser and runtime.
+The following pages document features and optimization for `miniwdl run`, including numerous available configuration options. Use `miniwdl configure` to create a configuration file with common options interactively.
+
+To aid the workflow development cycle, miniwdl also includes a static code quality checker, `miniwdl check`. Lastly, installing miniwdl makes available a Python `WDL` package, providing programmatic access to miniwdl's WDL parser and runtime.
 
 ### Links
 

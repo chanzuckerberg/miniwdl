@@ -184,12 +184,12 @@ type: BUILTIN_TYPE _quant?
 BUILTIN_TYPE.2: "Int" | "Float" | "Boolean" | "String" | "File" | "Array" | "Map" | "Pair"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$']/
+STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$'\n]/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? /\$/* "${" expr "}")* STRING1_FRAGMENT? /\$/* /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{$"]/
+STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{$"\n]/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? /\$/* "${" expr "}")* STRING2_FRAGMENT? /\$/* /"/ -> string
 
@@ -229,12 +229,12 @@ type: CNAME _quant?
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~']/ | /\~[^{$~']/
+STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~'\n]/ | /\~[^{$~']/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"]/ | /~[^{$~"]/
+STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"\n]/ | /~[^{$~"]/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
 
@@ -300,7 +300,7 @@ call: "call" namespaced_ident ("after" CNAME)* call_body? -> call
 namespaced_ident: CNAME ("." CNAME)*
 call_inputs: "input" ":" [call_input ("," call_input)*] ","?
 ?call_body: "{" call_inputs? "}"
-call_input: CNAME "=" expr
+call_input: CNAME ["=" expr]
 
 ?workflow_outputs: output_decls
 
@@ -324,7 +324,7 @@ output_decls: "output" "{" bound_decl* "}"
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
 placeholder: expr
 
-?command: command1 | command2
+?command: "command" (command1 | command2)
 
 // meta/parameter_meta sections (effectively JSON)
 meta_object: "{" [meta_kv (","? meta_kv)*] ","? "}"
@@ -443,22 +443,22 @@ string_literal: ESCAPED_STRING | ESCAPED_STRING1
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~']/ | /\~[^{$~']/
+STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~'\n]/ | /\~[^{$~']/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"]/ | /~[^{$~"]/
+STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"\n]/ | /~[^{$~"]/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
 
 COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
+command1: "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
 
 COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
+command2: "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 
@@ -485,6 +485,11 @@ keywords["development"] = set(
         " "
     )
 )
+
+# For now we're defining 1.1 as 'development minus Directory' (the latter enforced in _parser).
+# We'll need to fork them when the development grammar diverges further.
+versions["1.1"] = versions["development"]
+keywords["1.1"] = keywords["development"]
 
 assert set(versions.keys()) == set(keywords.keys())
 

@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Iterable
+from typing import Dict, Any, List, Iterable, Tuple
 
 class Container:
     @property
@@ -21,6 +21,14 @@ class Container:
 class Containers:
     def run(self, image_tag: str, **kwargs) -> Container:
         ...
+
+class Images:
+    def build(self, **kwargs) -> Tuple[Image, Iterable[Dict[str,str]]]:
+        ...
+
+class Image:
+    id: str
+    tags: List[str]
 
 class Node:
     attrs: Dict[str,Any]
@@ -62,6 +70,18 @@ class Nodes:
     def list(**kwargs) -> List[Node]:
         ...
 
+class Image:
+    @property
+    def attrs(self) -> Dict[str,Any]:
+        ...
+
+class Images:
+    def get(self, tag: str, **kwargs) -> Image:
+        ...
+
+    def pull(self, tag: str, **kwargs) -> None:
+        ...
+
 class types:
     def RestartPolicy(p: str) -> Any:
         ...
@@ -80,9 +100,21 @@ class types:
         def __init__(self, *args, **kwargs):
             ...
 
+class errors:
+    class BuildError(Exception):
+        msg : str
+        build_log : Iterable[Dict[str,str]]
+
+    class ImageNotFound(Exception):
+        pass
+
 class DockerClient:
     @property
     def containers(self) -> Containers:
+        ...
+
+    @property
+    def images(self) -> Images:
         ...
 
     def close(self) -> None:
@@ -104,6 +136,10 @@ class DockerClient:
 
     @property
     def nodes(self) -> Nodes:
+        ...
+
+    @property
+    def images(self) -> Images:
         ...
 
 def from_env(version: Optional[str] = None, timeout: Optional[int] = None) -> DockerClient:

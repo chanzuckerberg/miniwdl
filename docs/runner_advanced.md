@@ -12,9 +12,11 @@ If your production workload uses many tasks that take only seconds each, conside
 
 Except as needed for workflow orchestration (e.g. scatter arrays), pass large datasets through Files instead of WDL data structures (Arrays, Maps, structs, etc.). Excessively large WDL data structures might bottleneck the workflow, as they're handled within the miniwdl orchestrator process.
 
-### Treat input files as read-only
+Passing large `Array[File]` (more than dozens of files, regardless of their individual sizes) through task inputs can be especially costly, due to overhead localizing and mounting each file into the task's container. Instead, consider `Directory` inputs/outputs (available in the WDL `development` version), or consolidating the files into tar or zip archives to extract inside the task.
 
-By default, miniwdl mounts task input files read-only, blocking attempts to open them for writing, or more commonly, to move or rename them. Tasks that do so must be run with `--copy-input-files`, which should be avoided because it consumes more time and disk space.
+### Read-only input files
+
+By default, miniwdl mounts task input files & directories read-only, blocking attempts to open them for writing, or more commonly, to move or rename them. Tasks that do so must be run with `--copy-input-files`, which should be avoided because it consumes more time and disk space.
 
 If you just need to rename an input file to satisfy some tool's convention, try symlinking the desired name to the input file at the beginning of the task command script.
 
@@ -64,6 +66,10 @@ The record of invocations left by `set -x` goes well with `miniwdl run --verbose
 
 ## Host configuration
 
+### Enable call and download caches
+
+Miniwdl can cache task & workflow call outputs and downloaded URIs for reuse across multiple runs, but these features must be enabled in the [runner configuration](runner_reference.html#configuration).
+
 ### Use local disks for Docker storage
 
 Docker images and containers should reside on fast local disks, rather than a network file system, to optimize container startup and scratch I/O performance. These typically reside under `/var/lib/docker`, which on a cloud instance would usually be on the network-attached root file system. Suppose your instance has a local scratch disk mounted to `/mnt`. You can [change the Docker storage location](https://linuxconfig.org/how-to-move-docker-s-default-var-lib-docker-to-another-directory-on-ubuntu-debian-linux) using a procedure like this:
@@ -102,7 +108,7 @@ echo 'version 1.0
         }
       }' > /tmp/wdl/hello.wdl
 docker run --rm -it -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/wdl:/tmp/wdl continuumio/miniconda3 \
-  bash -c 'conda config --add channels conda-forge && conda install -y miniwdl &&
+  bash -c 'conda install -c conda-forge -y miniwdl &&
     miniwdl run /tmp/wdl/hello.wdl who=/tmp/wdl/alice --dir /tmp/wdl'
 ```
 

@@ -7,22 +7,17 @@ import os
 import platform
 import tempfile
 import json
-import argcomplete
 import logging
-import urllib
 import asyncio
 import atexit
 import textwrap
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
-import importlib_metadata
-from ruamel.yaml import YAML
+import argcomplete
 from . import (
     load,
-    runtime,
     Error,
-    Lint,
     Value,
     Type,
     Expr,
@@ -78,6 +73,8 @@ def main(args=None):
             run_self_test(**vars(args))
         elif args.command == "localize":
             localize(**vars(args))
+        elif args.command == "configure":
+            configure(**vars(args))
         else:
             assert False
     except (
@@ -112,6 +109,7 @@ def create_arg_parser():
     subparsers.required = True
     subparsers.dest = "command"
     fill_common(fill_check_subparser(subparsers))
+    fill_configure_subparser(subparsers)
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
@@ -120,9 +118,12 @@ def create_arg_parser():
 
 class PipVersionAction(Action):
     def __call__(self, parser, namespace, values, option_string=None):
-        try:
-            print(f"miniwdl v{importlib_metadata.version('miniwdl')}")
-        except importlib_metadata.PackageNotFoundError:
+        from . import runtime
+
+        miniwdl_version = pkg_version()
+        if miniwdl_version:
+            print(f"miniwdl v{miniwdl_version}")
+        else:
             print("miniwdl version unknown")
 
         # show plugin versions
@@ -131,7 +132,7 @@ class PipVersionAction(Action):
         # that they give inconsistent results?
         import pkg_resources
 
-        for group in runtime.config.DEFAULT_PLUGINS.keys():
+        for group in runtime.config.default_plugins().keys():
             group = f"miniwdl.plugin.{group}"
             for plugin in pkg_resources.iter_entry_points(group=group):
                 print(f"{group}\t{plugin}\t{plugin.dist}")
@@ -202,6 +203,8 @@ def fill_check_subparser(subparsers):
 def check(
     uri=None, path=None, check_quant=True, shellcheck=True, strict=False, show_all=False, **kwargs
 ):
+    from . import Lint
+
     # Load the document (read, parse, and typecheck)
     if not shellcheck:
         Lint._shellcheck_available = False
@@ -359,19 +362,21 @@ def print_error(exn):
 
 
 async def read_source(uri, path, importer):
+    from urllib import parse, request
+
     if uri.startswith("http:") or uri.startswith("https:"):
         fn = os.path.join(
             tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
-            os.path.basename(urllib.parse.urlsplit(uri).path),
+            os.path.basename(parse.urlsplit(uri).path),
         )
-        urllib.request.urlretrieve(uri, filename=fn)
+        request.urlretrieve(uri, filename=fn)
         with open(fn, "r") as infile:
             return ReadSourceResult(infile.read(), uri)
     elif importer and (
         importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
     ):
         assert not os.path.isabs(uri), "absolute import from downloaded WDL"
-        return await read_source(urllib.parse.urljoin(importer.pos.abspath, uri), [], importer)
+        return await read_source(parse.urljoin(importer.pos.abspath, uri), [], importer)
     return await read_source_default(uri, path, importer)
 
 
@@ -551,6 +556,8 @@ def runner(
             )
 
         # load configuration & apply command-line overrides
+        from . import runtime
+
         cfg_arg = None
         if cfg:
             assert os.path.isfile(cfg), "--cfg file not found"
@@ -648,10 +655,8 @@ def runner(
         # debug logging
         versionlog = {"python": sys.version}
         for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
-            try:
-                versionlog[pkg] = str(importlib_metadata.version(pkg))
-            except importlib_metadata.PackageNotFoundError:
-                versionlog[pkg] = "UNKNOWN"
+            pkver = pkg_version(pkg)
+            versionlog[pkg] = str(pkver) if pkver else "UNKNOWN"
         logger.debug(_("package versions", **versionlog))
 
         envlog = {}
@@ -669,7 +674,7 @@ def runner(
 
         enabled_plugins = []
         disabled_plugins = []
-        for group in runtime.config.DEFAULT_PLUGINS.keys():
+        for group in runtime.config.default_plugins().keys():
             for enabled, plugin in runtime.config.load_all_plugins(cfg, group):
                 (enabled_plugins if enabled else disabled_plugins).append(
                     f"{plugin.name} = {plugin.value}"
@@ -754,26 +759,34 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
             )
             return []
         # resolve target
-        if doc.workflow:
+        if parsed_args.task:
+            target = next((t for t in doc.tasks if t.name == parsed_args.task), None)
+            if not target:
+                argcomplete.warn(f"no such task {parsed_args.task} in document")
+                return []
+        elif doc.workflow:
             target = doc.workflow
         elif len(doc.tasks) == 1:
             target = doc.tasks[0]
         elif len(doc.tasks) > 1:
-            argcomplete.warn("WDL document contains multiple tasks and no workflow")
+            argcomplete.warn("specify --task for WDL document with multiple tasks and no workflow")
             return []
         else:
-            argcomplete.warn("WDL document is empty")
+            argcomplete.warn("Empty WDL document")
             return []
         assert target
         # figure the available input names (starting with prefix, if any)
-        available_input_names = [nm + "=" for nm in values_to_json(target.available_inputs)]
+        completed_input_names = [nm + "=" for nm in values_to_json(target.required_inputs)]
         if prefix and prefix.find("=") == -1:
-            available_input_names = [nm for nm in available_input_names if nm.startswith(prefix)]
-        # TODO idea -- complete only required inputs until they're all present, then start
-        # completing the non-required inputs. Tricky with arrays, because we want to keep
-        # allowing their completion even after already supplied.
-        # compute set of inputs already supplied
-        return available_input_names
+            completed_input_names = [nm for nm in completed_input_names if nm.startswith(prefix)]
+            if not completed_input_names:
+                # suggest optional inputs only if nothing else matches prefix
+                completed_input_names = [
+                    nm + "="
+                    for nm in values_to_json(target.available_inputs)
+                    if nm.startswith(prefix)
+                ]
+        return completed_input_names
 
 
 def runner_input(
@@ -933,6 +946,8 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
     if input_file:
         input_file = input_file.strip()
     if input_file:
+        from ruamel.yaml import YAML  # delayed heavy import
+
         input_json = None
         if input_file[0] == "{":
             input_json = input_file
@@ -1226,11 +1241,14 @@ def run_self_test(**kwargs):
             )
             raise exn
 
-    print("miniwdl run_self_test OK", file=sys.stderr)
+    print(
+        "\n🗹  miniwdl run_self_test OK; try `miniwdl configure` to set common options or show current selections.",
+        file=sys.stderr,
+    )
     if os.geteuid() == 0:
         print(
-            "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per "
-            "https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+            "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per\n"
+            "        https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
             file=sys.stderr,
         )
 
@@ -1330,6 +1348,8 @@ def localize(
     logging.raiseExceptions = False
     if kwargs["verbose"]:
         level = VERBOSE_LEVEL
+    if kwargs["debug"]:
+        level = logging.DEBUG
     if kwargs["no_color"]:
         os.environ["NO_COLOR"] = os.environ.get("NO_COLOR", "")
     log_json = kwargs["log_json"] or (
@@ -1339,6 +1359,7 @@ def localize(
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-localize")
     with configure_logger(json=log_json) as set_status:
+        from . import runtime
 
         cfg_arg = None
         if cfg:
@@ -1475,6 +1496,193 @@ def localize(
                 """future runs won't use the cache unless configuration section "download_cache", key "get" """
                 """(env MINIWDL__DOWNLOAD_CACHE__GET) is set to true"""
             )
+
+
+def fill_configure_subparser(subparsers):
+    configure_parser = subparsers.add_parser(
+        "configure",
+        help="Generate runner config file / display effective config",
+        description="Generate a config file for `miniwdl run`; if it already exists, display effective config",
+    )
+    configure_parser.add_argument(
+        "cfg",
+        metavar="FILE",
+        type=str,
+        nargs="?",
+        default=None,
+        help="existing or to-be-created config file location; default XDG_CONFIG_HOME/miniwdl.cfg",
+    )
+    configure_parser.add_argument(
+        "--show", action="store_true", help="just show effective configuration"
+    )
+    configure_parser.add_argument(
+        "--force", action="store_true", help="overwrite existing .cfg file"
+    )
+    return configure_parser
+
+
+def configure(cfg=None, show=False, force=False, **kwargs):
+    import bullet
+    from xdg import XDG_CONFIG_HOME
+
+    miniwdl_version = pkg_version()
+    if miniwdl_version:
+        miniwdl_version = "v" + miniwdl_version
+
+    logging.raiseExceptions = False
+    logging.basicConfig(level=VERBOSE_LEVEL)
+    logger = logging.getLogger("miniwdl-configure")
+    with configure_logger() as set_status:
+        if (show or not force) and configure_existing(logger, cfg, always=show):
+            sys.exit(0)
+
+        if not cfg:
+            cfg = os.path.join(XDG_CONFIG_HOME, "miniwdl.cfg")
+
+        if os.path.exists(cfg):
+            assert force
+            logger.warn("Deleting existing configuration file at " + cfg)
+            os.unlink(cfg)
+        logger.notice("Generating configuration file at " + cfg)
+        sys.stderr.flush()
+
+        options = {}
+        try:
+
+            def yes(prompt):
+                return bullet.Bullet(prompt=prompt, choices=["No", "Yes"]).launch() == "Yes"
+
+            print(
+                textwrap.dedent(
+                    """
+                    CALL CACHE: upon task/workflow success, store a copy of JSON output in a central directory where it
+                    can be reused for subsequent runs of the same WDL & input. The JSON files reference input & output
+                    files at their original locations, and invalidate automatically if any such file is deleted or
+                    changed (mtime).
+                    """
+                )
+            )
+            if yes("ENABLE?"):
+                options["call_cache"] = {"get": "true", "put": "true"}
+                print("\nCall cache JSON file storage directory: ~/.cache/miniwdl/")
+
+                if yes("OVERRIDE?"):
+                    options["call_cache"]["dir"] = bullet.Input(
+                        prompt="Call cache directory: ", strip=True
+                    ).launch()
+
+            print(
+                textwrap.dedent(
+                    """
+                    DOWNLOAD CACHE: upon downloading a File or Directory input URI (https:// s3:// etc.), store it in a
+                    central directory where it can be reused for subsequent run inputs with the same URI (even if the
+                    WDL differs). If a subsequent run finds a cached copy, it does NOT check whether the remote URI
+                    content may have changed.
+                    """
+                )
+            )
+            if yes("ENABLE?"):
+                options["download_cache"] = {"get": "true", "put": "true"}
+                print("\nDownload cache directory: /tmp/miniwdl_download_cache")
+
+                if yes("OVERRIDE?"):
+                    options["download_cache"]["dir"] = bullet.Input(
+                        prompt="Download cache directory: ", strip=True
+                    ).launch()
+
+            print()
+            if yes("Configure non-public Amazon s3:// access?"):
+                print(
+                    textwrap.dedent(
+                        """
+                    HOST AWS CREDENTIALS: allow S3 transfers to adopt AWS credentials from host AWS CLI configuration
+                    (detected by boto3). This is usually needed for access to non-public S3 objects only when NOT
+                    running on an EC2 instance (where S3 tools can contact the instance metadata service to assume an
+                    instance profile automatically).
+                    """
+                    )
+                )
+                if yes("ENABLE?"):
+                    options["download_awscli"] = {"host_credentials": "true"}
+        except KeyboardInterrupt:
+            print()
+            sys.exit(1)
+
+        if not options:
+            print("", file=sys.stderr)
+            logger.warning("All selections match defaults; exiting")
+            sys.exit(0)
+
+        cfg_content = format_cfg(options)
+        print()
+        print(cfg_content)
+        print()
+        sys.stdout.flush()
+        with open(cfg, "w") as outfile:
+            print(cfg_content, file=outfile)
+        logger.notice("Wrote configuration file " + cfg)
+        logger.notice("Edit the file manually to set advanced options available: ")
+        logger.notice(
+            "    https://github.com/chanzuckerberg/miniwdl/blob/"
+            f"{miniwdl_version}/WDL/runtime/config_templates/default.cfg"
+        )
+        logger.notice(
+            "Runtime environment variables may override configuration file options; see documentation:"
+        )
+        logger.notice(
+            "    https://miniwdl.readthedocs.io/en/latest/runner_reference.html#configuration"
+        )
+
+
+def configure_existing(logger, cfg, always=False, miniwdl_version="main"):
+    from . import runtime
+
+    envlog = {}
+    for k in os.environ:
+        if k.upper().startswith("MINIWDL"):
+            envlog[k] = os.environ[k]
+    if envlog:
+        logger.info(_("environment", **envlog))
+
+    loader = runtime.config.Loader(logger, filenames=[cfg] if cfg else None)
+    if always or loader.cfg_filename:
+        logger.info(
+            "see documentation: https://miniwdl.readthedocs.io/en/latest/runner_reference.html#configuration"
+        )
+        logger.info(
+            "see defaults: https://github.com/chanzuckerberg/miniwdl/blob/"
+            f"{miniwdl_version}/WDL/runtime/config_templates/default.cfg"
+        )
+        if not always:
+            logger.info("set --force to overwrite existing configuration file")
+        eff_opts = loader.get_all(defaults=False)
+        if not eff_opts:
+            logger.notice("only default configuration options currently apply")
+        else:
+            logger.notice("effective non-default options (including any environment variables):")
+            sys.stderr.flush()
+            print(format_cfg(eff_opts))
+        return True
+    return False
+
+
+def format_cfg(sections):
+    ans = []
+    for section, options in sorted(sections.items()):
+        ans.append(f"\n[{section}]")
+        for key, value in sorted(options.items()):
+            value = value.replace("\n", "\n  ")
+            ans.append(f"{key} = {value}")
+    return "\n".join(ans)
+
+
+def pkg_version(pkg="miniwdl"):
+    import importlib_metadata
+
+    try:
+        return importlib_metadata.version(pkg)
+    except importlib_metadata.PackageNotFoundError:
+        return None
 
 
 def die(msg, status=2):

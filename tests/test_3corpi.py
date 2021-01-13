@@ -1,5 +1,6 @@
-import unittest, inspect, subprocess, tempfile, os, glob, json, urllib
+import unittest, inspect, subprocess, tempfile, os, glob, json, urllib, urllib.request
 from .context import WDL
+import WDL.Lint
 
 
 class Lint(unittest.TestCase):
@@ -400,6 +401,7 @@ class dxWDL(unittest.TestCase):
         "SelectArray": 1,
         "MissingVersion": 7,
         "UnboundDeclaration": 1,
+        "UnverifiedStruct": 3,
     },
     blacklist=["check_quant", "incomplete_call"],
 )
@@ -424,6 +426,7 @@ class Contrived(unittest.TestCase):
         "SelectArray": 4,
         "MissingVersion": 11,
         "UnboundDeclaration": 1,
+        "UnverifiedStruct": 3,
     },
     check_quant=False,
     blacklist=["incomplete_call"],
@@ -445,6 +448,7 @@ class Contrived2(unittest.TestCase):
         "NonemptyCoercion": 1,
         "NameCollision": 1,
         "SelectArray": 1,
+        "UnverifiedStruct": 1,
     },
 )
 class BioWDLTasks(unittest.TestCase):
@@ -458,6 +462,7 @@ class BioWDLTasks(unittest.TestCase):
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 1,
         "NameCollision": 1,
+        "UnverifiedStruct": 1
     },
     check_quant=False,
 )
@@ -472,6 +477,7 @@ class BioWDLAligning(unittest.TestCase):
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 3,
         "NameCollision": 1,
+        "UnverifiedStruct": 1,
     },
     check_quant=False,
 )
@@ -502,8 +508,59 @@ class BioWDLSomaticVariantCalling(unittest.TestCase):
         "OptionalCoercion": 2,
         "NonemptyCoercion": 3,
         "UnusedCall": 1,
+        "UnverifiedStruct": 1,
     },
     check_quant=False,
 )
 class BioWDLSmallRNA(unittest.TestCase):
+    pass
+
+
+@wdl_corpus(
+    ["test_corpi/broadinstitute/warp/pipelines/broad/**"],
+    path=[["test_corpi/broadinstitute/warp/tasks"]],
+    # has a task with a name collision between output & input
+    blacklist=[
+        "JointGenotyping",
+        "JointGenotypingByChromosomePartOne",
+        "JointGenotypingByChromosomePartTwo",
+    ],
+    expected_lint={
+        "UnusedImport": 22,
+        "StringCoercion": 63,
+        "UnusedDeclaration": 79,
+        "NameCollision": 12,
+        "ForwardReference": 4,
+        "NonemptyCoercion": 4,
+        "FileCoercion": 3,
+    },
+    check_quant=False,
+)
+class warp_pipelines_broad(unittest.TestCase):
+    pass
+
+
+@wdl_corpus(
+    ["test_corpi/broadinstitute/warp/pipelines/cemba/**"],
+    expected_lint={
+        "UnusedDeclaration": 1,
+    },
+    check_quant=False,
+)
+class warp_pipelines_cemba(unittest.TestCase):
+    pass
+
+
+@wdl_corpus(
+    ["test_corpi/broadinstitute/warp/pipelines/skylab/**"],
+    expected_lint={
+        "UnusedDeclaration": 3,
+        "UnnecessaryQuantifier": 3,
+        "StringCoercion": 4,
+        "FileCoercion": 3,
+        "NameCollision": 3,
+    },
+    check_quant=False,
+)
+class warp_pipelines_skylab(unittest.TestCase):
     pass

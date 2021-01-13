@@ -10,4 +10,5 @@ argcomplete~=1.11
 pygtail~=0.11
 coloredlogs>=11.0
 python-json-logger~=2.0
-lark-parser~=0.10
+lark-parser~=0.11
+bullet~=2.2

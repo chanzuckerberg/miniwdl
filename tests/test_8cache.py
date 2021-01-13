@@ -10,9 +10,9 @@ import unittest
 import subprocess
 from unittest.mock import MagicMock, patch
 
+from .context import WDL
 from WDL import values_from_json, values_to_json
 from WDL.runtime.cache import CallCache
-from .context import WDL
 
 
 class TestCallCache(unittest.TestCase):
@@ -150,12 +150,12 @@ class TestCallCache(unittest.TestCase):
                 "who": "Alyssa"
             }, self.doc.tasks[0].available_inputs)
 
-        ordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(ordered_inputs)
-        unordered_digest = CallCache(cfg=self.cfg, logger=self.logger).get_digest_for_inputs(unordered_inputs)
+        ordered_digest = WDL.Value.digest_env(ordered_inputs)
+        unordered_digest = WDL.Value.digest_env(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
 
     def test_normalization(self):
-        desc = WDL.runtime.cache._describe_task(self.doc, self.doc.tasks[0])
+        desc = self.doc.tasks[0]._digest_source()
         self.assertEqual(desc, R"""
 version 1.0
 task hello_blank {
@@ -180,9 +180,9 @@ Int count = 12
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        input_digest = cache.get_digest_for_inputs(inputs)
-        task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
-        with open(os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}_{task_digest}/{input_digest}.json")) as f:
+        input_digest = WDL.Value.digest_env(inputs)
+        task_digest = self.doc.tasks[0].digest
+        with open(os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}/{task_digest}/{input_digest}.json")) as f:
             read_data = json.loads(f.read())
         self.assertEqual(read_data, WDL.values_to_json(outputs))
 
@@ -232,9 +232,9 @@ Int count = 12
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(
             self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        input_digest = cache.get_digest_for_inputs(inputs)
-        task_digest = cache.get_digest_for_task(task=self.doc.tasks[0])
-        cache_value = cache.get(key=f"{self.doc.tasks[0].name}_{task_digest}/{input_digest}",
+        input_digest = WDL.Value.digest_env(inputs)
+        task_digest = self.doc.tasks[0].digest
+        cache_value = cache.get(key=f"{self.doc.tasks[0].name}/{task_digest}/{input_digest}",
                                 output_types=self.doc.tasks[0].effective_outputs,
                                 inputs=inputs)
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
@@ -500,3 +500,120 @@ Int count = 12
             # control
             self._run(wdl, inp, cfg=self.cfg)
             self.assertEqual(mock.call_count, 3)
+
+    test_workflow_wdl = R"""
+    version development
+
+    struct Person {
+        String first
+        String? middle
+        String last
+    }
+
+    workflow multihello {
+        input {
+            Array[File] people_json
+        }
+        # COMMENT
+        scatter (person_json in people_json) {
+            call read_person {
+                input:
+                json = person_json
+            }
+            call hello {
+                input:
+                who = read_person.person
+            }
+        }
+
+        output {
+            Array[File] messages = hello.message
+        }
+    }
+
+    task read_person {
+        input {
+            File json
+        }
+
+        command {}
+
+        output {
+            Person person = read_json(json)
+        }
+    }
+
+    task hello {
+        input {
+            Person who
+            String? greeting = "Hello"
+        }
+
+        command <<<
+            echo "~{greeting}, ~{who}!"
+        >>>
+
+        output {
+            File message = stdout()
+        }
+    }
+
+    task uncalled {
+        input {
+            Int i = 0
+            Person? p
+        }
+        command {}
+    }
+    """
+
+    def test_workflow_digest(self):
+        doc = WDL.parse_document(self.test_workflow_wdl)
+        doc.typecheck()
+
+        # ensure digest is sensitive to changes in the struct type and called task (but not the
+        # uncalled task, or comments/whitespace)
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("String? middle", ""))
+        doc2.typecheck()
+        self.assertNotEqual(doc.workflow.digest, doc2.workflow.digest)
+
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace('"Hello"', '"Hi"'))
+        doc2.typecheck()
+        self.assertNotEqual(doc.workflow.digest, doc2.workflow.digest)
+
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace('i = 0', 'i = 1'))
+        doc2.typecheck()
+        self.assertEqual(doc.workflow.digest, doc2.workflow.digest)
+
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace('# COMMENT', '#'))
+        doc2.typecheck()
+        self.assertEqual(doc.workflow.digest, doc2.workflow.digest)
+
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace('# COMMENT', '\n\n'))
+        doc2.typecheck()
+        self.assertEqual(doc.workflow.digest, doc2.workflow.digest)
+
+    def test_workflow_cache(self):
+        with open(os.path.join(self._dir, "alyssa.json"), mode="w") as outfile:
+            print('{"first":"Alyssa","last":"Hacker"}', file=outfile)
+        with open(os.path.join(self._dir, "ben.json"), mode="w") as outfile:
+            print('{"first":"Ben","last":"Bitdiddle"}', file=outfile)
+        inp = {"people_json": [os.path.join(self._dir, "alyssa.json"), os.path.join(self._dir, "ben.json")]}
+        _, outp = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
+
+        wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
+        tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch('WDL.runtime.workflow._workflow_main_loop', wmock), patch('WDL.runtime.task._try_task', tmock):
+            # control
+            _, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 0)
+            self.assertEqual(tmock.call_count, 0)
+            self.assertEqual(WDL.values_to_json(outp), WDL.values_to_json(outp2))
+
+            # touch a file & check cache invalidated
+            with open(os.path.join(self._dir, "alyssa.json"), mode="w") as outfile:
+                print('{"first":"Alyssa","last":"Hacker","middle":"P"}', file=outfile)
+            _, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 1)
+            self.assertEqual(tmock.call_count, 2)  # reran Alyssa, cached Ben
+            self.assertNotEqual(WDL.values_to_json(outp), WDL.values_to_json(outp2))
