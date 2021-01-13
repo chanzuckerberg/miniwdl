@@ -370,7 +370,14 @@ class StateMachine:
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
             callee_inputs = job.node.callee.available_inputs
             call_inputs = call_inputs.map(
-                lambda b: Env.Binding(b.name, b.value.coerce(callee_inputs[b.name].type))
+                lambda b: Env.Binding(
+                    b.name,
+                    (
+                        b.value.coerce(callee_inputs[b.name].type)
+                        if b.name in callee_inputs
+                        else b.value
+                    ),
+                )
             )
             # check input files against whitelist
             disallowed_filenames = _fspaths(call_inputs) - self.filename_whitelist

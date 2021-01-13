@@ -163,7 +163,7 @@ def run_local_task(
                 # evaluate runtime fields
                 stdlib = InputStdLib(task.effective_wdl_version, logger, container)
                 container.runtime_values = _eval_task_runtime(
-                    cfg, logger, task, container, container_env, stdlib
+                    cfg, logger, task, posix_inputs, container, container_env, stdlib
                 )
 
                 # interpolate command
@@ -405,6 +405,7 @@ def _eval_task_runtime(
     cfg: config.Loader,
     logger: logging.Logger,
     task: Tree.Task,
+    inputs: Env.Bindings[Value.Base],
     container: "runtime.task_container.TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
@@ -417,8 +418,10 @@ def _eval_task_runtime(
             runtime_values[key] = Value.Int(v)
         else:
             raise Error.InputError(f"invalid default runtime setting {key} = {v}")
-    for key, expr in task.runtime.items():
+    for key, expr in task.runtime.items():  # evaluate expressions in source code
         runtime_values[key] = expr.eval(env, stdlib)
+    for b in inputs.enter_namespace("runtime"):
+        runtime_values[b.name] = b.value  # input overrides
     if "container" in runtime_values:  # alias
         runtime_values["docker"] = runtime_values["container"]
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))

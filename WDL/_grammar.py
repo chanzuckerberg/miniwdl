@@ -326,7 +326,7 @@ placeholder: expr
 ?command: "command" (command1 | command2)
 
 // meta/parameter_meta sections (effectively JSON)
-meta_object: "{" [meta_kv (","? meta_kv)*] "}"
+meta_object: "{" [meta_kv (","? meta_kv)*] ","? "}"
 meta_kv: CNAME ":" meta_value
 ?meta_value: literal | string_literal
            | meta_object

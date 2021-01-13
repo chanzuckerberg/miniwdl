@@ -312,6 +312,11 @@ class Task(SourceNode):
         Each input is at the top level of the Env, with no namespace.
         """
         ans = Env.Bindings()
+
+        if self.effective_wdl_version not in ("draft-2", "1.0"):
+            # synthetic placeholder to expose runtime overrides
+            ans = ans.bind("_runtime", Decl(self.pos, Type.Any(), "_runtime"))
+
         for decl in reversed(self.inputs if self.inputs is not None else self.postinputs):
             ans = ans.bind(decl.name, decl)
         return ans
@@ -329,7 +334,7 @@ class Task(SourceNode):
         for b in reversed(list(self.available_inputs)):
             assert isinstance(b, Env.Binding)
             d: Decl = b.value
-            if d.expr is None and d.type.optional is False:
+            if d.expr is None and d.type.optional is False and not d.name.startswith("_"):
                 ans = Env.Bindings(b, ans)
         return ans
 
@@ -1203,13 +1208,11 @@ class Workflow(SourceNode):
                 # into the decl name with a ., which is a weird corner
                 # case!
                 synthetic_output_name = ".".join(output_ident)
-                try:
-                    ty = self._type_env.resolve(synthetic_output_name)
-                except KeyError:
+                ty = self._type_env.get(synthetic_output_name)
+                if not ty:
                     raise Error.UnknownIdentifier(
                         Expr.Ident(self._output_idents_pos, synthetic_output_name)
                     ) from None
-                assert isinstance(ty, Type.Base)
                 output_ident_decls.append(
                     Decl(
                         self.pos,
