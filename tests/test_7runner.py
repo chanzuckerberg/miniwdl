@@ -679,6 +679,43 @@ class TestDownload(RunnerTestCase):
         logs += new_logs
 
 
+class RuntimeOverride(RunnerTestCase):
+    def test_runtime_override(self):
+        wdl = """
+        version development
+        workflow w {
+            input {
+                String who
+            }
+            call t {
+                input:
+                    who = who
+            }
+        }
+        task t {
+            input {
+                String who
+            }
+            command {
+                cp /etc/issue issue
+                echo "Hello, ~{who}!"
+            }
+            output {
+                String msg = read_string(stdout())
+                String issue = read_string("issue")
+            }
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+        }
+        """
+        outp = self._run(wdl, {
+            "who": "Alice",
+            "t.runtime.container": ["ubuntu:20.10"]
+        })
+        assert "20.10" in outp["t.issue"]
+
+
 class MiscRegressionTests(RunnerTestCase):
     def test_repeated_file_rewriting(self):
         wdl = """
@@ -732,7 +769,7 @@ class MiscRegressionTests(RunnerTestCase):
             inputs["files"].append(fn)
 
         wdl = """
-        version 1.0
+        version development
         workflow w {
             input {
                 Array[File] files
@@ -757,6 +794,9 @@ class MiscRegressionTests(RunnerTestCase):
             >>>
             output {
                 Array[File] files_out = glob("files_out/*")
+            }
+            runtime {
+                container: ["ubuntu:20.04"]
             }
         }
         """

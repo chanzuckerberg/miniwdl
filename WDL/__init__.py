@@ -241,17 +241,33 @@ def values_from_json(
             key2 = key
             if namespace and key.startswith(namespace):
                 key2 = key[len(namespace) :]
-            if key2 not in available:
-                # attempt to simplify <call>.<subworkflow>.<input>
-                key2parts = key2.split(".")
-                if len(key2parts) == 3 and key2parts[0] and key2parts[1] and key2parts[2]:
-                    key2 = ".".join([key2parts[0], key2parts[2]])
-            try:
+
+            ty = None
+            if key2 in available:
                 ty = available[key2]
-            except KeyError:
+            else:
+                key2parts = key2.split(".")
+
+                runtime_idx = next(
+                    (i for i, term in enumerate(key2parts) if term in ("runtime",)), -1
+                )
+                if (
+                    runtime_idx >= 0
+                    and len(key2parts) > (runtime_idx + 1)
+                    and ".".join(key2parts[:runtime_idx] + ["_runtime"]) in available
+                ):
+                    # allow arbitrary keys for runtime
+                    ty = Type.Any()
+                elif len(key2parts) == 3 and key2parts[0] and key2parts[1] and key2parts[2]:
+                    # attempt to simplify <call>.<subworkflow>.<input> from old Cromwell JSON
+                    key2 = ".".join([key2parts[0], key2parts[2]])
+                    if key2 in available:
+                        ty = available[key2]
+            if not ty:
                 raise Error.InputError("unknown input/output: " + key) from None
             if isinstance(ty, Tree.Decl):
                 ty = ty.type
+
             assert isinstance(ty, Type.Base)
             try:
                 ans = ans.bind(key2, Value.from_json(ty, values_json[key]))

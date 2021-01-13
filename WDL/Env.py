@@ -113,6 +113,16 @@ class Bindings(Generic[T]):
         """
         return self.resolve_binding(name).value
 
+    def get(self, name: str, default: Optional[T] = None) -> Optional[T]:
+        """
+        Look up a bound value by name, returning the default value or ``None`` if there's no such
+        binding.
+        """
+        try:
+            return self.resolve(name)
+        except KeyError:
+            return default
+
     def __getitem__(self, name: str) -> T:
         return self.resolve(name)
 
