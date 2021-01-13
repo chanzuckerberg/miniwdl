@@ -1504,6 +1504,10 @@ def fill_configure_subparser(subparsers):
 
 
 def configure(cfg=None, show=False, force=False, **kwargs):
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        die("`miniwdl configure` is for interactive use")
+
+    from datetime import datetime
     import bullet
     from xdg import XDG_CONFIG_HOME
 
@@ -1521,19 +1525,21 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         if not cfg:
             cfg = os.path.join(XDG_CONFIG_HOME, "miniwdl.cfg")
 
+        def yes(prompt):
+            return bullet.Bullet(prompt=prompt, choices=["No", "Yes"]).launch() == "Yes"
+
         if os.path.exists(cfg):
             assert force
-            logger.warn("Deleting existing configuration file at " + cfg)
+            logger.warn("Proceeding will overwrite existing configuration file at " + cfg)
+            sys.stderr.flush()
+            if not yes("OVERWRITE?"):
+                sys.exit(0)
             os.unlink(cfg)
         logger.notice("Generating configuration file at " + cfg)
         sys.stderr.flush()
 
         options = {}
         try:
-
-            def yes(prompt):
-                return bullet.Bullet(prompt=prompt, choices=["No", "Yes"]).launch() == "Yes"
-
             print(
                 textwrap.dedent(
                     """
@@ -1601,12 +1607,16 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         print()
         sys.stdout.flush()
         with open(cfg, "w") as outfile:
+            print(
+                f"# miniwdl configure {miniwdl_version or '(version unknown)'} {datetime.utcnow()}Z",
+                file=outfile,
+            )
             print(cfg_content, file=outfile)
         logger.notice("Wrote configuration file " + cfg)
         logger.notice("Edit the file manually to set advanced options available: ")
         logger.notice(
             "    https://github.com/chanzuckerberg/miniwdl/blob/"
-            f"{miniwdl_version}/WDL/runtime/config_templates/default.cfg"
+            f"{miniwdl_version or 'main'}/WDL/runtime/config_templates/default.cfg"
         )
         logger.notice(
             "Runtime environment variables may override configuration file options; see documentation:"
