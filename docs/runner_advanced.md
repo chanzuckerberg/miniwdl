@@ -108,7 +108,7 @@ echo 'version 1.0
         }
       }' > /tmp/wdl/hello.wdl
 docker run --rm -it -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/wdl:/tmp/wdl continuumio/miniconda3 \
-  bash -c 'conda config --add channels conda-forge && conda install -y miniwdl &&
+  bash -c 'conda install -c conda-forge -y miniwdl &&
     miniwdl run /tmp/wdl/hello.wdl who=/tmp/wdl/alice --dir /tmp/wdl'
 ```
 
