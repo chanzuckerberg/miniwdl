@@ -37,7 +37,7 @@ jobs:
           docker build -t "$DOCKER_TAG" .
         fi
         if [ "${{ matrix.ci_target }}" == "ci_housekeeping" ]; then
-          docker push "$DOCKER_TAG"
+          docker push "$DOCKER_TAG" || true  # allow failure for third-party PRs
         fi
     - name: make ${{ matrix.ci_target }}
       run: |
