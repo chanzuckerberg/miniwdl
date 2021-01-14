@@ -682,7 +682,9 @@ def run_local_workflow(
 
         # if we're the top-level workflow, provision thread pools
         if not _thread_pools:
-            import importlib_metadata  # delayed heavy import
+            # delayed heavy imports -- load .task_container now to work around python issue41567
+            import importlib_metadata
+            from .task_container import new as _new_task_container
 
             assert not _run_id_stack
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
