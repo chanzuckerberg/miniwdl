@@ -156,11 +156,8 @@ is "$?" "0" "scatter run"
 is "$(ls scatterrun/out/t.out_f/0/2)" "fox" "scatter product 0 fox link"
 is "$(ls scatterrun/out/t.out_f/1/2)" "fox" "scatter product 1 fox link"
 is "$(find scatterrun/out -type l | wc -l | tr -d ' ')" "0" "scatter product hardlinks"
-statflag=-c
-if (echo $OSTYPE | grep darwin); then
-    statflag=-f
-fi
-is "$(find scatterrun/ | xargs -n 1 stat $statflag %u | sort | uniq)" "$(id -u)" "scatter files all owned by $(whoami)"
+# if the following stat fails on macOS, ensure the GNU coreutils version of stat is used
+is "$(find scatterrun/ | xargs -n 1 stat -c %u | sort | uniq)" "$(id -u)" "scatter files all owned by $(whoami)"
 cmp -s scatter_echo.wdl scatterrun/wdl/scatter_echo.wdl
 is "$?" "0" "copy_source scatter_echo.wdl"
 cmp -s echo_task.wdl scatterrun/wdl/echo_task.wdl
