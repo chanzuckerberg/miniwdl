@@ -223,8 +223,9 @@ def run_local_task(
                 logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
             try:
                 _delete_work(cfg, logger, container, False)
-            except:
-                logger.exception("delete_work failed")
+            except Exception as exn2:
+                logger.debug(traceback.format_exc())
+                logger.error(_("delete_work also failed", exception=str(exn2)))
             raise wrapper from exn
 
 

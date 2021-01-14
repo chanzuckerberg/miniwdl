@@ -11,6 +11,7 @@ import random
 import threading
 import base64
 import uuid
+import traceback
 import hashlib
 import shlex
 import stat
@@ -518,6 +519,9 @@ class SwarmContainer(TaskContainer):
         mounts = self.prepare_mounts(logger)
         resources, user, groups = self.misc_config(logger)
 
+        polling_period = self.cfg.get_float("docker_swarm", "polling_period_seconds")
+        server_error_retries = self.cfg.get_float("docker_swarm", "server_error_retries")
+
         # run container as a transient docker swarm service, letting docker handle the resource
         # scheduling (e.g. waiting until requested # of CPUs are available).
         svc = None
@@ -559,10 +563,10 @@ class SwarmContainer(TaskContainer):
                 # poll for container exit
                 running_states = {"preparing", "running"}
                 was_running = False
-                poll_failures = 0
+                server_errors = 0
                 while exit_code is None:
-                    # spread out work over the GIL; TODO: configurability
-                    time.sleep(random.uniform(1.0, 2.0))
+                    # spread out work over the GIL
+                    time.sleep(random.uniform(polling_period * 0.5, polling_period * 1.5))
                     if terminating():
                         quiet = not self._observed_states.difference(
                             # reduce log noise if the terminated task only sat in docker's queue
@@ -573,12 +577,22 @@ class SwarmContainer(TaskContainer):
                         raise Terminated(quiet=quiet)
                     try:
                         exit_code = self.poll_service(logger, svc)
-                        poll_failures = 0
+                        if server_errors:
+                            logger.error("docker service status polling succeeded after retries")
+                        server_errors = 0
                     except docker.errors.APIError as exn:
-                        # retry dockerd errors (5xx status code); TODO: configurable #tries
-                        if not exn.is_server_error() or poll_failures >= 2:
+                        logger.debug(traceback.format_exc())
+                        logger.error(
+                            _(
+                                "docker service status polling error",
+                                tries_remaining=(server_error_retries - server_errors),
+                                exception=str(exn),
+                            )
+                        )
+                        # retry dockerd errors (5xx status code)
+                        if not exn.is_server_error() or server_errors >= server_error_retries:
                             raise
-                        poll_failures += 1
+                        server_errors += 1
                     if not was_running and self._observed_states.intersection(running_states):
                         # indicate actual container start in status bar
                         # 'preparing' is when docker is pulling and extracting the image, which can
@@ -606,14 +620,24 @@ class SwarmContainer(TaskContainer):
             return exit_code
         finally:
             if svc:
-                for attempt in range(3):
+                for attempt in range(999):
                     try:
                         svc.remove()
+                        if attempt:
+                            logger.error("docker service removal succeeded after retries")
                         break
-                    except docker.errors.APIError as exn:
-                        if not exn.is_server_error() or attempt >= 2:
-                            raise
-                        time.sleep(2)
+                    except Exception as exn:
+                        logger.debug(traceback.format_exc())
+                        logger.error(
+                            _(
+                                "docker service removal error",
+                                tries_remaining=(server_error_retries - attempt),
+                                exception=str(exn),
+                            )
+                        )
+                        if attempt >= server_error_retries:
+                            break
+                        time.sleep(polling_period)
             self.chown(logger, client, exit_code == 0)
             client.close()
 
@@ -890,10 +914,11 @@ class SwarmContainer(TaskContainer):
                 finally:
                     if chowner:
                         chowner.remove()
-            except:
+            except Exception as exn:
+                logger.debug(traceback.format_exc())
                 if success:
                     raise
-                logger.exception("post-task chown also failed")
+                logger.error(_("post-task chown also failed", exception=str(exn)))
 
     def unique_service_name(self, run_id: str) -> str:
         # We need to give each service a name unique on the swarm; collisions cause the service
