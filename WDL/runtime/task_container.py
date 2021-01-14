@@ -559,8 +559,10 @@ class SwarmContainer(TaskContainer):
                 # poll for container exit
                 running_states = {"preparing", "running"}
                 was_running = False
+                poll_failures = 0
                 while exit_code is None:
-                    time.sleep(random.uniform(1.0, 2.0))  # spread out work over the GIL
+                    # spread out work over the GIL; TODO: configurability
+                    time.sleep(random.uniform(1.0, 2.0))
                     if terminating():
                         quiet = not self._observed_states.difference(
                             # reduce log noise if the terminated task only sat in docker's queue
@@ -569,7 +571,14 @@ class SwarmContainer(TaskContainer):
                         if not quiet:
                             self.poll_service(logger, svc, verbose=True)
                         raise Terminated(quiet=quiet)
-                    exit_code = self.poll_service(logger, svc)
+                    try:
+                        exit_code = self.poll_service(logger, svc)
+                        poll_failures = 0
+                    except docker.errors.APIError as exn:
+                        # retry dockerd errors (5xx status code); TODO: configurable #tries
+                        if not exn.is_server_error() or poll_failures >= 2:
+                            raise
+                        poll_failures += 1
                     if not was_running and self._observed_states.intersection(running_states):
                         # indicate actual container start in status bar
                         # 'preparing' is when docker is pulling and extracting the image, which can
@@ -601,14 +610,12 @@ class SwarmContainer(TaskContainer):
                     try:
                         svc.remove()
                         break
-                    except:
-                        logger.exception("failed to remove docker service")
+                    except docker.errors.APIError as exn:
+                        if not exn.is_server_error() or attempt >= 2:
+                            raise
                         time.sleep(2)
             self.chown(logger, client, exit_code == 0)
-            try:
-                client.close()
-            except:
-                logger.exception("failed to close docker-py client")
+            client.close()
 
     def resolve_tag(
         self, logger: logging.Logger, client: docker.DockerClient, image_tag: str
