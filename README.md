@@ -7,21 +7,36 @@
 [![Coverage Status](https://coveralls.io/repos/github/chanzuckerberg/miniwdl/badge.svg?branch=main)](https://coveralls.io/github/chanzuckerberg/miniwdl?branch=main)
 [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/)
 
-## Getting Started
+---
 
-### [Start Here: tutorial with a viral genome assembly workflow](https://miniwdl.readthedocs.io/en/latest/getting_started.html)
+## Install miniwdl
 
-[![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/) `pip3 install miniwdl`
+Installation requires Python 3.6+, pip3 (or conda) and Docker.  General miniwdl architecture pattern is shown below.  More detail in the [miniwdl documentation](https://miniwdl.readthedocs.io/en/latest/getting_started.html).
 
-[![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl) `conda install -c conda-forge miniwdl`
+- Intall with pip [![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/) : run `pip3 install miniwdl`
+- Install with conda [![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl) : run `conda install -c conda-forge miniwdl`
+- Verify your miniwdl installation: run `miniwdl_run_self_test`, output will include the text `done` in green, along with other logs
+- Install from source code: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/main/Dockerfile) for dependencies to run `setup.py`
 
-Source install: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/main/Dockerfile) for dependencies to run `setup.py`
+<img src="https://github.com/openwdl/learn-wdl/blob/master/images/miniwdl-dev.png" width=600>
 
-See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows the current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues).
+## Use miniwdl
+
+Run an example bioinformatics WDL pipeline using miniwdl, or learn more abut miniwdl via a short course (screencast examples).  If you are new to the WDL language, see the open source `learn-wdl` course.  
+
+- [Run an example using a viral genome assembly workflow](https://miniwdl.readthedocs.io/en/latest/getting_started.html)
+- [Learn miniwdl course w/screencasts](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course) - shown below
+- [Learn WDL course w/screencasts](https://github.com/openwdl/learn-wdl)
+
+<img src="https://github.com/openwdl/learn-wdl/blob/master/images/miniwdl-screencasts.png" width=800>
+
+### Learn More
 
 ## [Documentation](https://miniwdl.readthedocs.io/en/latest/WDL.html)
 
 The online documentation includes a user tutorial, reference manual, and Python development codelabs: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/WDL.html)
+
+See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows the current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues).
 
 ## [Contributing](https://github.com/chanzuckerberg/miniwdl/blob/main/CONTRIBUTING.md)
 
