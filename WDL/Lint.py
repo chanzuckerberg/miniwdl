@@ -224,7 +224,7 @@ class StringCoercion(Linter):
             lambda from_type: not isinstance(
                 from_type,
                 (
-                    (Type.Any, Type.String, Type.File)  # pyre-ignore
+                    (Type.Any, Type.String, Type.File, Type.Directory)  # pyre-ignore
                     if isinstance(_parent_executable(obj), Tree.Task)
                     else (Type.Any, Type.String)
                 ),
@@ -235,32 +235,38 @@ class StringCoercion(Linter):
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
             # String function operands with non-String expression
-            if obj.function_name == "_add":
+            if obj.function_name in ("_add", "_interpolation_add"):
+                # TODO: should this apply to _interpolation_add, where coercion to String is
+                # "obviously" intended?
                 any_string = False
                 any_string_literal = False
-                all_string = True
+                non_string = None
                 for arg in obj.arguments:
                     if isinstance(arg.type, Type.String):
                         any_string = True
                         if isinstance(arg, Expr.String):
                             any_string_literal = True
-                    elif not isinstance(arg.type, Type.File):
-                        all_string = arg.type
-                if (
-                    any_string
-                    and all_string is not True
-                    # a literal string on one side or the other makes intent pretty clear
-                    and not any_string_literal
-                    # as does being inside an interpolation placeholder
-                    and not getattr(obj, "in_placeholder", False)
-                ):
-                    self.add(
-                        obj,
-                        "string concatenation (+) has {} argument; consider using interpolation".format(
-                            str(all_string)
-                        ),
-                        obj.pos,
-                    )
+                    elif not isinstance(arg.type, (Type.File, Type.Directory)):
+                        non_string = arg.type
+                if any_string and non_string:
+                    allowed = _find_doc(obj).effective_wdl_version in ("draft-2", "1.0")
+                    if not allowed:
+                        self.add(
+                            obj,
+                            "use interpolation instead of concatenating :String:"
+                            f" + :{non_string}: [deprecated in WDL >=1.1]",
+                            obj.pos,
+                        )
+                    elif not any_string_literal and obj.function_name != "_interpolation_add":
+                        # Prior to WDL 1.1, + could implicitly coerce a non-String argument to
+                        # concatenate with a String argument. Warn about this unless one side is a
+                        # a String literal or we're inside an interpolation (as those cases make
+                        # the intent clear)
+                        self.add(
+                            obj,
+                            f"consider interpolation instead of concatenating :String: + :{non_string}:",
+                            obj.pos,
+                        )
             else:
                 F = getattr(
                     StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name
@@ -277,7 +283,12 @@ class StringCoercion(Linter):
                             lambda from_type: not isinstance(
                                 from_type,
                                 (
-                                    (Type.Any, Type.String, Type.File)  # pyre-ignore
+                                    (
+                                        Type.Any,  # pyre-ignore
+                                        Type.String,
+                                        Type.File,
+                                        Type.Directory,
+                                    )
                                     if isinstance(_parent_executable(obj), Tree.Task)
                                     else (Type.Any, Type.String)
                                 ),
@@ -296,7 +307,7 @@ class StringCoercion(Linter):
             for elt in obj.items:
                 if isinstance(elt.type, Type.String):
                     any_string = True
-                elif not isinstance(elt.type, (Type.File, Type.Any)):
+                elif not isinstance(elt.type, (Type.File, Type.Directory, Type.Any)):
                     all_string = False
                 item_types.append(str(elt.type))
             if any_string and not all_string:
@@ -466,25 +477,17 @@ class OptionalCoercion(Linter):
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
             if obj.function_name in ["_add", "_sub", "_mul", "_div", "_land", "_lor"]:
+                # excluded _interpolation_add, since interpolations expressly allow this
                 assert len(obj.arguments) == 2
                 arg0ty = obj.arguments[0].type
                 arg1ty = obj.arguments[1].type
-                if (arg0ty.optional or arg1ty.optional) and not (
-                    obj.function_name == "_add"
-                    and getattr(obj, "in_placeholder", False)
-                    and (
-                        isinstance(arg0ty, Type.String)
-                        and not arg0ty.optional
-                        or isinstance(arg1ty, Type.String)
-                        and not arg1ty.optional
-                    )
-                ):
-                    # exception for :String: + :T?: or vice-versa in string interpolations
+                if arg0ty.optional or arg1ty.optional:
                     self.add(
                         obj,
                         "infix operator has :{}: and :{}: operands".format(
                             str(arg0ty), str(arg1ty)
                         ),
+                        obj.pos,
                     )
             else:
                 F = getattr(
@@ -828,7 +831,7 @@ class UnnecessaryQuantifier(Linter):
                 and obj not in tw.inputs
                 and not (
                     isinstance(tw, Tree.Task)
-                    and isinstance(obj.type, Type.File)
+                    and isinstance(obj.type, (Type.File, Type.Directory))
                     and obj in tw.outputs
                 )
             ):

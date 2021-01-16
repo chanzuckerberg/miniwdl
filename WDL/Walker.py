@@ -174,13 +174,10 @@ class SetParents(Base):
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
 
-    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional, Task. Also, set
-    in_placeholder=True on any Expr nested within a string interpolation placeholder (including the
-    Placeholder itself)
+    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional, Task.
     """
 
     _parent_stack: List[Error.SourceNode] = []
-    _placeholder_depth = 0
 
     def document(self, obj: Tree.Document) -> None:
         super().document(obj)
@@ -236,16 +233,10 @@ class SetParents(Base):
         self._parent_stack.pop()
 
     def expr(self, obj: Expr.Base) -> None:
-        if isinstance(obj, Expr.Placeholder):
-            self._placeholder_depth += 1
         self._parent_stack.append(obj)
         super().expr(obj)
         self._parent_stack.pop()
-        if self._placeholder_depth > 0:
-            obj.in_placeholder = True
         obj.parent = self._parent_stack[-1]
-        if isinstance(obj, Expr.Placeholder):
-            self._placeholder_depth -= 1
 
 
 class MarkCalled(Base):
