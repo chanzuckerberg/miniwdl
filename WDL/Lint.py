@@ -38,11 +38,12 @@ from . import Error, Type, Env, Expr, Tree, StdLib, Walker, _util
 
 def _find_doc(obj: Error.SourceNode):
     "find the containing document"
-    if hasattr(obj, "_doc4lint"):
-        return getattr(obj, "_doc4lint")
     doc = obj
     while not isinstance(doc, Tree.Document):
-        doc = getattr(doc, "parent")
+        if hasattr(doc, "_doc4lint"):
+            doc = getattr(doc, "_doc4lint")
+        else:
+            doc = getattr(doc, "parent")
         assert doc
     setattr(obj, "_doc4lint", doc)
     return doc
@@ -1082,8 +1083,7 @@ class UnboundDeclaration(Linter):
     # Unbound declaration outside of input{} section in WDL 1.0+
     def decl(self, obj: Tree.Decl) -> Any:
         if not obj.expr:
-            doc = _find_doc(obj)
-            if doc.wdl_version and doc.wdl_version != "draft-2":
+            if _find_doc(obj).effective_wdl_version != "draft-2":
                 exe = obj
                 while not isinstance(exe, (Tree.Task, Tree.Workflow)):
                     exe = getattr(exe, "parent")
@@ -1093,3 +1093,25 @@ class UnboundDeclaration(Linter):
                         obj,
                         f"{obj.type} {obj.name} should either be in the input section or bound to an expression",
                     )
+
+
+@a_linter
+class Deprecated(Linter):
+    def expr(self, obj: Expr.Base) -> Any:
+        if (
+            isinstance(obj, Expr.Placeholder)
+            and obj.options
+            and _find_doc(obj).effective_wdl_version not in ("draft-2", "1.0")
+        ):
+            self.add(
+                obj,
+                "use sep()/select_first()/if-then-else expressions instead of"
+                " sep/default/true/false placeholder options [WDL >= 1.1]",
+                obj.pos,
+            )
+        elif (
+            isinstance(obj, Expr.Struct)
+            and not obj.struct_type_name
+            and _find_doc(obj).effective_wdl_version not in ("draft-2", "1.0")
+        ):
+            self.add(obj, "replace 'object' with specific struct type [WDL >= 1.1]", obj.pos)

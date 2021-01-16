@@ -333,6 +333,8 @@ class _DocTransformer(_ExprTransformer):
 
     def placeholder_option(self, items, meta):
         assert len(items) == 2
+        if items[0].value not in ("default", "false", "true", "sep"):
+            raise Error.ValidationError(self._sp(meta), "unknown placeholder option")
         return (items[0].value, items[1])
 
     def placeholder(self, items, meta):

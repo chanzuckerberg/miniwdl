@@ -402,6 +402,7 @@ class dxWDL(unittest.TestCase):
         "MissingVersion": 7,
         "UnboundDeclaration": 1,
         "UnverifiedStruct": 3,
+        "Deprecated": 2,
     },
     blacklist=["check_quant", "incomplete_call"],
 )
@@ -427,6 +428,7 @@ class Contrived(unittest.TestCase):
         "MissingVersion": 11,
         "UnboundDeclaration": 1,
         "UnverifiedStruct": 3,
+        "Deprecated": 2,
     },
     check_quant=False,
     blacklist=["incomplete_call"],

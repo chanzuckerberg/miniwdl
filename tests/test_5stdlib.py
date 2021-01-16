@@ -907,7 +907,8 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual("value1,value2,value3", outputs["out"])
 
-        self._test_task(R"""
+        # deprecated, not removed in WDL 1.1:
+        outputs = self._test_task(R"""
         version development
         task SepTest {
             input {
@@ -916,8 +917,12 @@ class TestStdLib(unittest.TestCase):
             command <<<
                 echo ~{sep="," inp}
             >>>
+            output {
+                String out = read_string(stdout())
+            }
         }
-        """, expected_exception=WDL.Error.SyntaxError)
+        """) #, expected_exception=WDL.Error.SyntaxError)
+        self.assertEqual("value1,value2,value3", outputs["out"])
 
 
     def test_suffix(self):
