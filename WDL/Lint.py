@@ -347,16 +347,19 @@ class FileCoercion(Linter):
     # exception: when rhs looks like a URI constant (typically a default reference database)
     def decl(self, obj: Tree.Decl) -> Any:
         super().decl(obj)
-        if (
-            obj.expr
-            and _compound_coercion(obj.type, obj.expr.type, (Type.File, Type.Directory))
-            and not (
+        if obj.expr and _compound_coercion(obj.type, obj.expr.type, (Type.File, Type.Directory)):
+            if (
                 isinstance(obj.expr, Expr.String)
                 and obj.expr.literal
                 and "://" in obj.expr.literal.value
-            )
-        ):
-            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+            ):
+                self.add(
+                    obj,
+                    f'{obj.type} {obj.name} = "URI" may work with miniwdl, but for WDL portability,'
+                    " provide default URI in inputs JSON file",
+                )
+            else:
+                self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: Expr.Base) -> Any:
         super().expr(obj)
