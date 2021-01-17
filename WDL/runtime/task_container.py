@@ -955,9 +955,9 @@ class SwarmContainer(TaskContainer):
         tag_part2 = self.run_id.lower()
         if "-" in tag_part2:
             tag_part2 = tag_part2.split("-")[1]
-        maxtag2 = 64 - len(tag_part1) - len(tag_part3)
+        maxtag2 = 63 - len(tag_part1) - len(tag_part3)
         assert maxtag2 > 0
-        tag = tag_part1 + tag_part2 + tag_part3
+        tag = tag_part1 + tag_part2[:maxtag2] + tag_part3
 
         # short-circuit if digest-tagged image already exists
         try:
@@ -968,17 +968,18 @@ class SwarmContainer(TaskContainer):
             pass
 
         # prepare to tee docker build log to logger.verbose and a file
-        build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log.txt")
+        build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log")
 
         def write_log(stream: Iterable[Dict[str, str]]):
             # tee the log messages to logger.verbose and build_logfile
             with open(build_logfile, "w") as outfile:
                 for d in stream:
                     if "stream" in d:
-                        msg = d["stream"].rstrip()
-                        if msg:
-                            logger.verbose(msg)
-                            print(msg, file=outfile)
+                        for msg in d["stream"].split("\n"):
+                            msg = msg.rstrip()
+                            if msg:
+                                logger.verbose(msg)
+                                print(msg, file=outfile)
 
         # run docker build
         try:
