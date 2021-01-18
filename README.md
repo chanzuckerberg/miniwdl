@@ -26,7 +26,7 @@ Run an example bioinformatics WDL pipeline using miniwdl, or learn more abut min
 - [Learn miniwdl course w/screencasts](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course) - shown below
 - [Learn WDL course w/screencasts](https://github.com/openwdl/learn-wdl)
 
-<img src="https://github.com/openwdl/learn-wdl/blob/master/images/miniwdl-screencasts.png" width=800>
+[<img src="https://github.com/openwdl/learn-wdl/blob/master/images/miniwdl-screencasts.png" width=800>](https://www.youtube.com/playlist?list=PL4Q4HssKcxYv1FQJUD6D1Cu0Q1O-_S1hM)
 
 ## [Documentation](https://miniwdl.readthedocs.io/en/latest/WDL.html)
 
