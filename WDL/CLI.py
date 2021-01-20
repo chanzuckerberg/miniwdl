@@ -197,6 +197,13 @@ def fill_check_subparser(subparsers):
         action="store_true",
         help="show warnings even if they have inline suppression comments",
     )
+    check_parser.add_argument(
+        # old option maintained for backwards-compatibility
+        "--no-shellcheck",
+        dest="shellcheck",
+        action="store_false",
+        help=SUPPRESS,
+    )
     return check_parser
 
 
@@ -207,11 +214,14 @@ def check(
     strict=False,
     show_all=False,
     suppress=None,
+    shellcheck=True,
     **kwargs,
 ):
     from . import Lint
 
     suppress = set(suppress.split(",")) if suppress else set()
+    if not shellcheck:
+        suppress.add("CommandShellCheck")
 
     # Load the document (read, parse, and typecheck)
     if "CommandShellCheck" in suppress:
