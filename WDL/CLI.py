@@ -186,27 +186,35 @@ def fill_check_subparser(subparsers):
         help="exit with nonzero status code if any lint warnings are shown (in addition to syntax and type errors)",
     )
     check_parser.add_argument(
+        "--suppress",
+        metavar="Warning1,Warning2",
+        type=str,
+        help="comma-separated set of warnings to disable globally e.g. StringCoercion,NonemptyCoercion",
+    )
+    check_parser.add_argument(
         "--no-suppress",
         dest="show_all",
         action="store_true",
-        help="show lint warnings even if they have suppression comments",
-    )
-    check_parser.add_argument(
-        "--no-shellcheck",
-        dest="shellcheck",
-        action="store_false",
-        help="don't use shellcheck on task commands even if available, and suppress suggestion if it isn't",
+        help="show warnings even if they have inline suppression comments",
     )
     return check_parser
 
 
 def check(
-    uri=None, path=None, check_quant=True, shellcheck=True, strict=False, show_all=False, **kwargs
+    uri=None,
+    path=None,
+    check_quant=True,
+    strict=False,
+    show_all=False,
+    suppress=None,
+    **kwargs,
 ):
     from . import Lint
 
+    suppress = set(suppress.split(",")) if suppress else set()
+
     # Load the document (read, parse, and typecheck)
-    if not shellcheck:
+    if "CommandShellCheck" in suppress:
         Lint._shellcheck_available = False
 
     shown = [0]
@@ -227,12 +235,19 @@ def check(
 
         # Print an outline
         print(os.path.basename(uri1))
-        outline(doc, 0, show_called=(doc.workflow is not None), show_all=show_all, shown=shown)
+        outline(
+            doc,
+            0,
+            show_called=(doc.workflow is not None),
+            suppress=suppress,
+            show_all=show_all,
+            shown=shown,
+        )
 
-    if shellcheck and Lint._shellcheck_available is False:
+    if "CommandShellCheck" not in suppress and Lint._shellcheck_available is False:
         print(
-            "* Suggestion: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck "
-            "suppresses this message)",
+            "* Suggestion: install shellcheck (www.shellcheck.net) to check task commands. (--suppress "
+            "CommandShellCheck suppresses this message)",
             file=sys.stderr,
         )
 
@@ -240,7 +255,9 @@ def check(
         sys.exit(2)
 
 
-def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown=None):
+def outline(
+    obj, level, file=sys.stdout, show_called=True, suppress=None, show_all=False, shown=None
+):
     # recursively pretty-print a brief outline of the workflow
     s = "".join(" " for i in range(level * 4))
 
@@ -250,7 +267,7 @@ def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
             for (pos, cls, msg, suppressed) in sorted(obj.lint, key=lambda t: t[0]):
-                if show_all or not suppressed:
+                if not (suppress and str(cls) in suppress) and (show_all or not suppressed):
                     print(
                         f"{s}    (Ln {pos.line}, Col {pos.column}) {cls}{' (suppressed)' if suppressed else ''}, {msg}",
                         file=file,
@@ -264,6 +281,7 @@ def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown
                 level + (1 if not isinstance(dobj, Decl) else 0),
                 file=file,
                 show_called=show_called,
+                suppress=suppress,
                 show_all=show_all,
                 shown=shown,
             )
