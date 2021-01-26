@@ -875,6 +875,42 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+    def test_unzip(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            Array[Int] xs = [ 1, 2, 3 ]
+            Array[String] ys = [ "a", "b", "c" ]
+            Array[String] zs = [ "d", "e" ]
+            command {}
+            output {
+                Pair[Array[Int], Array[String]] unzipped = unzip(zip(xs, ys))
+                Pair[Array[Int], Array[String]] uncrossed = unzip(cross(xs, zs))
+            }
+        }
+        """)
+        self.assertEqual(outputs["unzipped"], {
+            "left": [1, 2, 3],
+            "right": ["a", "b", "c"]
+        })
+        self.assertEqual(outputs["uncrossed"], {
+            "left": [1, 1, 2, 2, 3, 3],
+            "right": ["d", "e", "d", "e", "d", "e"]
+        })
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            input {
+                Array[Array[Int]] x
+            }
+            command {}
+            output {
+                Array[Pair[Int, Int]] zipped = unzip(x)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
     def test_sep(self):
         outputs = self._test_task(R"""
         version development

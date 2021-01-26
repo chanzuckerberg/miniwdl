@@ -131,6 +131,7 @@ class Base:
         self.select_first = _SelectFirst()
         self.select_all = _SelectAll()
         self.zip = _Zip()
+        self.unzip = _Unzip()
         self.cross = _Cross()
         self.flatten = _Flatten()
         self.transpose = _Transpose()
@@ -826,6 +827,45 @@ class _Cross(_ZipOrCross):
                 for lhs_item in lhs.value
                 for rhs_item in rhs.value
             ],
+        )
+
+
+class _Unzip(EagerFunction):
+    # Array[Pair[X,Y]] -> Pair[Array[X],Array[Y]]
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty: Type.Base = expr.arguments[0].type
+        if (
+            not isinstance(arg0ty, Type.Array)
+            or (expr._check_quant and arg0ty.optional)
+            or not isinstance(arg0ty.item_type, Type.Pair)
+            or (expr._check_quant and arg0ty.item_type.optional)
+        ):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Array(Type.Pair(Type.Any(), Type.Any())), arg0ty
+            )
+        return Type.Pair(
+            Type.Array(arg0ty.item_type.left_type, nonempty=arg0ty.nonempty),
+            Type.Array(arg0ty.item_type.right_type, nonempty=arg0ty.nonempty),
+        )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Pair:
+        pty = self.infer_type(expr)
+        assert isinstance(pty, Type.Pair)
+        lty = pty.left_type
+        assert isinstance(lty, Type.Array)
+        rty = pty.right_type
+        assert isinstance(rty, Type.Array)
+        arr = arguments[0]
+        assert isinstance(arr, Value.Array)
+        return Value.Pair(
+            lty,
+            rty,
+            (
+                Value.Array(lty.item_type, [p.value[0] for p in arr.value]),
+                Value.Array(rty.item_type, [p.value[1] for p in arr.value]),
+            ),
         )
 
 
