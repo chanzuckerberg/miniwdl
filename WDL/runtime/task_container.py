@@ -520,7 +520,7 @@ class SwarmContainer(TaskContainer):
         resources, user, groups = self.misc_config(logger)
 
         polling_period = self.cfg.get_float("docker_swarm", "polling_period_seconds")
-        server_error_retries = self.cfg.get_float("docker_swarm", "server_error_retries")
+        server_error_retries = self.cfg.get_int("docker_swarm", "server_error_retries")
 
         # run container as a transient docker swarm service, letting docker handle the resource
         # scheduling (e.g. waiting until requested # of CPUs are available).
