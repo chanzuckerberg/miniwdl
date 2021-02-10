@@ -53,3 +53,42 @@ jobs:
       # https://github.com/coverallsapp/github-action/issues/30
       # https://github.com/marketplace/actions/coveralls-python
       uses: AndreMiras/coveralls-python-action@develop
+
+  bionic_self_test:
+    # run_self_test in a ubuntu:18.04 image with only the minimal runtime dependencies installed
+    runs-on: ubuntu-20.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: docker build
+      run: |
+        mkdir bionic_self_test
+        cp requirements.txt bionic_self_test
+
+        cat << 'EOF' > bionic_self_test/Dockerfile
+          FROM ubuntu:18.04
+          ENV LC_ALL C.UTF-8
+          ENV LANG C.UTF-8
+          RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-pip
+
+          RUN useradd -ms /bin/bash -u 1337 wdler
+          USER wdler
+          WORKDIR /home/wdler
+          RUN mkdir miniwdl
+
+          COPY requirements.txt /home/wdler/
+          RUN pip3 install --user -r requirements.txt
+
+          ENV PYTHONPATH $PYTHONPATH:/home/wdler/.local/lib/python3.6
+          ENV PATH $PATH:/home/wdler/.local/bin
+
+          # expectation -- mount miniwdl source tree at /home/wdler/miniwdl
+          CMD env -C miniwdl python3 -m WDL run_self_test
+        EOF
+        docker build -t miniwdl_bionic_self_test bionic_self_test
+    - name: miniwdl run_self_test
+      run: |
+        docker run \
+          --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
+          -e AWS_EC2_METADATA_DISABLED=true \
+          miniwdl_bionic_self_test
