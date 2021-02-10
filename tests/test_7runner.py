@@ -167,6 +167,7 @@ class TestDirectoryIO(RunnerTestCase):
         assert os.path.isfile(os.path.join(outp["d_out"][1], "foo/bar"))
         assert os.path.islink(os.path.join(outp["d_out"][1], "baz"))
         assert os.path.isfile(os.path.join(outp["d_out"][1], "baz"))
+        assert os.path.isfile(os.path.join(os.path.dirname(outp["d_out"][1]), ".WDL_Directory"))
 
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"file_io": {"output_hardlinks": True}})
@@ -180,6 +181,7 @@ class TestDirectoryIO(RunnerTestCase):
         assert os.path.isfile(os.path.join(outp["d_out"][1], "foo/bar"))
         assert os.path.islink(os.path.join(outp["d_out"][1], "baz"))
         assert os.path.isfile(os.path.join(outp["d_out"][1], "baz"))
+        assert os.path.isfile(os.path.join(outp["d_out"][1], "..", ".WDL_Directory"))
 
         outp = self._run(R"""
             version development

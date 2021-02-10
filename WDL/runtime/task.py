@@ -689,6 +689,13 @@ def link_outputs(
                         os.link(target, link)
                 else:
                     os.symlink(target, link)
+                # Drop a dotfile indicating whether this is a File/Directory output, to inform a
+                # program crawling the out/ directory without reference to the JSON output for
+                # whatever reason. It might otherwise have trouble distinguishing File and
+                # Directory outputs, especially if output_hardlinks.
+                dotfile_name = ".WDL_Directory" if isinstance(v, Value.Directory) else ".WDL_File"
+                with open(os.path.join(dn, dotfile_name), "w") as dotfile:
+                    pass
                 v.value = link
         # recurse into compound values
         elif isinstance(v, Value.Array) and v.value:

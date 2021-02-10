@@ -1268,7 +1268,7 @@ def run_self_test(**kwargs):
             raise exn
 
     print(
-        "\n🗹  miniwdl run_self_test OK; try `miniwdl configure` to set common options or show current selections.",
+        "\nminiwdl run_self_test OK; try `miniwdl configure` to set common options or show current selections.",
         file=sys.stderr,
     )
     if os.geteuid() == 0:
