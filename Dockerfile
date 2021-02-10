@@ -13,6 +13,7 @@ ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
 RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
     python3-pip python3-setuptools tzdata wget zip git-core default-jre jq shellcheck docker.io
+RUN pip3 install -U pip  # for pyca/cryptography
 
 # add and become 'wdler' user -- it's useful to run the test suite as some arbitrary uid, because
 # the runner has numerous file permissions-related constraints
