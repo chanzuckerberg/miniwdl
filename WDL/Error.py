@@ -170,6 +170,8 @@ class StaticTypeMismatch(ValidationError):
             msg += "; " + self.message
         elif isinstance(self.expected, Type.Int) and isinstance(self.actual, Type.Float):
             msg += "; perhaps try floor() or round()"
+        elif str(self.actual).replace("?", "") == str(self.expected):
+            msg += " -- to coerce T? X into T, try select_first([X,defaultValue]) or select_first([X]) (which might fail at runtime)"
         return msg
 
 
