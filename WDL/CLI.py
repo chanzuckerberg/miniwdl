@@ -1186,7 +1186,9 @@ def fill_run_self_test_subparser(subparsers):
 
 def run_self_test(**kwargs):
     dn = kwargs["dir"]
-    if not dn:
+    if dn:
+        os.makedirs(dn, exist_ok=True)
+    else:
         dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
     with open(os.path.join(dn, "test.wdl"), "w") as outfile:
         outfile.write(
