@@ -268,7 +268,8 @@ class CallCache(AbstractContextManager):
                 self.flock(filename)
 
     def flock(self, filename: str, exclusive: bool = False) -> None:
-        self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
+        if self._cfg["file_io"].get_bool("flock"):
+            self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
 
 
 def _check_files_coherence(
