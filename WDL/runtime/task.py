@@ -543,8 +543,6 @@ def _try_task(
                     and interruptions < cfg["task_runtime"].get_int("_mock_interruptions")
                 ):
                     raise Interrupted("mock interruption") from None
-                if terminating():
-                    raise Terminated()
         except Exception as exn:
             if isinstance(exn, Interrupted) and interruptions < max_interruptions:
                 logger.error(
@@ -557,7 +555,11 @@ def _try_task(
                     )
                 )
                 interruptions += 1
-            elif not isinstance(exn, (Terminated, DockerBuildError)) and retries < max_retries:
+            elif (
+                not isinstance(exn, (Terminated, DockerBuildError))
+                and retries < max_retries
+                and not terminating()
+            ):
                 logger.error(
                     _(
                         "failed task will be retried",

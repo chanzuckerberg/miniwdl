@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 74
+plan tests 76
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -393,3 +393,39 @@ $miniwdl run call_cache.wdl file_in=https://raw.githubusercontent.com/chanzucker
 is "$?" 0
 test -d _LAST/call-t1/work
 is "$?" "1" "call-t1 ran"
+
+# test "fail-slow"
+cat << 'EOF' > fail_slow.wdl
+version development
+workflow w {
+    call t as succeeder {
+        input:
+        wait = 10,
+        fail = false
+    }
+    call t as failer {
+        input:
+        wait = 5,
+        fail = true
+    }
+}
+task t {
+    input {
+        Int wait
+        Boolean fail
+    }
+    command {
+        sleep ~{wait}
+        if [[ '~{fail}' == 'true' ]]; then
+            exit 1
+        fi
+    }
+    output {
+        Int result = 42
+    }
+}
+EOF
+MINIWDL__SCHEDULER__FAIL_FAST=false $miniwdl run fail_slow.wdl
+is "$?" "1" "fail-slow"
+test -f _LAST/call-succeeder/outputs.json
+is "$?" "0" "fail-slow -- in-progress task allowed to succeed"
