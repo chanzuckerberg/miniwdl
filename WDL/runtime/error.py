@@ -20,9 +20,12 @@ class CommandFailed(_RuntimeError):
     Path to a file containing the task's standard error
     """
 
-    def __init__(self, exit_status: int, stderr_file: str, message: str = "") -> None:
+    # pyre-ignore
+    def __init__(self, exit_status: int, stderr_file: str, message: str = "", **kwargs) -> None:
         oom_hint = ", a possible indication that it ran out of memory" if exit_status == 137 else ""
-        super().__init__(message or f"task command failed with exit status {exit_status}{oom_hint}")
+        super().__init__(
+            message or f"task command failed with exit status {exit_status}{oom_hint}", **kwargs
+        )
         self.exit_status = exit_status
         self.stderr_file = stderr_file
 
@@ -37,7 +40,8 @@ class Terminated(_RuntimeError):
     Termination warrants less logging because it was a secondary side-effect of a previous error
     """
 
-    def __init__(self, quiet: bool = False) -> None:
+    def __init__(self, quiet: bool = False, **kwargs) -> None:  # pyre-ignore
+        super().__init__(**kwargs)
         self.quiet = quiet
         _statusbar.abort()
 
@@ -78,10 +82,12 @@ class RunFailed(_RuntimeError):
     run_id: str
     run_dir: str
 
-    def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str) -> None:
+    # pyre-ignore
+    def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str, **kwargs) -> None:
         super().__init__(
             f"{'task' if isinstance(exe, _Task) else 'workflow'} {exe.name} "
-            f"({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed"
+            f"({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed",
+            **kwargs,
         )
         self.exe = exe
         self.run_id = run_id
@@ -131,4 +137,9 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
     pos = pos or getattr(exn, "pos", None)
     if isinstance(pos, SourcePosition):
         info["pos"] = pos_json(pos)
+    if isinstance(getattr(exn, "more_info", None), dict):
+        more_info = getattr(exn, "more_info")
+        for k in more_info:
+            if k not in info:
+                info[k] = more_info[k]
     return info

@@ -1,5 +1,5 @@
 # pyre-strict
-from typing import List, Optional, Union, Iterable, TypeVar, Generator, Callable, Any
+from typing import List, Optional, Union, Iterable, TypeVar, Generator, Callable, Any, Dict
 from functools import total_ordering
 from contextlib import contextmanager
 
@@ -305,7 +305,15 @@ def multi_context() -> Generator[_MultiContext, None, None]:
 
 
 class RuntimeError(Exception):
-    pass
+    more_info: Dict[str, Any]
+    """
+    Backend-specific information about an error (for example, pointer to a centralized log system)
+    """
+
+    # pyre-ignore
+    def __init__(self, *args, more_info: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.more_info = more_info if more_info else {}
 
 
 class EvalError(RuntimeError):
