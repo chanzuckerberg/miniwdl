@@ -734,7 +734,7 @@ def run_local_workflow(
             )
         except:
             _statusbar.abort()
-            if not _run_id_stack:
+            if not _run_id_stack and cfg["scheduler"].get_bool("fail_fast"):
                 # if we're the top-level worfklow, signal abort to anything still running
                 # concurrently on the thread pools (SIGUSR1 will be picked up by
                 # TerminationSignalFlag)
