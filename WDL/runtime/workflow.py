@@ -633,15 +633,20 @@ def run_local_workflow(
     logger = logging.getLogger(".".join(logger_id))
     logfile = os.path.join(run_dir, "workflow.log")
     with ExitStack() as cleanup:
-        fh = cleanup.enter_context(
+        cleanup.enter_context(
             LoggingFileHandler(
                 logger,
                 logfile,
-                json=(
-                    cfg["logging"].get_bool("json") if cfg.has_option("logging", "json") else False
-                ),
             )
         )
+        if cfg.has_option("logging", "json") and cfg["logging"].get_bool("json"):
+            cleanup.enter_context(
+                LoggingFileHandler(
+                    logger,
+                    logfile + ".json",
+                    json=True,
+                )
+            )
         logger.notice(  # pyre-fixme
             _(
                 "workflow start",

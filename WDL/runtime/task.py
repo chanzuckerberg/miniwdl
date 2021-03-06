@@ -71,15 +71,20 @@ def run_local_task(
         # provision run directory and log file
         run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
         logfile = os.path.join(run_dir, "task.log")
-        fh = cleanup.enter_context(
+        cleanup.enter_context(
             LoggingFileHandler(
                 logger,
                 logfile,
-                json=(
-                    cfg["logging"].get_bool("json") if cfg.has_option("logging", "json") else False
-                ),
             )
         )
+        if cfg.has_option("logging", "json") and cfg["logging"].get_bool("json"):
+            cleanup.enter_context(
+                LoggingFileHandler(
+                    logger,
+                    logfile + ".json",
+                    json=True,
+                )
+            )
         logger.notice(  # pyre-fixme
             _(
                 "task start",

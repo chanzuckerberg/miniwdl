@@ -669,15 +669,15 @@ def runner(
             )
         except Error.InputError as exn:
             if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=2))
+                print(json.dumps(runtime.error_json(exn), indent=(None if log_json else 2)))
             die(exn.args[0])
         except Exception as exn:
             if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=2))
+                print(json.dumps(runtime.error_json(exn), indent=(None if log_json else 2)))
             raise
 
         if json_only:
-            print(json.dumps(input_json, indent=2))
+            print(json.dumps(input_json, indent=(None if log_json else 2)))
             sys.exit(0)
 
         # debug logging
@@ -722,7 +722,7 @@ def runner(
             rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir, _cache=cache)
         except Exception as exn:
             if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=2))
+                print(json.dumps(runtime.error_json(exn), indent=(None if log_json else 2)))
             exit_status = 2
             from_rundir = None
             while isinstance(exn, runtime.RunFailed):
@@ -761,7 +761,7 @@ def runner(
 
     # report
     outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
-    print(json.dumps(outputs_json, indent=2))
+    print(json.dumps(outputs_json, indent=(None if log_json else 2)))
     return outputs_json
 
 
