@@ -221,7 +221,7 @@ class CallCache(AbstractContextManager):
             self.memo_download(uri, filename, directory=directory)
             return filename
         moved = False
-        # transient exclusive flock on whole cache entry (serializes entry add/remove)
+        # transient exclusive flock on whole cache directory (serializes entry add/remove)
         with FlockHolder(logger) as transient:
             self.flock(
                 os.path.join(self._cfg["download_cache"]["dir"], "_miniwdl_flock"),
@@ -238,7 +238,8 @@ class CallCache(AbstractContextManager):
             self.flock(p, directory=directory)
         if not moved:
             # Cache entry appeared just in the time since this download was initiated, which should
-            # be identical to our just-completed download. Regrettably, discard ours.
+            # be identical to our just-completed download. Regrettably, discard ours to mitigate
+            # cache storage space taken.
             logger.warning(
                 _(
                     "discarding completed download colliding with a new cache entry",
