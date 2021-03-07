@@ -47,6 +47,8 @@ class CallCache(AbstractContextManager):
         self._lock = Lock()
         if cfg["download_cache"].get_bool("put"):
             os.makedirs(cfg["download_cache"]["dir"], exist_ok=True)
+            with open(os.path.join(self._cfg["download_cache"]["dir"], "_miniwdl_flock"), "w"):
+                pass
         if cfg["call_cache"].get_bool("put"):
             os.makedirs(cfg["call_cache"]["dir"], exist_ok=True)
 
@@ -218,12 +220,11 @@ class CallCache(AbstractContextManager):
         if not p:
             self.memo_download(uri, filename, directory=directory)
             return filename
-        discard = False
-        # transient exclusive flock on cache directory itself
+        moved = False
+        # transient exclusive flock on whole cache entry (serializes entry add/remove)
         with FlockHolder(logger) as transient:
             self.flock(
-                self._cfg["download_cache"]["dir"],
-                directory=True,
+                os.path.join(self._cfg["download_cache"]["dir"], "_miniwdl_flock"),
                 exclusive=True,
                 wait=True,
                 holder=transient,
@@ -231,13 +232,11 @@ class CallCache(AbstractContextManager):
             if not os.path.exists(p):
                 # this should be atomic, because the download operation should have been run under
                 # the cache directory (download.py:run_cached)
-                self.flock(filename, directory=directory)
                 os.renames(filename, p)
+                moved = True
                 logger.info(_("stored in download cache", uri=uri, cache_path=p))
-            else:
-                self.flock(p, directory=directory)
-                discard = True
-        if discard:
+            self.flock(p, directory=directory)
+        if not moved:
             # Cache entry appeared just in the time since this download was initiated, which should
             # be identical to our just-completed download. Regrettably, discard ours.
             logger.warning(
@@ -266,14 +265,12 @@ class CallCache(AbstractContextManager):
         directory: bool = False,
     ) -> None:
         """
-        Memoize (for the lifetime of self) that filename is a local copy of uri; flock it as well.
+        Memoize (for the lifetime of self) that filename is a local copy of uri
         """
         with self._lock:
             memo = self._workflow_directory_downloads if directory else self._workflow_downloads
             if uri not in memo:
                 memo[uri] = filename
-                if not directory:
-                    self.flock(filename)
 
     def flock(
         self,
@@ -283,19 +280,17 @@ class CallCache(AbstractContextManager):
         directory: bool = False,
         holder: Optional[FlockHolder] = None,
     ) -> None:
-        if self._cfg["file_io"].get_bool("flock"):
-            flockname = filename
-            if directory:
-                # Not all filesystems support directory flock, so we flock a dotfile inside the
-                # directory. It should be inside the directory, not outside, so that moving the
-                # directory moves the lock file atomically. This advantage outweighs the problem
-                # that the lock file may be visible to WDL tasks mounting the directory.
-                flockname = os.path.join(filename, "._miniwdl_flock")
-                with open(flockname, "w"):
-                    pass
-            if not holder:
-                holder = self._flocker
-            holder.flock(flockname, exclusive=exclusive, wait=wait)
+        flockname = filename
+        if directory:
+            # Not all filesystems support directory flock, so we flock an adjacent dotfile.
+            flockname = os.path.join(
+                os.path.dirname(filename), os.path.basename(filename) + "._miniwdl_flock"
+            )
+            with open(flockname, "w"):
+                pass
+        if not holder:
+            holder = self._flocker
+        holder.flock(flockname, exclusive=exclusive, wait=wait)
         bump_atime(filename)  # filename, NOT flockname
 
 

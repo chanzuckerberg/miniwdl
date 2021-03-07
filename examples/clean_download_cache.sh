@@ -1,9 +1,8 @@
 #!/bin/bash
 # Maintenance script for the miniwdl File/Directory download cache directory. Evicts (deletes)
 # least-recently used items until total space usage is below a threshold given in GB. This script
-# should be run under exclusive flock with ${DIR}/._miniwdl_lock (which should be created if it
-# doesn't exist). It also uses flocks on individual cached items to avoid interfering with ongoing
-# runs.
+# should be run under exclusive flock on the file ${DIR}/_miniwdl_flock (which should be created if
+# necessary). It also uses flocks on cache items to avoid interfering with ongoing runs using them.
 
 set -euo pipefail
 
@@ -37,7 +36,7 @@ while true ; do
     # when it uses an item)
     eviction=0
     for fn in $( (find "${DIR}/dirs" -mindepth 4 -maxdepth 4 -type d -printf "%A@\t%p\n";
-                  find "${DIR}/files" -type f -printf "%A@\t%p\n") | LC_ALL=C grep -v ._miniwdl_flock | sort -nk1 | cut -f2 ); do
+                  find "${DIR}/files" -type f -printf "%A@\t%p\n") | sort -nk1 | cut -f2 ); do
         # If we can get an exclusive flock, rename the file/directory and then delete it.
         # - miniwdl takes shared flocks on any items in use by a running workflow
         # - the rename step ensures cached directories disappear "atomically"
@@ -45,7 +44,7 @@ while true ; do
         flock_status=0
         flock_fn="$fn"
         if [ -d "$flock_fn" ]; then
-            flock_fn="${flock_fn}/._miniwdl_flock"
+            flock_fn="${flock_fn}._miniwdl_flock"
         fi
         deleting_fn="${DIR}/ops/_deleting"
         rm -rf "$deleting_fn"

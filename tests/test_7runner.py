@@ -675,7 +675,7 @@ class TestDownload(RunnerTestCase):
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
         outp = self._run(wdl6, inp, task="directory_files", cfg=cfg)
-        self.assertEqual(len(outp["files"]), 3)  # includes .miniwdl_flock
+        self.assertEqual(len(outp["files"]), 2)
         new_logs = [str(record.msg) for record in capture.records][len(logs):]
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
