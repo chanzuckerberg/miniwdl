@@ -4,7 +4,9 @@
 
 By default `miniwdl run` creates a new subdirectory of the current working directory for each run, timestamp-named so that a series of them sorts in order of invocation. A different root directory can be specified with `--dir /my/runs`, while timestamp-named subdirectory creation can be prevented with `--dir myrun/.`; in the latter case, the given directory should be nonexistent or empty.
 
-Upon run success, the JSON outputs are written to `outputs.json` in the run directory and printed to standard output (including a key providing the run directory path). Upon failure, the process exits with a non-zero status code and JSON error information is written to `error.json` in the run directory; if `--error-json` is supplied, this information is also printed to standard output. The existence of `outputs.json` is a reliable indicator of success; `error.json` indicates failure, but may not appear if miniwdl is force-killed (by SIGKILL, such as the out-of-memory killer), or if writing the file fails for any reason.
+Upon run success, the JSON outputs are written to `outputs.json` in the run directory and printed to standard output (including a key providing the run directory path). Upon failure, the process exits with a non-zero status code and JSON error information is written to `error.json` in the run directory; if `--error-json` is supplied, this information is also printed to standard output.
+
+The existence of `outputs.json` is a reliable indicator of success; `error.json` indicates failure, but may not appear if miniwdl is force-killed (by SIGKILL, such as the out-of-memory killer), or if writing the file fails for any reason. Barring such extremes, an external process should assume a run directory is still in use if it contains neither `outputs.json` nor `error.json`.
 
 For tasks, the run directory also contains:
 
@@ -26,7 +28,6 @@ The top-level run directory also contains:
 
 * `wdl/` a copy of the original WDL that was run, including imported documents (except any referenced by URI or absolute path)
 * `rerun` can be "sourced" to run the WDL (as found in the original location, possibly updated) using the same inputs
-* The top-level `workflow.log` file is "flocked" while `miniwdl run` is still in progress (`task.log` if running a task directly)
 
 When miniwdl creates a new timestamp-named subdirectory for a run, it also creates a symbolic link `_LAST` to it in the same parent directory. (For convenience referring to the most recent run; should not be relied upon if multiple runs can start concurrently.)
 

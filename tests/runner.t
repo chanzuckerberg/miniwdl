@@ -317,7 +317,7 @@ MINIWDL__DOWNLOAD_CACHE__PUT=true MINIWDL__DOWNLOAD_CACHE__DIR="${DN}/test_local
     $miniwdl localize localize_me.wdl uri_inputs.json --file gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt --verbose > localize.stdout
 is "$?" "0" "localize exit code"
 is "$(find "${DN}/test_localize/cache/files" -type f | wc -l | tr -d ' ')" "2" "localize cache files"
-is "$(find "${DN}/test_localize/cache/dirs" -type f | wc -l | tr -d ' ')" "2" "localize cache dirs"  # two files in downloaded directory
+is "$(find "${DN}/test_localize/cache/dirs" -type f | wc -l | tr -d ' ')" "3" "localize cache dirs"  # two files in downloaded directory + ._miniwdl_flock
 
 
 # test task call caching --

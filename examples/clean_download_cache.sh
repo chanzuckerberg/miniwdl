@@ -1,8 +1,9 @@
 #!/bin/bash
 # Maintenance script for the miniwdl File/Directory download cache directory. Evicts (deletes)
-# least-recently used items until total space usage is below a threshold given in GB; while using
-# lock to avoid interfering with any concurrent miniwdl process. Waits if all items are in use
-# concurrently.
+# least-recently used items until total space usage is below a threshold given in GB. This script
+# should be run under exclusive flock with ${DIR}/._miniwdl_lock (which should be created if it
+# doesn't exist). It also uses flocks on individual cached items to avoid interfering with ongoing
+# runs.
 
 set -euo pipefail
 
@@ -36,14 +37,19 @@ while true ; do
     # when it uses an item)
     eviction=0
     for fn in $( (find "${DIR}/dirs" -mindepth 4 -maxdepth 4 -type d -printf "%A@\t%p\n";
-                  find "${DIR}/files" -type f -printf "%A@\t%p\n") | sort -nk1 | cut -f2 ); do
+                  find "${DIR}/files" -type f -printf "%A@\t%p\n") | LC_ALL=C grep -v ._miniwdl_flock | sort -nk1 | cut -f2 ); do
         # If we can get an exclusive flock, rename the file/directory and then delete it.
         # - miniwdl takes shared flocks on any items in use by a running workflow
         # - the rename step ensures cached directories disappear "atomically"
+        # - lockfiles are used for dirs, since not all filesystems support directory flocks
         flock_status=0
+        flock_fn="$fn"
+        if [ -d "$flock_fn" ]; then
+            flock_fn="${flock_fn}/._miniwdl_flock"
+        fi
         deleting_fn="${DIR}/ops/_deleting"
         rm -rf "$deleting_fn"
-        (flock -xnE 142 "$fn" mv "$fn" "$deleting_fn" && rm -rf "$deleting_fn") || flock_status=$?
+        (flock -xnE 142 "$flock_fn" mv "$fn" "$deleting_fn" && rm -rf "$deleting_fn") || flock_status=$?
         if (( flock_status == 0 )); then
             >&2 echo "evicted: $fn"
             eviction=1
@@ -56,9 +62,8 @@ while true ; do
         fi
     done
 
-    # if we weren't able to evict anything, pause awhile before continuing
     if (( eviction == 0 )); then
-        >&2 echo "all files in use; waiting 30s..."
-        sleep 30
+        >&2 echo "all cache contents in use; try again later"
+        exit 2
     fi
 done

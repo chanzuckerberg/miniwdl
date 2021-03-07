@@ -5,6 +5,7 @@ referenced therein, and updates their access timestamps (atime).
 """
 import json
 import os
+import shutil
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -21,6 +22,7 @@ from .._util import (
     FlockHolder,
     write_atomic,
     rmtree_atomic,
+    bump_atime,
 )
 
 
@@ -43,12 +45,10 @@ class CallCache(AbstractContextManager):
         self._workflow_downloads = {}
         self._workflow_directory_downloads = {}
         self._lock = Lock()
-        self.call_cache_dir = cfg["call_cache"]["dir"]
-
-        try:
-            os.mkdir(self.call_cache_dir)
-        except Exception:
-            pass
+        if cfg["download_cache"].get_bool("put"):
+            os.makedirs(cfg["download_cache"]["dir"], exist_ok=True)
+        if cfg["call_cache"].get_bool("put"):
+            os.makedirs(cfg["call_cache"]["dir"], exist_ok=True)
 
     def __enter__(self) -> "CallCache":
         self._flocker.__enter__()
@@ -67,7 +67,7 @@ class CallCache(AbstractContextManager):
         """
         from .. import values_from_json
 
-        file_path = os.path.join(self.call_cache_dir, f"{key}.json")
+        file_path = os.path.join(self._cfg["call_cache"]["dir"], f"{key}.json")
 
         if not self._cfg["call_cache"].get_bool("get"):
             return None
@@ -111,7 +111,7 @@ class CallCache(AbstractContextManager):
         from .. import values_to_json
 
         if self._cfg["call_cache"].get_bool("put"):
-            filename = os.path.join(self.call_cache_dir, key + ".json")
+            filename = os.path.join(self._cfg["call_cache"]["dir"], key + ".json")
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             write_atomic(json.dumps(values_to_json(outputs), indent=2), filename)  # pyre-ignore
             self._logger.info(_("call cache insert", cache_file=filename))
@@ -186,7 +186,7 @@ class CallCache(AbstractContextManager):
             logger.debug(_("no download cache hit", uri=uri, cache_path=p))
             return None
         try:
-            self.flock(p)
+            self.flock(p, directory=directory)
             logger.info(_("found in download cache", uri=uri, cache_path=p))
             return p
         except Exception as exn:
@@ -214,38 +214,45 @@ class CallCache(AbstractContextManager):
         if directory:
             uri = uri.rstrip("/")
         logger = logger.getChild("CallCache") if logger else self._logger
-        ans = filename
         p = self.download_cacheable(uri, directory=directory)
-        if p:
-            # if a file at the cache location has appeared whilst we were downloading, replace it
-            # iff we can exclusive-flock it
-            with FlockHolder(logger) as replace_flock:
-                try:
-                    replace_flock.flock(p, mode=os.O_RDONLY, exclusive=True)
-                except FileNotFoundError:
-                    pass
-                except OSError:
-                    logger.warning(
-                        _(
-                            "existing cache entry in use; leaving downloaded in-place",
-                            uri=uri,
-                            downloaded=filename,
-                            cache_path=p,
-                        )
-                    )
-                    p = None
-                if p:
-                    if directory and os.path.isdir(p):
-                        rmtree_atomic(p)
-                    os.renames(filename, p)
-                    self.flock(p)
-                    # the renames() op should be atomic, because the download operation should have
-                    # been run under the cache directory (download.py:run_cached)
-                    logger.info(_("stored in download cache", uri=uri, cache_path=p))
-                    ans = p
         if not p:
             self.memo_download(uri, filename, directory=directory)
-        return ans
+            return filename
+        discard = False
+        # transient exclusive flock on cache directory itself
+        with FlockHolder(logger) as transient:
+            self.flock(
+                self._cfg["download_cache"]["dir"],
+                directory=True,
+                exclusive=True,
+                wait=True,
+                holder=transient,
+            )
+            if not os.path.exists(p):
+                # this should be atomic, because the download operation should have been run under
+                # the cache directory (download.py:run_cached)
+                self.flock(filename, directory=directory)
+                os.renames(filename, p)
+                logger.info(_("stored in download cache", uri=uri, cache_path=p))
+            else:
+                self.flock(p, directory=directory)
+                discard = True
+        if discard:
+            # Cache entry appeared just in the time since this download was initiated, which should
+            # be identical to our just-completed download. Regrettably, discard ours.
+            logger.warning(
+                _(
+                    "discarding completed download colliding with a new cache entry",
+                    uri=uri,
+                    downloaded=filename,
+                    cache_path=p,
+                )
+            )
+            if directory:
+                shutil.rmtree(filename)
+            else:
+                os.unlink(filename)
+        return p
 
     def download_cacheable(self, uri: str, directory: bool = False) -> Optional[str]:
         if not self._cfg["download_cache"].get_bool("put"):
@@ -265,11 +272,31 @@ class CallCache(AbstractContextManager):
             memo = self._workflow_directory_downloads if directory else self._workflow_downloads
             if uri not in memo:
                 memo[uri] = filename
-                self.flock(filename)
+                if not directory:
+                    self.flock(filename)
 
-    def flock(self, filename: str, exclusive: bool = False) -> None:
+    def flock(
+        self,
+        filename: str,
+        exclusive: bool = False,
+        wait: bool = False,
+        directory: bool = False,
+        holder: Optional[FlockHolder] = None,
+    ) -> None:
         if self._cfg["file_io"].get_bool("flock"):
-            self._flocker.flock(filename, update_atime=True, exclusive=exclusive)
+            flockname = filename
+            if directory:
+                # Not all filesystems support directory flock, so we flock a dotfile inside the
+                # directory. It should be inside the directory, not outside, so that moving the
+                # directory moves the lock file atomically. This advantage outweighs the problem
+                # that the lock file may be visible to WDL tasks mounting the directory.
+                flockname = os.path.join(filename, "._miniwdl_flock")
+                with open(flockname, "w"):
+                    pass
+            if not holder:
+                holder = self._flocker
+            holder.flock(flockname, exclusive=exclusive, wait=wait)
+        bump_atime(filename)  # filename, NOT flockname
 
 
 def _check_files_coherence(
