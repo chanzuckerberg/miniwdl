@@ -111,6 +111,12 @@ class TaskContainer(ABC):
     writes each line to the 'stderr' child of the task logger.
     """
 
+    failure_info: Optional[Dict[str, Any]]
+    """
+    Upon run failure, the implementation may provide additional structured information about what
+    went wrong (beyond the exit code and log messages).
+    """
+
     _running: bool
 
     def __init__(self, cfg: config.Loader, run_id: str, host_dir: str) -> None:
@@ -124,6 +130,7 @@ class TaskContainer(ABC):
         self.try_counter = 1
         self._running = False
         self.runtime_values = {}
+        self.failure_info = None
         os.makedirs(self.host_work_dir())
 
     def add_paths(self, host_paths: Iterable[str]) -> None:
@@ -216,7 +223,7 @@ class TaskContainer(ABC):
 
                 if exit_status != 0:
                     raise CommandFailed(
-                        exit_status, self.host_stderr_txt()
+                        exit_status, self.host_stderr_txt(), more_info=self.failure_info
                     ) if not terminating() else Terminated()
 
     @abstractmethod
