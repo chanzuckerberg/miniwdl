@@ -283,7 +283,10 @@ class CallCache(AbstractContextManager):
     ) -> None:
         flockname = filename
         if directory:
-            # Not all filesystems support directory flock, so we flock an adjacent dotfile.
+            # Not all filesystems support directory flock, so we flock an adjacent lockfile. This
+            # loses some atomicity properties -- for example, moving/renaming the directory won't
+            # take the lockfile along with it -- so it's important to handle this under the
+            # exclusive flock of the entire cache taken briefly in put_download.
             flockname = os.path.join(
                 os.path.dirname(filename), os.path.basename(filename) + "._miniwdl_flock"
             )
