@@ -828,7 +828,7 @@ class SwarmContainer(TaskContainer):
                 loginfo["task"] = tasks[0]["ID"][:10]
                 if "NodeID" in tasks[0]:
                     loginfo["node"] = tasks[0]["NodeID"][:10]
-            if status["DesiredState"] != state:
+            if "DesiredState" in status and status["DesiredState"] != state:
                 loginfo["desired"] = status["DesiredState"]
             logmsg = status.get("Err", status.get("Message", None))
             if logmsg and logmsg != state:

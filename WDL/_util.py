@@ -795,20 +795,18 @@ class FlockHolder(AbstractContextManager):
         mode: Optional[int] = None,
         exclusive: bool = False,
         wait: bool = False,
-        update_atime: bool = False,
     ) -> int:
         """
-        Open a file/directory and an advisory lock on it. The file is closed and the lock released
-        upon exit of the outermost context. Returns the open file descriptor, which the caller
-        shouldn't close (this is taken care of).
+        Open a file and an advisory lock on it. The file is closed and the lock released upon exit
+        of the outermost context. Returns the open file descriptor, which the caller shouldn't
+        close (managed by the object).
 
-        :param filename: file/directory to open & lock
+        :param filename: file to open & lock
         :param mode: os.open() mode flags, default: OS.O_RDWR if exclusive else os.O_RDONLY
         :param exclusive: True to open an exclusive lock (default: shared lock)
         :param wait: True to wait as long as needed to obtain the lock, otherwise (default) raise
                      OSError if the lock isn't available immediately. Self-deadlock is possible;
                      see Python fcntl.flock docs for further details.
-        :param update_atime: True to 'touch -a' the file after obtaining the lock
         """
         assert self._entries, "FlockHolder.flock() used out of context"
         while True:
@@ -845,8 +843,6 @@ class FlockHolder(AbstractContextManager):
                     # the flock will release whenever we ultimately openfile.close()
 
                     file_st = os.stat(openfile)
-                    if update_atime:
-                        os.utime(openfile, ns=(int(time.time() * 1e9), file_st.st_mtime_ns))
 
                     # Even if all concurrent processes obey the advisory flocks, the filename link
                     # could have been replaced or removed in the duration between our open() and
@@ -877,6 +873,15 @@ class FlockHolder(AbstractContextManager):
                     os.close(openfile)
                     raise
                 os.close(openfile)  # NOT finally -- for next while-loop iteration
+
+
+def bump_atime(filename: str) -> None:
+    fd = os.open(os.path.realpath(filename), os.O_RDONLY)
+    try:
+        file_st = os.stat(fd)
+        os.utime(fd, ns=(int(time.time() * 1e9), file_st.st_mtime_ns))
+    finally:
+        os.close(fd)
 
 
 @export
