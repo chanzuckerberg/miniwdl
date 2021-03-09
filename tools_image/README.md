@@ -7,13 +7,14 @@ For example, the image bundles [aria2c](https://aria2.github.io/), which miniwdl
 This image doesn't change often, so we build it manually. First, authenticate your local `docker` CLI to GitHub Container Registry ([instructions](https://docs.github.com/en/packages/guides/pushing-and-pulling-docker-images#authenticating-to-github-container-registry)) using a Personal Access Token *with SSO enabled* for the `chanzuckerberg` organization. Then,
 
 ```
-docker build --no-cache -t miniwdl_tools tools_image/
-TAG=$(docker inspect miniwdl_tools:latest | jq -r .[0].Id | tr ':' '_' | xargs printf 'ghcr.io/chanzuckerberg/miniwdl_tools:Id_%s')
+docker build --no-cache -t miniwdl_tools:latest tools_image/
+TAG=$(docker inspect miniwdl_tools:latest | jq -r .[0].Id | tr ':' '_' \
+      | xargs printf 'ghcr.io/chanzuckerberg/miniwdl_tools:Id_%s')
 docker tag miniwdl_tools:latest $TAG
 docker push $TAG
 echo $TAG
 ```
 
-This tags the image based on its content-based "Image ID" to help pulling the exact intended image. (The Image ID is *not* the "Repo Digest", which is another way of achieving that.)
+This tags the image based on its content-digest "Image ID" to help pulling the exact intended image. (The Image ID is *not* the "Repo Digest", which is another way of achieving that.)
 
 Lastly, update references to this image in [default.cfg](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg).
