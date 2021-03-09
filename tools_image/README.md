@@ -1,8 +1,8 @@
 # miniwdl/tools_image
 
-This subdirectory is the recipe for a Docker image bundling tools that miniwdl uses to provide certain functionality (without requiring end-users to install extra OS packages). End-users shouldn't deal with this image; it's used internally by miniwdl and does *not* include miniwdl itself.
+This subdirectory is the recipe for a Docker image bundling tools that miniwdl uses to provide certain functionality. End-users shouldn't deal with this image; it's used internally by miniwdl and does *not* include miniwdl itself.
 
-For example, the image bundles [aria2c](https://aria2.github.io/), which miniwdl uses to download large input files supplied as URLs. Miniwdl synthesizes a WDL task with this image, which inputs the URL and outputs the desired file.
+For example, the image bundles [aria2c](https://aria2.github.io/), which miniwdl uses to download large input files supplied as URLs (without requiring end-users to install extra OS packages). Miniwdl synthesizes a WDL task with this image, which inputs the URL and outputs the desired file. The image is served publicly from GitHub Container Registry, referenced in the miniwdl configuration defaults (where it can be overridden if necessary).
 
 This image doesn't change often, so we build it manually. First, authenticate your local `docker` CLI to GitHub Container Registry ([instructions](https://docs.github.com/en/packages/guides/pushing-and-pulling-docker-images#authenticating-to-github-container-registry)) using a Personal Access Token *with SSO enabled* for the `chanzuckerberg` organization. Then,
 
