@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import os
+import stat
 import random
 import shutil
 import tempfile
@@ -605,10 +606,17 @@ Int count = 12
         tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
         with patch('WDL.runtime.workflow._workflow_main_loop', wmock), patch('WDL.runtime.task._try_task', tmock):
             # control
-            _, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
+            rundir, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
             self.assertEqual(wmock.call_count, 0)
             self.assertEqual(tmock.call_count, 0)
-            self.assertEqual(WDL.values_to_json(outp), WDL.values_to_json(outp2))
+            outp_inodes = set()
+            WDL.Value.rewrite_env_paths(outp, lambda p: outp_inodes.add(os.stat(p.value)[stat.ST_INO]))
+            outp2_inodes = set()
+            WDL.Value.rewrite_env_paths(outp2, lambda p: outp2_inodes.add(os.stat(p.value)[stat.ST_INO]))
+            self.assertEqual(outp_inodes, outp2_inodes)
+
+            # regression test -- cached output paths should still be links under out/
+            WDL.Value.rewrite_env_paths(outp2, lambda p: self.assertTrue(p.value.startswith(os.path.join(rundir, "out/"))))
 
             # touch a file & check cache invalidated
             with open(os.path.join(self._dir, "alyssa.json"), mode="w") as outfile:

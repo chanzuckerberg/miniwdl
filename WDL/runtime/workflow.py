@@ -680,10 +680,10 @@ def run_local_workflow(
                 cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
             )
             write_values_json(
-                cached, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
+                outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
             )
             logger.notice("done (cached)")  # pyre-fixme
-            return (run_dir, cached)
+            return (run_dir, outputs)
 
         # if we're the top-level workflow, provision thread pools
         if not _thread_pools:
