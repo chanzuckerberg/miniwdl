@@ -889,3 +889,12 @@ class RepeatTimer(threading.Timer):
     def run(self) -> None:
         while not self.finished.wait(self.interval):  # pyre-ignore
             self.function(*self.args, **self.kwargs)  # pyre-ignore
+
+
+def currently_in_container() -> bool:
+    # https://github.com/containers/podman/issues/3586#issuecomment-512191693
+    try:
+        with open(f"/proc/{os.getpid()}/mounts") as infile:
+            return " / overlay" in infile.read()
+    except:
+        return False

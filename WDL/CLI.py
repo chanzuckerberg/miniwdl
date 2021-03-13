@@ -44,6 +44,7 @@ from ._util import (
     parse_byte_size,
     path_really_within,
     ANSI,
+    currently_in_container,
 )
 from ._util import StructuredLogMessage as _
 
@@ -575,7 +576,7 @@ def runner(
     with ExitStack() as cleanup:
         set_status = cleanup.enter_context(configure_logger(json=log_json))
 
-        if os.geteuid() == 0:
+        if os.geteuid() == 0 and not currently_in_container():
             logger.warning(
                 (
                     "running as root; non-root users should be able to `miniwdl run` "
