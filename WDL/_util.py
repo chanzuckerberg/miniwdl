@@ -161,10 +161,13 @@ def topsort(adj: AdjM[T]) -> List[T]:
 
 
 @export
-def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
-    tn = filename + ".tmp"
-    with open(tn, "x") as outfile:
-        print(contents, file=outfile, end=end)
+def write_atomic(contents: str, filename: str, end: str = "\n", attempt: int = 0) -> None:
+    tn = filename + ".tmp" + (str(int(time.time() * 1e6)) if attempt > 0 else "")
+    try:
+        with open(tn, "x") as outfile:
+            print(contents, file=outfile, end=end)
+    except FileExistsError:
+        write_atomic(contents, filename, end=end, attempt=attempt + 1)
     os.rename(tn, filename)
 
 
