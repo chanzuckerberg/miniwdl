@@ -121,14 +121,16 @@ def run_local_task(
                         )
                     )
                 # create out/ and outputs.json
-                outputs = link_outputs(
+                _outputs = link_outputs(
                     cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
                 )
                 write_values_json(
-                    outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
+                    cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
                 logger.notice("done (cached)")  # pyre-fixme
-                return (run_dir, outputs)
+                # returning `cached`, not the rewritten `_outputs`, to retain opportunity to find
+                # cached downstream inputs
+                return (run_dir, cached)
             # start plugin coroutines and process inputs through them
             with compose_coroutines(
                 [

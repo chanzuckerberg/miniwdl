@@ -523,7 +523,7 @@ Int count = 12
             }
             call hello {
                 input:
-                who = read_person.person
+                full_name = read_person.full_name
             }
         }
 
@@ -537,21 +537,23 @@ Int count = 12
             File json
         }
 
+        Person person = read_json(json)
+
         command {}
 
         output {
-            Person person = read_json(json)
+            File full_name = write_lines([sep(" ", [person.first, person.last])])
         }
     }
 
     task hello {
         input {
-            Person who
+            File full_name
             String? greeting = "Hello"
         }
 
         command <<<
-            echo "~{greeting}, ~{who}!"
+            echo '~{greeting}, ~{read_string(full_name)}!'
         >>>
 
         output {
@@ -600,13 +602,13 @@ Int count = 12
         with open(os.path.join(self._dir, "ben.json"), mode="w") as outfile:
             print('{"first":"Ben","last":"Bitdiddle"}', file=outfile)
         inp = {"people_json": [os.path.join(self._dir, "alyssa.json"), os.path.join(self._dir, "ben.json")]}
-        _, outp = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
+        rundir1, outp = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
 
         wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
         tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
         with patch('WDL.runtime.workflow._workflow_main_loop', wmock), patch('WDL.runtime.task._try_task', tmock):
             # control
-            rundir, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
+            rundir2, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
             self.assertEqual(wmock.call_count, 0)
             self.assertEqual(tmock.call_count, 0)
             outp_inodes = set()
@@ -615,8 +617,9 @@ Int count = 12
             WDL.Value.rewrite_env_paths(outp2, lambda p: outp2_inodes.add(os.stat(p.value)[stat.ST_INO]))
             self.assertEqual(outp_inodes, outp2_inodes)
 
-            # regression test -- cached output paths should still be links under out/
-            WDL.Value.rewrite_env_paths(outp2, lambda p: self.assertTrue(p.value.startswith(os.path.join(rundir, "out/"))))
+            with open(os.path.join(rundir1, "outputs.json")) as outputs1:
+                with open(os.path.join(rundir2, "outputs.json")) as outputs2:
+                    assert outputs1.read() == outputs2.read()
 
             # touch a file & check cache invalidated
             with open(os.path.join(self._dir, "alyssa.json"), mode="w") as outfile:

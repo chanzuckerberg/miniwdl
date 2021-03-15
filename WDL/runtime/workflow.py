@@ -676,14 +676,16 @@ def run_local_workflow(
                         value=(v.json if len(vj) < 4096 else "(((large)))"),
                     )
                 )
-            outputs = link_outputs(
+            _outputs = link_outputs(
                 cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
             )
             write_values_json(
-                outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
+                cached, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
             )
             logger.notice("done (cached)")  # pyre-fixme
-            return (run_dir, outputs)
+            # returning `cached`, not the rewritten `_outputs`, to retain opportunity to find
+            # cached downstream inputs
+            return (run_dir, cached)
 
         # if we're the top-level workflow, provision thread pools
         if not _thread_pools:
