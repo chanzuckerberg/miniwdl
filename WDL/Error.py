@@ -173,7 +173,8 @@ class StaticTypeMismatch(ValidationError):
         elif str(self.actual).replace("?", "") == str(self.expected):
             msg += (
                 " -- to coerce T? X into T, try select_first([X,defaultValue])"
-                " or select_first([X]) (which might fail at runtime)"
+                " or select_first([X]) (which might fail at runtime);"
+                " to coerce Array[T?] X into Array[T], try select_all(X)"
             )
         return msg
 

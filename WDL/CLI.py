@@ -473,6 +473,12 @@ def fill_run_subparser(subparsers):
         action="store_true",
         help="upon failure, print error information JSON to standard output (in addition to standard error logging)",
     )
+    group.add_argument(
+        "-o",
+        metavar="OUT.json",
+        dest="stdout_file",
+        help="write JSON output/error to specified file instead of standard output (implies --error-json)",
+    )
     group = run_parser.add_argument_group("logging")
     group.add_argument(
         "-v",
@@ -551,6 +557,7 @@ def runner(
     no_cache=False,
     error_json=False,
     log_json=False,
+    stdout_file=None,
     **kwargs,
 ):
     # set up logging
@@ -669,12 +676,10 @@ def runner(
                 root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
             )
         except Error.InputError as exn:
-            if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=(None if log_json else 2)))
+            runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
             die(exn.args[0])
         except Exception as exn:
-            if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=(None if log_json else 2)))
+            runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
             raise
 
         if json_only:
@@ -722,8 +727,7 @@ def runner(
         try:
             rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir, _cache=cache)
         except Exception as exn:
-            if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=(None if log_json else 2)))
+            runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
             exit_status = 2
             from_rundir = None
             while isinstance(exn, runtime.RunFailed):
@@ -762,7 +766,7 @@ def runner(
 
     # report
     outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
-    print(json.dumps(outputs_json, indent=(None if log_json else 2)))
+    runner_standard_output(outputs_json, stdout_file, error_json, log_json)
     return outputs_json
 
 
@@ -1156,6 +1160,19 @@ def validate_input_path(path, directory, downloadable, root):
                     raise Error.InputError("Input Directory contains unusable symlink: " + path)
 
     return path
+
+
+def runner_standard_output(content, stdout_file, error_json, log_json):
+    """
+    Write the runner output/error JSON in the way requested by the user
+    """
+    if error_json or stdout_file or "error" not in content:
+        content_json = json.dumps(content, indent=(None if log_json else 2))
+        if stdout_file:
+            with open(stdout_file, "w") as outfile:
+                print(content_json, file=outfile)
+        else:
+            print(content_json)
 
 
 def fill_run_self_test_subparser(subparsers):
