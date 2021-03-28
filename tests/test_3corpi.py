@@ -521,20 +521,15 @@ class BioWDLSmallRNA(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/broadinstitute/warp/pipelines/broad/**"],
     path=[["test_corpi/broadinstitute/warp/tasks"]],
-    # has a task with a name collision between output & input
-    blacklist=[
-        "JointGenotyping",
-        "JointGenotypingByChromosomePartOne",
-        "JointGenotypingByChromosomePartTwo",
-    ],
     expected_lint={
         "UnusedImport": 22,
-        "StringCoercion": 63,
-        "UnusedDeclaration": 79,
+        "UnusedCall": 1,
+        "StringCoercion": 86,
+        "UnusedDeclaration": 106,
         "NameCollision": 12,
-        "ForwardReference": 4,
+        "ForwardReference": 5,
         "NonemptyCoercion": 4,
-        "FileCoercion": 3,
+        "FileCoercion": 17,
     },
     check_quant=False,
 )
