@@ -185,10 +185,12 @@ class IncompatibleOperand(ValidationError):
 
 
 class UnknownIdentifier(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
+    def __init__(self, node: SourceNode, message: Optional[str] = None) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Ident)
-        super().__init__(node, "Unknown identifier " + str(node))
+        if not message:
+            message = "Unknown identifier " + str(node)
+        super().__init__(node, message)
 
 
 class NoSuchInput(ValidationError):

@@ -956,7 +956,11 @@ class Get(Base):
             # attempt to resolve "expr.member" and if that works, transform
             # expr to Ident("expr.member")
             if self.expr._ident + "." + self.member not in type_env:
-                raise Error.UnknownIdentifier(self) from None
+                message = None
+                if type_env.has_namespace(self.expr._ident):
+                    # specific error message when namespace exists but member doesn't
+                    message = f"No {self.member} in namespace {self.expr._ident}"
+                raise Error.UnknownIdentifier(self, message=message) from None
             self.expr = Ident(self.pos, self._ident)
             self.expr.infer_type(type_env, self._stdlib, self._check_quant)
             self.member = None

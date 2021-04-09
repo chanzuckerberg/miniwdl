@@ -811,7 +811,7 @@ task count_lines {
         }
         """
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.UnknownIdentifier):
+        with self.assertRaisesRegex(WDL.Error.UnknownIdentifier, " in namespace "):
             doc.typecheck()
 
         doc = r"""
