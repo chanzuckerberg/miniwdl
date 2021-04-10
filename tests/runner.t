@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 76
+plan tests 78
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -429,3 +429,25 @@ MINIWDL__SCHEDULER__FAIL_FAST=false $miniwdl run fail_slow.wdl
 is "$?" "1" "fail-slow"
 test -f _LAST/call-succeeder/outputs.json
 is "$?" "0" "fail-slow -- in-progress task allowed to succeed"
+
+# test --no-outside-imports
+cat << 'EOF' > outside.wdl
+version 1.1
+task hello {
+    command {
+        echo "Hello from outside!"
+    }
+}
+EOF
+mkdir inside
+cat << 'EOF' > inside/inside.wdl
+version 1.1
+import "../outside.wdl"
+workflow w {
+    call outside.hello
+}
+EOF
+$miniwdl run inside/inside.wdl
+is "$?" "0" "outside import allowed"
+$miniwdl run inside/inside.wdl --no-outside-imports
+is "$?" "2" "outside import denied"

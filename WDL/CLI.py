@@ -140,8 +140,21 @@ class PipVersionAction(Action):
         sys.exit(0)
 
 
-def fill_common(subparser, path=True):
+def fill_common(subparser):
     group = subparser.add_argument_group("language")
+    group.add_argument(
+        "-p",
+        "--path",
+        metavar="DIR",
+        type=str,
+        action="append",
+        help="local directory to search for imports (can supply multiple times)",
+    )
+    group.add_argument(
+        "--no-outside-imports",
+        action="store_true",
+        help="deny local imports from outside directory of main WDL file (or --path)",
+    )
     group.add_argument(
         "--no-quant-check",
         dest="check_quant",
@@ -151,15 +164,6 @@ def fill_common(subparser, path=True):
             "backwards compatibility with older WDL)"
         ),
     )
-    if path:
-        group.add_argument(
-            "-p",
-            "--path",
-            metavar="DIR",
-            type=str,
-            action="append",
-            help="local directory to search for imports",
-        )
     group = subparser.add_argument_group("debugging")
     group.add_argument(
         "--debug", action="store_true", help="maximally verbose logging & exception tracebacks"
@@ -216,6 +220,7 @@ def check(
     show_all=False,
     suppress=None,
     shellcheck=True,
+    no_outside_imports=False,
     **kwargs,
 ):
     from . import Lint
@@ -231,7 +236,12 @@ def check(
     shown = [0]
     for uri1 in uri or []:
         try:
-            doc = load(uri1, path or [], check_quant=check_quant, read_source=read_source)
+            doc = load(
+                uri1,
+                path or [],
+                check_quant=check_quant,
+                read_source=make_read_source(no_outside_imports),
+            )
         except (Error.SyntaxError, Error.ValidationError, Error.MultipleValidationErrors) as exn:
             if not getattr(exn, "declared_wdl_version", None):
                 atexit.register(
@@ -390,23 +400,44 @@ def print_error(exn):
                 quant_warning = True
 
 
-async def read_source(uri, path, importer):
-    from urllib import parse, request
+def make_read_source(no_outside_imports):
+    top_dir = None
 
-    if uri.startswith("http:") or uri.startswith("https:"):
-        fn = os.path.join(
-            tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
-            os.path.basename(parse.urlsplit(uri).path),
-        )
-        request.urlretrieve(uri, filename=fn)
-        with open(fn, "r") as infile:
-            return ReadSourceResult(infile.read(), uri)
-    elif importer and (
-        importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
-    ):
-        assert not os.path.isabs(uri), "absolute import from downloaded WDL"
-        return await read_source(parse.urljoin(importer.pos.abspath, uri), [], importer)
-    return await read_source_default(uri, path, importer)
+    async def read_source(uri, path, importer):
+        from urllib import parse, request
+
+        if uri.startswith("http:") or uri.startswith("https:"):
+            with tempfile.TemporaryDirectory(prefix="miniwdl_import_uri_") as tmpdir:
+                assert isinstance(tmpdir, str) and os.path.isdir(tmpdir)
+                fn = os.path.join(
+                    tmpdir,
+                    os.path.basename(parse.urlsplit(uri).path),
+                )
+                request.urlretrieve(uri, filename=fn)
+                with open(fn, "r") as infile:
+                    return ReadSourceResult(infile.read(), uri)
+        elif importer and (
+            importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
+        ):
+            assert not os.path.isabs(uri), "absolute import from downloaded WDL"
+            return await read_source(parse.urljoin(importer.pos.abspath, uri), [], importer)
+        ans = await read_source_default(uri, path, importer)
+        if no_outside_imports:
+            # Require all imported local WDL files to be in/under the directory of the main WDL
+            # file (the first loaded), or one of the --path directoires.
+            nonlocal top_dir
+            if not top_dir:
+                top_dir = os.path.dirname(ans.abspath)
+            if not next(
+                (p for p in ([top_dir] + path) if path_really_within(ans.abspath, p)), False
+            ):
+                raise PermissionError(
+                    "denied import from outside main WDL file's directory; "
+                    "strike --no-outside-imports or add to --path: " + os.path.dirname(ans.abspath)
+                )
+        return ans
+
+    return read_source
 
 
 def fill_run_subparser(subparsers):
@@ -558,6 +589,7 @@ def runner(
     error_json=False,
     log_json=False,
     stdout_file=None,
+    no_outside_imports=False,
     **kwargs,
 ):
     # set up logging
@@ -658,7 +690,12 @@ def runner(
 
         try:
             # load WDL document
-            doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
+            doc = load(
+                uri,
+                path or [],
+                check_quant=check_quant,
+                read_source=make_read_source(no_outside_imports),
+            )
 
             # parse and validate the provided inputs
             eff_root = (
@@ -784,7 +821,11 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
                 uri,
                 path=(parsed_args.path if hasattr(parsed_args, "path") else []),
                 check_quant=parsed_args.check_quant,
-                read_source=read_source,
+                read_source=make_read_source(
+                    parsed_args.no_outside_imports
+                    if hasattr(parsed_args, "no_outside_imports")
+                    else False
+                ),
             )
         except Exception as exn:
             argcomplete.warn(
@@ -987,7 +1028,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         else:
             input_json = (
                 asyncio.get_event_loop()
-                .run_until_complete(read_source(input_file, [], None))
+                .run_until_complete(make_read_source(False)(input_file, [], None))
                 .source_text
             )
         input_json = YAML(typ="safe", pure=True).load(input_json)
@@ -1387,6 +1428,7 @@ def localize(
     cfg=None,
     path=None,
     check_quant=True,
+    no_outside_imports=False,
     **kwargs,
 ):
     # set up logging
@@ -1433,7 +1475,12 @@ def localize(
 
         if infile:
             # load WDL document
-            doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
+            doc = load(
+                wdlfile,
+                path or [],
+                check_quant=check_quant,
+                read_source=make_read_source(no_outside_imports),
+            )
 
             try:
                 target, input_env, input_json = runner_input(
