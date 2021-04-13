@@ -742,7 +742,10 @@ class _SelectFirst(EagerFunction):
         for arg in arr.value:
             if not isinstance(arg, Value.Null):
                 return arg
-        raise Error.NullValue(expr)
+        raise Error.EvalError(
+            expr,
+            "select_first() given empty or all-null array; prevent this or append a default value",
+        )
 
 
 class _SelectAll(EagerFunction):

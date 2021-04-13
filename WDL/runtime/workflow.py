@@ -866,11 +866,6 @@ def _workflow_main_loop(
             logger.debug(traceback.format_exc())
             logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
         if not isinstance(exn, RunFailed):
-            info = {"error": exn.__class__.__name__, "dir": run_dir}
-            if str(exn):
-                info["message"] = str(exn)
-            if hasattr(exn, "job_id"):
-                info["node"] = getattr(exn, "job_id")
             logger.error(_(str(wrapper), dir=run_dir, **error_json(exn)))
         elif not isinstance(exn.__cause__, Terminated):
             logger.error(
