@@ -146,9 +146,9 @@ Details:
 
 ## WDL interoperability
 
-The runner supports draft-2 and `version 1.0` of the [WDL specification](https://github.com/openwdl/wdl), with known errata:
+The runner supports versions 1.1, 1.0, and draft-2 of the [WDL specification](https://github.com/openwdl/wdl), with known errata:
 
-* `Object` type is unsupported except for initializing WDL 1.0 `struct` types, which should be used instead.
+* `Object` type is unsupported except for initializing WDL 1.0+ `struct` types, which should be used instead.
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
 * Task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
 * The following task runtime values are ignored: `gpu` `disks` `returnCodes`
