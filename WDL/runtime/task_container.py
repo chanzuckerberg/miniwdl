@@ -217,19 +217,27 @@ class TaskContainer(ABC):
                     raise Terminated(quiet=True)
                 self._running = True
                 try:
-                    exit_status = self._run(logger, terminating, command)
+                    exit_code = self._run(logger, terminating, command)
                 finally:
                     self._running = False
 
-                if exit_status != 0:
+                if not self.success_exit_code(exit_code):
                     raise CommandFailed(
-                        exit_status, self.host_stderr_txt(), more_info=self.failure_info
+                        exit_code, self.host_stderr_txt(), more_info=self.failure_info
                     ) if not terminating() else Terminated()
 
     @abstractmethod
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         # run command in container & return exit status
         raise NotImplementedError()
+
+    def success_exit_code(self, exit_code: int) -> bool:
+        if "returnCodes" not in self.runtime_values:
+            return exit_code == 0
+        rcv = self.runtime_values["returnCodes"]
+        if isinstance(rcv, str) and rcv == "*":
+            return True
+        return exit_code in (rcv if isinstance(rcv, list) else [rcv])
 
     def delete_work(self, logger: logging.Logger, delete_streams: bool = False) -> None:
         """
@@ -645,7 +653,9 @@ class SwarmContainer(TaskContainer):
                         if attempt >= server_error_retries:
                             break
                         time.sleep(polling_period)
-            self.chown(logger, client, exit_code == 0)
+            self.chown(
+                logger, client, isinstance(exit_code, int) and self.success_exit_code(exit_code)
+            )
             client.close()
 
     def resolve_tag(
