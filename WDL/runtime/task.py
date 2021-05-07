@@ -416,7 +416,7 @@ def _eval_task_runtime(
     container: "runtime.task_container.TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
-) -> Dict[str, Union[int, str]]:
+) -> Dict[str, Union[int, str, List[int], List[str]]]:
     runtime_values = {}
     for key, v in cfg["task_runtime"].get_dict("defaults").items():
         if isinstance(v, str):
@@ -495,13 +495,28 @@ def _eval_task_runtime(
         ans["maxRetries"] = max(0, runtime_values["maxRetries"].coerce(Type.Int()).value)
     if "preemptible" in runtime_values:
         ans["preemptible"] = max(0, runtime_values["preemptible"].coerce(Type.Int()).value)
+    if "returnCodes" in runtime_values:
+        rcv = runtime_values["returnCodes"]
+        if isinstance(rcv, Value.String) and rcv.value == "*":
+            ans["returnCodes"] = "*"
+        elif isinstance(rcv, Value.Int):
+            ans["returnCodes"] = rcv.value
+        elif isinstance(rcv, Value.Array):
+            try:
+                ans["returnCodes"] = [v.coerce(Type.Int()).value for v in rcv.value]
+            except:
+                pass
+        if "returnCodes" not in ans:
+            raise Error.EvalError(
+                task.runtime["returnCodes"], "invalid setting of runtime.returnCodes"
+            )
 
     if ans:
         logger.info(_("effective runtime", **ans))
     unused_keys = list(
         key
         for key in runtime_values
-        if key not in ("cpu", "memory", "docker", "container") and key not in ans
+        if key not in ("memory", "docker", "container") and key not in ans
     )
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))

@@ -812,6 +812,70 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"memory": "256MB"}, cfg=cfg)
         self.assertLess(outputs["memory_limit_in_bytes"], 300*1024*1024)
 
+    def test_runtime_returnCodes(self):
+        txt = R"""
+        version 1.0
+        task limit {
+            input {
+                Int status
+            }
+            command <<<
+                echo Hi
+                exit ~{status}
+            >>>
+            output {
+                File out = stdout()
+            }
+            runtime {
+                returnCodes: 42
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        self._test_task(txt, {"status": 0}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"status": 42}, cfg=cfg)
+        txt = R"""
+        version 1.0
+        task limit {
+            input {
+                Int status
+            }
+            command <<<
+                echo Hi
+                exit ~{status}
+            >>>
+            output {
+                File out = stdout()
+            }
+            runtime {
+                returnCodes: [0,42]
+            }
+        }
+        """
+        self._test_task(txt, {"status": 0}, cfg=cfg)
+        self._test_task(txt, {"status": 42}, cfg=cfg)
+        self._test_task(txt, {"status": 41}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
+        txt = R"""
+        version 1.0
+        task limit {
+            input {
+                Int status
+            }
+            command <<<
+                echo Hi
+                exit ~{status}
+            >>>
+            output {
+                File out = stdout()
+            }
+            runtime {
+                returnCodes: "*"
+            }
+        }
+        """
+        self._test_task(txt, {"status": 0}, cfg=cfg)
+        self._test_task(txt, {"status": 42}, cfg=cfg)
+
     def test_input_files_rw(self):
         txt = R"""
         version 1.0
