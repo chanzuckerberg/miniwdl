@@ -62,7 +62,8 @@ while true ; do
     done
 
     if (( eviction == 0 )); then
-        >&2 echo "all cache contents in use; try again later"
-        exit 2
+        >&2 echo "WARNING: unable to shrink miniwdl download cache ${DIR} to <${MAX_GB}GB, " \
+                 "as ${used}GB of cached files are all in use"
+        exit
     fi
 done
