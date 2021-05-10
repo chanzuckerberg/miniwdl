@@ -899,3 +899,38 @@ class TestAbbreviatedCallInput(RunnerTestCase):
         assert sum("18.04" in msg for msg in outputs["results"]) == 2
         outputs = self._run(caller, {"message": "hello", "docker": "ubuntu:focal"})
         assert sum("20.04" in msg for msg in outputs["results"]) == 2
+
+class TestAutoEnv(RunnerTestCase):
+    def test1(self):
+        wdl = """
+        version development
+        task t {
+            input {
+                Int k1
+                String k2
+                File k3
+            }
+            String k4 = "Hello, " + basename(k3)
+            command <<<
+                echo "$k1"
+                echo "$k2"
+                echo "$(basename "$k3")"
+                echo "$k4"
+            >>>
+            output {
+                String out = read_string(stdout())
+            }
+            runtime {
+                docker: "ubuntu:20.04"
+                autoEnv: true
+            }
+        }
+        """
+        with open(os.path.join(self._dir, "Alice"), mode="w") as outfile:
+            print("Alice", file=outfile)
+        out = self._run(wdl, {"k1": 42, "k2": " '\"\n ", "k3": os.path.join(self._dir, "Alice")})
+        self.assertEqual(out["out"], """42
+ '"
+ 
+Alice
+Hello, Alice""")

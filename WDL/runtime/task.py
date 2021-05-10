@@ -511,6 +511,19 @@ def _eval_task_runtime(
                 task.runtime["returnCodes"], "invalid setting of runtime.returnCodes"
             )
 
+    if runtime_values.get("autoEnv", Value.Null()).value:
+        logger.warning("runtime.autoEnv is an experimental extension, subject to change")
+        auto_env = {}
+        for b in env:
+            assert b.name not in auto_env
+            if isinstance(
+                b.value,
+                (Value.String, Value.Int, Value.Float, Value.File, Value.Directory, Value.Boolean),
+            ):
+                auto_env[b.name] = b.value.coerce(Type.String()).value
+        logger.debug(_("runtime.autoEnv", **auto_env))
+        ans["environment"] = auto_env
+
     if ans:
         logger.info(_("effective runtime", **ans))
     unused_keys = list(
