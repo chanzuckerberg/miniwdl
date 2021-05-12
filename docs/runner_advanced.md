@@ -70,11 +70,11 @@ WDL's task command placeholders (e.g. `~{some_value}`) are evaluated by text sub
 
 For example, consider the command template `echo ~{some_value}`. If a malicious user can set the task input `some_value` to `; cat /etc/passwd >&2` then the task will dump `/etc/passwd` into the log. (Or cause any other code to execute, potentially a serious vulnerability.)
 
-Applications that must use inputs from untrusted users can mitigate this risk by:
+Applications that must use untrusted inputs can mitigate this risk by:
 
-1. Consuming user-provided text through File inputs instead of String placeholders
-2. Validating string and filename inputs before supplying them to miniwdl
-3. Enclosing task command placeholders in single quotes `'~{some_value}'` *and* prevent values from containing single-quote marks
+1. Validating string and filename inputs before supplying them to miniwdl
+2. Enclosing task command placeholders in single quotes `'~{some_value}'` *and* preventing values from containing single-quote marks
+3. Consuming untrusted text through File inputs instead of String placeholders
 
 A configuration option `[task_runtime] placeholder_regex` (environment `MINIWDL__TASK_RUNTIME__PLACEHOLDER_REGEX`) defines a POSIX regular expression for allowable values; it causes miniwdl to fail the evaluation of any task command placeholder if the runtime value doesn't match. For example, it can be set to `[^']*` to fail if the value contains a single-quote mark, or to `[0-9A-Za-z/_-]*` to permit only alphanumeric-ish values. This blunt tool applies uniformly to all task commands, so prior input validation should be preferred where feasible.
 
