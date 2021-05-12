@@ -76,7 +76,7 @@ Applications that must use untrusted inputs can mitigate this risk by:
 2. Enclosing task command placeholders in single quotes `'~{some_value}'` *and* preventing values from containing single-quote marks
 3. Consuming untrusted text through input File contents instead of String placeholders
 
-A configuration option `[task_runtime] placeholder_regex` (environment `MINIWDL__TASK_RUNTIME__PLACEHOLDER_REGEX`) defines a POSIX regular expression for allowable placeholder values; it causes miniwdl to fail the evaluation of any task command template if the runtime value doesn't match. For example, it can be set to `[^']*` to fail if the value contains a single-quote mark, or to `[0-9A-Za-z:/._-]*` to permit only alphanumeric and filename/URL-like values. This blunt tool applies uniformly to all task commands, so prior input validation should be preferred where feasible.
+A configuration option `[task_runtime] placeholder_regex` (environment `MINIWDL__TASK_RUNTIME__PLACEHOLDER_REGEX`) defines a POSIX regular expression for allowable placeholder values; it causes miniwdl to fail the evaluation of any task command template if the runtime value doesn't match. For example, it can be set to `[^']*` to fail if the value contains a single-quote mark, or to `[0-9A-Za-z:/._-]*` to permit only alphanumeric and filename/URL-like values. This blunt tool applies to *all* tasks, so prior input validation should be preferred where feasible.
 
 ## Host configuration
 
