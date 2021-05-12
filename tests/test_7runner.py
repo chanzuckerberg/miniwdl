@@ -833,6 +833,8 @@ class MiscRegressionTests(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"task_runtime": {"placeholder_regex": "[^']*"}})
         self._run(wdl, {"s": malicious}, cfg=cfg, expected_exception=WDL.Error.InputError)
+        cfg.override({"task_runtime": {"placeholder_regex": "[0-9A-Za-z:/._-]*"}})
+        self._run(wdl, {"s": malicious}, cfg=cfg, expected_exception=WDL.Error.InputError)
 
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
