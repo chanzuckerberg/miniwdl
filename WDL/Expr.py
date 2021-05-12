@@ -13,6 +13,7 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 """
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable
+import regex
 from .Error import SourcePosition, SourceNode
 from . import Type, Value, Env, Error, StdLib
 
@@ -319,7 +320,7 @@ class Placeholder(Base):
                 )
         return Type.String()
 
-    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
+    def _eval_impl(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         ""
         v = self.expr.eval(env, stdlib)
         if isinstance(v, Value.Null):
@@ -337,6 +338,15 @@ class Placeholder(Base):
         if v == Value.Boolean(False) and "false" in self.options:
             return Value.String(self.options["false"])
         return Value.String(str(v))
+
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
+        ans = self._eval_impl(env, stdlib)
+        placeholder_regex: regex.Pattern = getattr(stdlib, "_placeholder_regex", None)
+        if placeholder_regex and not placeholder_regex.fullmatch(ans.value):
+            raise Error.InputError(
+                "Task command placeholder value forbidden by configuration [task_runtime] placeholder_regex"
+            )
+        return ans
 
 
 class String(Base):

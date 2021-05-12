@@ -11,7 +11,7 @@ import traceback
 import glob
 import threading
 import shutil
-import re
+import regex
 from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union
 from contextlib import ExitStack
 
@@ -173,9 +173,15 @@ def run_local_task(
                 )
 
                 # interpolate command
+                setattr(
+                    stdlib,
+                    "_placeholder_regex",
+                    regex.compile(cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX),
+                )  # hack to pass regex to WDL.Expr.Placeholder._eval
                 command = _util.strip_leading_whitespace(
                     task.command.eval(container_env, stdlib).value
                 )[1]
+                delattr(stdlib, "_placeholder_regex")
                 logger.debug(_("command", command=command.strip()))
 
                 # process command & container through plugins
@@ -732,7 +738,7 @@ def link_outputs(
                 sum(
                     1
                     for b in v.value
-                    if re.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0])) is None
+                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0])) is None
                 )
                 == 0
             )
