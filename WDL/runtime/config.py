@@ -168,7 +168,11 @@ class Loader:
             raise ConfigMissing(f"missing config option [{section}] {key}")
 
         self._used.add((section, key))
-        return _expand_env_var(_strip(ans))
+        ans = _strip(ans)
+        if (section, key) not in [("task_runtime", "placeholder_regex")]:
+            # expand environment variables unless in a hard-coded list of exceptions
+            ans = _expand_env_var(ans)
+        return ans
 
     def has_section(self, section: str) -> bool:
         return (

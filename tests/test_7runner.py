@@ -812,6 +812,27 @@ class MiscRegressionTests(RunnerTestCase):
         for fn in outp["files_out"]:
             assert os.stat(fn).st_uid == euid
 
+    def test_placeholder_regex(self):
+        wdl = """
+        version 1.1
+        task vulnerable {
+            input {
+                String s
+            }
+            command <<<
+                echo 'Hello, ~{s}'
+            >>>
+            output {
+                String out = read_string(stdout())
+            }
+        }
+        """
+        self.assertEqual(self._run(wdl, {"s": "Alice"})["out"], "Hello, Alice")
+        malicious = "'; exit 42; echo '"
+        self._run(wdl, {"s": malicious}, expected_exception=WDL.runtime.CommandFailed)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"placeholder_regex": "[^']*"}})
+        self._run(wdl, {"s": malicious}, cfg=cfg, expected_exception=WDL.Error.InputError)
 
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
