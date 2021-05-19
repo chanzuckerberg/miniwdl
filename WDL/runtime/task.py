@@ -13,7 +13,7 @@ import threading
 import shutil
 import regex
 from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 
 from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
 from .._util import (
@@ -605,6 +605,28 @@ def _eval_task_outputs(
     env: Env.Bindings[Value.Base],
     container: "runtime.task_container.TaskContainer",
 ) -> Env.Bindings[Value.Base]:
+    stdout_file = os.path.join(container.host_dir, "stdout.txt")
+    with suppress(FileNotFoundError):
+        if os.path.getsize(stdout_file) > 0:
+            # If the task produced nonempty stdout that isn't used in the WDL outputs, generate a
+            # courtesy log message directing user where to find it
+            stdout_used = False
+            expr_stack = [outp.expr for outp in task.outputs]
+            while expr_stack:
+                expr = expr_stack.pop()
+                assert isinstance(expr, Expr.Base)
+                if isinstance(expr, Expr.Apply) and expr.function_name == "stdout":
+                    stdout_used = True
+                else:
+                    expr_stack.extend(expr.children)
+            if not stdout_used:
+                logger.notice(  # pyre-ignore
+                    _(
+                        "command stdout unused; consider output `File cmd_out = stdout()`"
+                        " or redirect command to stderr log >&2",
+                        stdout_file=stdout_file,
+                    )
+                )
 
     # helper to rewrite File/Directory from in-container paths to host paths
     def rewriter(v: Union[Value.File, Value.Directory], output_name: str) -> str:

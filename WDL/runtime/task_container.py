@@ -223,11 +223,20 @@ class TaskContainer(ABC):
 
                 if not self.success_exit_code(exit_code):
                     raise CommandFailed(
-                        exit_code, self.host_stderr_txt(), more_info=self.failure_info
+                        exit_code,
+                        self.host_stderr_txt(),
+                        self.host_stdout_txt(),
+                        more_info=self.failure_info,
                     ) if not terminating() else Terminated()
 
     @abstractmethod
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
+        """
+        Implementation-specific: run command in container & return exit status.
+
+        Take care to write informative log messages for any backend-specific errorsd. Miniwdl's
+        outer exception handler will only emit a brief, generic log message about the run failing.
+        """
         # run command in container & return exit status
         raise NotImplementedError()
 
