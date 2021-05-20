@@ -20,14 +20,26 @@ class CommandFailed(_RuntimeError):
     Path to a file containing the task's standard error
     """
 
-    # pyre-ignore
-    def __init__(self, exit_status: int, stderr_file: str, message: str = "", **kwargs) -> None:
+    stdout_file: str
+    """
+    Path to a file containing the task's standard output
+    """
+
+    def __init__(
+        self,
+        exit_status: int,
+        stderr_file: str,
+        stdout_file: str,
+        message: str = "",
+        **kwargs,  # pyre-ignore
+    ) -> None:
         oom_hint = ", a possible indication that it ran out of memory" if exit_status == 137 else ""
         super().__init__(
             message or f"task command failed with exit status {exit_status}{oom_hint}", **kwargs
         )
         self.exit_status = exit_status
         self.stderr_file = stderr_file
+        self.stdout_file = stdout_file
 
 
 class Terminated(_RuntimeError):
@@ -131,6 +143,7 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
     elif isinstance(exn, CommandFailed):
         info["exit_status"] = getattr(exn, "exit_status")
         info["stderr_file"] = getattr(exn, "stderr_file")
+        info["stdout_file"] = getattr(exn, "stdout_file")
     elif str(exn):
         info["message"] = str(exn)
     if hasattr(exn, "job_id"):
