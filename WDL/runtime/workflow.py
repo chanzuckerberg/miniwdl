@@ -369,16 +369,7 @@ class StateMachine:
             # coerce inputs to required types
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
             callee_inputs = job.node.callee.available_inputs
-            call_inputs = call_inputs.map(
-                lambda b: Env.Binding(
-                    b.name,
-                    (
-                        b.value.coerce(callee_inputs[b.name].type)
-                        if b.name in callee_inputs
-                        else b.value
-                    ),
-                )
-            )
+            call_inputs = _coerce_call_inputs(call_inputs, callee_inputs)
             # check input files against whitelist
             disallowed_filenames = _fspaths(call_inputs) - self.filename_whitelist
             disallowed_filenames = set(
@@ -419,6 +410,27 @@ class StateMachine:
         ans = dict(self.__dict__)
         del ans["_logger"]  # for Python pre-3.7 loggers: https://bugs.python.org/issue30520
         return ans
+
+
+def _coerce_call_inputs(
+    input_values: Env.Bindings[Value.Base], input_decls: Env.Bindings[Tree.Decl]
+) -> Env.Bindings[Value.Base]:
+    # fixup pass: if explicit None value is supplied for an input that has a default value AND a
+    # non-optional type, make it as if the value were absent (so that the default will be used)
+    input_values = input_values.filter(
+        lambda b: not (
+            isinstance(b.value, Value.Null)
+            and b.name in input_decls
+            and input_decls[b.name].expr
+            and not input_decls[b.name].type.optional
+        )
+    )
+    return input_values.map(
+        lambda b: Env.Binding(
+            b.name,
+            (b.value.coerce(input_decls[b.name].type) if b.name in input_decls else b.value),
+        )
+    )
 
 
 def _scatter(
