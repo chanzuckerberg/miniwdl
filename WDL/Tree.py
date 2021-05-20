@@ -613,13 +613,13 @@ class Call(WorkflowNode):
             for name, expr in self.inputs.items():
                 try:
                     decl = self.callee.available_inputs[name]
+                    # implicitly consider optional, the type of an input with a default
+                    decltype = decl.type.copy(optional=True) if decl.expr else decl.type
                     errors.try1(
                         lambda expr=expr, decl=decl: expr.infer_type(
                             type_env, stdlib, check_quant=check_quant, struct_types=struct_types
-                        ).typecheck(decl.type.copy(optional=True) if decl.expr else decl.type)
+                        ).typecheck(decltype)
                     )
-                    # If the input includes a default, then we implicitly made None acceptable even
-                    # if the declared type wasn't optional.
                 except KeyError:
                     errors.append(Error.NoSuchInput(expr, name))
                 if name in required_inputs:

@@ -415,8 +415,10 @@ class StateMachine:
 def _coerce_call_inputs(
     input_values: Env.Bindings[Value.Base], input_decls: Env.Bindings[Tree.Decl]
 ) -> Env.Bindings[Value.Base]:
-    # fixup pass: if explicit None value is supplied for an input that has a default value AND a
-    # non-optional type, make it as if the value were absent (so that the default will be used)
+    # Fixup pass: if None value is supplied for an input that has a default expression AND
+    # non-optional type, remove the value entirely so that the default will be used.
+    # In contrast, if the input declaration has an -explicitly- optional type, then we do pass None
+    # to override the default, if any.
     input_values = input_values.filter(
         lambda b: not (
             isinstance(b.value, Value.Null)

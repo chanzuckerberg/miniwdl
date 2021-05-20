@@ -520,8 +520,10 @@ class OptionalCoercion(Linter):
     def call(self, obj: Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if not inp_expr.type.coerces(decl.type, check_quant=True) and not _is_array_coercion(
-                decl.type, inp_expr.type
+            # implicitly consider optional, the type of an input with a default
+            decltype = decl.type.copy(optional=True) if decl.expr else decl.type
+            if not inp_expr.type.coerces(decltype, check_quant=True) and not _is_array_coercion(
+                decltype, inp_expr.type
             ):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)

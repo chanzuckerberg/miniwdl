@@ -956,3 +956,5 @@ class TestImplicitlyOptionalInputWithDefault(RunnerTestCase):
         self.assertEqual(outp["results"], ["AliceCarol", None])
         outp = self._run(caller, {"b": "Bas"})
         self.assertEqual(outp["results"], ["AliceBas", "Bas"])
+        outp = self._run(caller, {"a": "Alyssa"})
+        self.assertEqual(outp["results"], ["Alyssa", None])
