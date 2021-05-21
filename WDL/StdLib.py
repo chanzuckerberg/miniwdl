@@ -428,7 +428,7 @@ class _At(EagerFunction):
         if isinstance(lhs.type, Type.Array):
             if isinstance(lhs, Expr.Array) and not lhs.items:
                 # the user wrote: [][idx]
-                raise Error.OutOfBounds(expr)
+                raise Error.OutOfBounds(expr, "Cannot acess empty array")
             try:
                 rhs.typecheck(Type.Int())
             except Error.StaticTypeMismatch:
@@ -436,7 +436,7 @@ class _At(EagerFunction):
             return lhs.type.item_type
         if isinstance(lhs.type, Type.Map):
             if lhs.type.item_type is None:
-                raise Error.OutOfBounds(expr)
+                raise Error.OutOfBounds(expr, "Cannot access empty map")
             try:
                 rhs.typecheck(lhs.type.item_type[0])
             except Error.StaticTypeMismatch:
@@ -463,7 +463,7 @@ class _At(EagerFunction):
                 if key == k:
                     ans = v
             if ans is None:
-                raise Error.OutOfBounds(expr.arguments[1])  # TODO: KeyNotFound
+                raise Error.OutOfBounds(expr.arguments[1], "Map key not found")
             return ans
         else:
             lhs = lhs.coerce(Type.Array(Type.Any()))
@@ -474,7 +474,7 @@ class _At(EagerFunction):
                 or rhs.value < 0
                 or rhs.value >= len(lhs.value)
             ):
-                raise Error.OutOfBounds(expr.arguments[1])
+                raise Error.OutOfBounds(expr.arguments[1], "Array index out of bounds")
             return lhs.value[rhs.value]
 
 

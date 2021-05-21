@@ -338,8 +338,7 @@ class EvalError(RuntimeError):
 
 
 class OutOfBounds(EvalError):
-    def __init__(self, node: SourceNode) -> None:
-        super().__init__(node, "Array index out of bounds")
+    pass
 
 
 class EmptyArray(EvalError):
