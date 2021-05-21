@@ -616,7 +616,7 @@ class Call(WorkflowNode):
                     # treat input with default as optional, with or without the ? type quantifier
                     decltype = decl.type.copy(optional=True) if decl.expr else decl.type
                     errors.try1(
-                        lambda expr=expr, decl=decl: expr.infer_type(
+                        lambda expr=expr, decltype=decltype: expr.infer_type(
                             type_env, stdlib, check_quant=check_quant, struct_types=struct_types
                         ).typecheck(decltype)
                     )
