@@ -613,7 +613,7 @@ class Call(WorkflowNode):
             for name, expr in self.inputs.items():
                 try:
                     decl = self.callee.available_inputs[name]
-                    # implicitly consider optional, the type of an input with a default
+                    # treat input with default as optional, with or without the ? type quantifier
                     decltype = decl.type.copy(optional=True) if decl.expr else decl.type
                     errors.try1(
                         lambda expr=expr, decl=decl: expr.infer_type(

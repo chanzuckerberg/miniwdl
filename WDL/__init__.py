@@ -266,7 +266,8 @@ def values_from_json(
             if not ty:
                 raise Error.InputError("unknown input/output: " + key) from None
             if isinstance(ty, Tree.Decl):
-                ty = ty.type
+                # treat input with default as optional, with or without the ? type quantifier
+                ty = ty.type.copy(optional=True) if ty.expr else ty.type
 
             assert isinstance(ty, Type.Base)
             try:

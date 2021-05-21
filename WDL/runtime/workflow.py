@@ -162,21 +162,36 @@ class StateMachine:
 
         self.values_to_json = values_to_json  # pyre-ignore
 
+        # Preprocess inputs: if None value is supplied for an input declared with a default but
+        # without the ? type quantifier, remove the binding entirely so that the default will be
+        # used. In contrast, if the input declaration has an -explicitly- optional type, then we'll
+        # allow the supplied None to override any default.
+        input_decls = workflow.available_inputs
+        self.inputs = self.inputs.filter(
+            lambda b: not (
+                isinstance(b.value, Value.Null)
+                and b.name in input_decls
+                and input_decls[b.name].expr
+                and not input_decls[b.name].type.optional
+            )
+        )
+
         workflow_nodes = (workflow.inputs or []) + workflow.body + (workflow.outputs or [])
         workflow_nodes.append(WorkflowOutputs(workflow))
 
-        # TODO: by topsorting all section bodies we can ensure that when we schedule an additional
-        # job, all its dependencies will already have been scheduled, increasing
-        # flexibility/compatibility with various backends.
         for node in workflow_nodes:
             deps = node.workflow_node_dependencies
             if isinstance(node, Tree.Decl):
                 # strike the dependencies of any decl node whose value is supplied in the inputs
-                if inputs.has_binding(node.name):
+                if self.inputs.has_binding(node.name):
                     deps = set()
             self._schedule(
                 _Job(id=node.workflow_node_id, node=node, dependencies=deps, scatter_stack=[])
             )
+
+        # TODO: by topsorting all section bodies we could ensure that when we schedule an
+        # additional job, all its dependencies will already have been scheduled, increasing
+        # flexibility/compatibility with various backends.
 
         # sanity check
         assert "outputs" in self.jobs
@@ -366,10 +381,27 @@ class StateMachine:
             # check workflow inputs for additional inputs supplied to this call
             for b in self.inputs.enter_namespace(job.node.name):
                 call_inputs = call_inputs.bind(b.name, b.value)
-            # coerce inputs to required types
+
+            # coerce inputs to required types (treating inputs with defaults as optional even if
+            # they don't have the ? type quantifier)
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
             callee_inputs = job.node.callee.available_inputs
-            call_inputs = _coerce_call_inputs(call_inputs, callee_inputs)
+            call_inputs = call_inputs.map(
+                lambda b: Env.Binding(
+                    b.name,
+                    (
+                        b.value.coerce(
+                            (
+                                callee_inputs[b.name].type.copy(optional=True)
+                                if callee_inputs[b.name].expr
+                                else callee_inputs[b.name].type
+                            )
+                        )
+                        if b.name in callee_inputs
+                        else b.value
+                    ),
+                )
+            )
             # check input files against whitelist
             disallowed_filenames = _fspaths(call_inputs) - self.filename_whitelist
             disallowed_filenames = set(
@@ -410,29 +442,6 @@ class StateMachine:
         ans = dict(self.__dict__)
         del ans["_logger"]  # for Python pre-3.7 loggers: https://bugs.python.org/issue30520
         return ans
-
-
-def _coerce_call_inputs(
-    input_values: Env.Bindings[Value.Base], input_decls: Env.Bindings[Tree.Decl]
-) -> Env.Bindings[Value.Base]:
-    # Fixup pass: if None value is supplied for an input that has a default expression AND
-    # non-optional type, remove the value entirely so that the default will be used.
-    # In contrast, if the input declaration has an -explicitly- optional type, then we do pass None
-    # to override the default, if any.
-    input_values = input_values.filter(
-        lambda b: not (
-            isinstance(b.value, Value.Null)
-            and b.name in input_decls
-            and input_decls[b.name].expr
-            and not input_decls[b.name].type.optional
-        )
-    )
-    return input_values.map(
-        lambda b: Env.Binding(
-            b.name,
-            (b.value.coerce(input_decls[b.name].type) if b.name in input_decls else b.value),
-        )
-    )
 
 
 def _scatter(
