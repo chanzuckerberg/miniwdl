@@ -734,11 +734,15 @@ def parse_document(
         )
         raise Error.SyntaxError(pos, str(exn), version, declared_version) from None
     except lark.exceptions.VisitError as exn:
-        if isinstance(exn.__context__, BadCharacterEncoding):
+        exn = exn.__context__ or exn
+        if isinstance(exn, BadCharacterEncoding):
             raise Error.SyntaxError(
-                exn.__context__.pos,
+                exn.pos,
                 "Bad escape sequence in string literal",
                 version,
                 declared_version,
             ) from None
-        raise exn.__context__ from None
+        # attach WDL version info to all parser exceptions (not just SyntaxError)
+        setattr(exn, "wdl_version", version)
+        setattr(exn, "declared_wdl_version", declared_version)
+        raise exn from None
