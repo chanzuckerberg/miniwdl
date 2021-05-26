@@ -138,11 +138,27 @@ def run_cached(
     cached = cache.get_download(uri, directory=directory, logger=logger)
     if cached:
         return True, cached
-    if cache.download_cacheable(uri, directory=directory):
+    cache_path = cache.download_cacheable(uri, directory=directory)
+    cache_path_preexists = cache_path and os.path.exists(cache_path)
+    if cache_path and not cache_path_preexists:
         # run the download in a holding area under the cache directory, so that it can later be
         # moved atomically into its final cache location
         run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
     filename = run(cfg, logger, uri, directory=directory, run_dir=run_dir, **kwargs)
+    if cache_path_preexists:
+        # a cache entry had already existed, but we didn't use it (--no-cache).
+        # FIXME: it'd be better to replace the old copy...but what if another workflow is using it?
+        logger.warning(
+            _(
+                "ignored a previously-cached download, which remains in the cache",
+                uri=uri,
+                downloaded=filename,
+                cache_path=cache_path,
+            )
+        )
+        # use the newly downloaded copy in the current run directory
+        cache.memo_download(uri, filename, directory=directory)
+        return False, filename
     return False, cache.put_download(
         uri, os.path.realpath(filename), directory=directory, logger=logger
     )
