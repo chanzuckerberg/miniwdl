@@ -11,6 +11,7 @@ import time
 import fcntl
 import shutil
 import hashlib
+import uuid
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager, AbstractContextManager
@@ -161,13 +162,12 @@ def topsort(adj: AdjM[T]) -> List[T]:
 
 
 @export
-def write_atomic(contents: str, filename: str, end: str = "\n", attempt: int = 0) -> None:
-    tn = filename + ".tmp" + (str(int(time.time() * 1e6)) if attempt > 0 else "")
-    try:
-        with open(tn, "x") as outfile:
-            print(contents, file=outfile, end=end)
-    except FileExistsError:
-        write_atomic(contents, filename, end=end, attempt=attempt + 1)
+def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
+    # 04-JUN-2021 changed to use UUID filename instead of relying on open(tn, "x") in case network
+    # filesystem is wonky with O_EXCL.
+    tn = filename + ".tmp." + str(uuid.uuid1())
+    with open(tn, "w") as outfile:
+        print(contents, file=outfile, end=end)
     os.rename(tn, filename)
 
 
