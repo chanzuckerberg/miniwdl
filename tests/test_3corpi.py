@@ -42,7 +42,7 @@ async def read_source(uri, path, importer_uri):
     return await WDL.read_source_default(uri, path, importer_uri)
 
 
-def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
+def wdl_corpus(dir, path=[], blocklist=[], expected_lint={}, check_quant=True):
     def decorator(test_klass):
 
         test_klass._lint_count = {}
@@ -62,7 +62,7 @@ def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
         for fn in files:
             name = os.path.split(fn)[1]
             name = name[:-4]
-            if name not in blacklist:
+            if name not in blocklist:
                 name = "test_" + prefix + "_" + name.replace(".", "_")
                 while hasattr(test_klass, name):
                     name += "_"
@@ -233,7 +233,7 @@ class gatk4_cnn_variant_filter(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
-    blacklist=["JointGenotypingWf"],
+    blocklist=["JointGenotypingWf"],
     expected_lint={
         "StringCoercion": 50,
         "UnusedDeclaration": 10,
@@ -249,7 +249,7 @@ class broad_prod_wgs(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/broadinstitute/gtex-pipeline/**"],
     # need URI import
-    blacklist=["rnaseq_pipeline_bam", "rnaseq_pipeline_fastq"],
+    blocklist=["rnaseq_pipeline_bam", "rnaseq_pipeline_fastq"],
     expected_lint={
         "IncompleteCall": 30,
         "UnusedDeclaration": 3,
@@ -264,7 +264,7 @@ class GTEx(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/DataBiosphere/topmed-workflows/**"],
     # need URI import
-    blacklist=[
+    blocklist=[
         "CRAM_md5sum_checker_wrapper",
         "checker-workflow-wrapping-alignment-workflow",
         "topmed_freeze3_calling",
@@ -362,7 +362,7 @@ class ENCODE_WGBS(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/dnanexus/dxWDL/test/**"],
-    blacklist=[
+    blocklist=[
         # output/call name collision (draft-2)
         "conditionals2",
         # decl/output name collision
@@ -408,7 +408,7 @@ class dxWDL(unittest.TestCase):
         "UnverifiedStruct": 3,
         "Deprecated": 2,
     },
-    blacklist=["check_quant", "incomplete_call"],
+    blocklist=["check_quant", "incomplete_call"],
 )
 class Contrived(unittest.TestCase):
     pass
@@ -435,7 +435,7 @@ class Contrived(unittest.TestCase):
         "Deprecated": 2,
     },
     check_quant=False,
-    blacklist=["incomplete_call"],
+    blocklist=["incomplete_call"],
 )
 class Contrived2(unittest.TestCase):
     pass
@@ -443,7 +443,7 @@ class Contrived2(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/biowdl/tasks/**"],
-    blacklist=[
+    blocklist=[
         # these use the pattern 'input { Type? x = default }' and need check_quant=False
         "mergecounts",
         "somaticseq",
@@ -539,7 +539,6 @@ class BioWDLSmallRNA(unittest.TestCase):
         "NonemptyCoercion": 4,
         "FileCoercion": 17,
     },
-    check_quant=False,
 )
 class warp_pipelines_broad(unittest.TestCase):
     pass
@@ -550,7 +549,6 @@ class warp_pipelines_broad(unittest.TestCase):
     expected_lint={
         "UnusedDeclaration": 1,
     },
-    check_quant=False,
 )
 class warp_pipelines_cemba(unittest.TestCase):
     pass
@@ -565,7 +563,6 @@ class warp_pipelines_cemba(unittest.TestCase):
         "FileCoercion": 3,
         "NameCollision": 3,
     },
-    check_quant=False,
 )
 class warp_pipelines_skylab(unittest.TestCase):
     pass
