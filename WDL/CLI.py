@@ -1032,6 +1032,8 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
                 .source_text
             )
         input_json = yaml.safe_load(input_json)
+        if not isinstance(input_json, dict):
+            raise Error.InputError("check JSON input; expected top-level object")
         try:
             ans = values_from_json(input_json, available_inputs, namespace=namespace)
         except Error.InputError as exn:

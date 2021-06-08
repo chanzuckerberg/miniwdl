@@ -169,6 +169,7 @@ class HCAskylab_task(unittest.TestCase):
         "MixedIndentation": 1,
         "FileCoercion": 1,
         "MissingVersion": 34,
+        "UnnecessaryQuantifier": 3,
     },
 )
 class HCAskylab_workflow(unittest.TestCase):
@@ -275,6 +276,7 @@ class GTEx(unittest.TestCase):
         "UnusedDeclaration": 74,
         "OptionalCoercion": 1,
         "MissingVersion": 8,
+        "UnnecessaryQuantifier": 1,
     },
     check_quant=False,
 )
@@ -292,6 +294,7 @@ class TOPMed(unittest.TestCase):
         "UnusedImport": 1,
         "SelectArray": 4,
         "MissingVersion": 62,
+        "UnnecessaryQuantifier": 191,
     },
 )
 class ViralNGS(unittest.TestCase):
@@ -379,6 +382,7 @@ class ENCODE_WGBS(unittest.TestCase):
         "StringCoercion": 2,
         "UnnecessaryQuantifier": 1,
         "MissingVersion": 52,
+        "UnnecessaryQuantifier": 10,
     },
     check_quant=False,
 )
@@ -395,7 +399,7 @@ class dxWDL(unittest.TestCase):
         "StringCoercion": 6,
         "FileCoercion": 3,
         "NonemptyCoercion": 1,
-        "UnnecessaryQuantifier": 2,
+        "UnnecessaryQuantifier": 5,
         "UnusedDeclaration": 2,
         "IncompleteCall": 2,
         "SelectArray": 1,
@@ -420,7 +424,7 @@ class Contrived(unittest.TestCase):
         "FileCoercion": 5,
         "OptionalCoercion": 3,
         "NonemptyCoercion": 2,
-        "UnnecessaryQuantifier": 4,
+        "UnnecessaryQuantifier": 9,
         "UnusedDeclaration": 9,
         "IncompleteCall": 3,
         "ArrayCoercion": 2,
@@ -451,6 +455,7 @@ class Contrived2(unittest.TestCase):
         "NameCollision": 1,
         "SelectArray": 1,
         "UnverifiedStruct": 1,
+        "UnnecessaryQuantifier": 8,
     },
 )
 class BioWDLTasks(unittest.TestCase):
@@ -460,11 +465,12 @@ class BioWDLTasks(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/biowdl/aligning/**"],
     expected_lint={
-        "OptionalCoercion": 12,
+        "OptionalCoercion": 11,
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 1,
         "NameCollision": 1,
-        "UnverifiedStruct": 1
+        "UnverifiedStruct": 1,
+        "UnnecessaryQuantifier": 13,
     },
     check_quant=False,
 )
@@ -480,6 +486,7 @@ class BioWDLAligning(unittest.TestCase):
         "NonemptyCoercion": 3,
         "NameCollision": 1,
         "UnverifiedStruct": 1,
+        "UnnecessaryQuantifier": 9,
     },
     check_quant=False,
 )
@@ -495,6 +502,7 @@ class BioWDLExpressionQuantification(unittest.TestCase):
         "UnusedDeclaration": 11,
         "NonemptyCoercion": 37,
         "SelectArray": 5,
+        "UnnecessaryQuantifier": 3,
     },
     check_quant=False,
 )
@@ -507,10 +515,10 @@ class BioWDLSomaticVariantCalling(unittest.TestCase):
     expected_lint={
         "UnusedDeclaration": 8,
         "SelectArray": 2,
-        "OptionalCoercion": 2,
         "NonemptyCoercion": 3,
         "UnusedCall": 1,
         "UnverifiedStruct": 1,
+        "UnnecessaryQuantifier": 7,
     },
     check_quant=False,
 )

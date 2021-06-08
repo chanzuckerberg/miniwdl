@@ -520,8 +520,10 @@ class OptionalCoercion(Linter):
     def call(self, obj: Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
-            if not inp_expr.type.coerces(decl.type, check_quant=True) and not _is_array_coercion(
-                decl.type, inp_expr.type
+            # treat input with default as optional, with or without the ? type quantifier
+            decltype = decl.type.copy(optional=True) if decl.expr else decl.type
+            if not inp_expr.type.coerces(decltype, check_quant=True) and not _is_array_coercion(
+                decltype, inp_expr.type
             ):
                 msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
                 self.add(obj, msg, inp_expr.pos)
@@ -819,32 +821,32 @@ class UnusedCall(Linter):
 @a_linter
 class UnnecessaryQuantifier(Linter):
     # A declaration like T? x = :T: where the right-hand side can't be null.
-    # The optional quantifier is unnecessary except within a task/workflow
-    # input section (where it denotes that the default value can be overridden
-    # by expressly passing null). Another exception is File? outputs of tasks,
-    # e.g. File? optional_file_output = "filename.txt"
-
+    # Caveats:
+    # 1. Exception for File? output of tasks, where this is normal.
+    # 2. Specific warning when x is an input, and the interpretation is underspecified by WDL
+    #    (called with None, does the binding take None or the default?)
     def decl(self, obj: Tree.Decl) -> Any:
         if obj.type.optional and obj.expr and not obj.expr.type.optional:
             tw = obj
             while not isinstance(tw, (Tree.Task, Tree.Workflow)):
                 tw = getattr(tw, "parent")
             assert isinstance(tw, (Tree.Task, Tree.Workflow))
-            if (
-                isinstance(tw.inputs, list)
-                and obj not in tw.inputs
-                and not (
-                    isinstance(tw, Tree.Task)
-                    and isinstance(obj.type, (Type.File, Type.Directory))
-                    and obj in tw.outputs
-                )
+            if not (
+                isinstance(tw, Tree.Task)
+                and isinstance(obj.type, (Type.File, Type.Directory))
+                and obj in tw.outputs
             ):
-                self.add(
-                    obj,
-                    "unnecessary optional quantifier (?) for non-input {} {}".format(
-                        obj.type, obj.name
-                    ),
-                )
+                if not isinstance(tw.inputs, list) or obj in tw.inputs:
+                    self.add(
+                        obj,
+                        f"input {obj.type} {obj.name} is implicitly optional since it has a default;"
+                        " consider removing ? quantifier, which may not behave consistently between WDL interpreters",
+                    )
+                else:
+                    self.add(
+                        obj,
+                        f"unnecessary optional quantifier (?) for non-input {obj.type} {obj.name}",
+                    )
 
 
 _shellcheck_available = None

@@ -333,6 +333,19 @@ def _eval_task_inputs(
     posix_inputs: Env.Bindings[Value.Base],
     container: "runtime.task_container.TaskContainer",
 ) -> Env.Bindings[Value.Base]:
+    # Preprocess inputs: if None value is supplied for an input declared with a default but without
+    # the ? type quantifier, remove the binding entirely so that the default will be used. In
+    # contrast, if the input declaration has an -explicitly- optional type, then we'll allow the
+    # supplied None to override any default.
+    input_decls = task.available_inputs
+    posix_inputs = posix_inputs.filter(
+        lambda b: not (
+            isinstance(b.value, Value.Null)
+            and b.name in input_decls
+            and input_decls[b.name].expr
+            and not input_decls[b.name].type.optional
+        )
+    )
 
     # Map all the provided input File & Directory paths to in-container paths
     container.add_paths(_fspaths(posix_inputs))

@@ -922,3 +922,65 @@ class TestAbbreviatedCallInput(RunnerTestCase):
         assert sum("18.04" in msg for msg in outputs["results"]) == 2
         outputs = self._run(caller, {"message": "hello", "docker": "ubuntu:focal"})
         assert sum("20.04" in msg for msg in outputs["results"]) == 2
+
+
+class TestImplicitlyOptionalInputWithDefault(RunnerTestCase):
+    def test_workflow(self):
+        src = R"""
+        version 1.1
+        workflow contrived {
+            input {
+                String a = "Alice" + select_first([b, "Carol"])
+                String? b = "Bob"
+            }
+            output {
+                Array[String?] results = [a, b]
+            }
+        }
+        """
+        outp = self._run(src, {})
+        self.assertEqual(outp["results"], ["AliceBob", "Bob"])
+        outp = self._run(src, {"a": "Alyssa"})
+        self.assertEqual(outp["results"], ["Alyssa", "Bob"])
+        outp = self._run(src, {"b": "Bas"})
+        self.assertEqual(outp["results"], ["AliceBas", "Bas"])
+        outp = self._run(src, {"b": None})
+        self.assertEqual(outp["results"], ["AliceCarol", None])
+        outp = self._run(src, {"a": None, "b": None})
+        self.assertEqual(outp["results"], ["AliceCarol", None])
+
+    def test_task(self):
+        caller = R"""
+        version 1.1
+        workflow caller {
+            input {
+                String? a
+                String? b
+            }
+            call contrived {
+                input:
+                a = a, b = b
+            }
+            output {
+                Array[String?] results = contrived.results
+            }
+        }
+        task contrived {
+            input {
+                String a = "Alice" + select_first([b, "Carol"])
+                String? b = "Bob"
+            }
+            command {}
+            output {
+                Array[String?] results = [a, b]
+            }
+        }
+        """
+        outp = self._run(caller, {})
+        self.assertEqual(outp["results"], ["AliceCarol", None])
+        outp = self._run(caller, {"a": None, "b": None})
+        self.assertEqual(outp["results"], ["AliceCarol", None])
+        outp = self._run(caller, {"b": "Bas"})
+        self.assertEqual(outp["results"], ["AliceBas", "Bas"])
+        outp = self._run(caller, {"a": "Alyssa"})
+        self.assertEqual(outp["results"], ["Alyssa", None])
