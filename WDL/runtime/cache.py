@@ -252,6 +252,7 @@ class CallCache(AbstractContextManager):
                 shutil.rmtree(filename)
             else:
                 os.unlink(filename)
+        self.memo_download(uri, p, directory=directory)
         return p
 
     def download_cacheable(self, uri: str, directory: bool = False) -> Optional[str]:
