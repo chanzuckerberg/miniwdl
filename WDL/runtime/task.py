@@ -105,6 +105,7 @@ def run_local_task(
             cache = _cache
         assert cache
 
+        cleanup.enter_context(_statusbar.task_slotted())
         container = None
         try:
             cache_key = f"{task.name}/{task.digest}/{Value.digest_env(inputs)}"
@@ -189,7 +190,6 @@ def run_local_task(
                 command, container = (recv[k] for k in ("command", "container"))
 
                 # start container & run command (and retry if needed)
-                cleanup.enter_context(_statusbar.task_slotted())
                 _try_task(cfg, logger, container, command, terminating)
 
                 # evaluate output declarations
