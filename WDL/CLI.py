@@ -45,6 +45,7 @@ from ._util import (
     path_really_within,
     ANSI,
     currently_in_container,
+    LoggingFileHandler,
 )
 from ._util import StructuredLogMessage as _
 
@@ -523,6 +524,7 @@ def fill_run_subparser(subparsers):
         help="disable colored logging and status bar on terminal (also set by NO_COLOR environment variable)",
     )
     group.add_argument("--log-json", action="store_true", help="write all logs in JSON")
+    group.add_argument("-e", metavar="ERR.json", dest="stderr_file", help=SUPPRESS)
     group = run_parser.add_argument_group("configuration")
     group.add_argument(
         "--cfg",
@@ -589,6 +591,7 @@ def runner(
     error_json=False,
     log_json=False,
     stdout_file=None,
+    stderr_file=None,
     no_outside_imports=False,
     **kwargs,
 ):
@@ -613,6 +616,10 @@ def runner(
     logger = logging.getLogger("miniwdl-run")
 
     with ExitStack() as cleanup:
+        if stderr_file:
+            cleanup.enter_context(
+                LoggingFileHandler(logging.getLogger(), stderr_file, json=log_json)
+            )
         set_status = cleanup.enter_context(configure_logger(json=log_json))
 
         if os.geteuid() == 0 and not currently_in_container():
@@ -1302,6 +1309,8 @@ def run_self_test(**kwargs):
         dn if dn not in [".", "./"] else os.getcwd(),
         "--no-cache",
         "--debug",
+        "-e",
+        os.path.join(dn, "miniwdl_run_self_test.log"),
     ]
     if kwargs["as_me"]:
         argv.append("--as-me")
@@ -1321,11 +1330,13 @@ def run_self_test(**kwargs):
                 lambda: print(
                     "* Hint: ensure Docker is installed & running"
                     + (
-                        ", and user has permission to control it per "
-                        "https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
+                        ", and user has permission to control it per\n"
+                        "  https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
                         if platform.system() != "Darwin"
                         else "; and on macOS override the environment variable TMPDIR=/tmp/"
-                    ),
+                    )
+                    + "\n* To request help at https://github.com/chanzuckerberg/miniwdl/issues\n"
+                    "  attach the log file " + os.path.join(dn, "miniwdl_run_self_test.log"),
                     file=sys.stderr,
                 )
             )
