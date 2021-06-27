@@ -1300,6 +1300,7 @@ def run_self_test(**kwargs):
         "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
         "--dir",
         dn if dn not in [".", "./"] else os.getcwd(),
+        "--no-cache",
         "--debug",
     ]
     if kwargs["as_me"]:
