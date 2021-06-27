@@ -193,7 +193,7 @@ def run_local_task(
                 _try_task(cfg, logger, container, command, terminating)
 
                 # evaluate output declarations
-                outputs = _eval_task_outputs(logger, task, container_env, container)
+                outputs = _eval_task_outputs(logger, run_id, task, container_env, container)
 
                 # create output_links
                 outputs = link_outputs(
@@ -614,13 +614,14 @@ def _try_task(
 
 def _eval_task_outputs(
     logger: logging.Logger,
+    run_id: str,
     task: Tree.Task,
     env: Env.Bindings[Value.Base],
     container: "runtime.task_container.TaskContainer",
 ) -> Env.Bindings[Value.Base]:
     stdout_file = os.path.join(container.host_dir, "stdout.txt")
     with suppress(FileNotFoundError):
-        if os.path.getsize(stdout_file) > 0:
+        if os.path.getsize(stdout_file) > 0 and not run_id.startswith("download-"):
             # If the task produced nonempty stdout that isn't used in the WDL outputs, generate a
             # courtesy log message directing user where to find it
             stdout_used = False
