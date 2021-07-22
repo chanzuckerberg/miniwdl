@@ -530,6 +530,17 @@ def _eval_task_runtime(
                 task.runtime["returnCodes"], "invalid setting of runtime.returnCodes"
             )
 
+    if cfg["task_runtime"].get_list("passthru_envvars"):
+        logger.warning("passthru_envvars is an experimental extension, subject to change")
+        envvars = cfg["task_runtime"].get_list("passthru_envvars")
+        if "environment" not in ans:
+            ans["environment"] = {}
+        for varname in envvars:
+            try:
+                ans["environment"][varname] = os.environ[varname]
+            except KeyError:
+                pass  # Don't break if this env var isn't set
+
     if ans:
         logger.info(_("effective runtime", **ans))
     unused_keys = list(

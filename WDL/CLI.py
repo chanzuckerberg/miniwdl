@@ -540,6 +540,12 @@ def fill_run_subparser(subparsers):
     group.add_argument("--runtime-cpu-max", metavar="N", type=int, default=None, help=SUPPRESS)
     group.add_argument("--runtime-memory-max", metavar="N", type=str, default=None, help=SUPPRESS)
     group.add_argument(
+        "--runtime-passthru-envvars",
+        nargs="+",
+        type=str,
+        help="""List of environment variables to pass through from miniwdl's environment to task environment""",
+    )
+    group.add_argument(
         "--runtime-defaults",
         metavar="JSON",
         type=str,
@@ -583,6 +589,7 @@ def runner(
     cfg=None,
     runtime_cpu_max=None,
     runtime_memory_max=None,
+    runtime_passthru_envvars=[],
     runtime_defaults=None,
     max_tasks=None,
     copy_input_files=False,
@@ -661,6 +668,8 @@ def runner(
                     cfg_overrides["task_runtime"]["defaults"] = infile.read()
         if runtime_cpu_max is not None:
             cfg_overrides["task_runtime"]["cpu_max"] = runtime_cpu_max
+        if runtime_passthru_envvars:
+            cfg_overrides["task_runtime"]["passthru_envvars"] = runtime_passthru_envvars
         if runtime_memory_max is not None:
             runtime_memory_max = (
                 -1 if runtime_memory_max.strip() == "-1" else parse_byte_size(runtime_memory_max)
