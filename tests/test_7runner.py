@@ -10,6 +10,7 @@ import docker
 import platform
 from testfixtures import log_capture
 from .context import WDL
+from unittest.mock import patch
 
 class RunnerTestCase(unittest.TestCase):
     """
@@ -934,3 +935,35 @@ class TestAutoEnv(RunnerTestCase):
  
 Alice
 Hello, Alice""")
+
+class TestPassthruEnv(RunnerTestCase):
+    def test1(self):
+        wdl = """
+        version development
+        task t {
+            input {
+                String k1
+            }
+            command <<<
+                echo ~{k1}
+                echo "$TEST_ENV_VAR"
+                echo "$NOT_PASSED_IN_VAR"
+            >>>
+            output {
+                String out = read_string(stdout())
+            }
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime":{"passthru_envvars": ["TEST_ENV_VAR"]}})
+        with open(os.path.join(self._dir, "Alice"), mode="w") as outfile:
+            print("Alice", file=outfile)
+        env = {'TEST_ENV_VAR': 'passthru_test_success', "NOT_PASSED_IN_VAR": "this shouldn't be passed in"}
+        with patch.dict('os.environ', env):
+            out = self._run(wdl, {"k1": "stringvalue"}, cfg=cfg)
+        self.assertEqual(out["out"], """stringvalue
+passthru_test_success
+""")
