@@ -998,6 +998,7 @@ class TestPassthruEnv(RunnerTestCase):
             command <<<
                 echo ~{k1}
                 echo "$TEST_ENV_VAR"
+                echo "$SET_ENV_VAR"
                 echo "$NOT_PASSED_IN_VAR"
             >>>
             output {
@@ -1009,9 +1010,10 @@ class TestPassthruEnv(RunnerTestCase):
         }
         """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override({"task_runtime": {"passthru_envvars": ["TEST_ENV_VAR"]}})
+        cfg.override({"task_runtime": {"env": {"TEST_ENV_VAR": None, "SET_ENV_VAR": "set123"}}})
         with open(os.path.join(self._dir, "Alice"), mode="w") as outfile:
             print("Alice", file=outfile)
+        self._run(wdl, {"k1": "stringvalue"}, cfg=cfg, expected_exception=WDL.Error.InputError)
         env = {
             "TEST_ENV_VAR": "passthru_test_success",
             "NOT_PASSED_IN_VAR": "this shouldn't be passed in",
@@ -1022,5 +1024,6 @@ class TestPassthruEnv(RunnerTestCase):
             out["out"],
             """stringvalue
 passthru_test_success
+set123
 """,
         )

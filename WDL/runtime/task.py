@@ -530,19 +530,25 @@ def _eval_task_runtime(
                 task.runtime["returnCodes"], "invalid setting of runtime.returnCodes"
             )
 
-    if cfg["task_runtime"].get_list("passthru_envvars"):
-        logger.warning("passthru_envvars is an experimental extension, subject to change")
-        envvars = cfg["task_runtime"].get_list("passthru_envvars")
-        if "environment" not in ans:
-            ans["environment"] = {}
-        for varname in envvars:
-            try:
-                ans["environment"][varname] = os.environ[varname]
-            except KeyError:
-                pass  # Don't break if this env var isn't set
-
     if ans:
         logger.info(_("effective runtime", **ans))
+
+    env_vars_override = {}
+    for ev_name, ev_value in cfg["task_runtime"].get_dict("env").items():
+        if ev_value is None:
+            try:
+                ev_value = os.environ[ev_name]
+            except KeyError:
+                raise Error.InputError(
+                    f"configuration passes through environment variable {ev_name} which isn't defined"
+                ) from None
+        env_vars_override[ev_name] = str(ev_value)
+    if env_vars_override:
+        # usually don't dump values into log, as they may often be auth tokens
+        logger.notice(_("overriding environment variables", names=list(env_vars_override.keys())))
+        logger.debug(_("overriding environment variables", **env_vars_override))
+        ans["env"] = env_vars_override
+
     unused_keys = list(
         key
         for key in runtime_values
