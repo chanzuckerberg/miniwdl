@@ -194,7 +194,7 @@ class Decl(WorkflowNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         if self.expr:
             yield self.expr
 
@@ -353,7 +353,7 @@ class Task(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         for d in self.inputs or []:
             yield d
         for d in self.postinputs:
@@ -527,7 +527,7 @@ class Call(WorkflowNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         for _, ex in self.inputs.items():
             yield ex
 
@@ -720,7 +720,7 @@ class Gather(WorkflowNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         # section & referee are NOT 'children' of Gather
         return []
 
@@ -788,7 +788,7 @@ class WorkflowSection(WorkflowNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         for elt in self.body:
             yield elt
         for elt in self.gathers.values():
@@ -827,7 +827,7 @@ class Scatter(WorkflowSection):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         yield self.expr
         yield from super().children
 
@@ -896,7 +896,7 @@ class Conditional(WorkflowSection):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         yield self.expr
         yield from super().children
 
@@ -1100,7 +1100,7 @@ class Workflow(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         for d in self.inputs or []:
             yield d
         for elt in self.body:
@@ -1407,7 +1407,7 @@ class Document(SourceNode):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        ""
+        """"""
         for imp in self.imports:
             if imp.doc:
                 yield imp.doc

@@ -252,7 +252,8 @@ class MultipleValidationErrors(Exception):
 
 
 class _MultiContext:
-    ""
+    """"""
+
     _exceptions: List[Union[ValidationError, MultipleValidationErrors]]
 
     def __init__(self) -> None:
@@ -278,7 +279,7 @@ class _MultiContext:
 
 @contextmanager
 def multi_context() -> Generator[_MultiContext, None, None]:
-    ""
+    """"""
     # Context manager to assist with catching and propagating multiple
     # validation/typechecking errors
     #

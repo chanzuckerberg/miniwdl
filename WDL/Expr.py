@@ -158,7 +158,7 @@ class Boolean(Base):
         return Type.Boolean()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Boolean:
-        ""
+        """"""
         return Value.Boolean(self.value)
 
 
@@ -185,7 +185,7 @@ class Int(Base):
         return Type.Int()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Int:
-        ""
+        """"""
         return Value.Int(self.value)
 
 
@@ -215,7 +215,7 @@ class Float(Base):
         return Type.Float()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Float:
-        ""
+        """"""
         return Value.Float(self.value)
 
 
@@ -242,7 +242,7 @@ class Null(Base):
         return Type.Any(null=True)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Null:
-        ""
+        """"""
         return Value.Null()
 
 
@@ -321,7 +321,7 @@ class Placeholder(Base):
         return Type.String()
 
     def _eval_impl(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
-        ""
+        """"""
         v = self.expr.eval(env, stdlib)
         if isinstance(v, Value.Null):
             if "default" in self.options:
@@ -399,11 +399,11 @@ class String(Base):
         return Type.String()
 
     def typecheck(self, expected: Optional[Type.Base]) -> Base:
-        ""
+        """"""
         return super().typecheck(expected)  # pyre-ignore
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
-        ""
+        """"""
         ans = []
         for part in self.parts:
             if isinstance(part, Placeholder):
@@ -466,14 +466,14 @@ class Array(Base):
         return Type.Array(item_type, optional=False, nonempty=True)
 
     def typecheck(self, expected: Optional[Type.Base]) -> Base:
-        ""
+        """"""
         if not self.items and isinstance(expected, Type.Array):
             # the literal empty array satisfies any array type
             return self
         return super().typecheck(expected)  # pyre-ignore
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Array:
-        ""
+        """"""
         assert isinstance(self.type, Type.Array)
         return Value.Array(
             self.type.item_type,
@@ -528,7 +528,7 @@ class Pair(Base):
         return Type.Pair(self.left.type, self.right.type)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
         assert isinstance(self.type, Type.Pair)
         lv = self.left.eval(env, stdlib)
         rv = self.right.eval(env, stdlib)
@@ -602,7 +602,7 @@ class Map(Base):
         return Type.Map((kty, vty), literal_keys=literal_keys)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
         assert isinstance(self.type, Type.Map)
         keystrs = set()
         eitems = []
@@ -785,7 +785,7 @@ class IfThenElse(Base):
         return ty
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
         if self.condition.eval(env, stdlib).expect(Type.Boolean()).value:
             ans = self.consequent.eval(env, stdlib)
         else:
@@ -845,7 +845,7 @@ class Ident(Base):
         return ans
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
         return env[self.name]
 
     @property
@@ -1120,7 +1120,7 @@ class Apply(Base):
         return f.infer_type(self)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
 
         f = getattr(stdlib, self.function_name, None)
         assert isinstance(f, StdLib.Function)

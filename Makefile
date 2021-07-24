@@ -41,8 +41,7 @@ check:
 		--search-path stubs \
 		--typeshed `python3 -c 'import sys, site, os; print(next(p for p in (os.path.join(dir,"lib/pyre_check/typeshed") for dir in (sys.prefix,site.getuserbase())) if os.path.isdir(p)))'` \
 		--show-parse-errors check
-	# no-member disabled due to https://github.com/PyCQA/pylint/issues/3137
-	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL -d no-member
+	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
 	flake8 WDL
 
 check_check:
@@ -54,8 +53,7 @@ check_check:
 # uses black to rewrite source files!
 pretty:
 	black --line-length 100 --target-version py36 WDL/
-	# no-member disabled due to https://github.com/PyCQA/pylint/issues/3137
-	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name,bad-continuation --exit-zero WDL -d no-member
+	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name,bad-continuation --exit-zero WDL
 
 # for use in CI: complain if source code isn't at a fixed point for black
 sopretty:

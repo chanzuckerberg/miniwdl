@@ -123,7 +123,7 @@ class Base(ABC):
 
     @property
     def json(self) -> Any:
-        """Return a value representation which can be serialized to JSON using ``json.dumps`` """
+        """Return a value representation which can be serialized to JSON using ``json.dumps``"""
         """(str, int, float, list, dict, or null)"""
         return self.value
 
@@ -156,7 +156,7 @@ class Int(Base):
         super().__init__(Type.Int(), value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.Float):
             return Float(float(self.value), self.expr)
         return super().coerce(desired_type)
@@ -172,7 +172,7 @@ class String(Base):
         super().__init__(subtype, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.String):
             return String(self.value, self.expr)
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
@@ -200,7 +200,7 @@ class File(String):
             raise Error.InputError("WDL.Value.File invalid path: " + value)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if self.value is None:
             # special case for dealing with File? task outputs; see _eval_task_outputs in
             # runtime/task.py. Only on that path should self.value possibly be None.
@@ -218,7 +218,7 @@ class Directory(String):
         super().__init__(value, expr=expr, subtype=Type.Directory())
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if self.value is None:
             # as above
             if isinstance(desired_type, Type.Directory) and desired_type.optional:
@@ -243,7 +243,7 @@ class Array(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         return [item.json for item in self.value]
 
     def __str__(self) -> Any:
@@ -255,7 +255,7 @@ class Array(Base):
         return self.value
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.Array):
             if desired_type.nonempty and not self.value:
                 if self.expr:
@@ -289,7 +289,7 @@ class Map(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         ans = {}
         if not self.type.item_type[0].coerces(Type.String()):
             msg = f"cannot write {str(self.type)} to JSON"
@@ -313,7 +313,7 @@ class Map(Base):
             yield v
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.Map) and desired_type != self.type:
             return Map(
                 desired_type.item_type,
@@ -367,7 +367,7 @@ class Pair(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         return {"left": self.value[0].json, "right": self.value[1].json}
 
     @property
@@ -376,7 +376,7 @@ class Pair(Base):
         yield self.value[1]
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.Pair) and desired_type != self.type:
             return Pair(
                 desired_type.left_type,
@@ -398,7 +398,7 @@ class Null(Base):
         super().__init__(Type.Any(optional=True), None, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if desired_type and not desired_type.optional and not isinstance(desired_type, Type.Any):
             # normally the typechecker should prevent this, but it might have
             # had check_quant=False
@@ -416,7 +416,7 @@ class Null(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         return None
 
 
@@ -446,7 +446,7 @@ class Struct(Base):
         super().__init__(type, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(self.type, Type.Object) and isinstance(desired_type, Type.StructInstance):
             return Struct(desired_type, self.value, self.expr)
         return self
@@ -456,7 +456,7 @@ class Struct(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         ans = {}
         for k, v in self.value.items():
             ans[k] = v.json

@@ -1320,7 +1320,7 @@ def run_self_test(**kwargs):
     if kwargs["log_json"]:
         argv.append("--log-json")
     try:
-        outputs = main(argv)["outputs"]
+        outputs = main(argv)["outputs"]  # pylint: disable=E1136
         assert len(outputs["hello_caller.messages"]) == 2
         assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
         assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"

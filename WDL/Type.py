@@ -135,7 +135,7 @@ class Boolean(Base):
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, String):
             return True
         return super().coerces(rhs, check_quant)
@@ -146,7 +146,7 @@ class Float(Base):
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, String):
             return True
         return super().coerces(rhs, check_quant)
@@ -157,7 +157,7 @@ class Int(Base):
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, Float):
             return self._check_optional(rhs, check_quant)
         if isinstance(rhs, String):
@@ -170,7 +170,7 @@ class File(Base):
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, String):
             return True
         return super().coerces(rhs, check_quant)
@@ -181,7 +181,7 @@ class Directory(Base):
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, String):
             return True
         return super().coerces(rhs, check_quant)
@@ -192,7 +192,7 @@ class String(Base):
         self._optional = optional
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, (File, Directory, Int, Float)):
             return self._check_optional(rhs, check_quant)
         return super().coerces(rhs, check_quant)
@@ -242,7 +242,7 @@ class Array(Base):
         yield self.item_type
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, Array):
             return self.item_type.coerces(rhs.item_type, check_quant) and self._check_optional(
                 rhs, check_quant
@@ -308,7 +308,7 @@ class Map(Base):
         yield self.item_type[1]
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, Map):
             return (
                 self.item_type[0].coerces(rhs.item_type[0], check_quant)
@@ -378,7 +378,7 @@ class Pair(Base):
         yield self.right_type
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, Pair):
             return (
                 self.left_type.coerces(rhs.left_type, check_quant)
@@ -424,7 +424,7 @@ class StructInstance(Base):
         return self.type_name + ("?" if self.optional else "")
 
     def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        ""
+        """"""
         if isinstance(rhs, StructInstance):
             return self.type_id == rhs.type_id and self._check_optional(rhs, check_quant)
         if isinstance(rhs, Any):
@@ -463,7 +463,8 @@ def _struct_type_id(members: Dict[str, Base]) -> str:
 
 
 class Object(Base):
-    ""
+    """"""
+
     # In WDL 1.0, struct instances are created by coercion from object
     # literals. So we need something to represent the type of an object literal
     # (a bag of keys and values) prior to its coercion to a named struct type.
