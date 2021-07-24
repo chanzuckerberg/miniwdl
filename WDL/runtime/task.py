@@ -549,8 +549,8 @@ def _eval_task_runtime(
         )
     if env_vars_override:
         # usually don't dump values into log, as they may often be auth tokens
-        logger.notice(_("overriding environment variables", names=list(env_vars_override.keys())))
-        logger.debug(_("overriding environment variables", **env_vars_override))
+        logger.notice(_("overriding environment variables (portability warning)", names=list(env_vars_override.keys())))
+        logger.debug(_("overriding environment variables (portability warning)", **env_vars_override))
         ans["env"] = env_vars_override
 
     unused_keys = list(

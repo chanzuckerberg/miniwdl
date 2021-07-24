@@ -685,7 +685,7 @@ def runner(
         cfg.log_all()
         if cfg["task_runtime"].get_dict("env"):
             logger.warning(
-                "--env is a non-standard side channel; tasks relying on it are probably not portable"
+                "--env is a non-standard side channel; relying on it is probably not portable"
             )
 
         # check root
