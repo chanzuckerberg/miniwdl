@@ -1013,7 +1013,12 @@ class TestPassthruEnv(RunnerTestCase):
         cfg.override({"task_runtime": {"env": {"TEST_ENV_VAR": None, "SET_ENV_VAR": "set123"}}})
         with open(os.path.join(self._dir, "Alice"), mode="w") as outfile:
             print("Alice", file=outfile)
-        self._run(wdl, {"k1": "stringvalue"}, cfg=cfg, expected_exception=WDL.Error.InputError)
+        out = self._run(wdl, {"k1": "stringvalue"}, cfg=cfg)
+        self.assertEqual(out["out"], """stringvalue
+
+set123
+""",
+        )
         env = {
             "TEST_ENV_VAR": "passthru_test_success",
             "NOT_PASSED_IN_VAR": "this shouldn't be passed in",

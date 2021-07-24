@@ -1119,13 +1119,7 @@ def runner_env_override(cfg, args):
             raise Error.InputError("invalid --env argument: " + item)
         name = item[: sep if sep >= 0 else len(item)]
         value = None
-        if sep == -1:
-            if name not in os.environ:
-                raise Error.InputError(
-                    f"environment variable {name} isn't defined to pass through;"
-                    f' check name or try --env "{name}=${name}" to tolerate'
-                )
-        else:
+        if sep != -1:
             value = item[sep + 1 :]
         env_override[name] = value
     return env_override

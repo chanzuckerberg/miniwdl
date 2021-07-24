@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 81
+plan tests 80
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -458,7 +458,7 @@ version development
 task t {
     input {}
     command <<<
-        echo "${XXX}/${YYY}/${ZZZ}"
+        echo "${WWW}/${XXX}/${YYY}/${ZZZ}"
     >>>
     output {
         String out = read_string(stdout())
@@ -468,8 +468,6 @@ task t {
     }
 }
 EOF
-$miniwdl run env.wdl --env XXX --env YYY= --env "ZZZ=brown fox"
-is "$?" "1" "--env passed-through variable must be defined"
-XXX=quick $miniwdl run env.wdl --env XXX --env YYY= --env "ZZZ=brown fox" -o env_out.json
+XXX=quick YYY=not $miniwdl run env.wdl --env WWW --env XXX --env YYY= --env "ZZZ=brown fox" -o env_out.json
 is "$?" "0" "--env succeeds"
-is "$(jq -r '.outputs["t.out"]' env_out.json)" "quick//brown fox" "--env correct"
+is "$(jq -r '.outputs["t.out"]' env_out.json)" "/quick//brown fox" "--env correct"
