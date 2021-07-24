@@ -20,6 +20,7 @@ import logging
 import traceback
 import tempfile
 import hashlib
+import shlex
 from contextlib import ExitStack
 from typing import Optional, Generator, Dict, Any, Tuple, Callable
 from . import config
@@ -320,7 +321,8 @@ def prepare_aws_credentials(
     if host_aws_credentials:
         # write credentials to temp file that'll self-destruct afterwards
         host_aws_credentials = (
-            "\n".join(f"export {k}='{v}'" for (k, v) in host_aws_credentials.items()) + "\n"
+            "\n".join(f"export {k}={shlex.quote(v)}" for (k, v) in host_aws_credentials.items())
+            + "\n"
         )
         aws_credentials_file = cleanup.enter_context(
             tempfile.NamedTemporaryFile(
