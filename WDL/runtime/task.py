@@ -532,6 +532,34 @@ def _eval_task_runtime(
 
     if ans:
         logger.info(_("effective runtime", **ans))
+
+    env_vars_override = {}
+    env_vars_skipped = []
+    for ev_name, ev_value in cfg["task_runtime"].get_dict("env").items():
+        if ev_value is None:
+            try:
+                env_vars_override[ev_name] = os.environ[ev_name]
+            except KeyError:
+                env_vars_skipped.append(ev_name)
+        else:
+            env_vars_override[ev_name] = str(ev_value)
+    if env_vars_skipped:
+        logger.warning(
+            _("skipping pass-through of undefined environment variable(s)", names=env_vars_skipped)
+        )
+    if env_vars_override:
+        # usually don't dump values into log, as they may often be auth tokens
+        logger.notice(
+            _(
+                "overriding environment variables (portability warning)",
+                names=list(env_vars_override.keys()),
+            )
+        )
+        logger.debug(
+            _("overriding environment variables (portability warning)", **env_vars_override)
+        )
+        ans["env"] = env_vars_override
+
     unused_keys = list(
         key
         for key in runtime_values

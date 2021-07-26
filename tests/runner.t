@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 78
+plan tests 80
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -451,3 +451,23 @@ $miniwdl run inside/inside.wdl
 is "$?" "0" "outside import allowed"
 $miniwdl run inside/inside.wdl --no-outside-imports
 is "$?" "2" "outside import denied"
+
+# test --env
+cat << 'EOF' > env.wdl
+version development
+task t {
+    input {}
+    command <<<
+        echo "${WWW}/${XXX}/${YYY}/${ZZZ}"
+    >>>
+    output {
+        String out = read_string(stdout())
+    }
+    runtime {
+        docker: "ubuntu:20.04"
+    }
+}
+EOF
+XXX=quick YYY=not $miniwdl run env.wdl --env WWW --env XXX --env YYY= --env "ZZZ=brown fox" -o env_out.json
+is "$?" "0" "--env succeeds"
+is "$(jq -r '.outputs["t.out"]' env_out.json)" "/quick//brown fox" "--env correct"

@@ -552,6 +552,14 @@ def fill_run_subparser(subparsers):
         help="override any configuration enabling cache lookup for call outputs & downloaded files",
     )
     group.add_argument(
+        "--env",
+        action="append",
+        metavar="VARNAME[=VALUE]",
+        type=str,
+        help="Environment variable to pass through to [or set outright in]"
+        " all task environments (portability warning: non-standard side channel)",
+    )
+    group.add_argument(
         "--copy-input-files",
         action="store_true",
         help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write them)",
@@ -583,6 +591,7 @@ def runner(
     cfg=None,
     runtime_cpu_max=None,
     runtime_memory_max=None,
+    env=[],
     runtime_defaults=None,
     max_tasks=None,
     copy_input_files=False,
@@ -661,6 +670,8 @@ def runner(
                     cfg_overrides["task_runtime"]["defaults"] = infile.read()
         if runtime_cpu_max is not None:
             cfg_overrides["task_runtime"]["cpu_max"] = runtime_cpu_max
+        if env:
+            cfg_overrides["task_runtime"]["env"] = runner_env_override(cfg, env)
         if runtime_memory_max is not None:
             runtime_memory_max = (
                 -1 if runtime_memory_max.strip() == "-1" else parse_byte_size(runtime_memory_max)
@@ -672,6 +683,10 @@ def runner(
 
         cfg.override(cfg_overrides)
         cfg.log_all()
+        if cfg["task_runtime"].get_dict("env"):
+            logger.warning(
+                "--env is a non-standard side channel; relying on it is probably not portable"
+            )
 
         # check root
         if not path_really_within((run_dir or os.getcwd()), cfg["file_io"]["root"]):
@@ -1094,6 +1109,20 @@ def runner_input_help(target):
         ans.append(bold(f"  {str(b.value)} {b.name}"))
     for line in ans:
         print(line, file=sys.stderr)
+
+
+def runner_env_override(cfg, args):
+    env_override = cfg["task_runtime"].get_dict("env")
+    for item in args:
+        sep = item.find("=")
+        if sep == 0:
+            raise Error.InputError("invalid --env argument: " + item)
+        name = item[: sep if sep >= 0 else len(item)]
+        value = None
+        if sep != -1:
+            value = item[sep + 1 :]
+        env_override[name] = value
+    return env_override
 
 
 def is_constant_expr(expr):
