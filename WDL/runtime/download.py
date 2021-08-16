@@ -308,9 +308,9 @@ def prepare_aws_credentials(
         host_aws_credentials["AWS_EC2_METADATA_DISABLED"] = os.environ["AWS_EC2_METADATA_DISABLED"]
     # get AWS credentials from boto3 (unless prevented by configuration)
     if cfg["download_awscli"].get_bool("host_credentials"):
-        try:
-            import boto3  # pyre-fixme
+        import boto3  # pyre-fixme
 
+        try:
             b3creds = boto3.session.Session().get_credentials()
             host_aws_credentials["AWS_ACCESS_KEY_ID"] = b3creds.access_key
             host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
