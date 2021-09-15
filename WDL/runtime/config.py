@@ -234,7 +234,11 @@ class Loader:
         all = {}
         for (section, key) in options:
             value = self.get(section, key)
-            if defaults or value != _expand_env_var(_strip(self._defaults.get(section, key))):
+            default_value = None
+            if not defaults and self._defaults.has_option(section, key):
+                default_value = self._defaults.get(section, key)
+                default_value = _expand_env_var(_strip(default_value))
+            if defaults or value != default_value:
                 all[section] = all.get(section, dict())
                 all[section][key] = value
 
