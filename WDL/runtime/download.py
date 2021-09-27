@@ -223,6 +223,8 @@ def awscli_downloader(
                 if [ -n "~{aws_credentials}" ]; then
                     source "~{aws_credentials}"
                 fi
+                export AWS_RETRY_MODE=standard
+                export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir __out
                 if ! aws s3 cp "~{uri}" __out/ ; then
@@ -272,6 +274,8 @@ def awscli_directory_downloader(
                 if [ -n "~{aws_credentials}" ]; then
                     source "~{aws_credentials}"
                 fi
+                export AWS_RETRY_MODE=standard
+                export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir -p "__out/~{dnm}/"
                 if ! aws s3 cp --recursive "~{uri}" "__out/~{dnm}/" ; then
