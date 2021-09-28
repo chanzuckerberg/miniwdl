@@ -233,6 +233,8 @@ def awscli_downloader(
                     # credentials are available or (ii) the IAM policy restricts accessible S3
                     # buckets regardless of whether the desired object is public.
                     rm -f __out/*
+                    >&2 echo 'Retrying with --no-sign-request in case the object is public.' \
+                         ' If the overall operation fails, the real error may precede this message.'
                     aws s3 cp --no-sign-request "~{uri}" __out/
                 fi
             >>>
@@ -284,6 +286,8 @@ def awscli_directory_downloader(
                     # credentials are available or (ii) the IAM policy restricts accessible S3
                     # buckets regardless of whether the desired object is public.
                     rm -f "__out/~{dnm}/*"
+                    >&2 echo 'Retrying with --no-sign-request in case the folder is public.' \
+                        ' If the overall operation fails, the real error may precede this message.'
                     aws s3 cp --recursive --no-sign-request "~{uri}" "__out/~{dnm}/"
                 fi
             >>>
