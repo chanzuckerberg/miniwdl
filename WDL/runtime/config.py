@@ -356,7 +356,7 @@ def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
             importlib_metadata.EntryPoint(
                 group="miniwdl.plugin.container_backend",
                 name="docker_swarm",
-                value="WDL.runtime.task_container:SwarmContainer",
+                value="WDL.runtime.backend.docker_swarm:SwarmContainer",
             )
         ],
         "cache_backend": [
