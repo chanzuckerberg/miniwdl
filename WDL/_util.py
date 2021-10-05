@@ -432,7 +432,10 @@ def configure_logger(
 @export
 @contextmanager
 def PygtailLogger(
-    logger: logging.Logger, filename: str, callback: Optional[Callable[[str], None]] = None
+    logger: logging.Logger,
+    filename: str,
+    callback: Optional[Callable[[str], None]] = None,
+    level: int = VERBOSE_LEVEL,
 ) -> Iterator[Callable[[], None]]:
     """
     Helper for streaming task stderr into logger using pygtail. Context manager yielding a function
@@ -444,13 +447,13 @@ def PygtailLogger(
     from pygtail import Pygtail  # delayed heavy import
 
     pygtail = None
-    if logger.isEnabledFor(VERBOSE_LEVEL):
+    if logger.isEnabledFor(level):
         pygtail = Pygtail(filename, full_lines=True)
     logger2 = logger.getChild("stderr")
 
     def default_callback(line: str) -> None:
         assert len(line) <= 4096, "line > 4KB"
-        logger2.verbose(line.rstrip())  # pyre-fixme
+        logger2.log(level, line.rstrip())
 
     callback = callback or default_callback
 

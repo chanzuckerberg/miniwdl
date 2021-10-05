@@ -220,7 +220,7 @@ class TaskContainer(ABC):
         """
         Implementation-specific: run command in container & return exit status.
 
-        Take care to write informative log messages for any backend-specific errorsd. Miniwdl's
+        Take care to write informative log messages for any backend-specific errors. Miniwdl's
         outer exception handler will only emit a brief, generic log message about the run failing.
         """
         # run command in container & return exit status

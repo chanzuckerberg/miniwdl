@@ -1,3 +1,6 @@
+"""
+Default TaskContainer implementation using Docker Swarm
+"""
 import os
 import json
 import stat
