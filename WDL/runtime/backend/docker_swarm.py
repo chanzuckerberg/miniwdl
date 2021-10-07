@@ -24,7 +24,7 @@ from ..._util import (
 )
 from ..._util import StructuredLogMessage as _
 from .. import config, _statusbar
-from ..error import OutputError, Interrupted, Terminated, CommandFailed
+from ..error import Interrupted, Terminated
 from ..task_container import TaskContainer
 
 

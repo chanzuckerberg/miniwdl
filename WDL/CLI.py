@@ -1313,7 +1313,7 @@ def run_self_test(**kwargs):
                     File who
                 }
                 command {
-                    if grep -sv ^\# "${who}" ; then
+                    if grep -qv ^\# "${who}" ; then
                         echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
                     fi
                 }

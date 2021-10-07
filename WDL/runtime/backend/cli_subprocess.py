@@ -6,10 +6,10 @@ import subprocess
 from typing import Callable, List, Tuple
 from abc import abstractmethod, abstractproperty
 from ... import Error
-from ..._util import chmod_R_plus, PygtailLogger, NOTICE_LEVEL
+from ..._util import PygtailLogger
 from ..._util import StructuredLogMessage as _
 from .. import config, _statusbar
-from ..error import OutputError, Interrupted, Terminated, CommandFailed
+from ..error import Terminated
 from ..task_container import TaskContainer
 
 
@@ -25,7 +25,8 @@ class SubprocessBase(TaskContainer):
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         with contextlib.ExitStack() as cleanup:
-            # global lock, one container at a time (to be replaced by resource scheduling logic)
+            # global lock to run one container at a time
+            # (to be replaced by resource scheduling logic)
             cleanup.enter_context(self._lock)
 
             # prepare loggers
