@@ -32,6 +32,10 @@ viral_assemble:
 viral_refbased:
 	prove -v tests/applied/viral_refbased.t
 
+singularity_tests:
+	MINIWDL__SCHEDULER__CONTAINER_BACKEND=singularity \
+	sh -c 'python3 -m WDL run_self_test && prove -v tests/applied/viral_assemble.t'
+
 ci_housekeeping: sopretty check_check check doc
 
 ci_unit_tests: unit_tests

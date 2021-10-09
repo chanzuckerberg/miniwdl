@@ -5,10 +5,9 @@ import contextlib
 import subprocess
 from typing import Callable, List, Tuple
 from abc import abstractmethod, abstractproperty
-from ... import Error
 from ..._util import PygtailLogger
 from ..._util import StructuredLogMessage as _
-from .. import config, _statusbar
+from .. import _statusbar
 from ..error import Terminated
 from ..task_container import TaskContainer
 
@@ -62,6 +61,12 @@ class SubprocessBase(TaskContainer):
             proc = subprocess.Popen(invocation, stdout=cli_log, stderr=subprocess.STDOUT)
             logger.notice(  # pyre-ignore
                 _(f"{self.cli_name} run", pid=proc.pid, log=cli_log_filename)
+            )
+            cleanup.enter_context(
+                _statusbar.task_running(
+                    self.runtime_values.get("cpu", 0),
+                    self.runtime_values.get("memory_reservation", 0),
+                )
             )
 
             # long-poll for completion

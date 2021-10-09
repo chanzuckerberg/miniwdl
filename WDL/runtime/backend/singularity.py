@@ -1,10 +1,12 @@
 import os
 import shlex
 import psutil
+import shutil
 import logging
+import tempfile
 import subprocess
 import multiprocessing
-from typing import List, Dict
+from typing import List, Dict, Callable, Optional
 from .. import config
 from ...Error import InputError
 from ..._util import StructuredLogMessage as _
@@ -12,7 +14,12 @@ from .cli_subprocess import SubprocessBase
 
 
 class SingularityContainer(SubprocessBase):
+    """
+    Singularity task runtime based on cli_subprocess.SubprocessBase
+    """
+
     _resource_limits: Dict[str, int]
+    _tempdir: Optional[str] = None
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
@@ -54,6 +61,9 @@ class SingularityContainer(SubprocessBase):
         return "singularity"
 
     def _cli_invocation(self, logger: logging.Logger) -> List[str]:
+        """
+        Formulate `singularity run` command-line invocation
+        """
         ans = ["singularity"]
         if logger.isEnabledFor(logging.DEBUG):
             ans.append("--verbose")
@@ -64,12 +74,23 @@ class SingularityContainer(SubprocessBase):
         ]
         ans += self.cfg.get_list("singularity", "cli_options")
         docker_uri = "docker://" + self.runtime_values.get("docker", "ubuntu:20.04")
+
         mounts = self.prepare_mounts()
+        # Also create a scratch directory and mount to /tmp and /var/tmp
+        # For context why this is needed:
+        #   https://github.com/hpcng/singularity/issues/5718
+        self._tempdir = tempfile.mkdtemp(prefix="miniwdl_singularity_")
+        os.mkdir(os.path.join(self._tempdir, "tmp"))
+        os.mkdir(os.path.join(self._tempdir, "var_tmp"))
+        mounts.append(("/tmp", os.path.join(self._tempdir, "tmp"), True))
+        mounts.append(("/var/tmp", os.path.join(self._tempdir, "var_tmp"), True))
+
         logger.info(
             _(
-                "singularity base invocation",
+                "singularity invocation",
                 args=" ".join(shlex.quote(s) for s in (ans + [docker_uri])),
                 binds=len(mounts),
+                tmpdir=self._tempdir,
             )
         )
         for (container_path, host_path, writable) in mounts:
@@ -82,3 +103,14 @@ class SingularityContainer(SubprocessBase):
             ans.append(bind_arg)
         ans.append(docker_uri)
         return ans
+
+    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
+        """
+        Override to clean up aforementioned scratch directory after container exit
+        """
+        try:
+            return super()._run(logger, terminating, command)
+        finally:
+            if self._tempdir:
+                logger.info(_("delete container temporary directory", tmpdir=self._tempdir))
+                shutil.rmtree(self._tempdir)
