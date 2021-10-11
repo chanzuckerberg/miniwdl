@@ -12,3 +12,4 @@ coloredlogs>=11.0
 python-json-logger~=2.0
 lark-parser~=0.12
 bullet~=2.2
+psutil>=5.8.0
