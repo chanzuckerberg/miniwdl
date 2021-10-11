@@ -64,7 +64,7 @@ class SingularityContainer(SubprocessBase):
         """
         Formulate `singularity run` command-line invocation
         """
-        ans = self.cfg.get_list("singularity", "cli_base")
+        ans = ["singularity"]
         if logger.isEnabledFor(logging.DEBUG):
             ans.append("--verbose")
         ans += [
