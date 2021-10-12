@@ -650,3 +650,36 @@ class TestCalls(unittest.TestCase):
         """)
         with self.assertRaises(WDL.Error.InvalidType):
             doc.typecheck()
+
+    def test_agc_hello(self):
+        txt = r"""
+        version 1.0
+        workflow hello_agc {
+            call hello {}
+        }
+        task hello {
+            command { echo "Hello Amazon Genomics CLI!" }
+            runtime {
+                docker: "ubuntu:latest"
+            }
+            output { String out = read_string( stdout() ) }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+        txt = r"""
+        version 1.0
+        workflow hello_agc {
+            call hello as foo {}
+        }
+        task hello {
+            command { echo "Hello Amazon Genomics CLI!" }
+            runtime {
+                docker: "ubuntu:latest"
+            }
+            output { String out = read_string( stdout() ) }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
