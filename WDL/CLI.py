@@ -557,12 +557,19 @@ def fill_run_subparser(subparsers):
         metavar="VARNAME[=VALUE]",
         type=str,
         help="Environment variable to pass through to [or set outright in]"
-        " all task environments (portability warning: non-standard side channel)",
+        " all task environments (can supply multiple times; warning, non-portable side channel)",
     )
     group.add_argument(
         "--copy-input-files",
         action="store_true",
         help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write them)",
+    )
+    group.add_argument(
+        "--copy-input-files-for",
+        action="append",
+        metavar="TASK_NAME",
+        type=str,
+        help="copy input files only for specifically named task (can supply multiple times)",
     )
     group.add_argument(
         "--as-me",
@@ -595,6 +602,7 @@ def runner(
     runtime_defaults=None,
     max_tasks=None,
     copy_input_files=False,
+    copy_input_files_for=[],
     as_me=False,
     no_cache=False,
     error_json=False,
@@ -659,6 +667,8 @@ def runner(
             cfg_overrides["scheduler"]["call_concurrency"] = max_tasks
         if copy_input_files:
             cfg_overrides["file_io"]["copy_input_files"] = copy_input_files
+        if copy_input_files_for:
+            cfg_overrides["file_io"]["copy_input_files_for"] = copy_input_files_for
         if as_me:
             cfg_overrides["task_runtime"]["as_user"] = as_me
         if runtime_defaults:

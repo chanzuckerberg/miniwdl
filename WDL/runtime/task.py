@@ -190,7 +190,7 @@ def run_local_task(
                 command, container = (recv[k] for k in ("command", "container"))
 
                 # start container & run command (and retry if needed)
-                _try_task(cfg, logger, container, command, terminating)
+                _try_task(cfg, task, logger, container, command, terminating)
 
                 # evaluate output declarations
                 outputs = _eval_task_outputs(logger, run_id, task, container_env, container)
@@ -573,6 +573,7 @@ def _eval_task_runtime(
 
 def _try_task(
     cfg: config.Loader,
+    task: Tree.Task,
     logger: logging.Logger,
     container: "runtime.task_container.TaskContainer",
     command: str,
@@ -593,7 +594,9 @@ def _try_task(
         if terminating():
             raise Terminated()
         # copy input files, if needed
-        if cfg["file_io"].get_bool("copy_input_files"):
+        if cfg.get_bool("file_io", "copy_input_files") or task.name in cfg.get_list(
+            "file_io", "copy_input_files_for"
+        ):
             container.copy_input_files(logger)
 
         try:

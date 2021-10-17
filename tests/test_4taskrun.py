@@ -907,6 +907,11 @@ class TestTaskRunner(unittest.TestCase):
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]}, cfg=cfg)
         self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))
 
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"copy_input_files_for": ["clobber"]}})
+        outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]}, cfg=cfg)
+        self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))
+
         self._test_task(R"""
         version 1.0
         task rmdir {
