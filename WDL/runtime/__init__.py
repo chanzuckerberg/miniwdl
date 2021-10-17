@@ -11,7 +11,15 @@ from . import config
 from . import task
 from . import workflow
 from . import _statusbar
-from .error import RunFailed, CommandFailed, Terminated, OutputError, DownloadFailed, error_json
+from .error import (
+    RunFailed,
+    CommandFailed,
+    Terminated,
+    Interrupted,
+    OutputError,
+    DownloadFailed,
+    error_json,
+)
 from .task import run_local_task
 from .workflow import run_local_workflow
 
