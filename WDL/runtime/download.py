@@ -108,9 +108,7 @@ def run(
 
             ans = recv["outputs"]["directory" if directory else "file"]
             assert isinstance(ans, str) and os.path.exists(ans)
-            logger.notice(  # pyre-ignore
-                _(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans)
-            )
+            logger.info(_(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans))
             return ans
 
     except RunFailed as exn:

@@ -1630,13 +1630,6 @@ def localize(
         )
         outputs = values_to_json(outputs)
 
-        logger.notice(
-            _(
-                "success",
-                files=[os.path.realpath(p) for p in outputs["downloaded_files"]],
-                directories=[os.path.realpath(p) for p in outputs["downloaded_directories"]],
-            )
-        )
         if not original_get:
             logger.warning(
                 """future runs won't use the cache unless configuration section "download_cache", key "get" """
