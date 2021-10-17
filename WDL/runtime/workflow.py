@@ -918,15 +918,39 @@ def _download_input_files(
     transiently memoized.
     """
 
-    # scan for URIs and schedule their downloads on the thread pool
-    ops = {}
+    # scan inputs for URIs
     uris = set()
 
-    def schedule_download(v: Union[Value.File, Value.Directory]) -> str:
-        nonlocal ops, uris
+    def scan_uri(v: Union[Value.File, Value.Directory]) -> str:
+        nonlocal uris
         directory = isinstance(v, Value.Directory)
         uri = v.value
         if uri not in uris and downloadable(cfg, uri, directory=directory):
+            uris.add((uri, directory))
+        return uri
+
+    Value.rewrite_env_paths(inputs, scan_uri)
+    if not uris:
+        return
+    logger.notice(_("downloading input URIs", count=len(uris)))
+
+    # download them on the thread pool (but possibly further limiting concurrency)
+    download_concurrency = cfg.get_int("scheduler", "download_concurrency")
+    if download_concurrency <= 0:
+        download_concurrency = 999999
+    ops = {}
+    incomplete = len(uris)
+    outstanding = []
+    downloaded_bytes = 0
+    cached_hits = 0
+    exn = None
+
+    while incomplete and not exn:
+        assert len(outstanding) <= incomplete
+
+        # top up thread pool's queue (up to download_concurrency)
+        while uris and len(outstanding) < download_concurrency:
+            (uri, directory) = uris.pop()
             logger.info(
                 _(f"schedule input {'directory' if directory else 'file'} download", uri=uri)
             )
@@ -941,25 +965,16 @@ def _download_input_files(
                 logger_prefix=logger_prefix + [f"download{len(ops)}"],
             )
             ops[future] = uri
-            uris.add(uri)
-        return uri
+            outstanding.append(future)
+        assert outstanding
 
-    Value.rewrite_env_paths(inputs, schedule_download)
-    if not ops:
-        return
-    logger.notice(_("downloading input URIs", count=len(ops)))  # pyre-fixme
-
-    # collect the results, with "clean" fail-fast
-    outstanding = ops.keys()
-    downloaded_bytes = 0
-    cached_hits = 0
-    exn = None
-    while outstanding:
+        # wait for one or more oustanding downloads to finish
         just_finished, still_outstanding = futures.wait(
             outstanding, return_when=futures.FIRST_EXCEPTION
         )
         outstanding = still_outstanding
         for future in just_finished:
+            # check results
             try:
                 future_exn = future.exception()
             except futures.CancelledError:
@@ -979,9 +994,11 @@ def _download_input_files(
                     outsfut.cancel()
                 os.kill(os.getpid(), signal.SIGUSR1)
                 exn = future_exn
+            incomplete -= 1
+
     if exn:
         raise exn
-    logger.notice(  # pyre-fixme
+    logger.notice(
         _(
             "processed input URIs",
             cached=cached_hits,
