@@ -65,7 +65,6 @@ class CallCache(AbstractContextManager):
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found, check to ensure the
         modification time on any output or input files is older than the modification time for the cache file.
-        Opens shared flocks on all files referenced therein, which will remain for the life of the CallCache object.
         """
         from .. import values_from_json
 
@@ -188,7 +187,8 @@ class CallCache(AbstractContextManager):
             logger.debug(_("no download cache hit", uri=uri, cache_path=p))
             return None
         try:
-            self.flock(p, directory=directory)
+            if self._cfg.get_bool("download_cache", "flock"):
+                self.flock(p, directory=directory)
             logger.info(_("found in download cache", uri=uri, cache_path=p))
             return p
         except Exception as exn:
@@ -235,7 +235,8 @@ class CallCache(AbstractContextManager):
                 os.renames(filename, p)
                 moved = True
                 logger.info(_("stored in download cache", uri=uri, cache_path=p))
-            self.flock(p, directory=directory)
+            if self._cfg.get_bool("download_cache", "flock"):
+                self.flock(p, directory=directory)
         if not moved:
             # Cache entry appeared just in the time since this download was initiated, which should
             # be identical to our just-completed download. Regrettably, discard ours to mitigate
