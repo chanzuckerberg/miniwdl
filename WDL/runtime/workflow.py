@@ -932,7 +932,7 @@ def _download_input_files(
     Value.rewrite_env_paths(inputs, scan_uri)
     if not uris:
         return
-    logger.notice(_("downloading input URIs", count=len(uris)))
+    logger.notice(_("downloading input URIs", count=len(uris)))  # pyre-fixme
 
     # download them on the thread pool (but possibly further limiting concurrency)
     download_concurrency = cfg.get_int("scheduler", "download_concurrency")
@@ -940,7 +940,7 @@ def _download_input_files(
         download_concurrency = 999999
     ops = {}
     incomplete = len(uris)
-    outstanding = []
+    outstanding = set()
     downloaded_bytes = 0
     cached_hits = 0
     exn = None
@@ -965,12 +965,12 @@ def _download_input_files(
                 logger_prefix=logger_prefix + [f"download{len(ops)}"],
             )
             ops[future] = uri
-            outstanding.append(future)
+            outstanding.add(future)
         assert outstanding
 
         # wait for one or more oustanding downloads to finish
         just_finished, still_outstanding = futures.wait(
-            outstanding, return_when=futures.FIRST_EXCEPTION
+            outstanding, return_when=futures.FIRST_COMPLETED
         )
         outstanding = still_outstanding
         for future in just_finished:
@@ -998,7 +998,7 @@ def _download_input_files(
 
     if exn:
         raise exn
-    logger.notice(
+    logger.notice(  # pyre-fixme
         _(
             "processed input URIs",
             cached=cached_hits,
