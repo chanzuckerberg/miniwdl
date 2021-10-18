@@ -665,7 +665,7 @@ def _eval_task_outputs(
                 else:
                     expr_stack.extend(expr.children)
             if not stdout_used:
-                logger.notice(  # pyre-ignore
+                logger.info(
                     _(
                         "command stdout unused; consider output `File cmd_out = stdout()`"
                         " or redirect command to stderr log >&2",
