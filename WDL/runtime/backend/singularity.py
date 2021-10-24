@@ -10,6 +10,7 @@ from typing import List, Dict, Callable, Optional
 from .. import config
 from ...Error import InputError
 from ..._util import StructuredLogMessage as _
+from ..._util import rmtree_atomic
 from .cli_subprocess import SubprocessBase
 
 
@@ -113,4 +114,4 @@ class SingularityContainer(SubprocessBase):
         finally:
             if self._tempdir:
                 logger.info(_("delete container temporary directory", tmpdir=self._tempdir))
-                shutil.rmtree(self._tempdir)
+                rmtree_atomic(self._tempdir)

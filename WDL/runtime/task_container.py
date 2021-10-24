@@ -7,6 +7,7 @@ import shutil
 import threading
 from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Optional
 from abc import ABC, abstractmethod
+from contextlib import suppress
 from .. import Error
 from .._util import (
     TerminationSignalFlag,
@@ -253,7 +254,8 @@ class TaskContainer(ABC):
                 rmtree_atomic(p)
                 deleted.append(p)
             elif os.path.isfile(p):
-                os.unlink(p)
+                with suppress(FileNotFoundError):
+                    os.unlink(p)
                 deleted.append(p)
         if deleted:
             logger.info(_("deleted task work artifacts", artifacts=deleted))

@@ -27,6 +27,8 @@ from .._util import (
     LoggingFileHandler,
     compose_coroutines,
     pathsize,
+    link_force,
+    symlink_force,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -87,7 +89,7 @@ def run_local_task(
             )
         logger.notice(  # pyre-fixme
             _(
-                "task start",
+                "task setup",
                 name=task.name,
                 source=task.pos.uri,
                 line=task.pos.line,
@@ -780,11 +782,11 @@ def link_outputs(
                 if hardlinks:
                     # TODO: what if target is an input from a different filesystem?
                     if isinstance(v, Value.Directory):
-                        shutil.copytree(target, link, symlinks=True, copy_function=os.link)
+                        shutil.copytree(target, link, symlinks=True, copy_function=link_force)
                     else:
-                        os.link(target, link)
+                        link_force(target, link)
                 else:
-                    os.symlink(target, link)
+                    symlink_force(target, link)
                 # Drop a dotfile indicating whether this is a File/Directory output, to inform a
                 # program crawling the out/ directory without reference to the JSON output for
                 # whatever reason. It might otherwise have trouble distinguishing File and

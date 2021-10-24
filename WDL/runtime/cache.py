@@ -9,7 +9,7 @@ import shutil
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, suppress
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
 from threading import Lock
@@ -250,9 +250,10 @@ class CallCache(AbstractContextManager):
                 )
             )
             if directory:
-                shutil.rmtree(filename)
+                rmtree_atomic(filename)
             else:
-                os.unlink(filename)
+                with suppress(FileNotFoundError):
+                    os.unlink(filename)
         self.memo_download(uri, p, directory=directory)
         return p
 

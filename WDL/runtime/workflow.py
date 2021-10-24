@@ -414,7 +414,7 @@ class StateMachine:
                     f"call {job.node.name} inputs use unknown file: {next(iter(disallowed_filenames))}"
                 )
             # issue CallInstructions
-            self.logger.notice(_("issue", job=job.id, callee=job.node.callee.name))  # pyre-fixme
+            self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))  # pyre-fixme
             inplog = self.values_to_json(call_inputs)
             self.logger.info(
                 _(

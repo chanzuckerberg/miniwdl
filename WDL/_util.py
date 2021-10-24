@@ -180,12 +180,32 @@ def rmtree_atomic(path: str) -> None:
     """
     path = os.path.abspath(path)
     assert path and path.strip("/")
-    tmp_path = os.path.join(
-        os.path.dirname(path), "._rmtree_atomic_" + hashlib.sha256(path.encode("utf-8")).hexdigest()
-    )
-    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path = os.path.join(os.path.dirname(path), ".rmtree_atomic." + str(uuid.uuid1()))
     os.renames(path, tmp_path)
     shutil.rmtree(tmp_path)
+
+
+@export
+def symlink_force(src: str, dst: str, hard: bool = False) -> None:
+    """
+    Create a symbolic pointing to src named dst, atomically replacing any existing symbolic or
+    hard link at dst.
+    """
+    tn = dst + ".tmp." + str(uuid.uuid1())
+    if hard:
+        os.link(src, tn)
+    else:
+        os.symlink(src, tn)
+    os.rename(tn, dst)
+
+
+@export
+def link_force(src: str, dst: str) -> None:
+    """
+    Create a hard link pointing to src named dst, atomically replacing any existing symbolic or hard
+    link at dst.
+    """
+    symlink_force(src, dst, hard=True)
 
 
 @export
@@ -232,10 +252,7 @@ def provision_run_dir(name: str, parent_dir: Optional[str], last_link: bool = Fa
     if last_link and run_dir != parent_dir:
         last_link_name = os.path.join(parent_dir, "_LAST")
         if os.path.islink(last_link_name) or not (here or os.path.lexists(last_link_name)):
-            run_dir_basename = os.path.basename(run_dir)
-            tmp_link_name = last_link_name + "." + run_dir_basename
-            os.symlink(run_dir_basename, tmp_link_name)
-            os.rename(tmp_link_name, last_link_name)
+            symlink_force(os.path.basename(run_dir), last_link_name)
 
     return run_dir
 
