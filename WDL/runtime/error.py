@@ -107,7 +107,9 @@ class RunFailed(_RuntimeError):
         _statusbar.abort()
 
 
-def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[str, Any]:
+def error_json(
+    exn: BaseException, cause: Optional[Exception] = None, traceback: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Make a json-dumpable dict to write into error sentinel file
     """
@@ -156,4 +158,6 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
         for k in more_info:
             if k not in info:
                 info[k] = more_info[k]
+    if traceback:
+        info["traceback"] = traceback.strip().splitlines()
     return info

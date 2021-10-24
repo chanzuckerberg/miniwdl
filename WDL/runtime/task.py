@@ -220,16 +220,30 @@ def run_local_task(
                     cache.put(cache_key, outputs)
                 return (run_dir, outputs)
         except Exception as exn:
-            logger.debug(traceback.format_exc())
+            tbtxt = traceback.format_exc()
+            logger.debug(tbtxt)
             wrapper = RunFailed(task, run_id, run_dir)
-            logmsg = _(str(wrapper), dir=run_dir, **error_json(exn))
+            logmsg = _(
+                str(wrapper),
+                dir=run_dir,
+                **error_json(
+                    exn, traceback=tbtxt if not isinstance(exn, Error.RuntimeError) else None
+                ),
+            )
             if isinstance(exn, Terminated) and getattr(exn, "quiet", False):
                 logger.debug(logmsg)
             else:
                 logger.error(logmsg)
             try:
                 write_atomic(
-                    json.dumps(error_json(wrapper, cause=exn), indent=2),
+                    json.dumps(
+                        error_json(
+                            wrapper,
+                            cause=exn,
+                            traceback=tbtxt if not isinstance(exn, Error.RuntimeError) else None,
+                        ),
+                        indent=2,
+                    ),
                     os.path.join(run_dir, "error.json"),
                 )
             except Exception as exn2:

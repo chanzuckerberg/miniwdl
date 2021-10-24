@@ -42,8 +42,7 @@ import threading
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
-from .. import Env, Type, Value, Tree, StdLib
-from ..Error import InputError
+from .. import Env, Type, Value, Tree, StdLib, Error
 from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_defaults
 from .download import able as downloadable, run_cached as download
 from .._util import (
@@ -410,7 +409,7 @@ class StateMachine:
                 if not downloadable(cfg, fn, directory=fn.endswith("/"))
             )
             if disallowed_filenames:
-                raise InputError(
+                raise Error.InputError(
                     f"call {job.node.name} inputs use unknown file: {next(iter(disallowed_filenames))}"
                 )
             # issue CallInstructions
@@ -615,7 +614,7 @@ class _StdLib(StdLib.Base):
                 return cached
         if filename in self.state.filename_whitelist:
             return filename
-        raise InputError("attempted read from unknown or inaccessible file " + filename)
+        raise Error.InputError("attempted read from unknown or inaccessible file " + filename)
 
     def _virtualize_filename(self, filename: str) -> str:
         self.state.filename_whitelist.add(filename)
@@ -875,21 +874,37 @@ def _workflow_main_loop(
             logger.notice("done")
             return outputs
     except Exception as exn:
-        logger.debug(traceback.format_exc())
+        tbtxt = traceback.format_exc()
+        logger.debug(tbtxt)
         cause = exn
         while isinstance(cause, RunFailed) and cause.__cause__:
             cause = cause.__cause__
         wrapper = RunFailed(workflow, run_id_stack[-1], run_dir)
         try:
             write_atomic(
-                json.dumps(error_json(wrapper, cause=exn), indent=2),
+                json.dumps(
+                    error_json(
+                        wrapper,
+                        cause=exn,
+                        traceback=tbtxt if not isinstance(exn, Error.RuntimeError) else None,
+                    ),
+                    indent=2,
+                ),
                 os.path.join(run_dir, "error.json"),
             )
         except Exception as exn2:
             logger.debug(traceback.format_exc())
             logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
         if not isinstance(exn, RunFailed):
-            logger.error(_(str(wrapper), dir=run_dir, **error_json(exn)))
+            logger.error(
+                _(
+                    str(wrapper),
+                    dir=run_dir,
+                    **error_json(
+                        exn, traceback=tbtxt if not isinstance(exn, Error.RuntimeError) else None
+                    ),
+                )
+            )
         elif not isinstance(exn.__cause__, Terminated):
             logger.error(
                 _("call failure propagating", **{"from": getattr(exn, "run_id"), "dir": run_dir})
