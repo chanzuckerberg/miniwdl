@@ -681,10 +681,14 @@ def run_local_workflow(
         )
         logger.debug(_("thread", ident=threading.get_ident()))
         terminating = cleanup.enter_context(TerminationSignalFlag(logger))
+        cache = _cache
+        if not cache:
+            cache = cleanup.enter_context(new_call_cache(cfg, logger))
+            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
+            assert _thread_pools is None
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
         # query call cache
-        cache = _cache if _cache else cleanup.enter_context(new_call_cache(cfg, logger))
         cache_key = f"{workflow.name}/{workflow.digest}/{Value.digest_env(inputs)}"
         cached = cache.get(cache_key, inputs, workflow.effective_outputs)
         if cached is not None:
@@ -716,7 +720,6 @@ def run_local_workflow(
             from .task_container import new as _new_task_container
 
             assert not _run_id_stack
-            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
             try:
                 # log version into workflow.log
                 version = "v" + importlib_metadata.version("miniwdl")
@@ -738,7 +741,7 @@ def run_local_workflow(
             cleanup.callback(futures.ThreadPoolExecutor.shutdown, subwf_pool)
             thread_pools = (task_pool, subwf_pool)
         else:
-            assert _run_id_stack
+            assert _run_id_stack and _cache
             thread_pools = _thread_pools
 
         try:
