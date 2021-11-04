@@ -684,8 +684,9 @@ def run_local_workflow(
         cache = _cache
         if not cache:
             cache = cleanup.enter_context(new_call_cache(cfg, logger))
-            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
             assert _thread_pools is None
+        if not _thread_pools:
+            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
         # query call cache
