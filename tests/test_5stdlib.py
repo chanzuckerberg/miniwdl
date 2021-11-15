@@ -675,6 +675,119 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["alice"], alice)
         self.assertEqual(outputs["samplesheet2"], samplesheet2)
 
+    def test_issue524(self):
+        # additional struct initialization from read_json() cases motivated by issue #524
+
+        # explicit null value should be acceptable initializer for optional struct field
+        outp = self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Int x
+            String? y
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": 123,
+                    "y": null
+                }
+                EOL
+            >>>
+
+            output {
+                MyStruct data = read_json("data.json")
+            }
+        }
+        """)
+        self.assertEqual(outp["data"], {"x": 123, "y": None})
+        # elaboration with a heterogeneous unification:
+        outp = self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": 3.14159,
+                    "y": null,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                MyStruct data = read_json("data.json")
+            }
+        }
+        """)
+        self.assertEqual(outp["data"], {"x": 3.14159, "y": None, "z": [4,2,None]})
+        self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": "bogus",
+                    "y": null,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                MyStruct data = read_json("data.json")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+        outp = self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                echo null > data.json
+            >>>
+
+            output {
+                MyStruct? data = read_json("data.json")
+            }
+        }
+        """)
+        self.assertEqual(outp, {"data": None})
+
     def test_bad_object(self):
         self._test_task(R"""
         version 1.0

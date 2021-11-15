@@ -325,13 +325,18 @@ class Map(Base):
             )
         if isinstance(desired_type, Type.StructInstance):
             if self.type.item_type[0] == Type.String():
-                # Runtime typecheck for initializing struct from read_{object[s],map,json}
+                # Runtime typecheck for initializing struct from read_{object,objects,map}
                 # This couldn't have been checked statically because the map keys weren't known.
                 litty = Type.Map(
-                    self.type.item_type, self.type.optional, set(kv[0].value for kv in self.value)
+                    (self.type.item_type[0], self.type.item_type[1]),
+                    self.type.optional,
+                    set(kv[0].value for kv in self.value),
                 )
                 if not litty.coerces(desired_type):
-                    msg = "runtime struct initializer doesn't have the required fields with the expected types"
+                    msg = (
+                        "unusable runtime struct initializer"
+                        " (member type mismatch, lacking required member, or extra member)"
+                    )
                     raise Error.EvalError(
                         self.expr,
                         msg,
@@ -340,8 +345,17 @@ class Map(Base):
             ans = {}
             for k, v in self.value:
                 k = k.coerce(Type.String()).value
-                assert k in desired_type.members
-                ans[k] = v
+                try:
+                    ans[k] = v.coerce(desired_type.members[k])
+                except Error.RuntimeError as exc:
+                    msg = (
+                        "runtime type mismatch initializing struct member "
+                        f"{str(desired_type.members[k])} {k}"
+                    )
+                    raise Error.EvalError(
+                        self.expr,
+                        msg,
+                    ) if self.expr else Error.RuntimeError(msg)
             return Struct(desired_type, ans, self.expr)
         return super().coerce(desired_type)
 
@@ -395,7 +409,7 @@ class Null(Base):
     ``type`` and ``value`` are both None."""
 
     def __init__(self, expr: "Optional[Expr.Base]" = None) -> None:
-        super().__init__(Type.Any(optional=True), None, expr)
+        super().__init__(Type.Any(null=True), None, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
@@ -434,10 +448,18 @@ class Struct(Base):
             assert type.members
             # coerce values to member types
             for k in value:
-                assert k in type.members
-                value[k] = value[k].coerce(type.members[k])
-            # if initializer (map or object literal) omits optional members,
-            # fill them in with null
+                try:
+                    value[k] = value[k].coerce(type.members[k])
+                except Error.RuntimeError:
+                    msg = (
+                        f"runtime type mismatch initializing struct member"
+                        f"{str(type.members[k])} {k}"
+                    )
+                    raise Error.EvalError(
+                        expr,
+                        msg,
+                    ) if expr else Error.RuntimeError(msg)
+            # if initializer omits optional members, fill them in with null
             for k in type.members:
                 if k not in value:
                     assert type.members[k].optional
@@ -448,6 +470,15 @@ class Struct(Base):
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
         if isinstance(self.type, Type.Object) and isinstance(desired_type, Type.StructInstance):
+            if not self.type.coerces(desired_type):
+                msg = (
+                    "unusable runtime struct initializer"
+                    " (member type mismatch, lacking required member, or extra member)"
+                )
+                raise Error.EvalError(
+                    self.expr,
+                    msg,
+                ) if self.expr else Error.RuntimeError(msg)
             return Struct(desired_type, self.value, self.expr)
         return self
 
@@ -552,9 +583,13 @@ def _infer_from_json(j: Any) -> Base:
         item_type = Type.unify([item.type for item in items])
         return Array(item_type, [item.coerce(item_type) for item in items])
     if isinstance(j, dict):
-        items = [(String(str(k)), _infer_from_json(j[k])) for k in j]
-        value_type = Type.unify([v.type for _, v in items])
-        return Map((Type.String(), value_type), [(k, v.coerce(value_type)) for k, v in items])
+        fields = {}
+        field_types = {}
+        for k in j:
+            assert isinstance(k, str)
+            fields[k] = _infer_from_json(j[k])
+            field_types[k] = fields[k].type
+        return Struct(Type.Object(field_types), fields)
     raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
 
 
