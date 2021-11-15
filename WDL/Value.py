@@ -444,25 +444,26 @@ class Struct(Base):
         expr: "Optional[Expr.Base]" = None,
     ) -> None:
         value = dict(value)
-        if isinstance(type, Type.StructInstance):
-            assert type.members
+        if isinstance(type, (Type.Object, Type.StructInstance)):
+            type_members = type.members
+            assert type_members
             # coerce values to member types
             for k in value:
                 try:
-                    value[k] = value[k].coerce(type.members[k])
+                    value[k] = value[k].coerce(type_members[k])
                 except Error.RuntimeError:
                     msg = (
                         f"runtime type mismatch initializing struct member"
-                        f"{str(type.members[k])} {k}"
+                        f"{str(type_members[k])} {k}"
                     )
                     raise Error.EvalError(
                         expr,
                         msg,
                     ) if expr else Error.RuntimeError(msg)
             # if initializer omits optional members, fill them in with null
-            for k in type.members:
+            for k in type_members:
                 if k not in value:
-                    assert type.members[k].optional
+                    assert type_members[k].optional
                     value[k] = Null()
         self.value = value
         super().__init__(type, value, expr)
@@ -476,7 +477,7 @@ class Struct(Base):
                 msg,
             ) if self.expr else Error.RuntimeError(msg)
 
-        if isinstance(desired_type, Type.StructInstance):
+        if isinstance(desired_type, (Type.Object, Type.StructInstance)):
             if not self.type.coerces(desired_type):
                 fail(
                     "unusable runtime struct initializer"
@@ -496,7 +497,7 @@ class Struct(Base):
                     if not self.type.members[k].coerces(value_type):
                         fail(
                             "cannot coerce struct member"
-                            f"{self.type.members[k]} {k} to {value_type}"
+                            f" {self.type.members[k]} {k} to {value_type}"
                         )
                     entries.append((String(k).coerce(key_type), v.coerce(value_type)))
             return Map(desired_type.item_type, entries)

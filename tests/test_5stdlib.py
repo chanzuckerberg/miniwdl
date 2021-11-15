@@ -677,7 +677,7 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["samplesheet2"], samplesheet2)
 
     def test_issue524(self):
-        # additional struct initialization from read_json() cases motivated by issue #524
+        # additional cases for struct initialization from read_json(), motivated by issue #524
 
         # explicit null value should be acceptable initializer for optional struct field
         outp = self._test_task(R"""
