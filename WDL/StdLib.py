@@ -444,8 +444,8 @@ class _At(EagerFunction):
                     rhs, lhs.type.item_type[0], rhs.type, "Map key"
                 ) from None
             return lhs.type.item_type[1]
-        if isinstance(lhs.type, Type.Any):
-            # e.g. read_json(): assume lhs is Array[Any] or Map[String,Any]
+        if isinstance(lhs.type, Type.Any) and not lhs.type.optional:
+            # e.g. read_json(): assume lhs is Array[Any] or Struct
             return Type.Any()
         raise Error.NotAnArray(lhs)
 
@@ -465,6 +465,17 @@ class _At(EagerFunction):
             if ans is None:
                 raise Error.OutOfBounds(expr.arguments[1], "Map key not found")
             return ans
+        elif isinstance(lhs, Value.Struct):
+            # allow member access from read_json() (issue #320)
+            key = None
+            if rhs.type.coerces(Type.String()):
+                try:
+                    key = rhs.coerce(Type.String()).value
+                except Error.RuntimeError:
+                    pass
+            if not key or key not in lhs.value:
+                raise Error.OutOfBounds(expr.arguments[1], "struct member not found")
+            return lhs.value[key]
         else:
             lhs = lhs.coerce(Type.Array(Type.Any()))
             rhs = rhs.coerce(Type.Int())

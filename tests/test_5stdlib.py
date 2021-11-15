@@ -1,3 +1,4 @@
+from math import exp
 import unittest
 import logging
 import tempfile
@@ -550,7 +551,7 @@ class TestStdLib(unittest.TestCase):
                 Array[String] my_array = read_json(stdout())
             }
         }
-        """, expected_exception=WDL.Error.InputError)
+        """, expected_exception=WDL.Error.EvalError)
 
         outputs = self._test_task(R"""
         version 1.0
