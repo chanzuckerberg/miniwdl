@@ -5,6 +5,7 @@ import json
 import tempfile
 from typing import List, Tuple, Callable, BinaryIO, Optional
 from abc import ABC, abstractmethod
+from contextlib import suppress
 import regex
 from . import Type, Value, Expr, Env, Error
 from ._util import byte_size_units, chmod_R_plus
@@ -469,11 +470,9 @@ class _At(EagerFunction):
             # allow member access from read_json() (issue #320)
             key = None
             if rhs.type.coerces(Type.String()):
-                try:
+                with suppress(Error.RuntimeError):
                     key = rhs.coerce(Type.String()).value
-                except Error.RuntimeError:
-                    pass
-            if not key or key not in lhs.value:
+            if key is None or key not in lhs.value:
                 raise Error.OutOfBounds(expr.arguments[1], "struct member not found")
             return lhs.value[key]
         else:
