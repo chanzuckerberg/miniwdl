@@ -578,6 +578,23 @@ class TestTaskRunner(unittest.TestCase):
         """)
         self.assertEqual(outputs["car"], {"model": "Mazda", "year": 2017, "mileage": None})
         self.assertEqual(outputs["car2"], {"model": "Toyota", "year": None, "mileage": None})
+        # bad struct init from map
+        self._test_task(R"""
+        version 1.0
+        struct Car {
+            String model
+            Float mileage
+        }
+        task t {
+            command {}
+            output {
+                Car car = {
+                    "model": "Mazda",
+                    "mileage": "bogus"
+                }
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_errors(self):
         self._test_task(R"""

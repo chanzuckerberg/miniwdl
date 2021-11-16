@@ -737,6 +737,7 @@ class TestStdLib(unittest.TestCase):
         }
         """)
         self.assertEqual(outp["data"], {"x": 3.14159, "y": None, "z": [4,2,None]})
+        # unusable null
         self._test_task(R"""
         version 1.0
 
@@ -765,6 +766,7 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+        # top-level null
         outp = self._test_task(R"""
         version 1.0
 
@@ -788,6 +790,90 @@ class TestStdLib(unittest.TestCase):
         }
         """)
         self.assertEqual(outp, {"data": None})
+        # coercion failure -- required member missing
+        self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "y": null,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                MyStruct data = read_json("data.json")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+        # bad coercion to Map (key type)
+        self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": 3.14159,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                Map[Float,String] data = read_json("data.json")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+        # bad coercion to Map (value type)
+        self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": 3.14159,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                Map[String,Float] data = read_json("data.json")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_bad_object(self):
         self._test_task(R"""
