@@ -13,6 +13,7 @@ import base64
 import hashlib
 from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
+from contextlib import suppress
 from . import Error, Type, Env
 
 
@@ -185,9 +186,8 @@ class String(Base):
             if isinstance(desired_type, Type.Float):
                 return Float(float(self.value), self.expr)
         except ValueError as exn:
-            if self.expr:
-                raise Error.EvalError(self.expr, "coercing String to number: " + str(exn)) from exn
-            raise
+            msg = f"coercing String to {desired_type}: {exn}"
+            raise Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg)
         return super().coerce(desired_type)
 
 
@@ -454,7 +454,7 @@ class Struct(Base):
                 except Error.RuntimeError:
                     msg = (
                         f"runtime type mismatch initializing struct member"
-                        f"{str(type_members[k])} {k}"
+                        f" {str(type_members[k])} {k}"
                     )
                     raise Error.EvalError(
                         expr,
@@ -489,17 +489,26 @@ class Struct(Base):
             assert isinstance(self.type, Type.Object)
             key_type = desired_type.item_type[0]
             if not Type.String().coerces(key_type):
-                fail(f"cannot coerce struct member names to {key_type}")
+                fail(f"cannot coerce member names to {key_type} map keys")
             value_type = desired_type.item_type[1]
             entries = []
             for k, v in self.value.items():
                 if not (isinstance(v, Null) and value_type.optional):
-                    if not self.type.members[k].coerces(value_type):
+                    map_key = None
+                    try:
+                        map_key = String(k).coerce(key_type)
+                    except Error.RuntimeError:
+                        fail(f"cannot coerce member name {k} to {key_type} map key")
+                    map_value = None
+                    if self.type.members[k].coerces(value_type):
+                        with suppress(Error.RuntimeError):
+                            map_value = v.coerce(value_type)
+                    if map_value is None:
                         fail(
                             "cannot coerce struct member"
-                            f" {self.type.members[k]} {k} to {value_type}"
+                            f" {self.type.members[k]} {k} to {value_type} map value"
                         )
-                    entries.append((String(k).coerce(key_type), v.coerce(value_type)))
+                    entries.append((map_key, map_value))
             return Map(desired_type.item_type, entries)
         if isinstance(desired_type, Type.Any):
             return self

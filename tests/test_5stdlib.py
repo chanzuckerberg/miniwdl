@@ -854,7 +854,7 @@ class TestStdLib(unittest.TestCase):
             >>>
 
             output {
-                Map[Array[Float],String] data = read_json("data.json")
+                Map[Float,String] data = read_json("data.json")
             }
         }
         """, expected_exception=WDL.Error.EvalError)
