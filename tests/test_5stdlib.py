@@ -578,6 +578,18 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.InputError)
 
+        self._test_task(R"""
+        version 1.0
+        task test {
+            command <<<
+                echo '{"foo":"bar"}'
+            >>>
+            output {
+                String baz = read_json(stdout())["baz"]
+            }
+        }
+        """, expected_exception=WDL.Error.OutOfBounds)
+
     def test_read_map_ints(self):
         outputs = self._test_task(R"""
         version 1.0
@@ -842,7 +854,7 @@ class TestStdLib(unittest.TestCase):
             >>>
 
             output {
-                Map[Float,String] data = read_json("data.json")
+                Map[Array[Float],String] data = read_json("data.json")
             }
         }
         """, expected_exception=WDL.Error.EvalError)
