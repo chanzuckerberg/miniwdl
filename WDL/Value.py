@@ -328,7 +328,7 @@ class Map(Base):
                 # Runtime typecheck for initializing struct from read_{object,objects,map}
                 # This couldn't have been checked statically because the map keys weren't known.
                 litty = Type.Map(
-                    (self.type.item_type[0], self.type.item_type[1]),
+                    self.type.item_type,
                     self.type.optional,
                     set(kv[0].value for kv in self.value),
                 )
@@ -470,46 +470,19 @@ class Struct(Base):
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
-
-        def fail(msg):
-            raise Error.EvalError(
-                self.expr,
-                msg,
-            ) if self.expr else Error.RuntimeError(msg)
-
         if isinstance(desired_type, (Type.Object, Type.StructInstance)):
             if not self.type.coerces(desired_type):
-                fail(
+                msg = (
                     "unusable runtime struct initializer"
                     " (member type mismatch, lacking required member, or extra member)"
                 )
+                raise Error.EvalError(
+                    self.expr,
+                    msg,
+                ) if self.expr else Error.RuntimeError(msg)
             return Struct(desired_type, self.value, self.expr)
         if isinstance(desired_type, Type.Map):
-            # runtime coercion e.g. Map[String,String] foo = read_json("foo.txt")
-            assert isinstance(self.type, Type.Object)
-            key_type = desired_type.item_type[0]
-            if not Type.String().coerces(key_type):
-                fail(f"cannot coerce member names to {key_type} map keys")
-            value_type = desired_type.item_type[1]
-            entries = []
-            for k, v in self.value.items():
-                if not (isinstance(v, Null) and value_type.optional):
-                    map_key = None
-                    try:
-                        map_key = String(k).coerce(key_type)
-                    except Error.RuntimeError:
-                        fail(f"cannot coerce member name {k} to {key_type} map key")
-                    map_value = None
-                    if self.type.members[k].coerces(value_type):
-                        with suppress(Error.RuntimeError):
-                            map_value = v.coerce(value_type)
-                    if map_value is None:
-                        fail(
-                            "cannot coerce struct member"
-                            f" {self.type.members[k]} {k} to {value_type} map value"
-                        )
-                    entries.append((map_key, map_value))
-            return Map(desired_type.item_type, entries)
+            return self._coerce_to_map(desired_type)
         if isinstance(desired_type, Type.Any):
             return self
         msg = f"cannot coerce struct to {desired_type}"
@@ -517,6 +490,40 @@ class Struct(Base):
             self.expr,
             msg,
         ) if self.expr else Error.RuntimeError(msg)
+
+    def _coerce_to_map(self, desired_type: Type.Map) -> Map:
+        # runtime coercion e.g. Map[String,String] foo = read_json("foo.txt")
+        assert isinstance(self.type, Type.Object)
+
+        def fail(msg):
+            raise Error.EvalError(
+                self.expr,
+                msg,
+            ) if self.expr else Error.RuntimeError(msg)
+
+        key_type = desired_type.item_type[0]
+        if not Type.String().coerces(key_type):
+            fail(f"cannot coerce member names to {key_type} map keys")
+        value_type = desired_type.item_type[1]
+        entries = []
+        for k, v in self.value.items():
+            if not (isinstance(v, Null) and value_type.optional):
+                map_key = None
+                try:
+                    map_key = String(k).coerce(key_type)
+                except Error.RuntimeError:
+                    fail(f"cannot coerce member name {k} to {key_type} map key")
+                map_value = None
+                if self.type.members[k].coerces(value_type):
+                    with suppress(Error.RuntimeError):
+                        map_value = v.coerce(value_type)
+                if map_value is None:
+                    fail(
+                        "cannot coerce struct member"
+                        f" {self.type.members[k]} {k} to {value_type} map value"
+                    )
+                entries.append((map_key, map_value))
+        return Map(desired_type.item_type, entries)
 
     def __str__(self) -> Any:
         return "{" + ", ".join(f"{k}: {str(v)}" for k, v in self.value.items()) + "}"
@@ -619,13 +626,13 @@ def _infer_from_json(j: Any) -> Base:
         item_type = Type.unify([item.type for item in items])
         return Array(item_type, [item.coerce(item_type) for item in items])
     if isinstance(j, dict):
-        fields = {}
-        field_types = {}
+        members = {}
+        member_types = {}
         for k in j:
             assert isinstance(k, str)
-            fields[k] = _infer_from_json(j[k])
-            field_types[k] = fields[k].type
-        return Struct(Type.Object(field_types), fields)
+            members[k] = _infer_from_json(j[k])
+            member_types[k] = members[k].type
+        return Struct(Type.Object(member_types), members)
     raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
 
 
