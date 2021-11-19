@@ -328,9 +328,7 @@ class Map(Base):
                 # Runtime typecheck for initializing struct from read_{object,objects,map}
                 # This couldn't have been checked statically because the map keys weren't known.
                 litty = Type.Map(
-                    self.type.item_type,
-                    self.type.optional,
-                    set(kv[0].value for kv in self.value),
+                    self.type.item_type, self.type.optional, set(kv[0].value for kv in self.value)
                 )
                 if not litty.coerces(desired_type):
                     msg = (
