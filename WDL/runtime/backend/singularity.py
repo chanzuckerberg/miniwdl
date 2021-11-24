@@ -1,16 +1,16 @@
 import os
+import time
 import shlex
-import psutil
-import shutil
 import logging
 import tempfile
+import threading
 import subprocess
-import multiprocessing
-from typing import List, Dict, Callable, Optional
-from .. import config
+from typing import List, Callable, Optional
 from ...Error import InputError
 from ..._util import StructuredLogMessage as _
 from ..._util import rmtree_atomic
+from .. import config
+from ..error import DownloadFailed
 from .cli_subprocess import SubprocessBase
 
 
@@ -19,8 +19,9 @@ class SingularityContainer(SubprocessBase):
     Singularity task runtime based on cli_subprocess.SubprocessBase
     """
 
-    _resource_limits: Dict[str, int]
     _tempdir: Optional[str] = None
+    _pull_lock: threading.Lock = threading.Lock()
+    _pulled_images = set()
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
@@ -40,31 +41,24 @@ class SingularityContainer(SubprocessBase):
                 version=singularity_version.stdout.strip(),
             )
         )
-        cls._resource_limits = {
-            "cpu": multiprocessing.cpu_count(),
-            "mem_bytes": psutil.virtual_memory().total,
-        }
-        logger.info(
-            _(
-                "detected host resources",
-                cpu=cls._resource_limits["cpu"],
-                mem_bytes=cls._resource_limits["mem_bytes"],
-            )
-        )
         pass
-
-    @classmethod
-    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
-        return cls._resource_limits
 
     @property
     def cli_name(self) -> str:
         return "singularity"
 
+    @property
+    def docker_uri(self) -> str:
+        return "docker://" + self.runtime_values.get(
+            "docker", self.cfg.get_dict("task_runtime", "defaults")["docker"]
+        )
+
     def _cli_invocation(self, logger: logging.Logger) -> List[str]:
         """
         Formulate `singularity run` command-line invocation
         """
+        self._singularity_pull(logger)
+
         ans = ["singularity"]
         if logger.isEnabledFor(logging.DEBUG):
             ans.append("--verbose")
@@ -74,7 +68,6 @@ class SingularityContainer(SubprocessBase):
             os.path.join(self.container_dir, "work"),
         ]
         ans += self.cfg.get_list("singularity", "cli_options")
-        docker_uri = "docker://" + self.runtime_values.get("docker", "ubuntu:20.04")
 
         mounts = self.prepare_mounts()
         # Also create a scratch directory and mount to /tmp and /var/tmp
@@ -89,7 +82,7 @@ class SingularityContainer(SubprocessBase):
         logger.info(
             _(
                 "singularity invocation",
-                args=" ".join(shlex.quote(s) for s in (ans + [docker_uri])),
+                args=" ".join(shlex.quote(s) for s in (ans + [self.docker_uri])),
                 binds=len(mounts),
                 tmpdir=self._tempdir,
             )
@@ -102,7 +95,7 @@ class SingularityContainer(SubprocessBase):
             if not writable:
                 bind_arg += ":ro"
             ans.append(bind_arg)
-        ans.append(docker_uri)
+        ans.append(self.docker_uri)
         return ans
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
@@ -115,3 +108,50 @@ class SingularityContainer(SubprocessBase):
             if self._tempdir:
                 logger.info(_("delete container temporary directory", tmpdir=self._tempdir))
                 rmtree_atomic(self._tempdir)
+
+    def _singularity_pull(self, logger: logging.Logger):
+        """
+        Ensure the needed docker image is cached by singularity. Use a global lock so we'll only
+        download it once, even if used by many parallel tasks all starting at the same time.
+        """
+        t0 = time.time()
+        with self._pull_lock:
+            t1 = time.time()
+            docker_uri = self.docker_uri
+
+            if docker_uri in self._pulled_images:
+                logger.info(_("singularity image already pulled", uri=docker_uri))
+                return
+
+            with tempfile.TemporaryDirectory(prefix="miniwdl_sif_") as pulldir:
+                logger.info(_("begin singularity pull", uri=docker_uri, tempdir=pulldir))
+                puller = subprocess.run(
+                    ["singularity", "pull", docker_uri],
+                    cwd=pulldir,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
+                )
+                if puller.returncode != 0:
+                    logger.error(
+                        _(
+                            "singularity pull failed",
+                            stderr=puller.stderr.split("\n"),
+                            stdout=puller.stdout.split("\n"),
+                        )
+                    )
+                    raise DownloadFailed(docker_uri)
+                # The docker image layers are cached in SINGULARITY_CACHEDIR, so we don't need to
+                # keep {pulldir}/*.sif
+
+            self._pulled_images.add(docker_uri)
+
+        # TODO: log image sha256sum?
+        logger.notice(
+            _(
+                "singularity pull",
+                uri=docker_uri,
+                seconds_waited=int(t1 - t0),
+                seconds_pulling=int(time.time() - t1),
+            )
+        )
