@@ -46,7 +46,6 @@ from ._util import (
     ANSI,
     currently_in_container,
     LoggingFileHandler,
-    chown_R_if_sudo,
 )
 from ._util import StructuredLogMessage as _
 
@@ -829,12 +828,9 @@ def runner(
                 # whether success or fail, leave some artifacts in the run directory.
                 # this should be done under the flock held open within the cache context so that
                 # other waiting processes know when we're really finished with the run directory.
-                rerunfilename = os.path.join(rundir, "rerun")
-                with open(rerunfilename, "w") as rerunfile:
+                with open(os.path.join(rundir, "rerun"), "w") as rerunfile:
                     print(rerun_sh, file=rerunfile)
-                chown_R_if_sudo(rerunfilename)
                 copy_source(doc, os.path.join(rundir, "wdl"))
-                chown_R_if_sudo(os.path.join(rundir, "wdl"))
             cfg.log_unused_options()
 
     # report
