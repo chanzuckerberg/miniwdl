@@ -363,6 +363,11 @@ def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
                 name="singularity",
                 value="WDL.runtime.backend.singularity:SingularityContainer",
             ),
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.container_backend",
+                name="podman",
+                value="WDL.runtime.backend.podman:PodmanContainer",
+            ),
         ],
         "cache_backend": [
             importlib_metadata.EntryPoint(
