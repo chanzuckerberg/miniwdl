@@ -10,7 +10,7 @@ import threading
 import time
 import fcntl
 import shutil
-import hashlib
+import itertools
 import uuid
 from time import sleep
 from datetime import datetime
@@ -253,8 +253,39 @@ def provision_run_dir(name: str, parent_dir: Optional[str], last_link: bool = Fa
         last_link_name = os.path.join(parent_dir, "_LAST")
         if os.path.islink(last_link_name) or not (here or os.path.lexists(last_link_name)):
             symlink_force(os.path.basename(run_dir), last_link_name)
+            chown_R_if_sudo(last_link_name)
 
     return run_dir
+
+
+@export
+def chown_R_if_sudo(path: str) -> None:
+    """
+    If we're running under sudo, chown the file/directory and any contents to the original uid/gid.
+    Skip nested run directories (call-*) on assumption they'll handle themselves.
+    """
+    uid = -1
+    gid = -1
+    try:
+        uid = int(os.environ["SUDO_UID"])
+        gid = int(os.environ["SUDO_GID"])
+    except:
+        pass
+
+    if os.geteuid() == 0 and uid > 0:
+        os.chown(path, uid, gid, follow_symlinks=False)
+        if os.path.isdir(path) and not os.path.islink(path):
+
+            def raiser(exc: OSError):
+                raise exc
+
+            top = True
+            for root, dirs, files in os.walk(path, topdown=True, onerror=raiser, followlinks=False):
+                for skipdir in [dn for dn in dirs if dn.startswith("call-")] if top else []:
+                    dirs.remove(skipdir)
+                top = False
+                for subp in itertools.chain(dirs, files):
+                    os.chown(os.path.join(root, subp), uid, gid, follow_symlinks=False)
 
 
 @export

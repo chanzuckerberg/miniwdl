@@ -22,6 +22,7 @@ from .._util import (
     provision_run_dir,
     TerminationSignalFlag,
     parse_byte_size,
+    chown_R_if_sudo,
     chmod_R_plus,
     path_really_within,
     LoggingFileHandler,
@@ -209,12 +210,16 @@ def run_local_task(
                 # clean up, if so configured, and make sure output files will be accessible to
                 # downstream tasks
                 _delete_work(cfg, logger, container, True)
-                chmod_R_plus(run_dir, file_bits=0o660, dir_bits=0o770)
 
                 # write outputs.json
                 write_values_json(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
+
+                # clean up ownership & permissions
+                chown_R_if_sudo(run_dir)
+                chmod_R_plus(run_dir, file_bits=0o660, dir_bits=0o770)
+
                 logger.notice("done")  # pyre-fixme
                 if not run_id.startswith("download-"):
                     cache.put(cache_key, outputs)
@@ -254,6 +259,8 @@ def run_local_task(
             except Exception as exn2:
                 logger.debug(traceback.format_exc())
                 logger.error(_("delete_work also failed", exception=str(exn2)))
+            with suppress(Exception):
+                chown_R_if_sudo(run_dir)
             raise wrapper from exn
 
 

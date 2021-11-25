@@ -41,7 +41,7 @@ import pickle
 import threading
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from .. import Env, Type, Value, Tree, StdLib, Error
 from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_defaults
 from .download import able as downloadable, run_cached as download
@@ -53,6 +53,7 @@ from .._util import (
     LoggingFileHandler,
     compose_coroutines,
     pathsize,
+    chown_R_if_sudo,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -875,6 +876,7 @@ def _workflow_main_loop(
             write_values_json(
                 outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
             )
+            chown_R_if_sudo(run_dir)
             logger.notice("done")
             return outputs
     except Exception as exn:
@@ -916,6 +918,8 @@ def _workflow_main_loop(
         # Cancel all future tasks that havent started
         for key in call_futures:
             key.cancel()
+        with suppress(Exception):
+            chown_R_if_sudo(run_dir)
         raise wrapper from exn
 
 

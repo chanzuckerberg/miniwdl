@@ -25,7 +25,7 @@ DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
 
-plan tests 2
+plan tests 3
 
 export MINIWDL__SCHEDULER__CONTAINER_BACKEND=podman
 
@@ -36,9 +36,9 @@ git clone --depth=1 https://github.com/broadinstitute/viral-pipelines.git
 cd viral-pipelines
 
 $miniwdl run pipes/WDL/workflows/assemble_denovo.wdl \
-    --path pipes/WDL/tasks --dir "$DN" --verbose \
+    --path pipes/WDL/tasks --dir "$DN/assemble_denovo/." --verbose \
     -i test/input/WDL/test_inputs-assemble_denovo-local.json
 is "$?" "0" "assemble_denovo success"
 
-#is "$(find -L _LAST/ | xargs -n 1 stat -c %u | sort | uniq)" "$SUDO_UID" \
-#    "assemble_denovo artifacts all owned by $SUDO_USER"
+is "$(find "$DN/assemble_denovo" | xargs -n 1 stat -c %u | sort | uniq)" "$SUDO_UID" \
+    "assemble_denovo artifacts all owned by $SUDO_USER"
