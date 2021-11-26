@@ -6,7 +6,7 @@ import tempfile
 import threading
 import subprocess
 from typing import List, Callable, Optional
-from ...Error import InputError
+from ...Error import InputError, RuntimeError
 from ..._util import StructuredLogMessage as _
 from ..._util import rmtree_atomic
 from .. import config
@@ -34,14 +34,15 @@ class SingularityContainer(SubprocessBase):
                 universal_newlines=True,
             )
         except:
-            assert False, "Unable to check `singularity --version`; verify Singularity installation"
-        logger.warning(
+            raise RuntimeError(
+                "Unable to check `singularity --version`; verify Singularity installation"
+            )
+        logger.notice(  # pyre-ignore
             _(
-                "Singularity runtime is experimental; use with caution",
-                version=singularity_version.stdout.strip(),
+                "Singularity runtime initialized (BETA)",
+                singularity_version=singularity_version.stdout.strip(),
             )
         )
-        pass
 
     @property
     def cli_name(self) -> str:

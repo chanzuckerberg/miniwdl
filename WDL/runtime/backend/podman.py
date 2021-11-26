@@ -2,13 +2,11 @@ import os
 import time
 import shlex
 import logging
-import itertools
 import threading
 import subprocess
 from typing import List, Callable, Optional
 from ...Error import InputError, RuntimeError
 from ..._util import StructuredLogMessage as _
-from ..._util import rmtree_atomic
 from .. import config
 from ..error import DownloadFailed
 from .cli_subprocess import SubprocessBase
@@ -25,27 +23,33 @@ class PodmanContainer(SubprocessBase):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
-        if os.geteuid() != 0:
-            raise RuntimeError(
-                "Podman tasks require `sudo miniwdl run ...` (or `miniwdl run` as root)"
-            )
+        podman_version_cmd = ["podman", "--version"]
+        if os.geteuid():
+            podman_version_cmd = ["sudo", "-n"] + podman_version_cmd
+
         try:
             podman_version = subprocess.run(
-                ["podman", "--version"],
+                podman_version_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                check=True,
                 universal_newlines=True,
+                check=True,
             )
-        except:
-            raise RuntimeError("Unable to check `podman --version`; verify Podman installation")
-        logger.warning(
+        except subprocess.CalledProcessError as cpe:
+            logger.error(_(" ".join(podman_version_cmd), stderr=cpe.stderr.strip().split("\n")))
+            raise RuntimeError(
+                "Unable to check `sudo podman --version`; verify Podman installation"
+                " and no-password sudo (or run miniwdl as root)"
+                if os.geteuid()
+                else "Unable to check `podman --version`; verify Podman installation"
+            ) from None
+
+        logger.notice(  # pyre-ignore
             _(
-                "Podman runtime is experimental; use with caution",
-                version=podman_version.stdout.strip(),
+                "Podman runtime initialized (BETA)",
+                podman_version=podman_version.stdout.strip(),
             )
         )
-        pass
 
     @property
     def cli_name(self) -> str:
@@ -58,6 +62,8 @@ class PodmanContainer(SubprocessBase):
         image = self._podman_pull(logger)
 
         ans = ["podman"]
+        if os.geteuid():
+            ans = ["sudo", "-n"] + ans
         ans += [
             "run",
             "--rm",
@@ -83,6 +89,7 @@ class PodmanContainer(SubprocessBase):
                 bind_arg += ":ro"
             ans.append(bind_arg)
         ans.append(image)
+        _sudo_canary()
         return ans
 
     def _podman_pull(self, logger: logging.Logger) -> str:
@@ -100,22 +107,28 @@ class PodmanContainer(SubprocessBase):
             if image in self._pulled_images:
                 logger.info(_("podman image already pulled", image=image))
             else:
-                logger.info(_("begin podman pull", image=image))
-                puller = subprocess.run(
-                    ["podman", "pull", image],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True,
-                )
-                if puller.returncode != 0:
+                _sudo_canary()
+                podman_pull_cmd = ["podman", "pull", image]
+                if os.geteuid():
+                    podman_pull_cmd = ["sudo", "-n"] + podman_pull_cmd
+                logger.info(_("begin podman pull", command=" ".join(podman_pull_cmd)))
+                try:
+                    subprocess.run(
+                        podman_pull_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        universal_newlines=True,
+                        check=True,
+                    )
+                except subprocess.CalledProcessError as cpe:
                     logger.error(
                         _(
                             "podman pull failed",
-                            stderr=puller.stderr.split("\n"),
-                            stdout=puller.stdout.split("\n"),
+                            stderr=cpe.stderr.strip().split("\n"),
+                            stdout=cpe.stdout.strip().split("\n"),
                         )
                     )
-                    raise DownloadFailed(image)
+                    raise DownloadFailed(image) from None
                 self._pulled_images.add(image)
 
         # TODO: log image ID?
@@ -128,3 +141,47 @@ class PodmanContainer(SubprocessBase):
             )
         )
         return image
+
+    def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
+        """
+        Override to chown working directory
+        """
+        _sudo_canary()
+        try:
+            return super()._run(logger, terminating, command)
+        finally:
+            if os.geteuid():
+                try:
+                    subprocess.run(
+                        [
+                            "sudo",
+                            "-n",
+                            "chown",
+                            "-RPh",
+                            f"{os.geteuid()}:{os.getegid()}",
+                            self.host_work_dir(),
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        universal_newlines=True,
+                        check=True,
+                    )
+                except subprocess.CalledProcessError as cpe:
+                    logger.error(_("post-task chown failed", error=cpe.stderr.strip().split("\n")))
+
+
+def _sudo_canary():
+    if os.geteuid():
+        try:
+            subprocess.run(
+                ["sudo", "-n", "id"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                check=True,
+            )
+        except subprocess.SubprocessError:
+            raise RuntimeError(
+                "passwordless sudo expired (required for Podman)"
+                "; see miniwdl/podman documentation for workarounds"
+            )
