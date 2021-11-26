@@ -4,4 +4,5 @@ omit =
     WDL/CLI.py
     WDL/runtime/backend/cli_subprocess.py
     WDL/runtime/backend/singularity.py
+    WDL/runtime/backend/podman.py
 relative_files = True

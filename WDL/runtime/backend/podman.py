@@ -100,7 +100,7 @@ class PodmanContainer(SubprocessBase):
 
     def _podman_pull(self, logger: logging.Logger) -> str:
         """
-        Ensure the needed docker image is cached by singularity. Use a global lock so we'll only
+        Ensure the needed docker image is cached by podman. Use a global lock so we'll only
         download it once, even if used by many parallel tasks all starting at the same time.
         """
         image = self.runtime_values.get(
