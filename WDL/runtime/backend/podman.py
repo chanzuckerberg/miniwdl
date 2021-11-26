@@ -70,7 +70,13 @@ class PodmanContainer(SubprocessBase):
             "--workdir",
             os.path.join(self.container_dir, "work"),
         ]
-        # TODO: set --cpus and --memory
+
+        cpu = self.runtime_values.get("cpu", 0)
+        if cpu > 0:
+            ans += ["--cpus", str(cpu)]
+        memory_limit = self.runtime_values.get("memory_limit", 0)
+        if memory_limit > 0:
+            ans += ["--memory", str(memory_limit)]
 
         mounts = self.prepare_mounts()
         logger.info(
