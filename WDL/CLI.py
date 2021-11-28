@@ -999,9 +999,11 @@ def runner_input(
         decl = available_inputs.get(name)
 
         if not decl:
-            # allow arbitrary runtime overrides
+            # allow arbitrary runtime/hints overrides
             nmparts = name.split(".")
-            runtime_idx = next((i for i, term in enumerate(nmparts) if term in ("runtime",)), -1)
+            runtime_idx = next(
+                (i for i, term in enumerate(nmparts) if term in ("runtime", "hints")), -1
+            )
             if runtime_idx >= 0 and len(nmparts) > (runtime_idx + 1):
                 decl = available_inputs.get(".".join(nmparts[:runtime_idx] + ["_runtime"]))
 
@@ -1195,7 +1197,7 @@ def runner_input_value(s_value, ty, downloadable, root):
             ty.item_type, [runner_input_value(s_value, ty.item_type, downloadable, root)]
         )
     if isinstance(ty, Type.Any):
-        # infer dynamically-typed runtime overrides
+        # infer dynamically-typed runtime/hints overrides
         try:
             return Value.Int(int(s_value))
         except ValueError:
