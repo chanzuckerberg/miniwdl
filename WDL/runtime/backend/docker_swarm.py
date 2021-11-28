@@ -559,7 +559,7 @@ class SwarmContainer(TaskContainer):
             )
             script = f"""
             (find {paste} -type d -print0 && find {paste} -type f -print0) \
-                | xargs -0 -P 10 chown -P {os.geteuid()}:{os.getegid()}
+                | xargs -0 -P 10 chown -Ph {os.geteuid()}:{os.getegid()}
             """.strip()
             volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
             logger.debug(_("post-task chown", script=script, volumes=volumes))
