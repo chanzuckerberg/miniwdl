@@ -234,6 +234,14 @@ class Decl(WorkflowNode):
         yield from _expr_workflow_node_dependencies(self.expr)
 
 
+class Assertion(Decl):
+    message: str
+
+    def __init__(self, pos: SourcePosition, expr: Expr.Base) -> None:
+        super().__init__(pos, Type.Boolean(), f"_assert_L{pos.line}C{pos.column}", expr)
+        self.message = f"assertion failed: {str(expr)} ({pos.uri} Ln {pos.line} Col {pos.column})"
+
+
 class Task(SourceNode):
     """
     WDL Task
