@@ -103,7 +103,7 @@ class Base(ABC):
         Create a copy of the type, possibly with a different setting of the
         ``optional`` quantifier.
         """
-        ans: Base = copy.copy(self)
+        ans: "Base" = copy.copy(self)
         if optional is not None:
             ans._optional = optional
         return ans
