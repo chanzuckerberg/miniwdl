@@ -1,5 +1,5 @@
 #!/bin/bash
-# bash-tap tests for miniwdl's Podman task runtime. Passwordless `sudo podman` must be available.
+# bash-tap tests for miniwdl's udocker task runtime. `udocker`` must be available.
 set -o pipefail
 
 cd "$(dirname $0)/.."
@@ -21,7 +21,7 @@ echo "$DN"
 
 plan tests 3
 
-export MINIWDL__SCHEDULER__CONTAINER_BACKEND=podman
+export MINIWDL__SCHEDULER__CONTAINER_BACKEND=udocker
 
 $miniwdl run_self_test --dir "$DN"
 is "$?" "0" "run_self_test"

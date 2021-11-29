@@ -368,6 +368,11 @@ def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
                 name="podman",
                 value="WDL.runtime.backend.podman:PodmanContainer",
             ),
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.container_backend",
+                name="udocker",
+                value="WDL.runtime.backend.udocker:UdockerContainer",
+            ),
         ],
         "cache_backend": [
             importlib_metadata.EntryPoint(
