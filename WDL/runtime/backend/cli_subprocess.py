@@ -6,12 +6,13 @@ import threading
 import contextlib
 import subprocess
 import multiprocessing
-from typing import Callable, List, Tuple, Dict, Optional
+from typing import Callable, List, Tuple, Dict, Optional, Set
 from abc import abstractmethod, abstractproperty
+from contextlib import ExitStack
 from ..._util import PygtailLogger
 from ..._util import StructuredLogMessage as _
 from .. import config, _statusbar
-from ..error import Terminated
+from ..error import Terminated, DownloadFailed
 from ..task_container import TaskContainer
 
 
@@ -24,7 +25,9 @@ class SubprocessBase(TaskContainer):
 
     _resource_limits: Optional[Dict[str, int]] = None
     _bind_input_files: bool = True
-    _lock: threading.Lock = threading.Lock()
+    _pull_lock: threading.Lock = threading.Lock()
+    _pulled_images_lock: threading.Lock = threading.Lock()
+    _pulled_images: Set[str] = set()
 
     @classmethod
     def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
@@ -44,7 +47,7 @@ class SubprocessBase(TaskContainer):
         return cls._resource_limits
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
-        with contextlib.ExitStack() as cleanup:
+        with ExitStack() as cleanup:
             # await cpu & memory availability
             cpu_reservation = self.runtime_values.get("cpu", 0)
             memory_reservation = self.runtime_values.get("memory_reservation", 0)
@@ -58,6 +61,9 @@ class SubprocessBase(TaskContainer):
                     mem_bytes=memory_reservation,
                 )
             )
+
+            # pull image if needed
+            image = self._pull(logger, cleanup)
 
             # prepare loggers
             cli_log_filename = os.path.join(self.host_dir, f"{self.cli_name}.log.txt")
@@ -84,7 +90,7 @@ class SubprocessBase(TaskContainer):
                 outfile.write(command)
 
             # start subprocess
-            invocation = self._cli_invocation(logger) + [
+            invocation = self._run_invocation(logger, cleanup, image) + [
                 "/bin/bash",
                 "-c",
                 "bash ../command >> ../stdout.txt 2>> ../stderr.txt",
@@ -123,8 +129,14 @@ class SubprocessBase(TaskContainer):
     def cli_name(self) -> str:
         pass
 
+    def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
+        image = self.runtime_values.get(
+            "docker", self.cfg.get_dict("task_runtime", "defaults")["docker"]
+        )
+        return (image, [self.cli_name, "pull", image])
+
     @abstractmethod
-    def _cli_invocation(self, logger: logging.Logger) -> List[str]:
+    def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
         pass
 
     def copy_input_files(self, logger: logging.Logger) -> None:
@@ -177,6 +189,56 @@ class SubprocessBase(TaskContainer):
                     )
                 mounts.append((container_path.rstrip("/"), host_path.rstrip("/"), False))
         return mounts
+
+    def _pull(self, logger: logging.Logger, cleanup: ExitStack) -> str:
+        """
+        Pull the image under a global lock, ensuring we'll only download it once even if used by
+        many parallel tasks all starting at the same time.
+        """
+        image, invocation = self._pull_invocation(logger, cleanup)
+        with self._pulled_images_lock:
+            if image in self._pulled_images:
+                logger.info(_(f"{self.cli_name} image already pulled", image=image))
+                return image
+        t0 = time.time()
+        with self._pull_lock:
+            t1 = time.time()
+
+            with self._pulled_images_lock:
+                if image in self._pulled_images:
+                    logger.info(_(f"{self.cli_name} image already pulled", image=image))
+                    return image
+
+            logger.info(_(f"begin {self.cli_name} pull", command=" ".join(invocation)))
+            try:
+                subprocess.run(
+                    invocation,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True,
+                    check=True,
+                )
+            except subprocess.CalledProcessError as cpe:
+                logger.error(
+                    _(
+                        f"{self.cli_name} pull failed",
+                        stderr=cpe.stderr.strip().split("\n"),
+                        stdout=cpe.stdout.strip().split("\n"),
+                    )
+                )
+                raise DownloadFailed(image) from None
+            with self._pulled_images_lock:
+                self._pulled_images.add(image)
+
+        logger.notice(  # pyre-ignore
+            _(
+                f"{self.cli_name} pull",
+                image=image,
+                seconds_waited=int(t1 - t0),
+                seconds_pulling=int(time.time() - t1),
+            )
+        )
+        return image
 
 
 class _SubprocessScheduler(contextlib.AbstractContextManager):
