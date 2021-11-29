@@ -1,6 +1,6 @@
 # `miniwdl run` container runtimes
 
-miniwdl's default Docker task runtime is recommended for production use. Users unable to employ the Docker daemon may configure miniwdl to use [Podman](https://podman.io/), [Singularity](https://sylabs.io/singularity/), or [udocker](https://indigo-dc.github.io/udocker/) instead (locally on Linux hosts only). Podman is the most similar to Docker, but also requires root privileges. Singularity and udocker don't need root to run, but have a few more limitations.
+miniwdl's default Docker task runtime is recommended for production use. Users unable to employ the Docker daemon may configure miniwdl to use [Podman](https://podman.io/), [Singularity](https://sylabs.io/singularity/), or [udocker](https://indigo-dc.github.io/udocker/) instead (locally on Linux hosts only). Podman is the most similar to Docker, but also requires root privileges. Singularity and udocker don't need root to run, but have a few other limitations.
 
 ## Podman (BETA)
 
