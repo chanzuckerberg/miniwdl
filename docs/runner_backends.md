@@ -37,7 +37,7 @@ Limitations:
 
 ## udocker (BETA)
 
-udocker typically doesn't require root privileges to operate nor even [install](https://indigo-dc.github.io/udocker/installation_manual.html), but it affects execution performance and provides less isolation between containers.
+udocker typically doesn't require root privileges to operate nor even [install](https://indigo-dc.github.io/udocker/installation_manual.html), but it affects execution speed and provides less isolation between containers.
 
 To configure miniwdl to use udocker:
 
@@ -47,7 +47,7 @@ To configure miniwdl to use udocker:
 
 Limitations:
 
-* Task commands running in udocker containers are able to overwrite their input files (unlike Docker which mounts them read-only). Doing so may have undefined effects on other tasks and the workflow as a whole.
+* Tasks running in udocker are able to overwrite their input files (unlike Docker which mounts them read-only). Doing so may have undefined effects on other tasks and the workflow as a whole.
 * Task containers aren't actually restricted to use only their declared `runtime.cpu` and `runtime.memory` resources once they start, although those reservations are considered for parallel scheduling.
   * If parallel container scheduling causes problems, then it can be disabled (serializing the workflow) by setting the environment variable `MINIWDL__SCHEDULER__CALL_CONCURRENCY=1` or the equivalent configuration file option `[scheduler] call_concurrency=1`.
 * Unlike with the Docker daemon, separate `miniwdl run` processes using the udocker runtime don't coordinate their CPU/memory reservations for container scheduling. Running multiple resource-intensive workflows concurrently (with separate `miniwdl run` invocations) is liable to overload the host.
