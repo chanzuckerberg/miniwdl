@@ -639,14 +639,6 @@ def runner(
             )
         set_status = cleanup.enter_context(configure_logger(json=log_json))
 
-        if os.geteuid() == 0 and not currently_in_container():
-            logger.warning(
-                (
-                    "running as root; non-root users should be able to `miniwdl run` "
-                    "as long as they're in the `docker` group"
-                )
-            )
-
         # load configuration & apply command-line overrides
         from . import runtime
 
@@ -693,6 +685,8 @@ def runner(
 
         cfg.override(cfg_overrides)
         cfg.log_all()
+        if os.geteuid() == 0 and not currently_in_container():
+            logger.warning("running miniwdl as root is usually avoidable (see docs)")
         if cfg["task_runtime"].get_dict("env"):
             logger.warning(
                 "--env is a non-standard side channel; relying on it is probably not portable"
@@ -756,8 +750,8 @@ def runner(
             sys.exit(0)
 
         # debug logging
-        versionlog = {"python": sys.version}
-        for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
+        versionlog = {"python": sys.version, "uname": " ".join(os.uname())}
+        for pkg in ["miniwdl", "docker", "lark", "argcomplete", "pygtail"]:
             pkver = pkg_version(pkg)
             versionlog[pkg] = str(pkver) if pkver else "UNKNOWN"
         logger.debug(_("package versions", **versionlog))

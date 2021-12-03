@@ -78,6 +78,13 @@ class PodmanContainer(SubprocessBase):
         if memory_limit > 0:
             ans += ["--memory", str(memory_limit)]
 
+        if self.cfg.get_bool("task_runtime", "as_user"):
+            if os.geteuid() == 0:
+                logger.warning(
+                    "container command will run explicitly as root, since you are root and set --as-me"
+                )
+            ans += ["--user", f"{os.geteuid()}:{os.getegid()}"]
+
         mounts = self.prepare_mounts()
         logger.info(
             _(
@@ -100,16 +107,33 @@ class PodmanContainer(SubprocessBase):
         return ans
 
     def _chown(self, logger: logging.Logger):
-        if os.geteuid():
+        if not self.cfg.get_bool("task_runtime", "as_user") and (os.geteuid() or os.getegid()):
+            paste = shlex.quote(
+                os.path.join(
+                    self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
+                )
+            )
+            script = f"""
+            (find {paste} -type d -print0 && find {paste} -type f -print0 \
+                && find {paste} -type l -print0) \
+                | xargs -0 -P 10 chown -Ph {os.geteuid()}:{os.getegid()}
+            """.strip()
             try:
                 subprocess.run(
                     [
                         "sudo",
                         "-n",
-                        "chown",
-                        "-RPh",
-                        f"{os.geteuid()}:{os.getegid()}",
-                        self.host_work_dir(),
+                        "podman",
+                        "run",
+                        "--rm",
+                        "-v",
+                        shlex.quote(f"{self.host_dir}:{self.container_dir}"),
+                        "alpine:3",
+                        "/bin/ash",
+                        "-eo",
+                        "pipefail",
+                        "-c",
+                        script,
                     ],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
