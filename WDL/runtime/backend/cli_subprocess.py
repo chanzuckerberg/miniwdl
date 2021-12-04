@@ -129,11 +129,14 @@ class SubprocessBase(TaskContainer):
     def cli_name(self) -> str:
         pass
 
+    def cli_exe(self) -> List[str]:
+        return [self.cli_name]
+
     def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
         image = self.runtime_values.get(
             "docker", self.cfg.get_dict("task_runtime", "defaults")["docker"]
         )
-        return (image, [self.cli_name, "pull", image])
+        return (image, self.cli_exe + ["pull", image])
 
     @abstractmethod
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:

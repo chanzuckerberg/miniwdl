@@ -17,16 +17,17 @@ class UdockerContainer(SubprocessBase):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
+        cmd = cfg.get_list("udocker", "exe") + ["--version"]
         try:
             udocker_version = subprocess.run(
-                ["udocker", "--version"],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
                 universal_newlines=True,
             )
         except:
-            raise RuntimeError("Unable to check `udocker --version`; verify udocker installation")
+            raise RuntimeError(f"Unable to check `{' '.join(cmd)}`; verify udocker installation")
         logger.notice(  # pyre-ignore
             _(
                 "udocker runtime initialized (BETA)",
@@ -38,17 +39,20 @@ class UdockerContainer(SubprocessBase):
     def cli_name(self) -> str:
         return "udocker"
 
+    @property
+    def cli_exe(self) -> List[str]:
+        return self.cfg.get_list("udocker", "exe")
+
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
         """
         Formulate `udocker run` command-line invocation
         """
-        ans = [
-            "udocker",
+        ans = self.cli_exe + [
             "run",
             "--workdir",
             os.path.join(self.container_dir, "work"),
         ]
-        ans += self.cfg.get_list("udocker", "cli_options")
+        ans += self.cfg.get_list("udocker", "run_options")
 
         mounts = self.prepare_mounts()
         logger.info(

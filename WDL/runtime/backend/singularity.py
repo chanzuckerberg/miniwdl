@@ -18,9 +18,10 @@ class SingularityContainer(SubprocessBase):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
+        cmd = cfg.get_list("singularity", "exe") + ["--version"]
         try:
             singularity_version = subprocess.run(
-                ["singularity", "--version"],
+                cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 check=True,
@@ -28,7 +29,7 @@ class SingularityContainer(SubprocessBase):
             )
         except:
             raise RuntimeError(
-                "Unable to check `singularity --version`; verify Singularity installation"
+                f"Unable to check `{' '.join(cmd)}`; verify Singularity installation"
             )
         logger.notice(  # pyre-ignore
             _(
@@ -41,6 +42,10 @@ class SingularityContainer(SubprocessBase):
     def cli_name(self) -> str:
         return "singularity"
 
+    @property
+    def cli_exe(self) -> List[str]:
+        return self.cfg.get_list("singularity", "exe")
+
     def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
         image, invocation = super()._pull_invocation(logger, cleanup)
         docker_uri = "docker://" + image
@@ -48,14 +53,14 @@ class SingularityContainer(SubprocessBase):
         # The docker image layers are cached in SINGULARITY_CACHEDIR, so we don't need to keep the
         # *.sif
         pulldir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_sif_"))
-        return (docker_uri, ["singularity", "pull", "--dir", pulldir, docker_uri])
+        return (docker_uri, self.cli_exe + ["pull", "--dir", pulldir, docker_uri])
 
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
         """
         Formulate `singularity run` command-line invocation
         """
 
-        ans = ["singularity"]
+        ans = self.cli_exe
         if logger.isEnabledFor(logging.DEBUG):
             ans.append("--verbose")
         ans += [
@@ -63,7 +68,7 @@ class SingularityContainer(SubprocessBase):
             "--pwd",
             os.path.join(self.container_dir, "work"),
         ]
-        ans += self.cfg.get_list("singularity", "cli_options")
+        ans += self.cfg.get_list("singularity", "run_options")
 
         mounts = self.prepare_mounts()
         # Also create a scratch directory and mount to /tmp and /var/tmp
