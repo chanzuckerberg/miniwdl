@@ -225,16 +225,41 @@ def awscli_downloader(
                 export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir __out
-                if ! aws s3 cp "~{uri}" __out/ ; then
-                    # Retry with --no-sign-request in case the object is public. Without this flag,
-                    # the previous invocation could have failed either because (i) no AWS
-                    # credentials are available or (ii) the IAM policy restricts accessible S3
-                    # buckets regardless of whether the desired object is public.
-                    rm -f __out/*
-                    >&2 echo 'Retrying with --no-sign-request in case the object is public.' \
-                         ' If the overall operation fails, the real error may precede this message.'
+                
+                function _s3_localize_with_retry() {
+                  local s3_path=$1
+                  # destination must be the path to a file and not just the directory you want the file in
+                  local destination=$2
+         
+                  for i in {1..5};
+                  do
+                    if [[ $s3_path =~ s3://([^/]+)/(.+) ]]; then
+                      bucket="${BASH_REMATCH[1]}"
+                      key="${BASH_REMATCH[2]}"
+                      content_length=$(aws s3api head-object --bucket "$bucket" --key "$key" --query 'ContentLength')
+                    else
+                      echo "$s3_path is not an S3 path with a bucket and key. aborting"
+                      exit 1
+                    fi
+                    aws s3 cp "$s3_path" "$destination" &&
+                    [[ $(LC_ALL=C ls -dn -- "$destination" | awk '{print $5; exit}') -eq "$content_length" ]] && break || echo "attempt $i to copy $s3_path failed";
+         
+                    if [ "$i" -eq 5 ]; then
+                     echo "failed to copy $s3_path after $i attempts. aborting"
+                     exit 2
+                    fi
+                    sleep $((7 * "$i"))
+                  done
+                }
+                
+                FILE=$( basename "~{uri}" )
+                if ! aws sts get-caller-identity ; then 
+                    echo 'No IAM credentials are available will attempt download with --no-sign-request flag'
                     aws s3 cp --no-sign-request "~{uri}" __out/
-                fi
+                else
+                  echo localizing "~{uri}" to __out/"${FILE}"
+                  _s3_localize_with_retry "~{uri}" __out/"${FILE}"
+                fi    
             >>>
 
             output {
