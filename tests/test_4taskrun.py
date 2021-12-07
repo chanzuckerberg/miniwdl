@@ -578,6 +578,23 @@ class TestTaskRunner(unittest.TestCase):
         """)
         self.assertEqual(outputs["car"], {"model": "Mazda", "year": 2017, "mileage": None})
         self.assertEqual(outputs["car2"], {"model": "Toyota", "year": None, "mileage": None})
+        # bad struct init from map
+        self._test_task(R"""
+        version 1.0
+        struct Car {
+            String model
+            Float mileage
+        }
+        task t {
+            command {}
+            output {
+                Car car = {
+                    "model": "Mazda",
+                    "mileage": "bogus"
+                }
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_errors(self):
         self._test_task(R"""
@@ -794,10 +811,11 @@ class TestTaskRunner(unittest.TestCase):
                 String memory
             }
             command <<<
-                cat /sys/fs/cgroup/memory/memory.limit_in_bytes
+                cat /sys/fs/cgroup/memory/memory.limit_in_bytes \
+                    || cat /sys/fs/cgroup/memory.max
             >>>
             output {
-                Int memory_limit_in_bytes = read_int(stdout())
+                String memory_limit_in_bytes = read_string(stdout())
             }
             runtime {
                 cpu: 1
@@ -807,10 +825,11 @@ class TestTaskRunner(unittest.TestCase):
         """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         outputs = self._test_task(txt, {"memory": "256MB"}, cfg=cfg)
-        self.assertGreater(outputs["memory_limit_in_bytes"], 300*1024*1024)
+        if outputs["memory_limit_in_bytes"] != "max":
+            self.assertGreater(int(outputs["memory_limit_in_bytes"]), 300*1024*1024)
         cfg.override({"task_runtime": {"memory_limit_multiplier": 0.9}})
         outputs = self._test_task(txt, {"memory": "256MB"}, cfg=cfg)
-        self.assertLess(outputs["memory_limit_in_bytes"], 300*1024*1024)
+        self.assertLess(int(outputs["memory_limit_in_bytes"]), 300*1024*1024)
 
     def test_runtime_returnCodes(self):
         txt = R"""

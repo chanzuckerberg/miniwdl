@@ -165,7 +165,7 @@ class StateMachine:
                 v = job.node.expr.eval(env, stdlib=stdlib).coerce(job.node.type)
             ...
             if isinstance(job.node, Tree.Assertion) and not v.value:
-                raise RuntimeError(job.node.message)
+                raise Error.RuntimeError(job.node.message)
             return Env.Bindings(Env.Binding(job.node.name, v))
 ```
 

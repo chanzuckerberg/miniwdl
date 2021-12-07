@@ -21,6 +21,7 @@ def parse(grammar: str, txt: str, start: str) -> Tuple[lark.Tree, List[lark.Toke
                 grammar,
                 start=start,
                 parser="lalr",
+                maybe_placeholders=False,
                 propagate_positions=True,
                 lexer_callbacks={"COMMENT": _lark_comments_buffer.append},
             )
@@ -82,27 +83,27 @@ class _SourcePositionTransformerMixin:
 class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
     # pylint: disable=no-self-use,unused-argument
 
-    def boolean_true(self, items, meta) -> Expr.Base:
+    def boolean_true(self, meta, items) -> Expr.Base:
         assert not items
         return Expr.Boolean(self._sp(meta), True)
 
-    def boolean_false(self, items, meta) -> Expr.Base:
+    def boolean_false(self, meta, items) -> Expr.Base:
         assert not items
         return Expr.Boolean(self._sp(meta), False)
 
-    def null(self, items, meta) -> Expr.Base:
+    def null(self, meta, items) -> Expr.Base:
         assert not items
         return Expr.Null(self._sp(meta))
 
-    def int(self, items, meta) -> Expr.Base:
+    def int(self, meta, items) -> Expr.Base:
         assert len(items) == 1
         return Expr.Int(self._sp(meta), to_int(items[0]))
 
-    def float(self, items, meta) -> Expr.Base:
+    def float(self, meta, items) -> Expr.Base:
         assert len(items) == 1
         return Expr.Float(self._sp(meta), to_float(items[0]))
 
-    def string(self, items, meta) -> Expr.Base:
+    def string(self, meta, items) -> Expr.Base:
         parts = []
         for item in items:
             if isinstance(item, Expr.Base):
@@ -117,37 +118,37 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         assert parts[-1] in ['"', "'"]
         return Expr.String(self._sp(meta), parts)
 
-    def string_literal(self, items, meta):
+    def string_literal(self, meta, items):
         assert len(items) == 1
         assert items[0].value.startswith('"') or items[0].value.startswith("'")
         return decode_escapes(self._sp(meta), items[0].value[1:-1])
 
-    def array(self, items, meta) -> Expr.Base:
+    def array(self, meta, items) -> Expr.Base:
         return Expr.Array(self._sp(meta), items)
 
-    def apply(self, items, meta) -> Expr.Base:
+    def apply(self, meta, items) -> Expr.Base:
         assert len(items) >= 1
         assert not items[0].startswith("_")  # TODO enforce in grammar
         return Expr.Apply(self._sp(meta), items[0], items[1:])
 
-    def negate(self, items, meta) -> Expr.Base:
+    def negate(self, meta, items) -> Expr.Base:
         return Expr.Apply(self._sp(meta), "_negate", items)
 
-    def at(self, items, meta) -> Expr.Base:
+    def at(self, meta, items) -> Expr.Base:
         return Expr.Apply(self._sp(meta), "_at", items)
 
-    def pair(self, items, meta) -> Expr.Base:
+    def pair(self, meta, items) -> Expr.Base:
         assert len(items) == 2
         return Expr.Pair(self._sp(meta), items[0], items[1])
 
-    def map_kv(self, items, meta):
+    def map_kv(self, meta, items):
         assert len(items) == 2
         return (items[0], items[1])
 
-    def map(self, items, meta) -> Expr.Base:
+    def map(self, meta, items) -> Expr.Base:
         return Expr.Map(self._sp(meta), items)
 
-    def object_kv(self, items, meta):
+    def object_kv(self, meta, items):
         assert len(items) == 2
         k = items[0]
         if isinstance(k, lark.Token):
@@ -156,20 +157,20 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         assert isinstance(items[1], Expr.Base)
         return (k, items[1])
 
-    def obj(self, items, meta) -> Expr.Base:
+    def obj(self, meta, items) -> Expr.Base:
         if not items or isinstance(items[0], tuple):  # old-style "object" literal
             return Expr.Struct(self._sp(meta), items)
         return Expr.Struct(self._sp(meta), items[1:], (items[0] if items[0] != "object" else None))
 
-    def ifthenelse(self, items, meta) -> Expr.Base:
+    def ifthenelse(self, meta, items) -> Expr.Base:
         assert len(items) == 3
         return Expr.IfThenElse(self._sp(meta), *items)
 
-    def left_name(self, items, meta) -> Expr.Base:
+    def left_name(self, meta, items) -> Expr.Base:
         assert len(items) == 1 and isinstance(items[0], str)
         return Expr.Get(self._sp(meta), Expr._LeftName(self._sp(meta), items[0]), None)
 
-    def get_name(self, items, meta) -> Expr.Base:
+    def get_name(self, meta, items) -> Expr.Base:
         assert len(items) == 2 and isinstance(items[0], Expr.Base) and isinstance(items[1], str)
         return Expr.Get(self._sp(meta), items[0], items[1])
 
@@ -191,11 +192,11 @@ for op in [
     "gte",
 ]:
 
-    def fn(self, items, meta, op=op):
+    def fn(self, meta, items, op=op):
         assert len(items) == 2
         return Expr.Apply(self._sp(meta), "_" + op, items)
 
-    setattr(_ExprTransformer, op, lark.v_args(meta=True)(classmethod(fn)))  # pyre-fixme
+    setattr(_ExprTransformer, op, lark.v_args(meta=True)(fn))  # pyre-fixme
 
 
 class _DocTransformer(_ExprTransformer):
@@ -230,37 +231,37 @@ class _DocTransformer(_ExprTransformer):
                 pos, "unexpected keyword {}".format(name), self._version, self._declared_version
             )
 
-    def object_kv(self, items, meta):
-        ans = super().object_kv(items, meta)
+    def object_kv(self, meta, items):
+        ans = super().object_kv(meta, items)
         self._check_keyword(self._sp(meta), ans[0])
         return ans
 
-    def obj(self, items, meta) -> Expr.Base:
+    def obj(self, meta, items) -> Expr.Base:
         if items and isinstance(items[0], str) and items[0] != "object":
             self._check_keyword(self._sp(meta), items[0])
-        return super().obj(items, meta)
+        return super().obj(meta, items)
 
-    def left_name(self, items, meta) -> Expr.Base:
-        ans = super().left_name(items, meta)
+    def left_name(self, meta, items) -> Expr.Base:
+        ans = super().left_name(meta, items)
         self._check_keyword(ans.pos, items[0])
         return ans
 
-    def get_name(self, items, meta) -> Expr.Base:
-        ans = super().get_name(items, meta)
+    def get_name(self, meta, items) -> Expr.Base:
+        ans = super().get_name(meta, items)
         if items[1] not in ("left", "right"):
             self._check_keyword(ans.pos, items[1])
         return ans
 
-    def optional(self, items, meta):
+    def optional(self, meta, items):
         return set(["optional"])
 
-    def nonempty(self, items, meta):
+    def nonempty(self, meta, items):
         return set(["nonempty"])
 
-    def optional_nonempty(self, items, meta):
+    def optional_nonempty(self, meta, items):
         return set(["optional", "nonempty"])
 
-    def type(self, items, meta):
+    def type(self, meta, items):
         quantifiers = set()
         if len(items) > 1 and isinstance(items[-1], set):
             quantifiers = items.pop()
@@ -319,25 +320,25 @@ class _DocTransformer(_ExprTransformer):
         ans.pos = self._sp(meta)
         return ans
 
-    def decl(self, items, meta):
+    def decl(self, meta, items):
         self._check_keyword(self._sp(meta), items[1].value)
         return Tree.Decl(
             self._sp(meta), items[0], items[1].value, (items[2] if len(items) > 2 else None)
         )
 
-    def input_decls(self, items, meta):
+    def input_decls(self, meta, items):
         return {"inputs": items}
 
-    def noninput_decl(self, items, meta):
+    def noninput_decl(self, meta, items):
         return {"noninput_decl": items[0]}
 
-    def placeholder_option(self, items, meta):
+    def placeholder_option(self, meta, items):
         assert len(items) == 2
         if items[0].value not in ("default", "false", "true", "sep"):
             raise Error.ValidationError(self._sp(meta), "unknown placeholder option")
         return (items[0].value, items[1])
 
-    def placeholder(self, items, meta):
+    def placeholder(self, meta, items):
         options = dict(items[:-1])
         if len(options.items()) < len(items) - 1:
             raise Error.MultipleDefinitions(
@@ -345,7 +346,7 @@ class _DocTransformer(_ExprTransformer):
             )
         return Expr.Placeholder(self._sp(meta), options, items[-1])
 
-    def command(self, items, meta):
+    def command(self, meta, items):
         parts = []
         for item in items:
             if isinstance(item, Expr.Placeholder):
@@ -354,13 +355,13 @@ class _DocTransformer(_ExprTransformer):
                 parts.append(item.value)
         return {"command": Expr.String(self._sp(meta), parts, command=True)}
 
-    def output_decls(self, items, meta):
+    def output_decls(self, meta, items):
         return {"outputs": items}
 
-    def meta_kv(self, items, meta):
+    def meta_kv(self, meta, items):
         return (items[0].value, items[1])
 
-    def meta_object(self, items, meta):
+    def meta_object(self, meta, items):
         d = dict()
         for k, v in items:
             if k in d:
@@ -368,20 +369,20 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return d
 
-    def meta_array(self, items, meta):
+    def meta_array(self, meta, items):
         return items
 
-    def meta_section(self, items, meta):
+    def meta_section(self, meta, items):
         kind = items[0].value
         assert kind in ["meta", "parameter_meta"]
         d = dict()
         d[kind] = items[1]
         return d
 
-    def runtime_kv(self, items, meta):
+    def runtime_kv(self, meta, items):
         return (items[0].value, items[1])
 
-    def runtime_section(self, items, meta):
+    def runtime_section(self, meta, items):
         d = dict()
         for k, v in items:
             # TODO: restore duplicate check, cf. https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/blob/89f11befc13abae97ab8fb1b457731f390c8728d/tasks_pipelines/qc.wdl#L288  # noqa
@@ -390,7 +391,7 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return {"runtime": d}
 
-    def task(self, items, meta):
+    def task(self, meta, items):
         d = {"noninput_decls": []}
         for item in items:
             if isinstance(item, dict):
@@ -420,19 +421,19 @@ class _DocTransformer(_ExprTransformer):
             d.get("meta", {}),
         )
 
-    def tasks(self, items, meta):
+    def tasks(self, meta, items):
         return items
 
-    def namespaced_ident(self, items, meta) -> Expr.Base:
+    def namespaced_ident(self, meta, items) -> Expr.Base:
         assert items
         return [item.value for item in items]
 
-    def call_input(self, items, meta):
+    def call_input(self, meta, items):
         if len(items) > 1:
             return (items[0].value, items[1])
         return (items[0].value, Expr.Ident(self._sp(meta), items[0].value))
 
-    def call_inputs(self, items, meta):
+    def call_inputs(self, meta, items):
         d = dict()
         for k, v in items:
             if k in d:
@@ -440,7 +441,7 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return d
 
-    def call(self, items, meta):
+    def call(self, meta, items):
         after = []
         i = 1
         while i < len(items):
@@ -454,7 +455,7 @@ class _DocTransformer(_ExprTransformer):
             self._sp(meta), items[0], None, items[i] if i < len(items) else dict(), after=after
         )
 
-    def call_as(self, items, meta):
+    def call_as(self, meta, items):
         self._check_keyword(self._sp(meta), items[1].value)
         after = list()
         i = 2
@@ -473,24 +474,24 @@ class _DocTransformer(_ExprTransformer):
             after=after,
         )
 
-    def scatter(self, items, meta):
+    def scatter(self, meta, items):
         self._check_keyword(self._sp(meta), items[0].value)
         return Tree.Scatter(self._sp(meta), items[0].value, items[1], items[2:])
 
-    def conditional(self, items, meta):
+    def conditional(self, meta, items):
         return Tree.Conditional(self._sp(meta), items[0], items[1:])
 
-    def workflow_wildcard_output(self, items, meta):
+    def workflow_wildcard_output(self, meta, items):
         return items[0] + ["*"]
         # return Expr.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
 
-    def workflow_output_decls(self, items, meta):
+    def workflow_output_decls(self, meta, items):
         decls = [elt for elt in items if isinstance(elt, Tree.Decl)]
         idents = [elt for elt in items if isinstance(elt, list)]
         assert len(decls) + len(idents) == len(items)
         return {"outputs": decls, "output_idents": idents, "pos": self._sp(meta)}
 
-    def workflow(self, items, meta):
+    def workflow(self, meta, items):
         elements = []
         inputs = None
         outputs = None
@@ -547,7 +548,7 @@ class _DocTransformer(_ExprTransformer):
             output_idents_pos,
         )
 
-    def struct(self, items, meta):
+    def struct(self, meta, items):
         assert len(items) >= 1
         name = items[0]
         self._check_keyword(self._sp(meta), name)
@@ -559,12 +560,12 @@ class _DocTransformer(_ExprTransformer):
             members[d.name] = d.type
         return Tree.StructTypeDef(self._sp(meta), name, members)
 
-    def import_alias(self, items, meta):
+    def import_alias(self, meta, items):
         assert len(items) == 2
         self._check_keyword(self._sp(meta), items[1].value)
         return (items[0].value, items[1].value)
 
-    def import_doc(self, items, meta):
+    def import_doc(self, meta, items):
         pos = self._sp(meta)
         uri = items[0]
         if len(items) > 1 and isinstance(items[1], str):
@@ -588,7 +589,7 @@ class _DocTransformer(_ExprTransformer):
         aliases = [p for p in items[1:] if isinstance(p, tuple)]
         return Tree.DocImport(pos=pos, uri=uri, namespace=namespace, aliases=aliases, doc=None)
 
-    def document(self, items, meta):
+    def document(self, meta, items):
         imports = []
         structs = {}
         tasks = []

@@ -103,7 +103,7 @@ class Base(ABC):
         Create a copy of the type, possibly with a different setting of the
         ``optional`` quantifier.
         """
-        ans: Base = copy.copy(self)
+        ans: "Base" = copy.copy(self)
         if optional is not None:
             ans._optional = optional
         return ans
@@ -522,9 +522,9 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
     if not types:
         return Any()
 
-    # begin with first type; or if --no-quant-check, the first array type (as we can try to promote
-    # other T to Array[T])
-    t = next((t for t in types if not isinstance(t, Any)), types[0])
+    # begin with first non-String type (as almost everything is coercible to string); or if
+    # --no-quant-check, the first array type (as we can try to promote other T to Array[T])
+    t = next((t for t in types if not isinstance(t, (String, Any))), types[0])
     if not check_quant:
         t = next((a for a in types if isinstance(a, Array) and not isinstance(a.item_type, Any)), t)
     t = t.copy()  # pyre-ignore
@@ -554,13 +554,16 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
             t = Float()
         if isinstance(t, String) and isinstance(t2, File):
             t = File()
+        if isinstance(t, String) and isinstance(t2, Directory):
+            t = Directory()
 
         # String
         if (
             isinstance(t2, String)
-            and not isinstance(t2, File)
-            and not isinstance(t, File)
+            and not isinstance(t2, (File, Directory))
+            and not isinstance(t, (File, Directory))
             and (not check_quant or not isinstance(t, Array))
+            and (not isinstance(t, (Pair, Map)))
         ):
             t = String()
         if not t2.coerces(String(optional=True), check_quant=check_quant):

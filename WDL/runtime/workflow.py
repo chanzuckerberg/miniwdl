@@ -684,8 +684,9 @@ def run_local_workflow(
         cache = _cache
         if not cache:
             cache = cleanup.enter_context(new_call_cache(cfg, logger))
-            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
             assert _thread_pools is None
+        if not _thread_pools:
+            cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
         # query call cache
@@ -725,7 +726,7 @@ def run_local_workflow(
                 version = "v" + importlib_metadata.version("miniwdl")
             except importlib_metadata.PackageNotFoundError:
                 version = "UNKNOWN"
-            logger.notice(_("miniwdl", version=version))  # pyre-fixme
+            logger.notice(_("miniwdl", version=version, uname=" ".join(os.uname())))  # pyre-fixme
 
             # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd
             # be possible for all threads to be taken up by sub-workflows, deadlocking with no

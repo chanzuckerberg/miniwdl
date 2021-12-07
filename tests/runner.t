@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 80
+plan tests 81
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -471,3 +471,26 @@ EOF
 XXX=quick YYY=not $miniwdl run env.wdl --env WWW --env XXX --env YYY= --env "ZZZ=brown fox" -o env_out.json
 is "$?" "0" "--env succeeds"
 is "$(jq -r '.outputs["t.out"]' env_out.json)" "/quick//brown fox" "--env correct"
+
+# test flock of top-level workflow.log whilst workflow is running
+cat << 'EOF' > test_log_lock.wdl
+version development
+workflow w {
+    call sleeper
+}
+task sleeper {
+    input {}
+    command <<<
+        sleep 3
+    >>>
+    output {
+    }
+    runtime {
+        docker: "ubuntu:20.04"
+    }
+}
+EOF
+$miniwdl run test_log_lock.wdl --dir test_log_lock/. &
+sleep 2
+flock -nx -E 142 test_log_lock/workflow.log echo
+is "$?" "142" "workflow.log is flocked during run"

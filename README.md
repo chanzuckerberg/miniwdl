@@ -37,7 +37,7 @@ See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for chang
 ## Getting Help
 
 * [Open an issue](https://github.com/chanzuckerberg/miniwdl/issues)
-* [OpenWDL Slack](https://openwdl.slack.com/)
+* [OpenWDL Slack](https://openwdl.slack.com/) (#miniwdl channel)
 * [Bioinformatics Stack Exchange](https://bioinformatics.stackexchange.com/questions/tagged/wdl)
 
 ## [Contributing](https://github.com/chanzuckerberg/miniwdl/blob/main/CONTRIBUTING.md)
