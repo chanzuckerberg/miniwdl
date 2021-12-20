@@ -322,6 +322,8 @@ def _parse_dict(v: str) -> Dict[str, Any]:
 
 
 def _parse_list(v: str) -> List[Any]:
+    if not v.startswith("["):
+        return [v]
     ans = json.loads(v)
     assert isinstance(ans, list)
     return ans

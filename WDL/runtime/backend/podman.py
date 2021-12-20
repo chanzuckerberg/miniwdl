@@ -85,6 +85,10 @@ class PodmanContainer(SubprocessBase):
                 )
             ans += ["--user", f"{os.geteuid()}:{os.getegid()}"]
 
+        if self.runtime_values.get("privileged", False) is True:
+            logger.warning("runtime.privileged enabled (security & portability warning)")
+            ans.append("--privileged")
+
         mounts = self.prepare_mounts()
         logger.info(
             _(

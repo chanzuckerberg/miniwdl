@@ -68,6 +68,9 @@ class SingularityContainer(SubprocessBase):
             "--pwd",
             os.path.join(self.container_dir, "work"),
         ]
+        if self.runtime_values.get("privileged", False) is True:
+            logger.warning("runtime.privileged enabled (security & portability warning)")
+            ans += ["--add-caps", "all"]
         ans += self.cfg.get_list("singularity", "run_options")
 
         mounts = self.prepare_mounts()
