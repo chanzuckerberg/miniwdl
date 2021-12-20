@@ -1173,6 +1173,7 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"privileged": True}, expected_exception=WDL.runtime.CommandFailed)
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"task_runtime": {"allow_privileged": True}})
+        self._test_task(txt, {"privileged": False}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
         self._test_task(txt, {"privileged": True}, cfg=cfg)
 
 
