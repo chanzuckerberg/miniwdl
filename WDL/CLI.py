@@ -1381,8 +1381,7 @@ def run_self_test(**kwargs):
     )
     if os.geteuid() == 0:
         print(
-            "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per\n"
-            "        https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+            "* Note: running miniwdl as root is usually avoidable (see docs)",
             file=sys.stderr,
         )
 
