@@ -1152,6 +1152,30 @@ class TestTaskRunner(unittest.TestCase):
         except WDL.runtime.error.CommandFailed as exn:
             self.assertEqual(exn.exit_status, 42)
 
+    def test_runtime_privileged(self):
+        txt = R"""
+        version 1.0
+        task xxx {
+            input {
+                Boolean privileged
+            }
+            command {
+                dmesg > /dev/null
+            }
+            output {
+            }
+            runtime {
+                privileged: privileged
+            }
+        }
+        """
+        self._test_task(txt, {"privileged": False}, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"privileged": True}, expected_exception=WDL.runtime.CommandFailed)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"allow_privileged": True}})
+        self._test_task(txt, {"privileged": False}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"privileged": True}, cfg=cfg)
+
 
 class TestConfigLoader(unittest.TestCase):
     @classmethod

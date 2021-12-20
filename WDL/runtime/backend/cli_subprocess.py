@@ -129,6 +129,7 @@ class SubprocessBase(TaskContainer):
     def cli_name(self) -> str:
         pass
 
+    @property
     def cli_exe(self) -> List[str]:
         return [self.cli_name]
 

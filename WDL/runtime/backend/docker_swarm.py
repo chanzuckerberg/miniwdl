@@ -210,6 +210,9 @@ class SwarmContainer(TaskContainer):
                 "container_labels": {"miniwdl_run_id": self.run_id},
                 "env": [f"{k}={v}" for (k, v) in self.runtime_values.get("env", {}).items()],
             }
+            if self.runtime_values.get("privileged", False) is True:
+                logger.warning("runtime.privileged enabled (security & portability warning)")
+                kwargs["cap_add"] = ["ALL"]
             kwargs.update(self.create_service_kwargs or {})
             logger.debug(_("docker create service kwargs", **kwargs))
             svc = client.services.create(image_tag, **kwargs)
