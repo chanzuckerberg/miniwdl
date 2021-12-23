@@ -222,6 +222,17 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
         txt = tasks + r"""
         workflow contrived {
+            scatter (i in range(3)) {
+                call sum
+                call sum
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
             call sum
             call p as sum
         }
@@ -233,6 +244,17 @@ class TestCalls(unittest.TestCase):
         workflow contrived {
             call sum as foo
             call p as foo
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            scatter (i in range(3)) {
+                call sum as foo
+                call p as foo
+            }
         }
         """
         doc = WDL.parse_document(txt)

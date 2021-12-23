@@ -778,12 +778,15 @@ class WorkflowSection(WorkflowNode):
         self.gathers = dict()
         for elt in self.body:
             if isinstance(elt, (Decl, Call)):
-                assert elt.workflow_node_id not in self.gathers
+                # assert elt.workflow_node_id not in self.gathers
+                # ^ won't hold if the section has internal name collisions, which will be checked
+                # later upon building the type environment.
                 self.gathers[elt.workflow_node_id] = Gather(self, elt)
             elif isinstance(elt, WorkflowSection):
                 # gather gathers!
                 for subgather in elt.gathers.values():
-                    assert subgather.workflow_node_id not in self.gathers
+                    # assert subgather.workflow_node_id not in self.gathers
+                    # id.
                     self.gathers[subgather.workflow_node_id] = Gather(self, subgather)
 
     @property
