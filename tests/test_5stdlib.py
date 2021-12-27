@@ -889,7 +889,7 @@ class TestStdLib(unittest.TestCase):
 
     def test_issue538(self):
         # more struct init regression
-        self._test_task(R"""
+        outp = self._test_task(R"""
         version 1.0
         struct StructWithMap { Map[String, String] map }
         task RoundTripJson {
@@ -904,6 +904,7 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
+        self.assertEquals(outp["result"], {"map": {"foo":"bar", "fizz":"buzz"}})
 
     def test_bad_object(self):
         self._test_task(R"""
