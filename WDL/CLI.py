@@ -1375,8 +1375,14 @@ def run_self_test(**kwargs):
             )
             raise exn
 
+    miniwdl_version = pkg_version()
+    if miniwdl_version:
+        miniwdl_version = "v" + miniwdl_version
+
     print(
-        "\nminiwdl run_self_test OK; try `miniwdl configure` to set common options or show current selections.",
+        "\nminiwdl run_self_test OK ("
+        + (miniwdl_version or "version unknown")
+        + "); try `miniwdl configure` to set common options or show current selections.",
         file=sys.stderr,
     )
     if os.geteuid() == 0:
