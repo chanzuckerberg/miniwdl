@@ -411,8 +411,10 @@ class Task(SourceNode):
                 errors.try1(
                     lambda runtime_expr=runtime_expr: runtime_expr.infer_type(
                         type_env, stdlib, check_quant=check_quant, struct_types=struct_types
-                    ).typecheck(Type.String())
-                )
+                    )
+                )  # .typecheck()
+                # (At this stage we don't care about the overall expression type, just that it
+                #  typechecks internally.)
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(
