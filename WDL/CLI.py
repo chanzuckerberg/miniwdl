@@ -77,6 +77,8 @@ def main(args=None):
             localize(**vars(args))
         elif args.command == "configure":
             configure(**vars(args))
+        elif args.command == "eval":
+            eval_expr(**vars(args))
         else:
             assert False
     except (
@@ -115,6 +117,7 @@ def create_arg_parser():
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
+    fill_common(fill_eval_subparser(subparsers))
     return parser
 
 
@@ -379,7 +382,9 @@ def print_error(exn):
             sys.stderr.write(ANSI.RESET)
         if isinstance(exn, Error.ImportError) and hasattr(exn, "__cause__"):
             print_error(exn.__cause__)
-        if isinstance(exn, Error.ValidationError) and exn.source_text:
+        if isinstance(exn, (Error.SyntaxError, Error.ValidationError)) and getattr(
+            exn, "source_text", None
+        ):
             # show source excerpt
             lines = exn.source_text.split("\n")
             error_line = lines[exn.pos.line - 1].replace("\t", " ")
@@ -392,7 +397,7 @@ def print_error(exn):
             while end_column > exn.pos.column + 1 and error_line[end_column - 2] == " ":
                 end_column = end_column - 1
             print(
-                "    " + " " * (exn.pos.column - 1) + "^" * (end_column - exn.pos.column),
+                "    " + " " * (exn.pos.column - 1) + "^" * max(1, end_column - exn.pos.column),
                 file=sys.stderr,
             )
             if isinstance(exn, Error.StaticTypeMismatch) and exn.actual.coerces(
@@ -1823,6 +1828,82 @@ def format_cfg(sections):
             value = value.replace("\n", "\n  ")
             ans.append(f"{key} = {value}")
     return "\n".join(ans)
+
+
+def fill_eval_subparser(subparsers):
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Evaluate a WDL expression",
+        description="Evaluate an isolated WDL expression and print JSON value",
+    )
+    eval_parser.add_argument(
+        "decl",
+        metavar="DECL",
+        nargs="*",
+        help="Declaration in evaluator environment (e.g. 'Int n = 42')",
+    )
+    eval_parser.add_argument(
+        "expr",
+        metavar="EXPR",
+        type=str,
+        help="WDL expression to evaluate (e.g. '[n, n/2]')",
+    )
+    eval_parser.add_argument(
+        "--wdl-version",
+        "-v",
+        type=str,
+        default="development",
+        help="WDL version (default: development)",
+    )
+    eval_parser.add_argument(
+        "--type",
+        "-t",
+        action="store_true",
+        dest="report_type",
+        help="report type as well as JSON value",
+    )
+    return eval_parser
+
+
+def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_type=False, **kwargs):
+    from ._parser import parse_bound_decl, parse_expr
+    from . import StdLib
+
+    # setup
+    class _StdLib(StdLib.Base):
+        def _devirtualize_filename(self, filename: str) -> str:
+            return filename
+
+        def _virtualize_filename(self, filename: str) -> str:
+            return filename
+
+    stdlib = _StdLib(wdl_version, write_dir=os.environ.get("TMPDIR", "/tmp"))
+    type_env = Env.Bindings()
+    value_env = Env.Bindings()
+
+    # typecheck & evaluate each decl
+    for a_decl in decl:
+        try:
+            decl_ast = parse_bound_decl(a_decl, wdl_version)
+            decl_ast.typecheck(type_env, stdlib, Env.Bindings(), check_quant=check_quant)
+            type_env = decl_ast.add_to_type_env(Env.Bindings(), type_env)
+            value_env = value_env.bind(decl_ast.name, decl_ast.expr.eval(value_env, stdlib))
+        except Exception as exn:
+            setattr(exn, "source_text", a_decl)  # for print_error()
+            raise
+
+    # typecheck & evaluate expr, display result
+    try:
+        expr_ast = parse_expr(expr, wdl_version).infer_type(
+            type_env, stdlib, check_quant=check_quant
+        )
+        if report_type:
+            print(str(expr_ast.type))
+        v = expr_ast.eval(value_env, stdlib)
+        print(json.dumps(v.json, indent=2))
+    except Exception as exn:
+        setattr(exn, "source_text", expr)  # for print_error()
+        raise
 
 
 def pkg_version(pkg="miniwdl"):

@@ -3,7 +3,7 @@ import inspect
 import threading
 import regex
 import codecs
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple, Any
 import lark
 from .Error import SourcePosition
 from . import Error, Tree, Type, Expr, _grammar
@@ -641,6 +641,10 @@ class _DocTransformer(_ExprTransformer):
             self._declared_version,
         )
 
+    def eval_cmd(self, meta, items):
+        assert len(items)
+        return ([decl for decl in items if isinstance(decl, Tree.Decl)], items[-1])
+
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for _klass in [_ExprTransformer, _DocTransformer]:
@@ -650,6 +654,7 @@ for _klass in [_ExprTransformer, _DocTransformer]:
 
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
+    version = version or "1.0"
     try:
         return _ExprTransformer().transform(parse(_grammar.get(version)[0], txt, "expr")[0])
     except lark.exceptions.UnexpectedInput as exn:
@@ -661,49 +666,31 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
             end_line=getattr(exn, "line", "?"),
             end_column=getattr(exn, "column", "?"),
         )
-        raise Error.SyntaxError(pos, str(exn), "1.0", None) from None
+        raise Error.SyntaxError(pos, str(exn), version, None) from None
     except lark.exceptions.VisitError as exn:
-        if isinstance(exn.__context__, BadCharacterEncoding):
+        exn = exn.__context__ or exn
+        if isinstance(exn, BadCharacterEncoding):
             raise Error.SyntaxError(
-                exn.__context__.pos, "Invalid character encoding", "1.0", None
+                exn.pos,
+                "Bad escape sequence in string literal",
+                version,
+                None,
             ) from None
-        raise exn.__context__ from None
+        # attach WDL version info to all parser exceptions (not just SyntaxError)
+        setattr(exn, "wdl_version", version)
+        setattr(exn, "declared_wdl_version", None)
+        raise exn from None
 
 
-def parse_tasks(txt: str, version: str = "draft-2") -> List[Tree.Task]:
-    try:
-        (grammar, keywords) = _grammar.get(version)
-        raw_ast, comments = parse(grammar, txt, "tasks")
-        return _DocTransformer(
-            source_text=txt,
-            keywords=keywords,
-            comments=comments,
-            version=version,
-            declared_version=None,
-        ).transform(raw_ast)
-    except lark.exceptions.VisitError as exn:
-        if isinstance(exn.__context__, BadCharacterEncoding):
-            raise Error.SyntaxError(
-                exn.__context__.pos, "Invalid character encoding", version, None
-            ) from None
-        raise exn.__context__ from None
-
-
-def parse_document(
-    txt: str, version: Optional[str] = None, uri: str = "", abspath: str = ""
-) -> Tree.Document:
+def _parse_doctransformer(
+    terminal: str,
+    txt: str,
+    version: str,
+    declared_version: Optional[str] = None,
+    uri: str = "",
+    abspath: str = "",
+) -> Any:
     npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
-    if not txt.strip():
-        return Tree.Document(txt, npos, [], {}, [], None, [], None)
-    declared_version = None
-    for line in txt.split("\n"):
-        line = line.strip()
-        if line and line[0] != "#":
-            if line.startswith("version "):
-                declared_version = line[8:]
-            break
-    version = version or declared_version or "draft-2"
-    assert isinstance(version, str)
     try:
         (grammar, keywords) = _grammar.get(version)
     except KeyError:
@@ -714,7 +701,7 @@ def parse_document(
             declared_version,
         ) from None
     try:
-        raw_ast, comments = parse(grammar, txt, "document")
+        raw_ast, comments = parse(grammar, txt, terminal)
         return _DocTransformer(
             source_text=txt,
             uri=uri,
@@ -747,3 +734,31 @@ def parse_document(
         setattr(exn, "wdl_version", version)
         setattr(exn, "declared_wdl_version", declared_version)
         raise exn from None
+
+
+def parse_tasks(txt: str, version: str = "draft-2") -> List[Tree.Task]:
+    return _parse_doctransformer("tasks", txt, version)
+
+
+def parse_bound_decl(txt: str, version: str = "draft-2") -> Tree.Decl:
+    return _parse_doctransformer("bound_decl", txt, version)
+
+
+def parse_document(
+    txt: str, version: Optional[str] = None, uri: str = "", abspath: str = ""
+) -> Tree.Document:
+    npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
+    if not txt.strip():
+        return Tree.Document(txt, npos, [], {}, [], None, [], None)
+    declared_version = None
+    for line in txt.split("\n"):
+        line = line.strip()
+        if line and line[0] != "#":
+            if line.startswith("version "):
+                declared_version = line[8:]
+            break
+    version = version or declared_version or "draft-2"
+    assert isinstance(version, str)
+    return _parse_doctransformer(
+        "document", txt, version, declared_version=declared_version, uri=uri, abspath=abspath
+    )

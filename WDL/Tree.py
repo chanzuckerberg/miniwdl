@@ -1517,7 +1517,11 @@ async def _load_async(
     uri = uri if uri != "-" else "/dev/stdin"
     read_rslt = await read_source(uri, path, importer)
     # parse the document
-    doc = _parser.parse_document(read_rslt.source_text, uri=uri, abspath=read_rslt.abspath)
+    try:
+        doc = _parser.parse_document(read_rslt.source_text, uri=uri, abspath=read_rslt.abspath)
+    except Exception as exn:
+        setattr(exn, "source_text", read_rslt.source_text)
+        raise
     assert doc.pos.uri == uri and doc.pos.abspath.endswith(os.path.basename(doc.pos.uri))
     # recursively descend into document's imports, and store the imported
     # documents into doc.imports
@@ -1549,7 +1553,7 @@ async def _load_async(
     except Error.ValidationError as exn:
         exn.source_text = read_rslt.source_text
         exn.declared_wdl_version = doc.wdl_version
-        raise exn
+        raise
     except Error.MultipleValidationErrors as multi:
         for exn in multi.exceptions:
             if not exn.source_text:
