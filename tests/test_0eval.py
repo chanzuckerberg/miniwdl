@@ -211,6 +211,7 @@ class TestEval(unittest.TestCase):
             (r'''"\xyz"''', None, WDL.Error.SyntaxError),
             (r'''"\u"''', None, WDL.Error.SyntaxError),
             (r'''"\uvwxyz"''', None, WDL.Error.SyntaxError),
+            (r'''"foo''', None, WDL.Error.SyntaxError),
         )
         chars = [c for c in (chr(i) for i in range(1,4096)) if c not in "\"'\\\n$~"]
         junk = []

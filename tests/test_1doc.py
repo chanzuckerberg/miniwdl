@@ -970,6 +970,14 @@ task count_lines {
         with self.assertRaises(WDL.Error.IndeterminateType):
             doc.typecheck()
 
+        doc = r"""
+        workflow wf {
+            String s = "\uvwxyz"
+        }
+        """
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(doc)
+
     def test_task_forward_reference(self):
         doc = r"""
         version 1.0

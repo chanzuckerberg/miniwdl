@@ -641,10 +641,6 @@ class _DocTransformer(_ExprTransformer):
             self._declared_version,
         )
 
-    def eval_cmd(self, meta, items):
-        assert len(items)
-        return ([decl for decl in items if isinstance(decl, Tree.Decl)], items[-1])
-
 
 # have lark pass the 'meta' with line/column numbers to each transformer method
 for _klass in [_ExprTransformer, _DocTransformer]:
