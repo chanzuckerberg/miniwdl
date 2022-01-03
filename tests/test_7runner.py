@@ -837,6 +837,14 @@ class MiscRegressionTests(RunnerTestCase):
         cfg.override({"task_runtime": {"placeholder_regex": "[0-9A-Za-z:/._-]*"}})
         self._run(wdl, {"s": malicious}, cfg=cfg, expected_exception=WDL.Error.InputError)
 
+    def test_syntax_error(self):
+        doc = r"""
+        workflow wf {
+            String s = "\uvwxyz"
+        }
+        """
+        self._run(doc, {}, expected_exception=WDL.Error.SyntaxError)
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
