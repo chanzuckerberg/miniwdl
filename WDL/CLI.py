@@ -36,6 +36,7 @@ from . import (
     values_to_json,
     read_source_default,
     ReadSourceResult,
+    Bundle,
 )
 from ._util import (
     VERBOSE_LEVEL,
@@ -79,6 +80,8 @@ def main(args=None):
             configure(**vars(args))
         elif args.command == "eval":
             eval_expr(**vars(args))
+        elif args.command == "bundle":
+            bundle(**vars(args))
         else:
             assert False
     except (
@@ -118,6 +121,7 @@ def create_arg_parser():
     fill_common(fill_run_self_test_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
     fill_common(fill_eval_subparser(subparsers))
+    fill_common(fill_bundle_subparser(subparsers))
     return parser
 
 
@@ -1904,6 +1908,72 @@ def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_ty
     except Exception as exn:
         setattr(exn, "source_text", expr)  # for print_error()
         raise
+
+
+def fill_bundle_subparser(subparsers):
+    bundle_parser = subparsers.add_parser(
+        "bundle",
+        help="Bundle WDL source",
+        description="Bundle WDL source file with all imports and JSON input defaults",
+    )
+    bundle_parser.add_argument(
+        "wdlfile",
+        metavar="JSON_OR_FILE",
+        help="top-level WDL to bundle",
+    )
+    bundle_parser.add_argument(
+        "--input",
+        "-i",
+        metavar="FILE",
+        help="input JSON to include as defaults",
+    )
+    bundle_parser.add_argument(
+        "--compress",
+        action="store_true",
+        help="generate compressed (opaque) encoding",
+    )
+    return bundle_parser
+
+
+def bundle(
+    wdlfile,
+    input=None,
+    compress=False,
+    check_quant=True,
+    path=None,
+    no_outside_imports=False,
+    **kwargs,
+):
+    # load WDL document
+    doc = load(
+        wdlfile,
+        path or [],
+        check_quant=check_quant,
+        read_source=make_read_source(no_outside_imports),
+    )
+
+    # load input JSON, if any
+    if input:
+        input = input.strip()
+        if not input.startswith("{"):
+            if input == "-":
+                input = sys.stdin.read()
+            else:
+                input = (
+                    asyncio.get_event_loop()
+                    .run_until_complete(make_read_source(False)(input, [], None))
+                    .source_text
+                )
+
+        import yaml
+
+        input = yaml.safe_load(input)
+        # TODO: validate inputs; merge in command-line inputs; warn about local file paths
+
+    # build bundle
+    bundle = Bundle.build(doc, input=input)
+    bundle = Bundle.encode(bundle, compress=compress)
+    print(bundle)
 
 
 def pkg_version(pkg="miniwdl"):
