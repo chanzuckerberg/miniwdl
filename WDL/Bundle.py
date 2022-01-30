@@ -112,7 +112,7 @@ READ_BUNDLE_INPUT = "83Cee747E4BCFF80938eA1056F925d1c24412f0b"
 def make_read_source(bundle: Dict[str, Any]):
     """
     Generate a ``read_source`` routine to read from the bundle. To get the bundled input JSON if
-    any, call with the special value ``READ_BUNDLE_INPUT``.
+    any, call with the special value ``WDL.Bundle.READ_BUNDLE_INPUT``.
     """
     sources = bundle["sources"]
     imports_idx = {}  # layout imports, indexed by source abspath
