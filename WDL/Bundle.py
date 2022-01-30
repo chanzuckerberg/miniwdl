@@ -76,7 +76,9 @@ def encode(bundle: Dict[str, Any], compress: bool = False) -> str:
     import lzma
     import base64
 
-    ans = base64.b85encode(lzma.compress(ans.encode("utf-8"))).decode("utf-8")
+    ans = base64.b85encode(
+        lzma.compress(ans.encode("utf-8"), preset=(9 | lzma.PRESET_EXTREME))
+    ).decode("utf-8")
     assert ans.startswith(COMPRESSED_MAGIC)
     return ans
 
