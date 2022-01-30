@@ -32,7 +32,11 @@ def build(doc: Tree.Document, input: Optional[Dict[str, Any]]) -> Dict[str, Any]
         return len(sources) - 1
 
     def build_layout(doc, ref=None):
-        layout = {"ref": ref or os.path.basename(doc.pos.uri), "source": add_source(doc)}
+        if not ref:
+            ref = doc.pos.uri
+            if not ref.startswith("/"):
+                ref = os.path.basename(ref)
+        layout = {"ref": ref, "source": add_source(doc)}
         imports = [build_layout(imp.doc, imp.uri) for imp in doc.imports]
         if imports:
             layout["imports"] = imports

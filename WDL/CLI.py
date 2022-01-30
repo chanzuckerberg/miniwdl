@@ -1970,11 +1970,12 @@ def bundle(
     **kwargs,
 ):
     # load WDL document
+    read_source = make_read_source(no_outside_imports)
     doc = load(
         wdlfile,
         path or [],
         check_quant=check_quant,
-        read_source=make_read_source(no_outside_imports),
+        read_source=read_source,
     )
 
     # load & validate input JSON, if any
@@ -1992,6 +1993,8 @@ def bundle(
             )
         except Error.InputError as exn:
             die(exn.args[0])
+    else:
+        input = sync_await(read_source(Bundle.READ_BUNDLE_INPUT, [], None))
 
     # build bundle
     bundle = Bundle.build(doc, input=input)
