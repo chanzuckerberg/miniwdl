@@ -418,9 +418,9 @@ def make_read_source(no_outside_imports):
 
     async def read_source(uri, path, importer):
         nonlocal read_bundle
-        if not read_bundle and os.environ.get("MINIWDL__SOURCE__BUNDLE", None):
+        if not read_bundle and os.environ.get("MINIWDL__SOURCE__BUNDLE", "").strip():
             try:
-                bundle = Bundle.decode(os.environ["MINIWDL__SOURCE__BUNDLE"])
+                bundle = Bundle.decode(os.environ["MINIWDL__SOURCE__BUNDLE"].strip())
             except:
                 raise Error.InputError("Env MINIWDL__SOURCE__BUNDLE is invalid or corrupt")
             read_bundle = Bundle.make_read_source(bundle)
@@ -744,6 +744,8 @@ def runner(
 
         try:
             # load WDL document
+            if os.environ.get("MINIWDL__SOURCE__BUNDLE", "").strip():
+                logger.notice("WDL source will be read from env MINIWDL__SOURCE__BUNDLE")
             read_source = make_read_source(no_outside_imports)
             doc = load(
                 uri,
@@ -1567,6 +1569,8 @@ def localize(
 
         if infile:
             # load WDL document
+            if os.environ.get("MINIWDL__SOURCE__BUNDLE", "").strip():
+                logger.notice("WDL source will be read from env MINIWDL__SOURCE__BUNDLE")
             read_source = make_read_source(no_outside_imports)
             doc = load(
                 wdlfile,
@@ -1978,6 +1982,7 @@ def bundle(
     **kwargs,
 ):
     # load WDL document
+    os.environ["MINIWDL__SOURCE__BUNDLE"] = ""
     read_source = make_read_source(no_outside_imports)
     doc = load(
         wdlfile,

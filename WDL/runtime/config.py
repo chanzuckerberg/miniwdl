@@ -88,7 +88,7 @@ class Loader:
     ):
         self._logger = logger
         self._used = set()
-        self._used_env = set(["MINIWDL_CFG"])
+        self._used_env = set(["MINIWDL_CFG", "MINIWDL__SOURCE__BUNDLE"])
 
         common_kws = {}
 
