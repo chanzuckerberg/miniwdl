@@ -960,6 +960,7 @@ def runner_input(
         root,
         bundle_input,
     )
+    json_keys = set(b.name for b in input_env)
 
     # set explicitly empty arrays or strings
     for empty_name in empty or []:
@@ -1034,7 +1035,7 @@ def runner_input(
 
         # insert value into input_env
         existing = input_env.get(name)
-        if existing:
+        if existing and name not in json_keys:
             if isinstance(v, Value.Array):
                 assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
                 existing.value.extend(v.value)
@@ -1043,6 +1044,7 @@ def runner_input(
                 raise Error.InputError(f"non-array input {buf[0]} duplicated")
         else:
             input_env = input_env.bind(name, v, decl)
+            json_keys.discard(name)  # command-line overrides JSON input
 
     # check for missing inputs
     if check_required:
