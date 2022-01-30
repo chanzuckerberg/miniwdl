@@ -1522,7 +1522,6 @@ async def _load_async(
     except Exception as exn:
         setattr(exn, "source_text", read_rslt.source_text)
         raise
-    assert doc.pos.uri == uri and doc.pos.abspath.endswith(os.path.basename(doc.pos.uri))
     # recursively descend into document's imports, and store the imported
     # documents into doc.imports
     # TODO: are we supposed to do something smart for relative imports

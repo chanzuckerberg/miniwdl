@@ -411,10 +411,17 @@ def print_error(exn):
 
 
 def make_read_source(no_outside_imports):
+    from urllib import parse, request
+
     top_dir = None
+    read_bundle = None
 
     async def read_source(uri, path, importer):
-        from urllib import parse, request
+        nonlocal read_bundle
+        if read_bundle:
+            return await read_bundle(uri, path, importer)  # pylint: disable=E1102
+        if uri == Bundle.READ_BUNDLE_INPUT:
+            return None
 
         if uri.startswith("http:") or uri.startswith("https:"):
             with tempfile.TemporaryDirectory(prefix="miniwdl_import_uri_") as tmpdir:
@@ -445,6 +452,12 @@ def make_read_source(no_outside_imports):
                     "denied import from outside main WDL file's directory; "
                     "strike --no-outside-imports or add to --path: " + os.path.dirname(ans.abspath)
                 )
+
+        if not importer and Bundle.detect(ans.source_text):
+            # detected top-level bundle; start delegating to bundle reader
+            bundle = Bundle.decode(ans.source_text)
+            read_bundle = Bundle.make_read_source(bundle)
+            return await read_bundle(uri, path, importer)
         return ans
 
     return read_source
@@ -725,11 +738,12 @@ def runner(
 
         try:
             # load WDL document
+            read_source = make_read_source(no_outside_imports)
             doc = load(
                 uri,
                 path or [],
                 check_quant=check_quant,
-                read_source=make_read_source(no_outside_imports),
+                read_source=read_source,
             )
 
             # parse and validate the provided inputs
@@ -746,6 +760,7 @@ def runner(
                 task=task,
                 downloadable=lambda fn, is_dir: runtime.download.able(cfg, fn, directory=is_dir),
                 root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
+                bundle_input=sync_await(read_source(Bundle.READ_BUNDLE_INPUT, [], None)),
             )
         except Error.InputError as exn:
             runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
@@ -908,6 +923,7 @@ def runner_input(
     check_required=True,
     downloadable=None,
     root="/",
+    bundle_input=None,
 ):
     """
     - Determine the target workflow/task
@@ -942,6 +958,7 @@ def runner_input(
         input_file,
         downloadable,
         root,
+        bundle_input,
     )
 
     # set explicitly empty arrays or strings
@@ -1044,31 +1061,33 @@ def runner_input(
     )
 
 
-def runner_input_json_file(available_inputs, namespace, input_file, downloadable, root):
+def runner_input_json_file(
+    available_inputs, namespace, input_file, downloadable, root, bundle_input
+):
     """
     Load user-supplied inputs JSON file, if any
     """
     ans = Env.Bindings()
+    input_json = dict(bundle_input) if bundle_input else {}
 
     if input_file:
         input_file = input_file.strip()
     if input_file:
         import yaml  # delayed heavy import
 
-        input_json = None
         if input_file[0] == "{":
-            input_json = input_file
+            file_json = input_file
         elif input_file == "-":
-            input_json = sys.stdin.read()
+            file_json = sys.stdin.read()
         else:
-            input_json = (
-                asyncio.get_event_loop()
-                .run_until_complete(make_read_source(False)(input_file, [], None))
-                .source_text
-            )
-        input_json = yaml.safe_load(input_json)
-        if not isinstance(input_json, dict):
+            file_json = sync_await(make_read_source(False)(input_file, [], None)).source_text
+        file_json = yaml.safe_load(file_json)
+        if not isinstance(file_json, dict):
             raise Error.InputError("check JSON input; expected top-level object")
+        for k, v in file_json.items():
+            input_json[k] = v
+
+    if input_json:
         try:
             ans = values_from_json(input_json, available_inputs, namespace=namespace)
         except Error.InputError as exn:
@@ -1265,6 +1284,10 @@ def runner_standard_output(content, stdout_file, error_json, log_json):
                 print(content_json, file=outfile)
         else:
             print(content_json)
+
+
+def sync_await(promise):
+    return asyncio.get_event_loop().run_until_complete(promise)
 
 
 def fill_run_self_test_subparser(subparsers):
@@ -1536,11 +1559,12 @@ def localize(
 
         if infile:
             # load WDL document
+            read_source = make_read_source(no_outside_imports)
             doc = load(
                 wdlfile,
                 path or [],
                 check_quant=check_quant,
-                read_source=make_read_source(no_outside_imports),
+                read_source=read_source,
             )
 
             try:
@@ -1555,6 +1579,7 @@ def localize(
                     downloadable=lambda fn, is_dir: runtime.download.able(
                         cfg, fn, directory=is_dir
                     ),
+                    bundle_input=sync_await(read_source(Bundle.READ_BUNDLE_INPUT, [], None)),
                 )
             except Error.InputError as exn:
                 die(exn.args[0])
@@ -1952,23 +1977,21 @@ def bundle(
         read_source=make_read_source(no_outside_imports),
     )
 
-    # load input JSON, if any
+    # load & validate input JSON, if any
     if input:
-        input = input.strip()
-        if not input.startswith("{"):
-            if input == "-":
-                input = sys.stdin.read()
-            else:
-                input = (
-                    asyncio.get_event_loop()
-                    .run_until_complete(make_read_source(False)(input, [], None))
-                    .source_text
-                )
-
-        import yaml
-
-        input = yaml.safe_load(input)
-        # TODO: validate inputs; merge in command-line inputs; warn about local file paths
+        try:
+            _target, _input_env, input = runner_input(
+                doc,
+                [],
+                input,
+                [],
+                [],
+                check_required=False,
+                downloadable=lambda fn, is_dir: True,
+                bundle_input=None,
+            )
+        except Error.InputError as exn:
+            die(exn.args[0])
 
     # build bundle
     bundle = Bundle.build(doc, input=input)
