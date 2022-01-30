@@ -566,3 +566,63 @@ class warp_pipelines_cemba(unittest.TestCase):
 )
 class warp_pipelines_skylab(unittest.TestCase):
     pass
+
+
+class TestBundle(unittest.TestCase):
+    def _t(self, doc, input=None):
+        bundle = WDL.Bundle.build(doc, input=input)
+        read_source = WDL.Bundle.make_read_source(bundle)
+        bundled_doc = WDL.load("foobar", read_source=read_source)
+        assert isinstance(bundled_doc, WDL.Document)
+        assert (
+            WDL.Bundle.build(
+                bundled_doc,
+                input=WDL.CLI.sync_await(read_source(WDL.Bundle.READ_BUNDLE_INPUT, [], None)),
+            )
+            == bundle
+        )
+
+        bundle_yaml = WDL.Bundle.encode(bundle)
+        assert WDL.Bundle.decode(bundle_yaml) == bundle
+
+        bundle_compressed = WDL.Bundle.encode(bundle, compress=True)
+        assert WDL.Bundle.decode(bundle_compressed) == bundle
+        if len(bundle_compressed) >= 256:
+            assert len(bundle_compressed) * 2 < len(bundle_yaml)
+
+        with self.assertRaises(WDL.Error.InputError):
+            WDL.Bundle.decode(bundle_yaml.replace("|", ""))
+        with self.assertRaises(WDL.Error.InputError):
+            WDL.Bundle.decode(bundle_compressed.lower())
+
+        return bundle
+
+    def test_empty(self):
+        self._t(WDL.load("test_corpi/contrived/empty.wdl"))
+
+    def test_biowdl_aligning(self):
+        self._t(WDL.load("test_corpi/biowdl/aligning/align-star.wdl"))
+
+    def test_wgs(self):
+        # multiple nested subworkflows
+        self._t(
+            WDL.load(
+                "test_corpi/broadinstitute/warp/pipelines/broad/reprocessing/wgs/WholeGenomeReprocessing.wdl",
+            )
+        )
+
+    def test_assemble_refbased(self):
+        self._t(
+            WDL.load(
+                "test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/assemble_denovo.wdl",
+                path=["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"],
+            ),
+            input={"foo": ["bar", "baz"]},
+        )
+
+    def test_input(self):
+        pass
+
+    def test_corrupt(self):
+        with self.assertRaises(WDL.Error.InputError):
+            WDL.Bundle.decode("foobar")

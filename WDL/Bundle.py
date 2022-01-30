@@ -1,7 +1,7 @@
 """
 Bundles are miniwdl's file format packaging a WDL source file, imported source files, and optional
 JSON default inputs, all into one file for convenient transfer. The bundle can then be used with
-miniwdl commands instead of the original WDL source files.
+miniwdl commands instead of the original WDL source tree.
 
 The format is merely a UTF-8 YAML structure inlining the original source files, along with metadata
 recording how they import each other. Optionally, the YAML text can be compressed with xz and this
@@ -12,10 +12,10 @@ variables with container schedulers that limit their size.
 import os
 from typing import Optional, Any, Dict, List
 
-from . import Tree
+from . import Tree, Error
 
 
-def build(doc: Tree.Document, input: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def build(doc: Tree.Document, input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Bundle the WDL document and all its imports, along with optional input JSON
     """
@@ -28,14 +28,12 @@ def build(doc: Tree.Document, input: Optional[Dict[str, Any]]) -> Dict[str, Any]
         )
         if existing >= 0:
             return existing
-        sources.append({"abspath": doc.pos.abspath, "source_text": doc.source_text})
+        sources.append({"abspath": doc.pos.abspath, "source_text": doc.source_text.rstrip()})
         return len(sources) - 1
 
     def build_layout(doc, ref=None):
         if not ref:
-            ref = doc.pos.uri
-            if not ref.startswith("/"):
-                ref = os.path.basename(ref)
+            ref = os.path.basename(doc.pos.abspath)
         layout = {"ref": ref, "source": add_source(doc)}
         imports = [build_layout(imp.doc, imp.uri) for imp in doc.imports]
         if imports:
@@ -45,6 +43,8 @@ def build(doc: Tree.Document, input: Optional[Dict[str, Any]]) -> Dict[str, Any]
     ans: Dict[str, Any] = {} if not input else {"input": input}
     ans["layout"] = build_layout(doc)
     ans["sources"] = sources
+
+    # TODO: optionally discard common prefix from all abspaths
 
     return ans
 
@@ -59,6 +59,7 @@ def encode(bundle: Dict[str, Any], compress: bool = False) -> str:
     """
     import yaml  # delay heavy import
 
+    # render multi-line strings (e.g. WDL source files) as YAML literals
     # https://stackoverflow.com/a/50519774
     def selective_representer(dumper, data):
         return dumper.represent_scalar(
@@ -93,6 +94,9 @@ def decode(bundle: str) -> Dict[str, Any]:
     """
     bundle = bundle.strip()
 
+    if not detect(bundle):
+        raise Error.InputError("input is not a WDL bundle")
+
     if bundle.startswith(COMPRESSED_MAGIC):
         import lzma
         import base64
@@ -100,23 +104,24 @@ def decode(bundle: str) -> Dict[str, Any]:
         try:
             bundle = lzma.decompress(base64.b85decode(bundle)).decode("utf-8")
         except:
-            raise IOError("compressed WDL bundle is corrupt")
-
-    if not bundle.startswith(YAML_MAGIC):
-        raise IOError("WDL bundle is corrupt")
+            raise Error.InputError("compressed WDL bundle is corrupt")
 
     import yaml
 
-    return yaml.safe_load(bundle)
+    try:
+        return yaml.safe_load(bundle)
+    except:
+        raise Error.InputError("corrupt WDL bundle")
 
 
+# arbitrary constant unlikely to collide with filenames
 READ_BUNDLE_INPUT = "83Cee747E4BCFF80938eA1056F925d1c24412f0b"
 
 
 def make_read_source(bundle: Dict[str, Any]):
     """
     Generate a ``read_source`` routine to read from the bundle. To get the bundled input JSON if
-    any, call with the special value ``WDL.Bundle.READ_BUNDLE_INPUT``.
+    any, call it with the special value ``WDL.Bundle.READ_BUNDLE_INPUT``.
     """
     sources = bundle["sources"]
     imports_idx = {}  # layout imports, indexed by source abspath
@@ -144,13 +149,14 @@ def make_read_source(bundle: Dict[str, Any]):
             layout = next((imp for imp in imports if imp["ref"] == uri))
             abspath = sources[layout["source"]]["abspath"]
             imports2 = layout.get("imports", [])
-            assert imports_idx.get(abspath, imports2) == imports2
+            if imports_idx.get(abspath, imports2) != imports2:
+                raise StopIteration  # internal inconsistency
             imports_idx[abspath] = imports2
 
             return Tree.ReadSourceResult(
                 source_text=sources[layout["source"]]["source_text"], abspath=abspath
             )
-        except (KeyError, StopIteration):
-            raise IOError("WDL bundle is corrupt or incomplete")
+        except (KeyError, IndexError, StopIteration):
+            raise Error.InputError("WDL bundle is corrupt or incomplete")
 
     return read_source_from_bundle
