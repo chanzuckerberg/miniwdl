@@ -51,16 +51,16 @@ EOF
 plan tests 7
 
 $miniwdl bundle wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' --compress > my_bundle
-is "$?" "0"
+is "$?" "0" "build bundle"
 $miniwdl check my_bundle
-is "$?" "0"
+is "$?" "0" "check bundle"
 $miniwdl bundle --compress <(miniwdl bundle my_bundle) > my_bundle2
-cmp my_bundle my_bundle2
-is "$?" "0"
+diff my_bundle my_bundle2
+is "$?" "0" "rebuild bundle"
 
 $miniwdl run my_bundle | tee out
-is "$?" "0"
+is "$?" "0" "run bundle"
 is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Alice!"
 $miniwdl run my_bundle who=Bob | tee out
-is "$?" "0"
+is "$?" "0" "run bundle with input override"
 is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Bob!"
