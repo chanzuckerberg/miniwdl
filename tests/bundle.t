@@ -54,7 +54,7 @@ $miniwdl bundle wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' > my_bundle
 is "$?" "0" "build bundle"
 $miniwdl check my_bundle
 is "$?" "0" "check bundle"
-miniwdl bundle my_bundle > my_bundle2
+$miniwdl bundle my_bundle > my_bundle2
 diff my_bundle my_bundle2
 is "$?" "0" "rebuild bundle"
 diff <($miniwdl bundle --compress my_bundle) \
