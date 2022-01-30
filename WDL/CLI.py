@@ -418,6 +418,12 @@ def make_read_source(no_outside_imports):
 
     async def read_source(uri, path, importer):
         nonlocal read_bundle
+        if not read_bundle and os.environ.get("MINIWDL__SOURCE__BUNDLE", None):
+            try:
+                bundle = Bundle.decode(os.environ["MINIWDL__SOURCE__BUNDLE"])
+            except:
+                raise Error.InputError("Env MINIWDL__SOURCE__BUNDLE is invalid or corrupt")
+            read_bundle = Bundle.make_read_source(bundle)
         if read_bundle:
             return await read_bundle(uri, path, importer)  # pylint: disable=E1102
         if uri == Bundle.READ_BUNDLE_INPUT:
