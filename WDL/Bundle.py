@@ -46,7 +46,7 @@ def build(doc: Tree.Document, input: Optional[Dict[str, Any]]) -> Dict[str, Any]
 
 
 YAML_MAGIC = "#wdl_bundle\n"
-COMPACT_MAGIC = "{Wp48"  # Base85 encoding of xz magic bytes
+COMPRESSED_MAGIC = "{Wp48"  # Base85 encoding of xz magic bytes
 
 
 def encode(bundle: Dict[str, Any], compress: bool = False) -> str:
@@ -72,7 +72,7 @@ def encode(bundle: Dict[str, Any], compress: bool = False) -> str:
     import base64
 
     ans = base64.b85encode(lzma.compress(ans.encode("utf-8"))).decode("utf-8")
-    assert ans.startswith(COMPACT_MAGIC)
+    assert ans.startswith(COMPRESSED_MAGIC)
     return ans
 
 
@@ -80,7 +80,7 @@ def detect(source_text: str) -> bool:
     """
     Detect whether the text is probably a bundle
     """
-    return source_text.startswith(YAML_MAGIC) or source_text.startswith(COMPACT_MAGIC)
+    return source_text.startswith(YAML_MAGIC) or source_text.startswith(COMPRESSED_MAGIC)
 
 
 def decode(bundle: str) -> Dict[str, Any]:
@@ -89,7 +89,7 @@ def decode(bundle: str) -> Dict[str, Any]:
     """
     bundle = bundle.strip()
 
-    if bundle.startswith(COMPACT_MAGIC):
+    if bundle.startswith(COMPRESSED_MAGIC):
         import lzma
         import base64
 
