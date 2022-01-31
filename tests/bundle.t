@@ -48,18 +48,19 @@ workflow w {
 }
 EOF
 
-plan tests 10
+plan tests 11
 
 $miniwdl bundle wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' > my_bundle
 is "$?" "0" "build bundle"
+$miniwdl bundle wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' --compress > compressed_bundle
+is "$?" "0" "compress bundle"
 $miniwdl check my_bundle
 is "$?" "0" "check bundle"
 $miniwdl bundle my_bundle > my_bundle2
 diff my_bundle my_bundle2
 is "$?" "0" "rebuild bundle"
-diff <($miniwdl bundle --compress my_bundle) \
-    <($miniwdl bundle --compress wdl/wf/outer.wdl --input ' {"w.who": "Alice"}')
-is "$?" "0" "compress bundle"
+diff <($miniwdl bundle --compress my_bundle) compressed_bundle
+is "$?" "0" "recompress bundle"
 
 $miniwdl run my_bundle | tee out
 is "$?" "0" "run bundle"
@@ -68,6 +69,6 @@ $miniwdl run my_bundle who=Bob | tee out
 is "$?" "0" "run bundle with input override"
 is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Bob!" "run bundle output 2"
 
-MINIWDL__SOURCE__BUNDLE="$(cat my_bundle)" $miniwdl run foobar | tee out
+MINIWDL__SOURCE__BUNDLE="$(cat compressed_bundle)" $miniwdl run foobar | tee out
 is "$?" "0" "run env bundle"
 is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Alice!" "run bundle output 3"
