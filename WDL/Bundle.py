@@ -42,16 +42,17 @@ def build(doc: Tree.Document, input: Optional[Dict[str, Any]] = None) -> Dict[st
 
     ans: Dict[str, Any] = {} if not input else {"input": input}
     ans["layout"] = build_layout(doc)
-    ans["sources"] = sources
 
     # strip common prefix from all abspaths, making bundle reproducible across machines
-    if len(ans["sources"]) > 1:
-        prefix = os.path.commonprefix([source["abspath"] for source in ans["sources"]]).rstrip("/")
-        for source in ans["sources"]:
+    if len(sources) > 1:
+        prefix = os.path.commonprefix([source["abspath"] for source in sources]).rstrip("/")
+        for source in sources:
             assert source["abspath"].startswith(prefix)
             source["abspath"] = source["abspath"][len(prefix) :]
     else:
-        ans["sources"][0]["abspath"] = "/" + os.path.basename(ans["sources"][0]["abspath"])
+        sources[0]["abspath"] = "/" + os.path.basename(sources[0]["abspath"])
+
+    ans["sources"] = sources
 
     return ans
 
