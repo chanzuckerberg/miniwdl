@@ -115,10 +115,10 @@ def decode(bundle: str) -> Dict[str, Any]:
     """
     Decode bundle text (auto-detects YAML or compressed)
     """
-    bundle = bundle.strip()
 
     if not detect(bundle):
         raise Error.InputError("input is not a WDL bundle")
+    bundle = bundle.strip()
 
     if bundle.startswith(COMPRESSED_MAGIC):
         import lzma
