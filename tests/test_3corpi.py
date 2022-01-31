@@ -570,7 +570,7 @@ class warp_pipelines_skylab(unittest.TestCase):
 
 class TestBundle(unittest.TestCase):
     def _t(self, doc, input=None):
-        bundle = WDL.Bundle.build(doc, input=input)
+        bundle = WDL.Bundle.build(doc, input=input, meta={"foo":"bar"})
         read_source = WDL.Bundle.make_read_source(bundle)
         bundled_doc = WDL.load("foobar", read_source=read_source)
         assert isinstance(bundled_doc, WDL.Document)
@@ -593,7 +593,7 @@ class TestBundle(unittest.TestCase):
         with self.assertRaises(WDL.Error.InputError):
             WDL.Bundle.decode(bundle_yaml.replace("|", ""))
         with self.assertRaises(WDL.Error.InputError):
-            WDL.Bundle.decode(bundle_compressed.lower())
+            WDL.Bundle.decode(bundle_compressed.replace("a","'"))
 
         return bundle
 

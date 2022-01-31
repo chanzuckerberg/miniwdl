@@ -51,14 +51,18 @@ def build(
         ans["input"] = input
     ans["layout"] = build_layout(doc)
 
-    # strip common prefix from all abspaths, making bundle reproducible across machines
-    if len(sources) > 1:
-        prefix = os.path.commonprefix([source["abspath"] for source in sources]).rstrip("/")
+    # strip common prefix from all local abspaths, making bundle reproducible across machines
+    abspaths = [source["abspath"] for source in sources]
+    abspaths = [p for p in abspaths if p.startswith("/")]
+    if len(abspaths) > 1:
+        prefix = os.path.commonprefix(abspaths).rstrip("/")
         for source in sources:
-            assert source["abspath"].startswith(prefix)
-            source["abspath"] = source["abspath"][len(prefix) :]
+            if source["abspath"].startswith(prefix):
+                source["abspath"] = source["abspath"][len(prefix) :]
     else:
-        sources[0]["abspath"] = "/" + os.path.basename(sources[0]["abspath"])
+        for source in sources:
+            if source["abspath"].startswith("/"):
+                source["abspath"] = "/" + os.path.basename(source["abspath"])
 
     ans["sources"] = sources
 
