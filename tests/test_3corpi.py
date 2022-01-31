@@ -570,7 +570,8 @@ class warp_pipelines_skylab(unittest.TestCase):
 
 class TestBundle(unittest.TestCase):
     def _t(self, doc, input=None):
-        bundle = WDL.Bundle.build(doc, input=input, meta={"foo":"bar"})
+        meta = {"foo":"bar"}
+        bundle = WDL.Bundle.build(doc, input=input, meta=meta)
         read_source = WDL.Bundle.make_read_source(bundle)
         bundled_doc = WDL.load("foobar", read_source=read_source)
         assert isinstance(bundled_doc, WDL.Document)
@@ -578,6 +579,7 @@ class TestBundle(unittest.TestCase):
             WDL.Bundle.build(
                 bundled_doc,
                 input=WDL.CLI.sync_await(read_source(WDL.Bundle.READ_BUNDLE_INPUT, [], None)),
+                meta=meta
             )
             == bundle
         )
