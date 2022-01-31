@@ -52,7 +52,7 @@ plan tests 11
 
 $miniwdl bundle wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' > my_bundle
 is "$?" "0" "build bundle"
-$miniwdl bundle wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' --compress > compressed_bundle
+$miniwdl bundle wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' --compress -o compressed_bundle
 is "$?" "0" "compress bundle"
 $miniwdl check my_bundle
 is "$?" "0" "check bundle"

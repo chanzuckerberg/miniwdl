@@ -1955,13 +1955,20 @@ def fill_bundle_subparser(subparsers):
     )
     bundle_parser.add_argument(
         "wdlfile",
-        metavar="JSON_OR_FILE",
+        metavar="FILE",
         help="top-level WDL to bundle",
+    )
+    bundle_parser.add_argument(
+        "-o",
+        "--output",
+        metavar="FILE",
+        default="-",
+        help="write bundle to file instead of standard output",
     )
     bundle_parser.add_argument(
         "--input",
         "-i",
-        metavar="FILE",
+        metavar="JSON_OR_FILE",
         help="input JSON to include as defaults",
     )
     bundle_parser.add_argument(
@@ -1974,6 +1981,7 @@ def fill_bundle_subparser(subparsers):
 
 def bundle(
     wdlfile,
+    output="-",
     input=None,
     compress=False,
     check_quant=True,
@@ -2009,10 +2017,20 @@ def bundle(
     else:
         input = sync_await(read_source(Bundle.READ_BUNDLE_INPUT, [], None))
 
+    meta = None
+    miniwdl_version = pkg_version()
+    if miniwdl_version:
+        meta = {"miniwdl": {"version": "v" + miniwdl_version}}
+
     # build bundle
-    bundle = Bundle.build(doc, input=input)
+    bundle = Bundle.build(doc, input=input, meta=meta)
     bundle = Bundle.encode(bundle, compress=compress)
-    print(bundle)
+
+    if not output or output == "-":
+        print(bundle)
+    else:
+        with open(output, "w") as outfile:
+            print(bundle, file=outfile)
 
 
 def pkg_version(pkg="miniwdl"):

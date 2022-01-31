@@ -15,7 +15,11 @@ from typing import Optional, Any, Dict, List
 from . import Tree, Error
 
 
-def build(doc: Tree.Document, input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def build(
+    doc: Tree.Document,
+    input: Optional[Dict[str, Any]] = None,
+    meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
     Bundle the WDL document and all its imports, along with optional input JSON
     """
@@ -40,7 +44,11 @@ def build(doc: Tree.Document, input: Optional[Dict[str, Any]] = None) -> Dict[st
             layout["imports"] = imports
         return layout
 
-    ans: Dict[str, Any] = {} if not input else {"input": input}
+    ans: Dict[str, Any] = {}
+    if meta:
+        ans["meta"] = meta
+    if input:
+        ans["input"] = input
     ans["layout"] = build_layout(doc)
 
     # strip common prefix from all abspaths, making bundle reproducible across machines
