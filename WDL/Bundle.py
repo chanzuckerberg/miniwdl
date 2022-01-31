@@ -107,6 +107,7 @@ def detect(source_text: str) -> bool:
     """
     Detect whether the text is probably a bundle
     """
+    source_text = source_text.strip()
     return source_text.startswith(YAML_MAGIC) or source_text.startswith(COMPRESSED_MAGIC)
 
 
