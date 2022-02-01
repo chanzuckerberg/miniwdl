@@ -845,6 +845,25 @@ class MiscRegressionTests(RunnerTestCase):
         """
         self._run(doc, {}, expected_exception=WDL.Error.SyntaxError)
 
+    def test_spec_select_all_wdl(self):
+        doc = r"""
+        version 1.1
+        workflow SelectAll {
+            input {
+                Int? maybe_five = 5
+                Int? maybe_four_but_is_not = None
+                Int? maybe_three = 3
+            }
+            output {
+                Array[Int] fivethree = select_all([maybe_five, maybe_four_but_is_not, maybe_three])
+                Boolean is_true = fivethree == [5, 3]
+            }
+        }
+        """
+        outp = self._run(doc, {})
+        self.assertEqual(outp["fivethree"], [5, 3])
+        self.assertEqual(outp["is_true"], True)
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
