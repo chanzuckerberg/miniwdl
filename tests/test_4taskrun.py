@@ -301,26 +301,28 @@ class TestTaskRunner(unittest.TestCase):
 
     def test_weird_output_files(self):
         # nonexistent output file
-        self._test_task(R"""
-        version 1.0
-        task hello {
-            command {}
-            output {
-                File issue = "bogus.txt"
+        with self.assertRaisesRegex(WDL.runtime.OutputError, "path not found in task output issue"):
+            self._test_task(R"""
+            version 1.0
+            task hello {
+                command {}
+                output {
+                    File issue = "bogus.txt"
+                }
             }
-        }
-        """, expected_exception=WDL.runtime.OutputError)
+            """)
 
         # attempt to output file which exists but we're not allowed to output
-        self._test_task(R"""
-        version 1.0
-        task hello {
-            command {}
-            output {
-                File issue = "/etc/issue"
+        with self.assertRaisesRegex(WDL.runtime.OutputError, "task outputs attempted to use a path outside its working directory"):
+            self._test_task(R"""
+            version 1.0
+            task hello {
+                command {}
+                output {
+                    File issue = "/etc/issue"
+                }
             }
-        }
-        """, expected_exception=WDL.runtime.OutputError)
+            """)
 
         self._test_task(R"""
         version 1.0
