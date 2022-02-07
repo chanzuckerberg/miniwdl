@@ -14,6 +14,7 @@ import textwrap
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
+from typing import Optional
 import argcomplete
 from . import (
     load,
@@ -366,7 +367,7 @@ def outline(
     descend()
 
 
-def print_error(exn):
+def print_error(exn: Optional[BaseException]) -> None:
     global quant_warning
     if isinstance(exn, Error.MultipleValidationErrors):
         for exn1 in exn.exceptions:
@@ -374,8 +375,12 @@ def print_error(exn):
     else:
         if sys.stderr.isatty():
             sys.stderr.write(ANSI.BHRED)
-        if isinstance(getattr(exn, "pos", None), SourcePosition):
-            print(f"({exn.pos.uri} Ln {exn.pos.line} Col {exn.pos.column}) {exn}", file=sys.stderr)
+        if hasattr(exn, "pos"):
+            pos = getattr(exn, "pos", None)
+            if isinstance(pos, SourcePosition):
+                print(f"({pos.uri} Ln {pos.line} Col {pos.column}) {exn}", file=sys.stderr)
+            else:
+                print(str(exn), file=sys.stderr)
         else:
             print(str(exn), file=sys.stderr)
         if sys.stderr.isatty():
@@ -386,7 +391,7 @@ def print_error(exn):
             exn, "source_text", None
         ):
             # show source excerpt
-            lines = exn.source_text.split("\n")
+            lines = getattr(exn, "source_text", "").split("\n")
             error_line = lines[exn.pos.line - 1].replace("\t", " ")
             print("    " + error_line, file=sys.stderr)
             end_line = exn.pos.end_line
