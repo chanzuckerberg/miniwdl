@@ -30,7 +30,6 @@ from . import (
     Call,
     Scatter,
     Conditional,
-    SourcePosition,
     parse_document,
     copy_source,
     values_from_json,
@@ -377,7 +376,7 @@ def print_error(exn: Optional[BaseException]) -> None:
             sys.stderr.write(ANSI.BHRED)
         if hasattr(exn, "pos"):
             pos = getattr(exn, "pos", None)
-            if isinstance(pos, SourcePosition):
+            if isinstance(pos, Error.SourcePosition):
                 print(f"({pos.uri} Ln {pos.line} Col {pos.column}) {exn}", file=sys.stderr)
             else:
                 print(str(exn), file=sys.stderr)
