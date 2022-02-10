@@ -16,6 +16,8 @@ _lark_lock = threading.Lock()
 
 def parse(grammar: str, txt: str, start: str) -> Tuple[lark.Tree, List[lark.Token]]:
     with _lark_lock:
+        # clearing the buffer in case a previous execution failed
+        _lark_comments_buffer.clear()
         if (grammar, start) not in _lark_cache:
             _lark_cache[(grammar, start)] = lark.Lark(
                 grammar,
