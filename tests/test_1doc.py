@@ -1,5 +1,4 @@
-import unittest, inspect, tempfile, os, pickle
-from typing import Optional
+import unittest, tempfile, os, pickle
 from .context import WDL
 
 class TestTasks(unittest.TestCase):
