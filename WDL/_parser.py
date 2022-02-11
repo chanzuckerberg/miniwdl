@@ -16,19 +16,26 @@ _lark_lock = threading.Lock()
 
 def parse(grammar: str, txt: str, start: str) -> Tuple[lark.Tree, List[lark.Token]]:
     with _lark_lock:
-        if (grammar, start) not in _lark_cache:
-            _lark_cache[(grammar, start)] = lark.Lark(
-                grammar,
-                start=start,
-                parser="lalr",
-                maybe_placeholders=False,
-                propagate_positions=True,
-                lexer_callbacks={"COMMENT": _lark_comments_buffer.append},
+        assert not _lark_comments_buffer
+        try:
+            if (grammar, start) not in _lark_cache:
+                _lark_cache[(grammar, start)] = lark.Lark(
+                    grammar,
+                    start=start,
+                    parser="lalr",
+                    maybe_placeholders=False,
+                    propagate_positions=True,
+                    lexer_callbacks={"COMMENT": _lark_comments_buffer.append},
+                )
+            tree = _lark_cache[(grammar, start)].parse(
+                txt + ("\n" if not txt.endswith("\n") else "")
             )
-        tree = _lark_cache[(grammar, start)].parse(txt + ("\n" if not txt.endswith("\n") else ""))
-        comments = _lark_comments_buffer.copy()
-        _lark_comments_buffer.clear()
-        return (tree, comments)
+            comments = _lark_comments_buffer.copy()
+            return (tree, comments)
+        finally:
+            # Wipe temp state (success or fail). It receives the side-effects of lark's
+            # lexer_callbacks, which we have to bind before memoizing the parser object.
+            _lark_comments_buffer.clear()
 
 
 def to_int(x):

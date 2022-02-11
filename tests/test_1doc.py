@@ -1,5 +1,4 @@
-import unittest, inspect, tempfile, os, pickle
-from typing import Optional
+import unittest, tempfile, os, pickle
 from .context import WDL
 
 class TestTasks(unittest.TestCase):
@@ -1551,6 +1550,26 @@ task count_lines {
         }
         """
         WDL.parse_document(doc).typecheck()
+
+    def test_issue548_comments_buffer(self):
+        # bug where the comments cache was not emptied after a SyntaxError
+        bad_doc = r"""
+        version development
+        
+        # comment 1
+        # comment 2
+        workflow a {
+        """
+        good_doc = r"""
+        version development
+
+        workflow a {}
+        """
+        # Previous to the fix, the comments in the bad doc were preserved, causing an
+        # assertion error when parsing the good doc.
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(bad_doc)
+        WDL.parse_document(good_doc).typecheck()
 
 class TestCycleDetection(unittest.TestCase):
     def test_task(self):
