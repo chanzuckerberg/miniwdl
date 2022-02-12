@@ -1,8 +1,5 @@
 """
 Routines for packaging a WDL source file, with all imported source files, into a ZIP file.
-
-(miniwdl-specific) The ZIP file may also contain a manifest JSON file with metadata and default
-inputs.
 """
 
 import os
@@ -24,6 +21,8 @@ def build(
     meta: Optional[Dict[str, Any]] = None,
     archive_format: str = "zip",
 ):
+    "Generate zip archive of the WDL document and all its imports"
+
     with contextlib.ExitStack() as cleanup:
         # write WDL source code to temp directory
         dir_to_zip = build_source_dir(cleanup, top_doc, logger)

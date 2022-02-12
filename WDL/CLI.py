@@ -727,18 +727,20 @@ def runner(
             )
             sys.exit(2)
 
-        # process AGC-style MANIFEST.json, if given
+        # unpack zip & manifest, if applicable
+        if uri.endswith(".zip"):
+            uri = unpack_zip(logger, cleanup, uri)
         if os.path.isdir(uri) and os.path.isfile(os.path.join(uri, "MANIFEST.json")):
             uri = os.path.join(uri, "MANIFEST.json")
         if os.path.isfile(uri) and os.path.basename(uri) == "MANIFEST.json":
             logger.info(_("reading manifest", manifest=uri))
-            uri, manifest_input_file = read_agc_manifest(logger, uri)
+            uri, manifest_input_file = read_zip_manifest(logger, uri)
             if manifest_input_file:
                 if input_file:
                     logger.warning("specified --input file replacing manifest inputFileURLs[0]")
                 else:
                     input_file = manifest_input_file
-            logger.notice(_("using AGC MANIFEST.json", main_wdl=uri, input_file=input_file))
+            logger.notice(_("using zip MANIFEST.json", main_wdl=uri, input_file=input_file))
 
         try:
             # load WDL document
@@ -859,8 +861,34 @@ def runner(
     return outputs_json
 
 
-def read_agc_manifest(logger, manifest_file):
-    # read local AGC-style MANIFEST.json, return path to main WDL and default input JSON file
+def unpack_zip(logger, cleanup, uri):
+    # unpack zip file created by `miniwdl zip`
+    import shutil
+
+    dn = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_"))
+    zn = uri
+    if uri.startswith("http:") or uri.startswith("https:"):
+        from urllib import parse, request
+
+        zn = os.path.join(
+            cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_download_")),
+            os.path.basename(parse.urlsplit(uri).path),
+        )
+        request.urlretrieve(uri, filename=zn)
+
+    assert zn.endswith(".zip")
+    logger.info(_("unzipping", zip=uri))
+    shutil.unpack_archive(zn, dn)
+
+    if os.path.isfile(os.path.join(dn, "MANIFEST.json")):
+        return os.path.join(dn, "MANIFEST.json")
+    else:
+        logger.warning(_("zip contains no MANIFEST.json; trying main.wdl", zip=uri))
+        return os.path.join(dn, "main.wdl")
+
+
+def read_zip_manifest(logger, manifest_file):
+    # read local MANIFEST.json, return path to main WDL and default input JSON file
     with open(manifest_file) as infile:
         try:
             manifest = json.load(infile)

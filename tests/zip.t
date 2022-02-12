@@ -48,21 +48,24 @@ workflow w {
 }
 EOF
 
-plan tests 7
+plan tests 9
 
 $miniwdl zip -o outer.wdl.zip wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' --debug
 is "$?" "0" "build zip"
 
 mkdir __extract
 env -C __extract unzip ../outer.wdl.zip
-is "$?" "0" "build zip"
+is "$?" "0" "extract zip"
 
 $miniwdl check __extract/outer.wdl
 is "$?" "0" "check extracted workflow"
 
 $miniwdl run __extract | tee out
 is "$?" "0" "run using default inputs"
-is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Alice!" "run bundle output"
-$miniwdl run __extract who=Bob | tee out
-is "$?" "0" "run bundle with input override"
-is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Bob!" "run bundle output 2"
+is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Alice!" "run extracted output"
+$miniwdl run outer.wdl.zip who=Bob | tee out
+is "$?" "0" "run zip with input override"
+is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Bob!" "run zip output 2"
+$miniwdl run outer.wdl.zip -i '{"w.who": "Carol"}' | tee out
+is "$?" "0" "run zip with input override file"
+is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Carol!" "run zip output 3"
