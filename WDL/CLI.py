@@ -727,6 +727,19 @@ def runner(
             )
             sys.exit(2)
 
+        # process AGC-style MANIFEST.json, if given
+        if os.path.isdir(uri) and os.path.isfile(os.path.join(uri, "MANIFEST.json")):
+            uri = os.path.join(uri, "MANIFEST.json")
+        if os.path.isfile(uri) and os.path.basename(uri) == "MANIFEST.json":
+            logger.info(_("reading manifest", manifest=uri))
+            uri, manifest_input_file = read_agc_manifest(logger, uri)
+            if manifest_input_file:
+                if input_file:
+                    logger.warning("specified --input file replacing manifest inputFileURLs[0]")
+                else:
+                    input_file = manifest_input_file
+            logger.notice(_("using AGC MANIFEST.json", main_wdl=uri, input_file=input_file))
+
         try:
             # load WDL document
             doc = load(
@@ -844,6 +857,24 @@ def runner(
     outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
     runner_standard_output(outputs_json, stdout_file, error_json, log_json)
     return outputs_json
+
+
+def read_agc_manifest(logger, manifest_file):
+    # read local AGC-style MANIFEST.json, return path to main WDL and default input JSON file
+    with open(manifest_file) as infile:
+        try:
+            manifest = json.load(infile)
+        except:
+            logger.error(_("manifest is not valid JSON", manifest=manifest_file))
+    if "mainWorkflowURL" not in manifest:
+        logger.error(_("MANIFEST.json is missing mainWorkflowURL", manifest=manifest_file))
+    main_wdl = os.path.join(os.path.dirname(manifest_file), manifest["mainWorkflowURL"])
+
+    input_file = None
+    if isinstance(manifest.get("inputFileURLs", None), list) and manifest["inputFileURLs"]:
+        input_file = os.path.join(os.path.dirname(manifest_file), manifest["inputFileURLs"][0])
+
+    return main_wdl, input_file
 
 
 def runner_input_completer(prefix, parsed_args, **kwargs):
@@ -1928,6 +1959,12 @@ def fill_zip_subparser(subparsers):
         help="destination filename [WDL_FILE.zip]",
     )
     zip_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="overwrite existing file",
+    )
+    zip_parser.add_argument(
         "--input",
         "--inputs",
         "-i",
@@ -1940,6 +1977,7 @@ def fill_zip_subparser(subparsers):
 def zip_wdl(
     top_wdl,
     output=None,
+    force=False,
     input=None,
     check_quant=True,
     path=None,
@@ -1981,7 +2019,9 @@ def zip_wdl(
             meta = {"miniwdl": {"version": "v" + miniwdl_version}}
 
         if not output:
-            output = top_wdl + ".zip"
+            output = os.path.basename(top_wdl) + ".zip"
+        if os.path.exists(output) and not force:
+            die(output + " already exists; add --force to override")
         fmt = "tar" if output.endswith(".tar") else "zip"
 
         Zip.build(doc, output, logger, meta=meta, inputs=input_dict, archive_format=fmt)
