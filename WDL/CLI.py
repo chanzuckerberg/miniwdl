@@ -728,19 +728,12 @@ def runner(
             sys.exit(2)
 
         # unpack zip & manifest, if applicable
-        if uri.endswith(".zip"):
-            uri = unpack_zip(logger, cleanup, uri)
-        if os.path.isdir(uri) and os.path.isfile(os.path.join(uri, "MANIFEST.json")):
-            uri = os.path.join(uri, "MANIFEST.json")
-        if os.path.isfile(uri) and os.path.basename(uri) == "MANIFEST.json":
-            logger.info(_("reading manifest", manifest=uri))
-            uri, manifest_input_file = read_zip_manifest(logger, uri)
-            if manifest_input_file:
-                if input_file:
-                    logger.warning("specified --input file replacing manifest inputFileURLs[0]")
-                else:
-                    input_file = manifest_input_file
-            logger.notice(_("using zip MANIFEST.json", main_wdl=uri, input_file=input_file))
+        uri, manifest_input_file = unpack_source_zip(logger, cleanup, uri)
+        if manifest_input_file:
+            if input_file:
+                logger.warning("specified --input file replacing source zip's")
+            else:
+                input_file = manifest_input_file
 
         try:
             # load WDL document
@@ -861,47 +854,30 @@ def runner(
     return outputs_json
 
 
-def unpack_zip(logger, cleanup, uri):
-    # unpack zip file created by `miniwdl zip`
-    import shutil
-
-    dn = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_"))
-    zn = uri
-    if uri.startswith("http:") or uri.startswith("https:"):
-        from urllib import parse, request
-
-        zn = os.path.join(
-            cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_download_")),
-            os.path.basename(parse.urlsplit(uri).path),
-        )
-        request.urlretrieve(uri, filename=zn)
-
-    assert zn.endswith(".zip")
-    logger.info(_("unzipping", zip=uri))
-    shutil.unpack_archive(zn, dn)
-
-    if os.path.isfile(os.path.join(dn, "MANIFEST.json")):
-        return os.path.join(dn, "MANIFEST.json")
+def unpack_source_zip(logger, cleanup, uri):
+    # preprocess a source zip given to `miniwdl run`
+    source_zip = uri
+    if os.path.isdir(uri):
+        logger.notice(_("assuming directory is unpacked source zip", dir=uri))
     else:
-        logger.warning(_("zip contains no MANIFEST.json; trying main.wdl", zip=uri))
-        return os.path.join(dn, "main.wdl")
+        if not uri.endswith(".zip"):  # nothing to do
+            return (uri, None)
 
+        if uri.startswith("http:") or uri.startswith("https:"):
+            from urllib import parse, request
 
-def read_zip_manifest(logger, manifest_file):
-    # read local MANIFEST.json, return path to main WDL and default input JSON file
-    with open(manifest_file) as infile:
-        try:
-            manifest = json.load(infile)
-        except:
-            logger.error(_("manifest is not valid JSON", manifest=manifest_file))
-    if "mainWorkflowURL" not in manifest:
-        logger.error(_("MANIFEST.json is missing mainWorkflowURL", manifest=manifest_file))
-    main_wdl = os.path.join(os.path.dirname(manifest_file), manifest["mainWorkflowURL"])
+            source_zip = os.path.join(
+                cleanup.enter_context(
+                    tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_download_")
+                ),
+                os.path.basename(parse.urlsplit(uri).path),
+            )
+            # read_source() isn't suitable for this because it's binary data
+            logger.notice(_("downloading source zip", uri=uri, zip=source_zip))
+            request.urlretrieve(uri, filename=source_zip)
 
-    input_file = None
-    if isinstance(manifest.get("inputFileURLs", None), list) and manifest["inputFileURLs"]:
-        input_file = os.path.join(os.path.dirname(manifest_file), manifest["inputFileURLs"][0])
-
+    main_wdl, input_file = Zip.unpack(source_zip, cleanup)
+    logger.notice(_("opened source zip", zip=source_zip, main_wdl=main_wdl, input_file=input_file))
     return main_wdl, input_file
 
 

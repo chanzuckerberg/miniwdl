@@ -1,4 +1,4 @@
-import unittest, tempfile, os, glob, json, urllib, urllib.request, logging, shutil
+import unittest, tempfile, os, glob, json, urllib, urllib.request, logging, shutil, contextlib
 from .context import WDL
 import WDL.Lint
 
@@ -570,7 +570,8 @@ class warp_pipelines_skylab(unittest.TestCase):
 
 class TestZip(unittest.TestCase):
     def _roundtrip(self, doc, inputs=None):
-        with tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_") as testdir:
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
             meta = {"foo": "bar"}
             main_wdl = os.path.basename(doc.pos.abspath)
             zip_fn = os.path.join(testdir, main_wdl + ".zip")
@@ -578,9 +579,9 @@ class TestZip(unittest.TestCase):
                 doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta, inputs=inputs
             )
 
-            shutil.unpack_archive(zip_fn, os.path.join(testdir, "__extract"))
-
-            WDL.load(os.path.join(testdir, "__extract", main_wdl))
+            main_wdl, inputs_file = WDL.Zip.unpack(zip_fn, cleanup)
+            assert not inputs or inputs_file
+            WDL.load(main_wdl)
 
     def test_empty(self):
         self._roundtrip(WDL.load("test_corpi/contrived/empty.wdl"))

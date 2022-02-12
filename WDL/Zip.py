@@ -8,9 +8,10 @@ import shutil
 import logging
 import tempfile
 import contextlib
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 
-from . import Tree
+from . import Tree, Error
+from ._util import path_really_within
 
 
 def build(
@@ -144,3 +145,64 @@ def rewrite_imports(
                 source_lines[lineno] = line2
 
     return source_lines
+
+
+def unpack(
+    archive_fn: str, cleanup: Optional[contextlib.ExitStack] = None
+) -> Tuple[str, Optional[str]]:
+    """
+    Extract WDL source archive to a temp directory, returning the full paths to the main WDL and
+    the default inputs JSON file, if any. An action to delete the temp directory is added to the
+    cleanup ExitStack, if provided.
+    """
+
+    # allow use of already-extracted zip
+    if os.path.isdir(archive_fn) and os.path.isfile(os.path.join(archive_fn, "MANIFEST.json")):
+        archive_fn = os.path.join(archive_fn, "MANIFEST.json")
+
+    # extract zip if needed
+    if os.path.basename(archive_fn) == "MANIFEST.json":
+        manifest_fn = archive_fn
+    else:
+        if cleanup:
+            dn = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_"))
+        else:
+            dn = tempfile.mkdtemp(prefix="miniwdl_run_zip_")
+        try:
+            shutil.unpack_archive(archive_fn, dn)
+        except:
+            raise Error.InputError("Unreadable source archive " + archive_fn)
+        manifest_fn = os.path.join(dn, "MANIFEST.json")
+
+    # read manifest
+    dn = os.path.dirname(manifest_fn)
+    if not os.path.exists(manifest_fn):
+        # no manifest; try main.wdl
+        main_wdl = os.path.join(dn, "main.wdl")
+        if os.path.isfile(main_wdl) and path_really_within(main_wdl, dn):
+            return (main_wdl, None)
+    try:
+        with open(manifest_fn) as infile:
+            manifest = json.load(infile)
+        assert isinstance(manifest, dict) and isinstance(manifest.get("mainWorkflowURL", None), str)
+    except:
+        raise Error.InputError("Missing or invalid MANIFEST.json in " + archive_fn)
+
+    dn = os.path.dirname(manifest_fn)
+    main_wdl = os.path.join(dn, manifest["mainWorkflowURL"])
+
+    input_file = None
+    if (
+        isinstance(manifest.get("inputFileURLs", None), list)
+        and manifest["inputFileURLs"]
+        and isinstance(manifest["inputFileURLs"][0], str)
+    ):
+        input_file = os.path.join(dn, manifest["inputFileURLs"][0])
+
+    # sanity check
+    if not (os.path.isfile(main_wdl) and path_really_within(main_wdl, dn)) or (
+        input_file and not (os.path.isfile(input_file) and path_really_within(input_file, dn))
+    ):
+        raise Error.InputError("MANIFEST.json refers to missing or invalid files in " + archive_fn)
+
+    return main_wdl, input_file
