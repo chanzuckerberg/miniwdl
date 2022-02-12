@@ -36,6 +36,7 @@ from . import (
     values_to_json,
     read_source_default,
     ReadSourceResult,
+    Zip,
 )
 from ._util import (
     VERBOSE_LEVEL,
@@ -79,6 +80,8 @@ def main(args=None):
             configure(**vars(args))
         elif args.command == "eval":
             eval_expr(**vars(args))
+        elif args.command == "zip":
+            zip_wdl(**vars(args))
         else:
             assert False
     except (
@@ -118,6 +121,7 @@ def create_arg_parser():
     fill_common(fill_run_self_test_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
     fill_common(fill_eval_subparser(subparsers))
+    fill_common(fill_zip_subparser(subparsers))
     return parser
 
 
@@ -943,6 +947,7 @@ def runner_input(
         downloadable,
         root,
     )
+    json_keys = set(b.name for b in input_env)
 
     # set explicitly empty arrays or strings
     for empty_name in empty or []:
@@ -1017,7 +1022,7 @@ def runner_input(
 
         # insert value into input_env
         existing = input_env.get(name)
-        if existing:
+        if existing and name not in json_keys:
             if isinstance(v, Value.Array):
                 assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
                 existing.value.extend(v.value)
@@ -1026,6 +1031,7 @@ def runner_input(
                 raise Error.InputError(f"non-array input {buf[0]} duplicated")
         else:
             input_env = input_env.bind(name, v, decl)
+            json_keys.discard(name)  # command-line overrides JSON input
 
     # check for missing inputs
     if check_required:
@@ -1908,6 +1914,77 @@ def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_ty
     except Exception as exn:
         setattr(exn, "source_text", expr)  # for print_error()
         raise
+
+
+def fill_zip_subparser(subparsers):
+    zip_parser = subparsers.add_parser(
+        "zip", help="Zip WDL source", description="Zip WDL source file along with all imports"
+    )
+    zip_parser.add_argument("top_wdl", metavar="WDL_FILE", help="top-level WDL file")
+    zip_parser.add_argument(
+        "-o",
+        "--output",
+        metavar="ZIP_FILE",
+        help="destination filename [WDL_FILE.zip]",
+    )
+    zip_parser.add_argument(
+        "--input",
+        "--inputs",
+        "-i",
+        metavar="JSON_OR_FILE",
+        help="input JSON to include as defaults",
+    )
+    return zip_parser
+
+
+def zip_wdl(
+    top_wdl,
+    output=None,
+    input=None,
+    check_quant=True,
+    path=None,
+    no_outside_imports=False,
+    debug=False,
+    **kwargs,
+):
+    # load WDL
+    doc = load(
+        top_wdl,
+        path or [],
+        check_quant=check_quant,
+        read_source=make_read_source(no_outside_imports),
+    )
+
+    logging.basicConfig(level=(logging.DEBUG if debug else logging.INFO))
+    logger = logging.getLogger("miniwdl-zip")
+    with configure_logger():
+        # load & validate input JSON, if any
+        input_dict = None
+        if input:
+            try:
+                _target, _input_env, input_dict = runner_input(
+                    doc,
+                    [],
+                    input,
+                    [],
+                    [],
+                    check_required=False,
+                    downloadable=lambda fn, is_dir: True,
+                )
+            except Error.InputError as exn:
+                die(exn.args[0])
+
+        # build archive
+        meta = None
+        miniwdl_version = pkg_version()
+        if miniwdl_version:
+            meta = {"miniwdl": {"version": "v" + miniwdl_version}}
+
+        if not output:
+            output = top_wdl + ".zip"
+        fmt = "tar" if output.endswith(".tar") else "zip"
+
+        Zip.build(doc, output, logger, meta=meta, inputs=input_dict, archive_format=fmt)
 
 
 def pkg_version(pkg="miniwdl"):

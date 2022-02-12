@@ -6,82 +6,142 @@ inputs.
 """
 
 import os
+import json
+import shutil
 import logging
 import tempfile
-import shutil
+import contextlib
 from typing import List, Dict, Optional, Any
 
-from . import Tree, Error
+from . import Tree
 
 
 def build(
     top_doc: Tree.Document,
     archive: str,
-    input: Optional[Dict[str, Any]] = None,
+    logger: logging.Logger,
+    inputs: Optional[Dict[str, Any]] = None,
     meta: Optional[Dict[str, Any]] = None,
-    extra_files: Optional[List[str]] = None,
     archive_format: str = "zip",
-    logger: Optional[logging.Logger] = None,
-) -> List[str]:
-    import hashlib
-    import base64
+):
+    with contextlib.ExitStack() as cleanup:
+        # write WDL source code to temp directory
+        dir_to_zip = build_source_dir(cleanup, top_doc, logger)
 
-    main_dir = os.path.dirname(top_doc.pos.abspath).rstrip("/") + "/"  # possibly URI
+        # add MANIFEST.json; schema roughly following Amazon Genomics CLI's:
+        #  https://aws.github.io/amazon-genomics-cli/docs/concepts/workflows/#multi-file-workflows
+        manifest = {"mainWorkflowURL": os.path.basename(top_doc.pos.abspath)}
+        if meta:
+            manifest["meta"] = meta
+        if inputs:
+            manifest["inputFileURLs"] = ["default_inputs.json"]
+            with open(os.path.join(dir_to_zip, "default_inputs.json"), "w") as inputs_file:
+                json.dump(inputs, inputs_file, indent=2)
+        with open(os.path.join(dir_to_zip, "MANIFEST.json"), "w") as manifest_file:
+            json.dump(manifest, manifest_file, indent=2)
+        logger.debug("manifest = " + json.dumps(manifest))
 
+        # zip the temp directory (into another temp directory)
+        tmp_zip = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
+        logger.info(f"archiving {dir_to_zip}")
+        tmp_zip = shutil.make_archive(
+            os.path.join(tmp_zip, os.path.basename(top_doc.pos.abspath)),
+            archive_format,
+            root_dir=dir_to_zip,
+            logger=logger,
+        )
+
+        # move zip to final location
+        logger.info(f"{archive} <= {tmp_zip}")
+        if "/" in archive:
+            os.makedirs(os.path.dirname(archive), exist_ok=True)
+        os.rename(tmp_zip, archive)
+
+
+def build_source_dir(
+    cleanup: contextlib.ExitStack, top_doc: Tree.Document, logger: logging.Logger
+) -> str:
+    # directory of main WDL file (possibly URI)
+    main_dir = os.path.dirname(top_doc.pos.abspath).rstrip("/") + "/"
+
+    # collect all WDL docs keyed by abspath
     wdls = {}
-    log = []
-
     queue = [top_doc]
     while queue:
         a_doc = queue.pop()
         for imported_doc in a_doc.imports:
-            queue.append(imported_doc)
-        wdls[a_doc.pos.abspath] = a_doc.source_text
+            queue.append(imported_doc.doc)
+        wdls[a_doc.pos.abspath] = a_doc
 
-    outsiders = set(p for p in wdls.keys() if not p.startswith(main_dir))
-    if outsiders:
-        assert False  # FIXME
-        log.append(
-            "One or more source files are imported from locations external to the top-level WDL's directory."
-        )
-        log.append(
-            "Their directory structure will be flattened inside the archive and WDL import statements will be rewritten to match."
-        )
-        log.append(
-            "To keep the ZIP layout more intuitive, ensure all imported source files reside in/under the top-level WDL's directory."
-        )
+    # derive archive paths
+    zip_paths = build_zip_paths(main_dir, wdls, logger)
+    assert sorted(list(zip_paths.keys())) == sorted(list(wdls.keys()))
+    assert zip_paths[top_doc.pos.abspath] == os.path.basename(top_doc.pos.abspath)
 
-    relpaths = {}
-    external_warn = False
+    # write source files into temp directory (rewriting imports as needed)
+    zip_dir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
+    for abspath, a_doc in wdls.items():
+        source_lines = rewrite_imports(a_doc, zip_paths, logger)
+        fn = os.path.join(zip_dir, zip_paths[abspath])
+        os.makedirs(os.path.dirname(fn), exist_ok=True)
+        with open(fn, "w") as outfile:
+            for line in source_lines:
+                print(line, file=outfile)
+
+    return zip_dir
+
+
+def build_zip_paths(
+    main_dir: str, wdls: Dict[str, Tree.Document], logger: logging.Logger
+) -> Dict[str, str]:
+    # compute the path inside the archive at which to store each document
+    import hashlib
+    import base64
+
+    ans = {}
+    outside_warn = False
     for abspath in wdls.keys():
         if abspath.startswith(main_dir):
-            relpaths[abspath] = os.path.relpath(abspath, main_dir)
+            ans[abspath] = os.path.relpath(abspath, main_dir)
         else:
-            relpaths[abspath] = os.path.join(
-                "_external_wdl_",
-                base64.b32encode(
-                    hashlib.shake_128(wdls[abspath].source_text.encode("utf-8")).digest(10)
-                ).decode(),
-                os.path.basename(abspath),
+            # place outside import under __outside_wdl, vaguely reproducing directory structure
+            abspath2 = abspath.replace("://", "_")
+            prefix = os.path.commonprefix([abspath2, main_dir.replace("://", "_")])
+            assert abspath2.startswith(prefix) and prefix.endswith("/")
+            ans[abspath] = "__outside_wdl/" + abspath2[len(prefix) :]
+            outside_warn = True
+        logger.info(f"{ans[abspath]} <= {abspath}")
+
+    if outside_warn:
+        logger.warning(
+            "One or more source files are imported from outside the top-level WDL's directory."
+            " The source archive will store them under __outside_wdl/"
+            " and WDL import statements will be rewritten to match."
+        )
+
+    return ans
+
+
+def rewrite_imports(
+    doc: Tree.Document, zip_paths: Dict[str, str], logger: logging.Logger
+) -> List[str]:
+    # rewrite doc source_lines, changing import statements to refer to relative path in zip
+    source_lines = doc.source_lines.copy()
+
+    for imp in doc.imports:
+        lo = imp.pos.line - 1
+        hi = imp.pos.end_line
+        for lineno in range(lo, hi):
+            line = source_lines[lineno]
+            old_uri = imp.uri
+            new_uri = os.path.relpath(
+                zip_paths[imp.doc.pos.abspath], os.path.dirname(zip_paths[doc.pos.abspath])
             )
-            external_warn = True
+            line2 = line.replace(f'"{old_uri}"', f'"{new_uri}"')
+            if line != line2:
+                logger.debug(doc.pos.abspath)
+                logger.debug("  " + line)
+                logger.debug("  => " + line2)
+                source_lines[lineno] = line2
 
-    if external_warn:
-        logger.warning(
-            "One or more source files are imported from locations external to the top-level WDL's directory."
-        )
-        logger.warning(
-            "Their directory structure will be flattened inside the archive and WDL import statements will be rewritten to match."
-        )
-        logger.warning(
-            "To keep the archive layout more intuitive, ensure all imported source files reside in/under the top-level WDL's directory."
-        )
-
-    # store all outsiders in a flat _outside_wdl/name.CRC32.wdl namespace
-    # all imports of outsiders, and all imports within outsiders, must be rewritten
-    # CRC32s will refer to original document so that we can perform the rewrites in any order
-    # corner cases to think about:
-    # - what if an outsider imports an insider?
-
-    # more-radical idea: rename & flatten dir structure of ALL imported WDLs
-    # detect if all imports have a common directory prefix
+    return source_lines
