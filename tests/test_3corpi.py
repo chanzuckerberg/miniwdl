@@ -579,9 +579,20 @@ class TestZip(unittest.TestCase):
                 doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta, inputs=inputs
             )
 
-            main_wdl, inputs_file = WDL.Zip.unpack(zip_fn, cleanup)
+            main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             assert not inputs or inputs_file
             WDL.load(main_wdl)
+
+            # cover misc code paths through WDL.Zip.unpack()
+            WDL.load(cleanup.enter_context(WDL.Zip.unpack(os.path.dirname(main_wdl)))[0])
+            WDL.load(
+                cleanup.enter_context(
+                    WDL.Zip.unpack(os.path.join(os.path.dirname(main_wdl), "MANIFEST.json"))
+                )[0]
+            )
+            os.unlink(os.path.join(os.path.dirname(main_wdl), "MANIFEST.json"))
+            with self.assertRaises(WDL.Error.InputError):
+                cleanup.enter_context(WDL.Zip.unpack(os.path.dirname(main_wdl)))
 
     def test_empty(self):
         self._roundtrip(WDL.load("test_corpi/contrived/empty.wdl"))

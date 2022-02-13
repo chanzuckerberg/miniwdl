@@ -876,7 +876,7 @@ def unpack_source_zip(logger, cleanup, uri):
             logger.notice(_("downloading source zip", uri=uri, zip=source_zip))
             request.urlretrieve(uri, filename=source_zip)
 
-    main_wdl, input_file = Zip.unpack(source_zip, cleanup)
+    main_wdl, input_file = cleanup.enter_context(Zip.unpack(source_zip))
     logger.notice(_("opened source zip", zip=source_zip, main_wdl=main_wdl, input_file=input_file))
     return main_wdl, input_file
 
