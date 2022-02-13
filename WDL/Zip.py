@@ -171,14 +171,6 @@ def unpack(archive_fn: str) -> Iterator[Tuple[str, Optional[str]]]:
                 raise Error.InputError("Unreadable source archive " + archive_fn)
             manifest_fn = os.path.join(dn, "MANIFEST.json")
 
-        # read manifest
-        dn = os.path.dirname(manifest_fn)
-        if not os.path.exists(manifest_fn):
-            # no manifest; try main.wdl
-            main_wdl = os.path.join(dn, "main.wdl")
-            if os.path.isfile(main_wdl) and path_really_within(main_wdl, dn):
-                yield (main_wdl, None)
-                return
         try:
             with open(manifest_fn) as infile:
                 manifest = json.load(infile)
