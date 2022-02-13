@@ -158,11 +158,9 @@ def unpack(archive_fn: str) -> Iterator[Tuple[str, Optional[str]]]:
     directory containing one. In this case, it is NOT deleted on context exit.
     """
     with contextlib.ExitStack() as cleanup:
-        # allow use of already-extracted zip
-        if os.path.isdir(archive_fn) and os.path.isfile(os.path.join(archive_fn, "MANIFEST.json")):
+        # extract zip if needed (also allowing use of already-extracted manifest/dir)
+        if os.path.isdir(archive_fn):
             archive_fn = os.path.join(archive_fn, "MANIFEST.json")
-
-        # extract zip if needed
         if os.path.basename(archive_fn) == "MANIFEST.json":
             manifest_fn = archive_fn
         else:
