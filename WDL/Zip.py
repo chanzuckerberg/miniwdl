@@ -1,5 +1,7 @@
 """
 Routines for packaging a WDL source file, with all imported source files, into a ZIP file.
+
+*New in v1.5.0*
 """
 
 import os
@@ -8,7 +10,7 @@ import shutil
 import logging
 import tempfile
 import contextlib
-from typing import List, Dict, Optional, Any, Tuple, Iterator
+from typing import List, Dict, Optional, Any, Iterator, NamedTuple
 
 from . import Tree, Error
 from ._util import path_really_within
@@ -22,7 +24,13 @@ def build(
     meta: Optional[Dict[str, Any]] = None,
     archive_format: str = "zip",
 ):
-    "Generate zip archive of the WDL document and all its imports"
+    """
+    Generate zip archive of the WDL document, all its imports, optional default inputs, and a
+    generated manifest JSON.
+
+    If imports are drawn from outside the main WDL's directory (or by URI), they'll be stored in a
+    special subdirectory and import statements will be rewritten to match.
+    """
 
     with contextlib.ExitStack() as cleanup:
         # write WDL source code to temp directory
@@ -34,8 +42,8 @@ def build(
         if meta:
             manifest["meta"] = meta
         if inputs:
-            manifest["inputFileURLs"] = ["default_inputs.json"]
-            with open(os.path.join(dir_to_zip, "default_inputs.json"), "w") as inputs_file:
+            manifest["inputFileURLs"] = ["default_input.json"]
+            with open(os.path.join(dir_to_zip, "default_input.json"), "w") as inputs_file:
                 json.dump(inputs, inputs_file, indent=2)
         with open(os.path.join(dir_to_zip, "MANIFEST.json"), "w") as manifest_file:
             json.dump(manifest, manifest_file, indent=2)
@@ -131,31 +139,50 @@ def rewrite_imports(
     for imp in doc.imports:
         lo = imp.pos.line - 1
         hi = imp.pos.end_line
+        found = False
         for lineno in range(lo, hi):
             line = source_lines[lineno]
             old_uri = imp.uri
             new_uri = os.path.relpath(
                 zip_paths[imp.doc.pos.abspath], os.path.dirname(zip_paths[doc.pos.abspath])
             )
-            line2 = line.replace(f'"{old_uri}"', f'"{new_uri}"')
+            old_uri_pattern = f'"{old_uri}"'
+            if old_uri_pattern in line:
+                found = True
+            line2 = line.replace(old_uri_pattern, f'"{new_uri}"')
             if line != line2:
                 logger.debug(doc.pos.abspath)
                 logger.debug("  " + line)
                 logger.debug("  => " + line2)
                 source_lines[lineno] = line2
+        assert found
 
     return source_lines
 
 
+UnpackedZip = NamedTuple(
+    "UnpackedZip", [("dir", str), ("main_wdl", str), ("input_file", Optional[str])]
+)
+"""
+Contextual value of `WDL.Zip.unpack()`: absolute paths of source directory, main WDL, and default
+input JSON file (if any). The source directory prefixes the latter paths.
+"""
+
+
 @contextlib.contextmanager
-def unpack(archive_fn: str) -> Iterator[Tuple[str, Optional[str]]]:
+def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
     """
-    Open a context with the WDL source archive unpacked into a temp directory, yielding the path to
-    the main WDL and the default inputs JSON file if any. The temp directory is deleted on context
-    exit.
+    Open a context with the WDL source archive unpacked into a temp directory, yielding
+    `UnpackedZip`. The temp directory will be deleted on context exit.
 
     A path to the MANIFEST.json of an already-unpacked source archive may also be used, or a
     directory containing one. In this case, it is NOT deleted on context exit.
+
+    ```
+    with WDL.Zip.unpack("/path/to/source.zip") as unpacked:
+        doc = WDL.load(unpacked.main_wdl)
+        ...
+    ```
     """
     with contextlib.ExitStack() as cleanup:
         # extract zip if needed (also allowing use of already-extracted manifest/dir)
@@ -180,8 +207,8 @@ def unpack(archive_fn: str) -> Iterator[Tuple[str, Optional[str]]]:
         except:
             raise Error.InputError("Missing or invalid MANIFEST.json in " + archive_fn)
 
-        dn = os.path.dirname(manifest_fn)
-        main_wdl = os.path.join(dn, manifest["mainWorkflowURL"])
+        dn = os.path.abspath(os.path.dirname(manifest_fn))
+        main_wdl = manifest["mainWorkflowURL"]
 
         input_file = None
         if (
@@ -189,14 +216,17 @@ def unpack(archive_fn: str) -> Iterator[Tuple[str, Optional[str]]]:
             and manifest["inputFileURLs"]
             and isinstance(manifest["inputFileURLs"][0], str)
         ):
-            input_file = os.path.join(dn, manifest["inputFileURLs"][0])
+            input_file = manifest["inputFileURLs"][0]
 
         # sanity check
-        if not (os.path.isfile(main_wdl) and path_really_within(main_wdl, dn)) or (
-            input_file and not (os.path.isfile(input_file) and path_really_within(input_file, dn))
+        main_wdl_abs = os.path.join(dn, main_wdl)
+        input_file_abs = os.path.join(dn, input_file) if input_file else None
+        if not (os.path.isfile(main_wdl_abs) and path_really_within(main_wdl_abs, dn)) or (
+            input_file_abs
+            and not (os.path.isfile(input_file_abs) and path_really_within(input_file_abs, dn))
         ):
             raise Error.InputError(
                 "MANIFEST.json refers to missing or invalid files in " + archive_fn
             )
 
-        yield main_wdl, input_file
+        yield UnpackedZip(dn, main_wdl_abs, input_file_abs)

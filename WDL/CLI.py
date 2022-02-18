@@ -876,9 +876,16 @@ def unpack_source_zip(logger, cleanup, uri):
             logger.notice(_("downloading source zip", uri=uri, zip=source_zip))
             request.urlretrieve(uri, filename=source_zip)
 
-    main_wdl, input_file = cleanup.enter_context(Zip.unpack(source_zip))
-    logger.notice(_("opened source zip", zip=source_zip, main_wdl=main_wdl, input_file=input_file))
-    return main_wdl, input_file
+    unpacked = cleanup.enter_context(Zip.unpack(source_zip))
+    logger.notice(
+        _(
+            "opened source zip",
+            zip=source_zip,
+            main_wdl=unpacked.main_wdl,
+            input_file=unpacked.input_file,
+        )
+    )
+    return unpacked.main_wdl, unpacked.input_file
 
 
 def runner_input_completer(prefix, parsed_args, **kwargs):

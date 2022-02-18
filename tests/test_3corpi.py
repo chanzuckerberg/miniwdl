@@ -579,20 +579,20 @@ class TestZip(unittest.TestCase):
                 doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta, inputs=inputs
             )
 
-            main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            source_dir, main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             assert not inputs or inputs_file
-            WDL.load(main_wdl)
+            WDL.load(os.path.join(source_dir, main_wdl))
 
             # cover misc code paths through WDL.Zip.unpack()
-            WDL.load(cleanup.enter_context(WDL.Zip.unpack(os.path.dirname(main_wdl)))[0])
+            WDL.load(cleanup.enter_context(WDL.Zip.unpack(source_dir)).main_wdl)
             WDL.load(
                 cleanup.enter_context(
-                    WDL.Zip.unpack(os.path.join(os.path.dirname(main_wdl), "MANIFEST.json"))
-                )[0]
+                    WDL.Zip.unpack(os.path.join(source_dir, "MANIFEST.json"))
+                ).main_wdl
             )
-            os.unlink(os.path.join(os.path.dirname(main_wdl), "MANIFEST.json"))
+            os.unlink(os.path.join(source_dir, "MANIFEST.json"))
             with self.assertRaises(WDL.Error.InputError):
-                cleanup.enter_context(WDL.Zip.unpack(os.path.dirname(main_wdl)))
+                cleanup.enter_context(WDL.Zip.unpack(source_dir))
 
     def test_empty(self):
         self._roundtrip(WDL.load("test_corpi/contrived/empty.wdl"))
