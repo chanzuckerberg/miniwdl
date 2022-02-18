@@ -8,7 +8,7 @@ qtest:
 	python3 tests/no_docker_services.py
 	pytest -vx --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
 	python3 -m unittest tests.test_cli_argcomplete
-	prove -v tests/{check,eval,runner}.t
+	prove -v tests/{check,eval,runner,zip}.t
 	python3 tests/no_docker_services.py
 
 unit_tests:
@@ -17,7 +17,7 @@ unit_tests:
 	python3 tests/no_docker_services.py
 
 integration_tests:
-	prove -v tests/{check,eval,runner}.t
+	prove -v tests/{check,eval,runner,zip}.t
 	python3 tests/no_docker_services.py
 
 skylab_bulk_rna:

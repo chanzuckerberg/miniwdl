@@ -1,4 +1,4 @@
-import unittest, inspect, subprocess, tempfile, os, glob, json, urllib, urllib.request
+import unittest, tempfile, os, glob, json, urllib, urllib.request, logging, shutil, contextlib
 from .context import WDL
 import WDL.Lint
 
@@ -566,3 +566,53 @@ class warp_pipelines_cemba(unittest.TestCase):
 )
 class warp_pipelines_skylab(unittest.TestCase):
     pass
+
+
+class TestZip(unittest.TestCase):
+    def _roundtrip(self, doc, inputs=None):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            meta = {"foo": "bar"}
+            main_wdl = os.path.basename(doc.pos.abspath)
+            zip_fn = os.path.join(testdir, main_wdl + ".zip")
+            WDL.Zip.build(
+                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta, inputs=inputs
+            )
+
+            source_dir, main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            assert not inputs or inputs_file
+            WDL.load(os.path.join(source_dir, main_wdl))
+
+            # cover misc code paths through WDL.Zip.unpack()
+            WDL.load(cleanup.enter_context(WDL.Zip.unpack(source_dir)).main_wdl)
+            WDL.load(
+                cleanup.enter_context(
+                    WDL.Zip.unpack(os.path.join(source_dir, "MANIFEST.json"))
+                ).main_wdl
+            )
+            os.unlink(os.path.join(source_dir, "MANIFEST.json"))
+            with self.assertRaises(WDL.Error.InputError):
+                cleanup.enter_context(WDL.Zip.unpack(source_dir))
+
+    def test_empty(self):
+        self._roundtrip(WDL.load("test_corpi/contrived/empty.wdl"))
+
+    def test_biowdl_aligning(self):
+        self._roundtrip(WDL.load("test_corpi/biowdl/aligning/align-star.wdl"))
+
+    def test_wgs(self):
+        # multiple nested subworkflows
+        self._roundtrip(
+            WDL.load(
+                "test_corpi/broadinstitute/warp/pipelines/broad/reprocessing/wgs/WholeGenomeReprocessing.wdl",
+            ),
+            inputs={"foo": ["bar", "baz"]},
+        )
+
+    def test_assemble_refbased(self):
+        self._roundtrip(
+            WDL.load(
+                "test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/assemble_denovo.wdl",
+                path=["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"],
+            ),
+        )
