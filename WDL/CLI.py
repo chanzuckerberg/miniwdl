@@ -119,9 +119,9 @@ def create_arg_parser():
     fill_configure_subparser(subparsers)
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
+    fill_common(fill_zip_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
     fill_common(fill_eval_subparser(subparsers))
-    fill_common(fill_zip_subparser(subparsers))
     return parser
 
 
