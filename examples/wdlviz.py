@@ -6,10 +6,10 @@ Visualize a WDL workflow using miniwdl and graphviz
 import os
 import sys
 import argparse
-import urllib
 import tempfile
 import WDL
 import graphviz
+from urllib import request, parse
 
 
 def main(args=None):
@@ -149,16 +149,16 @@ async def read_source(uri, path, importer):
     if uri.startswith("http:") or uri.startswith("https:"):
         fn = os.path.join(
             tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
-            os.path.basename(urllib.parse.urlsplit(uri).path),
+            os.path.basename(parse.urlsplit(uri).path),
         )
-        urllib.request.urlretrieve(uri, filename=fn)
+        request.urlretrieve(uri, filename=fn)
         with open(fn, "r") as infile:
             return WDL.ReadSourceResult(infile.read(), uri)
     elif importer and (
         importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
     ):
         assert not os.path.isabs(uri), "absolute import from downloaded WDL"
-        return await read_source(urllib.parse.urljoin(importer.pos.abspath, uri), [], importer)
+        return await read_source(parse.urljoin(importer.pos.abspath, uri), [], importer)
     return await WDL.read_source_default(uri, path, importer)
 
 
