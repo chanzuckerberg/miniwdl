@@ -484,6 +484,9 @@ def _eval_task_runtime(
             # TODO: ask TaskContainer to choose preferred candidate
             docker_value = docker_value.value[0]
         ans["docker"] = docker_value.coerce(Type.String()).value
+    if "docker_network" in runtime_values:
+        network_value = runtime_values["docker_network"]
+        ans["docker_network"] = network_value.coerce(Type.String()).value
 
     if (
         isinstance(runtime_values.get("privileged", None), Value.Boolean)

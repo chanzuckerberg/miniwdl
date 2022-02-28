@@ -1059,3 +1059,66 @@ passthru_test_success
 set123
 """,
         )
+
+class TestDockerNetwork(RunnerTestCase):
+    @classmethod
+    def setUpClass(self):
+        self.subnet = "192.168.99.0/24"
+        self.network_name = "miniwdl_test7_net"
+        self.client = docker.from_env(version="auto")
+        try:
+            self.network = self.client.networks.get(self.network_name)
+        except docker.errors.NotFound:
+            ipam_pool = docker.types.IPAMPool(
+                subnet=self.subnet,
+            )
+            ipam_config = docker.types.IPAMConfig(pool_configs=[ipam_pool])
+            # We need a swarm-compatible docker network.
+            self.network = self.client.networks.create(
+                self.network_name, "overlay", ipam=ipam_config
+            )
+
+    @classmethod
+    def tearDownClass(self):
+        self.network.remove()
+
+    def test_network_default(self):
+        wdl = """
+        version development
+        task t {
+            command <<<
+                hostname -I
+            >>>
+            output {
+                String out = read_string(stdout())
+            }
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override(
+            {"task_runtime": {"defaults": {"docker_network": self.network_name}}}
+        )
+        out = self._run(wdl, {}, cfg=cfg)
+        self.assertEqual(out["out"][:11], "192.168.99.")
+
+    def test_network_explicit(self):
+        wdl = f"""
+        version development
+        task t {{
+            command <<<
+                hostname -I
+            >>>
+            output {{
+                String out = read_string(stdout())
+            }}
+            runtime {{
+                docker_network: "{self.network_name}"
+                docker: "ubuntu:20.04"
+            }}
+        }}
+        """
+        out = self._run(wdl, {})
+        self.assertEqual(out["out"][:11], "192.168.99.")
