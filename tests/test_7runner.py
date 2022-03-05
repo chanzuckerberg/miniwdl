@@ -1063,6 +1063,7 @@ set123
 class TestDockerNetwork(RunnerTestCase):
     @classmethod
     def setUpClass(self):
+        super().setUpClass()
         self.subnet = "192.168.99.0/24"
         self.network_name = "miniwdl_test7_net"
         self.client = docker.from_env(version="auto")
@@ -1080,7 +1081,9 @@ class TestDockerNetwork(RunnerTestCase):
 
     @classmethod
     def tearDownClass(self):
+        super().tearDownClass()
         self.network.remove()
+        self.client.close()
 
     def test_network_default(self):
         wdl = """
@@ -1122,3 +1125,21 @@ class TestDockerNetwork(RunnerTestCase):
         """
         out = self._run(wdl, {})
         self.assertEqual(out["out"][:11], "192.168.99.")
+
+    def test_network_host(self):
+        wdl = """
+        version development
+        task t {
+            command <<<
+                hostname -I
+            >>>
+            output {
+                String out = read_string(stdout())
+            }
+            runtime {
+                docker: "ubuntu:20.04"
+                docker_network: "host"
+            }
+        }
+        """
+        self._run(wdl, {})
