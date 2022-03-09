@@ -1,4 +1,4 @@
-import unittest, tempfile, os, glob, json, urllib, urllib.request, logging, shutil, contextlib
+import unittest, tempfile, os, glob, json, urllib, urllib.request, logging, shutil, contextlib, pathlib, hashlib, time
 from .context import WDL
 import WDL.Lint
 
@@ -616,3 +616,40 @@ class TestZip(unittest.TestCase):
                 path=["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"],
             ),
         )
+
+    def test_reproducible(self):
+        original_wdl = "test_corpi/biowdl/expression-quantification/multi-bam-quantify.wdl"
+        doc = WDL.load(original_wdl)
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            meta = {"foo": "bar"}
+            main_wdl = os.path.basename(doc.pos.abspath)
+            zip_fn = os.path.join(testdir, main_wdl + ".zip")
+            WDL.Zip.build(
+                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta
+            )
+            zip_contents = pathlib.Path(zip_fn).read_bytes()
+            zip_checksum = hashlib.sha1(zip_contents).hexdigest()
+
+            time.sleep(2)  # Sleep 2 seconds to make sure modification times are different.
+
+            copy_pipeline_dir = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix="miniwdl_reproducible_zip_test")
+            )
+            # Copy file contents, but not file metadata.
+            copied_pipeline_dir = shutil.copytree(
+                os.path.dirname(original_wdl),
+                copy_pipeline_dir, copy_function=shutil.copyfile,
+                dirs_exist_ok=True)
+            copied_wdl = os.path.join(copied_pipeline_dir,
+                                      "multi-bam-quantify.wdl")
+            copied_doc = WDL.load(copied_wdl)
+            copied_zip_fn = os.path.join(testdir, main_wdl + ".copied.zip")
+            WDL.Zip.build(
+                copied_doc, copied_zip_fn, logging.getLogger("miniwdl_zip_test"),
+                meta=meta
+            )
+            copied_zip_contents = pathlib.Path(copied_zip_fn).read_bytes()
+            copied_zip_checksum = hashlib.sha1(copied_zip_contents).hexdigest()
+            self.assertEqual(zip_checksum, copied_zip_checksum)
