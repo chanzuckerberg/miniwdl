@@ -3,13 +3,15 @@ Routines for packaging a WDL source file, with all imported source files, into a
 
 *New in v1.5.0*
 """
-
+import io
 import os
 import json
+import pathlib
 import shutil
 import logging
 import tempfile
 import contextlib
+import zipfile
 from typing import List, Dict, Optional, Any, Iterator, NamedTuple
 
 from . import Tree, Error
@@ -22,7 +24,6 @@ def build(
     logger: logging.Logger,
     inputs: Optional[Dict[str, Any]] = None,
     meta: Optional[Dict[str, Any]] = None,
-    archive_format: str = "zip",
 ):
     """
     Generate zip archive of the WDL document, all its imports, optional default inputs, and a
@@ -50,20 +51,9 @@ def build(
         logger.debug("manifest = " + json.dumps(manifest))
 
         # zip the temp directory (into another temp directory)
-        tmp_zip = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
         logger.info(f"archiving {dir_to_zip}")
-        tmp_zip = shutil.make_archive(
-            os.path.join(tmp_zip, os.path.basename(top_doc.pos.abspath)),
-            archive_format,
-            root_dir=dir_to_zip,
-            logger=logger,
-        )
-
-        # move zip to final location
-        logger.info(f"{archive} <= {tmp_zip}")
-        if "/" in archive:
-            os.makedirs(os.path.dirname(archive), exist_ok=True)
-        os.rename(tmp_zip, archive)
+        os.makedirs(os.path.dirname(archive), exist_ok=True)
+        create_reproducible_zip_file(dir_to_zip, archive)
 
 
 def build_source_dir(
@@ -230,3 +220,26 @@ def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
             )
 
         yield UnpackedZip(dn, main_wdl_abs, input_file_abs)
+
+
+def create_reproducible_zip_file(zip_dir: str, output_path: str):
+    src_dest_list = [
+        (path, path.relative_to(zip_dir))
+        for path in pathlib.Path(zip_dir).glob("**/*")  # Finds all files recursively
+        if path.is_file()
+        or path.is_symlink()  # Symlinks will be included in the zip as normal files
+    ]
+    # Sort paths by destination
+    src_dest_list.sort(key=lambda x: x[1])
+    with zipfile.ZipFile(output_path, "w") as archive:
+        for src, dest in src_dest_list:
+            # This always sets the mod time at 1980-1-1
+            dest_info = zipfile.ZipInfo(str(dest))
+            with archive.open(dest_info, "w") as archive_file:
+                with open(src, "rb") as in_file:
+                    while True:
+                        block = in_file.read(io.DEFAULT_BUFFER_SIZE)
+                        if not block:
+                            break
+                        archive_file.write(block)
+    return output_path
