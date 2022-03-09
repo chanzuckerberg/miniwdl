@@ -9,10 +9,11 @@ import json
 import pathlib
 import shutil
 import logging
+import tarfile
 import tempfile
 import contextlib
 import zipfile
-from typing import List, Dict, Optional, Any, Iterator, NamedTuple
+from typing import List, Dict, Optional, Any, Iterator, NamedTuple, Tuple
 
 from . import Tree, Error
 from ._util import path_really_within
@@ -24,6 +25,7 @@ def build(
     logger: logging.Logger,
     inputs: Optional[Dict[str, Any]] = None,
     meta: Optional[Dict[str, Any]] = None,
+    archive_format: str = "zip",
 ):
     """
     Generate zip archive of the WDL document, all its imports, optional default inputs, and a
@@ -53,7 +55,7 @@ def build(
         # zip the temp directory (into another temp directory)
         logger.info(f"archiving {dir_to_zip}")
         os.makedirs(os.path.dirname(archive), exist_ok=True)
-        create_reproducible_zip_file(dir_to_zip, archive)
+        create_reproducible_archive(dir_to_zip, archive, archive_format)
 
 
 def build_source_dir(
@@ -222,7 +224,7 @@ def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
         yield UnpackedZip(dn, main_wdl_abs, input_file_abs)
 
 
-def create_reproducible_zip_file(zip_dir: str, output_path: str):
+def create_reproducible_archive(zip_dir: str, output_path: str, format: str):
     src_dest_list = [
         (path, path.relative_to(zip_dir))
         for path in pathlib.Path(zip_dir).glob("**/*")  # Finds all files recursively
@@ -231,7 +233,17 @@ def create_reproducible_zip_file(zip_dir: str, output_path: str):
     ]
     # Sort paths by destination
     src_dest_list.sort(key=lambda x: x[1])
-    with zipfile.ZipFile(output_path, "w") as archive:
+    if format == "zip":
+        _write_no_mtime_zip(output_path, src_dest_list)
+    elif format == "tar":
+        _write_no_mtime_tar(output_path, src_dest_list)
+    else:
+        raise ValueError(f"Unknown format: {format}")
+    return output_path
+
+
+def _write_no_mtime_zip(zip_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
+    with zipfile.ZipFile(zip_archive, "w") as archive:
         for src, dest in src_dest_list:
             # This always sets the mod time at 1980-1-1
             dest_info = zipfile.ZipInfo(str(dest))
@@ -242,4 +254,12 @@ def create_reproducible_zip_file(zip_dir: str, output_path: str):
                         if not block:
                             break
                         archive_file.write(block)
-    return output_path
+
+
+def _write_no_mtime_tar(tar_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
+    with tarfile.TarFile(tar_archive, "w") as archive:
+        for src, dest in src_dest_list:
+            dest_info = tarfile.TarInfo(str(dest))  # Mtime by default at 0
+            dest_info.size = os.stat(dest).st_size
+            with open(src, "rb") as in_file:
+                archive.addfile(dest_info, in_file)
