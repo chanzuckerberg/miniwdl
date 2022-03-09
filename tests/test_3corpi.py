@@ -617,7 +617,13 @@ class TestZip(unittest.TestCase):
             ),
         )
 
-    def test_reproducible(self):
+    def test_reproducible_zip(self):
+        self._reproducible_test("zip")
+
+    def test_reproducible_tar(self):
+        self._reproducible_test("tar")
+
+    def _reproducible_test(self, format):
         original_wdl = "test_corpi/biowdl/expression-quantification/multi-bam-quantify.wdl"
         doc = WDL.load(original_wdl)
         with contextlib.ExitStack() as cleanup:
@@ -625,9 +631,10 @@ class TestZip(unittest.TestCase):
                 tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
             meta = {"foo": "bar"}
             main_wdl = os.path.basename(doc.pos.abspath)
-            zip_fn = os.path.join(testdir, main_wdl + ".zip")
+            zip_fn = os.path.join(testdir, main_wdl + f".{format}")
             WDL.Zip.build(
-                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta
+                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta,
+                archive_format=format
             )
             zip_contents = pathlib.Path(zip_fn).read_bytes()
             zip_checksum = hashlib.sha1(zip_contents).hexdigest()
@@ -645,10 +652,10 @@ class TestZip(unittest.TestCase):
             copied_wdl = os.path.join(copied_pipeline_dir,
                                       "multi-bam-quantify.wdl")
             copied_doc = WDL.load(copied_wdl)
-            copied_zip_fn = os.path.join(testdir, main_wdl + ".copied.zip")
+            copied_zip_fn = os.path.join(testdir, main_wdl + f".copied.{format}")
             WDL.Zip.build(
                 copied_doc, copied_zip_fn, logging.getLogger("miniwdl_zip_test"),
-                meta=meta
+                meta=meta, archive_format=format
             )
             copied_zip_contents = pathlib.Path(copied_zip_fn).read_bytes()
             copied_zip_checksum = hashlib.sha1(copied_zip_contents).hexdigest()

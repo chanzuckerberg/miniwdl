@@ -260,6 +260,6 @@ def _write_no_mtime_tar(tar_archive: str, src_dest_list: List[Tuple[pathlib.Path
     with tarfile.TarFile(tar_archive, "w") as archive:
         for src, dest in src_dest_list:
             dest_info = tarfile.TarInfo(str(dest))  # Mtime by default at 0
-            dest_info.size = os.stat(dest).st_size
+            dest_info.size = os.stat(src).st_size
             with open(src, "rb") as in_file:
                 archive.addfile(dest_info, in_file)
