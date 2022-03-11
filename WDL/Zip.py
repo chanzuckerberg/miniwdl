@@ -53,8 +53,10 @@ def build(
         logger.debug("manifest = " + json.dumps(manifest))
 
         # zip the temp directory (into another temp directory)
-        logger.info(f"archiving {dir_to_zip}")
-        os.makedirs(os.path.dirname(archive), exist_ok=True)
+        logger.info(f"Create archive {archive} from directory {dir_to_zip}")
+        dirname = os.path.dirname(archive)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
         create_reproducible_archive(dir_to_zip, archive, archive_format)
 
 
