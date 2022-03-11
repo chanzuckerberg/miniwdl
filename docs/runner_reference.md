@@ -38,7 +38,6 @@ The miniwdl source repository includes several [example scripts](https://github.
 The default local scheduler observes these task `runtime {}` attributes:
 
 * `docker`/`container` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:20.04`)
-* `docker_network` (String): The name of a docker network to attach task containers to.
 * `cpu` (Int): container reserves, and is throttled to, this many CPUs
   * Automatically rounds down to all host CPUs, if fewer
   * Multiple tasks can run concurrently on the local host, if CPUs and memory are available to meet their total reservations, and the workflow dependencies allow
@@ -47,6 +46,7 @@ The default local scheduler observes these task `runtime {}` attributes:
   * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
 * `maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first)
 * `returnCodes` (Int/Array[Int]/`"*"`): consider the given non-zero exit code(s) to indicate command success
+* `docker_network` (String): name of a docker network to which to attach container, e.g. "host"
 * `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
 ## File & Directory URI downloads
