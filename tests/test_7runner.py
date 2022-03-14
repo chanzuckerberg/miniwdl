@@ -1079,11 +1079,13 @@ class TestDockerNetwork(RunnerTestCase):
                 self.network_name, "overlay", ipam=ipam_config
             )
 
+
     @classmethod
     def tearDownClass(self):
         super().tearDownClass()
         self.network.remove()
         self.client.close()
+
 
     def test_network_default(self):
         wdl = """
@@ -1102,12 +1104,15 @@ class TestDockerNetwork(RunnerTestCase):
         """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override(
-            {"task_runtime": {"defaults": {"docker_network": self.network_name}}}
+            {"task_runtime": {"defaults": {"docker_network": self.network_name}},
+             "docker_swarm": {"allow_networks": [self.network_name]}}
         )
         out = self._run(wdl, {}, cfg=cfg)
         self.assertEqual(out["out"][:11], "192.168.99.")
 
-    def test_network_explicit(self):
+
+    @log_capture()
+    def test_network_explicit(self, capture):
         wdl = f"""
         version development
         task t {{
@@ -1123,8 +1128,19 @@ class TestDockerNetwork(RunnerTestCase):
             }}
         }}
         """
-        out = self._run(wdl, {})
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override(
+            {"docker_swarm": {"allow_networks": [self.network_name]}}
+        )
+        out = self._run(wdl, {}, cfg=cfg)
         self.assertEqual(out["out"][:11], "192.168.99.")
+
+        # make sure allowlist is effective
+        out = self._run(wdl, {})
+        self.assertNotEqual(out["out"][:11], "192.168.99.")
+        logs = "\n".join(str(record.msg) for record in capture.records)
+        assert "runtime.docker_network ignored" in logs
+
 
     def test_network_host(self):
         wdl = """
@@ -1142,4 +1158,8 @@ class TestDockerNetwork(RunnerTestCase):
             }
         }
         """
-        self._run(wdl, {})
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override(
+            {"docker_swarm": {"allow_networks": ["host"]}}
+        )
+        self._run(wdl, {}, cfg=cfg)
