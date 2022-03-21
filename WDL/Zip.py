@@ -53,11 +53,16 @@ def build(
         logger.debug("manifest = " + json.dumps(manifest))
 
         # zip the temp directory (into another temp directory)
-        logger.info(f"Create archive {archive} from directory {dir_to_zip}")
+        spool_dir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
+        spool_zip = os.path.join(spool_dir, os.path.basename(archive))
+        logger.info(f"Create archive {spool_zip} from directory {dir_to_zip}")
+        create_reproducible_archive(dir_to_zip, spool_zip, archive_format)
+
+        # move into final location (hopefully atomic)
         dirname = os.path.dirname(archive)
         if dirname:
             os.makedirs(dirname, exist_ok=True)
-        create_reproducible_archive(dir_to_zip, archive, archive_format)
+        os.rename(spool_zip, archive)
 
 
 def build_source_dir(
@@ -154,6 +159,49 @@ def rewrite_imports(
     return source_lines
 
 
+def create_reproducible_archive(zip_dir: str, output_path: str, format: str):
+    # write zip/tar archive with internal filenames lexicographically-ordered and all timestamps
+    # set to an arbitrary constant
+    src_dest_list = [
+        (path, path.relative_to(zip_dir))
+        for path in pathlib.Path(zip_dir).glob("**/*")  # Finds all files recursively
+        if path.is_file()
+        or path.is_symlink()  # Symlinks will be included in the zip as normal files
+    ]
+    # Sort paths by destination
+    src_dest_list.sort(key=lambda x: x[1])
+    if format == "zip":
+        _write_no_mtime_zip(output_path, src_dest_list)
+    elif format == "tar":
+        _write_no_mtime_tar(output_path, src_dest_list)
+    else:
+        raise ValueError(f"Unknown format: {format}")
+    return output_path
+
+
+def _write_no_mtime_zip(zip_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
+    with zipfile.ZipFile(zip_archive, "w") as archive:
+        for src, dest in src_dest_list:
+            # This always sets the mod time at 1980-1-1
+            dest_info = zipfile.ZipInfo(str(dest))
+            with archive.open(dest_info, "w") as archive_file:
+                with open(src, "rb") as in_file:
+                    while True:
+                        block = in_file.read(io.DEFAULT_BUFFER_SIZE)
+                        if not block:
+                            break
+                        archive_file.write(block)
+
+
+def _write_no_mtime_tar(tar_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
+    with tarfile.TarFile(tar_archive, "w") as archive:
+        for src, dest in src_dest_list:
+            dest_info = tarfile.TarInfo(str(dest))  # Mtime by default at 0
+            dest_info.size = os.stat(src).st_size
+            with open(src, "rb") as in_file:
+                archive.addfile(dest_info, in_file)
+
+
 UnpackedZip = NamedTuple(
     "UnpackedZip", [("dir", str), ("main_wdl", str), ("input_file", Optional[str])]
 )
@@ -224,44 +272,3 @@ def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
             )
 
         yield UnpackedZip(dn, main_wdl_abs, input_file_abs)
-
-
-def create_reproducible_archive(zip_dir: str, output_path: str, format: str):
-    src_dest_list = [
-        (path, path.relative_to(zip_dir))
-        for path in pathlib.Path(zip_dir).glob("**/*")  # Finds all files recursively
-        if path.is_file()
-        or path.is_symlink()  # Symlinks will be included in the zip as normal files
-    ]
-    # Sort paths by destination
-    src_dest_list.sort(key=lambda x: x[1])
-    if format == "zip":
-        _write_no_mtime_zip(output_path, src_dest_list)
-    elif format == "tar":
-        _write_no_mtime_tar(output_path, src_dest_list)
-    else:
-        raise ValueError(f"Unknown format: {format}")
-    return output_path
-
-
-def _write_no_mtime_zip(zip_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
-    with zipfile.ZipFile(zip_archive, "w") as archive:
-        for src, dest in src_dest_list:
-            # This always sets the mod time at 1980-1-1
-            dest_info = zipfile.ZipInfo(str(dest))
-            with archive.open(dest_info, "w") as archive_file:
-                with open(src, "rb") as in_file:
-                    while True:
-                        block = in_file.read(io.DEFAULT_BUFFER_SIZE)
-                        if not block:
-                            break
-                        archive_file.write(block)
-
-
-def _write_no_mtime_tar(tar_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
-    with tarfile.TarFile(tar_archive, "w") as archive:
-        for src, dest in src_dest_list:
-            dest_info = tarfile.TarInfo(str(dest))  # Mtime by default at 0
-            dest_info.size = os.stat(src).st_size
-            with open(src, "rb") as in_file:
-                archive.addfile(dest_info, in_file)
