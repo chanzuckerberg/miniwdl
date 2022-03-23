@@ -644,11 +644,11 @@ class TestZip(unittest.TestCase):
             copy_pipeline_dir = cleanup.enter_context(
                 tempfile.TemporaryDirectory(prefix="miniwdl_reproducible_zip_test")
             )
+            copy_pipeline_dir = os.path.join(copy_pipeline_dir, "contents")
             # Copy file contents, but not file metadata.
             copied_pipeline_dir = shutil.copytree(
                 os.path.dirname(original_wdl),
-                copy_pipeline_dir, copy_function=shutil.copyfile,
-                dirs_exist_ok=True)
+                copy_pipeline_dir, copy_function=shutil.copyfile)
             copied_wdl = os.path.join(copied_pipeline_dir,
                                       "multi-bam-quantify.wdl")
             copied_doc = WDL.load(copied_wdl)
