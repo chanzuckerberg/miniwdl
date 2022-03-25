@@ -3,14 +3,17 @@ Routines for packaging a WDL source file, with all imported source files, into a
 
 *New in v1.5.0*
 """
-
+import io
 import os
 import json
+import pathlib
 import shutil
 import logging
+import tarfile
 import tempfile
 import contextlib
-from typing import List, Dict, Optional, Any, Iterator, NamedTuple
+import zipfile
+from typing import List, Dict, Optional, Any, Iterator, NamedTuple, Tuple
 
 from . import Tree, Error
 from ._util import path_really_within
@@ -50,20 +53,16 @@ def build(
         logger.debug("manifest = " + json.dumps(manifest))
 
         # zip the temp directory (into another temp directory)
-        tmp_zip = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
-        logger.info(f"archiving {dir_to_zip}")
-        tmp_zip = shutil.make_archive(
-            os.path.join(tmp_zip, os.path.basename(top_doc.pos.abspath)),
-            archive_format,
-            root_dir=dir_to_zip,
-            logger=logger,
-        )
+        spool_dir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
+        spool_zip = os.path.join(spool_dir, os.path.basename(archive))
+        logger.info(f"Create archive {spool_zip} from directory {dir_to_zip}")
+        create_reproducible_archive(dir_to_zip, spool_zip, archive_format)
 
-        # move zip to final location
-        logger.info(f"{archive} <= {tmp_zip}")
-        if "/" in archive:
-            os.makedirs(os.path.dirname(archive), exist_ok=True)
-        os.rename(tmp_zip, archive)
+        # move into final location (hopefully atomic)
+        dirname = os.path.dirname(archive)
+        if dirname:
+            os.makedirs(dirname, exist_ok=True)
+        os.rename(spool_zip, archive)
 
 
 def build_source_dir(
@@ -158,6 +157,49 @@ def rewrite_imports(
         assert found
 
     return source_lines
+
+
+def create_reproducible_archive(zip_dir: str, output_path: str, format: str):
+    # write zip/tar archive with internal filenames lexicographically-ordered and all timestamps
+    # set to an arbitrary constant
+    src_dest_list = [
+        (path, path.relative_to(zip_dir))
+        for path in pathlib.Path(zip_dir).glob("**/*")  # Finds all files recursively
+        if path.is_file()
+        or path.is_symlink()  # Symlinks will be included in the zip as normal files
+    ]
+    # Sort paths by destination
+    src_dest_list.sort(key=lambda x: x[1])
+    if format == "zip":
+        _write_no_mtime_zip(output_path, src_dest_list)
+    elif format == "tar":
+        _write_no_mtime_tar(output_path, src_dest_list)
+    else:
+        raise ValueError(f"Unknown format: {format}")
+    return output_path
+
+
+def _write_no_mtime_zip(zip_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
+    with zipfile.ZipFile(zip_archive, "w") as archive:
+        for src, dest in src_dest_list:
+            # This always sets the mod time at 1980-1-1
+            dest_info = zipfile.ZipInfo(str(dest))
+            with archive.open(dest_info, "w") as archive_file:
+                with open(src, "rb") as in_file:
+                    while True:
+                        block = in_file.read(io.DEFAULT_BUFFER_SIZE)
+                        if not block:
+                            break
+                        archive_file.write(block)
+
+
+def _write_no_mtime_tar(tar_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
+    with tarfile.TarFile(tar_archive, "w") as archive:
+        for src, dest in src_dest_list:
+            dest_info = tarfile.TarInfo(str(dest))  # Mtime by default at 0
+            dest_info.size = os.stat(src).st_size
+            with open(src, "rb") as in_file:
+                archive.addfile(dest_info, in_file)
 
 
 UnpackedZip = NamedTuple(
