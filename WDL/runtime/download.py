@@ -80,7 +80,7 @@ def run(
 
     from .error import RunFailed, DownloadFailed, Terminated, error_json
     from .task import run_local_task
-    from .. import parse_document, values_from_json, values_to_json, Walker
+    from .. import parse_document, values_from_json, values_to_json, Walker, Value, Type
 
     gen = _downloader(cfg, uri, directory=directory)
     assert gen
@@ -99,7 +99,8 @@ def run(
                 task = doc.tasks[0]
 
                 for k, v in cfg.get_dict("task_runtime", "download_defaults").items():
-                    task.runtime[k] = task.runtime.get(k, v)
+                    if k not in task.runtime:
+                        task.runtime[k] = Value.from_json(Type.Any(), v)
                 inputs = values_from_json(inputs, task.available_inputs)  # pyre-ignore
                 subdir, outputs_env = run_local_task(
                     cfg, task, inputs, run_id=("download-" + task.name), **kwargs

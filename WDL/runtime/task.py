@@ -454,14 +454,7 @@ def _eval_task_runtime(
 ) -> Dict[str, Union[int, str, List[int], List[str]]]:
     runtime_values = {}
     for key, v in cfg["task_runtime"].get_dict("defaults").items():
-        if isinstance(v, str):
-            runtime_values[key] = Value.String(v)
-        elif isinstance(v, int):
-            runtime_values[key] = Value.Int(v)
-        elif isinstance(v, bool):
-            runtime_values[key] = Value.Boolean(v)
-        else:
-            raise Error.InputError(f"invalid default runtime setting {key} = {v}")
+        runtime_values[key] = Value.from_json(Type.Any(), v)
     for key, expr in task.runtime.items():  # evaluate expressions in source code
         runtime_values[key] = expr.eval(env, stdlib)
     for b in inputs.enter_namespace("runtime"):
