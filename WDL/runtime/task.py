@@ -172,7 +172,7 @@ def run_local_task(
                 # evaluate runtime fields
                 stdlib = InputStdLib(task.effective_wdl_version, logger, container)
                 container.runtime_values = _eval_task_runtime(
-                    cfg, logger, task, posix_inputs, container, container_env, stdlib
+                    cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
 
                 # interpolate command
@@ -446,14 +446,18 @@ def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
 def _eval_task_runtime(
     cfg: config.Loader,
     logger: logging.Logger,
+    run_id: str,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
     container: "runtime.task_container.TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
 ) -> Dict[str, Union[int, str, List[int], List[str]]]:
+    runtime_defaults = cfg.get_dict("task_runtime", "defaults")
+    if run_id.startswith("download-"):
+        runtime_defaults.update(cfg.get_dict("task_runtime", "download_defaults"))
     runtime_values = {}
-    for key, v in cfg["task_runtime"].get_dict("defaults").items():
+    for key, v in runtime_defaults.items():
         runtime_values[key] = Value.from_json(Type.Any(), v)
     for key, expr in task.runtime.items():  # evaluate expressions in source code
         runtime_values[key] = expr.eval(env, stdlib)

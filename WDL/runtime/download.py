@@ -98,9 +98,6 @@ def run(
                 Walker.SetParents()(doc)
                 task = doc.tasks[0]
 
-                for k, v in cfg.get_dict("task_runtime", "download_defaults").items():
-                    if k not in task.runtime:
-                        task.runtime[k] = Value.from_json(Type.Any(), v)
                 inputs = values_from_json(inputs, task.available_inputs)  # pyre-ignore
                 subdir, outputs_env = run_local_task(
                     cfg, task, inputs, run_id=("download-" + task.name), **kwargs
