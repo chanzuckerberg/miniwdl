@@ -97,6 +97,9 @@ def run(
                 doc.typecheck()
                 Walker.SetParents()(doc)
                 task = doc.tasks[0]
+
+                for k, v in cfg.get_dict("task_runtime", "download_defaults").items():
+                    task.runtime[k] = task.runtime.get(k, v)
                 inputs = values_from_json(inputs, task.available_inputs)  # pyre-ignore
                 subdir, outputs_env = run_local_task(
                     cfg, task, inputs, run_id=("download-" + task.name), **kwargs
@@ -188,8 +191,6 @@ def aria2c_downloader(
             File file = glob("__out/*")[0]
         }
         runtime {
-            cpu: 2
-            memory: "1G"
             docker: docker
         }
     }
@@ -242,8 +243,6 @@ def awscli_downloader(
             }
 
             runtime {
-                cpu: 2
-                memory: "1G"
                 docker: docker
             }
         }
@@ -295,8 +294,6 @@ def awscli_directory_downloader(
             }
 
             runtime {
-                cpu: 2
-                memory: "1G"
                 docker: docker
             }
         }
@@ -378,8 +375,6 @@ def gsutil_downloader(
             File file = glob("__out/*")[0]
         }
         runtime {
-            cpu: 2
-            memory: "1G"
             docker: docker
         }
     }
