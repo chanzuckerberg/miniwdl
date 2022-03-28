@@ -458,6 +458,8 @@ def _eval_task_runtime(
             runtime_values[key] = Value.String(v)
         elif isinstance(v, int):
             runtime_values[key] = Value.Int(v)
+        elif isinstance(v, bool):
+            runtime_values[key] = Value.Boolean(v)
         else:
             raise Error.InputError(f"invalid default runtime setting {key} = {v}")
     for key, expr in task.runtime.items():  # evaluate expressions in source code
@@ -482,6 +484,21 @@ def _eval_task_runtime(
             # TODO: ask TaskContainer to choose preferred candidate
             docker_value = docker_value.value[0]
         ans["docker"] = docker_value.coerce(Type.String()).value
+    if "docker_network" in runtime_values:
+        network_value = runtime_values["docker_network"]
+        ans["docker_network"] = network_value.coerce(Type.String()).value
+
+    if (
+        isinstance(runtime_values.get("privileged", None), Value.Boolean)
+        and runtime_values["privileged"].value is True
+    ):
+        if cfg.get_bool("task_runtime", "allow_privileged"):
+            ans["privileged"] = True
+        else:
+            logger.warning(
+                "runtime.privileged ignored; to enable, set configuration"
+                " [task_runtime] allow_privileged = true (security+portability warning)"
+            )
 
     host_limits = container.__class__.detect_resource_limits(cfg, logger)
     if "cpu" in runtime_values:

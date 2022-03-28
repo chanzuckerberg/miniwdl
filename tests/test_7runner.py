@@ -837,6 +837,33 @@ class MiscRegressionTests(RunnerTestCase):
         cfg.override({"task_runtime": {"placeholder_regex": "[0-9A-Za-z:/._-]*"}})
         self._run(wdl, {"s": malicious}, cfg=cfg, expected_exception=WDL.Error.InputError)
 
+    def test_syntax_error(self):
+        doc = r"""
+        workflow wf {
+            String s = "\uvwxyz"
+        }
+        """
+        self._run(doc, {}, expected_exception=WDL.Error.SyntaxError)
+
+    def test_spec_select_all_wdl(self):
+        doc = r"""
+        version 1.1
+        workflow SelectAll {
+            input {
+                Int? maybe_five = 5
+                Int? maybe_four_but_is_not = None
+                Int? maybe_three = 3
+            }
+            output {
+                Array[Int] fivethree = select_all([maybe_five, maybe_four_but_is_not, maybe_three])
+                Boolean is_true = fivethree == [5, 3]
+            }
+        }
+        """
+        outp = self._run(doc, {})
+        self.assertEqual(outp["fivethree"], [5, 3])
+        self.assertEqual(outp["is_true"], True)
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
@@ -1032,3 +1059,107 @@ passthru_test_success
 set123
 """,
         )
+
+class TestDockerNetwork(RunnerTestCase):
+    @classmethod
+    def setUpClass(self):
+        super().setUpClass()
+        self.subnet = "192.168.99.0/24"
+        self.network_name = "miniwdl_test7_net"
+        self.client = docker.from_env(version="auto")
+        try:
+            self.network = self.client.networks.get(self.network_name)
+        except docker.errors.NotFound:
+            ipam_pool = docker.types.IPAMPool(
+                subnet=self.subnet,
+            )
+            ipam_config = docker.types.IPAMConfig(pool_configs=[ipam_pool])
+            # We need a swarm-compatible docker network.
+            self.network = self.client.networks.create(
+                self.network_name, "overlay", ipam=ipam_config
+            )
+
+
+    @classmethod
+    def tearDownClass(self):
+        super().tearDownClass()
+        self.network.remove()
+        self.client.close()
+
+
+    def test_network_default(self):
+        wdl = """
+        version development
+        task t {
+            command <<<
+                hostname -I
+            >>>
+            output {
+                String out = read_string(stdout())
+            }
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override(
+            {"task_runtime": {"defaults": {"docker_network": self.network_name}},
+             "docker_swarm": {"allow_networks": [self.network_name]}}
+        )
+        out = self._run(wdl, {}, cfg=cfg)
+        self.assertEqual(out["out"][:11], "192.168.99.")
+
+
+    @log_capture()
+    def test_network_explicit(self, capture):
+        wdl = f"""
+        version development
+        task t {{
+            command <<<
+                hostname -I
+            >>>
+            output {{
+                String out = read_string(stdout())
+            }}
+            runtime {{
+                docker_network: "{self.network_name}"
+                docker: "ubuntu:20.04"
+            }}
+        }}
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override(
+            {"docker_swarm": {"allow_networks": [self.network_name]}}
+        )
+        out = self._run(wdl, {}, cfg=cfg)
+        self.assertEqual(out["out"][:11], "192.168.99.")
+
+        # make sure allowlist is effective
+        out = self._run(wdl, {})
+        self.assertNotEqual(out["out"][:11], "192.168.99.")
+        logs = "\n".join(str(record.msg) for record in capture.records)
+        assert "runtime.docker_network ignored" in logs
+
+
+    def test_network_host(self):
+        wdl = """
+        version development
+        task t {
+            command <<<
+                hostname -I
+            >>>
+            output {
+                String out = read_string(stdout())
+            }
+            runtime {
+                docker: "ubuntu:20.04"
+                docker_network: "host"
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override(
+            {"docker_swarm": {"allow_networks": ["host"]}}
+        )
+        self._run(wdl, {}, cfg=cfg)

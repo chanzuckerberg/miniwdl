@@ -506,6 +506,12 @@ class Object(Base):
                 if not rhs_members[opt_k].optional:
                     return False
             return True
+        if isinstance(rhs, Map):
+            # Member names must coerce to the map key type, and each member type must coerce to the
+            # map value type.
+            return String().coerces(rhs.item_type[0]) and all(
+                vt.coerces(rhs.item_type[1]) for vt in self.members.values()
+            )
         if isinstance(rhs, Any):
             return self._check_optional(rhs, check_quant)
         return False

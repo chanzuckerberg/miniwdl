@@ -14,6 +14,7 @@ import textwrap
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
+from typing import Optional
 import argcomplete
 from . import (
     load,
@@ -29,13 +30,13 @@ from . import (
     Call,
     Scatter,
     Conditional,
-    SourcePosition,
     parse_document,
     copy_source,
     values_from_json,
     values_to_json,
     read_source_default,
     ReadSourceResult,
+    Zip,
 )
 from ._util import (
     VERBOSE_LEVEL,
@@ -77,6 +78,10 @@ def main(args=None):
             localize(**vars(args))
         elif args.command == "configure":
             configure(**vars(args))
+        elif args.command == "eval":
+            eval_expr(**vars(args))
+        elif args.command == "zip":
+            zip_wdl(**vars(args))
         else:
             assert False
     except (
@@ -114,7 +119,9 @@ def create_arg_parser():
     fill_configure_subparser(subparsers)
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
+    fill_common(fill_zip_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
+    fill_common(fill_eval_subparser(subparsers))
     return parser
 
 
@@ -363,7 +370,7 @@ def outline(
     descend()
 
 
-def print_error(exn):
+def print_error(exn: Optional[BaseException]) -> None:
     global quant_warning
     if isinstance(exn, Error.MultipleValidationErrors):
         for exn1 in exn.exceptions:
@@ -371,17 +378,23 @@ def print_error(exn):
     else:
         if sys.stderr.isatty():
             sys.stderr.write(ANSI.BHRED)
-        if isinstance(getattr(exn, "pos", None), SourcePosition):
-            print(f"({exn.pos.uri} Ln {exn.pos.line} Col {exn.pos.column}) {exn}", file=sys.stderr)
+        if hasattr(exn, "pos"):
+            pos = getattr(exn, "pos", None)
+            if isinstance(pos, Error.SourcePosition):
+                print(f"({pos.uri} Ln {pos.line} Col {pos.column}) {exn}", file=sys.stderr)
+            else:
+                print(str(exn), file=sys.stderr)
         else:
             print(str(exn), file=sys.stderr)
         if sys.stderr.isatty():
             sys.stderr.write(ANSI.RESET)
         if isinstance(exn, Error.ImportError) and hasattr(exn, "__cause__"):
             print_error(exn.__cause__)
-        if isinstance(exn, Error.ValidationError) and exn.source_text:
+        if isinstance(exn, (Error.SyntaxError, Error.ValidationError)) and getattr(
+            exn, "source_text", None
+        ):
             # show source excerpt
-            lines = exn.source_text.split("\n")
+            lines = getattr(exn, "source_text", "").split("\n")
             error_line = lines[exn.pos.line - 1].replace("\t", " ")
             print("    " + error_line, file=sys.stderr)
             end_line = exn.pos.end_line
@@ -392,7 +405,7 @@ def print_error(exn):
             while end_column > exn.pos.column + 1 and error_line[end_column - 2] == " ":
                 end_column = end_column - 1
             print(
-                "    " + " " * (exn.pos.column - 1) + "^" * (end_column - exn.pos.column),
+                "    " + " " * (exn.pos.column - 1) + "^" * max(1, end_column - exn.pos.column),
                 file=sys.stderr,
             )
             if isinstance(exn, Error.StaticTypeMismatch) and exn.actual.coerces(
@@ -714,6 +727,14 @@ def runner(
             )
             sys.exit(2)
 
+        # unpack zip & manifest, if applicable
+        uri, manifest_input_file = unpack_source_zip(logger, cleanup, uri)
+        if manifest_input_file:
+            if input_file:
+                logger.warning("specified --input file replacing source zip's")
+            else:
+                input_file = manifest_input_file
+
         try:
             # load WDL document
             doc = load(
@@ -833,6 +854,40 @@ def runner(
     return outputs_json
 
 
+def unpack_source_zip(logger, cleanup, uri):
+    # preprocess a source zip given to `miniwdl run`
+    source_zip = uri
+    if os.path.isdir(uri):
+        logger.notice(_("assuming directory is unpacked source zip", dir=uri))
+    else:
+        if not uri.endswith(".zip"):  # nothing to do
+            return (uri, None)
+
+        if uri.startswith("http:") or uri.startswith("https:"):
+            from urllib import parse, request
+
+            source_zip = os.path.join(
+                cleanup.enter_context(
+                    tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_download_")
+                ),
+                os.path.basename(parse.urlsplit(uri).path),
+            )
+            # read_source() isn't suitable for this because it's binary data
+            logger.notice(_("downloading source zip", uri=uri, zip=source_zip))
+            request.urlretrieve(uri, filename=source_zip)
+
+    unpacked = cleanup.enter_context(Zip.unpack(source_zip))
+    logger.notice(
+        _(
+            "opened source zip",
+            zip=source_zip,
+            main_wdl=unpacked.main_wdl,
+            input_file=unpacked.input_file,
+        )
+    )
+    return unpacked.main_wdl, unpacked.input_file
+
+
 def runner_input_completer(prefix, parsed_args, **kwargs):
     # argcomplete completer for `miniwdl run` and `miniwdl cromwell`
     if "uri" in parsed_args:
@@ -934,6 +989,7 @@ def runner_input(
         downloadable,
         root,
     )
+    json_keys = set(b.name for b in input_env)
 
     # set explicitly empty arrays or strings
     for empty_name in empty or []:
@@ -1008,7 +1064,7 @@ def runner_input(
 
         # insert value into input_env
         existing = input_env.get(name)
-        if existing:
+        if existing and name not in json_keys:
             if isinstance(v, Value.Array):
                 assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
                 existing.value.extend(v.value)
@@ -1017,6 +1073,7 @@ def runner_input(
                 raise Error.InputError(f"non-array input {buf[0]} duplicated")
         else:
             input_env = input_env.bind(name, v, decl)
+            json_keys.discard(name)  # command-line overrides JSON input
 
     # check for missing inputs
     if check_required:
@@ -1375,14 +1432,19 @@ def run_self_test(**kwargs):
             )
             raise exn
 
+    miniwdl_version = pkg_version()
+    if miniwdl_version:
+        miniwdl_version = "v" + miniwdl_version
+
     print(
-        "\nminiwdl run_self_test OK; try `miniwdl configure` to set common options or show current selections.",
+        "\nminiwdl run_self_test OK ("
+        + (miniwdl_version or "version unknown")
+        + "); try `miniwdl configure` to set common options or show current selections.",
         file=sys.stderr,
     )
     if os.geteuid() == 0:
         print(
-            "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per\n"
-            "        https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+            "* Note: running miniwdl as root is usually avoidable (see docs)",
             file=sys.stderr,
         )
 
@@ -1818,6 +1880,162 @@ def format_cfg(sections):
             value = value.replace("\n", "\n  ")
             ans.append(f"{key} = {value}")
     return "\n".join(ans)
+
+
+def fill_eval_subparser(subparsers):
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Evaluate a WDL expression",
+        description="Evaluate an isolated WDL expression and print JSON value",
+    )
+    eval_parser.add_argument(
+        "decl",
+        metavar="DECL",
+        nargs="*",
+        help="Declaration in evaluator environment (e.g. 'Int n = 42')",
+    )
+    eval_parser.add_argument(
+        "expr",
+        metavar="EXPR",
+        type=str,
+        help="WDL expression to evaluate (e.g. '[n, n/2]')",
+    )
+    eval_parser.add_argument(
+        "--wdl-version",
+        "-v",
+        type=str,
+        default="development",
+        help="WDL version (default: development)",
+    )
+    eval_parser.add_argument(
+        "--type",
+        "-t",
+        action="store_true",
+        dest="report_type",
+        help="report type as well as JSON value",
+    )
+    return eval_parser
+
+
+def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_type=False, **kwargs):
+    from ._parser import parse_bound_decl, parse_expr
+    from . import StdLib
+
+    # setup
+    class _StdLib(StdLib.Base):
+        def _devirtualize_filename(self, filename: str) -> str:
+            return filename
+
+        def _virtualize_filename(self, filename: str) -> str:
+            return filename
+
+    stdlib = _StdLib(wdl_version, write_dir=os.environ.get("TMPDIR", "/tmp"))
+    type_env = Env.Bindings()
+    value_env = Env.Bindings()
+
+    # typecheck & evaluate each decl
+    for a_decl in decl:
+        try:
+            decl_ast = parse_bound_decl(a_decl, wdl_version)
+            decl_ast.typecheck(type_env, stdlib, Env.Bindings(), check_quant=check_quant)
+            type_env = decl_ast.add_to_type_env(Env.Bindings(), type_env)
+            value_env = value_env.bind(decl_ast.name, decl_ast.expr.eval(value_env, stdlib))
+        except Exception as exn:
+            setattr(exn, "source_text", a_decl)  # for print_error()
+            raise
+
+    # typecheck & evaluate expr, display result
+    try:
+        expr_ast = parse_expr(expr, wdl_version).infer_type(
+            type_env, stdlib, check_quant=check_quant
+        )
+        if report_type:
+            print(str(expr_ast.type))
+        v = expr_ast.eval(value_env, stdlib)
+        print(json.dumps(v.json, indent=2))
+    except Exception as exn:
+        setattr(exn, "source_text", expr)  # for print_error()
+        raise
+
+
+def fill_zip_subparser(subparsers):
+    zip_parser = subparsers.add_parser(
+        "zip", help="Zip WDL source", description="Zip WDL source file along with all imports"
+    )
+    zip_parser.add_argument("top_wdl", metavar="WDL_FILE", help="top-level WDL file")
+    zip_parser.add_argument(
+        "-o",
+        "--output",
+        metavar="ZIP_FILE",
+        help="destination filename [WDL_FILE.zip]",
+    )
+    zip_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="overwrite existing file",
+    )
+    zip_parser.add_argument(
+        "--input",
+        "--inputs",
+        "-i",
+        metavar="JSON_OR_FILE",
+        help="input JSON to include as defaults",
+    )
+    return zip_parser
+
+
+def zip_wdl(
+    top_wdl,
+    output=None,
+    force=False,
+    input=None,
+    check_quant=True,
+    path=None,
+    no_outside_imports=False,
+    debug=False,
+    **kwargs,
+):
+    # load WDL
+    doc = load(
+        top_wdl,
+        path or [],
+        check_quant=check_quant,
+        read_source=make_read_source(no_outside_imports),
+    )
+
+    logging.basicConfig(level=(logging.DEBUG if debug else logging.INFO))
+    logger = logging.getLogger("miniwdl-zip")
+    with configure_logger():
+        # load & validate input JSON, if any
+        input_dict = None
+        if input:
+            try:
+                _target, _input_env, input_dict = runner_input(
+                    doc,
+                    [],
+                    input,
+                    [],
+                    [],
+                    check_required=False,
+                    downloadable=lambda fn, is_dir: True,
+                )
+            except Error.InputError as exn:
+                die(exn.args[0])
+
+        # build archive
+        meta = None
+        miniwdl_version = pkg_version()
+        if miniwdl_version:
+            meta = {"miniwdl": {"version": "v" + miniwdl_version}}
+
+        if not output:
+            output = os.path.basename(top_wdl) + ".zip"
+        if os.path.exists(output) and not force:
+            die(output + " already exists; add --force to override")
+        fmt = "tar" if output.endswith(".tar") else "zip"
+
+        Zip.build(doc, output, logger, meta=meta, inputs=input_dict, archive_format=fmt)
 
 
 def pkg_version(pkg="miniwdl"):

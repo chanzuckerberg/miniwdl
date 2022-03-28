@@ -252,7 +252,7 @@ if __name__ == "__main__":
 We can use this on any local WDL file with a workflow, e.g.
 
 ```bash
-$ wget https://raw.githubusercontent.com/gatk-workflows/gatk4-germline-snps-indels/master/joint-discovery-gatk4-local.wdl
+$ wget https://raw.githubusercontent.com/gatk-workflows/gatk4-germline-snps-indels/1.1.2/joint-discovery-gatk4-local.wdl
 $ python3 wdlviz.py joint-discovery-gatk4-local.wdl
 ```
 

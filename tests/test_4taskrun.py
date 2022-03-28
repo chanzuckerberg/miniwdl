@@ -301,26 +301,28 @@ class TestTaskRunner(unittest.TestCase):
 
     def test_weird_output_files(self):
         # nonexistent output file
-        self._test_task(R"""
-        version 1.0
-        task hello {
-            command {}
-            output {
-                File issue = "bogus.txt"
+        with self.assertRaisesRegex(WDL.runtime.OutputError, "path not found in task output issue"):
+            self._test_task(R"""
+            version 1.0
+            task hello {
+                command {}
+                output {
+                    File issue = "bogus.txt"
+                }
             }
-        }
-        """, expected_exception=WDL.runtime.OutputError)
+            """)
 
         # attempt to output file which exists but we're not allowed to output
-        self._test_task(R"""
-        version 1.0
-        task hello {
-            command {}
-            output {
-                File issue = "/etc/issue"
+        with self.assertRaisesRegex(WDL.runtime.OutputError, "task outputs attempted to use a path outside its working directory"):
+            self._test_task(R"""
+            version 1.0
+            task hello {
+                command {}
+                output {
+                    File issue = "/etc/issue"
+                }
             }
-        }
-        """, expected_exception=WDL.runtime.OutputError)
+            """)
 
         self._test_task(R"""
         version 1.0
@@ -1151,6 +1153,30 @@ class TestTaskRunner(unittest.TestCase):
             self._test_task(txt, {"x": 1}, _plugins=[my_plugin])
         except WDL.runtime.error.CommandFailed as exn:
             self.assertEqual(exn.exit_status, 42)
+
+    def test_runtime_privileged(self):
+        txt = R"""
+        version 1.0
+        task xxx {
+            input {
+                Boolean privileged
+            }
+            command {
+                dmesg > /dev/null
+            }
+            output {
+            }
+            runtime {
+                privileged: privileged
+            }
+        }
+        """
+        self._test_task(txt, {"privileged": False}, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"privileged": True}, expected_exception=WDL.runtime.CommandFailed)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"allow_privileged": True}})
+        self._test_task(txt, {"privileged": False}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"privileged": True}, cfg=cfg)
 
 
 class TestConfigLoader(unittest.TestCase):

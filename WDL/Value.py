@@ -507,11 +507,11 @@ class Struct(Base):
         for k, v in self.value.items():
             if not (isinstance(v, Null) and value_type.optional):
                 map_key = None
+                map_value = None
                 try:
                     map_key = String(k).coerce(key_type)
                 except Error.RuntimeError:
                     fail(f"cannot coerce member name {k} to {key_type} map key")
-                map_value = None
                 if self.type.members[k].coerces(value_type):
                     with suppress(Error.RuntimeError):
                         map_value = v.coerce(value_type)
@@ -521,6 +521,7 @@ class Struct(Base):
                         f" {self.type.members[k]} {k} to {value_type} map value"
                     )
                 entries.append((map_key, map_value))
+        assert self.type.coerces(desired_type)
         return Map(desired_type.item_type, entries)
 
     def __str__(self) -> Any:

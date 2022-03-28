@@ -13,7 +13,7 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 
 ###  Install and verify miniwdl
 
-- Q: miniwdl won't intall (or work) on my machine
+- Q: miniwdl won't install (or work) on my machine
   - Verify installation of Python 3.6+
   - Verify installation of Docker.
 

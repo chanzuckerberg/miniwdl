@@ -1,4 +1,4 @@
-import unittest, inspect, subprocess, tempfile, os, glob, json, urllib, urllib.request
+import unittest, tempfile, os, glob, json, urllib, urllib.request, logging, shutil, contextlib, pathlib, hashlib, time
 from .context import WDL
 import WDL.Lint
 
@@ -566,3 +566,97 @@ class warp_pipelines_cemba(unittest.TestCase):
 )
 class warp_pipelines_skylab(unittest.TestCase):
     pass
+
+
+class TestZip(unittest.TestCase):
+    def _roundtrip(self, doc, inputs=None):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            meta = {"foo": "bar"}
+            main_wdl = os.path.basename(doc.pos.abspath)
+            zip_fn = os.path.join(testdir, main_wdl + ".zip")
+            WDL.Zip.build(
+                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta, inputs=inputs
+            )
+
+            source_dir, main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            assert not inputs or inputs_file
+            WDL.load(os.path.join(source_dir, main_wdl))
+
+            # cover misc code paths through WDL.Zip.unpack()
+            WDL.load(cleanup.enter_context(WDL.Zip.unpack(source_dir)).main_wdl)
+            WDL.load(
+                cleanup.enter_context(
+                    WDL.Zip.unpack(os.path.join(source_dir, "MANIFEST.json"))
+                ).main_wdl
+            )
+            os.unlink(os.path.join(source_dir, "MANIFEST.json"))
+            with self.assertRaises(WDL.Error.InputError):
+                cleanup.enter_context(WDL.Zip.unpack(source_dir))
+
+    def test_empty(self):
+        self._roundtrip(WDL.load("test_corpi/contrived/empty.wdl"))
+
+    def test_biowdl_aligning(self):
+        self._roundtrip(WDL.load("test_corpi/biowdl/aligning/align-star.wdl"))
+
+    def test_wgs(self):
+        # multiple nested subworkflows
+        self._roundtrip(
+            WDL.load(
+                "test_corpi/broadinstitute/warp/pipelines/broad/reprocessing/wgs/WholeGenomeReprocessing.wdl",
+            ),
+            inputs={"foo": ["bar", "baz"]},
+        )
+
+    def test_assemble_refbased(self):
+        self._roundtrip(
+            WDL.load(
+                "test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/assemble_denovo.wdl",
+                path=["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"],
+            ),
+        )
+
+    def test_reproducible_zip(self):
+        self._reproducible_test("zip")
+
+    def test_reproducible_tar(self):
+        self._reproducible_test("tar")
+
+    def _reproducible_test(self, format):
+        original_wdl = "test_corpi/biowdl/expression-quantification/multi-bam-quantify.wdl"
+        doc = WDL.load(original_wdl)
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            meta = {"foo": "bar"}
+            main_wdl = os.path.basename(doc.pos.abspath)
+            zip_fn = os.path.join(testdir, main_wdl + f".{format}")
+            WDL.Zip.build(
+                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta,
+                archive_format=format
+            )
+            zip_contents = pathlib.Path(zip_fn).read_bytes()
+            zip_checksum = hashlib.sha1(zip_contents).hexdigest()
+
+            time.sleep(2)  # Sleep 2 seconds to make sure modification times are different.
+
+            copy_pipeline_dir = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix="miniwdl_reproducible_zip_test")
+            )
+            copy_pipeline_dir = os.path.join(copy_pipeline_dir, "contents")
+            # Copy file contents, but not file metadata.
+            copied_pipeline_dir = shutil.copytree(
+                os.path.dirname(original_wdl),
+                copy_pipeline_dir, copy_function=shutil.copyfile)
+            copied_wdl = os.path.join(copied_pipeline_dir,
+                                      "multi-bam-quantify.wdl")
+            copied_doc = WDL.load(copied_wdl)
+            copied_zip_fn = os.path.join(testdir, main_wdl + f".copied.{format}")
+            WDL.Zip.build(
+                copied_doc, copied_zip_fn, logging.getLogger("miniwdl_zip_test"),
+                meta=meta, archive_format=format
+            )
+            copied_zip_contents = pathlib.Path(copied_zip_fn).read_bytes()
+            copied_zip_checksum = hashlib.sha1(copied_zip_contents).hexdigest()
+            self.assertEqual(zip_checksum, copied_zip_checksum)

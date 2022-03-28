@@ -308,6 +308,12 @@ class TaskContainer(ABC):
             )
             if container_path.endswith("/") and not container_relpath.endswith("/"):
                 container_relpath += "/"
+            if container_relpath.startswith("../"):
+                # see issue #214
+                raise OutputError(
+                    "task outputs attempted to use a path outside its working directory: "
+                    + container_path
+                )
             container_path = container_relpath
 
         ans = os.path.join(self.host_work_dir(), container_path)
@@ -319,6 +325,7 @@ class TaskContainer(ABC):
         ):
             return None
         if not path_really_within(ans, self.host_work_dir()):
+            # fail-safe guard against some weird symlink to host file
             raise OutputError(
                 "task outputs attempted to use a path outside its working directory: "
                 + container_path

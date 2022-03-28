@@ -411,8 +411,10 @@ class Task(SourceNode):
                 errors.try1(
                     lambda runtime_expr=runtime_expr: runtime_expr.infer_type(
                         type_env, stdlib, check_quant=check_quant, struct_types=struct_types
-                    ).typecheck(Type.String())
-                )
+                    )
+                )  # .typecheck()
+                # (At this stage we don't care about the overall expression type, just that it
+                #  typechecks internally.)
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(
@@ -778,12 +780,15 @@ class WorkflowSection(WorkflowNode):
         self.gathers = dict()
         for elt in self.body:
             if isinstance(elt, (Decl, Call)):
-                assert elt.workflow_node_id not in self.gathers
+                # assert elt.workflow_node_id not in self.gathers
+                # ^ won't hold if the section has internal name collisions, which will be checked
+                # later upon building the type environment.
                 self.gathers[elt.workflow_node_id] = Gather(self, elt)
             elif isinstance(elt, WorkflowSection):
                 # gather gathers!
                 for subgather in elt.gathers.values():
-                    assert subgather.workflow_node_id not in self.gathers
+                    # assert subgather.workflow_node_id not in self.gathers
+                    # id.
                     self.gathers[subgather.workflow_node_id] = Gather(self, subgather)
 
     @property
@@ -1512,7 +1517,11 @@ async def _load_async(
     uri = uri if uri != "-" else "/dev/stdin"
     read_rslt = await read_source(uri, path, importer)
     # parse the document
-    doc = _parser.parse_document(read_rslt.source_text, uri=uri, abspath=read_rslt.abspath)
+    try:
+        doc = _parser.parse_document(read_rslt.source_text, uri=uri, abspath=read_rslt.abspath)
+    except Exception as exn:
+        setattr(exn, "source_text", read_rslt.source_text)
+        raise
     assert doc.pos.uri == uri and doc.pos.abspath.endswith(os.path.basename(doc.pos.uri))
     # recursively descend into document's imports, and store the imported
     # documents into doc.imports
@@ -1544,7 +1553,7 @@ async def _load_async(
     except Error.ValidationError as exn:
         exn.source_text = read_rslt.source_text
         exn.declared_wdl_version = doc.wdl_version
-        raise exn
+        raise
     except Error.MultipleValidationErrors as multi:
         for exn in multi.exceptions:
             if not exn.source_text:

@@ -12,7 +12,7 @@ import os
 import errno
 import inspect
 from typing import List, Optional, Callable, Dict, Any, Awaitable, Union
-from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker
+from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker, Zip
 from .Tree import (
     Decl,
     StructTypeDef,

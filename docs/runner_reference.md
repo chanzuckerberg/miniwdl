@@ -45,6 +45,9 @@ The default local scheduler observes these task `runtime {}` attributes:
   * Automatically rounds down to all host memory, if less
   * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
 * `maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first)
+* `returnCodes` (Int/Array[Int]/`"*"`): consider the given non-zero exit code(s) to indicate command success
+* `docker_network` (String): name of a docker network to which to attach container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
+* `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
 ## File & Directory URI downloads
 

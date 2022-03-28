@@ -887,6 +887,25 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+    def test_issue538(self):
+        # more struct init regression
+        outp = self._test_task(R"""
+        version 1.0
+        struct StructWithMap { Map[String, String] map }
+        task RoundTripJson {
+            input {}
+            StructWithMap example = object {
+                map: { "foo":"bar", "fizz":"buzz" }
+            }
+            String dbg = read_string(write_json(example))
+            command {}
+            output {
+                StructWithMap result = read_json(write_json(example))
+            }
+        }
+        """)
+        self.assertEquals(outp["result"], {"map": {"foo":"bar", "fizz":"buzz"}})
+
     def test_bad_object(self):
         self._test_task(R"""
         version 1.0
