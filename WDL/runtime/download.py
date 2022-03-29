@@ -188,8 +188,6 @@ def aria2c_downloader(
             File file = glob("__out/*")[0]
         }
         runtime {
-            cpu: 2
-            memory: "1G"
             docker: docker
         }
     }
@@ -242,8 +240,6 @@ def awscli_downloader(
             }
 
             runtime {
-                cpu: 2
-                memory: "1G"
                 docker: docker
             }
         }
@@ -295,8 +291,6 @@ def awscli_directory_downloader(
             }
 
             runtime {
-                cpu: 2
-                memory: "1G"
                 docker: docker
             }
         }
@@ -378,8 +372,6 @@ def gsutil_downloader(
             File file = glob("__out/*")[0]
         }
         runtime {
-            cpu: 2
-            memory: "1G"
             docker: docker
         }
     }
