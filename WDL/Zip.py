@@ -55,13 +55,14 @@ def build(
         # zip the temp directory (into another temp directory)
         spool_dir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
         spool_zip = os.path.join(spool_dir, os.path.basename(archive))
-        logger.info(f"Create archive {spool_zip} from directory {dir_to_zip}")
+        logger.info(f"Prepare archive {spool_zip} from directory {dir_to_zip}")
         create_reproducible_archive(dir_to_zip, spool_zip, archive_format)
 
         # move into final location (hopefully atomic)
         dirname = os.path.dirname(archive)
         if dirname:
             os.makedirs(dirname, exist_ok=True)
+        logger.info(f"Move archive to destination {archive}")
         os.rename(spool_zip, archive)
 
 

@@ -71,9 +71,8 @@ class Base:
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
         def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
-            return Value.String(
-                regex.compile(pattern.value, flags=regex.POSIX).sub(replace.value, input.value)
-            )
+            pattern_re = regex.compile(pattern.value, flags=regex.POSIX)  # pylint: disable=E1101
+            return Value.String(pattern_re.sub(replace.value, input.value))
 
         static([Type.String(), Type.String(optional=True)], Type.String())(basename)
 

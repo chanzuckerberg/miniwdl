@@ -176,10 +176,14 @@ def run_local_task(
                 )
 
                 # interpolate command
+                # pylint: disable=E1101
+                placeholder_re = regex.compile(
+                    cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX
+                )
                 setattr(
                     stdlib,
                     "_placeholder_regex",
-                    regex.compile(cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX),
+                    placeholder_re,
                 )  # hack to pass regex to WDL.Expr.Placeholder._eval
                 command = _util.strip_leading_whitespace(
                     task.command.eval(container_env, stdlib).value
