@@ -42,7 +42,7 @@ jobs:
     - name: make ${{ matrix.ci_target }}
       run: |
         chmod -R ugo+rw .
-        ls -l .
+        ls .git
         # AWS_EC2_METADATA_DISABLED needed on Azure: https://github.com/aws/aws-cli/issues/5623
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \

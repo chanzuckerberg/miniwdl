@@ -61,6 +61,7 @@ pretty:
 
 # for use in CI: complain if source code isn't at a fixed point for black
 sopretty:
+	ls .git
 	@git diff --quiet || (echo "ERROR: 'make sopretty' must start with a clean working tree"; exit 1)
 	$(MAKE) pretty
 	@git diff --quiet || (echo "ERROR: source files were modified by black; please fix up this commit with 'make pretty'"; exit 1)
