@@ -31,6 +31,8 @@ class Base(ABC):
     def __init__(self, type: Type.Base, value: Any, expr: "Optional[Expr.Base]" = None) -> None:
         assert isinstance(type, Type.Base)
         self.type = type
+        if self.type.optional and not isinstance(self, Null):
+            self.type = self.type.copy(optional=False)  # normalize runtime type
         self.value = value
         self._expr = None
         if expr:
