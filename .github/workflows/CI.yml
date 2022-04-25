@@ -25,11 +25,6 @@ jobs:
       with:
         fetch-depth: 0
         submodules: recursive
-    - name: checkout permissions
-      run: |
-        chmod -R ugo+rw .
-        # https://github.com/actions/checkout/issues/760
-        git config --global --add safe.directory $(pwd)
     - name: docker build
       run: |
         # Cache the dependency-installation image layer on GitHub Packages to speed up CI. Use a
@@ -46,6 +41,7 @@ jobs:
         fi
     - name: make ${{ matrix.ci_target }}
       run: |
+        chmod -R ugo+rw .
         # AWS_EC2_METADATA_DISABLED needed on Azure: https://github.com/aws/aws-cli/issues/5623
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \

@@ -21,6 +21,8 @@ RUN useradd -ms /bin/bash -u 1337 wdler
 USER wdler
 WORKDIR /home/wdler
 RUN mkdir miniwdl
+# https://github.com/actions/checkout/issues/760
+RUN git config --global --add safe.directory /home/wdler/miniwdl
 
 # install pip requirements
 COPY requirements.txt requirements.dev.txt /home/wdler/
