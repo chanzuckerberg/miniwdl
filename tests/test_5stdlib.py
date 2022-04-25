@@ -906,6 +906,26 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEquals(outp["result"], {"map": {"foo":"bar", "fizz":"buzz"}})
 
+    def test_issue563(self):
+        # still more struct init regression
+        outp = self._test_task(R"""
+        version 1.0
+        struct Foo {
+            Int x
+        }
+        task test {
+            input {
+                Foo? i
+                Foo? j
+            }
+            command {}
+            output {
+                Array[Foo] out = select_all([i, j])
+            }
+        }
+        """, {"j": {"x": 0}})
+        self.assertEquals(outp, {"out": [{"x": 0}]})
+
     def test_bad_object(self):
         self._test_task(R"""
         version 1.0

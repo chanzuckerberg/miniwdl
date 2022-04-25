@@ -784,7 +784,8 @@ class _SelectAll(EagerFunction):
         arrty = arr.type
         assert isinstance(arrty, Type.Array)
         return Value.Array(
-            arrty.item_type, [arg for arg in arr.value if not isinstance(arg, Value.Null)]
+            arrty.item_type.copy(optional=False),
+            [arg for arg in arr.value if not isinstance(arg, Value.Null)],
         )
 
 
