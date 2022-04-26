@@ -1022,8 +1022,10 @@ class UnknownRuntimeKey(Linter):
     # https://github.com/openwdl/wdl/pull/315
     # https://github.com/dnanexus/dxWDL/blob/master/doc/ExpertOptions.md
     # https://cromwell.readthedocs.io/en/develop/backends/TES/
+    # https://aws.github.io/amazon-genomics-cli/docs/workflow-engines/cromwell/#aws-batch-retries
     known_keys = set(
         [
+            "awsBatchRetryAttempts",
             "bootDiskSizeGb",
             "container",
             "continueOnReturnCode",
