@@ -43,7 +43,7 @@ class TestArgcomplete(unittest.TestCase):
         p = WDL.CLI.create_arg_parser()
 
         completions = self.run_completer(p, "miniwdl r")
-        self.assertEqual(set(completions), {"run", "run_self_test"})
+        self.assertEqual(set(completions), {"run", "run_self_test", "run-self-test"})
 
         completions = self.run_completer(p, "miniwdl run --path test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/assemble_refbased.wdl ")
         completions = set(completions)

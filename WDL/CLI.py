@@ -1317,7 +1317,9 @@ def runner_standard_output(content, stdout_file, error_json, log_json):
 
 def fill_run_self_test_subparser(subparsers):
     run_parser = subparsers.add_parser(
-        "run_self_test", help="Run a short built-in workflow to test system configuration"
+        "run_self_test",
+        aliases=["run-self-test"],
+        help="Run a short built-in workflow to test system configuration",
     )
     run_parser.add_argument(
         "--dir",
