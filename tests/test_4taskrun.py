@@ -1229,3 +1229,10 @@ class TestConfigLoader(unittest.TestCase):
             cfg.log_all()
             cfg.log_unused_options()
             self.assertTrue(os.path.isabs(cfg["file_io"]["expansion"]))
+
+    def test_plugin_defaults(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
+        cfg.plugin_defaults({"file_io": {"copy_input_files": True}, "x": {"y":"z"}})
+        self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
+        self.assertEqual(cfg.get("x","y"), "z")

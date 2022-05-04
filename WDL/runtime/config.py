@@ -140,6 +140,33 @@ class Loader:
             self._logger.debug(_("applying configuration overrides", **options2))
             self._overrides.read_dict(options2)
 
+    def plugin_defaults(self, options: Dict[str, Dict[str, Any]]) -> None:
+        """
+        Last-priority default settings; typically added by plugins (whose options won't be
+        represented in default.cfg).
+        """
+        options2 = {}
+        for section in options:
+            for key in options[section]:
+                if not self._defaults.has_option(section, key):
+                    options2section = options2.setdefault(section, {})
+                    v = options[section][key]
+                    if isinstance(v, (list, dict, bool)) or v is None:
+                        options2section[key] = json.dumps(v)
+                    else:
+                        options2section[key] = str(v)
+                else:
+                    self._logger.warning(
+                        _(
+                            "ignored plugin's attempt to change existing default configuration option",
+                            section=section,
+                            option=key,
+                        )
+                    )
+        if options2:
+            self._logger.debug(_("applying plugin configuration defaults", **options2))
+            self._defaults.read_dict(options2)
+
     def get(self, section: str, key: str) -> str:
         section = str(section).lower()
         key = str(key).lower()
