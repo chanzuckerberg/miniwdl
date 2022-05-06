@@ -11,6 +11,7 @@ import logging
 import asyncio
 import atexit
 import textwrap
+import traceback
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
@@ -825,7 +826,12 @@ def runner(
                     logger.notice(
                         "run with --verbose to include task standard error streams in this log"
                     )
-            info = runtime.error_json(exn)
+            info = runtime.error_json(
+                exn,
+                traceback=(
+                    traceback.format_exc() if not isinstance(exn, Error.RuntimeError) else None
+                ),
+            )
             if rundir:
                 info["dir"] = rundir
             if from_rundir and from_rundir != rundir:
