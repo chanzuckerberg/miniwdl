@@ -9,7 +9,7 @@
 
 ## Install miniwdl
 
-Installation requires Python 3.6+, pip3 (or conda) and Docker. Linux preferred; [macOS compatible with extra steps](https://github.com/chanzuckerberg/miniwdl/issues/145). More detail in [full documentation](https://miniwdl.readthedocs.io/en/latest/getting_started.html).
+Installation requires Python 3.6+, pip3 (or conda) and Docker (or Podman/Singularity/udocker). Linux preferred; [macOS compatible with extra steps](https://github.com/chanzuckerberg/miniwdl/issues/145). More detail in [full documentation](https://miniwdl.readthedocs.io/en/latest/getting_started.html).
 
 - Intall with pip [![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/) : run `pip3 install miniwdl`
 - Install with conda [![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl) : run `conda install -c conda-forge miniwdl`
@@ -33,6 +33,10 @@ Run an example bioinformatics WDL pipeline using miniwdl, or learn more abut min
 The online documentation includes a user tutorial, reference manual, and Python development codelabs: [![Docs Status](https://readthedocs.org/projects/miniwdl/badge/?version=latest)](https://miniwdl.readthedocs.io/en/latest/WDL.html)
 
 See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows the current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues).
+
+## Scaling up
+
+The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory available on the local host; so a more-powerful host enables larger workloads. The separately-maintained [miniwdl-aws](https://github.com/miniwdl-ext/miniwdl-aws) plugin provides task scheduling on AWS Batch.
 
 ## Getting Help
 

@@ -52,3 +52,6 @@ Limitations:
   * If parallel container scheduling causes problems, then it can be disabled (serializing the workflow) by setting the environment variable `MINIWDL__SCHEDULER__CALL_CONCURRENCY=1` or the equivalent configuration file option `[scheduler] call_concurrency=1`.
 * Unlike with the Docker daemon, separate `miniwdl run` processes using the udocker runtime don't coordinate their CPU/memory reservations for container scheduling. Running multiple resource-intensive workflows concurrently (with separate `miniwdl run` invocations) is liable to overload the host.
 
+## AWS (external)
+
+The separately-maintained [miniwdl-aws](https://github.com/miniwdl-ext/miniwdl-aws) plugin provides task scheduling on AWS Batch.

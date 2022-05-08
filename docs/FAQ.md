@@ -62,6 +62,18 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 
 ---
 
+### Scaling up `miniwdl run`
+
+- Q: Can miniwdl handle large-scale workloads?
+  - A more-powerful host enables larger workloads, as it schedules WDL tasks in parallel up to the avaliable CPUs & memory
+  - The optimization guide has [host configuration suggestions](https://miniwdl.readthedocs.io/en/latest/runner_advanced.html#host-configuration)
+- Q: Can miniwdl run workflows on my cloud/cluster?
+  - If you can factor the workload into separate workflow runs, submit each one as a job to run miniwdl on a powerful worker node.
+  - [Alternate container runtimes](https://miniwdl.readthedocs.io/en/latest/runner_backends.html) widen compatibility
+  - The separately-maintained [miniwdl-aws](https://github.com/miniwdl-ext/miniwdl-aws) plugin provides task scheduling on AWS Batch
+
+---
+
 ### Check WDL syntax with the ```miniwdl check``` command
 
 - Q: When I run ```miniwdl check myfile.wdl``` it doesn't produce any output
@@ -69,12 +81,13 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 
 - Q: Do I have to fix all of items listed (warnings) in the results of ```miniwdl check myfile.wdl``` 
   - This command generates both warnings (which you optionally fix) and errors (which you must fix).
-  - Warnings are shown in red.
+  - Errors are shown in red.
 
 ---
 
 ### Links
 
 * [chanzuckerberg/miniwdl GitHub](https://github.com/chanzuckerberg/miniwdl/) where issues & contributions are welcome
-* [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec, proposals, and discussion
-* [CZI Science Technology](https://chanzuckerberg.com/technology/science/) sponsors this project
+* [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec & proposals
+* [OpenWDL Slack #miniwdl](https://openwdl.slack.com/archives/C02JCRJU79T) for discussions
+* [CZI Science Tech](https://tech.chanzuckerberg.com/scitech/) sponsors this project

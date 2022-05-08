@@ -139,8 +139,11 @@ The following pages document features and optimization for `miniwdl run`, includ
 
 To aid the workflow development cycle, miniwdl also includes a static code quality checker, `miniwdl check`. Lastly, installing miniwdl makes available a Python `WDL` package, providing programmatic access to miniwdl's WDL parser and runtime.
 
+The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory available on the local host; so a more-powerful host enables larger workloads. The separately-maintained [miniwdl-aws](https://github.com/miniwdl-ext/miniwdl-aws) plugin provides task scheduling on AWS Batch.
+
 ### Links
 
 * [chanzuckerberg/miniwdl GitHub](https://github.com/chanzuckerberg/miniwdl/) where issues & contributions are welcome
-* [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec, proposals, and discussion
-* [CZI Science Technology](https://chanzuckerberg.com/technology/science/) sponsors this project
+* [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec & proposals
+* [OpenWDL Slack #miniwdl](https://openwdl.slack.com/archives/C02JCRJU79T) for discussions
+* [CZI Science Tech](https://tech.chanzuckerberg.com/scitech/) sponsors this project
