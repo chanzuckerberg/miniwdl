@@ -74,7 +74,7 @@ def main(args=None):
             check(**vars(args))
         elif args.command == "run":
             runner(**vars(args))
-        elif args.command == "run_self_test":
+        elif args.command in ("run_self_test", "run-self-test"):
             run_self_test(**vars(args))
         elif args.command == "localize":
             localize(**vars(args))
