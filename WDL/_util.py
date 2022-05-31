@@ -215,7 +215,12 @@ def write_values_json(
     from . import values_to_json
 
     write_atomic(
-        json.dumps(values_to_json(values_env, namespace=namespace), indent=2),  # pyre-ignore
+        json.dumps(
+            # pyre-ignore
+            values_to_json(values_env, namespace=namespace),
+            indent=2,
+            sort_keys=True,
+        ),
         filename,
     )
 

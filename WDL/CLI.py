@@ -48,6 +48,7 @@ from ._util import (
     ANSI,
     currently_in_container,
     LoggingFileHandler,
+    write_atomic,
 )
 from ._util import StructuredLogMessage as _
 
@@ -1313,10 +1314,9 @@ def runner_standard_output(content, stdout_file, error_json, log_json):
     Write the runner output/error JSON in the way requested by the user
     """
     if error_json or stdout_file or "error" not in content:
-        content_json = json.dumps(content, indent=(None if log_json else 2))
+        content_json = json.dumps(content, indent=(None if log_json else 2), sort_keys=True)
         if stdout_file:
-            with open(stdout_file, "w") as outfile:
-                print(content_json, file=outfile)
+            write_atomic(content_json, stdout_file)
         else:
             print(content_json)
 
