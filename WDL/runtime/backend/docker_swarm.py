@@ -197,7 +197,7 @@ class SwarmContainer(TaskContainer):
                 "command": [
                     "/bin/bash",
                     "-c",
-                    "id; ls -Rl ..; bash ../command >> ../stdout.txt 2>> ../stderr.txt",
+                    "id; ls -Rl ..; bash -l ../command >> ../stdout.txt 2>> ../stderr.txt",
                 ],
                 # restart_policy 'none' so that swarm runs the container just once
                 "restart_policy": docker.types.RestartPolicy("none"),
