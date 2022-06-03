@@ -191,6 +191,7 @@ def symlink_force(src: str, dst: str, hard: bool = False) -> None:
     Create a symbolic pointing to src named dst, atomically replacing any existing symbolic or
     hard link at dst.
     """
+    assert not dst.endswith("/")
     tn = dst + ".tmp." + str(uuid.uuid1())
     if hard:
         os.link(src, tn)

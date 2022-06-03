@@ -125,7 +125,7 @@ def run_local_task(
                     )
                 # create out/ and outputs.json
                 _outputs = link_outputs(
-                    cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
                 )
                 write_values_json(
                     cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
@@ -203,7 +203,7 @@ def run_local_task(
 
                 # create output_links
                 outputs = link_outputs(
-                    outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache, outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
                 )
 
                 # process outputs through plugins
@@ -793,7 +793,7 @@ def _check_directory(host_path: str, output_name: str) -> None:
 
 
 def link_outputs(
-    outputs: Env.Bindings[Value.Base], run_dir: str, hardlinks: bool = False
+    cache: CallCache, outputs: Env.Bindings[Value.Base], run_dir: str, hardlinks: bool = False
 ) -> Env.Bindings[Value.Base]:
     """
     Following a successful run, the output files may be scattered throughout a complex directory
@@ -804,12 +804,17 @@ def link_outputs(
 
     def map_paths(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, (Value.File, Value.Directory)):
-            if os.path.exists(v.value):
+            target = (
+                v.value
+                if os.path.exists(v.value)
+                else cache.get_download(v.value, isinstance(v, Value.Directory))
+            )
+            if target:
                 target = os.path.realpath(v.value)
                 if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
-                link = os.path.join(dn, os.path.basename(v.value))
+                link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
                 os.makedirs(dn, exist_ok=False)
                 if hardlinks:
                     # TODO: what if target is an input from a different filesystem?
