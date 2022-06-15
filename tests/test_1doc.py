@@ -280,6 +280,26 @@ class TestTasks(unittest.TestCase):
                 }
                 """)[0]
 
+    def test_issue571(self):
+        # regression test https://github.com/chanzuckerberg/miniwdl/issues/571
+        for version in ("1.0", "1.1", "development"):
+            task = WDL.parse_tasks("""
+                task echo {
+                    input {String name = "world"}
+                    command <<<
+                        echo hello, ~{name} >> out
+                        echo ">~{name}" >> out
+                        echo ">>~~{name}" >> out~
+                    ~~>>>
+                    output {String out = read_string("out")}
+                }
+            """, version=version)[0]
+            task.typecheck()
+            self.assertEqual(len(task.command.parts), 7, version)
+            self.assertIsInstance(task.command.parts[1], WDL.Expr.Placeholder, version)
+            self.assertIsInstance(task.command.parts[3], WDL.Expr.Placeholder, version)
+            self.assertIsInstance(task.command.parts[5], WDL.Expr.Placeholder, version)
+
     def test_meta(self):
         task = WDL.parse_tasks("""
         task wc {
