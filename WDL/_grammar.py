@@ -184,22 +184,22 @@ type: BUILTIN_TYPE _quant?
 BUILTIN_TYPE.2: "Int" | "Float" | "Boolean" | "String" | "File" | "Array" | "Map" | "Pair"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$'\n]/
+STRING1_CHAR: "\\'" | /[^'$]/ | /\$(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? /\$/* "${" expr "}")* STRING1_FRAGMENT? /\$/* /'/ -> string
+string1: /'/ (STRING1_FRAGMENT? "${" expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{$"\n]/
+STRING2_CHAR: "\\\"" | /[^"$]/ |  /\$(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? /\$/* "${" expr "}")* STRING2_FRAGMENT? /\$/* /"/ -> string
+string2: /"/ (STRING2_FRAGMENT? "${" expr "}")* STRING2_FRAGMENT? /"/ -> string
 
-COMMAND1_CHAR: /[^$}]/ | /\$[^{$]/
+COMMAND1_CHAR: /[^$}]/ | /\$(?=[^{])/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* "${" placeholder "}")* COMMAND1_FRAGMENT? /\$/* "}" -> command
+command1: "command" "{" (COMMAND1_FRAGMENT? "${" placeholder "}")* COMMAND1_FRAGMENT? "}" -> command
 
-COMMAND2_CHAR: /[^$>]/ | /\$[^{$]/ | />[^>]/ | />>[^>]/
+COMMAND2_CHAR: /[^$>]/ | /\$(?=[^{])/ | />(?=[^>])/ | />>(?=[^>])/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? /\$/* "${" placeholder "}")* COMMAND2_FRAGMENT? /\$/* ">>>" -> command
+command2: "command" "<<<" (COMMAND2_FRAGMENT? "${" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
 
 ?workflow_outputs: "output" "{" workflow_output_decls "}"
 workflow_output_decls: workflow_output_decl*
@@ -229,22 +229,22 @@ type: CNAME _quant?
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~'\n]/ | /\~[^{$~']/
+STRING1_CHAR: "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
+string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"\n]/ | /~[^{$~"]/
+STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
+string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
 
-COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
+COMMAND1_CHAR: /[^~$}]/ | /\$(?=[^{])/ | /~(?=[^{])/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
+command1: "command" "{" (COMMAND1_FRAGMENT? _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? "}" -> command
 
-COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
+COMMAND2_CHAR: /[^~>]/ | /~(?=[^{])/ | />(?=[^>])/ | />>(?=[^>])/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
+command2: "command" "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
 
 ?workflow_outputs: output_decls
 
@@ -445,22 +445,22 @@ string_literal: ESCAPED_STRING | ESCAPED_STRING1
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~'\n]/ | /\~[^{$~']/
+STRING1_CHAR: "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
+string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"\n]/ | /~[^{$~"]/
+STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
+string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
 
-COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
+COMMAND1_CHAR: /[^~$}]/ | /\$(?=[^{])/ | /~(?=[^{])/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
+command1: "{" (COMMAND1_FRAGMENT? _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? "}" -> command
 
-COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
+COMMAND2_CHAR: /[^~>]/ | /~(?=[^{])/ | />(?=[^>])/ | />>(?=[^>])/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
+command2: "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 
