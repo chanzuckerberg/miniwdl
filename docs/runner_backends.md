@@ -13,6 +13,8 @@ To configure miniwdl to use Podman instead of Docker:
 3. Set the environment variable `MINIWDL__SCHEDULER__CONTAINER_BACKEND=podman` or the equivalent [configuration file](https://miniwdl.readthedocs.io/en/latest/runner_reference.html#configuration) option `[scheduler] container_backend=podman`
 4. Test the configuration with `miniwdl run_self_test`
 
+If podman seems unable to pull Docker Hub images by "short-name": see [this thread](https://github.com/containers/podman/issues/9390#issuecomment-970305169)
+
 Limitations:
 
 * Without the aforementioned procedure to enable passwordless `sudo podman`, typical defaults require password entry after a five-minute timeout since the last `sudo` operation. This can cause confusion when test runs succeed because they turn over containers rapidly, but lengthy workflows fail in the middle due to this timeout.
