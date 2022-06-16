@@ -67,7 +67,7 @@ The miniwdl runner's configuration loader sources from command-line options, env
 
 **default.cfg**
 
-The available configuration options are exemplified in [`WDL/runtime/config_templates/default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg), which follows the format of [Python's configparser module](https://docs.python.org/3/library/configparser.html#quick-start), organized into `[SECTION]` headings with `KEY = VALUE` entries in each section. Some values take the form of a JSON object or array, which may span multiple lines with indentation.
+The available configuration options are exemplified in [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg), which follows the format of [Python's configparser module](https://docs.python.org/3/library/configparser.html#quick-start), organized into `[SECTION]` headings with `KEY = VALUE` entries in each section. Some values take the form of a JSON object or array, which may span multiple lines with indentation.
 
 Miniwdl loads these defaults from the locally installed copy of that file.
 
@@ -146,6 +146,10 @@ Details:
 * Miniwdl doesn't delete anything from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached File or Directory it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used content that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
 * If needed, the `miniwdl localize` subcommand can **"prime" the local cache** with URIs found in a given JSON input template (or a simple list of URIs) before actually running any workflow.
 * With the cache enabled in configuration, `--no-cache` disables it for one run.
+
+### Advanced options
+
+Please review [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) for numerous advanced configuration options, which can be set as described above.
 
 ## WDL interoperability
 
