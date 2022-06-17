@@ -564,6 +564,11 @@ def _eval_task_runtime(
                 task.runtime["returnCodes"], "invalid setting of runtime.returnCodes"
             )
 
+    if "gpu" in runtime_values:
+        if not isinstance(runtime_values["gpu"], Value.Boolean):
+            raise Error.EvalError(task.runtime["gpu"], "invalid setting of runtime.gpu")
+        ans["gpu"] = runtime_values["gpu"].value
+
     if ans:
         logger.info(_("effective runtime", **ans))
 

@@ -791,6 +791,7 @@ class TestTaskRunner(unittest.TestCase):
             runtime {
                 memory: "~{memory}"
                 disks: "ignored"
+                gpu: true
             }
         }
         """

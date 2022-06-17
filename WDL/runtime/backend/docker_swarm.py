@@ -475,6 +475,8 @@ class SwarmContainer(TaskContainer):
             logger.warning(
                 "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
             )
+        if self.runtime_values.get("gpu", False):
+            logger.warning("ignored runtime.gpu (not yet implemented)")
         return resources, user, groups
 
     def poll_service(

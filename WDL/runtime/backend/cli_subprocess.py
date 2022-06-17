@@ -61,6 +61,8 @@ class SubprocessBase(TaskContainer):
                     mem_bytes=memory_reservation,
                 )
             )
+            if self.runtime_values.get("gpu", False):
+                logger.warning("ignored runtime.gpu (not yet implemented)")
 
             # pull image if needed
             image = self._pull(logger, cleanup)
