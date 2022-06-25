@@ -34,7 +34,7 @@ Limitations:
 * Inside a Singularity container, only the working directory and /tmp are writable, while the rest of the file system is read-only. Task commands that attempt to write elsewhere (e.g. installing software/libraries at runtime) will fail.
 * Tasks' `runtime.docker` declarations are used as Docker (OCI) image tags with [Singularity's Docker image import features](https://sylabs.io/guides/2.6/user-guide/singularity_and_docker.html); SIF image files cannot yet be used directly.
 * Task containers aren't actually restricted to use only their declared `runtime.cpu` and `runtime.memory` resources once they start, although those reservations are considered for parallel scheduling.
-  * If parallel container scheduling causes problems, then it can be disabled (serializing the workflow) by setting the environment variable `MINIWDL__SCHEDULER__CALL_CONCURRENCY=1` or the equivalent configuration file option `[scheduler] call_concurrency=1`.
+  * If parallel container scheduling causes problems, then it can be disabled (serializing the workflow) by setting the environment variable `MINIWDL__SCHEDULER__TASK_CONCURRENCY=1` or the equivalent configuration file option `[scheduler] task_concurrency=1`.
 * Unlike with the Docker daemon, separate `miniwdl run` processes using the Singularity runtime don't coordinate their CPU/memory reservations for container scheduling. Running multiple resource-intensive workflows concurrently (with separate `miniwdl run` invocations) is liable to overload the host.
 
 ## udocker (BETA)
@@ -51,7 +51,7 @@ Limitations:
 
 * Tasks running in udocker are able to overwrite their input files (unlike Docker which mounts them read-only). Doing so may have undefined effects on other tasks and the workflow as a whole.
 * Task containers aren't actually restricted to use only their declared `runtime.cpu` and `runtime.memory` resources once they start, although those reservations are considered for parallel scheduling.
-  * If parallel container scheduling causes problems, then it can be disabled (serializing the workflow) by setting the environment variable `MINIWDL__SCHEDULER__CALL_CONCURRENCY=1` or the equivalent configuration file option `[scheduler] call_concurrency=1`.
+  * If parallel container scheduling causes problems, then it can be disabled (serializing the workflow) by setting the environment variable `MINIWDL__SCHEDULER__TASK_CONCURRENCY=1` or the equivalent configuration file option `[scheduler] task_concurrency=1`.
 * Unlike with the Docker daemon, separate `miniwdl run` processes using the udocker runtime don't coordinate their CPU/memory reservations for container scheduling. Running multiple resource-intensive workflows concurrently (with separate `miniwdl run` invocations) is liable to overload the host.
 
 ## AWS (external)

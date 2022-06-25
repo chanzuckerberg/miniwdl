@@ -671,7 +671,7 @@ def runner(
             "logging": {"json": log_json},
         }
         if max_tasks is not None:
-            cfg_overrides["scheduler"]["call_concurrency"] = max_tasks
+            cfg_overrides["scheduler"]["task_concurrency"] = max_tasks
         if copy_input_files:
             cfg_overrides["file_io"]["copy_input_files"] = copy_input_files
         if copy_input_files_for:

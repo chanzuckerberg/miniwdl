@@ -1216,7 +1216,7 @@ class TestConfigLoader(unittest.TestCase):
         self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
         self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), False)
 
-        self.assertEqual(cfg["scheduler"].get_int("call_concurrency"), 0)
+        self.assertEqual(cfg["scheduler"].get_int("task_concurrency"), 0)
 
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"file_io":{"copy_input_files": "true"}})
         self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
@@ -1244,11 +1244,11 @@ class TestConfigLoader(unittest.TestCase):
             """, file=tmp)
             tmp.flush()
             os.environ["MINIWDL_CFG"] = tmp.name
-            os.environ["MINIWDL__SCHEDULER__CALL_CONCURRENCY"] = "4"
+            os.environ["MINIWDL__SCHEDULER__TASK_CONCURRENCY"] = "4"
             os.environ["MINIWDL__BOGUS__OPTION"] = "42"
             cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
             cfg.override({"bogus": {"option2": "42"}})
-            self.assertEqual(cfg["scheduler"].get_int("call_concurrency"), 4)
+            self.assertEqual(cfg["scheduler"].get_int("task_concurrency"), 4)
             self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
             cfg.log_all()
             cfg.log_unused_options()
