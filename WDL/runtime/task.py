@@ -832,7 +832,8 @@ def link_outputs(
                 else cache.get_download(v.value, isinstance(v, Value.Directory))
             )
             if target:
-                target = os.path.realpath(v.value)
+                target = os.path.realpath(target)
+                assert os.path.exists(target)
                 if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
