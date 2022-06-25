@@ -11,7 +11,7 @@ from abc import abstractmethod, abstractproperty
 from contextlib import ExitStack
 from ..._util import PygtailLogger
 from ..._util import StructuredLogMessage as _
-from .. import config, _statusbar
+from .. import config
 from ..error import Terminated, DownloadFailed
 from ..task_container import TaskContainer
 
@@ -71,19 +71,13 @@ class SubprocessBase(TaskContainer):
             cli_log_filename = os.path.join(self.host_dir, f"{self.cli_name}.log.txt")
             cli_log = cleanup.enter_context(open(cli_log_filename, "wb"))
             cli_logger = logger.getChild(self.cli_name)
+            poll_stderr = cleanup.enter_context(self.poll_stderr_context(logger))
             poll_cli_log = cleanup.enter_context(
                 PygtailLogger(
                     logger,
                     cli_log_filename,
                     lambda msg: cli_logger.info(msg.rstrip()),
                     level=logging.INFO,
-                )
-            )
-            poll_stderr = cleanup.enter_context(
-                PygtailLogger(
-                    logger,
-                    self.host_stderr_txt(),
-                    callback=self.stderr_callback,
                 )
             )
 
@@ -103,12 +97,7 @@ class SubprocessBase(TaskContainer):
             logger.notice(  # pyre-ignore
                 _(f"{self.cli_name} run", pid=proc.pid, log=cli_log_filename)
             )
-            cleanup.enter_context(
-                _statusbar.task_running(
-                    self.runtime_values.get("cpu", 0),
-                    self.runtime_values.get("memory_reservation", 0),
-                )
-            )
+            cleanup.enter_context(self.task_running_context())
 
             # long-poll for completion
             exit_code = None

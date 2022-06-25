@@ -1,11 +1,11 @@
 """
-Abstract interface for task container runtime + default Docker Swarm backend
+Abstract interface for task container runtime
 """
 import os
 import logging
 import shutil
 import threading
-from typing import Callable, Iterable, List, Set, Tuple, Type, Any, Dict, Optional
+from typing import Callable, Iterable, List, Set, Type, Any, Dict, Optional, ContextManager
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from .. import Error
@@ -13,9 +13,10 @@ from .._util import (
     TerminationSignalFlag,
     path_really_within,
     rmtree_atomic,
+    PygtailLogger,
 )
 from .._util import StructuredLogMessage as _
-from . import config
+from . import config, _statusbar
 from .error import OutputError, Terminated, CommandFailed
 
 
@@ -29,7 +30,7 @@ class TaskContainer(ABC):
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
         """
-        Perform any necessary one-time initialization of the underlying container backend. Must be
+        Perform any necessary one-time initialization of the underlying container backend. To be
         invoked once per process prior to any instantiation of the class.
         """
         raise NotImplementedError()
@@ -37,8 +38,8 @@ class TaskContainer(ABC):
     @classmethod
     def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
         """
-        Detect the maximum resources (cpu and mem_bytes) that the underlying container backend
-        would be able to provision.
+        Detect the maximum resources ("cpu" and "mem_bytes") that the underlying container backend
+        will be able to provision for any one task.
 
         If determining this is at all costly, then backend should memoize (thread-safely and
         perhaps front-loaded in global_init).
@@ -74,21 +75,25 @@ class TaskContainer(ABC):
     """
 
     input_path_map_rev: Dict[str, str]
+    """
+    Inverse of ``input_path_map`` (also maintained by ``add_paths``)
+    """
 
     try_counter: int
     """
     :type: int
 
     Counter for number of retries; starts at 1 on the first attempt. On subsequent attempts, the
-    names (on the host) of the working directory, stdout.txt, and stderr.txt will incorporate the
+    names (on the host) of the working directory, stdout.txt, and stderr.txt may incorporate the
     count, to ensure their uniqueness.
     """
 
     runtime_values: Dict[str, Any]
     """
-    Evaluted task runtime{} section. Typically the TaskContainer backend needs to honor cpu,
-    memory_limit, memory_reservation, docker. Resources must have already been fit to
-    get_resource_limits(). Retry logic (maxRetries, preemptible) is handled externally.
+    Evaluted task runtime{} section, to be populated externall before invoking run(). Typically the
+    TaskContainer backend needs to honor cpu, memory_limit, memory_reservation, docker. Resources
+    must have already been fit to get_resource_limits(). Retry logic (maxRetries, preemptible) is
+    handled externally.
     """
 
     stderr_callback: Optional[Callable[[str], None]]
@@ -357,6 +362,31 @@ class TaskContainer(ABC):
     def host_stderr_txt(self):
         return os.path.join(
             self.host_dir, f"stderr{self.try_counter if self.try_counter > 1 else ''}.txt"
+        )
+
+    def poll_stderr_context(self, logger: logging.Logger) -> ContextManager[Callable[[], None]]:
+        """
+        Implementation helper: open a context yielding a function to poll stderr.txt and log each
+        each line (to either logger or self.stderr_callback if set). _run() implementation should
+        call the function periodically while container is running, and close the context once
+        done/failed.
+        """
+        return PygtailLogger(
+            logger,
+            self.host_stderr_txt(),
+            callback=self.stderr_callback,
+        )
+
+    def task_running_context(self) -> ContextManager[None]:
+        """
+        Implementation helper: open a context which counts the task, and its CPU and memory
+        reservations, in the CLI status bar's "running" ticker. _run() implementation should open
+        this context once the container is truly running (not while e.g. still queued), and close
+        it once done/failed.
+        """
+        return _statusbar.task_running(
+            self.runtime_values.get("cpu", 0),
+            self.runtime_values.get("memory_reservation", 0),
         )
 
 

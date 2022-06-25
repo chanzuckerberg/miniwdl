@@ -18,12 +18,9 @@ from io import BytesIO
 from typing import List, Dict, Set, Optional, Any, Callable, Tuple, Iterable
 import docker
 from ... import Error
-from ..._util import (
-    chmod_R_plus,
-    PygtailLogger,
-)
+from ..._util import chmod_R_plus
 from ..._util import StructuredLogMessage as _
-from .. import config, _statusbar
+from .. import config
 from ..error import Interrupted, Terminated
 from ..task_container import TaskContainer
 
@@ -232,13 +229,7 @@ class SwarmContainer(TaskContainer):
 
             # stream stderr into log
             with contextlib.ExitStack() as cleanup:
-                poll_stderr = cleanup.enter_context(
-                    PygtailLogger(
-                        logger,
-                        self.host_stderr_txt(),
-                        callback=self.stderr_callback,
-                    )
-                )
+                poll_stderr = cleanup.enter_context(self.poll_stderr_context(logger))
 
                 # poll for container exit
                 running_states = {"preparing", "running"}
@@ -277,12 +268,7 @@ class SwarmContainer(TaskContainer):
                         # indicate actual container start in status bar
                         # 'preparing' is when docker is pulling and extracting the image, which can
                         # be a lengthy and somewhat intensive operation, so we count it as running.
-                        cleanup.enter_context(
-                            _statusbar.task_running(
-                                self.runtime_values.get("cpu", 0),
-                                self.runtime_values.get("memory_reservation", 0),
-                            )
-                        )
+                        cleanup.enter_context(self.task_running_context())
                         was_running = True
                     if "running" in self._observed_states:
                         poll_stderr()
