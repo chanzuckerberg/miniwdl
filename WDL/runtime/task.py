@@ -29,6 +29,7 @@ from .._util import (
     pathsize,
     link_force,
     symlink_force,
+    rmtree_atomic,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -586,6 +587,10 @@ def _eval_task_runtime(
         logger.warning(
             _("skipping pass-through of undefined environment variable(s)", names=env_vars_skipped)
         )
+    if cfg.get_bool("file_io", "mount_tmpdir") or task.name in cfg.get_list(
+        "file_io", "mount_tmpdir_for"
+    ):
+        env_vars_override["TMPDIR"] = os.path.join(container.container_dir, "work", "_tmpdir")
     if env_vars_override:
         # usually don't dump values into log, as they may often be auth tokens
         logger.notice(
@@ -637,12 +642,24 @@ def _try_task(
             "file_io", "copy_input_files_for"
         ):
             container.copy_input_files(logger)
+        host_tmpdir = (
+            os.path.join(container.host_work_dir(), "_tmpdir")
+            if cfg.get_bool("file_io", "mount_tmpdir")
+            or task.name in cfg.get_list("file_io", "mount_tmpdir_for")
+            else None
+        )
 
         try:
             # start container & run command
+            if host_tmpdir:
+                logger.debug(_("creating temp directory to mount", TMPDIR=host_tmpdir))
+                os.mkdir(host_tmpdir, mode=0o770)
             try:
                 return container.run(logger, command)
             finally:
+                if host_tmpdir:
+                    logger.info(_("deleting mounted temp directory", TMPDIR=host_tmpdir))
+                    rmtree_atomic(host_tmpdir)
                 if (
                     "preemptible" in container.runtime_values
                     and cfg.has_option("task_runtime", "_mock_interruptions")

@@ -1179,6 +1179,29 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"privileged": False}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
         self._test_task(txt, {"privileged": True}, cfg=cfg)
 
+    def test_mount_tmpdir(self):
+        txt = R"""
+        version 1.0
+        task XXX {
+            input {
+            }
+            command <<<
+                echo $TMPDIR > "${TMPDIR}/tmpdir.txt"
+                cp "${TMPDIR}/tmpdir.txt" tmpdir.txt
+            >>>
+            output {
+                String tmpdir = read_string("tmpdir.txt")
+            }
+        }
+        """
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"mount_tmpdir_for": ["xyz"]}})
+        outputs = self._test_task(txt, cfg=cfg)
+        self.assertEquals(outputs["tmpdir"], "")
+        outputs = self._test_task(txt.replace("XXX", "xyz"), cfg=cfg)
+        self.assertTrue(outputs["tmpdir"].startswith("/mnt/miniwdl"))
+
 
 class TestConfigLoader(unittest.TestCase):
     @classmethod
