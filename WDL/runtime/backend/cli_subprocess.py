@@ -95,7 +95,7 @@ class SubprocessBase(TaskContainer):
             invocation = self._run_invocation(logger, cleanup, image) + [
                 "/bin/bash",
                 "-c",
-                "bash ../command >> ../stdout.txt 2>> ../stderr.txt",
+                "bash -l ../command >> ../stdout.txt 2>> ../stderr.txt",
             ]
             proc = subprocess.Popen(
                 invocation, stdout=cli_log, stderr=subprocess.STDOUT, cwd=self.host_dir
