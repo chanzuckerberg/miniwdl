@@ -364,6 +364,19 @@ class TaskContainer(ABC):
             self.host_dir, f"stderr{self.try_counter if self.try_counter > 1 else ''}.txt"
         )
 
+    def touch_mount_point(self, host_path: str) -> None:
+        """
+        Implementation helper: touch a File or Directory mount point that might not already exist
+        in the host directory. This ensures ownership by the invoking user:group.
+        """
+        assert host_path.startswith(self.host_dir + "/")
+        if host_path.endswith("/"):  # Directory mount point
+            os.makedirs(host_path, exist_ok=True)
+        else:  # File mount point
+            os.makedirs(os.path.dirname(host_path), exist_ok=True)
+            with open(host_path, "x") as _:
+                pass
+
     def poll_stderr_context(self, logger: logging.Logger) -> ContextManager[Callable[[], None]]:
         """
         Implementation helper: open a context yielding a function to poll stderr.txt and log each

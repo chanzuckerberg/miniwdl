@@ -142,23 +142,14 @@ class SubprocessBase(TaskContainer):
         self._bind_input_files = False
 
     def prepare_mounts(self) -> List[Tuple[str, str, bool]]:
-        def touch_mount_point(host_path: str) -> None:
-            # touching each mount point ensures they'll be owned by invoking user:group
-            assert host_path.startswith(self.host_dir + "/")
-            if host_path.endswith("/"):
-                os.makedirs(host_path, exist_ok=True)
-            else:
-                os.makedirs(os.path.dirname(host_path), exist_ok=True)
-                with open(host_path, "x") as _:
-                    pass
 
         mounts = []
         # mount stdout, stderr, and working directory read/write
-        touch_mount_point(self.host_stdout_txt())
+        self.touch_mount_point(self.host_stdout_txt())
         mounts.append(
             (os.path.join(self.container_dir, "stdout.txt"), self.host_stdout_txt(), True)
         )
-        touch_mount_point(self.host_stderr_txt())
+        self.touch_mount_point(self.host_stderr_txt())
         mounts.append(
             (os.path.join(self.container_dir, "stderr.txt"), self.host_stderr_txt(), True)
         )
@@ -179,7 +170,7 @@ class SubprocessBase(TaskContainer):
                     self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
                 )
                 if not os.path.exists(host_mount_point):
-                    touch_mount_point(
+                    self.touch_mount_point(
                         host_mount_point + ("/" if container_path.endswith("/") else "")
                     )
                 mounts.append((container_path.rstrip("/"), host_path.rstrip("/"), False))

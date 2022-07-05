@@ -337,20 +337,6 @@ class SwarmContainer(TaskContainer):
         return image_tag
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
-        def touch_mount_point(host_path: str) -> None:
-            # touching each mount point ensures they'll be owned by invoking user:group
-            assert host_path.startswith(self.host_dir + "/")
-            if host_path.endswith("/"):
-                os.makedirs(host_path, exist_ok=True)
-            else:
-                os.makedirs(os.path.dirname(host_path), exist_ok=True)
-                with open(host_path, "x") as _:
-                    pass
-            # providing g+rw on files (and g+rwx on directories) ensures the command will have
-            # permission to them regardless of which uid it runs as in the container (since we add
-            # the container to the invoking user's primary group)
-            chmod_R_plus(host_path.rstrip("/"), file_bits=0o660, dir_bits=0o770)
-
         def escape(s):
             # docker processes {{ interpolations }}
             return s.replace("{{", '{{"{{"}}')
@@ -379,7 +365,7 @@ class SwarmContainer(TaskContainer):
                     self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
                 )
                 if not os.path.exists(host_mount_point):
-                    touch_mount_point(
+                    self.touch_mount_point(
                         host_mount_point + ("/" if container_path.endswith("/") else "")
                     )
                 mounts.append(
@@ -399,7 +385,7 @@ class SwarmContainer(TaskContainer):
             )
         )
         # mount stdout, stderr, and working directory read/write
-        touch_mount_point(self.host_stdout_txt())
+        self.touch_mount_point(self.host_stdout_txt())
         mounts.append(
             docker.types.Mount(
                 escape(os.path.join(self.container_dir, "stdout.txt")),
@@ -407,7 +393,7 @@ class SwarmContainer(TaskContainer):
                 type="bind",
             )
         )
-        touch_mount_point(self.host_stderr_txt())
+        self.touch_mount_point(self.host_stderr_txt())
         mounts.append(
             docker.types.Mount(
                 escape(os.path.join(self.container_dir, "stderr.txt")),
@@ -422,8 +408,18 @@ class SwarmContainer(TaskContainer):
                 type="bind",
             )
         )
-        for p in [self.host_work_dir(), os.path.join(self.host_dir, "command")]:
-            chmod_R_plus(p, file_bits=0o660, dir_bits=0o770)
+
+        # providing g+rw on files (and g+rwx on directories) in the task directory ensures unix
+        # permissions won't block the command regardless of which uid it runs as in the container
+        # (since we add the container to the invoking user's primary group)
+        for mnt in [
+            os.path.join(self.host_dir, "command"),
+            self.host_stdout_txt(),
+            self.host_stderr_txt(),
+            self.host_work_dir(),
+        ]:
+            chmod_R_plus(mnt, file_bits=0o660, dir_bits=0o770)
+
         return mounts
 
     def misc_config(
