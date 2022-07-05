@@ -5,15 +5,17 @@ import os
 import logging
 import shutil
 import threading
-from typing import Callable, Iterable, List, Set, Type, Any, Dict, Optional, ContextManager
+import typing
+from typing import Callable, Iterable, Any, Dict, Optional, ContextManager
 from abc import ABC, abstractmethod
 from contextlib import suppress
-from .. import Error
+from .. import Error, Env, Value, Type
 from .._util import (
     TerminationSignalFlag,
     path_really_within,
     rmtree_atomic,
     PygtailLogger,
+    parse_byte_size,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -90,10 +92,9 @@ class TaskContainer(ABC):
 
     runtime_values: Dict[str, Any]
     """
-    Evaluted task runtime{} section, to be populated externall before invoking run(). Typically the
-    TaskContainer backend needs to honor cpu, memory_limit, memory_reservation, docker. Resources
-    must have already been fit to get_resource_limits(). Retry logic (maxRetries, preemptible) is
-    handled externally.
+    Evaluted task runtime{} section, to be populated by process_runtime(). Typically the
+    TaskContainer backend needs to honor cpu, memory_limit, memory_reservation, docker, env.
+    Retry logic (maxRetries, preemptible) is handled externally.
     """
 
     stderr_callback: Optional[Callable[[str], None]]
@@ -184,6 +185,111 @@ class TaskContainer(ABC):
                 shutil.copytree(host_path.rstrip("/"), host_copy_path, symlinks=False)
             else:
                 shutil.copy(host_path, host_copy_path)
+
+    def process_runtime(self, logger: logging.Logger, runtime_eval: Dict[str, Value.Base]) -> None:
+        """
+        Given the evaluated WDL expressions from the task runtime{} section, populate
+        self.runtime_values with validated/postprocessed values that will be needed to configure
+        the container properly.
+
+        Subclasses may override this to process custom runtime entries (before or after invoking
+        this base version).
+        """
+
+        ans = self.runtime_values
+
+        if "inlineDockerfile" in runtime_eval:
+            # join Array[String]
+            dockerfile = runtime_eval["inlineDockerfile"]
+            if not isinstance(dockerfile, Value.Array):
+                dockerfile = Value.Array(dockerfile.type, [dockerfile])
+            dockerfile = "\n".join(elt.coerce(Type.String()).value for elt in dockerfile.value)
+            ans["inlineDockerfile"] = dockerfile
+        elif "docker" in runtime_eval or "container" in runtime_eval:
+            docker_value = runtime_eval["container" if "container" in runtime_eval else "docker"]
+            if isinstance(docker_value, Value.Array) and len(docker_value.value):
+                # TODO: choose a preferred candidate
+                docker_value = docker_value.value[0]
+            ans["docker"] = docker_value.coerce(Type.String()).value
+        if "docker_network" in runtime_eval:
+            network_value = runtime_eval["docker_network"]
+            ans["docker_network"] = network_value.coerce(Type.String()).value
+
+        if (
+            isinstance(runtime_eval.get("privileged", None), Value.Boolean)
+            and runtime_eval["privileged"].value is True
+        ):
+            if self.cfg.get_bool("task_runtime", "allow_privileged"):
+                ans["privileged"] = True
+            else:
+                logger.warning(
+                    "runtime.privileged ignored; to enable, set configuration"
+                    " [task_runtime] allow_privileged = true (security+portability warning)"
+                )
+
+        host_limits = self.detect_resource_limits(self.cfg, logger)
+        if "cpu" in runtime_eval:
+            cpu_value = runtime_eval["cpu"].coerce(Type.Int()).value
+            assert isinstance(cpu_value, int)
+            cpu_max = self.cfg["task_runtime"].get_int("cpu_max")
+            if cpu_max == 0:
+                cpu_max = host_limits["cpu"]
+            cpu = max(1, cpu_value if cpu_value <= cpu_max or cpu_max < 0 else cpu_max)
+            if cpu != cpu_value:
+                logger.warning(
+                    _("runtime.cpu adjusted to host limit", original=cpu_value, adjusted=cpu)
+                )
+            ans["cpu"] = cpu
+
+        if "memory" in runtime_eval:
+            memory_str = runtime_eval["memory"].coerce(Type.String()).value
+            assert isinstance(memory_str, str)
+            try:
+                memory_bytes = parse_byte_size(memory_str)
+            except ValueError:
+                raise Error.RuntimeError("invalid setting of runtime.memory, " + memory_str)
+
+            memory_max = self.cfg["task_runtime"]["memory_max"].strip()
+            memory_max = -1 if memory_max == "-1" else parse_byte_size(memory_max)
+            if memory_max == 0:
+                memory_max = host_limits["mem_bytes"]
+            if memory_max > 0 and memory_bytes > memory_max:
+                logger.warning(
+                    _(
+                        "runtime.memory adjusted to host limit",
+                        original=memory_bytes,
+                        adjusted=memory_max,
+                    )
+                )
+                memory_bytes = memory_max
+            ans["memory_reservation"] = memory_bytes
+
+            memory_limit_multiplier = self.cfg["task_runtime"].get_float("memory_limit_multiplier")
+            if memory_limit_multiplier > 0.0:
+                ans["memory_limit"] = int(memory_limit_multiplier * memory_bytes)
+
+        if "maxRetries" in runtime_eval:
+            ans["maxRetries"] = max(0, runtime_eval["maxRetries"].coerce(Type.Int()).value)
+        if "preemptible" in runtime_eval:
+            ans["preemptible"] = max(0, runtime_eval["preemptible"].coerce(Type.Int()).value)
+        if "returnCodes" in runtime_eval:
+            rcv = runtime_eval["returnCodes"]
+            if isinstance(rcv, Value.String) and rcv.value == "*":
+                ans["returnCodes"] = "*"
+            elif isinstance(rcv, Value.Int):
+                ans["returnCodes"] = rcv.value
+            elif isinstance(rcv, Value.Array):
+                try:
+                    ans["returnCodes"] = [v.coerce(Type.Int()).value for v in rcv.value]
+                except:
+                    pass
+            if "returnCodes" not in ans:
+                raise Error.RuntimeError("invalid setting of runtime.returnCodes")
+
+        if "gpu" in runtime_eval:
+            if not isinstance(runtime_eval["gpu"], Value.Boolean):
+                raise Error.RuntimeError("invalid setting of runtime.gpu")
+            ans["gpu"] = runtime_eval["gpu"].value
 
     def run(self, logger: logging.Logger, command: str) -> None:
         """
@@ -403,7 +509,7 @@ class TaskContainer(ABC):
         )
 
 
-_backends: Dict[str, Type[TaskContainer]] = dict()
+_backends: Dict[str, typing.Type[TaskContainer]] = dict()
 _backends_lock: threading.Lock = threading.Lock()
 
 

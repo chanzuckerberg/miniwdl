@@ -21,7 +21,6 @@ from .._util import (
     write_values_json,
     provision_run_dir,
     TerminationSignalFlag,
-    parse_byte_size,
     chmod_R_plus,
     path_really_within,
     LoggingFileHandler,
@@ -172,7 +171,7 @@ def run_local_task(
 
                 # evaluate runtime fields
                 stdlib = InputStdLib(task.effective_wdl_version, logger, container)
-                container.runtime_values = _eval_task_runtime(
+                _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
 
@@ -457,7 +456,8 @@ def _eval_task_runtime(
     container: "runtime.task_container.TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
-) -> Dict[str, Union[int, str, List[int], List[str]]]:
+) -> None:
+    # evaluate runtime{} expressions (merged with any configured defaults)
     runtime_defaults = cfg.get_dict("task_runtime", "defaults")
     if run_id.startswith("download-"):
         runtime_defaults.update(cfg.get_dict("task_runtime", "download_defaults"))
@@ -468,111 +468,15 @@ def _eval_task_runtime(
         runtime_values[key] = expr.eval(env, stdlib)
     for b in inputs.enter_namespace("runtime"):
         runtime_values[b.name] = b.value  # input overrides
-    if "container" in runtime_values:  # alias
-        runtime_values["docker"] = runtime_values["container"]
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
-    ans = {}
 
-    if "inlineDockerfile" in runtime_values:
-        # join Array[String]
-        dockerfile = runtime_values["inlineDockerfile"]
-        if not isinstance(dockerfile, Value.Array):
-            dockerfile = Value.Array(dockerfile.type, [dockerfile])
-        dockerfile = "\n".join(elt.coerce(Type.String()).value for elt in dockerfile.value)
-        ans["inlineDockerfile"] = dockerfile
-    elif "docker" in runtime_values:
-        docker_value = runtime_values["docker"]
-        if isinstance(docker_value, Value.Array) and len(docker_value.value):
-            # TODO: ask TaskContainer to choose preferred candidate
-            docker_value = docker_value.value[0]
-        ans["docker"] = docker_value.coerce(Type.String()).value
-    if "docker_network" in runtime_values:
-        network_value = runtime_values["docker_network"]
-        ans["docker_network"] = network_value.coerce(Type.String()).value
+    # have container implementation validate & postprocess into container.runtime_values
+    container.process_runtime(logger, runtime_values)
 
-    if (
-        isinstance(runtime_values.get("privileged", None), Value.Boolean)
-        and runtime_values["privileged"].value is True
-    ):
-        if cfg.get_bool("task_runtime", "allow_privileged"):
-            ans["privileged"] = True
-        else:
-            logger.warning(
-                "runtime.privileged ignored; to enable, set configuration"
-                " [task_runtime] allow_privileged = true (security+portability warning)"
-            )
+    if container.runtime_values:
+        logger.info(_("effective runtime", **container.runtime_values))
 
-    host_limits = container.__class__.detect_resource_limits(cfg, logger)
-    if "cpu" in runtime_values:
-        cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
-        assert isinstance(cpu_value, int)
-        cpu_max = cfg["task_runtime"].get_int("cpu_max")
-        if cpu_max == 0:
-            cpu_max = host_limits["cpu"]
-        cpu = max(1, cpu_value if cpu_value <= cpu_max or cpu_max < 0 else cpu_max)
-        if cpu != cpu_value:
-            logger.warning(
-                _("runtime.cpu adjusted to host limit", original=cpu_value, adjusted=cpu)
-            )
-        ans["cpu"] = cpu
-
-    if "memory" in runtime_values:
-        memory_str = runtime_values["memory"].coerce(Type.String()).value
-        assert isinstance(memory_str, str)
-        try:
-            memory_bytes = parse_byte_size(memory_str)
-        except ValueError:
-            raise Error.EvalError(
-                task.runtime["memory"], "invalid setting of runtime.memory, " + memory_str
-            )
-
-        memory_max = cfg["task_runtime"]["memory_max"].strip()
-        memory_max = -1 if memory_max == "-1" else parse_byte_size(memory_max)
-        if memory_max == 0:
-            memory_max = host_limits["mem_bytes"]
-        if memory_max > 0 and memory_bytes > memory_max:
-            logger.warning(
-                _(
-                    "runtime.memory adjusted to host limit",
-                    original=memory_bytes,
-                    adjusted=memory_max,
-                )
-            )
-            memory_bytes = memory_max
-        ans["memory_reservation"] = memory_bytes
-
-        memory_limit_multiplier = cfg["task_runtime"].get_float("memory_limit_multiplier")
-        if memory_limit_multiplier > 0.0:
-            ans["memory_limit"] = int(memory_limit_multiplier * memory_bytes)
-
-    if "maxRetries" in runtime_values:
-        ans["maxRetries"] = max(0, runtime_values["maxRetries"].coerce(Type.Int()).value)
-    if "preemptible" in runtime_values:
-        ans["preemptible"] = max(0, runtime_values["preemptible"].coerce(Type.Int()).value)
-    if "returnCodes" in runtime_values:
-        rcv = runtime_values["returnCodes"]
-        if isinstance(rcv, Value.String) and rcv.value == "*":
-            ans["returnCodes"] = "*"
-        elif isinstance(rcv, Value.Int):
-            ans["returnCodes"] = rcv.value
-        elif isinstance(rcv, Value.Array):
-            try:
-                ans["returnCodes"] = [v.coerce(Type.Int()).value for v in rcv.value]
-            except:
-                pass
-        if "returnCodes" not in ans:
-            raise Error.EvalError(
-                task.runtime["returnCodes"], "invalid setting of runtime.returnCodes"
-            )
-
-    if "gpu" in runtime_values:
-        if not isinstance(runtime_values["gpu"], Value.Boolean):
-            raise Error.EvalError(task.runtime["gpu"], "invalid setting of runtime.gpu")
-        ans["gpu"] = runtime_values["gpu"].value
-
-    if ans:
-        logger.info(_("effective runtime", **ans))
-
+    # add any configured overrides for in-container environment variables
     env_vars_override = {}
     env_vars_skipped = []
     for ev_name, ev_value in cfg["task_runtime"].get_dict("env").items():
@@ -593,7 +497,7 @@ def _eval_task_runtime(
         env_vars_override["TMPDIR"] = os.path.join(container.container_dir, "work", "_tmpdir")
     if env_vars_override:
         # usually don't dump values into log, as they may often be auth tokens
-        logger.notice(
+        logger.notice(  # pyre-ignore
             _(
                 "overriding environment variables (portability warning)",
                 names=list(env_vars_override.keys()),
@@ -602,17 +506,15 @@ def _eval_task_runtime(
         logger.debug(
             _("overriding environment variables (portability warning)", **env_vars_override)
         )
-        ans["env"] = env_vars_override
+        container.runtime_values.setdefault("env", {}).update(env_vars_override)
 
     unused_keys = list(
         key
         for key in runtime_values
-        if key not in ("memory", "docker", "container") and key not in ans
+        if key not in ("memory", "docker", "container") and key not in container.runtime_values
     )
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
-
-    return ans
 
 
 def _try_task(

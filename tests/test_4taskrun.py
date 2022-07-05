@@ -802,9 +802,9 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"memory": "99T"}, cfg=cfg)
         cfg.override({"task_runtime": {"memory_max": " 123.45 MiB "}})
         self._test_task(txt, {"memory": "99T"}, cfg=cfg)
-        self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.EvalError)
-        self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
-        self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)
+        self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.RuntimeError)
+        self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.RuntimeError)
+        self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.RuntimeError)
 
     def test_runtime_memory_limit(self):
         txt = R"""
