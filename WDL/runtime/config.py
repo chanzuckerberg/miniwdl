@@ -29,26 +29,26 @@ class Section:
         self._parent = parent
         self._section = section
 
-    def get(self, key: str) -> str:
-        return self._parent.get(self._section, key)
+    def get(self, key: str, default: Optional[str] = None) -> str:
+        return self._parent.get(self._section, key, default)
 
     def __getitem__(self, key: str) -> str:
         return self.get(key)
 
-    def get_int(self, key: str) -> int:
-        return self._parent.get_int(self._section, key)
+    def get_int(self, key: str, default: Optional[int] = None) -> int:
+        return self._parent.get_int(self._section, key, default)
 
-    def get_float(self, key: str) -> float:
-        return self._parent.get_float(self._section, key)
+    def get_float(self, key: str, default: Optional[float] = None) -> float:
+        return self._parent.get_float(self._section, key, default)
 
-    def get_bool(self, key: str) -> bool:
-        return self._parent.get_bool(self._section, key)
+    def get_bool(self, key: str, default: Optional[bool] = None) -> bool:
+        return self._parent.get_bool(self._section, key, default)
 
-    def get_dict(self, key: str) -> Dict[str, Any]:
-        return self._parent.get_dict(self._section, key)
+    def get_dict(self, key: str, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._parent.get_dict(self._section, key, default)
 
-    def get_list(self, key: str) -> List[Any]:
-        return self._parent.get_list(self._section, key)
+    def get_list(self, key: str, default: Optional[List[Any]] = None) -> List[Any]:
+        return self._parent.get_list(self._section, key, default)
 
 
 class Loader:
@@ -144,6 +144,7 @@ class Loader:
         """
         Last-priority default settings; typically added by plugins (whose options won't be
         represented in default.cfg).
+        (DEPRECATED)
         """
         options2 = {}
         for section in options:
@@ -167,7 +168,7 @@ class Loader:
             self._logger.debug(_("applying plugin configuration defaults", **options2))
             self._defaults.read_dict(options2)
 
-    def get(self, section: str, key: str) -> str:
+    def get(self, section: str, key: str, default: Optional[str] = None) -> str:
         section = str(section).lower()
         key = str(key).lower()
         common_kws = {}
@@ -190,6 +191,8 @@ class Loader:
                 ans = self._defaults.get(section, key, **common_kws)
 
         if ans is None:
+            if default is not None:
+                return default
             if not self.has_section(section):
                 raise ConfigMissing(f"missing config section [{section}]")
             raise ConfigMissing(f"missing config option [{section}] {key}")
@@ -218,8 +221,20 @@ class Loader:
     def __getitem__(self, section: str) -> Section:
         return Section(self, section)
 
-    def _parse(self, section: str, key: str, ty: str, parse: Callable[[str], _T]) -> _T:
-        ans = self.get(section, key)
+    def _parse(
+        self,
+        section: str,
+        key: str,
+        ty: str,
+        parse: Callable[[str], _T],
+        default: Optional[_T] = None,
+    ) -> _T:
+        try:
+            ans = self.get(section, key)
+        except ConfigMissing:
+            if default is not None:
+                return default
+            raise
         try:
             return parse(ans)
         except:
@@ -234,20 +249,22 @@ class Loader:
             )
             raise ValueError(f"configuration option [{section}] {key} should be {ty}")
 
-    def get_int(self, section: str, key: str) -> int:
-        return self._parse(section, key, "int", int)
+    def get_int(self, section: str, key: str, default: Optional[int] = None) -> int:
+        return self._parse(section, key, "int", int, default)
 
-    def get_float(self, section: str, key: str) -> float:
-        return self._parse(section, key, "float", float)
+    def get_float(self, section: str, key: str, default: Optional[float] = None) -> float:
+        return self._parse(section, key, "float", float, default)
 
-    def get_bool(self, section: str, key: str) -> bool:
-        return self._parse(section, key, "bool", _parse_bool)
+    def get_bool(self, section: str, key: str, default: Optional[bool] = None) -> bool:
+        return self._parse(section, key, "bool", _parse_bool, default)
 
-    def get_dict(self, section: str, key: str) -> Dict[str, Any]:
-        return self._parse(section, key, "JSON dict", _parse_dict)
+    def get_dict(
+        self, section: str, key: str, default: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        return self._parse(section, key, "JSON dict", _parse_dict, default)
 
-    def get_list(self, section: str, key: str) -> List[Any]:
-        return self._parse(section, key, "JSON list", _parse_list)
+    def get_list(self, section: str, key: str, default: Optional[List[Any]] = None) -> List[Any]:
+        return self._parse(section, key, "JSON list", _parse_list, default)
 
     def get_all(self, defaults=True):
         options = set()
