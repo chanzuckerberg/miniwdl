@@ -1058,6 +1058,36 @@ class UnknownRuntimeKey(Linter):
 
 
 @a_linter
+class InvalidRuntimeValue(Linter):
+    expected = {
+        "cpu": Type.Int,
+        "memory": Type.String,
+        "docker": (Type.String, Type.Array),
+        "gpu": Type.Boolean,
+    }
+
+    def task(self, obj: Tree.Task) -> Any:
+        for k in obj.runtime:
+            if not isinstance(obj.runtime[k].type, self.expected.get(k, Type.Base)):  # pyre-ignore
+                self.add(
+                    obj, f"expected {self.expected[k]} for task runtime.{k}", obj.runtime[k].pos
+                )
+        if (
+            isinstance(obj.runtime.get("memory", None), Expr.String)
+            and len(obj.runtime["memory"].parts) == 1  # pyre-ignore
+        ):
+            lit = next(obj.runtime["memory"].parts)  # pyre-ignore
+            if isinstance(lit, str):
+                try:
+                    _util.parse_byte_size(lit)
+                except:
+                    self.add(
+                        obj,
+                        "runtime.memory doesn't follow expected format like '8G' or '1024 MiB'",
+                    )
+
+
+@a_linter
 class MissingVersion(Linter):
     def document(self, obj: Tree.Document) -> Any:
         first_sloc = next(
