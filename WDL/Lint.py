@@ -1060,17 +1060,19 @@ class UnknownRuntimeKey(Linter):
 @a_linter
 class InvalidRuntimeValue(Linter):
     expected = {
-        "cpu": Type.Int,
-        "memory": Type.String,
+        "cpu": (Type.Int,),
+        "memory": (Type.String, Type.Int),
         "docker": (Type.String, Type.Array),
-        "gpu": Type.Boolean,
+        "gpu": (Type.Boolean,),
     }
 
     def task(self, obj: Tree.Task) -> Any:
         for k in obj.runtime:
             if not isinstance(obj.runtime[k].type, self.expected.get(k, Type.Base)):  # pyre-ignore
                 self.add(
-                    obj, f"expected {self.expected[k]} for task runtime.{k}", obj.runtime[k].pos
+                    obj,
+                    f"expected {'/'.join(ty.__name__ for ty in self.expected[k])} for task runtime.{k}",
+                    obj.runtime[k].pos,
                 )
         if (
             isinstance(obj.runtime.get("memory", None), Expr.String)
