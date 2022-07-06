@@ -1058,10 +1058,10 @@ class UnknownRuntimeKey(Linter):
 
 
 @a_linter
-class InvalidRuntimeValue(Linter):
+class UnexpectedRuntimeValue(Linter):
     expected = {
-        "cpu": (Type.Int,),
-        "memory": (Type.String, Type.Int),
+        "cpu": (Type.Int, Type.String),
+        "memory": (Type.Int, Type.String),
         "docker": (Type.String, Type.Array),
         "gpu": (Type.Boolean,),
     }
@@ -1074,11 +1074,26 @@ class InvalidRuntimeValue(Linter):
                     f"expected {'/'.join(ty.__name__ for ty in self.expected[k])} for task runtime.{k}",
                     obj.runtime[k].pos,
                 )
+
+        if "cpu" in obj.runtime and isinstance(obj.runtime["cpu"].type, Type.String):
+            # for historical reasons, allow strings that are int literals, or a single placeholder
+            # for an int value
+            cpu = obj.runtime["cpu"]
+            if isinstance(cpu, Expr.String) and len(cpu.parts) == 3:
+                cpu_part = cpu.parts[1]
+                if (isinstance(cpu_part, str) and cpu_part.isdigit()) or (
+                    isinstance(cpu_part, Expr.Placeholder)
+                    and isinstance(cpu_part.expr.type, Type.Int)
+                ):
+                    cpu = None
+            if cpu:
+                self.add(obj, "expected Int for task runtime.cpu", cpu.pos)
+
         if (
             isinstance(obj.runtime.get("memory", None), Expr.String)
-            and len(obj.runtime["memory"].parts) == 1  # pyre-ignore
+            and len(obj.runtime["memory"].parts) == 3  # pyre-ignore
         ):
-            lit = next(obj.runtime["memory"].parts)  # pyre-ignore
+            lit = obj.runtime["memory"].parts[1]  # pyre-ignore
             if isinstance(lit, str):
                 try:
                     _util.parse_byte_size(lit)

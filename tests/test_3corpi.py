@@ -277,6 +277,7 @@ class GTEx(unittest.TestCase):
         "OptionalCoercion": 1,
         "MissingVersion": 8,
         "UnnecessaryQuantifier": 1,
+        "UnexpectedRuntimeValue": 4,
     },
     check_quant=False,
 )
@@ -383,6 +384,7 @@ class ENCODE_WGBS(unittest.TestCase):
         "UnnecessaryQuantifier": 1,
         "MissingVersion": 52,
         "UnnecessaryQuantifier": 10,
+        "UnexpectedRuntimeValue": 1,
     },
     check_quant=False,
 )
