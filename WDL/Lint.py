@@ -1089,19 +1089,19 @@ class UnexpectedRuntimeValue(Linter):
             if cpu:
                 self.add(obj, "expected Int for task runtime.cpu", cpu.pos)
 
-        if (
-            isinstance(obj.runtime.get("memory", None), Expr.String)
-            and len(obj.runtime["memory"].parts) == 3  # pyre-ignore
-        ):
-            lit = obj.runtime["memory"].parts[1]  # pyre-ignore
-            if isinstance(lit, str):
-                try:
-                    _util.parse_byte_size(lit)
-                except:
-                    self.add(
-                        obj,
-                        "runtime.memory doesn't follow expected format like '8G' or '1024 MiB'",
-                    )
+        if "memory" in obj.runtime:
+            memory = obj.runtime["memory"]
+            if isinstance(memory, Expr.String) and len(memory.parts) == 3:
+                lit = memory.parts[1]
+                if isinstance(lit, str):
+                    try:
+                        _util.parse_byte_size(lit)
+                    except:
+                        self.add(
+                            obj,
+                            "runtime.memory doesn't follow expected format like '8G' or '1024 MiB'",
+                            memory.pos,
+                        )
 
 
 @a_linter
