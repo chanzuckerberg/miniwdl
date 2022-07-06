@@ -24,4 +24,7 @@ task wdl11 {
             model: "Prius"
         }
     }
+    runtime {
+        gpu: 42
+    }
 }
