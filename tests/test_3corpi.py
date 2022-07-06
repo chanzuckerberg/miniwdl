@@ -277,6 +277,7 @@ class GTEx(unittest.TestCase):
         "OptionalCoercion": 1,
         "MissingVersion": 8,
         "UnnecessaryQuantifier": 1,
+        "UnexpectedRuntimeValue": 4,
     },
     check_quant=False,
 )
@@ -383,6 +384,7 @@ class ENCODE_WGBS(unittest.TestCase):
         "UnnecessaryQuantifier": 1,
         "MissingVersion": 52,
         "UnnecessaryQuantifier": 10,
+        "UnexpectedRuntimeValue": 1,
     },
     check_quant=False,
 )
@@ -407,6 +409,7 @@ class dxWDL(unittest.TestCase):
         "UnboundDeclaration": 1,
         "UnverifiedStruct": 3,
         "Deprecated": 2,
+        "UnexpectedRuntimeValue": 1,
     },
     blocklist=["check_quant", "incomplete_call"],
 )
@@ -433,6 +436,7 @@ class Contrived(unittest.TestCase):
         "UnboundDeclaration": 1,
         "UnverifiedStruct": 3,
         "Deprecated": 2,
+        "UnexpectedRuntimeValue": 1,
     },
     check_quant=False,
     blocklist=["incomplete_call"],

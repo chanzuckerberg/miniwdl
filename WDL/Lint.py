@@ -1058,6 +1058,53 @@ class UnknownRuntimeKey(Linter):
 
 
 @a_linter
+class UnexpectedRuntimeValue(Linter):
+    expected = {
+        "cpu": (Type.Int, Type.String),
+        "memory": (Type.Int, Type.String),
+        "docker": (Type.String, Type.Array),
+        "gpu": (Type.Boolean,),
+    }
+
+    def task(self, obj: Tree.Task) -> Any:
+        for k in obj.runtime:
+            if not isinstance(obj.runtime[k].type, self.expected.get(k, Type.Base)):  # pyre-ignore
+                self.add(
+                    obj,
+                    f"expected {'/'.join(ty.__name__ for ty in self.expected[k])} for task runtime.{k}",
+                    obj.runtime[k].pos,
+                )
+
+        if "cpu" in obj.runtime and isinstance(obj.runtime["cpu"].type, Type.String):
+            # for historical reasons, allow strings that are int literals, or a single placeholder
+            # for an int value
+            cpu = obj.runtime["cpu"]
+            if isinstance(cpu, Expr.String) and len(cpu.parts) == 3:
+                cpu_part = cpu.parts[1]
+                if (isinstance(cpu_part, str) and cpu_part.isdigit()) or (
+                    isinstance(cpu_part, Expr.Placeholder)
+                    and isinstance(cpu_part.expr.type, Type.Int)
+                ):
+                    cpu = None
+            if cpu:
+                self.add(obj, "expected Int for task runtime.cpu", cpu.pos)
+
+        if "memory" in obj.runtime:
+            memory = obj.runtime["memory"]
+            if isinstance(memory, Expr.String) and len(memory.parts) == 3:
+                lit = memory.parts[1]
+                if isinstance(lit, str):
+                    try:
+                        _util.parse_byte_size(lit)
+                    except:
+                        self.add(
+                            obj,
+                            "runtime.memory doesn't follow expected format like '8G' or '1024 MiB'",
+                            memory.pos,
+                        )
+
+
+@a_linter
 class MissingVersion(Linter):
     def document(self, obj: Tree.Document) -> Any:
         first_sloc = next(
