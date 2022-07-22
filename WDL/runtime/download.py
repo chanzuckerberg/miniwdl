@@ -379,3 +379,45 @@ def gsutil_downloader(
     yield (  # pyre-ignore
         yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
     )
+
+
+def gsutil_directory_downloader(
+    cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
+) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+    """
+    Built-in downloader plugin for public gs:// URIs; registered by setup.cfg entry_points section
+
+    TODO: adopt security credentials from runtime environment
+
+    TODO: add tests, probably at `miniwdl/tests/test_7runner.py:test_directory`
+    """
+    if uri == "gs://8675309":
+        # hook for test coverage of exception handler
+        raise RuntimeError("don't change your number")
+    wdl = r"""
+    task gsutil_cp {
+        input {
+            String uri
+            String docker
+        }
+
+        String dnm = basename(uri, "/")
+
+        command <<<
+            set -euxo pipefail
+            mkdir __out/
+            gsutil -q -m cp -r "~{uri}" __out/
+
+            ls -lh "__out/~{dnm}"
+        >>>
+        output {
+            Directory directory = "__out/" + dnm
+        }
+        runtime {
+            docker: docker
+        }
+    }
+    """
+    yield (  # pyre-ignore
+        yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
+    )
