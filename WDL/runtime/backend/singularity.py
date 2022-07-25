@@ -59,12 +59,13 @@ class SingularityContainer(SubprocessBase):
         if self.image_cache_dir is not None:
             image_name = docker_uri.replace("/", "_").replace(":", "_")
             image_path = os.path.join(self.image_cache_dir, image_name)
-        else:
-            temp_image = cleanup.enter_context(
-                tempfile.NamedTemporaryFile(prefix="miniwdl_sif_",
-                                            suffix=".sif"))
-            image_path = temp_image.name + ".sif"
-        return (image_path, self.cli_exe + ["pull", "--force", image_path, docker_uri])
+            if not os.path.exists(image_path):
+                return (image_path, self.cli_exe + ["pull", image_path, docker_uri])
+            # If path already exists test the image
+            return (image_path, self.cli_exe + ["exec", image_path, "true"])
+        # Singularity will cache the image automatically in
+        # SINGULARITY_CACHE_DIR it is not needed to save the image elsewhere.
+        return (docker_uri, self.cli_exe + ["exec", docker_uri, "true"])
 
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
         """
