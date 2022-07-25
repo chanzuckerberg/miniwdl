@@ -3,7 +3,7 @@ import shlex
 import logging
 import tempfile
 import subprocess
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from contextlib import ExitStack
 from ...Error import InputError, RuntimeError
 from ..._util import StructuredLogMessage as _
@@ -15,6 +15,7 @@ class SingularityContainer(SubprocessBase):
     """
     Singularity task runtime based on cli_subprocess.SubprocessBase
     """
+    image_cache_dir: Optional[str]
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
@@ -31,6 +32,12 @@ class SingularityContainer(SubprocessBase):
             raise RuntimeError(
                 f"Unable to check `{' '.join(cmd)}`; verify Singularity installation"
             )
+
+        if cfg.has_option("singularity", "image_cache"):
+            cls.image_cache_dir = cfg.get("singularity", "image_cache")
+            os.makedirs(cls.image_cache_dir, exist_ok=True)
+        else:
+            cls.image_cache_dir = None
         logger.notice(  # pyre-ignore
             _(
                 "Singularity runtime initialized (BETA)",
@@ -49,11 +56,15 @@ class SingularityContainer(SubprocessBase):
     def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
         image, invocation = super()._pull_invocation(logger, cleanup)
         docker_uri = "docker://" + image
-
-        # The docker image layers are cached in SINGULARITY_CACHEDIR, so we don't need to keep the
-        # *.sif
-        pulldir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_sif_"))
-        return (docker_uri, self.cli_exe + ["pull", "--dir", pulldir, docker_uri])
+        if self.image_cache_dir is not None:
+            image_name = docker_uri.replace("/", "_").replace(":", "_")
+            image_path = os.path.join(self.image_cache_dir, image_name)
+        else:
+            temp_image = cleanup.enter_context(
+                tempfile.NamedTemporaryFile(prefix="miniwdl_sif_",
+                                            suffix=".sif"))
+            image_path = temp_image.name + ".sif"
+        return (image_path, self.cli_exe + ["pull", "--force", image_path, docker_uri])
 
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
         """
