@@ -388,8 +388,6 @@ def gsutil_directory_downloader(
     Built-in downloader plugin for public gs:// URIs; registered by setup.cfg entry_points section
 
     TODO: adopt security credentials from runtime environment
-
-    TODO: add tests, probably at `miniwdl/tests/test_7runner.py:test_directory`
     """
     if uri == "gs://8675309":
         # hook for test coverage of exception handler
