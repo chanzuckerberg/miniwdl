@@ -389,9 +389,6 @@ def gsutil_directory_downloader(
 
     TODO: adopt security credentials from runtime environment
     """
-    if uri == "gs://8675309":
-        # hook for test coverage of exception handler
-        raise RuntimeError("don't change your number")
     wdl = r"""
     task gsutil_cp {
         input {
@@ -405,8 +402,6 @@ def gsutil_directory_downloader(
             set -euxo pipefail
             mkdir __out/
             gsutil -q -m cp -r "~{uri}" __out/
-
-            ls -lh "__out/~{dnm}"
         >>>
         output {
             Directory directory = "__out/" + dnm
