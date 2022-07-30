@@ -394,7 +394,12 @@ def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
                 group="miniwdl.plugin.directory_download",
                 name="s3",
                 value="WDL.runtime.download:awscli_directory_downloader",
-            )
+            ),
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.directory_download",
+                name="gs",
+                value="WDL.runtime.download:gsutil_directory_downloader",
+            ),
         ],
         "task": [],
         "workflow": [],

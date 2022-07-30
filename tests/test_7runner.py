@@ -619,7 +619,7 @@ class TestDownload(RunnerTestCase):
                 self.assertTrue("'cached': 2" in msg)
 
     @log_capture()
-    def test_directory(self, capture):
+    def test_aws_directory(self, capture):
         wdl6 = R"""
         version development
         workflow count_dir {
@@ -681,6 +681,68 @@ class TestDownload(RunnerTestCase):
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
 
+    @log_capture()
+    def test_gsutil_directory(self, capture):
+        wdl6 = R"""
+        version development
+        workflow count_dir {
+            input {
+                Directory dir
+            }
+            call directory_files {
+                input:
+                    dir = dir
+            }
+            output {
+                Int file_count = length(directory_files.files)
+            }
+        }
+        task directory_files {
+            input {
+                Directory dir
+            }
+            command {
+                find "~{dir}" -type f > files.txt
+                >&2 cat files.txt
+            }
+            output {
+                Array[File] files = read_lines("files.txt")
+            }
+        }
+        """
+
+        # uncached
+        inp = {"dir": "gs://genomics-public-data/ftp-trace.ncbi.nih.gov/1000genomes/ftp/phase3/integrated_sv_map/supporting/breakpoints/"}
+        outp = self._run(wdl6, inp, task="directory_files")
+        self.assertEqual(len(outp["files"]), 4)
+
+        outp = self._run(wdl6, inp)
+        self.assertEqual(outp["file_count"], 4)
+        logs = [str(record.msg) for record in capture.records]
+
+        # cached
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({
+            "download_cache": {
+                "put": True,
+                "get": True,
+                "dir": os.path.join(self._dir, "cache6")
+            },
+            "logging": { "json": True }
+        })
+        self._run(wdl6, inp, cfg=cfg)
+        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        assert "'downloaded': 1" in next(msg for msg in new_logs if "processed input URIs" in msg), str(logs)
+        logs += new_logs
+        self._run(wdl6, inp, cfg=cfg)
+        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        assert next((msg for msg in new_logs if "found in download cache" in msg), False)
+        logs += new_logs
+        outp = self._run(wdl6, inp, task="directory_files", cfg=cfg)
+        self.assertEqual(len(outp["files"]), 4)
+        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        assert next((msg for msg in new_logs if "found in download cache" in msg), False)
+        logs += new_logs
 
 class RuntimeOverride(RunnerTestCase):
     def test_runtime_override(self):
