@@ -15,6 +15,7 @@ class SingularityContainer(SubprocessBase):
     """
     Singularity task runtime based on cli_subprocess.SubprocessBase
     """
+
     image_cache_dir: Optional[str]
 
     @classmethod
