@@ -34,7 +34,8 @@ class SingularityContainer(SubprocessBase):
             )
 
         if cfg.has_option("singularity", "image_cache"):
-            cls.image_cache_dir = cfg.get("singularity", "image_cache")
+            image_cache_dir = cfg.get("singularity", "image_cache")
+            cls.image_cache_dir = os.path.abspath(image_cache_dir)
             os.makedirs(cls.image_cache_dir, exist_ok=True)
         else:
             cls.image_cache_dir = None
