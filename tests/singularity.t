@@ -33,3 +33,10 @@ $miniwdl run pipes/WDL/workflows/assemble_denovo.wdl \
     --path pipes/WDL/tasks --dir "$DN" --verbose \
     -i test/input/WDL/test_inputs-assemble_denovo-local.json
 is "$?" "0" "assemble_denovo success"
+
+export MINIWDL__SINGULARITY__IMAGE_CACHE=$(mktemp -d)
+
+$miniwdl run_self_test --dir "$DN"
+is "$?" "0" "run_self_test with image cache"
+$ls $MINIWDL__SINGULARITY__IMAGE_CACHE/*.sif
+is "$?" "0" "singularity images cached successfully"
