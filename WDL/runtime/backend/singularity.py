@@ -34,8 +34,8 @@ class SingularityContainer(SubprocessBase):
                 f"Unable to check `{' '.join(cmd)}`; verify Singularity installation"
             )
 
-        if cfg.has_option("singularity", "image_cache"):
-            image_cache_dir = cfg.get("singularity", "image_cache")
+        image_cache_dir = cfg.get("singularity", "image_cache")
+        if image_cache_dir != "":
             cls.image_cache_dir = os.path.abspath(image_cache_dir)
             os.makedirs(cls.image_cache_dir, exist_ok=True)
         else:
