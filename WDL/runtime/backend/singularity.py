@@ -40,6 +40,14 @@ class SingularityContainer(SubprocessBase):
             os.makedirs(cls.image_cache_dir, exist_ok=True)
         else:
             cls.image_cache_dir = None
+
+        tempdir = cfg.get("singularity", "tempdir")
+        if tempdir != "":
+            cls.tempdir = os.path.abspath(tempdir)
+            os.makedirs(cls.tempdir, exist_ok=True)
+        else:
+            cls.tempdir = tempfile.gettempdir()
+
         logger.notice(  # pyre-ignore
             _(
                 "Singularity runtime initialized (BETA)",
@@ -91,7 +99,8 @@ class SingularityContainer(SubprocessBase):
         # Also create a scratch directory and mount to /tmp and /var/tmp
         # For context why this is needed:
         #   https://github.com/hpcng/singularity/issues/5718
-        tempdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_singularity_"))
+        tempdir = cleanup.enter_context(tempfile.TemporaryDirectory(
+            prefix="miniwdl_singularity_", dir=self.tempdir))
         os.mkdir(os.path.join(tempdir, "tmp"))
         os.mkdir(os.path.join(tempdir, "var_tmp"))
         mounts.append(("/tmp", os.path.join(tempdir, "tmp"), True))
