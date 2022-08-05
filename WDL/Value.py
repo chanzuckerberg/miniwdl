@@ -472,7 +472,6 @@ class Struct(Base):
                     self.expr,
                     msg,
                 ) if self.expr else Error.RuntimeError(msg)
-            desired_members = desired_type.members
             # member coercions will occur in __init__:
             return Struct(desired_type, self.value, self.expr)
         if isinstance(desired_type, Type.Map):
