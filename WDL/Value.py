@@ -266,7 +266,6 @@ class Array(Base):
                     raise ValueError("Empty array for Array+ input/declaration")
             if desired_type.item_type == self.type.item_type or (
                 isinstance(desired_type.item_type, Type.Any)
-                or isinstance(self.type.item_type, Type.Any)
             ):
                 return self
             return Array(
@@ -336,7 +335,9 @@ class Map(Base):
                         set(kv[0].value for kv in self.value),
                     ).check(desired_type)
                 except TypeError as exn:
-                    msg = exn.args[0] if exn.args else "unusable runtime struct initializer"
+                    msg = "unusable runtime struct initializer"
+                    if exn.args:
+                        msg += ", " + exn.args[0]
                     raise Error.EvalError(
                         self.expr,
                         msg,
@@ -474,12 +475,21 @@ class Struct(Base):
             try:
                 self.type.check(desired_type)
             except TypeError as exn:
-                msg = exn.args[0] if exn.args else "unusable runtime struct initializer"
+                msg = "unusable runtime struct initializer"
+                if exn.args:
+                    msg += ", " + exn.args[0]
                 raise Error.EvalError(
                     self.expr,
                     msg,
                 ) if self.expr else Error.RuntimeError(msg)
-            return Struct(desired_type, self.value, self.expr)
+            desired_members = desired_type.members
+            return Struct(
+                desired_type,
+                {k: self.value[k].coerce(desired_members[k]) for k in self.value}
+                if desired_members is not None
+                else self.value,
+                self.expr,
+            )
         if isinstance(desired_type, Type.Map):
             return self._coerce_to_map(desired_type)
         if isinstance(desired_type, Type.Any):

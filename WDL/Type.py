@@ -506,11 +506,14 @@ def _check_struct_members(
     missing_keys = list(k for k in rhs_keys - self_keys if not rhs_members[k].optional)
     if missing_keys:
         raise TypeError(
-            "missing non-optional member(s) in struct " f"{rhs.type_name}: {' '.join(missing_keys)}"
+            "missing non-optional member(s) in struct "
+            f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
         )
     unknown_keys = self_keys - rhs_keys
     if unknown_keys:
-        raise TypeError(f"no such member(s) in struct {rhs.type_name}: {' '.join(unknown_keys)}")
+        raise TypeError(
+            "no such member(s) in struct " f"{rhs.type_name}: {' '.join(sorted(unknown_keys))}"
+        )
     for k in self_keys:
         try:
             self_members[k].check(rhs_members[k], check_quant)

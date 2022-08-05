@@ -926,6 +926,86 @@ class TestStdLib(unittest.TestCase):
         """, {"j": {"x": 0}})
         self.assertEquals(outp, {"out": [{"x": 0}]})
 
+    def test_issue580(self):
+        # error in nested struct
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                File R1
+                File? R2
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Array[Readgroup] readgroups
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R1_md5": "b859d6dd76a6861ce7e9a978ae2e530e",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "R2_md5": "986acc7bda0bf2ef55c52431f54fe3a9",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                                {
+                                "id": "rg2",
+                                "R1": "tests/data/wgs2/wgs2-lib2_R1.fq.gz",
+                                "R1_md5": "df64e84fdc9a2d7a9301f2aac0071aee",
+                                "R2": "tests/data/wgs2/wgs2-lib2_R2.fq.gz",
+                                "R2_md5": "47a65ad648ac08e802c07669629054ea",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
+
     def test_bad_object(self):
         self._test_task(R"""
         version 1.0
