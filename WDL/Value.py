@@ -329,14 +329,14 @@ class Map(Base):
             if self.type.item_type[0] == Type.String():
                 # Runtime typecheck for initializing struct from read_{object,objects,map}
                 # This couldn't have been checked statically because the map keys weren't known.
-                litty = Type.Map(
-                    self.type.item_type, self.type.optional, set(kv[0].value for kv in self.value)
-                )
-                if not litty.coerces(desired_type):
-                    msg = (
-                        "unusable runtime struct initializer"
-                        " (member type mismatch, lacking required member, or extra member)"
-                    )
+                try:
+                    Type.Map(
+                        self.type.item_type,
+                        self.type.optional,
+                        set(kv[0].value for kv in self.value),
+                    ).check(desired_type)
+                except TypeError as exn:
+                    msg = exn.args[0] if exn.args else "unusable runtime struct initializer"
                     raise Error.EvalError(
                         self.expr,
                         msg,
@@ -471,11 +471,10 @@ class Struct(Base):
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
         if isinstance(desired_type, (Type.Object, Type.StructInstance)):
-            if not self.type.coerces(desired_type):
-                msg = (
-                    "unusable runtime struct initializer"
-                    " (member type mismatch, lacking required member, or extra member)"
-                )
+            try:
+                self.type.check(desired_type)
+            except TypeError as exn:
+                msg = exn.args[0] if exn.args else "unusable runtime struct initializer"
                 raise Error.EvalError(
                     self.expr,
                     msg,

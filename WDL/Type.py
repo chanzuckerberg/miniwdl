@@ -325,19 +325,10 @@ class Map(Base):
             self.item_type[1].check(rhs.item_type[1], check_quant)
             return self._check_optional(rhs, check_quant)
         if isinstance(rhs, StructInstance) and self.literal_keys is not None:
-            # struct assignment from map literal: the map literal must contain all non-optional
-            # struct members, and the value type must be coercible to those member types
-            rhs_members = rhs.members
-            assert rhs_members is not None
-            rhs_keys = set(rhs_members.keys())
-            if self.literal_keys - rhs_keys:
-                raise TypeError()
-            for k in self.literal_keys:
-                self.item_type[1].check(rhs_members[k], check_quant)
-            for opt_k in rhs_keys - self.literal_keys:
-                if not rhs_members[opt_k].optional:
-                    raise TypeError()
-            return
+            # struct assignment from map literal
+            return _check_struct_members(
+                {k: self.item_type[1] for k in self.literal_keys}, rhs, check_quant
+            )
         if (
             isinstance(rhs, StructInstance)
             and self.literal_keys is None
@@ -489,26 +480,8 @@ class Object(Base):
         return self.members.values()
 
     def check(self, rhs: Base, check_quant: bool = True) -> None:
-        if isinstance(rhs, (StructInstance, Object)):
-            rhs_members = rhs.members
-            assert rhs_members is not None
-            # Check whether our keys match the struct members, and our types
-            # are coercible to the respective member types.
-            # TODO: in the event of StaticTypeMismatch errors, this may produce
-            # unwieldy error messages
-            self_keys = set(self.members.keys())
-            rhs_keys = set(rhs_members.keys())
-
-            unknown_keys = self_keys - rhs_keys
-            if unknown_keys:
-                raise TypeError()
-            for k in self_keys:
-                self.members[k].check(rhs_members[k], check_quant)
-            for opt_k in rhs_keys - self_keys:
-                # object literal may omit optional struct fields
-                if not rhs_members[opt_k].optional:
-                    raise TypeError()
-            return
+        if isinstance(rhs, StructInstance):
+            return _check_struct_members(self.members, rhs, check_quant)
         if isinstance(rhs, Map):
             # Member names must coerce to the map key type, and each member type must coerce to the
             # map value type.
@@ -516,9 +489,38 @@ class Object(Base):
             for vt in self.members.values():
                 vt.check(rhs.item_type[1])
             return
-        if isinstance(rhs, Any):
+        if isinstance(rhs, (Object, Any)):
             return
         raise TypeError()
+
+
+def _check_struct_members(
+    self_members: Dict[str, Base], rhs: StructInstance, check_quant: bool
+) -> None:
+    # shared routine for checking Map or Object type coercion to rhs: StrucTInstance
+    rhs_members = rhs.members
+    assert rhs_members
+    rhs_keys = set(rhs_members.keys())
+    self_keys = set(self_members.keys())
+
+    missing_keys = list(k for k in rhs_keys - self_keys if not rhs_members[k].optional)
+    if missing_keys:
+        raise TypeError(
+            "missing non-optional member(s) in struct " f"{rhs.type_name}: {' '.join(missing_keys)}"
+        )
+    unknown_keys = self_keys - rhs_keys
+    if unknown_keys:
+        raise TypeError(f"no such member(s) in struct {rhs.type_name}: {' '.join(unknown_keys)}")
+    for k in self_keys:
+        try:
+            self_members[k].check(rhs_members[k], check_quant)
+        except TypeError as exn:
+            if len(exn.args):
+                raise
+            raise TypeError(
+                f"type mismatch using {self_members[k]} to initialize "
+                f"{rhs_members[k]} {k} member of struct {rhs.type_name}"
+            )
 
 
 def unify(types: List[Base], check_quant: bool = True, force_string: bool = False) -> Base:
