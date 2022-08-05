@@ -450,19 +450,7 @@ class Struct(Base):
             assert type_members
             # coerce values to member types
             for k in value:
-                try:
-                    value[k] = value[k].coerce(type_members[k])
-                except Error.RuntimeError as exn:
-                    if isinstance(exn, Error.EvalError):
-                        raise
-                    msg = (
-                        f"runtime type mismatch initializing struct member"
-                        f" {str(type_members[k])} {k}"
-                    )
-                    raise Error.EvalError(
-                        expr,
-                        msg,
-                    ) if expr else Error.RuntimeError(msg)
+                value[k] = value[k].coerce(type_members[k])
             # if initializer omits optional members, fill them in with null
             for k in type_members:
                 if k not in value:
