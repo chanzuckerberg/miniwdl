@@ -406,7 +406,8 @@ class StateMachine:
             disallowed_filenames = set(
                 fn
                 for fn in disallowed_filenames
-                if not downloadable(cfg, fn, directory=fn.endswith("/"))
+                if not (downloadable(cfg, fn, directory=fn.endswith("/")) or
+                        os.path.exists(fn))
             )
             if disallowed_filenames:
                 raise Error.InputError(
