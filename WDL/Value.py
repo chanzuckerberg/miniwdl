@@ -452,7 +452,9 @@ class Struct(Base):
             for k in value:
                 try:
                     value[k] = value[k].coerce(type_members[k])
-                except Error.RuntimeError:
+                except Error.RuntimeError as exn:
+                    if isinstance(exn, Error.EvalError):
+                        raise
                     msg = (
                         f"runtime type mismatch initializing struct member"
                         f" {str(type_members[k])} {k}"
@@ -483,13 +485,8 @@ class Struct(Base):
                     msg,
                 ) if self.expr else Error.RuntimeError(msg)
             desired_members = desired_type.members
-            return Struct(
-                desired_type,
-                {k: self.value[k].coerce(desired_members[k]) for k in self.value}
-                if desired_members is not None
-                else self.value,
-                self.expr,
-            )
+            # member coercions will occur in __init__:
+            return Struct(desired_type, self.value, self.expr)
         if isinstance(desired_type, Type.Map):
             return self._coerce_to_map(desired_type)
         if isinstance(desired_type, Type.Any):
