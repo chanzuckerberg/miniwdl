@@ -459,8 +459,8 @@ class Object(Base):
     """"""
 
     # Represents the type of object{} literals and the known-only-at-runtime return value of
-    # read_json(). We expect this exist only transiently before attempting coercion to
-    # StructInstance with known member types. We hide this from docs to avoid confusion with
+    # read_json(). We expect this to exist only transiently, just before attempting coercion to
+    # a StructInstance with known member types. We hide this from docs to avoid confusion with
     # general (pre-WDL1.0) Object support, since it's only to support struct initialization.
 
     members: Dict[str, Base]

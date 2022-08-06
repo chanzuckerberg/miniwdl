@@ -1034,6 +1034,73 @@ class TestStdLib(unittest.TestCase):
         except Exception as exn:
             self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
 
+        # slightly simpler version, covering a different exception handling path
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                File R1
+                File? R2
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Readgroup readgroup
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroup":
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "lib_id": "lib1"
+                                },
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroup":
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
+
         # unifying arrays of structs with optional members
         outp = self._test_task(R"""
             version 1.0
