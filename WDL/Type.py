@@ -40,7 +40,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
 """
 import copy
 from abc import ABC
-from typing import Optional, Tuple, Dict, Iterable, Set, List
+from typing import Optional, Tuple, Dict, Iterable, Set, List, Union
 
 
 class Base(ABC):
@@ -467,7 +467,7 @@ class Object(Base):
     members: Dict[str, Base]
 
     def __init__(self, members: Dict[str, Base]) -> None:
-        self.members = members
+        self.members = dict(members)
 
     def __str__(self) -> str:
         ans = []
@@ -480,7 +480,7 @@ class Object(Base):
         return self.members.values()
 
     def check(self, rhs: Base, check_quant: bool = True) -> None:
-        if isinstance(rhs, StructInstance):
+        if isinstance(rhs, (Object, StructInstance)):
             return _check_struct_members(self.members, rhs, check_quant)
         if isinstance(rhs, Map):
             # Member names must coerce to the map key type, and each member type must coerce to the
@@ -489,15 +489,16 @@ class Object(Base):
             for vt in self.members.values():
                 vt.check(rhs.item_type[1])
             return
-        if isinstance(rhs, (Object, Any)):
+        if isinstance(rhs, Any):
             return
         raise TypeError()
 
 
 def _check_struct_members(
-    self_members: Dict[str, Base], rhs: StructInstance, check_quant: bool
+    self_members: Dict[str, Base], rhs: Union[Object, StructInstance], check_quant: bool
 ) -> None:
-    # shared routine for checking Map or Object type coercion to rhs: StrucTInstance
+    # shared routine for checking Map or Object type coercion; usually rhs is StructInstance, but
+    # rhs: Object occurs during attempted unification of types inferred from read_json().
     rhs_members = rhs.members
     assert rhs_members
     rhs_keys = set(rhs_members.keys())
@@ -505,25 +506,34 @@ def _check_struct_members(
 
     missing_keys = list(k for k in rhs_keys - self_keys if not rhs_members[k].optional)
     if missing_keys:
-        raise TypeError(
-            "missing non-optional member(s) in struct "
-            f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
-        )
+        if isinstance(rhs, StructInstance):
+            raise TypeError(
+                "missing non-optional member(s) in struct "
+                f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
+            )
+        else:
+            raise TypeError()
     unknown_keys = self_keys - rhs_keys
     if unknown_keys:
-        raise TypeError(
-            "no such member(s) in struct " f"{rhs.type_name}: {' '.join(sorted(unknown_keys))}"
-        )
+        if isinstance(rhs, StructInstance):
+            raise TypeError(
+                f"no such member(s) in struct {rhs.type_name}: {' '.join(sorted(unknown_keys))}"
+            )
+        else:
+            raise TypeError()
     for k in self_keys:
         try:
             self_members[k].check(rhs_members[k], check_quant)
         except TypeError as exn:
             if len(exn.args):
                 raise
-            raise TypeError(
-                f"type mismatch using {self_members[k]} to initialize "
-                f"{rhs_members[k]} {k} member of struct {rhs.type_name}"
-            )
+            if isinstance(rhs, StructInstance):
+                raise TypeError(
+                    f"type mismatch using {self_members[k]} to initialize "
+                    f"{rhs_members[k]} {k} member of struct {rhs.type_name}"
+                )
+            else:
+                raise TypeError()
 
 
 def unify(types: List[Base], check_quant: bool = True, force_string: bool = False) -> Base:
@@ -563,6 +573,14 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
             )
         if not t_was_array_any and next((pt for pt in t.parameters if isinstance(pt, Any)), False):
             return Any()
+        if isinstance(t, Object) and isinstance(t2, Object):
+            # unifying inferred types in Value.from_json(), not -yet- coercing to a StructInstance
+            for k in t2.members:
+                if k in t.members:
+                    t.members[k] = unify([t.members[k], t2.members[k]])
+                else:
+                    # infer optionality of fields present only in some types
+                    t.members[k] = t2.members[k].copy(optional=True)
 
         # Int/Float, String/File
         if isinstance(t, Int) and isinstance(t2, Float):

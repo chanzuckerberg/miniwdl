@@ -611,13 +611,11 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["my_ints"], {"key_0": 0, "key_1": 1, "key_2": 2})
 
     def test_struct_from_read(self):
-        # initialize a struct via Map[String,String] from read_{map,object[s],json}
+        # initialize struct from read_{map,object[s],json}
 
         alice = {"name": "Alice", "lane": 3, "barcode": "GATTACA"}
-        samplesheet2 = [
-            {"name": "Alice", "lane": 3, "barcode": "GATTACA"},
-            {"name": "Bob", "lane": 4, "barcode": "TGTAATC"},
-        ]
+        bob = {"name": "Bob", "lane": 4, "barcode": "TGTAATC"}
+        samplesheet2 = [alice, bob]
 
         outputs = self._test_task(R"""
         version 1.0
@@ -665,12 +663,14 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["samplesheet2"], samplesheet2)
         self.assertEqual(outputs["empty"], [])
 
+        # optional field coercion
         outputs = self._test_task(R"""
         version 1.0
         struct Sample {
             String name
             Int lane
             String barcode
+            String? lab
         }
         task test {
             command <<<
@@ -685,8 +685,36 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
-        self.assertEqual(outputs["alice"], alice)
-        self.assertEqual(outputs["samplesheet2"], samplesheet2)
+        self.assertEqual(dict(**alice, lab=None), outputs["alice"])
+        self.assertEqual([dict(**it, lab=None) for it in samplesheet2], outputs["samplesheet2"])
+
+        # struct-array-struct JSON nesting
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+            String? lab
+        }
+        struct MultiSample {
+            Array[Sample] samples
+        }
+        task test {
+            command <<<
+                echo '{"name":"Alice","lane":3,"barcode":"GATTACA"}' >> alice.txt
+                echo '{"samples":[' >> samplesheet2.txt
+                cat alice.txt >> samplesheet2.txt
+                echo ',{"name":"Bob","lane":4,"barcode":"TGTAATC","lab":"Biohub"}]}' >> samplesheet2.txt
+            >>>
+            output {
+                Sample alice = read_json("alice.txt")
+                MultiSample samplesheet2 = read_json("samplesheet2.txt")
+            }
+        }
+        """)
+        self.assertEqual(dict(**alice, lab=None), outputs["alice"])
+        self.assertEqual({"samples": [dict(**alice, lab=None), dict(**bob, lab="Biohub")]}, outputs["samplesheet2"])
 
     def test_issue524(self):
         # additional cases for struct initialization from read_json(), motivated by issue #524
