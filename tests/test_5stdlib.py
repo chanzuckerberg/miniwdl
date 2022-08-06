@@ -1034,6 +1034,7 @@ class TestStdLib(unittest.TestCase):
         except Exception as exn:
             self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
 
+        # unifying arrays of structs with optional members
         outp = self._test_task(R"""
             version 1.0
 
