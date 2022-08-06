@@ -2329,7 +2329,7 @@ class TestStruct(unittest.TestCase):
         workflow wf {
             Array[Person] ppl = [
                 object { name: 'alyssa', friends: [2,4] },
-                object { "name": "ben", 'friends': [8,16]},
+                object { "name": "ben", 'friends': [8,16], id: 42},
                 object { 'name': "cy", "friends": [32,64] }
             ]
         }
@@ -2337,6 +2337,7 @@ class TestStruct(unittest.TestCase):
         struct Person {
             String name
             Array[Int] friends
+            Int? id
         }
         """
         doc = WDL.parse_document(doc)

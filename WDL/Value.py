@@ -445,7 +445,7 @@ class Struct(Base):
         expr: "Optional[Expr.Base]" = None,
     ) -> None:
         value = dict(value)
-        if isinstance(type, (Type.Object, Type.StructInstance)):
+        if isinstance(type, Type.StructInstance):
             type_members = type.members
             assert type_members
             # coerce values to member types
@@ -461,7 +461,7 @@ class Struct(Base):
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
-        if isinstance(desired_type, (Type.Object, Type.StructInstance)):
+        if isinstance(desired_type, Type.StructInstance):
             try:
                 self.type.check(desired_type)
             except TypeError as exn:
@@ -476,7 +476,9 @@ class Struct(Base):
             return Struct(desired_type, self.value, self.expr)
         if isinstance(desired_type, Type.Map):
             return self._coerce_to_map(desired_type)
-        if isinstance(desired_type, Type.Any):
+        if isinstance(desired_type, (Type.Any, Type.Object)):
+            # Object coercion is a no-op because we expect a further coercion to StructInstance to
+            # follow in short order, providing the expected member types.
             return self
         msg = f"cannot coerce struct to {desired_type}"
         raise Error.EvalError(
@@ -615,10 +617,10 @@ def _infer_from_json(j: Any) -> Base:
         return Float(j)
     if j is None:
         return Null()
+    # compound: don't yet try to infer unified types for nested values, since we expect a coercion
+    # to a StructInstance type to follow in short order, providing the expected item/member types
     if isinstance(j, list):
-        items = [_infer_from_json(v) for v in j]
-        item_type = Type.unify([item.type for item in items])
-        return Array(item_type, [item.coerce(item_type) for item in items])
+        return Array(Type.Any(), [_infer_from_json(v) for v in j])
     if isinstance(j, dict):
         members = {}
         member_types = {}

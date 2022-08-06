@@ -40,7 +40,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
 """
 import copy
 from abc import ABC
-from typing import Optional, Tuple, Dict, Iterable, Set, List, Union
+from typing import Optional, Tuple, Dict, Iterable, Set, List
 
 
 class Base(ABC):
@@ -458,11 +458,10 @@ def _struct_type_id(members: Dict[str, Base]) -> str:
 class Object(Base):
     """"""
 
-    # In WDL 1.0, struct instances are created by coercion from object
-    # literals. So we need something to represent the type of an object literal
-    # (a bag of keys and values) prior to its coercion to a named struct type.
-    # But we hide this from docs to avoid confusion with general Object
-    # support.
+    # Represents the type of object{} literals and the known-only-at-runtime return value of
+    # read_json(). We expect this exist only transiently before attempting coercion to
+    # StructInstance with known member types. We hide this from docs to avoid confusion with
+    # general (pre-WDL1.0) Object support, since it's only to support struct initialization.
 
     members: Dict[str, Base]
 
@@ -480,7 +479,7 @@ class Object(Base):
         return self.members.values()
 
     def check(self, rhs: Base, check_quant: bool = True) -> None:
-        if isinstance(rhs, (Object, StructInstance)):
+        if isinstance(rhs, StructInstance):
             return _check_struct_members(self.members, rhs, check_quant)
         if isinstance(rhs, Map):
             # Member names must coerce to the map key type, and each member type must coerce to the
@@ -489,16 +488,17 @@ class Object(Base):
             for vt in self.members.values():
                 vt.check(rhs.item_type[1])
             return
-        if isinstance(rhs, Any):
+        if isinstance(rhs, (Any, Object)):
+            # Don't worry about Object coercion because we expect a further coercion to
+            # StructInstance to follow in short order, constraining the expected member types.
             return
         raise TypeError()
 
 
 def _check_struct_members(
-    self_members: Dict[str, Base], rhs: Union[Object, StructInstance], check_quant: bool
+    self_members: Dict[str, Base], rhs: StructInstance, check_quant: bool
 ) -> None:
-    # shared routine for checking Map or Object type coercion; usually rhs is StructInstance, but
-    # rhs: Object occurs during attempted unification of types inferred from read_json().
+    # shared routine for checking Map or Object type coercion, with useful error messages
     rhs_members = rhs.members
     assert rhs_members
     rhs_keys = set(rhs_members.keys())
@@ -509,12 +509,12 @@ def _check_struct_members(
         raise TypeError(
             "missing non-optional member(s) in struct "
             f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
-        ) if isinstance(rhs, StructInstance) else TypeError()
+        )
     unknown_keys = self_keys - rhs_keys
     if unknown_keys:
         raise TypeError(
             f"no such member(s) in struct {rhs.type_name}: {' '.join(sorted(unknown_keys))}"
-        ) if isinstance(rhs, StructInstance) else TypeError()
+        )
     for k in self_keys:
         try:
             self_members[k].check(rhs_members[k], check_quant)
@@ -524,7 +524,7 @@ def _check_struct_members(
             raise TypeError(
                 f"type mismatch using {self_members[k]} to initialize "
                 f"{rhs_members[k]} {k} member of struct {rhs.type_name}"
-            ) if isinstance(rhs, StructInstance) else TypeError()
+            )
 
 
 def unify(types: List[Base], check_quant: bool = True, force_string: bool = False) -> Base:
@@ -565,7 +565,7 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
         if not t_was_array_any and next((pt for pt in t.parameters if isinstance(pt, Any)), False):
             return Any()
         if isinstance(t, Object) and isinstance(t2, Object):
-            # unifying inferred types in Value.from_json(), not -yet- coercing to a StructInstance
+            # unifying Object types (generally transient, pending coercion to a StructInstance)
             for k in t2.members:
                 if k in t.members:
                     t.members[k] = unify([t.members[k], t2.members[k]])
