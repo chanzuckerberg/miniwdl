@@ -506,34 +506,25 @@ def _check_struct_members(
 
     missing_keys = list(k for k in rhs_keys - self_keys if not rhs_members[k].optional)
     if missing_keys:
-        if isinstance(rhs, StructInstance):
-            raise TypeError(
-                "missing non-optional member(s) in struct "
-                f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
-            )
-        else:
-            raise TypeError()
+        raise TypeError(
+            "missing non-optional member(s) in struct "
+            f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
+        ) if isinstance(rhs, StructInstance) else TypeError()
     unknown_keys = self_keys - rhs_keys
     if unknown_keys:
-        if isinstance(rhs, StructInstance):
-            raise TypeError(
-                f"no such member(s) in struct {rhs.type_name}: {' '.join(sorted(unknown_keys))}"
-            )
-        else:
-            raise TypeError()
+        raise TypeError(
+            f"no such member(s) in struct {rhs.type_name}: {' '.join(sorted(unknown_keys))}"
+        ) if isinstance(rhs, StructInstance) else TypeError()
     for k in self_keys:
         try:
             self_members[k].check(rhs_members[k], check_quant)
         except TypeError as exn:
             if len(exn.args):
                 raise
-            if isinstance(rhs, StructInstance):
-                raise TypeError(
-                    f"type mismatch using {self_members[k]} to initialize "
-                    f"{rhs_members[k]} {k} member of struct {rhs.type_name}"
-                )
-            else:
-                raise TypeError()
+            raise TypeError(
+                f"type mismatch using {self_members[k]} to initialize "
+                f"{rhs_members[k]} {k} member of struct {rhs.type_name}"
+            ) if isinstance(rhs, StructInstance) else TypeError()
 
 
 def unify(types: List[Base], check_quant: bool = True, force_string: bool = False) -> Base:
