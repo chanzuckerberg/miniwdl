@@ -1034,6 +1034,92 @@ class TestStdLib(unittest.TestCase):
         except Exception as exn:
             self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
 
+        outp = self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                String R1
+                String R1_md5
+                String? R2
+                String? R2_md5
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Array[Readgroup] readgroups
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R1_md5": "b859d6dd76a6861ce7e9a978ae2e530e",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "R2_md5": "986acc7bda0bf2ef55c52431f54fe3a9",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                                {
+                                "id": "rg2",
+                                "R1": "tests/data/wgs2/wgs2-lib2_R1.fq.gz",
+                                "R1_md5": "df64e84fdc9a2d7a9301f2aac0071aee",
+                                "R2": "tests/data/wgs2/wgs2-lib2_R2.fq.gz",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                    String? control0 = data.samples[0].control
+                    String? control1 = data.samples[1].control
+                    String? gender0 = data.samples[0].gender
+                    String? gender1 = data.samples[1].gender
+                }
+            }""")
+        self.assertEqual(None, outp["control0"])
+        self.assertEqual("wgs1-paired-end", outp["control1"])
+        self.assertEqual(None, outp["gender0"])
+        self.assertEqual(None, outp["gender1"])
+        self.assertEqual("537ffc52342314d839e7fdd91bbdccd0", outp["data"]["samples"][1]["readgroups"][0]["R2_md5"])
+        self.assertEqual(None, outp["data"]["samples"][1]["readgroups"][1]["R2_md5"])
+
     def test_bad_object(self):
         self._test_task(R"""
         version 1.0
