@@ -1147,6 +1147,52 @@ class TestStdLib(unittest.TestCase):
         except Exception as exn:
             self.assertTrue("to initialize Int count member of struct Sample" in str(exn))
 
+        # slightly simpler version covering a different exception handling path (#3)
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Int count
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "id": "wgs1-paired-end",
+                            "control": null,
+                            "count": "not a number"
+                            },
+                            {
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end",
+                            "count": 100
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("runtime type mismatch initializing Int count member of struct Sample" in str(exn))
+
         # unifying arrays of structs with optional members
         outp = self._test_task(R"""
             version 1.0

@@ -325,34 +325,36 @@ class Map(Base):
                 self.expr,
             )
         if isinstance(desired_type, Type.StructInstance):
-            if self.type.item_type[0] == Type.String():
-                # Runtime typecheck for initializing struct from read_{object,objects,map}
-                # This couldn't have been checked statically because the map keys weren't known.
-                try:
-                    Type.Map(
-                        self.type.item_type,
-                        self.type.optional,
-                        set(kv[0].value for kv in self.value),
-                    ).check(desired_type)
-                except TypeError as exn:
-                    msg = "unusable runtime struct initializer"
-                    if exn.args:
-                        msg += ", " + exn.args[0]
-                    raise Error.EvalError(
-                        self.expr,
-                        msg,
-                    ) if self.expr else Error.RuntimeError(msg)
+            # Runtime typecheck for initializing struct from read_{object,objects,map}
+            # This couldn't have been checked statically because the map keys weren't known.
+            assert self.type.item_type[0].coerces(Type.String())
+            try:
+                Type.Map(
+                    self.type.item_type,
+                    self.type.optional,
+                    set(kv[0].coerce(Type.String()).value for kv in self.value),
+                ).check(desired_type)
+            except TypeError as exn:
+                msg = "unusable runtime struct initializer"
+                if exn.args:
+                    msg += ", " + exn.args[0]
+                raise Error.EvalError(
+                    self.expr,
+                    msg,
+                ) if self.expr else Error.RuntimeError(msg)
             assert desired_type.members
+            # coerce to desired member types
             ans = {}
             for k, v in self.value:
                 k = k.coerce(Type.String()).value
                 try:
                     ans[k] = v.coerce(desired_type.members[k])
                 except Error.RuntimeError as exc:
+                    # some coercions that typecheck could still fail, e.g. String to Int
                     msg = (
-                        "runtime type mismatch initializing struct member "
-                        f"{str(desired_type.members[k])} {k}"
-                    )
+                        "runtime type mismatch initializing "
+                        f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
+                    ) + ((": " + exc.args[0]) if exc.args else "")
                     raise Error.EvalError(
                         self.expr,
                         msg,
@@ -444,17 +446,15 @@ class Struct(Base):
         value: Dict[str, Base],
         expr: "Optional[Expr.Base]" = None,
     ) -> None:
+        # type may be Object for the transient evaluation of an object literal or read_json(); we
+        # expect it to be coerced to a StructInstance in short order.
         value = dict(value)
         if isinstance(type, Type.StructInstance):
-            type_members = type.members
-            assert type_members
-            # coerce values to member types
-            for k in value:
-                value[k] = value[k].coerce(type_members[k])
-            # if initializer omits optional members, fill them in with null
-            for k in type_members:
+            # fill in null for any omitted optional members
+            assert type.members
+            for k in type.members:
                 if k not in value:
-                    assert type_members[k].optional
+                    assert type.members[k].optional
                     value[k] = Null()
         self.value = value
         super().__init__(type, value, expr)
@@ -462,7 +462,15 @@ class Struct(Base):
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
         if isinstance(desired_type, Type.StructInstance):
+            assert desired_type.members
+            if (
+                isinstance(self.type, Type.StructInstance)
+                and self.type.type_id == desired_type.type_id
+            ):
+                return self
             try:
+                # Runtime typecheck for initializing StructInstance from read_json(), where the
+                # Object type isn't known until runtime
                 self.type.check(desired_type)
             except TypeError as exn:
                 msg = "unusable runtime struct initializer"
@@ -472,8 +480,28 @@ class Struct(Base):
                     self.expr,
                     msg,
                 ) if self.expr else Error.RuntimeError(msg)
-            # member coercions will occur in __init__:
-            return Struct(desired_type, self.value, self.expr)
+            # coerce to desired member types
+            members = {}
+            for k in self.value:
+                try:
+                    members[k] = self.value[k].coerce(desired_type.members[k])
+                except Error.RuntimeError as exc:
+                    # some coercions that typecheck could still fail, e.g. String to Int; note the
+                    # offending member, taking care not to obscure it if the struct is nested
+                    msg = ""
+                    if exc.args:
+                        if "member of struct" in exc.args[0]:
+                            raise
+                        msg = ": " + exc.args[0]
+                    msg = (
+                        "runtime type mismatch initializing "
+                        f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
+                    ) + msg
+                    raise Error.EvalError(
+                        self.expr,
+                        msg,
+                    ) if self.expr else Error.RuntimeError(msg)
+            return Struct(desired_type, members, self.expr)
         if isinstance(desired_type, Type.Map):
             return self._coerce_to_map(desired_type)
         if isinstance(desired_type, (Type.Any, Type.Object)):

@@ -706,10 +706,13 @@ class Struct(Base):
         return struct_type
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+        assert isinstance(self.type, (Type.Object, Type.StructInstance))
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
-        assert isinstance(self.type, (Type.Object, Type.StructInstance))
+            if isinstance(self.type, Type.StructInstance):
+                assert self.type.members
+                ans[k] = ans[k].coerce(self.type.members[k])
         return Value.Struct(self.type, ans)
 
     @property
