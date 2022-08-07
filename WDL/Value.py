@@ -465,15 +465,11 @@ class Struct(Base):
             return self._coerce_to_struct(desired_type)
         if isinstance(desired_type, Type.Map):
             return self._coerce_to_map(desired_type)
-        if isinstance(desired_type, (Type.Any, Type.Object)):
-            # Object coercion is a no-op because we expect a further coercion to StructInstance to
-            # follow in short order, providing the expected member types.
-            return self
-        msg = f"cannot coerce struct to {desired_type}"
-        raise Error.EvalError(
-            self.expr,
-            msg,
-        ) if self.expr else Error.RuntimeError(msg)
+        if not isinstance(desired_type, (Type.Any, Type.Object)):
+            self._eval_error(f"cannot coerce struct to {desired_type}")
+        # Object coercion is a no-op because we expect a further coercion to StructInstance to
+        # follow in short order, providing the expected member types.
+        return self
 
     def _coerce_to_struct(self, desired_type: Type.StructInstance) -> Base:
         assert desired_type.members
@@ -487,10 +483,7 @@ class Struct(Base):
             msg = "unusable runtime struct initializer"
             if exn.args:
                 msg += ", " + exn.args[0]
-            raise Error.EvalError(
-                self.expr,
-                msg,
-            ) if self.expr else Error.RuntimeError(msg)
+            self._eval_error(msg)
         # coerce to desired member types
         members = {}
         for k in self.value:
@@ -508,46 +501,45 @@ class Struct(Base):
                     "runtime type mismatch initializing "
                     f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
                 ) + msg
-                raise Error.EvalError(
-                    self.expr,
-                    msg,
-                ) if self.expr else Error.RuntimeError(msg)
+                self._eval_error(msg)
         return Struct(desired_type, members, self.expr)
 
     def _coerce_to_map(self, desired_type: Type.Map) -> Map:
         # runtime coercion e.g. Map[String,String] foo = read_json("foo.txt")
         assert isinstance(self.type, Type.Object)
-
-        def fail(msg):
-            raise Error.EvalError(
-                self.expr,
-                msg,
-            ) if self.expr else Error.RuntimeError(msg)
-
         key_type = desired_type.item_type[0]
         if not Type.String().coerces(key_type):
-            fail(f"cannot coerce member names to {key_type} map keys")
+            self._eval_error(f"cannot coerce member names to {key_type} map keys")
         value_type = desired_type.item_type[1]
         entries = []
         for k, v in self.value.items():
-            if not (isinstance(v, Null) and value_type.optional):
+            if not isinstance(v, Null) or value_type.optional:
                 map_key = None
                 map_value = None
                 try:
                     map_key = String(k).coerce(key_type)
                 except Error.RuntimeError:
-                    fail(f"cannot coerce member name {k} to {key_type} map key")
+                    self._eval_error(f"cannot coerce member name {k} to {key_type} map key")
                 if self.type.members[k].coerces(value_type):
                     with suppress(Error.RuntimeError):
                         map_value = v.coerce(value_type)
                 if map_value is None:
-                    fail(
+                    self._eval_error(
                         "cannot coerce struct member"
                         f" {self.type.members[k]} {k} to {value_type} map value"
                     )
                 entries.append((map_key, map_value))
-        assert self.type.coerces(desired_type)
         return Map(desired_type.item_type, entries)
+
+    def _eval_error(self, msg: str) -> None:
+        raise (
+            Error.EvalError(
+                self.expr,
+                msg,
+            )
+            if self.expr
+            else Error.RuntimeError(msg)
+        ) from None
 
     def __str__(self) -> Any:
         return "{" + ", ".join(f"{k}: {str(v)}" for k, v in self.value.items()) + "}"
