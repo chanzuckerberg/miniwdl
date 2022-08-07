@@ -466,7 +466,7 @@ class Object(Base):
     members: Dict[str, Base]
 
     def __init__(self, members: Dict[str, Base]) -> None:
-        self.members = dict(members)
+        self.members = members
 
     def __str__(self) -> str:
         ans = []
