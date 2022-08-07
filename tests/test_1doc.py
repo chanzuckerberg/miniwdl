@@ -2319,7 +2319,9 @@ class TestStruct(unittest.TestCase):
         self.assertEqual(len(ctx.exception.exceptions), 4)
         for i in range(4):
             self.assertTrue(isinstance(ctx.exception.exceptions[i], WDL.Error.StaticTypeMismatch))
-        self.assertEqual(str(ctx.exception.exceptions[2]), "Expected Person instead of object(age : Boolean, name : String)")
+        self.assertEqual(str(ctx.exception.exceptions[2]),
+            "Expected Person instead of object(age : Boolean, name : String);"
+            " type mismatch using Boolean to initialize Int age member of struct Person")
 
         doc = r"""
         version 1.0
@@ -2327,7 +2329,7 @@ class TestStruct(unittest.TestCase):
         workflow wf {
             Array[Person] ppl = [
                 object { name: 'alyssa', friends: [2,4] },
-                object { "name": "ben", 'friends': [8,16]},
+                object { "name": "ben", 'friends': [8,16], id: 42},
                 object { 'name': "cy", "friends": [32,64] }
             ]
         }
@@ -2335,6 +2337,7 @@ class TestStruct(unittest.TestCase):
         struct Person {
             String name
             Array[Int] friends
+            Int? id
         }
         """
         doc = WDL.parse_document(doc)

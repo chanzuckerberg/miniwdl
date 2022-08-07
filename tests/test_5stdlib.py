@@ -553,6 +553,24 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+        self._test_task(R"""
+        version 1.0
+        struct Point {
+            Int x
+            Int y
+        }
+        task test {
+            input {
+                String json = '{"foo": "bar"}'
+            }
+            Map[Point, String] my_map = read_json(write_lines([json]))
+            command <<<
+            >>>
+            output {
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
         outputs = self._test_task(R"""
         version 1.0
         task test {
@@ -611,13 +629,11 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["my_ints"], {"key_0": 0, "key_1": 1, "key_2": 2})
 
     def test_struct_from_read(self):
-        # initialize a struct via Map[String,String] from read_{map,object[s],json}
+        # initialize struct from read_{map,object[s],json}
 
         alice = {"name": "Alice", "lane": 3, "barcode": "GATTACA"}
-        samplesheet2 = [
-            {"name": "Alice", "lane": 3, "barcode": "GATTACA"},
-            {"name": "Bob", "lane": 4, "barcode": "TGTAATC"},
-        ]
+        bob = {"name": "Bob", "lane": 4, "barcode": "TGTAATC"}
+        samplesheet2 = [alice, bob]
 
         outputs = self._test_task(R"""
         version 1.0
@@ -665,12 +681,14 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["samplesheet2"], samplesheet2)
         self.assertEqual(outputs["empty"], [])
 
+        # optional field coercion
         outputs = self._test_task(R"""
         version 1.0
         struct Sample {
             String name
             Int lane
             String barcode
+            String? lab
         }
         task test {
             command <<<
@@ -685,8 +703,36 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
-        self.assertEqual(outputs["alice"], alice)
-        self.assertEqual(outputs["samplesheet2"], samplesheet2)
+        self.assertEqual(dict(**alice, lab=None), outputs["alice"])
+        self.assertEqual([dict(**it, lab=None) for it in samplesheet2], outputs["samplesheet2"])
+
+        # struct-array-struct JSON nesting
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+            String? lab
+        }
+        struct MultiSample {
+            Array[Sample] samples
+        }
+        task test {
+            command <<<
+                echo '{"name":"Alice","lane":3,"barcode":"GATTACA"}' >> alice.txt
+                echo '{"samples":[' >> samplesheet2.txt
+                cat alice.txt >> samplesheet2.txt
+                echo ',{"name":"Bob","lane":4,"barcode":"TGTAATC","lab":"Biohub"}]}' >> samplesheet2.txt
+            >>>
+            output {
+                Sample alice = read_json("alice.txt")
+                MultiSample samplesheet2 = read_json("samplesheet2.txt")
+            }
+        }
+        """)
+        self.assertEqual(dict(**alice, lab=None), outputs["alice"])
+        self.assertEqual({"samples": [dict(**alice, lab=None), dict(**bob, lab="Biohub")]}, outputs["samplesheet2"])
 
     def test_issue524(self):
         # additional cases for struct initialization from read_json(), motivated by issue #524
@@ -925,6 +971,332 @@ class TestStdLib(unittest.TestCase):
         }
         """, {"j": {"x": 0}})
         self.assertEquals(outp, {"out": [{"x": 0}]})
+
+    def test_issue580(self):
+        # error in nested struct
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                File R1
+                File? R2
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Array[Readgroup] readgroups
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R1_md5": "b859d6dd76a6861ce7e9a978ae2e530e",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "R2_md5": "986acc7bda0bf2ef55c52431f54fe3a9",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                                {
+                                "id": "rg2",
+                                "R1": "tests/data/wgs2/wgs2-lib2_R1.fq.gz",
+                                "R1_md5": "df64e84fdc9a2d7a9301f2aac0071aee",
+                                "R2": "tests/data/wgs2/wgs2-lib2_R2.fq.gz",
+                                "R2_md5": "47a65ad648ac08e802c07669629054ea",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
+
+        # slightly simpler version covering a different exception handling path (#1)
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                File R1
+                File? R2
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Readgroup readgroup
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroup":
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "lib_id": "lib1"
+                                },
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroup":
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
+
+        # slightly simpler version covering a different exception handling path (#2)
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Int count
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "id": "wgs1-paired-end",
+                            "control": null,
+                            "count": {"not":"a number"}
+                            },
+                            {
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end",
+                            "count": 100
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("to initialize Int count member of struct Sample" in str(exn))
+
+        # slightly simpler version covering a different exception handling path (#3)
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Int count
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "id": "wgs1-paired-end",
+                            "control": null,
+                            "count": "not a number"
+                            },
+                            {
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end",
+                            "count": 100
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("runtime type mismatch initializing Int count member of struct Sample" in str(exn))
+
+        # unifying arrays of structs with optional members
+        outp = self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                String R1
+                String R1_md5
+                String? R2
+                String? R2_md5
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Array[Readgroup] readgroups
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R1_md5": "b859d6dd76a6861ce7e9a978ae2e530e",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "R2_md5": "986acc7bda0bf2ef55c52431f54fe3a9",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                                {
+                                "id": "rg2",
+                                "R1": "tests/data/wgs2/wgs2-lib2_R1.fq.gz",
+                                "R1_md5": "df64e84fdc9a2d7a9301f2aac0071aee",
+                                "R2": "tests/data/wgs2/wgs2-lib2_R2.fq.gz",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                    String? control0 = data.samples[0].control
+                    String? control1 = data.samples[1].control
+                    String? gender0 = data.samples[0].gender
+                    String? gender1 = data.samples[1].gender
+                }
+            }""")
+        self.assertEqual(None, outp["control0"])
+        self.assertEqual("wgs1-paired-end", outp["control1"])
+        self.assertEqual(None, outp["gender0"])
+        self.assertEqual(None, outp["gender1"])
+        self.assertEqual("537ffc52342314d839e7fdd91bbdccd0", outp["data"]["samples"][1]["readgroups"][0]["R2_md5"])
+        self.assertEqual(None, outp["data"]["samples"][1]["readgroups"][1]["R2_md5"])
 
     def test_bad_object(self):
         self._test_task(R"""

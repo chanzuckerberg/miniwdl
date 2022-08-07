@@ -66,17 +66,30 @@ class Base(ABC):
 
         :param check_quant: when ``False``, disables static enforcement of the optional (?) type quantifier
         """
+        try:
+            self.check(rhs, check_quant)
+        except TypeError:
+            return False
+        return True
+
+    def check(self, rhs: "Base", check_quant: bool = True) -> None:
+        """
+        Verify this is the same type as, or can be coerced to ``rhs``. The ``TypeError`` exception
+        raised otherwise MAY include a specific error message (but not if the obvious "cannot
+        coerce self to rhs" suffices).
+
+        :param check_quant: when ``False``, disables static enforcement of the optional (?) type quantifier
+        """
         if not check_quant and isinstance(rhs, Array) and self.coerces(rhs.item_type, check_quant):
             # coerce T to Array[T]
-            return True
-        return (
-            type(self).__name__ == type(rhs).__name__ or isinstance(rhs, Any)
-        ) and self._check_optional(rhs, check_quant)
+            return
+        if type(self).__name__ != type(rhs).__name__ and not isinstance(rhs, Any):
+            raise TypeError()
+        self._check_optional(rhs, check_quant)
 
-    def _check_optional(self, rhs: "Base", check_quant: bool) -> bool:
-        return not (
-            check_quant and (self.optional and not rhs.optional and not isinstance(rhs, Any))
-        )
+    def _check_optional(self, rhs: "Base", check_quant: bool) -> None:
+        if check_quant and (self.optional and not rhs.optional and not isinstance(rhs, Any)):
+            raise TypeError()
 
     @property
     def optional(self) -> bool:
@@ -126,76 +139,77 @@ class Any(Base):
     def __init__(self, optional: bool = False, null: bool = False) -> None:
         self._optional = null  # True only for None literals
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        return self._check_optional(rhs, check_quant)
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
+        """"""
+        self._check_optional(rhs, check_quant)
 
 
 class Boolean(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, String):
-            return True
-        return super().coerces(rhs, check_quant)
+            return
+        super().check(rhs, check_quant)
 
 
 class Float(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, String):
-            return True
-        return super().coerces(rhs, check_quant)
+            return
+        super().check(rhs, check_quant)
 
 
 class Int(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, Float):
             return self._check_optional(rhs, check_quant)
         if isinstance(rhs, String):
-            return True
-        return super().coerces(rhs, check_quant)
+            return
+        super().check(rhs, check_quant)
 
 
 class File(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, String):
-            return True
-        return super().coerces(rhs, check_quant)
+            return
+        super().check(rhs, check_quant)
 
 
 class Directory(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, String):
-            return True
-        return super().coerces(rhs, check_quant)
+            return
+        super().check(rhs, check_quant)
 
 
 class String(Base):
     def __init__(self, optional: bool = False) -> None:
         self._optional = optional
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, (File, Directory, Int, Float)):
             return self._check_optional(rhs, check_quant)
-        return super().coerces(rhs, check_quant)
+        super().check(rhs, check_quant)
 
 
 class Array(Base):
@@ -241,17 +255,14 @@ class Array(Base):
     def parameters(self) -> Iterable[Base]:
         yield self.item_type
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, Array):
-            return self.item_type.coerces(rhs.item_type, check_quant) and self._check_optional(
-                rhs, check_quant
-            )
-        if isinstance(rhs, String):
-            return self.item_type is None or self.item_type.coerces(String())
-        if isinstance(rhs, Any):
+            self.item_type.check(rhs.item_type, check_quant)
             return self._check_optional(rhs, check_quant)
-        return False
+        if isinstance(rhs, String):
+            return None if self.item_type is None else self.item_type.check(String())
+        super().check(rhs, check_quant)
 
     def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
         ans = super().copy(optional)
@@ -307,29 +318,17 @@ class Map(Base):
         yield self.item_type[0]
         yield self.item_type[1]
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, Map):
-            return (
-                self.item_type[0].coerces(rhs.item_type[0], check_quant)
-                and self.item_type[1].coerces(rhs.item_type[1], check_quant)
-                and self._check_optional(rhs, check_quant)
-            )
+            self.item_type[0].check(rhs.item_type[0], check_quant)
+            self.item_type[1].check(rhs.item_type[1], check_quant)
+            return self._check_optional(rhs, check_quant)
         if isinstance(rhs, StructInstance) and self.literal_keys is not None:
-            # struct assignment from map literal: the map literal must contain all non-optional
-            # struct members, and the value type must be coercible to those member types
-            rhs_members = rhs.members
-            assert rhs_members is not None
-            rhs_keys = set(rhs_members.keys())
-            if self.literal_keys - rhs_keys:
-                return False
-            for k in self.literal_keys:
-                if not self.item_type[1].coerces(rhs_members[k], check_quant):
-                    return False
-            for opt_k in rhs_keys - self.literal_keys:
-                if not rhs_members[opt_k].optional:
-                    return False
-            return True
+            # struct assignment from map literal
+            return _check_struct_members(
+                {k: self.item_type[1] for k in self.literal_keys}, rhs, check_quant
+            )
         if (
             isinstance(rhs, StructInstance)
             and self.literal_keys is None
@@ -338,11 +337,9 @@ class Map(Base):
             # Allow attempt to runtime-coerce a non-literal Map[String,_] to StructInstance.
             # Unlike a literal, we don't (during static validation) know what the keys will be, so
             # we can't typecheck it thoroughly (Lint warning will apply). This is used initializing
-            # structs from read_json() or read_objects().
-            return True
-        if isinstance(rhs, Any):
-            return self._check_optional(rhs, check_quant)
-        return False
+            # structs from read_map() or read_object[s]().
+            return
+        super().check(rhs, check_quant)
 
 
 class Pair(Base):
@@ -377,17 +374,13 @@ class Pair(Base):
         yield self.left_type
         yield self.right_type
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, Pair):
-            return (
-                self.left_type.coerces(rhs.left_type, check_quant)
-                and self.right_type.coerces(rhs.right_type, check_quant)
-                and self._check_optional(rhs, check_quant)
-            )
-        if isinstance(rhs, Any):
+            self.left_type.check(rhs.left_type, check_quant)
+            self.right_type.check(rhs.right_type, check_quant)
             return self._check_optional(rhs, check_quant)
-        return False
+        super().check(rhs, check_quant)
 
 
 class StructInstance(Base):
@@ -423,13 +416,13 @@ class StructInstance(Base):
     def __str__(self) -> str:
         return self.type_name + ("?" if self.optional else "")
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, StructInstance):
-            return self.type_id == rhs.type_id and self._check_optional(rhs, check_quant)
-        if isinstance(rhs, Any):
+            if self.type_id != rhs.type_id:
+                raise TypeError()
             return self._check_optional(rhs, check_quant)
-        return False
+        super().check(rhs, check_quant)
 
     @property
     def type_id(self) -> str:
@@ -465,11 +458,10 @@ def _struct_type_id(members: Dict[str, Base]) -> str:
 class Object(Base):
     """"""
 
-    # In WDL 1.0, struct instances are created by coercion from object
-    # literals. So we need something to represent the type of an object literal
-    # (a bag of keys and values) prior to its coercion to a named struct type.
-    # But we hide this from docs to avoid confusion with general Object
-    # support.
+    # Represents the type of object{} literals and the known-only-at-runtime return value of
+    # read_json(). We expect this to exist only transiently, just before attempting coercion to
+    # a StructInstance with known member types. We hide this from docs to avoid confusion with
+    # general (pre-WDL1.0) Object support, since it's only to support struct initialization.
 
     members: Dict[str, Base]
 
@@ -486,35 +478,53 @@ class Object(Base):
     def parameters(self) -> Iterable[Base]:
         return self.members.values()
 
-    def coerces(self, rhs: Base, check_quant: bool = True) -> bool:
-        if isinstance(rhs, (StructInstance, Object)):
-            rhs_members = rhs.members
-            assert rhs_members is not None
-            # Check whether our keys match the struct members, and our types
-            # are coercible to the respective member types.
-            # TODO: in the event of StaticTypeMismatch errors, this may produce
-            # unwieldy error messages
-            self_keys = set(self.members.keys())
-            rhs_keys = set(rhs_members.keys())
-            if self_keys - rhs_keys:
-                return False
-            for k in self_keys:
-                if not self.members[k].coerces(rhs_members[k], check_quant):
-                    return False
-            for opt_k in rhs_keys - self_keys:
-                # object literal may omit optional struct fields
-                if not rhs_members[opt_k].optional:
-                    return False
-            return True
+    def check(self, rhs: Base, check_quant: bool = True) -> None:
+        if isinstance(rhs, StructInstance):
+            return _check_struct_members(self.members, rhs, check_quant)
         if isinstance(rhs, Map):
             # Member names must coerce to the map key type, and each member type must coerce to the
             # map value type.
-            return String().coerces(rhs.item_type[0]) and all(
-                vt.coerces(rhs.item_type[1]) for vt in self.members.values()
+            String().check(rhs.item_type[0])
+            for vt in self.members.values():
+                vt.check(rhs.item_type[1])
+            return
+        if isinstance(rhs, (Any, Object)):
+            # Don't worry about Object coercion because we expect a further coercion to
+            # StructInstance to follow in short order, constraining the expected member types.
+            return
+        raise TypeError()
+
+
+def _check_struct_members(
+    self_members: Dict[str, Base], rhs: StructInstance, check_quant: bool
+) -> None:
+    # shared routine for checking Map or Object type coercion, with useful error messages
+    rhs_members = rhs.members
+    assert rhs_members
+    rhs_keys = set(rhs_members.keys())
+    self_keys = set(self_members.keys())
+
+    missing_keys = list(k for k in rhs_keys - self_keys if not rhs_members[k].optional)
+    if missing_keys:
+        raise TypeError(
+            "missing non-optional member(s) in struct "
+            f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
+        )
+    unknown_keys = self_keys - rhs_keys
+    if unknown_keys:
+        raise TypeError(
+            f"no such member(s) in struct {rhs.type_name}: {' '.join(sorted(unknown_keys))}"
+        )
+    for k in self_keys:
+        try:
+            self_members[k].check(rhs_members[k], check_quant)
+        except TypeError as exn:
+            if len(exn.args):
+                raise
+            raise TypeError(
+                f"type mismatch using {self_members[k]} to initialize "
+                f"{rhs_members[k]} {k} member of struct {rhs.type_name}"
             )
-        if isinstance(rhs, Any):
-            return self._check_optional(rhs, check_quant)
-        return False
 
 
 def unify(types: List[Base], check_quant: bool = True, force_string: bool = False) -> Base:
@@ -554,6 +564,14 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
             )
         if not t_was_array_any and next((pt for pt in t.parameters if isinstance(pt, Any)), False):
             return Any()
+        if isinstance(t, Object) and isinstance(t2, Object):
+            # unifying Object types (generally transient, pending coercion to a StructInstance)
+            for k in t2.members:
+                if k in t.members:
+                    t.members[k] = unify([t.members[k], t2.members[k]])
+                else:
+                    # infer optionality of fields present only in some types
+                    t.members[k] = t2.members[k].copy(optional=True)
 
         # Int/Float, String/File
         if isinstance(t, Int) and isinstance(t2, Float):

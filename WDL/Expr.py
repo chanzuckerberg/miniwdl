@@ -99,8 +99,12 @@ class Base(SourceNode, ABC):
         :raise WDL.Error.StaticTypeMismatch:
         :return: `self`
         """
-        if not self.type.coerces(expected, self._check_quant):
-            raise Error.StaticTypeMismatch(self, expected, self.type)
+        try:
+            self.type.check(expected, self._check_quant)
+        except TypeError as exn:
+            raise Error.StaticTypeMismatch(
+                self, expected, self.type, exn.args[0] if exn.args else ""
+            )
         return self
 
     @abstractmethod
@@ -692,20 +696,23 @@ class Struct(Base):
         struct_type.members = struct_type_members
 
         # typecheck members vs struct declaration
-        if not object_type.coerces(struct_type):
+        try:
+            object_type.check(struct_type)
+        except TypeError as exn:
             raise Error.StaticTypeMismatch(
-                self,
-                struct_type,
-                object_type,
+                self, struct_type, object_type, exn.args[0] if exn.args else ""
             )
 
         return struct_type
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+        assert isinstance(self.type, (Type.Object, Type.StructInstance))
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
-        assert isinstance(self.type, (Type.Object, Type.StructInstance))
+            if isinstance(self.type, Type.StructInstance):
+                assert self.type.members
+                ans[k] = ans[k].coerce(self.type.members[k])
         return Value.Struct(self.type, ans)
 
     @property
