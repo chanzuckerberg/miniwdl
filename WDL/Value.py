@@ -462,46 +462,7 @@ class Struct(Base):
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
         if isinstance(desired_type, Type.StructInstance):
-            assert desired_type.members
-            if (
-                isinstance(self.type, Type.StructInstance)
-                and self.type.type_id == desired_type.type_id
-            ):
-                return self
-            try:
-                # Runtime typecheck for initializing StructInstance from read_json(), where the
-                # Object type isn't known until runtime
-                self.type.check(desired_type)
-            except TypeError as exn:
-                msg = "unusable runtime struct initializer"
-                if exn.args:
-                    msg += ", " + exn.args[0]
-                raise Error.EvalError(
-                    self.expr,
-                    msg,
-                ) if self.expr else Error.RuntimeError(msg)
-            # coerce to desired member types
-            members = {}
-            for k in self.value:
-                try:
-                    members[k] = self.value[k].coerce(desired_type.members[k])
-                except Error.RuntimeError as exc:
-                    # some coercions that typecheck could still fail, e.g. String to Int; note the
-                    # offending member, taking care not to obscure it if the struct is nested
-                    msg = ""
-                    if exc.args:
-                        if "member of struct" in exc.args[0]:
-                            raise
-                        msg = ": " + exc.args[0]
-                    msg = (
-                        "runtime type mismatch initializing "
-                        f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
-                    ) + msg
-                    raise Error.EvalError(
-                        self.expr,
-                        msg,
-                    ) if self.expr else Error.RuntimeError(msg)
-            return Struct(desired_type, members, self.expr)
+            return self._coerce_to_struct(desired_type)
         if isinstance(desired_type, Type.Map):
             return self._coerce_to_map(desired_type)
         if isinstance(desired_type, (Type.Any, Type.Object)):
@@ -513,6 +474,45 @@ class Struct(Base):
             self.expr,
             msg,
         ) if self.expr else Error.RuntimeError(msg)
+
+    def _coerce_to_struct(self, desired_type: Type.StructInstance) -> Base:
+        assert desired_type.members
+        if isinstance(self.type, Type.StructInstance) and self.type.type_id == desired_type.type_id:
+            return self
+        try:
+            # Runtime typecheck for initializing StructInstance from read_json(), where the
+            # Object type isn't known until runtime
+            self.type.check(desired_type)
+        except TypeError as exn:
+            msg = "unusable runtime struct initializer"
+            if exn.args:
+                msg += ", " + exn.args[0]
+            raise Error.EvalError(
+                self.expr,
+                msg,
+            ) if self.expr else Error.RuntimeError(msg)
+        # coerce to desired member types
+        members = {}
+        for k in self.value:
+            try:
+                members[k] = self.value[k].coerce(desired_type.members[k])
+            except Error.RuntimeError as exc:
+                # some coercions that typecheck could still fail, e.g. String to Int; note the
+                # offending member, taking care not to obscure it if the struct is nested
+                msg = ""
+                if exc.args:
+                    if "member of struct" in exc.args[0]:
+                        raise
+                    msg = ": " + exc.args[0]
+                msg = (
+                    "runtime type mismatch initializing "
+                    f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
+                ) + msg
+                raise Error.EvalError(
+                    self.expr,
+                    msg,
+                ) if self.expr else Error.RuntimeError(msg)
+        return Struct(desired_type, members, self.expr)
 
     def _coerce_to_map(self, desired_type: Type.Map) -> Map:
         # runtime coercion e.g. Map[String,String] foo = read_json("foo.txt")
