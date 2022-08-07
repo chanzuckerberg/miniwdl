@@ -18,7 +18,7 @@ from io import BytesIO
 from typing import List, Dict, Set, Optional, Any, Callable, Tuple, Iterable
 import docker
 from ... import Error
-from ..._util import chmod_R_plus
+from ..._util import chmod_R_plus, TerminationSignalFlag
 from ..._util import StructuredLogMessage as _
 from .. import config
 from ..error import Interrupted, Terminated
@@ -34,14 +34,20 @@ class SwarmContainer(TaskContainer):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
-        client = docker.from_env(version="auto")
         worker_nodes = []
-        try:
+
+        with contextlib.ExitStack() as cleanup:
+            client = docker.from_env(version="auto")
+            cleanup.callback(lambda: client.close())
+            terminating = cleanup.enter_context(TerminationSignalFlag(logger))
             logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
 
             # initialize swarm
             state = "(unknown)"
             while True:
+                if terminating():
+                    raise Terminated()
+
                 info = client.info()
                 if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
                     logger.debug(_("swarm info", **info["Swarm"]))
@@ -95,8 +101,6 @@ class SwarmContainer(TaskContainer):
                     "This is normal if other miniwdl processes are running concurrently; "
                     "otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
                 )
-        finally:
-            client.close()
 
         # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
         # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
