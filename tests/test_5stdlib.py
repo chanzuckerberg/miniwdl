@@ -553,6 +553,24 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+        self._test_task(R"""
+        version 1.0
+        struct Point {
+            Int x
+            Int y
+        }
+        task test {
+            input {
+                String json = '{"foo": "bar"}'
+            }
+            Map[Point, String] my_map = read_json(write_lines([json]))
+            command <<<
+            >>>
+            output {
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
         outputs = self._test_task(R"""
         version 1.0
         task test {

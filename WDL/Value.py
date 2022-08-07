@@ -509,7 +509,7 @@ class Struct(Base):
         assert isinstance(self.type, Type.Object)
         key_type = desired_type.item_type[0]
         if not Type.String().coerces(key_type):
-            self._eval_error(f"cannot coerce member names to {key_type} map keys")
+            self._eval_error(f"cannot coerce struct member names to {desired_type} keys")
         value_type = desired_type.item_type[1]
         entries = []
         for k, v in self.value.items():
@@ -519,7 +519,7 @@ class Struct(Base):
                 try:
                     map_key = String(k).coerce(key_type)
                 except Error.RuntimeError:
-                    self._eval_error(f"cannot coerce member name {k} to {key_type} map key")
+                    self._eval_error(f"cannot coerce struct member name {k} to {desired_type} key")
                 if self.type.members[k].coerces(value_type):
                     with suppress(Error.RuntimeError):
                         map_value = v.coerce(value_type)
