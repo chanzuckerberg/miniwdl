@@ -17,6 +17,7 @@ class SingularityContainer(SubprocessBase):
     """
 
     image_cache_dir: Optional[str]
+    tempdir: Optional[str]
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
