@@ -99,8 +99,9 @@ class SingularityContainer(SubprocessBase):
         # Also create a scratch directory and mount to /tmp and /var/tmp
         # For context why this is needed:
         #   https://github.com/hpcng/singularity/issues/5718
-        tempdir = cleanup.enter_context(tempfile.TemporaryDirectory(
-            prefix="miniwdl_singularity_", dir=self.tempdir))
+        tempdir = cleanup.enter_context(
+            tempfile.TemporaryDirectory(prefix="miniwdl_singularity_", dir=self.tempdir)
+        )
         os.mkdir(os.path.join(tempdir, "tmp"))
         os.mkdir(os.path.join(tempdir, "var_tmp"))
         mounts.append(("/tmp", os.path.join(tempdir, "tmp"), True))
