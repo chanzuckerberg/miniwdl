@@ -65,7 +65,7 @@ class SingularityContainer(SubprocessBase):
             if not os.path.exists(image_path):
                 return (image_path, self.cli_exe + ["pull", image_path, docker_uri])
             # If path already exists test the image
-            return (image_path, self.cli_exe + ["exec", image_path, "true"])
+            return image_path, []
         # Singularity will cache the image automatically in
         # SINGULARITY_CACHE_DIR it is not needed to save the image elsewhere.
         return (docker_uri, self.cli_exe + ["exec", docker_uri, "true"])

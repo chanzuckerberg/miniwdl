@@ -195,6 +195,9 @@ class SubprocessBase(TaskContainer):
                     logger.info(_(f"{self.cli_name} image already pulled", image=image))
                     return image
 
+            if not invocation:
+                # No action required, image could be cached externally.
+                return image
             logger.info(_(f"begin {self.cli_name} pull", command=" ".join(invocation)))
             try:
                 subprocess.run(
