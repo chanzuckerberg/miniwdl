@@ -59,16 +59,15 @@ class SingularityContainer(SubprocessBase):
     def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
         image, invocation = super()._pull_invocation(logger, cleanup)
         docker_uri = "docker://" + image
-        if self.image_cache_dir is not None:
-            image_name = docker_uri.replace("/", "_").replace(":", "_")
-            image_path = os.path.join(self.image_cache_dir, image_name)
-            if not os.path.exists(image_path):
-                return (image_path, self.cli_exe + ["pull", image_path, docker_uri])
-            # If path already exists test the image
-            return image_path, []
-        # Singularity will cache the image automatically in
-        # SINGULARITY_CACHE_DIR it is not needed to save the image elsewhere.
-        return (docker_uri, self.cli_exe + ["exec", docker_uri, "true"])
+        pulldir = self.image_cache_dir or cleanup.enter_context(
+            tempfile.TemporaryDirectory(prefix="miniwdl_sif_")
+        )
+        image_name = docker_uri.replace("/", "_").replace(":", "_")
+        image_path = os.path.join(pulldir, image_name)
+        if not os.path.exists(image_path):
+            return image_path, self.cli_exe + ["pull", image_path, docker_uri]
+        # If path already exists, no need to use a pull invocation.
+        return image_path, []
 
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
         """
