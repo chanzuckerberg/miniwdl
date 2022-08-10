@@ -63,7 +63,7 @@ class SingularityContainer(SubprocessBase):
             tempfile.TemporaryDirectory(prefix="miniwdl_sif_")
         )
         image_name = docker_uri.replace("/", "_").replace(":", "_")
-        image_path = os.path.join(pulldir, image_name)
+        image_path = os.path.join(pulldir, image_name + ".sif")
         if not os.path.exists(image_path):
             return image_path, self.cli_exe + ["pull", image_path, docker_uri]
         # If path already exists, no need to use a pull invocation.
