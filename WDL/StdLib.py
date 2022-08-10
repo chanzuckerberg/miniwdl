@@ -159,7 +159,7 @@ class Base:
         """
         'devirtualize' filename passed to a read_* function: return a filename that can be open()ed
         on the local host. Subclasses may further wish to forbid access to files outside of a
-        designated directory or whitelist (by raising an exception)
+        designated directory or allowlist (by raising an exception)
         """
         # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()

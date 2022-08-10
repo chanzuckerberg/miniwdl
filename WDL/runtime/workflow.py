@@ -406,8 +406,11 @@ class StateMachine:
                     ),
                 )
             )
-            _check_fspaths_allowed(
-                cfg, self.fspath_allowlist, _fspaths(call_inputs), f"call {job.node.name}"
+            call_inputs = Value.rewrite_env_paths(
+                call_inputs,
+                lambda v: _check_path_allowed(
+                    cfg, self.fspath_allowlist, f"call {job.node.name}", v
+                ),
             )
             # issue CallInstructions
             self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))  # pyre-fixme
@@ -609,48 +612,36 @@ class _StdLib(StdLib.Base):
             cached = self.cache.get_download(filename)
             if cached:
                 return cached
-        _check_fspaths_allowed(self.cfg, self.state.fspath_allowlist, {filename}, "read_*()")
-        return filename
+        return _check_path_allowed(
+            self.cfg, self.state.fspath_allowlist, "read_*()", Value.File(filename)
+        )
 
     def _virtualize_filename(self, filename: str) -> str:
         self.state.fspath_allowlist.add(filename)
         return filename
 
 
-def _check_fspaths_allowed(
-    cfg: config.Loader, allowlist: Set[str], fspaths: Set[str], desc: str
-) -> None:
-    nonallowed_fspaths = fspaths - allowlist
-    nonallowed_fspaths = list(
-        fp for fp in nonallowed_fspaths if not downloadable(cfg, fp, directory=fp.endswith("/"))
-    )
-    if nonallowed_fspaths:
-        if not cfg.get_bool("file_io", "allow_any_input"):
-            raise Error.InputError(
-                desc + " input uses file/directory not expressly supplied with workflow inputs"
-                " (to allow, set [file_io] allow_any_input = true): " + nonallowed_fspaths[0]
-            )
-        nonexistent_fspath = next(
-            (
-                fp
-                for fp in nonallowed_fspaths
-                if not (os.path.isdir(fp) if fp.endswith("/") else os.path.isfile(fp))
-            ),
-            None,
+def _check_path_allowed(
+    cfg: config.Loader, allowlist: Set[str], desc: str, v: Union[Value.File, Value.Directory]
+) -> str:
+    isdir = isinstance(v, Value.Directory)
+    fspath = v.value.rstrip("/") + ("/" if isdir else "")
+    if fspath in allowlist or downloadable(cfg, fspath, directory=isdir):
+        return v.value
+    if not cfg.get_bool("file_io", "allow_any_input"):
+        raise Error.InputError(
+            desc + " input uses file/directory not expressly supplied with workflow inputs"
+            " (to allow, set [file_io] allow_any_input = true): " + fspath
         )
-        if nonexistent_fspath:
-            raise Error.InputError(
-                f"{desc} input uses nonexistent file/directory: {nonexistent_fspath}"
-            )
-        outgroup_fspath = next(
-            (fp for fp in nonallowed_fspaths if not path_really_within(fp, cfg["file_io"]["root"])),
-            None,
+    # allow_any_input: checks that normally happen in CLI.validate_input_path
+    if not (os.path.isdir(fspath) if isdir else os.path.isfile(fspath)):
+        raise Error.InputError(f"{desc} input uses nonexistent file/directory: {fspath}")
+    fspath = os.path.abspath(fspath).rstrip("/")
+    if not path_really_within(fspath, cfg["file_io"]["root"]):
+        raise Error.InputError(
+            f"{desc} input {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
         )
-        if outgroup_fspath:
-            raise Error.InputError(
-                f"{desc} input {outgroup_fspath} must reside within [file_io] root "
-                + cfg["file_io"]["root"]
-            )
+    return fspath
 
 
 def run_local_workflow(
