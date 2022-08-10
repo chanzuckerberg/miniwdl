@@ -375,7 +375,9 @@ class StateMachine:
             return Env.Bindings(Env.Binding(job.node.name, v))
 
         if isinstance(job.node, WorkflowOutputs):
-            return env
+            return Value.rewrite_env_paths(
+                env, lambda v: _check_path_allowed(cfg, self.fspath_allowlist, "workflow output", v)
+            )
 
         if isinstance(job.node, Tree.Call):
             # evaluate input expressions
@@ -409,7 +411,7 @@ class StateMachine:
             call_inputs = Value.rewrite_env_paths(
                 call_inputs,
                 lambda v: _check_path_allowed(
-                    cfg, self.fspath_allowlist, f"call {job.node.name}", v
+                    cfg, self.fspath_allowlist, f"call {job.node.name} input", v
                 ),
             )
             # issue CallInstructions
@@ -613,7 +615,7 @@ class _StdLib(StdLib.Base):
             if cached:
                 return cached
         return _check_path_allowed(
-            self.cfg, self.state.fspath_allowlist, "read_*()", Value.File(filename)
+            self.cfg, self.state.fspath_allowlist, "read_*() argument", Value.File(filename)
         )
 
     def _virtualize_filename(self, filename: str) -> str:
@@ -630,16 +632,16 @@ def _check_path_allowed(
         return v.value
     if not cfg.get_bool("file_io", "allow_any_input"):
         raise Error.InputError(
-            desc + " input uses file/directory not expressly supplied with workflow inputs"
+            desc + " uses file/directory not expressly supplied with workflow inputs"
             " (to allow, set [file_io] allow_any_input = true): " + fspath
         )
     # allow_any_input: checks that normally happen in CLI.validate_input_path
     if not (os.path.isdir(fspath) if isdir else os.path.isfile(fspath)):
-        raise Error.InputError(f"{desc} input uses nonexistent file/directory: {fspath}")
+        raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
     fspath = os.path.abspath(fspath).rstrip("/")
     if not path_really_within(fspath, cfg["file_io"]["root"]):
         raise Error.InputError(
-            f"{desc} input {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
+            f"{desc} {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
         )
     return fspath
 

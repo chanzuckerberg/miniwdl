@@ -631,6 +631,20 @@ class TestWorkflowRunner(unittest.TestCase):
         workflow hacker9000 {
             input {
             }
+            String half1 = "/etc/"
+            String half2 = "passwd"
+            output {
+                File your_passwords = half1 + half2
+            }
+        }
+        """, expected_exception=WDL.Error.InputError)
+        self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
+
+        exn = self._test_workflow("""
+        version 1.0
+        workflow hacker9000 {
+            input {
+            }
             File your_passwords = "/etc/passwd"
             call tweet_file { input: file = your_passwords }
         }
