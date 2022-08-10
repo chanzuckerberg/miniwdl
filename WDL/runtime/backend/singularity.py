@@ -67,6 +67,7 @@ class SingularityContainer(SubprocessBase):
         if not os.path.exists(image_path):
             return image_path, self.cli_exe + ["pull", image_path, docker_uri]
         # If path already exists, no need to use a pull invocation.
+        logger.info(_("Singularity SIF found in image cache directory", sif=image_path))
         return image_path, []
 
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
