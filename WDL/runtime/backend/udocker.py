@@ -1,3 +1,5 @@
+# NOTE: this file is excluded from coverage analysis since alternate container backends may not be
+#       available in the CI environment. To test locally: prove -v tests/udocker.t
 import os
 import shlex
 import logging
