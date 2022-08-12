@@ -43,6 +43,8 @@ class SingularityContainer(SubprocessBase):
         else:
             cls.image_cache_dir = None
 
+        cls.tempdir = tempfile.gettempdir()  # This allows overriding by HPC plugins
+
         logger.notice(  # pyre-ignore
             _(
                 "Singularity runtime initialized (BETA)",
@@ -62,7 +64,7 @@ class SingularityContainer(SubprocessBase):
         image, invocation = super()._pull_invocation(logger, cleanup)
         docker_uri = "docker://" + image
         pulldir = self.image_cache_dir or cleanup.enter_context(
-            tempfile.TemporaryDirectory(prefix="miniwdl_sif_")
+            tempfile.TemporaryDirectory(prefix="miniwdl_sif_", dir=self.tempdir)
         )
         image_name = docker_uri.replace("/", "_").replace(":", "_")
         image_path = os.path.join(pulldir, image_name + ".sif")
@@ -94,7 +96,9 @@ class SingularityContainer(SubprocessBase):
         # Also create a scratch directory and mount to /tmp and /var/tmp
         # For context why this is needed:
         #   https://github.com/hpcng/singularity/issues/5718
-        tempdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_singularity_"))
+        tempdir = cleanup.enter_context(
+            tempfile.TemporaryDirectory(prefix="miniwdl_singularity_", dir=self.tempdir)
+        )
         os.mkdir(os.path.join(tempdir, "tmp"))
         os.mkdir(os.path.join(tempdir, "var_tmp"))
         mounts.append(("/tmp", os.path.join(tempdir, "tmp"), True))
