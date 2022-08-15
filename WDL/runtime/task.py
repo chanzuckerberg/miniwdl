@@ -494,7 +494,9 @@ def _eval_task_runtime(
     if cfg.get_bool("file_io", "mount_tmpdir") or task.name in cfg.get_list(
         "file_io", "mount_tmpdir_for"
     ):
-        env_vars_override["TMPDIR"] = os.path.join(container.container_dir, "work", "_tmpdir")
+        env_vars_override["TMPDIR"] = os.path.join(
+            container.container_dir, "work", "_miniwdl_tmpdir"
+        )
     if env_vars_override:
         # usually don't dump values into log, as they may often be auth tokens
         logger.notice(  # pyre-ignore
@@ -545,7 +547,7 @@ def _try_task(
         ):
             container.copy_input_files(logger)
         host_tmpdir = (
-            os.path.join(container.host_work_dir(), "_tmpdir")
+            os.path.join(container.host_work_dir(), "_miniwdl_tmpdir")
             if cfg.get_bool("file_io", "mount_tmpdir")
             or task.name in cfg.get_list("file_io", "mount_tmpdir_for")
             else None
@@ -554,13 +556,13 @@ def _try_task(
         try:
             # start container & run command
             if host_tmpdir:
-                logger.debug(_("creating temp directory to mount", TMPDIR=host_tmpdir))
+                logger.debug(_("creating task temp directory", TMPDIR=host_tmpdir))
                 os.mkdir(host_tmpdir, mode=0o770)
             try:
                 return container.run(logger, command)
             finally:
                 if host_tmpdir:
-                    logger.info(_("deleting mounted temp directory", TMPDIR=host_tmpdir))
+                    logger.info(_("deleting task temp directory", TMPDIR=host_tmpdir))
                     rmtree_atomic(host_tmpdir)
                 if (
                     "preemptible" in container.runtime_values
