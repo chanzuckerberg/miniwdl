@@ -28,6 +28,8 @@ from .._util import (
 
 class CallCache(AbstractContextManager):
     _cfg: config.Loader
+    _download_cache_dir: str
+    _call_cache_dir: str
     _flocker: FlockHolder
     _logger: logging.Logger
 
@@ -45,12 +47,24 @@ class CallCache(AbstractContextManager):
         self._workflow_downloads = {}
         self._workflow_directory_downloads = {}
         self._lock = Lock()
+        self._download_cache_dir = cfg["download_cache"]["dir"]
+        self._download_cache_dir = (
+            self._download_cache_dir
+            if os.path.isabs(self._download_cache_dir)
+            else os.path.join(cfg["file_io"]["root"], self._download_cache_dir)
+        )
+        self._call_cache_dir = cfg["call_cache"]["dir"]
+        self._call_cache_dir = (
+            self._call_cache_dir
+            if os.path.isabs(self._call_cache_dir)
+            else os.path.join(cfg["file_io"]["root"], self._call_cache_dir)
+        )
         if cfg["download_cache"].get_bool("put"):
-            os.makedirs(cfg["download_cache"]["dir"], exist_ok=True)
-            with open(os.path.join(self._cfg["download_cache"]["dir"], "_miniwdl_flock"), "w"):
+            os.makedirs(self._download_cache_dir, exist_ok=True)
+            with open(os.path.join(self._download_cache_dir, "_miniwdl_flock"), "w"):
                 pass
         if cfg["call_cache"].get_bool("put"):
-            os.makedirs(cfg["call_cache"]["dir"], exist_ok=True)
+            os.makedirs(self._call_cache_dir, exist_ok=True)
 
     def __enter__(self) -> "CallCache":
         self._flocker.__enter__()
@@ -68,7 +82,7 @@ class CallCache(AbstractContextManager):
         """
         from .. import values_from_json
 
-        file_path = os.path.join(self._cfg["call_cache"]["dir"], f"{key}.json")
+        file_path = os.path.join(self._call_cache_dir, f"{key}.json")
 
         if not self._cfg["call_cache"].get_bool("get"):
             return None
@@ -112,7 +126,7 @@ class CallCache(AbstractContextManager):
         from .. import values_to_json
 
         if self._cfg["call_cache"].get_bool("put"):
-            filename = os.path.join(self._cfg["call_cache"]["dir"], key + ".json")
+            filename = os.path.join(self._call_cache_dir, key + ".json")
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             write_atomic(json.dumps(values_to_json(outputs), indent=2), filename)  # pyre-ignore
             self._logger.info(_("call cache insert", cache_file=filename))
@@ -154,7 +168,7 @@ class CallCache(AbstractContextManager):
                         dn = dn.replace("/", "_")
                     dn = "_" + dn
                     return os.path.join(
-                        self._cfg["download_cache"]["dir"],
+                        self._download_cache_dir,
                         ("dirs" if directory else "files"),
                         parts.scheme,
                         parts.netloc,
@@ -224,7 +238,7 @@ class CallCache(AbstractContextManager):
         # transient exclusive flock on whole cache directory (serializes entry add/remove)
         with FlockHolder(logger) as transient:
             self.flock(
-                os.path.join(self._cfg["download_cache"]["dir"], "_miniwdl_flock"),
+                os.path.join(self._download_cache_dir, "_miniwdl_flock"),
                 exclusive=True,
                 wait=True,
                 holder=transient,
