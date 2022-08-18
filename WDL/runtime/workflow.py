@@ -646,6 +646,57 @@ def _check_path_allowed(
     return fspath
 
 
+class _ThreadPools:
+    # Singleton managing the thread pools for concurrent task and subworkflow execution
+    #
+    # All tasks run on one thread pool.
+    #
+    # Each subworkflow call runs on a thread pool reserved for its nested call depth level.
+    # (If we kept just one subworkflow thread pool, then nested calls could deadlock when no thread
+    # is available to run a subworkflow whilst the caller blocks its own thread.)
+    _lock: threading.Lock
+    _cleanup: ExitStack
+    _task_pool: futures.ThreadPoolExecutor
+    _subworkflow_pools: List[futures.ThreadPoolExecutor]
+    _subworkflow_concurrency: int
+
+    def __init__(self, cfg: config.Loader, cleanup: ExitStack) -> None:
+        self._lock = threading.Lock()
+        self._cleanup = cleanup.enter_context(ExitStack())
+
+        task_concurrency = (
+            cfg["scheduler"].get_int("task_concurrency")
+            or (
+                cfg.get_int("scheduler", "call_concurrency")  # pre-v1.5.4 legacy
+                if cfg.has_option("scheduler", "call_concurrency")
+                else 0
+            )
+            or multiprocessing.cpu_count()
+        )
+
+        self._task_pool = futures.ThreadPoolExecutor(max_workers=task_concurrency)
+        self._cleanup.callback(futures.ThreadPoolExecutor.shutdown, self._task_pool)
+
+        self._subworkflow_concurrency = cfg.get_int("scheduler", "subworkflow_concurrency") or max(
+            task_concurrency, multiprocessing.cpu_count()
+        )
+        self._subworkflow_pools = []
+
+    def submit_task(self, *args, **kwargs):  # pyre-ignore
+        with self._lock:
+            return self._task_pool.submit(*args, **kwargs)
+
+    def submit_subworkflow(self, call_depth: int, *args, **kwargs):  # pyre-ignore
+        with self._lock:
+            if call_depth >= len(self._subworkflow_pools):
+                # First time at this call depth -- initialize a thread pool for it
+                assert call_depth == len(self._subworkflow_pools)
+                pool = futures.ThreadPoolExecutor(self._subworkflow_concurrency)
+                self._cleanup.callback(futures.ThreadPoolExecutor.shutdown, pool)
+                self._subworkflow_pools.append(pool)
+            return self._subworkflow_pools[call_depth].submit(*args, **kwargs)
+
+
 def run_local_workflow(
     cfg: config.Loader,
     workflow: Tree.Workflow,
@@ -653,7 +704,7 @@ def run_local_workflow(
     run_id: Optional[str] = None,
     run_dir: Optional[str] = None,
     logger_prefix: Optional[List[str]] = None,
-    _thread_pools: Optional[Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]] = None,
+    _thread_pools: Optional[_ThreadPools] = None,
     _cache: Optional[CallCache] = None,
     _test_pickle: bool = False,
     _run_id_stack: Optional[List[str]] = None,
@@ -753,7 +804,7 @@ def run_local_workflow(
                 version = "UNKNOWN"
             logger.notice(_("miniwdl", version=version, uname=" ".join(os.uname())))  # pyre-fixme
 
-            thread_pools = _provision_thread_pools(cfg, logger, cleanup)
+            thread_pools = _ThreadPools(cfg, cleanup)
         else:
             assert _run_id_stack and _cache
             thread_pools = _thread_pools
@@ -787,34 +838,6 @@ def run_local_workflow(
     return (run_dir, outputs)
 
 
-def _provision_thread_pools(
-    cfg: config.Loader, logger: logging.Logger, cleanup: ExitStack
-) -> Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor]:
-    # Provision separate thread pools for tasks and sub-workflows. With just one pool, it'd be
-    # possible for all threads to be taken up by sub-workflows, deadlocking with no threads
-    # available to actually run their tasks.]
-    task_concurrency = (
-        cfg["scheduler"].get_int("task_concurrency")
-        or (
-            cfg.get_int("scheduler", "call_concurrency")  # pre-v1.5.4 legacy
-            if cfg.has_option("scheduler", "call_concurrency")
-            else 0
-        )
-        or multiprocessing.cpu_count()
-    )
-    task_pool = futures.ThreadPoolExecutor(max_workers=task_concurrency)
-    cleanup.callback(futures.ThreadPoolExecutor.shutdown, task_pool)
-    subwf_concurrency = cfg.get_int("scheduler", "subworkflow_concurrency") or max(
-        task_concurrency, multiprocessing.cpu_count()
-    )
-    subwf_pool = futures.ThreadPoolExecutor(max_workers=subwf_concurrency)
-    cleanup.callback(futures.ThreadPoolExecutor.shutdown, subwf_pool)
-    # There's still a minor risk of deadlock if sub-workflow nesting is deeper than the
-    # subworkflow thread pool size. Set this information for detecting this condition later on.
-    setattr(subwf_pool, "_miniwdl_subworkflow_concurrency", subwf_concurrency)
-    return (task_pool, subwf_pool)
-
-
 def _workflow_main_loop(
     cfg: config.Loader,
     workflow: Tree.Workflow,
@@ -823,7 +846,7 @@ def _workflow_main_loop(
     run_dir: str,
     logger: logging.Logger,
     logger_id: List[str],
-    thread_pools: Tuple[futures.ThreadPoolExecutor, futures.ThreadPoolExecutor],
+    thread_pools: _ThreadPools,
     cache: CallCache,
     terminating: Callable[[], bool],
     _test_pickle: bool,
@@ -853,7 +876,7 @@ def _workflow_main_loop(
                 logger_id,
                 run_dir,
                 _add_downloadable_defaults(cfg, workflow.available_inputs, inputs),
-                thread_pools[0],
+                thread_pools,
                 cache,
             )
 
@@ -884,19 +907,14 @@ def _workflow_main_loop(
                     # submit to appropriate thread pool
                     if isinstance(next_call.callee, Tree.Task):
                         _statusbar.task_backlogged()
-                        future = thread_pools[0].submit(run_local_task, *sub_args, **sub_kwargs)
+                        future = thread_pools.submit_task(run_local_task, *sub_args, **sub_kwargs)
                     elif isinstance(next_call.callee, Tree.Workflow):
-                        if len(run_id_stack) > getattr(
-                            thread_pools[1], "_miniwdl_subworkflow_concurrency"
-                        ):
-                            # prevent deadlock
-                            raise Error.RuntimeError(
-                                f"Nested subworkflow call depth {len(run_id_stack)+1} exceeds available thread pool;"
-                                " increase configuration option [scheduler] subworkflow_concurrency"
-                                " / environment MINIWDL__SCHEDULER__SUBWORKFLOW_CONCURRENCY"
-                            )
-                        future = thread_pools[1].submit(
-                            run_local_workflow, *sub_args, **sub_kwargs, _thread_pools=thread_pools
+                        future = thread_pools.submit_subworkflow(
+                            len(run_id_stack) - 1,
+                            run_local_workflow,
+                            *sub_args,
+                            **sub_kwargs,
+                            _thread_pools=thread_pools,
                         )
                     else:
                         assert False
@@ -975,7 +993,7 @@ def _download_input_files(
     logger_prefix: List[str],
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
-    thread_pool: futures.ThreadPoolExecutor,
+    thread_pools: _ThreadPools,
     cache: CallCache,
 ) -> None:
     """
@@ -1023,7 +1041,7 @@ def _download_input_files(
             logger.info(
                 _(f"schedule input {'directory' if directory else 'file'} download", uri=uri)
             )
-            future = thread_pool.submit(
+            future = thread_pools.submit_task(
                 download,
                 cfg,
                 logger,
