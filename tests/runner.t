@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 81
+plan tests 82
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -494,3 +494,33 @@ $miniwdl run test_log_lock.wdl --dir test_log_lock/. &
 sleep 2
 flock -nx -E 142 test_log_lock/workflow.log echo
 is "$?" "142" "workflow.log is flocked during run"
+
+cat << 'EOF' > inner.wdl
+version 1.0
+workflow inner {
+    call do_nothing
+}
+task do_nothing {
+    command {}
+}
+EOF
+
+cat << 'EOF' > middle.wdl
+version 1.0
+import "inner.wdl"
+workflow middle {
+    call inner.inner
+}
+EOF
+
+cat << 'EOF' > outer.wdl
+version 1.0
+import "middle.wdl"
+workflow outer {
+    scatter (i in [1, 2, 3]) {
+        call middle.middle
+    }
+}
+EOF
+MINIWDL__SCHEDULER__SUBWORKFLOW_CONCURRENCY=2 $miniwdl run --dir nested_deadlock outer.wdl
+is "$?" "0" "avoid deadlocking on nested subworkflows"
