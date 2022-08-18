@@ -647,14 +647,13 @@ def _check_path_allowed(
 
 
 class _ThreadPools:
-    # Singleton object managing the thread pools for concurrent task and subworkflow execution
+    # Singleton managing the thread pools for concurrent task and subworkflow execution
     #
     # All tasks run on one thread pool.
     #
-    # Each subworkflow call runs on a thread pool specific to its nested call depth level.
-    # (If we kept just one thread pool, then nested subworkflow calls (especially within a scatter)
-    # could deadlock when no thread is available to run a subworkflow whilst the caller blocks its
-    # own thread.)
+    # Each subworkflow call runs on a thread pool reserved for its nested call depth level.
+    # (If we kept just one subworkflow thread pool, then nested calls could deadlock when no thread
+    # is available to run a subworkflow whilst the caller blocks its own thread.)
     _lock: threading.Lock
     _cleanup: ExitStack
     _task_pool: futures.ThreadPoolExecutor
