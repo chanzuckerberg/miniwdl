@@ -39,6 +39,7 @@ import signal
 import traceback
 import pickle
 import threading
+import regex
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
@@ -111,6 +112,7 @@ _Job = NamedTuple(
         ("node", Tree.WorkflowNode),
         ("dependencies", Set[str]),
         ("scatter_stack", List[Tuple[str, Env.Binding[Value.Base]]]),
+        ("scatter_tag", str),
     ],
 )
 
@@ -190,7 +192,13 @@ class StateMachine:
                 if self.inputs.has_binding(node.name):
                     deps = set()
             self._schedule(
-                _Job(id=node.workflow_node_id, node=node, dependencies=deps, scatter_stack=[])
+                _Job(
+                    id=node.workflow_node_id,
+                    node=node,
+                    dependencies=deps,
+                    scatter_stack=[],
+                    scatter_tag="",
+                )
             )
 
         # TODO: by topsorting all section bodies we could ensure that when we schedule an
@@ -231,6 +239,7 @@ class StateMachine:
             ("id", str),
             ("callee", Union[Tree.Task, Tree.Workflow]),
             ("inputs", Env.Bindings[Value.Base]),
+            ("scatter_tag", str),
         ],
     )
     """
@@ -421,12 +430,13 @@ class StateMachine:
                 _(
                     "input",
                     job=job.id,
+                    tag=job.scatter_tag,
                     values=inplog if len(json.dumps(inplog)) < 4096 else "(((large)))",
                 )
             )
 
             return StateMachine.CallInstructions(
-                id=job.id, callee=job.node.callee, inputs=call_inputs
+                id=job.id, callee=job.node.callee, inputs=call_inputs, scatter_tag=job.scatter_tag
             )
 
         raise NotImplementedError()
@@ -476,6 +486,7 @@ def _scatter(
 
     # for each array element, schedule an instance of the body subgraph
     last_scatter_indices = None
+    scatter_tags = _scatter_tags(array)
     for i, array_i in enumerate(array):
 
         # scatter bookkeeping: format the index as a left-zero-padded string so that it'll sort
@@ -514,6 +525,7 @@ def _scatter(
                 node=body_node,
                 dependencies=dependencies,
                 scatter_stack=scatter_stack_i,
+                scatter_tag=scatter_tags[i],
             )
 
             # record the newly scheduled job & its expected gathers in multiplex
@@ -535,11 +547,60 @@ def _scatter(
             node=gather,
             dependencies=multiplex[body_node_id],
             scatter_stack=scatter_stack,
+            scatter_tag="",
         )
 
 
 def _append_scatter_indices(node_id: str, scatter_indices: List[str]) -> str:
     return "-".join([node_id] + scatter_indices)
+
+
+def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
+    # Given an array of values, compute an array of names for each item that strives for useful
+    # human-readability, and can be embedded in the run directory name safely. This is to help the
+    # operator navigate the run directory tree, looking for specific items.
+
+    # stringify each item and split each string into a list of alphanumeric components
+    any = False
+    delimiters = regex.compile("[^0-9a-zA-Z]+")
+    items = []
+    for array_i in array:
+        if isinstance(array_i, Value.Base) and not isinstance(array_i, Value.Null):
+            items.append(delimiters.split(json.dumps(array_i.json)))
+            any = True
+        else:
+            items.append([])
+    if not any:
+        return [""] * len(array)
+
+    # compute & remove those lists' longest common prefix & suffix
+    lcp = _longest_common_prefix(items)
+    if lcp:
+        items = [item[lcp:] for item in items]
+    lcs = _longest_common_prefix([list(reversed(item)) for item in items])
+    if lcs:
+        items = [item[:-lcs] for item in items]
+
+    # join & truncate remaining components
+    # TODO: measure whether the prefixes or suffixes have more entropy
+    return [("-".join(item))[:16] for item in items]
+
+
+def _longest_common_prefix(items: List[List[str]]) -> int:
+    ans = 0
+    for i, item in enumerate(items):
+        if i == 0:
+            ans = len(item)
+        else:
+            ans = min(ans, len(item))
+            prev_item = items[i - 1]
+            j = 0
+            while j < ans and item[j] == prev_item[j]:
+                j += 1
+            ans = j
+        if ans == 0:
+            return 0
+    return ans
 
 
 def _gather(
@@ -891,14 +952,15 @@ def _workflow_main_loop(
                 stdlib = _StdLib(workflow.effective_wdl_version, cfg, state, cache)
                 next_call = state.step(cfg, stdlib)
                 while next_call:
-                    call_dir = os.path.join(run_dir, next_call.id)
+                    scatter_tag_suffix = ("-" + next_call.scatter_tag) if next_call.scatter_tag else ""
+                    call_dir = os.path.join(run_dir, next_call.id + scatter_tag_suffix)
                     if os.path.exists(call_dir):
                         logger.warning(
                             _("call subdirectory already exists, conflict likely", dir=call_dir)
                         )
                     sub_args = (cfg, next_call.callee, next_call.inputs)
                     sub_kwargs = {
-                        "run_id": next_call.id,
+                        "run_id": next_call.id + scatter_tag_suffix,
                         "run_dir": os.path.join(call_dir, "."),
                         "logger_prefix": logger_id,
                         "_cache": cache,
