@@ -69,7 +69,11 @@ def able(cfg: config.Loader, uri: Optional[str], directory: bool = False) -> boo
 
 
 def run(
-    cfg: config.Loader, logger: logging.Logger, uri: str, directory: bool = False, **kwargs
+    cfg: config.Loader,
+    logger: logging.Logger,
+    uri: str,
+    directory: bool = False,
+    **kwargs,
 ) -> str:
     """
     Download the URI and return the local filename.
@@ -86,7 +90,9 @@ def run(
     assert gen
     try:
         logger.info(_(f"start {'directory ' if directory else ''}download", uri=uri))
-        with compose_coroutines([lambda kwargs: gen(cfg, logger, **kwargs)], {"uri": uri}) as cor:
+        with compose_coroutines(
+            [lambda kwargs: gen(cfg, logger, **kwargs)], {"uri": uri}
+        ) as cor:
             recv = next(cor)
 
             if "task_wdl" in recv:
@@ -103,12 +109,21 @@ def run(
                 )
 
                 recv = cor.send(
-                    {"outputs": values_to_json(outputs_env), "dir": subdir}  # pyre-ignore
+                    {
+                        "outputs": values_to_json(outputs_env),
+                        "dir": subdir,
+                    }  # pyre-ignore
                 )
 
             ans = recv["outputs"]["directory" if directory else "file"]
             assert isinstance(ans, str) and os.path.exists(ans)
-            logger.info(_(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans))
+            logger.info(
+                _(
+                    f"downloaded{' directory' if directory else ' file'}",
+                    uri=uri,
+                    file=ans,
+                )
+            )
             return ans
 
     except RunFailed as exn:
@@ -202,7 +217,11 @@ def aria2c_downloader(
 def awscli_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs: Dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
+    inputs: Dict[str, Any] = {
+        "uri": uri,
+        "docker": cfg["download_awscli"]["docker"],
+        "endpoint": cfg["download_awscli"].get("endpoint"),
+    }
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -211,8 +230,11 @@ def awscli_downloader(
             input {
                 String uri
                 String docker
+                String? endpoint
                 File? aws_credentials
             }
+
+            String endpoint_arg = if defined(endpoint) then "--endpoint-url ~{select_first([endpoint])}" else ""
 
             command <<<
                 set -euo pipefail
@@ -223,7 +245,7 @@ def awscli_downloader(
                 export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir __out
-                if ! aws s3 cp "~{uri}" __out/ ; then
+                if ! aws ~{endpoint_arg} s3 cp "~{uri}" __out/ ; then
                     # Retry with --no-sign-request in case the object is public. Without this flag,
                     # the previous invocation could have failed either because (i) no AWS
                     # credentials are available or (ii) the IAM policy restricts accessible S3
@@ -231,7 +253,7 @@ def awscli_downloader(
                     rm -f __out/*
                     >&2 echo 'Retrying with --no-sign-request in case the object is public.' \
                          ' If the overall operation fails, the real error may precede this message.'
-                    aws s3 cp --no-sign-request "~{uri}" __out/
+                    aws ~{endpoint_arg} s3 cp --no-sign-request "~{uri}" __out/
                 fi
             >>>
 
@@ -251,7 +273,11 @@ def awscli_downloader(
 def awscli_directory_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs: Dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
+    inputs: Dict[str, Any] = {
+        "uri": uri,
+        "docker": cfg["download_awscli"]["docker"],
+        "endpoint": cfg["download_awscli"].get("endpoint"),
+    }
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -260,10 +286,12 @@ def awscli_directory_downloader(
             input {
                 String uri
                 String docker
+                String? endpoint
                 File? aws_credentials
             }
 
             String dnm = basename(uri, "/")
+            String endpoint_arg = if defined(endpoint) then "--endpoint-url ~{select_first([endpoint])}" else ""
 
             command <<<
                 set -euo pipefail
@@ -274,7 +302,7 @@ def awscli_directory_downloader(
                 export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir -p "__out/~{dnm}/"
-                if ! aws s3 cp --recursive "~{uri}" "__out/~{dnm}/" ; then
+                if ! aws ~{endpoint_arg} s3 cp --recursive "~{uri}" "__out/~{dnm}/" ; then
                     # Retry with --no-sign-request in case the object is public. Without this flag,
                     # the previous invocation could have failed either because (i) no AWS
                     # credentials are available or (ii) the IAM policy restricts accessible S3
@@ -282,7 +310,7 @@ def awscli_directory_downloader(
                     rm -f "__out/~{dnm}/*"
                     >&2 echo 'Retrying with --no-sign-request in case the folder is public.' \
                         ' If the overall operation fails, the real error may precede this message.'
-                    aws s3 cp --recursive --no-sign-request "~{uri}" "__out/~{dnm}/"
+                    aws ~{endpoint_arg} s3 cp --recursive --no-sign-request "~{uri}" "__out/~{dnm}/"
                 fi
             >>>
 
@@ -305,7 +333,9 @@ def prepare_aws_credentials(
     host_aws_credentials = {}
     if "AWS_EC2_METADATA_DISABLED" in os.environ:
         # https://github.com/aws/aws-cli/issues/5623
-        host_aws_credentials["AWS_EC2_METADATA_DISABLED"] = os.environ["AWS_EC2_METADATA_DISABLED"]
+        host_aws_credentials["AWS_EC2_METADATA_DISABLED"] = os.environ[
+            "AWS_EC2_METADATA_DISABLED"
+        ]
     # get AWS credentials from boto3 (unless prevented by configuration)
     if cfg["download_awscli"].get_bool("host_credentials"):
         import boto3  # pyre-fixme
@@ -321,7 +351,10 @@ def prepare_aws_credentials(
     if host_aws_credentials:
         # write credentials to temp file that'll self-destruct afterwards
         host_aws_credentials = (
-            "\n".join(f"export {k}={shlex.quote(v)}" for (k, v) in host_aws_credentials.items())
+            "\n".join(
+                f"export {k}={shlex.quote(v)}"
+                for (k, v) in host_aws_credentials.items()
+            )
             + "\n"
         )
         aws_credentials_file = cleanup.enter_context(
@@ -333,7 +366,9 @@ def prepare_aws_credentials(
         )
         print(host_aws_credentials, file=aws_credentials_file, flush=True)
         # make file group-readable to ensure it'll be usable if the docker image runs as non-root
-        os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
+        os.chmod(
+            aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40
+        )
         logger.getChild("awscli_downloader").info("loaded host AWS credentials")
         return aws_credentials_file.name
     else:
@@ -377,7 +412,10 @@ def gsutil_downloader(
     }
     """
     yield (  # pyre-ignore
-        yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
+        yield {
+            "task_wdl": wdl,
+            "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]},
+        }
     )
 
 
@@ -412,5 +450,8 @@ def gsutil_directory_downloader(
     }
     """
     yield (  # pyre-ignore
-        yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
+        yield {
+            "task_wdl": wdl,
+            "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]},
+        }
     )
