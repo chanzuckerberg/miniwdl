@@ -68,7 +68,9 @@ def able(cfg: config.Loader, uri: Optional[str], directory: bool = False) -> boo
     return bool(uri and _downloader(cfg, uri, directory=directory) is not None)
 
 
-def run(cfg: config.Loader, logger: logging.Logger, uri: str, directory: bool = False, **kwargs) -> str:
+def run(
+    cfg: config.Loader, logger: logging.Logger, uri: str, directory: bool = False, **kwargs
+) -> str:
     """
     Download the URI and return the local filename.
 
@@ -101,17 +103,12 @@ def run(cfg: config.Loader, logger: logging.Logger, uri: str, directory: bool = 
                 )
 
                 recv = cor.send(
-                    {
-                        "outputs": values_to_json(outputs_env),
-                        "dir": subdir,
-                    }  # pyre-ignore
+                    {"outputs": values_to_json(outputs_env), "dir": subdir}  # pyre-ignore
                 )
 
             ans = recv["outputs"]["directory" if directory else "file"]
             assert isinstance(ans, str) and os.path.exists(ans)
-            logger.info(
-                _(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans)
-            )
+            logger.info(_(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans))
             return ans
 
     except RunFailed as exn:
@@ -349,9 +346,7 @@ def prepare_aws_credentials(
         )
         print(host_aws_credentials, file=aws_credentials_file, flush=True)
         # make file group-readable to ensure it'll be usable if the docker image runs as non-root
-        os.chmod(
-            aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40
-        )
+        os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
         logger.getChild("awscli_downloader").info("loaded host AWS credentials")
         return aws_credentials_file.name
     else:
