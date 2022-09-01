@@ -68,13 +68,7 @@ def able(cfg: config.Loader, uri: Optional[str], directory: bool = False) -> boo
     return bool(uri and _downloader(cfg, uri, directory=directory) is not None)
 
 
-def run(
-    cfg: config.Loader,
-    logger: logging.Logger,
-    uri: str,
-    directory: bool = False,
-    **kwargs,
-) -> str:
+def run(cfg: config.Loader, logger: logging.Logger, uri: str, directory: bool = False, **kwargs) -> str:
     """
     Download the URI and return the local filename.
 
@@ -90,9 +84,7 @@ def run(
     assert gen
     try:
         logger.info(_(f"start {'directory ' if directory else ''}download", uri=uri))
-        with compose_coroutines(
-            [lambda kwargs: gen(cfg, logger, **kwargs)], {"uri": uri}
-        ) as cor:
+        with compose_coroutines([lambda kwargs: gen(cfg, logger, **kwargs)], {"uri": uri}) as cor:
             recv = next(cor)
 
             if "task_wdl" in recv:
@@ -118,11 +110,7 @@ def run(
             ans = recv["outputs"]["directory" if directory else "file"]
             assert isinstance(ans, str) and os.path.exists(ans)
             logger.info(
-                _(
-                    f"downloaded{' directory' if directory else ' file'}",
-                    uri=uri,
-                    file=ans,
-                )
+                _(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans)
             )
             return ans
 
@@ -333,9 +321,7 @@ def prepare_aws_credentials(
     host_aws_credentials = {}
     if "AWS_EC2_METADATA_DISABLED" in os.environ:
         # https://github.com/aws/aws-cli/issues/5623
-        host_aws_credentials["AWS_EC2_METADATA_DISABLED"] = os.environ[
-            "AWS_EC2_METADATA_DISABLED"
-        ]
+        host_aws_credentials["AWS_EC2_METADATA_DISABLED"] = os.environ["AWS_EC2_METADATA_DISABLED"]
     # get AWS credentials from boto3 (unless prevented by configuration)
     if cfg["download_awscli"].get_bool("host_credentials"):
         import boto3  # pyre-fixme
@@ -351,10 +337,7 @@ def prepare_aws_credentials(
     if host_aws_credentials:
         # write credentials to temp file that'll self-destruct afterwards
         host_aws_credentials = (
-            "\n".join(
-                f"export {k}={shlex.quote(v)}"
-                for (k, v) in host_aws_credentials.items()
-            )
+            "\n".join(f"export {k}={shlex.quote(v)}" for (k, v) in host_aws_credentials.items())
             + "\n"
         )
         aws_credentials_file = cleanup.enter_context(
@@ -412,10 +395,7 @@ def gsutil_downloader(
     }
     """
     yield (  # pyre-ignore
-        yield {
-            "task_wdl": wdl,
-            "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]},
-        }
+        yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
     )
 
 
@@ -450,8 +430,5 @@ def gsutil_directory_downloader(
     }
     """
     yield (  # pyre-ignore
-        yield {
-            "task_wdl": wdl,
-            "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]},
-        }
+        yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
     )
