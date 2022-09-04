@@ -51,14 +51,13 @@ The default local scheduler observes these task `runtime {}` attributes:
 
 ## File & Directory URI downloads
 
-Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. The following URI schemes have built-in support, which can be extended with plugins:
+Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. Directory URIs should be distinguished by affixing a trailing slash. The following URI schemes have built-in support, which can be extended with plugins:
 
 * `http:`, `https:`, and `ftp:` downloads for Files
 * Amazon S3 `s3:` URIs for both File and Directory inputs
   * On an EC2 instance, the downloader attempts to assume an [attached IAM role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) by contacting the [instance metadata service](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials)
   * Outside EC2, to use AWS credentials from the invoking session, set the configuration option `[download_awscli] host_credentials = true` or environment `MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=true` (requires [boto3](https://aws.amazon.com/sdk-for-python/) package installed if not already)
-  * Affix a trailing slash for Directory inputs
-* Google Cloud Storage `gs:` URIs for Files
+* Google Cloud Storage `gs:` URIs for both File and Directory inputs
   * On a GCE instance, the downloader attempts to use the [associated service account](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances) by contacting the [instance metadata service](https://cloud.google.com/compute/docs/storing-retrieving-metadata)
 
 ## Configuration
