@@ -557,8 +557,8 @@ def _append_scatter_indices(node_id: str, scatter_indices: List[str]) -> str:
 
 def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
     # Given an array of values, compute an array of names for each item that strives for useful
-    # human-readability, and can be embedded in the run directory name safely. This is to help the
-    # operator navigate the run directory tree, looking for specific items.
+    # human-readability, and can be embedded in the run id/directory safely. This is to help the
+    # operator navigate the run logs & directory tree, looking for specific items.
 
     # stringify each item and split each string into a list of alphanumeric components
     any = False
@@ -582,7 +582,6 @@ def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
         items = [item[:-lcs] for item in items]
 
     # join & truncate remaining components
-    # TODO: measure whether the prefixes or suffixes have more entropy
     return [("-".join(item))[:16] for item in items]
 
 
