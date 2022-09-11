@@ -618,7 +618,8 @@ def _gather(
     dep_ids = sorted(dependencies.keys())
 
     # since it would be so awful to permute the array silently, lets verify the ID order
-    if isinstance(gather.section, Tree.Scatter):
+    if len(dep_ids) > 1:
+        assert isinstance(gather.section, Tree.Scatter)
         dep_ids_split = [dep_id.split("-") for dep_id in dep_ids]
         dep_id_lcp = _longest_common_prefix(dep_ids_split)
         for i, dep_id_i in enumerate(dep_ids_split):
