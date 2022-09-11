@@ -191,12 +191,7 @@ class StateMachine:
                 if self.inputs.has_binding(node.name):
                     deps = set()
             self._schedule(
-                _Job(
-                    id=node.workflow_node_id,
-                    node=node,
-                    dependencies=deps,
-                    scatter_stack=[],
-                )
+                _Job(id=node.workflow_node_id, node=node, dependencies=deps, scatter_stack=[])
             )
 
         # TODO: by topsorting all section bodies we could ensure that when we schedule an
@@ -432,9 +427,7 @@ class StateMachine:
             )
 
             return StateMachine.CallInstructions(
-                id=job.id,
-                callee=job.node.callee,
-                inputs=call_inputs,
+                id=job.id, callee=job.node.callee, inputs=call_inputs
             )
 
         raise NotImplementedError()
