@@ -112,7 +112,6 @@ _Job = NamedTuple(
         ("node", Tree.WorkflowNode),
         ("dependencies", Set[str]),
         ("scatter_stack", List[Tuple[str, Env.Binding[Value.Base]]]),
-        ("scatter_tag", str),
     ],
 )
 
@@ -197,7 +196,6 @@ class StateMachine:
                     node=node,
                     dependencies=deps,
                     scatter_stack=[],
-                    scatter_tag="",
                 )
             )
 
@@ -239,7 +237,6 @@ class StateMachine:
             ("id", str),
             ("callee", Union[Tree.Task, Tree.Workflow]),
             ("inputs", Env.Bindings[Value.Base]),
-            ("scatter_tag", str),
         ],
     )
     """
@@ -430,13 +427,14 @@ class StateMachine:
                 _(
                     "input",
                     job=job.id,
-                    tag=job.scatter_tag,
                     values=inplog if len(json.dumps(inplog)) < 4096 else "(((large)))",
                 )
             )
 
             return StateMachine.CallInstructions(
-                id=job.id, callee=job.node.callee, inputs=call_inputs, scatter_tag=job.scatter_tag
+                id=job.id,
+                callee=job.node.callee,
+                inputs=call_inputs,
             )
 
         raise NotImplementedError()
@@ -496,6 +494,8 @@ def _scatter(
             assert isinstance(section, Tree.Scatter)
             str_i = str(i).zfill(digits)
             assert len(str_i) <= digits
+            if scatter_tags[i]:
+                str_i += "-" + scatter_tags[i]
             scatter_stack_i = scatter_stack_i + [(str_i, Env.Binding(section.variable, array_i))]
         scatter_indices_i = [p[0] for p in scatter_stack_i]
         assert last_scatter_indices is None or last_scatter_indices < scatter_indices_i
@@ -525,7 +525,6 @@ def _scatter(
                 node=body_node,
                 dependencies=dependencies,
                 scatter_stack=scatter_stack_i,
-                scatter_tag=scatter_tags[i],
             )
 
             # record the newly scheduled job & its expected gathers in multiplex
@@ -547,7 +546,6 @@ def _scatter(
             node=gather,
             dependencies=multiplex[body_node_id],
             scatter_stack=scatter_stack,
-            scatter_tag="",
         )
 
 
@@ -581,8 +579,18 @@ def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
     if lcs:
         items = [item[:-lcs] for item in items]
 
-    # join & truncate remaining components
-    return [("-".join(item))[:16] for item in items]
+    # concatenate remaining components
+    tags = ["".join(item) for item in items]
+
+    MAX_TAG = 16
+    # truncate to first MAX_TAG characters
+    tags_pfx = [tag[:MAX_TAG].rstrip("-") for tag in tags]
+    if len(tags_pfx) == len(set(tags_pfx)):
+        return tags_pfx
+    # if those weren't unique, then try suffix; if those aren't unique either, then give up to
+    # avoid generating misleading tags.
+    tags_sfx = [tag[-MAX_TAG:].lstrip("-") for tag in tags]
+    return tags_sfx if len(tags_sfx) == len(set(tags_sfx)) else ([""] * len(items))
 
 
 def _longest_common_prefix(items: List[List[str]]) -> int:
@@ -610,16 +618,10 @@ def _gather(
 
     # since it would be so awful to permute the array silently, lets verify the ID order
     if isinstance(gather.section, Tree.Scatter):
-        dep_id_prefix = None
-        dep_id_values = []
-        for dep_id in dep_ids:
-            dep_id_fields = dep_id.split("-")
-            if dep_id_prefix is not None:
-                assert dep_id_fields[:-1] == dep_id_prefix
-            else:
-                dep_id_prefix = dep_id_fields[:-1]
-            dep_id_values.append(int(dep_id_fields[-1]))
-        assert dep_id_values == list(range(len(dep_ids)))
+        dep_ids_split = [dep_id.split("-") for dep_id in dep_ids]
+        dep_id_lcp = _longest_common_prefix(dep_ids_split)
+        for i, dep_id_i in enumerate(dep_ids_split):
+            assert i == int(dep_id_i[dep_id_lcp])
 
     # figure out names of the values to gather, either the name if the referenced decl,
     # or each output of the referenced call.
@@ -951,15 +953,14 @@ def _workflow_main_loop(
                 stdlib = _StdLib(workflow.effective_wdl_version, cfg, state, cache)
                 next_call = state.step(cfg, stdlib)
                 while next_call:
-                    scatter_tag_suffix = ("-" + next_call.scatter_tag) if next_call.scatter_tag else ""
-                    call_dir = os.path.join(run_dir, next_call.id + scatter_tag_suffix)
+                    call_dir = os.path.join(run_dir, next_call.id)
                     if os.path.exists(call_dir):
                         logger.warning(
                             _("call subdirectory already exists, conflict likely", dir=call_dir)
                         )
                     sub_args = (cfg, next_call.callee, next_call.inputs)
                     sub_kwargs = {
-                        "run_id": next_call.id + scatter_tag_suffix,
+                        "run_id": next_call.id,
                         "run_dir": os.path.join(call_dir, "."),
                         "logger_prefix": logger_id,
                         "_cache": cache,
