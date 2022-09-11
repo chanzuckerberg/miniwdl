@@ -562,8 +562,12 @@ def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
     any = False
     delimiters = regex.compile("[^0-9a-zA-Z]+")
     items = []
-    for array_i in array:
-        if isinstance(array_i, Value.Base) and not isinstance(array_i, Value.Null):
+    for i, array_i in enumerate(array):
+        if (
+            isinstance(array_i, Value.Base)
+            and not isinstance(array_i, Value.Null)
+            and not (isinstance(array_i, Value.Int) and array_i.value == i)
+        ):
             items.append(delimiters.split(json.dumps(array_i.json)))
             any = True
         else:
@@ -585,12 +589,16 @@ def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
     MAX_TAG = 16
     # truncate to first MAX_TAG characters
     tags_pfx = [tag[:MAX_TAG].rstrip("-") for tag in tags]
-    if len(tags_pfx) == len(set(tags_pfx)):
+    if sum(1 for tag in tags_pfx if len(tag)) == sum(1 for tag in set(tags_pfx) if len(tag)):
         return tags_pfx
     # if those weren't unique, then try suffix; if those aren't unique either, then give up to
     # avoid generating misleading tags.
     tags_sfx = [tag[-MAX_TAG:].lstrip("-") for tag in tags]
-    return tags_sfx if len(tags_sfx) == len(set(tags_sfx)) else ([""] * len(items))
+    return (
+        tags_sfx
+        if sum(1 for tag in tags_sfx if len(tag)) == sum(1 for tag in set(tags_sfx) if len(tag))
+        else ([""] * len(items))
+    )
 
 
 def _longest_common_prefix(items: List[List[str]]) -> int:
