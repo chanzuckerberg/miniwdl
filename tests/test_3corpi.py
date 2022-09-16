@@ -601,6 +601,10 @@ class TestZip(unittest.TestCase):
     def test_empty(self):
         self._roundtrip(WDL.load("test_corpi/contrived/empty.wdl"))
 
+    def test_scatter_collisions(self):
+        # import single-quoted URI (issue #601)
+        self._roundtrip(WDL.load("test_corpi/contrived/scatter_collisions.wdl"))
+
     def test_biowdl_aligning(self):
         self._roundtrip(WDL.load("test_corpi/biowdl/aligning/align-star.wdl"))
 

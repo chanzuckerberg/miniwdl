@@ -146,15 +146,17 @@ def rewrite_imports(
             new_uri = os.path.relpath(
                 zip_paths[imp.doc.pos.abspath], os.path.dirname(zip_paths[doc.pos.abspath])
             )
-            old_uri_pattern = f'"{old_uri}"'
-            if old_uri_pattern in line:
-                found = True
-            line2 = line.replace(old_uri_pattern, f'"{new_uri}"')
-            if line != line2:
-                logger.debug(doc.pos.abspath)
-                logger.debug("  " + line)
-                logger.debug("  => " + line2)
-                source_lines[lineno] = line2
+            for quot in ('"', "'"):
+                old_uri_pattern = f"{quot}{old_uri}{quot}"
+                if old_uri_pattern in line:
+                    assert quot not in new_uri
+                    found = True
+                    line2 = line.replace(old_uri_pattern, f"{quot}{new_uri}{quot}")
+                    if line != line2:
+                        logger.debug(doc.pos.abspath)
+                        logger.debug("  " + line)
+                        logger.debug("  => " + line2)
+                        source_lines[lineno] = line2
         assert found
 
     return source_lines
