@@ -21,7 +21,7 @@ task wdl11 {
         String w = "~{'--foo ' + x}"
         Car c = object {
             make: "Toyota",
-            model: "Prius"
+            model: 2017
         }
     }
     runtime {
