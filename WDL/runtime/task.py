@@ -125,7 +125,8 @@ def run_local_task(
                     )
                 # create out/ and outputs.json
                 _outputs = link_outputs(
-                    cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths")
                 )
                 write_values_json(
                     cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
@@ -203,7 +204,8 @@ def run_local_task(
 
                 # create output_links
                 outputs = link_outputs(
-                    cache, outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache, outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths")
                 )
 
                 # process outputs through plugins
@@ -719,7 +721,8 @@ def _check_directory(host_path: str, output_name: str) -> None:
 
 
 def link_outputs(
-    cache: CallCache, outputs: Env.Bindings[Value.Base], run_dir: str, hardlinks: bool = False
+        cache: CallCache, outputs: Env.Bindings[Value.Base], run_dir: str,
+        hardlinks: bool = False, use_relative_output_paths: bool = False,
 ) -> Env.Bindings[Value.Base]:
     """
     Following a successful run, the output files may be scattered throughout a complex directory
