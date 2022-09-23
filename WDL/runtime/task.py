@@ -741,11 +741,26 @@ def link_outputs(
             if target:
                 target = os.path.realpath(target)
                 assert os.path.exists(target)
+                work_dir = os.path.join(os.path.dirname(run_dir), "work")
+                if use_relative_output_paths:
+                    rel_dir = os.path.dirname(target)
+                    while rel_dir:
+                        if os.path.basename(rel_dir) == "work":
+                            relative_output = os.path.relpath(target, rel_dir)
+                            relpath_dir = os.path.dirname(relative_output)
+                            if relpath_dir:
+                                dn = os.path.join(dn, relpath_dir)
+                            break
+                        rel_dir = os.path.dirname(rel_dir)
                 if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
                 link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
-                os.makedirs(dn, exist_ok=False)
+                if os.path.exists(link) and use_relative_output_paths:
+                    raise FileExistsError(
+                        f"File collision: can not create {link} using relative output paths"
+                    )
+                os.makedirs(dn, exist_ok=use_relative_output_paths)
                 if hardlinks:
                     # TODO: what if target is an input from a different filesystem?
                     if isinstance(v, Value.Directory):
@@ -796,11 +811,39 @@ def link_outputs(
                 v.value[key] = map_paths(v.value[key], os.path.join(dn, key))
         return v
 
-    os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
+    def map_paths_relative(v: Value.Base, dn: str):
+        if isinstance(v, (Value.File, Value.Directory)):
+            # Fall back on map paths to use all the correct linking code.
+            return map_paths(v, dn)
+        elif isinstance(v, Value.Array) and v.value:
+            for i in range(len(v.value)):
+                v.value[i] = map_paths_relative(v.value[i], dn)
+        elif isinstance(v, Value.Map):
+            for i, b in enumerate(v.value):
+                v.value[i] = (b[0], map_paths_relative(b[1], dn))
+        elif isinstance(v, Value.Pair):
+            v.value = (
+                map_paths_relative(v.value[0], dn),
+                map_paths_relative(v.value[1], dn),
+            )
+        elif isinstance(v, Value.Struct):
+            for key in v.value:
+                v.value[key] = map_paths_relative(v.value[key], dn)
+        return v
+
+    out_dir = os.path.join(run_dir, "out")
+    os.makedirs(out_dir, exist_ok=False)
+
+    if use_relative_output_paths:
+        return outputs.map(
+            lambda binding: Env.Binding(
+                binding.name,
+                map_paths_relative(copy.deepcopy(binding.value), out_dir))
+        )
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_paths(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
+            map_paths(copy.deepcopy(binding.value), os.path.join(out_dir, binding.name)),
         )
     )
 
