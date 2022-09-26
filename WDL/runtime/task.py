@@ -730,6 +730,7 @@ def link_outputs(
     containing nicely organized symlinks to the output files, and rewrite File values in the
     outputs env to use these symlinks.
     """
+    link_destinations: Dict[str, str] = dict()
 
     def map_paths(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, (Value.File, Value.Directory)):
@@ -756,10 +757,16 @@ def link_outputs(
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
                 link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
-                if os.path.exists(link) and use_relative_output_paths:
-                    raise FileExistsError(
-                        f"File collision: can not create {link} using relative output paths"
-                    )
+                if use_relative_output_paths:
+                    known_target = link_destinations.get(link, None)
+                    if known_target:
+                        if known_target != target:
+                            raise FileExistsError(
+                                f"Two files have the same link destination: "
+                                f"{known_target} and {target} are both written "
+                                f"to {link}")
+                    else:
+                        link_destinations[link] = target
                 os.makedirs(dn, exist_ok=use_relative_output_paths)
                 if hardlinks:
                     # TODO: what if target is an input from a different filesystem?
