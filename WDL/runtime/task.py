@@ -822,7 +822,7 @@ def link_outputs(
                 v.value[key] = map_paths(v.value[key], os.path.join(dn, key))
         return v
 
-    def map_paths_relative(v: Value.Base, dn: str):
+    def map_paths_relative(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, (Value.File, Value.Directory)):
             # Fall back on map paths to use all the correct linking code.
             return map_paths(v, dn)
