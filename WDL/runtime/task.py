@@ -741,15 +741,13 @@ def link_outputs(
                 target = os.path.realpath(target)
                 assert os.path.exists(target)
                 if use_relative_output_paths:
-                    rel_dir = os.path.dirname(target)
-                    while rel_dir and rel_dir != '/':
-                        if os.path.basename(rel_dir) == "work":
-                            relative_output = os.path.relpath(target, rel_dir)
-                            relpath_dir = os.path.dirname(relative_output)
-                            if relpath_dir:
-                                dn = os.path.join(dn, relpath_dir)
+                    # Look for the highest-level "work" directory and make sure
+                    # any directories in there are present in the output structure
+                    dir_parts = os.path.dirname(target).split(os.sep)
+                    for i, part in enumerate(reversed(dir_parts)):
+                        if part == "work":
+                            dn = os.path.join(dn, *dir_parts[len(dir_parts) - i:])
                             break
-                        rel_dir = os.path.dirname(rel_dir)
                 if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
