@@ -745,7 +745,7 @@ def link_outputs(
                 work_dir = os.path.join(os.path.dirname(run_dir), "work")
                 if use_relative_output_paths:
                     rel_dir = os.path.dirname(target)
-                    while rel_dir:
+                    while rel_dir and rel_dir != '/':
                         if os.path.basename(rel_dir) == "work":
                             relative_output = os.path.relpath(target, rel_dir)
                             relpath_dir = os.path.dirname(relative_output)
