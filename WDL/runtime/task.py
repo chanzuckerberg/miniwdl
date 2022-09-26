@@ -755,16 +755,12 @@ def link_outputs(
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
                 link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
-                if use_relative_output_paths:
-                    known_target = link_destinations.get(link, None)
-                    if known_target:
-                        if known_target != target:
-                            raise FileExistsError(
-                                f"Two files have the same link destination: "
-                                f"{known_target} and {target} are both written "
-                                f"to {link}")
-                    else:
-                        link_destinations[link] = target
+                if link_destinations.get(link, target) != target:
+                    raise FileExistsError(
+                        f"Two files have the same link destination: "
+                        f"{link_destinations[link]} and {target} are both "
+                        f"written to {link}.")
+                link_destinations[link] = target
                 os.makedirs(dn, exist_ok=use_relative_output_paths)
                 if hardlinks:
                     # TODO: what if target is an input from a different filesystem?
