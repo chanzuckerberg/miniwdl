@@ -780,7 +780,8 @@ def run_local_workflow(
                     )
                 )
             _outputs = link_outputs(
-                cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
             )
             write_values_json(
                 cached, os.path.join(run_dir, "outputs.json"), namespace=workflow.name

@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 82
+plan tests 88
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -524,3 +524,60 @@ workflow outer {
 EOF
 MINIWDL__SCHEDULER__SUBWORKFLOW_CONCURRENCY=2 $miniwdl run --dir nested_deadlock outer.wdl
 is "$?" "0" "avoid deadlocking on nested subworkflows"
+
+cat << 'EOF' > create_files.wdl
+version 1.0
+task create_files {
+    command <<<
+        mkdir -p large_matryoshka/medium_matryoskha
+        touch large_matryoshka/medium_matryoskha/small_matryoshka
+        mkdir -p utensils
+        touch utensils/fork utensils/knife utensils/spoon
+        touch unboxed_item
+        mkdir -p turtle/turtle/turtle/turtle/turtle/turtle/
+        touch    turtle/turtle/turtle/turtle/turtle/turtle/turtle
+    >>>
+    output {
+        File small_matryoshka = "large_matryoshka/medium_matryoskha/small_matryoshka"
+        File fork = "utensils/fork"
+        File knife = "utensils/knife"
+        File spoon = "utensils/spoon"
+        File unboxed_item = "unboxed_item"
+        File all_the_way_down = "turtle/turtle/turtle/turtle/turtle/turtle/turtle"
+        # Below arrays will create collisions as these are the same paths as above,
+        # localized to the same links. This should be handled properly.
+        Array[File] utensils = [fork, knife, spoon]
+        Array[File] everything = [small_matryoshka, fork, knife, spoon, unboxed_item, all_the_way_down]
+    }
+}
+EOF
+
+cat << 'EOF' > correct_workflow.wdl
+version 1.0
+import "create_files.wdl" as create_files
+
+workflow filecreator {
+    call create_files.create_files as createFiles {}
+
+    output {
+        Array[File] utensils = createFiles.utensils
+        Array[File] all_stuff = createFiles.everything
+    }
+}
+EOF
+
+OUTPUT_DIR=use_relative_paths/_LAST/out/
+MINIWDL__FILE_IO__USE_RELATIVE_OUTPUT_PATHS=true $miniwdl run --dir use_relative_paths correct_workflow.wdl
+is "$?" "0" relative_output_paths
+test -L $OUTPUT_DIR/large_matryoshka/medium_matryoskha/small_matryoshka
+is "$?" "0" "outputs are relative"
+test -d $OUTPUT_DIR/turtle/turtle/turtle/turtle
+is "$?" "0" "outputs are relative all the way down"
+
+MINIWDL__FILE_IO__USE_RELATIVE_OUTPUT_PATHS=true MINIWDL__FILE_IO__OUTPUT_HARDLINKS=true \
+$miniwdl run --dir use_relative_paths correct_workflow.wdl
+is "$?" "0" relative_output_paths_with_hardlink
+test -f $OUTPUT_DIR/large_matryoshka/medium_matryoskha/small_matryoshka
+is "$?" "0" "outputs are relative using hardlinks"
+test -d $OUTPUT_DIR/turtle/turtle/turtle/turtle
+is "$?" "0" "outputs are relative all the way down using hardlinks"

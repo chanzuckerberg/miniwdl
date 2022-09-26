@@ -125,7 +125,8 @@ def run_local_task(
                     )
                 # create out/ and outputs.json
                 _outputs = link_outputs(
-                    cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
                 write_values_json(
                     cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
@@ -203,7 +204,8 @@ def run_local_task(
 
                 # create output_links
                 outputs = link_outputs(
-                    cache, outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache, outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
 
                 # process outputs through plugins
@@ -745,7 +747,8 @@ def link_outputs(
                     # any directories in there are present in the output structure
                     dir_parts = os.path.dirname(target).split(os.sep)
                     for i, part in enumerate(reversed(dir_parts)):
-                        if part == "work":
+                        # Also look for "out" directory in case of hardlinks
+                        if part == "work" or (part == "out" and hardlinks):
                             dn = os.path.join(dn, *dir_parts[len(dir_parts) - i:])
                             break
                 if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
