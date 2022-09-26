@@ -740,7 +740,6 @@ def link_outputs(
             if target:
                 target = os.path.realpath(target)
                 assert os.path.exists(target)
-                work_dir = os.path.join(os.path.dirname(run_dir), "work")
                 if use_relative_output_paths:
                     rel_dir = os.path.dirname(target)
                     while rel_dir and rel_dir != '/':
