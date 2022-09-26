@@ -780,7 +780,10 @@ def run_local_workflow(
                     )
                 )
             _outputs = link_outputs(
-                cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                cache,
+                cached,
+                run_dir,
+                hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
                 use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
             )
             write_values_json(
@@ -933,7 +936,10 @@ def _workflow_main_loop(
 
             # create output_links
             outputs = link_outputs(
-                cache, state.outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                cache,
+                state.outputs,
+                run_dir,
+                hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
                 # Relative output paths only make sense at the top level, and hence is only used here.
                 use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
             )

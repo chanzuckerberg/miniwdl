@@ -125,7 +125,10 @@ def run_local_task(
                     )
                 # create out/ and outputs.json
                 _outputs = link_outputs(
-                    cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    cache,
+                    cached,
+                    run_dir,
+                    hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
                     use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
                 write_values_json(
@@ -204,7 +207,10 @@ def run_local_task(
 
                 # create output_links
                 outputs = link_outputs(
-                    cache, outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    cache,
+                    outputs,
+                    run_dir,
+                    hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
                     use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
 
@@ -721,8 +727,11 @@ def _check_directory(host_path: str, output_name: str) -> None:
 
 
 def link_outputs(
-        cache: CallCache, outputs: Env.Bindings[Value.Base], run_dir: str,
-        hardlinks: bool = False, use_relative_output_paths: bool = False,
+    cache: CallCache,
+    outputs: Env.Bindings[Value.Base],
+    run_dir: str,
+    hardlinks: bool = False,
+    use_relative_output_paths: bool = False,
 ) -> Env.Bindings[Value.Base]:
     """
     Following a successful run, the output files may be scattered throughout a complex directory
@@ -749,7 +758,7 @@ def link_outputs(
                     for i, part in enumerate(reversed(dir_parts)):
                         # Also look for "out" directory in case of hardlinks
                         if part == "work" or (part == "out" and hardlinks):
-                            dn = os.path.join(dn, *dir_parts[len(dir_parts) - i:])
+                            dn = os.path.join(dn, *dir_parts[len(dir_parts) - i :])
                             break
                 if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
                     # make symlink relative
@@ -759,7 +768,8 @@ def link_outputs(
                     raise FileExistsError(
                         f"Two files have the same link destination: "
                         f"{link_destinations[link]} and {target} are both "
-                        f"written to {link}.")
+                        f"written to {link}."
+                    )
                 link_destinations[link] = target
                 os.makedirs(dn, exist_ok=use_relative_output_paths)
                 if hardlinks:
@@ -838,8 +848,8 @@ def link_outputs(
     if use_relative_output_paths:
         return outputs.map(
             lambda binding: Env.Binding(
-                binding.name,
-                map_paths_relative(copy.deepcopy(binding.value), out_dir))
+                binding.name, map_paths_relative(copy.deepcopy(binding.value), out_dir)
+            )
         )
     return outputs.map(
         lambda binding: Env.Binding(
