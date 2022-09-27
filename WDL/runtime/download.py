@@ -202,7 +202,11 @@ def aria2c_downloader(
 def awscli_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs: Dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
+    inputs: Dict[str, Any] = {
+        "uri": uri,
+        "docker": cfg["download_awscli"]["docker"],
+        "endpoint": cfg["download_awscli"].get("endpoint"),
+    }
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -211,8 +215,11 @@ def awscli_downloader(
             input {
                 String uri
                 String docker
+                String? endpoint
                 File? aws_credentials
             }
+
+            String endpoint_arg = if defined(endpoint) then "--endpoint-url ~{select_first([endpoint])}" else ""
 
             command <<<
                 set -euo pipefail
@@ -223,7 +230,7 @@ def awscli_downloader(
                 export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir __out
-                if ! aws s3 cp "~{uri}" __out/ ; then
+                if ! aws ~{endpoint_arg} s3 cp "~{uri}" __out/ ; then
                     # Retry with --no-sign-request in case the object is public. Without this flag,
                     # the previous invocation could have failed either because (i) no AWS
                     # credentials are available or (ii) the IAM policy restricts accessible S3
@@ -231,7 +238,7 @@ def awscli_downloader(
                     rm -f __out/*
                     >&2 echo 'Retrying with --no-sign-request in case the object is public.' \
                          ' If the overall operation fails, the real error may precede this message.'
-                    aws s3 cp --no-sign-request "~{uri}" __out/
+                    aws ~{endpoint_arg} s3 cp --no-sign-request "~{uri}" __out/
                 fi
             >>>
 
@@ -251,7 +258,11 @@ def awscli_downloader(
 def awscli_directory_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
 ) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs: Dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
+    inputs: Dict[str, Any] = {
+        "uri": uri,
+        "docker": cfg["download_awscli"]["docker"],
+        "endpoint": cfg["download_awscli"].get("endpoint"),
+    }
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -260,10 +271,12 @@ def awscli_directory_downloader(
             input {
                 String uri
                 String docker
+                String? endpoint
                 File? aws_credentials
             }
 
             String dnm = basename(uri, "/")
+            String endpoint_arg = if defined(endpoint) then "--endpoint-url ~{select_first([endpoint])}" else ""
 
             command <<<
                 set -euo pipefail
@@ -274,7 +287,7 @@ def awscli_directory_downloader(
                 export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir -p "__out/~{dnm}/"
-                if ! aws s3 cp --recursive "~{uri}" "__out/~{dnm}/" ; then
+                if ! aws ~{endpoint_arg} s3 cp --recursive "~{uri}" "__out/~{dnm}/" ; then
                     # Retry with --no-sign-request in case the object is public. Without this flag,
                     # the previous invocation could have failed either because (i) no AWS
                     # credentials are available or (ii) the IAM policy restricts accessible S3
@@ -282,7 +295,7 @@ def awscli_directory_downloader(
                     rm -f "__out/~{dnm}/*"
                     >&2 echo 'Retrying with --no-sign-request in case the folder is public.' \
                         ' If the overall operation fails, the real error may precede this message.'
-                    aws s3 cp --recursive --no-sign-request "~{uri}" "__out/~{dnm}/"
+                    aws ~{endpoint_arg} s3 cp --recursive --no-sign-request "~{uri}" "__out/~{dnm}/"
                 fi
             >>>
 
