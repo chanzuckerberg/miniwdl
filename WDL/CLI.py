@@ -718,8 +718,10 @@ def runner(
             )
             sys.exit(2)
         if (
-            cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put")
-        ) and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+            (cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put"))
+            and os.path.isabs(cfg["download_cache"]["dir"])
+            and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"])
+        ):
             logger.error(
                 _(
                     "configuration error: 'download_cache.dir' must be within the `file_io.root' directory",
@@ -1638,7 +1640,9 @@ def localize(
             )
             sys.exit(2)
 
-        if not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+        if os.path.isabs(cfg["download_cache"]["dir"]) and not path_really_within(
+            cfg["download_cache"]["dir"], cfg["file_io"]["root"]
+        ):
             logger.error(
                 _(
                     "configuration error: `download_cache.dir' must be within the `file_io.root' directory",
