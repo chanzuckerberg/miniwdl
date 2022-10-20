@@ -221,13 +221,11 @@ def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
     `UnpackedZip`. The temp directory will be deleted on context exit.
 
     A path to the MANIFEST.json of an already-unpacked source archive may also be used, or a
-    directory containing one. In this case, it is NOT deleted on context exit.
+    directory containing one. In this case, it is NOT deleted on context exit. ::
 
-    ```
-    with WDL.Zip.unpack("/path/to/source.zip") as unpacked:
-        doc = WDL.load(unpacked.main_wdl)
-        ...
-    ```
+        with WDL.Zip.unpack("/path/to/source.zip") as unpacked:
+            doc = WDL.load(unpacked.main_wdl)
+            ...
     """
     with contextlib.ExitStack() as cleanup:
         # extract zip if needed (also allowing use of already-extracted manifest/dir)
