@@ -754,7 +754,7 @@ def link_outputs(
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
                 link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
-                os.makedirs(dn, exist_ok=use_relative_output_paths)
+                os.makedirs(dn, exist_ok=False)
                 if hardlinks:
                     # TODO: what if target is an input from a different filesystem?
                     if isinstance(v, Value.Directory):
@@ -805,8 +805,7 @@ def link_outputs(
                 v.value[key] = map_paths(v.value[key], os.path.join(dn, key))
         return v
 
-    out_dir = os.path.join(run_dir, "out")
-    os.makedirs(out_dir, exist_ok=False)
+    os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
 
     if use_relative_output_paths:
         return link_outputs_relative(cache, outputs, run_dir, hardlinks=hardlinks)
@@ -814,7 +813,7 @@ def link_outputs(
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_paths(copy.deepcopy(binding.value), os.path.join(out_dir, binding.name)),
+            map_paths(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
         )
     )
 
