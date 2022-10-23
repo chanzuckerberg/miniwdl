@@ -235,7 +235,7 @@ workflow filecollider {
 EOF
 
 MINIWDL__FILE_IO__USE_RELATIVE_OUTPUT_PATHS=true $miniwdl run --dir use_relative_paths colliding_workflow.wdl 2> errors.txt
-grep -q "Two files have the same link destination" errors.txt
+grep -q "Output filename collision" errors.txt
 is "$?" "0" "use_relative_output_paths throws error on collisions"
 
 cat << 'EOF' > failer2000.wdl
