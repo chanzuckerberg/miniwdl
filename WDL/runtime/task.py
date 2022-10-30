@@ -771,7 +771,8 @@ def link_outputs(
                 sum(
                     1
                     for b in v.value
-                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0])) is None
+                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0]).strip("'\""))
+                    is None
                 )
                 == 0
             )
@@ -780,7 +781,10 @@ def link_outputs(
                 v.value[i] = (
                     b[0],
                     map_paths(
-                        b[1], os.path.join(dn, str(b[0]) if keys_ok else str(i).rjust(d, "0"))
+                        b[1],
+                        os.path.join(
+                            dn, str(b[0]).strip("'\"") if keys_ok else str(i).rjust(d, "0")
+                        ),
                     ),
                 )
         elif isinstance(v, Value.Pair):
