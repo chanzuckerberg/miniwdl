@@ -354,7 +354,14 @@ class StateMachine:
         )
 
         if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
-            for newjob in _scatter(self.workflow, job.node, env, job.scatter_stack, stdlib):
+            for newjob in _scatter(
+                self.workflow,
+                job.node,
+                env,
+                job.scatter_stack,
+                stdlib,
+                cfg.get_int("scheduler", "scatter_tag_max"),
+            ):
                 self._schedule(newjob)
             # the section node itself has no outputs, so return an empty env
             return Env.Bindings()
@@ -452,6 +459,7 @@ def _scatter(
     env: Env.Bindings[Value.Base],
     scatter_stack: List[Tuple[str, Env.Binding[Value.Base]]],
     stdlib: StdLib.Base,
+    max_tag: int,
 ) -> Iterable[_Job]:
     # we'll be tracking, for each body node ID, the IDs of the potentially multiple corresponding
     # jobs scheduled
@@ -477,7 +485,7 @@ def _scatter(
 
     # for each array element, schedule an instance of the body subgraph
     last_scatter_indices = None
-    scatter_tags = _scatter_tags(array)
+    scatter_tags = _scatter_tags(array, max_tag)
     for i, array_i in enumerate(array):
 
         # scatter bookkeeping: format the index as a left-zero-padded string so that it'll sort
@@ -546,7 +554,7 @@ def _append_scatter_indices(node_id: str, scatter_indices: List[str]) -> str:
     return "-".join([node_id] + scatter_indices)
 
 
-def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
+def _scatter_tags(array: List[Optional[Value.Base]], max_tag: int) -> List[str]:
     # Given an array of values, compute an array of names for each item that strives for useful
     # human-readability, and can be embedded in the run id/directory safely. This is to help the
     # operator navigate the run logs & directory tree, looking for specific items.
@@ -565,7 +573,7 @@ def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
             any = True
         else:
             items.append([])
-    if not any:
+    if not any or max_tag <= 0:
         return [""] * len(array)
 
     # compute & remove those lists' longest common prefix & suffix
@@ -579,14 +587,13 @@ def _scatter_tags(array: List[Optional[Value.Base]]) -> List[str]:
     # concatenate remaining components
     tags = ["".join(item) for item in items]
 
-    MAX_TAG = 16
-    # truncate to first MAX_TAG characters
-    tags_pfx = [tag[:MAX_TAG].rstrip("-") for tag in tags]
+    # truncate to first max_tag characters
+    tags_pfx = [tag[:max_tag].rstrip("-") for tag in tags]
     if sum(1 for tag in tags_pfx if len(tag)) == sum(1 for tag in set(tags_pfx) if len(tag)):
         return tags_pfx
     # if those weren't unique, then try suffix; if those aren't unique either, then give up to
     # avoid generating misleading tags.
-    tags_sfx = [tag[-MAX_TAG:].lstrip("-") for tag in tags]
+    tags_sfx = [tag[-max_tag:].lstrip("-") for tag in tags]
     return (
         tags_sfx
         if sum(1 for tag in tags_sfx if len(tag)) == sum(1 for tag in set(tags_sfx) if len(tag))
