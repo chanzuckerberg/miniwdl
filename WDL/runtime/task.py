@@ -740,6 +740,16 @@ def link_outputs(
     outputs env to use these symlinks.
     """
 
+    def link1(target: str, link: str, directory: bool) -> None:
+        if hardlinks:
+            # TODO: what if target is an input from a different filesystem?
+            if directory:
+                shutil.copytree(target, link, symlinks=True, copy_function=link_force)
+            else:
+                link_force(target, link)
+        else:
+            symlink_force(target, link)
+
     def map_paths(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, (Value.File, Value.Directory)):
             target = (
@@ -755,14 +765,7 @@ def link_outputs(
                     target = os.path.relpath(target, start=os.path.realpath(dn))
                 link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
                 os.makedirs(dn, exist_ok=False)
-                if hardlinks:
-                    # TODO: what if target is an input from a different filesystem?
-                    if isinstance(v, Value.Directory):
-                        shutil.copytree(target, link, symlinks=True, copy_function=link_force)
-                    else:
-                        link_force(target, link)
-                else:
-                    symlink_force(target, link)
+                link1(target, link, isinstance(v, Value.Directory))
                 # Drop a dotfile alongside Directory outputs, to inform a program crawling the out/
                 # directory without reference to the output types or JSON for whatever reason. It
                 # might otherwise have trouble distinguishing Directory outputs among the
@@ -808,7 +811,7 @@ def link_outputs(
     os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
 
     if use_relative_output_paths:
-        return link_outputs_relative(cache, outputs, run_dir, hardlinks=hardlinks)
+        return link_outputs_relative(link1, cache, outputs, run_dir, hardlinks=hardlinks)
 
     return outputs.map(
         lambda binding: Env.Binding(
@@ -819,6 +822,7 @@ def link_outputs(
 
 
 def link_outputs_relative(
+    link1: Callable[[str, str, bool], None],
     cache: CallCache,
     outputs: Env.Bindings[Value.Base],
     run_dir: str,
@@ -869,14 +873,7 @@ def link_outputs_relative(
                     " [file_io] use_relative_output_paths = false. Affected path: " + abs_link
                 )
             os.makedirs(os.path.dirname(abs_link), exist_ok=True)
-            if hardlinks:
-                # TODO: what if target is an input from a different filesystem?
-                if isinstance(v, Value.Directory):
-                    shutil.copytree(real_target, abs_link, symlinks=True, copy_function=link_force)
-                else:
-                    link_force(real_target, abs_link)
-            else:
-                symlink_force(real_target, abs_link)
+            link1(real_target, abs_link, isinstance(v, Value.Directory))
             link_destinations[abs_link] = real_target
             return abs_link
         return v.value
