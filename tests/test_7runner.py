@@ -1225,3 +1225,50 @@ class TestDockerNetwork(RunnerTestCase):
             {"docker_swarm": {"allow_networks": ["host"]}}
         )
         self._run(wdl, {}, cfg=cfg)
+
+
+class TestRelativeOutputPaths(RunnerTestCase):
+    """
+    More tests for this feature are in runner.t. This one is for basic coverage.
+    """
+    wdl = """
+    version development
+    workflow w {
+        input {
+            Array[String] names
+        }
+        scatter (name in names) {
+            call t {
+                input: name
+            }
+        }
+        output {
+            Array[File] messages = t.message
+        }
+    }
+    task t {
+        input {
+            String name
+        }
+        command <<<
+            mkdir message
+            echo "Hello, ~{name}]" > 'message/~{name}.txt'
+        >>>
+        output {
+            File message = "message/~{name}.txt"
+        }
+    }
+    """
+
+    def test_ok(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"use_relative_output_paths": True}})
+        outp = self._run(self.wdl, {"names": ["Alyssa", "Ben"]}, cfg=cfg)
+        self.assertTrue(outp["messages"][0].endswith("message/Alyssa.txt"))
+        self.assertTrue(outp["messages"][1].endswith("message/Ben.txt"))
+
+    def test_collision(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"use_relative_output_paths": True}})
+        with self.assertRaises(WDL.runtime.error.RunFailed):
+            self._run(self.wdl, {"names": ["Ben", "Ben"]}, cfg=cfg)
