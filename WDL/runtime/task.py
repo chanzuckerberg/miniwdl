@@ -855,7 +855,7 @@ def link_outputs_relative(
                 # user's cwd or the task-generated relative path might coincidentally have
                 # something named 'out'.
                 p = None
-                for p in reversed([m.span()[0] for m in regex.finditer("/out/", target)]):
+                for p in reversed([m.span()[0] for m in regex.finditer("/out(?=/)", target)]):
                     if p and (
                         os.path.isfile(os.path.join(target[:p], "task.log"))
                         or os.path.isfile(os.path.join(target[:p], "workflow.log"))
