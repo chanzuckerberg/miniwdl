@@ -1251,11 +1251,11 @@ class TestRelativeOutputPaths(RunnerTestCase):
             String name
         }
         command <<<
-            mkdir message
-            echo "Hello, ~{name}]" > 'message/~{name}.txt'
+            mkdir out
+            echo "Hello, ~{name}]" > 'out/~{name}.txt'
         >>>
         output {
-            File message = "message/~{name}.txt"
+            File message = "out/~{name}.txt"
         }
     }
     """
@@ -1264,8 +1264,8 @@ class TestRelativeOutputPaths(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"file_io": {"use_relative_output_paths": True}})
         outp = self._run(self.wdl, {"names": ["Alyssa", "Ben"]}, cfg=cfg)
-        self.assertTrue(outp["messages"][0].endswith("message/Alyssa.txt"))
-        self.assertTrue(outp["messages"][1].endswith("message/Ben.txt"))
+        self.assertTrue(outp["messages"][0].endswith("/out/out/Alyssa.txt"))
+        self.assertTrue(outp["messages"][1].endswith("/out/out/Ben.txt"))
 
     def test_collision(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
