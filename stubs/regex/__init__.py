@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Iterator, Tuple
 
 POSIX: int
 UNICODE: int
@@ -15,4 +15,11 @@ def compile(pattern, flags=0, **kwargs) -> Pattern:
     ...
 
 def fullmatch(pat: str, string: str) -> Any:
+    ...
+
+class Match:
+    def span(self) -> Tuple[int, int]:
+        ...
+
+def finditer(pattern: str, string:str) -> Iterator[Match]:
     ...
