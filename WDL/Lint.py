@@ -172,26 +172,40 @@ def _find_input_decl(obj: Tree.Call, name: str) -> Tree.Decl:
     return obj.callee.available_inputs[name]
 
 
-def _compound_coercion(to_type, from_type, base_to_type, from_type_predicate=None):
+def _compound_coercion(
+    to_type, from_type, base_to_type=Type.Any, from_type_predicate=None, predicates=None
+):
     # helper for StringCoercion and FileCoercion to detect coercions implied
     # within compound types like arrays
+    # TODO: scheme to target error messages to specific offending type parameter (especially for
+    # struct fields and nested structs)
+    kwargs = {
+        "base_to_type": base_to_type,
+        "from_type_predicate": from_type_predicate,
+        "predicates": predicates,
+    }
     if isinstance(to_type, Type.Array) and isinstance(from_type, Type.Array):
-        return _compound_coercion(
-            to_type.item_type, from_type.item_type, base_to_type, from_type_predicate
-        )
+        return _compound_coercion(to_type.item_type, from_type.item_type, **kwargs)
     if isinstance(to_type, Type.Map) and isinstance(from_type, Type.Map):
         return _compound_coercion(
-            to_type.item_type[0], from_type.item_type[0], base_to_type, from_type_predicate
-        ) or _compound_coercion(
-            to_type.item_type[1], from_type.item_type[1], base_to_type, from_type_predicate
-        )
+            to_type.item_type[0], from_type.item_type[0], **kwargs
+        ) or _compound_coercion(to_type.item_type[1], from_type.item_type[1], **kwargs)
     if isinstance(to_type, Type.Pair) and isinstance(from_type, Type.Pair):
         return _compound_coercion(
-            to_type.left_type, from_type.left_type, base_to_type, from_type_predicate
-        ) or _compound_coercion(
-            to_type.right_type, from_type.right_type, base_to_type, from_type_predicate
-        )
+            to_type.left_type, from_type.left_type, **kwargs
+        ) or _compound_coercion(to_type.right_type, from_type.right_type, **kwargs)
+    if (
+        isinstance(to_type, Type.StructInstance)
+        and to_type.members
+        and isinstance(from_type, Type.Object)
+    ):
+        for field, field_type in from_type.members.items():
+            if _compound_coercion(to_type.members[field], field_type, **kwargs):
+                return True
+        return False
     if isinstance(to_type, base_to_type):
+        if predicates:
+            return predicates(to_type, from_type)
         if not from_type_predicate:
             from_type_predicate = lambda ty: not isinstance(  # noqa: disable=E731
                 ty, (base_to_type, Type.Any)
@@ -1169,3 +1183,85 @@ class Deprecated(Linter):
             and _find_doc(obj).effective_wdl_version not in ("draft-2", "1.0")
         ):
             self.add(obj, "replace 'object' with specific struct type [WDL >= 1.1]", obj.pos)
+
+        # The remainder of this class body deals with issue 596, future tightening of typechecking
+        # implicit coercions from optional non-String expressions where non-optional String is
+        # expected
+
+        if isinstance(obj, Expr.Apply):
+            if obj.function_name == "_add":
+                assert len(obj.arguments) == 2
+                arg0ty = obj.arguments[0].type
+                arg1ty = obj.arguments[1].type
+                if (isinstance(arg0ty, Type.String) or isinstance(arg1ty, Type.String)) and (
+                    _issue596_coercion(Type.String(), arg0ty)
+                    or _issue596_coercion(Type.String(), arg1ty)
+                ):
+                    self.add(
+                        obj,
+                        "future miniwdl version will disallow optional "
+                        + str(arg0ty if isinstance(arg1ty, Type.String) else arg1ty)
+                        + " operand in string concatenation; use select_first() coercion",
+                        obj.pos,
+                    )
+            else:
+                F = getattr(
+                    StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name
+                )
+                if isinstance(F, StdLib.StaticFunction):
+                    for i in range(min(len(F.argument_types), len(obj.arguments))):
+                        F_i = F.argument_types[i]
+                        arg_i = obj.arguments[i].type
+                        if _issue596_coercion(F_i, arg_i):
+                            msg = (
+                                f"future miniwdl version will disallow optional {arg_i}"
+                                f" for non-optional String argument of {obj.function_name}()"
+                                + "; use select_first() coercion"
+                            )
+                            self.add(obj, msg, obj.arguments[i].pos)
+
+        if (
+            isinstance(obj, Expr.Struct)
+            and isinstance(obj.type, Type.StructInstance)
+            and obj.type.members
+        ):
+            for field, field_expr in obj.members.items():
+                if _issue596_coercion(obj.type.members[field], field_expr.type):
+                    msg = (
+                        f"future miniwdl version will disallow optional expression within {field_expr.type} for"
+                        f" non-optional String within member {obj.type.members[field]} {field}"
+                        "; use select_first() or select_all() coercion"
+                    )
+                    self.add(obj, msg, field_expr.pos)
+
+    def decl(self, obj: Tree.Decl) -> Any:
+        if obj.expr and _issue596_coercion(obj.type, obj.expr.type):
+            self.add(
+                obj,
+                f"future miniwdl version will disallow optional expression within {obj.expr.type} for non-optional"
+                f" String within {obj.expr.type} {obj.name}; use select_first() or select_all() coercion",
+            )
+
+    def call(self, obj: Tree.Call) -> Any:
+        for name, inp_expr in obj.inputs.items():
+            decl = _find_input_decl(obj, name)
+            # treat input with default as optional, with or without the ? type quantifier
+            decltype = decl.type.copy(optional=True) if decl.expr else decl.type
+            if _issue596_coercion(decltype, inp_expr.type):
+                self.add(
+                    obj,
+                    f"future miniwdl version will disallow optional expression within {inp_expr.type} for non-optional"
+                    f" String within input {decltype} {decl.name}; use select_first() or select_all() coercion",
+                )
+
+
+def _issue596_coercion(to_type, from_type):
+    return _compound_coercion(
+        to_type,
+        from_type,
+        Type.String,
+        predicates=lambda to_type2, from_type2: isinstance(to_type2, Type.String)
+        and not to_type2.optional
+        and not isinstance(from_type2, Type.String)
+        and from_type2.optional,
+    )

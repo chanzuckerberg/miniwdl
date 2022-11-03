@@ -444,7 +444,7 @@ def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
     enable_patterns = cfg["plugins"].get_list("enable_patterns")
     disable_patterns = cfg["plugins"].get_list("disable_patterns")
     for plugin in defaults[group] + list(
-        importlib_metadata.entry_points().get(f"miniwdl.plugin.{group}", [])
+        importlib_metadata.entry_points(group=f"miniwdl.plugin.{group}")
     ):
         enabled = next(
             (pat for pat in enable_patterns if fnmatchcase(plugin.value, pat)), False

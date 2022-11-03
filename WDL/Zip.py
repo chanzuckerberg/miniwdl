@@ -115,7 +115,7 @@ def build_zip_paths(
             # place outside import under __outside_wdl, vaguely reproducing directory structure
             abspath2 = abspath.replace("://", "_")
             prefix = os.path.commonprefix([abspath2, main_dir.replace("://", "_")])
-            assert abspath2.startswith(prefix) and prefix.endswith("/")
+            assert not prefix or (abspath2.startswith(prefix) and prefix.endswith("/"))
             ans[abspath] = "__outside_wdl/" + abspath2[len(prefix) :]
             outside_warn = True
         logger.info(f"{ans[abspath]} <= {abspath}")
@@ -146,15 +146,17 @@ def rewrite_imports(
             new_uri = os.path.relpath(
                 zip_paths[imp.doc.pos.abspath], os.path.dirname(zip_paths[doc.pos.abspath])
             )
-            old_uri_pattern = f'"{old_uri}"'
-            if old_uri_pattern in line:
-                found = True
-            line2 = line.replace(old_uri_pattern, f'"{new_uri}"')
-            if line != line2:
-                logger.debug(doc.pos.abspath)
-                logger.debug("  " + line)
-                logger.debug("  => " + line2)
-                source_lines[lineno] = line2
+            for quot in ('"', "'"):
+                old_uri_pattern = f"{quot}{old_uri}{quot}"
+                if old_uri_pattern in line:
+                    assert quot not in new_uri
+                    found = True
+                    line2 = line.replace(old_uri_pattern, f"{quot}{new_uri}{quot}")
+                    if line != line2:
+                        logger.debug(doc.pos.abspath)
+                        logger.debug("  " + line)
+                        logger.debug("  => " + line2)
+                        source_lines[lineno] = line2
         assert found
 
     return source_lines
@@ -219,13 +221,11 @@ def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
     `UnpackedZip`. The temp directory will be deleted on context exit.
 
     A path to the MANIFEST.json of an already-unpacked source archive may also be used, or a
-    directory containing one. In this case, it is NOT deleted on context exit.
+    directory containing one. In this case, it is NOT deleted on context exit. ::
 
-    ```
-    with WDL.Zip.unpack("/path/to/source.zip") as unpacked:
-        doc = WDL.load(unpacked.main_wdl)
-        ...
-    ```
+        with WDL.Zip.unpack("/path/to/source.zip") as unpacked:
+            doc = WDL.load(unpacked.main_wdl)
+            ...
     """
     with contextlib.ExitStack() as cleanup:
         # extract zip if needed (also allowing use of already-extracted manifest/dir)

@@ -10,7 +10,7 @@ class EntryPoint:
 def version(pkg: str) -> str:
     ...
 
-def entry_points() -> Dict[str, Iterable[EntryPoint]]:
+def entry_points(**kwargs) -> Iterable[EntryPoint]:
     ...
 
 class PackageNotFoundError(Exception):

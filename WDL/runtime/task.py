@@ -125,7 +125,11 @@ def run_local_task(
                     )
                 # create out/ and outputs.json
                 _outputs = link_outputs(
-                    cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache,
+                    cached,
+                    run_dir,
+                    hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
                 write_values_json(
                     cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
@@ -203,7 +207,11 @@ def run_local_task(
 
                 # create output_links
                 outputs = link_outputs(
-                    cache, outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache,
+                    outputs,
+                    run_dir,
+                    hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
 
                 # process outputs through plugins
@@ -719,7 +727,11 @@ def _check_directory(host_path: str, output_name: str) -> None:
 
 
 def link_outputs(
-    cache: CallCache, outputs: Env.Bindings[Value.Base], run_dir: str, hardlinks: bool = False
+    cache: CallCache,
+    outputs: Env.Bindings[Value.Base],
+    run_dir: str,
+    hardlinks: bool = False,
+    use_relative_output_paths: bool = False,
 ) -> Env.Bindings[Value.Base]:
     """
     Following a successful run, the output files may be scattered throughout a complex directory
@@ -727,6 +739,16 @@ def link_outputs(
     containing nicely organized symlinks to the output files, and rewrite File values in the
     outputs env to use these symlinks.
     """
+
+    def link1(target: str, link: str, directory: bool) -> None:
+        if hardlinks:
+            # TODO: what if target is an input from a different filesystem?
+            if directory:
+                shutil.copytree(target, link, symlinks=True, copy_function=link_force)
+            else:
+                link_force(target, link)
+        else:
+            symlink_force(target, link)
 
     def map_paths(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, (Value.File, Value.Directory)):
@@ -743,14 +765,7 @@ def link_outputs(
                     target = os.path.relpath(target, start=os.path.realpath(dn))
                 link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
                 os.makedirs(dn, exist_ok=False)
-                if hardlinks:
-                    # TODO: what if target is an input from a different filesystem?
-                    if isinstance(v, Value.Directory):
-                        shutil.copytree(target, link, symlinks=True, copy_function=link_force)
-                    else:
-                        link_force(target, link)
-                else:
-                    symlink_force(target, link)
+                link1(target, link, isinstance(v, Value.Directory))
                 # Drop a dotfile alongside Directory outputs, to inform a program crawling the out/
                 # directory without reference to the output types or JSON for whatever reason. It
                 # might otherwise have trouble distinguishing Directory outputs among the
@@ -771,7 +786,8 @@ def link_outputs(
                 sum(
                     1
                     for b in v.value
-                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0])) is None
+                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0]).strip("'\""))
+                    is None
                 )
                 == 0
             )
@@ -780,7 +796,10 @@ def link_outputs(
                 v.value[i] = (
                     b[0],
                     map_paths(
-                        b[1], os.path.join(dn, str(b[0]) if keys_ok else str(i).rjust(d, "0"))
+                        b[1],
+                        os.path.join(
+                            dn, str(b[0]).strip("'\"") if keys_ok else str(i).rjust(d, "0")
+                        ),
                     ),
                 )
         elif isinstance(v, Value.Pair):
@@ -794,12 +813,76 @@ def link_outputs(
         return v
 
     os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
+
+    if use_relative_output_paths:
+        return link_outputs_relative(link1, cache, outputs, run_dir, hardlinks=hardlinks)
+
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
             map_paths(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
         )
     )
+
+
+def link_outputs_relative(
+    link1: Callable[[str, str, bool], None],
+    cache: CallCache,
+    outputs: Env.Bindings[Value.Base],
+    run_dir: str,
+    hardlinks: bool = False,
+) -> Env.Bindings[Value.Base]:
+    """
+    link_outputs with [file_io] use_relative_output_paths = true. We organize the links to reflect
+    the generated files' paths relative to their task working directory.
+    """
+    link_destinations = dict()
+
+    def map_path_relative(v: Union[Value.File, Value.Directory]) -> str:
+        target = (
+            v.value
+            if os.path.exists(v.value)
+            else cache.get_download(v.value, isinstance(v, Value.Directory))
+        )
+        if target:
+            real_target = os.path.realpath(target)
+            rel_link = None
+            if path_really_within(target, os.path.join(run_dir, "work")):
+                # target was generated by current task; use its path relative to the task work dir
+                if not os.path.basename(run_dir).startswith("download-"):  # except download tasks
+                    rel_link = os.path.relpath(real_target, os.path.join(run_dir, "work"))
+            else:
+                # target is an out/ link generated by a call in the current workflow OR a cached
+                # run; use the link's path relative to that out/ dir, which by induction should
+                # equal its path relative to the original work/ dir.
+                # we need heuristic to find the out/ dir in a task/workflow run directory, since the
+                # user's cwd or the task-generated relative path might coincidentally have
+                # something named 'out'.
+                p = None
+                for p in reversed([m.span()[0] for m in regex.finditer("/out(?=/)", target)]):
+                    if p and (
+                        os.path.isfile(os.path.join(target[:p], "task.log"))
+                        or os.path.isfile(os.path.join(target[:p], "workflow.log"))
+                    ):
+                        break
+                    p = None
+                if p and p + 5 < len(target):
+                    rel_link = os.path.relpath(target, target[: p + 5])
+            # if neither of the above cases applies, then fall back to just the target basename
+            rel_link = rel_link or os.path.basename(target)
+            abs_link = os.path.join(os.path.join(run_dir, "out"), rel_link)
+            if link_destinations.get(abs_link, real_target) != real_target:
+                raise FileExistsError(
+                    "Output filename collision; to allow this, set"
+                    " [file_io] use_relative_output_paths = false. Affected path: " + abs_link
+                )
+            os.makedirs(os.path.dirname(abs_link), exist_ok=True)
+            link1(real_target, abs_link, isinstance(v, Value.Directory))
+            link_destinations[abs_link] = real_target
+            return abs_link
+        return v.value
+
+    return Value.rewrite_env_paths(outputs, map_path_relative)
 
 
 def _delete_work(

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='miniwdl_s3_progressive_upload',
-    version='0.0.1',
+    version='0.1.0',
     description='miniwdl plugin for progressive upload of task output files to Amazon S3',
     author='Wid L. Hacker',
     py_modules=["miniwdl_s3_progressive_upload"],

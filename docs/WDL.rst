@@ -53,6 +53,11 @@ Lint
 ----
 .. automodule:: WDL.Lint
 
+Zip
+----
+.. automodule:: WDL.Zip
+   :members:
+
 runtime
 -------
 .. automodule:: WDL.runtime
