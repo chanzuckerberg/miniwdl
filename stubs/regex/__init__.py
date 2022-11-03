@@ -1,4 +1,4 @@
-from typing import Any, Iterator, Tuple
+from typing import Any, Iterator, Tuple, List
 
 POSIX: int
 UNICODE: int
@@ -9,6 +9,9 @@ class Pattern:
         ...
 
     def sub(self, repl: str, string: str) -> str:
+        ...
+
+    def split(self, string: str) -> List[str]:
         ...
 
 def compile(pattern, flags=0, **kwargs) -> Pattern:

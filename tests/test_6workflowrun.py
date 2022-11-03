@@ -232,6 +232,44 @@ class TestWorkflowRunner(unittest.TestCase):
             {"left": 3, "right": 1}
         ])
 
+    def test_scatter_tags(self):
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow scatter_tags {
+            input {
+                Array[String] firsts = ["Alyssa P.", "Ben"]
+                Array[String] lasts = ["Hacker", "Bitdiddle0123456", "Bitdiddle01234567"]
+            }
+            scatter (first in firsts) {
+                scatter (last in lasts) {
+                    call hello {
+                        input:
+                        who = "~{first} ~{last}"
+                    }
+                }
+            }
+            output {
+                Array[File] messages = flatten(hello.message)
+            }
+        }
+
+        task hello {
+            input {
+                String who
+            }
+            command {
+                echo "Hello, ~{who}!" > message.txt
+            }
+            output {
+                File message = "message.txt"
+            }
+        }
+        """)
+        for tag in ("-0-AlyssaP-0-Hacker/", "-0-AlyssaP-1-Bitdiddle0123456/", "-0-AlyssaP-2-itdiddle01234567/",
+                    "-1-Ben-0-Hacker/", "-1-Ben-1-Bitdiddle0123456/", "-1-Ben-2-itdiddle01234567/"):
+            self.assertTrue(next(True for fn in outputs["messages"] if tag in os.path.realpath(fn)))
+
     def test_ifs(self):
         outputs = self._test_workflow("""
         version 1.0
