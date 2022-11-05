@@ -423,7 +423,10 @@ class String(Base):
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
-        return Value.String("".join(ans)[1:-1])
+        delim = self.parts[0]
+        assert isinstance(delim, str)
+        assert delim == self.parts[-1]
+        return Value.String("".join(ans)[len(delim) : -len(delim)])
 
     @property
     def literal(self) -> Optional[Value.Base]:

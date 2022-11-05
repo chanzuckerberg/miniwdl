@@ -436,7 +436,7 @@ object_kv:  CNAME ":" expr
         | FLOAT -> float
         | SIGNED_FLOAT -> float
 
-?string: string1 | string2
+?string: string1 | string2 | multistring1
 
 STRING_INNER1: ("\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
@@ -453,6 +453,12 @@ string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -
 STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
+
+// '''multi-line string'''
+MULTISTRING1_DELIM.2: /'''/
+MULTISTRING1_CHAR: /[^~$']/ | /~(?=[^{])/ | /\$(?=[^{])/ | /'(?=[^'])/ | /''(?=[^'])/
+MULTISTRING1_FRAGMENT: MULTISTRING1_CHAR+
+multistring1: MULTISTRING1_DELIM (MULTISTRING1_FRAGMENT? _EITHER_DELIM placeholder "}")* MULTISTRING1_FRAGMENT? MULTISTRING1_DELIM -> string
 
 COMMAND1_CHAR: /[^~$}]/ | /\$(?=[^{])/ | /~(?=[^{])/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+

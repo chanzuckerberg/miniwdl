@@ -397,6 +397,13 @@ class TestEval(unittest.TestCase):
             ("true || 1/0 == 1", "true"),
         )
 
+    def test_multiline_string(self):
+        def _tt(s, ex):
+            self._test_tuples((s, json.dumps(ex), "development"))
+        _tt("""'''
+                The quick brown fox jumps over the lazy dog.'''""",
+             "The quick brown fox jumps over the lazy dog.")
+
 def cons_env(*bindings):
     b = WDL.Env.Bindings()
     for (x,y) in bindings:

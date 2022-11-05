@@ -53,6 +53,15 @@ class BadCharacterEncoding(Exception):
         self.pos = pos
 
 
+class BadMultilineString(Exception):
+    pos: SourcePosition
+    message: str
+
+    def __init__(self, pos: SourcePosition, message: str):
+        self.pos = pos
+        self.message = message
+
+
 # Decode backslash-escape sequences in a str that may also contain unescaped, non-ASCII unicode
 # characters. Inspired by: https://stackoverflow.com/a/24519338/13393076 however that solution
 # fails to reject some invalid escape sequences.
@@ -121,9 +130,47 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 # ...but preserve originals in AST.
                 parts.append(item.value)
         assert len(parts) >= 2
-        assert parts[0] in ['"', "'"]
-        assert parts[-1] in ['"', "'"]
+        assert parts[0] in ['"', "'", '"""', "'''"]
+        assert parts[-1] in ['"', "'", '"""', "'''"]
+        assert parts[0] == parts[-1]
+        if parts[0] in ('"""', "'''"):
+            # multi-line string:
+            # 1) strip common leading whitespace
+            self._dedent_multistring(meta, parts)
+            # 2) throw if there are non-whitespace chars on the same line as the opening tridelimiter
+            # 3) modify Expr.String.eval to deal with escape sequences (esp. removal of escaped newlines)
+            # Q: current string grammar doesn't actually disallow newlines; make Lint warning for this?
         return Expr.String(self._sp(meta), parts)
+
+    def _dedent_multistring(self, meta, parts):
+        if not isinstance(parts[1], str) or "\n" not in parts[1] or parts[1].split("\n")[0].strip():
+            raise BadMultilineString(
+                self._sp(meta), "multiline string delimiter must be followed by a newline"
+            )
+        lines = []
+        for part in parts[1:-1]:
+            if isinstance(part, str):
+                lines += part.split("\n")
+        assert len(lines) >= 2 and not lines[0].strip()
+        lines = lines[1:]
+        ws = None
+        for line in lines:
+            if not line:
+                ws = ""
+                break
+            line_ws = line[
+                : next((p for p in range(len(line)) if line[p] not in (" ", "\t")), len(line))
+            ]
+            if ws is None:
+                ws = line_ws
+            else:
+                maxlen = max(len(ws), len(line_ws))
+                ws = ws[: next((p for p in range(maxlen) if ws[p] != line_ws[p]), maxlen)]
+        assert ws is not None
+        parts[1] = parts[1][parts[1].index("\n") + 1 + len(ws) :]
+        for i in range(1, len(parts) - 1):
+            if isinstance(parts[i], str):
+                parts[i] = parts[i].replace("\n" + ws, "\n")
 
     def string_literal(self, meta, items):
         assert len(items) == 1
@@ -679,6 +726,8 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
                 version,
                 None,
             ) from None
+        elif isinstance(exn, BadMultilineString):
+            raise Error.SyntaxError(exn.pos, exn.message, version, None) from None
         # attach WDL version info to all parser exceptions (not just SyntaxError)
         setattr(exn, "wdl_version", version)
         setattr(exn, "declared_wdl_version", None)
@@ -733,6 +782,8 @@ def _parse_doctransformer(
                 version,
                 declared_version,
             ) from None
+        elif isinstance(exn, BadMultilineString):
+            raise Error.SyntaxError(exn.pos, exn.message, version, declared_version) from None
         # attach WDL version info to all parser exceptions (not just SyntaxError)
         setattr(exn, "wdl_version", version)
         setattr(exn, "declared_wdl_version", declared_version)
