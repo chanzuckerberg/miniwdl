@@ -172,11 +172,26 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 ws = ws[: next((p for p in range(minlen) if ws[p] != line_ws[p]), minlen)]
         # remove TextBlockWhiteSpace from the first part (after delimiter)
         parts[1] = parts[1][parts[1].index("\n") :]
-        # remove the common leading whitespace from the lines in each part
+        # from the lines in each remaining part, remove the common leading whitespace and any
+        # escaped newlines (newlines preceded by an odd number of backslashes)
         if ws is not None:
             for i in range(1, len(parts) - 1):
                 if isinstance(parts[i], str):
-                    parts[i] = parts[i].replace("\n" + ws, "\n")
+                    part_lines = parts[i].split("\n")
+                    for j in range(len(part_lines)):
+                        if part_lines[j]:
+                            assert part_lines[j][: len(ws)] == ws
+                            part_lines[j] = part_lines[j][len(ws) :]
+                    for j in range(len(part_lines) - 1):
+                        if (
+                            part_lines[j]
+                            and part_lines[j][-1] == "\\"
+                            and len(part_lines[j]) - len(part_lines[j].rstrip("\\")) % 2 == 1
+                        ):
+                            part_lines[j] = part_lines[j][:-1]
+                        else:
+                            part_lines[j] += "\n"
+                    parts[i] = "".join(part_lines)
         assert parts[1].startswith("\n")
         parts[1] = parts[1][1:]
 

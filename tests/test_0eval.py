@@ -413,11 +413,19 @@ class TestEval(unittest.TestCase):
         _tt("'''\n'''", "")
         _tt("'''\n  '''", "")
         _tt("'''\n\n  '''", "\n")
+        _tt("'''\n   \n \t '''", "  \n\t ")
 
         _tt("'''\nthis is a\n  multi-line string'''", "this is a\n  multi-line string")
         _tt("'''\n    this is a\n      multi-line string'''", "this is a\n  multi-line string")
 
         _tt("'''\n      text indented by 4 spaces\n  '''", "    text indented by 4 spaces\n")
+
+        _tt("'''\n\\\n  '''", "  ")
+        _tt("""'''
+                this is a \\
+                double-quoted string \\
+                that contains no newlines'''""",
+            "this is a double-quoted string that contains no newlines")
 
 def cons_env(*bindings):
     b = WDL.Env.Bindings()
