@@ -403,6 +403,24 @@ class TestEval(unittest.TestCase):
         _tt("""'''
                 The quick brown fox jumps over the lazy dog.'''""",
              "The quick brown fox jumps over the lazy dog.")
+        _tt("""'''
+                The quick brown fox
+                \tjumps over the lazy dog.'''""",
+             "The quick brown fox\n\tjumps over the lazy dog.")
+        _tt("""'''
+                The quick brown fox
+              jumps over the lazy dog.'''""",
+             "  The quick brown fox\njumps over the lazy dog.")
+        _tt("""'''
+'''         """,
+             "")
+        _tt("""'''
+  '''         """,
+             "")
+        _tt("""'''
+
+  '''         """,
+             "\n")
 
 def cons_env(*bindings):
     b = WDL.Env.Bindings()

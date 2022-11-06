@@ -143,34 +143,42 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return Expr.String(self._sp(meta), parts)
 
     def _dedent_multistring(self, meta, parts):
-        if not isinstance(parts[1], str) or "\n" not in parts[1] or parts[1].split("\n")[0].strip():
+        # check for the required TextBlockWhiteSpace (Java spec terminology)
+        if (
+            not isinstance(parts[1], str)
+            or "\n" not in parts[1]
+            or parts[1][: parts[1].index("\n")].strip()
+        ):
             raise BadMultilineString(
                 self._sp(meta), "multiline string delimiter must be followed by a newline"
             )
+        # extract lines from string parts (excluding placeholders)
         lines = []
         for part in parts[1:-1]:
             if isinstance(part, str):
                 lines += part.split("\n")
         assert len(lines) >= 2 and not lines[0].strip()
-        lines = lines[1:]
+        lines = lines[1:]  # we confirmed the first line to be TextBlockWhiteSpace
+        # detect the lines' common leading whitespace (possibly empty string)
         ws = None
         for line in lines:
             if not line:
-                ws = ""
-                break
-            line_ws = line[
-                : next((p for p in range(len(line)) if line[p] not in (" ", "\t")), len(line))
-            ]
+                continue
+            line_ws = line[: len(line) - len(line.lstrip())]
             if ws is None:
                 ws = line_ws
             else:
-                maxlen = max(len(ws), len(line_ws))
-                ws = ws[: next((p for p in range(maxlen) if ws[p] != line_ws[p]), maxlen)]
-        assert ws is not None
-        parts[1] = parts[1][parts[1].index("\n") + 1 + len(ws) :]
-        for i in range(1, len(parts) - 1):
-            if isinstance(parts[i], str):
-                parts[i] = parts[i].replace("\n" + ws, "\n")
+                minlen = min(len(ws), len(line_ws))
+                ws = ws[: next((p for p in range(minlen) if ws[p] != line_ws[p]), minlen)]
+        # remove TextBlockWhiteSpace from the first part (after delimiter)
+        parts[1] = parts[1][parts[1].index("\n") :]
+        # remove the common leading whitespace from the lines in each part
+        if ws is not None:
+            for i in range(1, len(parts) - 1):
+                if isinstance(parts[i], str):
+                    parts[i] = parts[i].replace("\n" + ws, "\n")
+        assert parts[1].startswith("\n")
+        parts[1] = parts[1][1:]
 
     def string_literal(self, meta, items):
         assert len(items) == 1
