@@ -400,9 +400,8 @@ class TestEval(unittest.TestCase):
     def test_multiline_string(self):
         def _tt(s, ex):
             self._test_tuples((s, json.dumps(ex), "development"))
-        _tt("""'''
-                The quick brown fox jumps over the lazy dog.'''""",
-             "The quick brown fox jumps over the lazy dog.")
+        _tt("'''\n    The quick brown fox jumps over the lazy dog.'''",
+            "The quick brown fox jumps over the lazy dog.")
         _tt("""'''
                 The quick brown fox
                 \tjumps over the lazy dog.'''""",
@@ -411,16 +410,14 @@ class TestEval(unittest.TestCase):
                 The quick brown fox
               jumps over the lazy dog.'''""",
              "  The quick brown fox\njumps over the lazy dog.")
-        _tt("""'''
-'''         """,
-             "")
-        _tt("""'''
-  '''         """,
-             "")
-        _tt("""'''
+        _tt("'''\n'''", "")
+        _tt("'''\n  '''", "")
+        _tt("'''\n\n  '''", "\n")
 
-  '''         """,
-             "\n")
+        _tt("'''\nthis is a\n  multi-line string'''", "this is a\n  multi-line string")
+        _tt("'''\n    this is a\n      multi-line string'''", "this is a\n  multi-line string")
+
+        _tt("'''\n      text indented by 4 spaces\n  '''", "    text indented by 4 spaces\n")
 
 def cons_env(*bindings):
     b = WDL.Env.Bindings()
