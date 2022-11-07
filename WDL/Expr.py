@@ -423,9 +423,10 @@ class String(Base):
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
+        if self.command:
+            return Value.String("".join(ans))
         delim = self.parts[0]
-        assert isinstance(delim, str)
-        assert delim == self.parts[-1]
+        assert delim in ("'", '"', "'''", '"""') and delim == self.parts[-1]
         return Value.String("".join(ans)[len(delim) : -len(delim)])
 
     @property
