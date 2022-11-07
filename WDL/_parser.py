@@ -134,12 +134,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         assert parts[-1] in ['"', "'", '"""', "'''"]
         assert parts[0] == parts[-1]
         if parts[0] in ('"""', "'''"):
-            # multi-line string:
-            # 1) strip common leading whitespace
             self._dedent_multistring(meta, parts)
-            # 2) throw if there are non-whitespace chars on the same line as the opening tridelimiter
-            # 3) modify Expr.String.eval to deal with escape sequences (esp. removal of escaped newlines)
-            # Q: current string grammar doesn't actually disallow newlines; make Lint warning for this?
         return Expr.String(self._sp(meta), parts)
 
     def _dedent_multistring(self, meta, parts):
@@ -153,10 +148,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 self._sp(meta), "multiline string delimiter must be followed by a newline"
             )
         # extract lines from string parts (excluding placeholders)
-        lines = []
-        for part in parts[1:-1]:
-            if isinstance(part, str):
-                lines += part.split("\n")
+        lines = "".join(part for part in parts[1:-1] if isinstance(part, str)).split("\n")
         assert len(lines) >= 2 and not lines[0].strip()
         lines = lines[1:]  # we confirmed the first line to be TextBlockWhiteSpace
         # detect the lines' common leading whitespace (possibly empty string)
@@ -175,11 +167,14 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         # from the lines in each remaining part, remove the common leading whitespace and any
         # escaped newlines (newlines preceded by an odd number of backslashes)
         if ws is not None:
+            at_new_line = True
             for i in range(1, len(parts) - 1):
-                if isinstance(parts[i], str):
+                if not isinstance(parts[i], str):
+                    at_new_line = False
+                else:
                     part_lines = parts[i].split("\n")
                     for j in range(len(part_lines)):
-                        if part_lines[j]:
+                        if (j > 0 or at_new_line) and part_lines[j]:
                             assert part_lines[j][: len(ws)] == ws
                             part_lines[j] = part_lines[j][len(ws) :]
                     for j in range(len(part_lines) - 1):
@@ -192,8 +187,13 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                         else:
                             part_lines[j] += "\n"
                     parts[i] = "".join(part_lines)
+                    at_new_line = parts[i].endswith("\n")
         assert parts[1].startswith("\n")
         parts[1] = parts[1][1:]
+
+        # TODO, Lint warnings:
+        # 1. single-line string with newlines (we're not currently disallowing?)
+        # 2. common leading whitespace determined by last line with delimeter
 
     def string_literal(self, meta, items):
         assert len(items) == 1

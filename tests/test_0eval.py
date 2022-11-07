@@ -398,6 +398,9 @@ class TestEval(unittest.TestCase):
         )
 
     def test_multiline_string(self):
+        # NOTE: there are more tests for multi-line strings in test/multistring.wdl which is
+        # executed by tests/runner.t. Some cases are easier to write there, without having to
+        # reason about two levels of escaping (python+WDL).
         def _tt(s, ex):
             self._test_tuples((s, json.dumps(ex), "development"))
         _tt("'''\n    The quick brown fox jumps over the lazy dog.'''",
@@ -411,6 +414,7 @@ class TestEval(unittest.TestCase):
               jumps over the lazy dog.'''""",
              "  The quick brown fox\njumps over the lazy dog.")
         _tt("'''\n'''", "")
+        _tt("'''\n \tA\n\n \tB'''", "A\n\nB")
         _tt("'''\n  '''", "")
         _tt("'''\n\n  '''", "\n")
         _tt("'''\n   \n \t '''", "  \n\t ")
@@ -421,11 +425,18 @@ class TestEval(unittest.TestCase):
         _tt("'''\n      text indented by 4 spaces\n  '''", "    text indented by 4 spaces\n")
 
         _tt("'''\n\\\n  '''", "  ")
-        _tt("""'''
-                this is a \\
-                double-quoted string \\
-                that contains no newlines'''""",
-            "this is a double-quoted string that contains no newlines")
+        # NOTE: the following line intentionally ends with two spaces
+        _tt("""'''  
+                multi-line string \\
+                with 'single' and "double" quotes'''""",
+            """multi-line string with 'single' and "double" quotes""")
+
+        self._test_tuples(
+            ("""'''bogus'''""", "", WDL.Error.SyntaxError, "development"),
+            ("""''' bogus\n'''""", "", WDL.Error.SyntaxError, "development"),
+            ("""''' \\\nbogus'''""", "", WDL.Error.SyntaxError, "development"),
+            ("""''''''""", "", WDL.Error.SyntaxError, "development"),
+        )
 
 def cons_env(*bindings):
     b = WDL.Env.Bindings()
