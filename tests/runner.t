@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 89
+plan tests 91
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -237,6 +237,46 @@ EOF
 MINIWDL__FILE_IO__USE_RELATIVE_OUTPUT_PATHS=true $miniwdl run --dir use_relative_paths colliding_workflow.wdl 2> errors.txt
 grep -q "Output filename collision" errors.txt
 is "$?" "0" "use_relative_output_paths throws error on collisions"
+
+cat << 'EOF' > none_output.wdl
+version 1.0
+task create_file_or_not {
+    input {
+        Boolean create_file = true
+    }
+    command <<<
+        ~{true="touch" false="echo" create_file} file
+    >>>
+
+    output {
+      File? out = "file"
+      # This is common when there are a lot of (optional) files output by a
+      # task. Just capture them in one variable as an array, so you can easily
+      # delegate to workflow outputs.
+      Array[File] all_output = select_all([out])
+    }
+}
+
+workflow no_file {
+    input {}
+
+    call create_file_or_not {
+        input:
+          create_file = false
+    }
+
+    output {
+      Array[File] out = create_file_or_not.all_output
+
+    }
+}
+EOF
+
+$miniwdl run --dir use_lists_with_none none_output.wdl
+is "$?" "0" "None outputs in select_all lists handled correctly."
+
+MINIWDL__FILE_IO__USE_RELATIVE_OUTPUT_PATHS=true $miniwdl run --dir use_relative_paths_and lists with_none none_output.wdl
+is "$?" "0" "None outputs in select_all lists handled correctly with relative output paths."
 
 cat << 'EOF' > failer2000.wdl
 version 1.0
