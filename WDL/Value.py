@@ -201,33 +201,12 @@ class File(String):
         if value != value.rstrip("/"):
             raise Error.InputError("WDL.Value.File invalid path: " + value)
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        """"""
-        if self.value is None:
-            # special case for dealing with File? task outputs; see _eval_task_outputs in
-            # runtime/task.py. Only on that path should self.value possibly be None.
-            if isinstance(desired_type, Type.File) and desired_type.optional:
-                return Null(self.expr)
-            else:
-                raise FileNotFoundError()
-        return super().coerce(desired_type)
-
 
 class Directory(String):
     """``value`` has Python type ``str``"""
 
     def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
         super().__init__(value, expr=expr, subtype=Type.Directory())
-
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        """"""
-        if self.value is None:
-            # as above
-            if isinstance(desired_type, Type.Directory) and desired_type.optional:
-                return Null(self.expr)
-            else:
-                raise FileNotFoundError()
-        return super().coerce(desired_type)
 
 
 class Array(Base):
@@ -417,8 +396,12 @@ class Null(Base):
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
         if desired_type and not desired_type.optional and not isinstance(desired_type, Type.Any):
-            # normally the typechecker should prevent this, but it might have
-            # had check_quant=False
+            if isinstance(desired_type, (Type.File, Type.Directory)):
+                # This case arises processing task outputs; we convert nonexistent paths to Null
+                # before coercing to the declared output type (+ checking whether it's optional).
+                raise FileNotFoundError()
+            # normally the typechecker should prevent the following cases, but it might have had
+            # check_quant=False
             if isinstance(desired_type, Type.String):
                 return String("", self.expr)
             if isinstance(desired_type, Type.Array) and desired_type.item_type.optional:
@@ -652,28 +635,46 @@ def _infer_from_json(j: Any) -> Base:
     raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
 
 
-def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], str]) -> Base:
+def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]]) -> Base:
     """
     Produce a deep copy of the given Value with all File & Directory paths (including those nested
-    inside compound Values) rewritten by the given function.
+    inside compound Values) rewritten by the given function. The function may return None to
+    replace the File/Directory value with None/Null.
     """
 
     mapped_paths = set()
 
-    def map_paths(v2: Base) -> Base:
-        if isinstance(v2, (File, Directory)):
-            assert id(v2) not in mapped_paths, f"File/Directory {id(v2)} reused in deepcopy"
-            v2.value = f(v2)
-            mapped_paths.add(id(v2))
-        for ch in v2.children:
-            map_paths(ch)
-        return v2
+    def map_paths(w: Base) -> Base:
+        if isinstance(w, (File, Directory)):
+            assert id(w) not in mapped_paths, f"File/Directory {id(w)} reused in deepcopy"
+            fw = f(w)
+            if fw is None:
+                return Null(expr=w.expr)
+            w.value = fw
+            mapped_paths.add(id(w))
+        elif isinstance(w.value, list):
+            for i, elt in enumerate(w.value):
+                if isinstance(elt, tuple):
+                    assert len(elt) == 2
+                    w.value[i] = (map_paths(elt[0]), map_paths(elt[1]))
+                else:
+                    assert isinstance(elt, Base)
+                    w.value[i] = map_paths(elt)
+        elif isinstance(w.value, tuple):
+            assert len(w.value) == 2
+            w.value = (map_paths(w.value[0]), map_paths(w.value[1]))
+        elif isinstance(w.value, dict):
+            for key in w.value:
+                w.value[key] = map_paths(w.value[key])
+        else:
+            assert w.value is None or isinstance(w.value, (int, float, bool, str))
+        return w
 
     return map_paths(copy.deepcopy(v))
 
 
 def rewrite_env_paths(
-    env: Env.Bindings[Base], f: Callable[[Union[File, Directory]], str]
+    env: Env.Bindings[Base], f: Callable[[Union[File, Directory]], Optional[str]]
 ) -> Env.Bindings[Base]:
     """
     Produce a deep copy of the given Value Env with all File & Directory paths rewritten by the
@@ -682,7 +683,7 @@ def rewrite_env_paths(
     return env.map(lambda binding: Env.Binding(binding.name, rewrite_paths(binding.value, f)))
 
 
-def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
+def rewrite_files(v: Base, f: Callable[[str], Optional[str]]) -> Base:
     """
     Produce a deep copy of the given Value with all File names rewritten by the given function
     (including Files nested inside compound Values).
@@ -693,7 +694,9 @@ def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
     return rewrite_paths(v, lambda fd: f(fd.value) if isinstance(fd, File) else fd.value)
 
 
-def rewrite_env_files(env: Env.Bindings[Base], f: Callable[[str], str]) -> Env.Bindings[Base]:
+def rewrite_env_files(
+    env: Env.Bindings[Base], f: Callable[[str], Optional[str]]
+) -> Env.Bindings[Base]:
     """
     Produce a deep copy of the given Value Env with all File names rewritten by the given function.
 
