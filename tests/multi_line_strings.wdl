@@ -62,7 +62,11 @@ workflow test_multi_line_strings {
         (<<<
         ~{spaces}Hello ~{name},
         ~{spaces}Welcome to ~{company}!
-        >>>, "  Hello Henry,\n  Welcome to Acme!")
+        >>>, "  Hello Henry,\n  Welcome to Acme!"),
+        (<<<
+        \x20 Forced
+        \x20 indentation
+        >>>, "  Forced\n  indentation")
     ]
 
     scatter (ex in examples) {
