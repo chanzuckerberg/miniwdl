@@ -436,7 +436,7 @@ object_kv:  CNAME ":" expr
         | FLOAT -> float
         | SIGNED_FLOAT -> float
 
-?string: string1 | string2
+?string: string1 | string2 | multistring
 
 STRING_INNER1: ("\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
@@ -461,6 +461,9 @@ command1: "{" (COMMAND1_FRAGMENT? _EITHER_DELIM placeholder "}")* COMMAND1_FRAGM
 COMMAND2_CHAR: /[^~>]/ | /~(?=[^{])/ | />(?=[^>])/ | />>(?=[^>])/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
 command2: "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
+
+// multi-line string (very similar to command2, but processed slightly differently)
+multistring: /<<</ (COMMAND2_FRAGMENT? "~{" expr "}")* COMMAND2_FRAGMENT? />>>/ -> string
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 

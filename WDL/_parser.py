@@ -121,9 +121,71 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 # ...but preserve originals in AST.
                 parts.append(item.value)
         assert len(parts) >= 2
-        assert parts[0] in ['"', "'"]
-        assert parts[-1] in ['"', "'"]
+        assert parts[0] in ['"', "'", "<<<"], parts[0]
+        assert parts[-1] in ['"', "'", ">>>"], parts[-1]
+        if parts[0] == "<<<":
+            self._preprocess_multistring(meta, parts)
         return Expr.String(self._sp(meta), parts)
+
+    def _preprocess_multistring(self, meta, parts):
+        # From each str part, remove escaped newlines and any whitespace following them. Escaped
+        # newlines are preceded by an odd number of backslashes.
+        for i in range(1, len(parts) - 1):
+            part = parts[i]
+            if isinstance(part, str):
+                part_lines = part.split("\n")
+                for j in range(len(part_lines) - 1):
+                    part_line = part_lines[j]
+                    if (len(part_line) - len(part_line.rstrip("\\"))) % 2 == 1:
+                        part_lines[j] = part_line[:-1]
+                        if j < len(part_lines) - 1:
+                            part_lines[j + 1] = part_lines[j + 1].lstrip(" \t")
+                    else:
+                        part_lines[j] += "\n"
+                parts[i] = "".join(part_lines)
+        # Trim whitespace from the left of the first line and the right of the last line (including
+        # the first/last newline, if any).
+        if len(parts) > 2 and isinstance(parts[1], str):
+            parts[1] = parts[1].lstrip(" \t")
+            if parts[1] and parts[1][0] == "\n":
+                parts[1] = parts[1][1:]
+        if len(parts) > 2 and isinstance(parts[-2], str):
+            parts[-2] = parts[-2].rstrip(" \t")
+            if parts[-2] and parts[-2][-1] == "\n":
+                parts[-2] = parts[-2][:-1]
+        # Detect common leading whitespace on the remaining non-empty lines.
+        common_ws = None
+        for i, line in enumerate(
+            "".join(part for part in parts[1:-1] if isinstance(part, str)).split("\n")
+        ):
+            if not line:
+                continue
+            line_ws = line[: len(line) - len(line.lstrip())]
+            if common_ws is None:
+                common_ws = line_ws
+            else:
+                minlen = min(len(common_ws), len(line_ws))
+                common_ws = common_ws[
+                    : next((p for p in range(minlen) if common_ws[p] != line_ws[p]), minlen)
+                ]
+        # Remove the common leading whitespace.
+        if common_ws is not None:
+            # track how str parts immediately following placeholders don't start on a new line
+            at_new_line = True
+            for i in range(1, len(parts) - 1):
+                part = parts[i]
+                if not isinstance(part, str):
+                    at_new_line = False
+                else:
+                    part_lines = part.split("\n")
+                    for j, part_line in enumerate(part_lines):
+                        if (at_new_line or j > 0) and part_line:
+                            assert part_line[: len(common_ws)] == common_ws
+                            part_lines[j] = part_line[len(common_ws) :]
+                        if j < len(part_lines) - 1:
+                            part_lines[j] += "\n"
+                    parts[i] = "".join(part_lines)
+                    at_new_line = parts[i].endswith("\n")
 
     def string_literal(self, meta, items):
         assert len(items) == 1

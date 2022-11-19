@@ -17,7 +17,7 @@ unit_tests:
 	python3 tests/no_docker_services.py
 
 integration_tests:
-	prove -v tests/{check,eval,runner,zip}.t
+	prove -v tests/{check,eval,runner,zip,multi_line_strings}.t
 	python3 tests/no_docker_services.py
 
 skylab_bulk_rna:
