@@ -309,15 +309,18 @@ call_input: CNAME ["=" expr]
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 task: "task" CNAME "{" task_section* command task_section* "}"
-?task_section: input_decls
+?task_section: task_input_decls
              | output_decls
              | meta_section
              | runtime_section
-             | any_decl -> noninput_decl
+             | task_env_decl -> noninput_decl
 
 tasks: task*
 
 input_decls: "input" "{" any_decl* "}"
+task_input_decls: "input" "{" task_env_decl* "}" -> input_decls
+ENV.2: "env"
+task_env_decl: ENV? any_decl
 output_decls: "output" "{" bound_decl* "}"
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
@@ -483,9 +486,11 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore COMMENT
 """
 keywords["development"] = set(
-    "Array Directory File Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
-        " "
-    )
+    (
+        "Array Directory File Float Int Map None Pair String"
+        " alias as call command else env false if import input left meta"
+        " object output parameter_meta right runtime scatter struct task then true workflow"
+    ).split(" ")
 )
 
 # For now we're defining 1.1 as 'development minus Directory' (the latter enforced in _parser).

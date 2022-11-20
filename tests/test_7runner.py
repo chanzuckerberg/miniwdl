@@ -1272,3 +1272,35 @@ class TestRelativeOutputPaths(RunnerTestCase):
         cfg.override({"file_io": {"use_relative_output_paths": True}})
         with self.assertRaises(WDL.runtime.error.RunFailed):
             self._run(self.wdl, {"names": ["Ben", "Ben"]}, cfg=cfg)
+
+
+class TestEnvDecl(RunnerTestCase):
+    def test_basic(self):
+        outp = self._run("""
+            version development
+            workflow w {
+                scatter (who in ["Alyssa", "Ben"]) {
+                    call t { input: who }
+                }
+                output {
+                    Array[String] messages = t.message
+                }
+            }
+            task t {
+                input {
+                    env String who
+                    String non_env = "XXX"
+                }
+                env String greeting = "Hello"
+                String non_env2 = "YYY"
+                command <<<
+                    echo "${greeting}, $who!${non_env:-}${non_env2:-}" | tee /dev/stderr
+                >>>
+                output {
+                    String message = read_string(stdout())
+                }
+            }
+        """, {})
+        assert outp["messages"] == ["Hello, Alyssa!", "Hello, Ben!"]
+
+    # TODO: test files, JSONification of compound types

@@ -333,6 +333,15 @@ class _DocTransformer(_ExprTransformer):
             self._sp(meta), items[0], items[1].value, (items[2] if len(items) > 2 else None)
         )
 
+    def task_env_decl(self, meta, items):
+        if len(items) == 2:
+            assert items[0].value == "env"
+            assert isinstance(items[1], Tree.Decl)
+            items[1].decor["env"] = True
+            return items[1]
+        assert len(items) == 1 and isinstance(items[0], Tree.Decl)
+        return items[0]
+
     def input_decls(self, meta, items):
         return {"inputs": items}
 
