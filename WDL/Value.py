@@ -616,6 +616,7 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]])
             if fw is None:
                 return Null(expr=w.expr)
             w.value = fw
+        # recursive descent into compound Values
         elif isinstance(w.value, list):
             value2 = []
             for elt in w.value:
