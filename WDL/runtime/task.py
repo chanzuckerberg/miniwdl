@@ -6,7 +6,6 @@ import logging
 import math
 import os
 import json
-import copy
 import traceback
 import glob
 import threading
@@ -828,7 +827,10 @@ def link_outputs(
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_paths(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
+            map_paths(
+                Value.rewrite_paths(binding.value, lambda v: v.value),  # nop to deep copy
+                os.path.join(run_dir, "out", binding.name),
+            ),
         )
     )
 

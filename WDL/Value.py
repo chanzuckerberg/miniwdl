@@ -46,39 +46,6 @@ class Base(ABC):
     def __str__(self) -> str:
         return json.dumps(self.json)
 
-    def __deepcopy__(self, memo: Dict[int, Any]) -> Any:
-        cls = self.__class__
-        cp = cls.__new__(cls)
-        shallow = ("_expr", "type")  # avoid deep-copying large, immutable structures
-        for k, v in self.__dict__.items():
-            if k != "value":
-                setattr(cp, k, copy.deepcopy(v, memo) if k not in shallow else v)
-        # override deepcopy of self.value to eliminate sharing; this accommodates rewrite_files()
-        # which wants a deep copy for the purpose of modifying the copied File.value, and isn't
-        # expecting to encounter shared ones.
-        if isinstance(self.value, list):
-            value2 = []
-            for elt in self.value:
-                if isinstance(elt, tuple):
-                    assert len(elt) == 2
-                    value2.append((copy.deepcopy(elt[0]), copy.deepcopy(elt[1])))
-                else:
-                    assert isinstance(elt, Base)
-                    value2.append(copy.deepcopy(elt))
-            cp.value = value2
-        elif isinstance(self.value, tuple):
-            assert len(self.value) == 2
-            cp.value = (copy.deepcopy(self.value[0]), copy.deepcopy(self.value[1]))
-        elif isinstance(self.value, dict):
-            value2 = {}
-            for key in self.value:
-                value2[copy.deepcopy(key)] = copy.deepcopy(self.value[key])
-            cp.value = value2
-        else:
-            assert self.value is None or isinstance(self.value, (int, float, bool, str))
-            cp.value = self.value
-        return cp
-
     @property
     def expr(self) -> "Optional[Expr.Base]":
         """
@@ -642,35 +609,37 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]])
     replace the File/Directory value with None/Null.
     """
 
-    mapped_paths = set()
-
     def map_paths(w: Base) -> Base:
+        w = copy.copy(w)
         if isinstance(w, (File, Directory)):
-            assert id(w) not in mapped_paths, f"File/Directory {id(w)} reused in deepcopy"
             fw = f(w)
             if fw is None:
                 return Null(expr=w.expr)
             w.value = fw
-            mapped_paths.add(id(w))
         elif isinstance(w.value, list):
-            for i, elt in enumerate(w.value):
+            value2 = []
+            for elt in w.value:
                 if isinstance(elt, tuple):
-                    assert len(elt) == 2
-                    w.value[i] = (map_paths(elt[0]), map_paths(elt[1]))
+                    assert len(elt) == 2 and sum(1 for x in elt if not isinstance(x, Base)) == 0
+                    value2.append((map_paths(elt[0]), map_paths(elt[1])))
                 else:
                     assert isinstance(elt, Base)
-                    w.value[i] = map_paths(elt)
+                    value2.append(map_paths(elt))
+            w.value = value2
         elif isinstance(w.value, tuple):
-            assert len(w.value) == 2
+            assert len(w.value) == 2 and sum(1 for x in w.value if not isinstance(x, Base)) == 0
             w.value = (map_paths(w.value[0]), map_paths(w.value[1]))
         elif isinstance(w.value, dict):
+            value2 = {}
             for key in w.value:
-                w.value[key] = map_paths(w.value[key])
+                assert isinstance(key, str) and isinstance(w.value[key], Base)
+                value2[key] = map_paths(w.value[key])
+            w.value = value2
         else:
             assert w.value is None or isinstance(w.value, (int, float, bool, str))
         return w
 
-    return map_paths(copy.deepcopy(v))
+    return map_paths(v)
 
 
 def rewrite_env_paths(
