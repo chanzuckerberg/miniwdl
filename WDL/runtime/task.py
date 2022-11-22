@@ -6,7 +6,6 @@ import logging
 import math
 import os
 import json
-import copy
 import traceback
 import glob
 import threading
@@ -641,13 +640,13 @@ def _eval_task_outputs(
                     )
                 )
 
-    # helper to rewrite File/Directory from in-container paths to host paths
-    def rewriter(v: Union[Value.File, Value.Directory], output_name: str) -> str:
+    # Helpers to rewrite File/Directory from in-container paths to host paths
+    # First pass -- convert nonexistent output paths to None/Null
+    def rewriter1(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
         container_path = v.value
         if isinstance(v, Value.Directory) and not container_path.endswith("/"):
             container_path += "/"
-        host_path = container.host_path(container_path)
-        if host_path is None:
+        if container.host_path(container_path) is None:
             logger.warning(
                 _(
                     "output path not found in container (error unless declared type is optional)",
@@ -655,17 +654,24 @@ def _eval_task_outputs(
                     path=container_path,
                 )
             )
-        elif isinstance(v, Value.Directory):
+            return None
+        return v.value
+
+    # Second pass -- convert in-container paths to host paths
+    def rewriter2(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
+        container_path = v.value
+        if isinstance(v, Value.Directory) and not container_path.endswith("/"):
+            container_path += "/"
+        host_path = container.host_path(container_path)
+        assert host_path is not None
+        if isinstance(v, Value.Directory):
             if host_path.endswith("/"):
                 host_path = host_path[:-1]
             _check_directory(host_path, output_name)
             logger.debug(_("output dir", container=container_path, host=host_path))
         else:
             logger.debug(_("output file", container=container_path, host=host_path))
-        # We may overwrite File.value with None, which is an invalid state, then we'll fix it
-        # up (or abort) below. This trickery is because we don't, at this point, know whether
-        # the -declared- output type is optional.
-        return host_path  # pyre-fixme
+        return host_path
 
     stdlib = OutputStdLib(task.effective_wdl_version, logger, container)
     outputs = Env.Bindings()
@@ -688,20 +694,21 @@ def _eval_task_outputs(
         # Now, a delicate sequence for postprocessing File outputs (including Files nested within
         # compound values)
 
-        # First bind the value as-is in the environment, so that subsequent output expressions will
-        # "see" the in-container path(s) if they use this binding.
+        # First convert nonexistent paths to None/Null, and bind this in the environment for
+        # evaluating subsequent output expressions.
+        v = Value.rewrite_paths(v, lambda w: rewriter1(w, decl.name))
         env = env.bind(decl.name, v)
-        # Rewrite each File/Directory path to a host path, or None if it doesn't exist.
-        v = Value.rewrite_paths(v, lambda v: rewriter(v, decl.name))
-        # File.coerce has a special behavior for us so that, if the value is None:
-        #   - produces Value.Null() if the desired type is File?
-        #   - raises FileNotFoundError otherwise.
+        # check if any nonexistent paths were provided for (non-optional) File/Directory types
+        # Value.Null.coerce has a special behavior for us to raise FileNotFoundError for a
+        # non-optional File/Directory type.
         try:
             v = v.coerce(decl.type)
         except FileNotFoundError:
             exn = OutputError("File/Directory path not found in task output " + decl.name)
             setattr(exn, "job_id", decl.workflow_node_id)
             raise exn
+        # Rewrite in-container paths to host paths
+        v = Value.rewrite_paths(v, lambda w: rewriter2(w, decl.name))
         outputs = outputs.bind(decl.name, v)
 
     return outputs
@@ -820,7 +827,10 @@ def link_outputs(
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_paths(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
+            map_paths(
+                Value.rewrite_paths(binding.value, lambda v: v.value),  # nop to deep copy
+                os.path.join(run_dir, "out", binding.name),
+            ),
         )
     )
 

@@ -926,6 +926,42 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["fivethree"], [5, 3])
         self.assertEqual(outp["is_true"], True)
 
+    def test_issue614(self):
+        wdl = r"""
+        version 1.0
+        task create_file_or_not {
+            input {
+                Boolean create_file
+            }
+            command <<<
+                ~{true="touch" false="echo" create_file} file
+            >>>
+            output {
+            File? out = "file"
+            # This is common when there are a lot of (optional) files output by a
+            # task. Just capture them in one variable as an array, so you can easily
+            # delegate to workflow outputs.
+            Array[File] all_output = select_all([out])
+            }
+        }
+        workflow maybe_file {
+            input {
+                Boolean create_file = false
+            }
+            call create_file_or_not {
+                input:
+                create_file = create_file
+            }
+            output {
+            Array[File] out = create_file_or_not.all_output
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        self.assertEqual(outp["out"], [])
+        outp = self._run(wdl, {"create_file": True})
+        self.assertTrue(os.path.exists(outp["out"][0]))
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
