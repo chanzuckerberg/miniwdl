@@ -17,26 +17,30 @@ workflow test_multi_line_strings {
     # equal each other.
     Array[Pair[String, String]] examples = [
         (<<<
-    The ~{speed} ~{color} fox
-        ~{verb} over \
+    The ~{speed} ~{color}
+        fox ~{verb} over \
             the lazy dog.>>>,
-         "The quick brown fox\n    jumps over the lazy dog."),
-         (<<<hello world>>>, "hello world"),
-         (<<<   hello world   >>>, "hello world"),
+         "The quick brown\n    fox jumps over the lazy dog."),
+         (<<<hello  world>>>, "hello  world"),
+         (<<<   hello  world   >>>, "hello  world"),
          (<<<   
-            hello world>>>, "hello world"),
+            hello  world>>>, "hello  world"),
         (<<<   
-            hello world
-            >>>, "hello world"),
+            hello  world
+            >>>, "hello  world"),
         (<<<
-        hello \
+        hello  \
         world \
-        >>>, "hello world"),
+        >>>, "hello  world"),
         (<<<
 
-        hello world
+        hello  world
 
-        >>>, "\nhello world\n"),
+        >>>, "\nhello  world\n"),
+        (<<<
+        hello  \
+          world
+        >>>, "hello  world"),
         (<<<
         this is a
 
@@ -45,16 +49,14 @@ workflow test_multi_line_strings {
         (<<<
         this is a
     
-        multi-line string>>>, "    this is a\n\n    multi-line string"),
+        multi-line string
+        
+ >>>, "this is a\n\nmulti-line string\n"),
         (<<<
         this is a \
             string that \
         contains no newlines
         >>>, "this is a string that contains no newlines"),
-        (<<<
-      text indented by 4 spaces
-  
->>>, "    text indented by 4 spaces\n"),
         (<<<
         multi-line string \
         with 'single' and "double" quotes
@@ -65,8 +67,15 @@ workflow test_multi_line_strings {
         >>>, "  Hello Henry,\n  Welcome to Acme!"),
         (<<<
         \x20 Forced
-        \x20 indentation
-        >>>, "  Forced\n  indentation")
+          indentation
+        >>>, "  Forced\n  indentation"),
+        (<<<abc\
+        >>>, "abc"),
+        (<<<abc\\
+        >>>, "abc\\"),
+        (<<<abc\\>>>, 'abc\\'),
+        (<<<abc\\
+def>>>, "abc\\\ndef")
     ]
 
     scatter (ex in examples) {

@@ -445,12 +445,13 @@ string_literal: ESCAPED_STRING | ESCAPED_STRING1
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
+_DOUBLE_BACKSLASH.2: "\\\\"
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
 

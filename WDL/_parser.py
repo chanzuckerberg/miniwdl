@@ -153,24 +153,18 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
             parts[-2] = parts[-2].rstrip(" \t")
             if parts[-2] and parts[-2][-1] == "\n":
                 parts[-2] = parts[-2][:-1]
-        # Detect common leading whitespace on the remaining non-empty lines.
+        # Detect common leading whitespace on the remaining non-blank lines. For this purpose,
+        # use a pseudo-string with dummy "~{}" subsituted for placeholders in the expression tree,
+        # which is simpler than tracking how newlines intersperse with the placeholders.
         common_ws = None
-        for i, line in enumerate(
-            "".join(part for part in parts[1:-1] if isinstance(part, str)).split("\n")
-        ):
-            if not line:
-                continue
-            line_ws = line[: len(line) - len(line.lstrip())]
-            if common_ws is None:
-                common_ws = line_ws
-            else:
-                minlen = min(len(common_ws), len(line_ws))
-                common_ws = common_ws[
-                    : next((p for p in range(minlen) if common_ws[p] != line_ws[p]), minlen)
-                ]
-        # Remove the common leading whitespace.
-        if common_ws is not None:
-            # track how str parts immediately following placeholders don't start on a new line
+        pseudo = "".join((part if isinstance(part, str) else "~{}") for part in parts[1:-1])
+        for line in pseudo.split("\n"):
+            line_ws = len(line) - len(line.lstrip())
+            if line_ws < len(line):
+                common_ws = line_ws if common_ws is None else min(line_ws, common_ws)
+        # Remove the common leading whitespace. Here, we do need careful bookkeeping around
+        # placeholders.
+        if common_ws is not None and common_ws > 0:
             at_new_line = True
             for i in range(1, len(parts) - 1):
                 part = parts[i]
@@ -178,13 +172,12 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                     at_new_line = False
                 else:
                     part_lines = part.split("\n")
-                    for j, part_line in enumerate(part_lines):
-                        if (at_new_line or j > 0) and part_line:
-                            assert part_line[: len(common_ws)] == common_ws
-                            part_lines[j] = part_line[len(common_ws) :]
-                        if j < len(part_lines) - 1:
-                            part_lines[j] += "\n"
-                    parts[i] = "".join(part_lines)
+                    for j, line in enumerate(part_lines):
+                        if at_new_line:
+                            assert not line[:common_ws].strip()
+                            part_lines[j] = line[common_ws:]
+                        at_new_line = True
+                    parts[i] = "\n".join(part_lines)
                     at_new_line = parts[i].endswith("\n")
 
     def string_literal(self, meta, items):
