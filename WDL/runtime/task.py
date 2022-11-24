@@ -519,7 +519,7 @@ def _eval_task_runtime(
         )
         container.runtime_values["env"].update(env_vars_override)
 
-    # process decls with "env" decorator
+    # process decls with "env" decorator (EXPERIMENTAL)
     env_decls = {}
     for decl in (task.inputs or []) + task.postinputs:
         if decl.decor.get("env", False) is True:

@@ -171,7 +171,7 @@ class Decl(WorkflowNode):
     """:type: Optional[WDL.Expr.Base]
 
     Bound expression, if any"""
-    decor: Dict[str, Any]
+    decor: Dict[str, Any]  # EXPERIMENTAL
     ""
 
     def __init__(
