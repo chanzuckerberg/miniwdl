@@ -154,8 +154,8 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
             if parts[-2] and parts[-2][-1] == "\n":
                 parts[-2] = parts[-2][:-1]
         # Detect common leading whitespace on the remaining non-blank lines. For this purpose,
-        # use a pseudo-string with dummy "~{}" subsituted for placeholders in the expression tree,
-        # which is simpler than tracking how newlines intersperse with the placeholders.
+        # use a pseudo-string with dummy "~{}" substituted for placeholders, which is simpler than
+        # tracking how newlines intersperse with the placeholders in the AST.
         common_ws = None
         pseudo = "".join((part if isinstance(part, str) else "~{}") for part in parts[1:-1])
         for line in pseudo.split("\n"):
@@ -163,7 +163,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
             if line_ws < len(line):
                 common_ws = line_ws if common_ws is None else min(line_ws, common_ws)
         # Remove the common leading whitespace. Here, we do need careful bookkeeping around
-        # placeholders.
+        # placeholders in the AST.
         if common_ws is not None and common_ws > 0:
             at_new_line = True
             for i in range(1, len(parts) - 1):
