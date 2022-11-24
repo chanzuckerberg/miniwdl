@@ -1303,4 +1303,27 @@ class TestEnvDecl(RunnerTestCase):
         """, {})
         assert outp["messages"] == ["Hello, Alyssa!", "Hello, Ben!"]
 
-    # TODO: test files, JSONification of compound types
+    def test_more(self):
+        with open(os.path.join(self._dir, "alyssa.txt"), mode="w") as outfile:
+            print("Alyssa", file=outfile)
+        outp = self._run("""
+            version development
+            struct Person {
+                File name
+                Int age
+            }
+            task t {
+                input {
+                    env Person p
+                }
+                env File name = p.name
+                command <<<
+                    echo "Hello, $(cat "$name")!" | tee /dev/stderr
+                    echo "$p" | tr -d ' ' | grep '"age":42' >&2
+                >>>
+                output {
+                    String message = read_string(stdout())
+                }
+            }
+        """, {"p": {"name": os.path.join(self._dir, "alyssa.txt"), "age": 42}})
+        assert outp["message"] == "Hello, Alyssa!"
