@@ -76,7 +76,9 @@ workflow test_multi_line_strings {
         >>>, "abc\\"),
         (<<<abc\\>>>, 'abc\\'),
         (<<<abc\\
-def>>>, "abc\\\ndef")
+def>>>, "abc\\\ndef"),
+        (<<<abc\\\
+                def>>>, "abc\\def")
     ]
 
     scatter (ex in examples) {
