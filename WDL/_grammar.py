@@ -144,7 +144,8 @@ SPACE: /[ \t]+/
 
 ?string: string1 | string2
 
-STRING_INNER1: ("\\'"|/[^']/)
+_DOUBLE_BACKSLASH.2: "\\\\"
+STRING_INNER1: (_DOUBLE_BACKSLASH|"\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
@@ -184,12 +185,12 @@ type: BUILTIN_TYPE _quant?
 BUILTIN_TYPE.2: "Int" | "Float" | "Boolean" | "String" | "File" | "Array" | "Map" | "Pair"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$(?=[^{])/
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'$]/ | /\$(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? "${" expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ |  /\$(?=[^{])/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"$]/ |  /\$(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? "${" expr "}")* STRING2_FRAGMENT? /"/ -> string
 
@@ -229,12 +230,12 @@ type: CNAME _quant?
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
 
@@ -438,14 +439,14 @@ object_kv:  CNAME ":" expr
 
 ?string: string1 | string2 | multistring
 
-STRING_INNER1: ("\\'"|/[^']/)
+_DOUBLE_BACKSLASH.2: "\\\\"
+STRING_INNER1: (_DOUBLE_BACKSLASH|"\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-_DOUBLE_BACKSLASH.2: "\\\\"
 STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
