@@ -1308,3 +1308,58 @@ class TestRelativeOutputPaths(RunnerTestCase):
         cfg.override({"file_io": {"use_relative_output_paths": True}})
         with self.assertRaises(WDL.runtime.error.RunFailed):
             self._run(self.wdl, {"names": ["Ben", "Ben"]}, cfg=cfg)
+
+
+class TestEnvDecl(RunnerTestCase):
+    def test_basic(self):
+        outp = self._run("""
+            version development
+            workflow w {
+                scatter (who in ["Alyssa", "Ben"]) {
+                    call t { input: who }
+                }
+                output {
+                    Array[String] messages = t.message
+                }
+            }
+            task t {
+                input {
+                    env String who
+                    String non_env = "XXX"
+                }
+                env String greeting = "Hello"
+                String non_env2 = "YYY"
+                command <<<
+                    echo "${greeting}, $who!${non_env:-}${non_env2:-}" | tee /dev/stderr
+                >>>
+                output {
+                    String message = read_string(stdout())
+                }
+            }
+        """, {})
+        assert outp["messages"] == ["Hello, Alyssa!", "Hello, Ben!"]
+
+    def test_more(self):
+        with open(os.path.join(self._dir, "alyssa.txt"), mode="w") as outfile:
+            print("Alyssa", file=outfile)
+        outp = self._run("""
+            version development
+            struct Person {
+                File name
+                Int age
+            }
+            task t {
+                input {
+                    env Person p
+                }
+                env File name = p.name
+                command <<<
+                    echo "Hello, $(cat "$name")!" | tee /dev/stderr
+                    echo "$p" | tr -d ' ' | grep '"age":42' >&2
+                >>>
+                output {
+                    String message = read_string(stdout())
+                }
+            }
+        """, {"p": {"name": os.path.join(self._dir, "alyssa.txt"), "age": 42}})
+        assert outp["message"] == "Hello, Alyssa!"

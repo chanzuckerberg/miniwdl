@@ -484,6 +484,7 @@ def _eval_task_runtime(
         logger.info(_("effective runtime", **container.runtime_values))
 
     # add any configured overrides for in-container environment variables
+    container.runtime_values.setdefault("env", {})
     env_vars_override = {}
     env_vars_skipped = []
     for ev_name, ev_value in cfg["task_runtime"].get_dict("env").items():
@@ -515,7 +516,23 @@ def _eval_task_runtime(
         logger.debug(
             _("overriding environment variables (portability warning)", **env_vars_override)
         )
-        container.runtime_values.setdefault("env", {}).update(env_vars_override)
+        container.runtime_values["env"].update(env_vars_override)
+
+    # process decls with "env" decorator (EXPERIMENTAL)
+    env_decls = {}
+    for decl in (task.inputs or []) + task.postinputs:
+        if decl.decor.get("env", False) is True:
+            if not env_decls:
+                logger.warning(
+                    "task env declarations are an experimental feature, subject to change"
+                )
+            v = env[decl.name]
+            if isinstance(v, (Value.String, Value.File, Value.Directory)):
+                v = v.value
+            else:
+                v = json.dumps(v.json)
+            env_decls[decl.name] = v
+    container.runtime_values["env"].update(env_decls)
 
     unused_keys = list(
         key
