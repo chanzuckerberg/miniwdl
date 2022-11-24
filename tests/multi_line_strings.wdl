@@ -1,7 +1,8 @@
 version development
 
 # Test cases for multi-line string literals (openwdl PR# 414)
-# runner.t executes this WDL and you can run it alone in your miniwdl repo clone:
+# The integration test suite executes this WDL (via multi_line_strings.t) which you can also run
+# standalone in your miniwdl repo clone:
 #   python3 -m WDL run tests/multi_line_strings.wdl --dir /tmp --verbose
 
 workflow test_multi_line_strings {
