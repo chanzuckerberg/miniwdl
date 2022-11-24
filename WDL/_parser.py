@@ -121,9 +121,64 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 # ...but preserve originals in AST.
                 parts.append(item.value)
         assert len(parts) >= 2
-        assert parts[0] in ['"', "'"]
-        assert parts[-1] in ['"', "'"]
+        assert parts[0] in ['"', "'", "<<<"], parts[0]
+        assert parts[-1] in ['"', "'", ">>>"], parts[-1]
+        if parts[0] == "<<<":
+            self._preprocess_multistring(meta, parts)
         return Expr.String(self._sp(meta), parts)
+
+    def _preprocess_multistring(self, meta, parts):
+        # From each str part, remove escaped newlines and any whitespace following them. Escaped
+        # newlines are preceded by an odd number of backslashes.
+        for i in range(1, len(parts) - 1):
+            part = parts[i]
+            if isinstance(part, str):
+                part_lines = part.split("\n")
+                for j in range(len(part_lines) - 1):
+                    part_line = part_lines[j]
+                    if (len(part_line) - len(part_line.rstrip("\\"))) % 2 == 1:
+                        part_lines[j] = part_line[:-1]
+                        if j < len(part_lines) - 1:
+                            part_lines[j + 1] = part_lines[j + 1].lstrip(" \t")
+                    else:
+                        part_lines[j] += "\n"
+                parts[i] = "".join(part_lines)
+        # Trim whitespace from the left of the first line and the right of the last line (including
+        # the first/last newline, if any).
+        if len(parts) > 2 and isinstance(parts[1], str):
+            parts[1] = parts[1].lstrip(" \t")
+            if parts[1] and parts[1][0] == "\n":
+                parts[1] = parts[1][1:]
+        if len(parts) > 2 and isinstance(parts[-2], str):
+            parts[-2] = parts[-2].rstrip(" \t")
+            if parts[-2] and parts[-2][-1] == "\n":
+                parts[-2] = parts[-2][:-1]
+        # Detect common leading whitespace on the remaining non-blank lines. For this purpose,
+        # use a pseudo-string with dummy "~{}" substituted for placeholders, which is simpler than
+        # tracking how newlines intersperse with the placeholders in the AST.
+        common_ws = None
+        pseudo = "".join((part if isinstance(part, str) else "~{}") for part in parts[1:-1])
+        for line in pseudo.split("\n"):
+            line_ws = len(line) - len(line.lstrip())
+            if line_ws < len(line):
+                common_ws = line_ws if common_ws is None else min(line_ws, common_ws)
+        # Remove the common leading whitespace. Here, we do need careful bookkeeping around
+        # placeholders in the AST.
+        if common_ws is not None and common_ws > 0:
+            at_new_line = True
+            for i in range(1, len(parts) - 1):
+                part = parts[i]
+                if not isinstance(part, str):
+                    at_new_line = False
+                else:
+                    part_lines = part.split("\n")
+                    for j, line in enumerate(part_lines):
+                        if at_new_line:
+                            assert not line[:common_ws].strip()
+                            part_lines[j] = line[common_ws:]
+                        at_new_line = True
+                    parts[i] = "\n".join(part_lines)
+                    at_new_line = parts[i].endswith("\n")
 
     def string_literal(self, meta, items):
         assert len(items) == 1

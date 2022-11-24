@@ -397,6 +397,16 @@ class TestEval(unittest.TestCase):
             ("true || 1/0 == 1", "true"),
         )
 
+    def test_multi_line_strings(self):
+        # NOTE: most of the multi-line string tests are in tests/multi_line_strings.wdl which runs
+        # in the integration suite. Generally easier to write there without having to double-escape
+        # (python+WDL). These are here mainly to provide code coverage.
+        env = cons_env(("color", WDL.Value.String("brown")))
+        self._test_tuples(
+            ("<<< \n  \\\n  >>>", '""', "development"),
+            ("<<<\n    quick ~{color}\n  fox\n  >>>", json.dumps("  quick brown\nfox"), env, "development")
+        )
+
 def cons_env(*bindings):
     b = WDL.Env.Bindings()
     for (x,y) in bindings:
