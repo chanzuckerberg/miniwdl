@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 1
+plan tests 2
 
 if [[ -z $TMPDIR ]]; then
     TMPDIR=/tmp
@@ -22,3 +22,6 @@ cd $DN
 
 $miniwdl run "$SOURCE_DIR/tests/multi_line_strings.wdl" --verbose
 is $? "0"
+
+$miniwdl run $SOURCE_DIR/tests/task_env_inputs.wdl --dir test_env
+is "$?" "0" "env input escaping"

@@ -19,12 +19,15 @@ DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
 
-plan tests 3
+plan tests 4
 
 export MINIWDL__SCHEDULER__CONTAINER_BACKEND=podman
 
 $miniwdl run_self_test --dir "$DN"
 is "$?" "0" "run_self_test"
+
+$miniwdl run $SOURCE_DIR/tests/task_env_inputs.wdl --dir "$DN"
+is "$?" "0" "env input escaping"
 
 git clone --depth=1 https://github.com/broadinstitute/viral-pipelines.git
 cd viral-pipelines

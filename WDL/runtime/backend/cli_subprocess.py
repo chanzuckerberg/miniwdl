@@ -1,5 +1,6 @@
 import os
 import time
+import shlex
 import psutil
 import logging
 import threading
@@ -81,8 +82,13 @@ class SubprocessBase(TaskContainer):
                 )
             )
 
-            # prepare command
+            # prepare command & environment
+            # we set the environment variables at the beginning of the command script because:
+            # 1) --env is subject to command line length limitations
+            # 2) --env-file isn't implemented consistently wrt quoting, escaping, etc.
             with open(os.path.join(self.host_dir, "command"), "w") as outfile:
+                for k, v in self.runtime_values.get("env", {}).items():
+                    outfile.write(f"export {k}={shlex.quote(v)}\n")
                 outfile.write(command)
 
             # start subprocess
