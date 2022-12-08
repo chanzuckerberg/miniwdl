@@ -20,7 +20,7 @@ class PodmanContainer(SubprocessBase):
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
         podman_version_cmd = cfg.get_list("podman", "exe")
-        podman_version.append("--version")
+        podman_version_cmd.append("--version")
 
         try:
             podman_version = subprocess.run(
