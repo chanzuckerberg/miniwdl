@@ -6,12 +6,14 @@ miniwdl's default Docker task runtime is recommended for production use. Users u
 
 Podman closely resembles Docker, to the extent that it's usually operated as root. If miniwdl is configured to use Podman (and isn't running as root itself), then it attempts to use `sudo podman` internally, which therefore must not require interactive password entry.
 
-To configure miniwdl to use Podman instead of Docker:
+To configure miniwdl to use `sudo podman` instead of Docker:
 
 1. Allow relevant user(s) to `sudo podman` without password entry using [this procedure](https://minikube.sigs.k8s.io/docs/drivers/podman/#known-issues).
 2. Run the following command to sanity-check Podman: `sudo -kn podman run ubuntu:20.04 cat /etc/issue`
 3. Set the environment variable `MINIWDL__SCHEDULER__CONTAINER_BACKEND=podman` or the equivalent [configuration file](https://miniwdl.readthedocs.io/en/latest/runner_reference.html#configuration) option `[scheduler] container_backend=podman`
 4. Test the configuration with `miniwdl run_self_test`
+
+If your podman installation is configured such that you [needn't/can't run it with `sudo`](https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md), then override `MINIWDL__PODMAN__EXE='["podman"]'` or set `[podman] exe = ["podman"]`, and proceed with step 3 above.
 
 If podman seems unable to pull Docker Hub images by "short-name": see [this thread](https://github.com/containers/podman/issues/9390#issuecomment-970305169)
 
