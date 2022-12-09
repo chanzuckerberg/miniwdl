@@ -33,7 +33,7 @@ class PodmanContainer(SubprocessBase):
         except subprocess.CalledProcessError as cpe:
             logger.error(_(" ".join(podman_version_cmd), stderr=cpe.stderr.strip().split("\n")))
             msg = f"Unable to check `{' '.join(podman_version_cmd)}`; verify Podman installation"
-            if "sudo" in podman_version_cmd:
+            if podman_version_cmd[0] == "sudo":
                 msg += " with no-password sudo"
             raise RuntimeError(msg) from None
 
@@ -54,7 +54,7 @@ class PodmanContainer(SubprocessBase):
 
     def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
         image, invocation = super()._pull_invocation(logger, cleanup)
-        if "sudo" in invocation:
+        if invocation[0] == "sudo":
             _sudo_canary()
         return (image, invocation)
 
@@ -68,7 +68,7 @@ class PodmanContainer(SubprocessBase):
             "--workdir",
             os.path.join(self.container_dir, "work"),
         ]
-        if "sudo" in ans:
+        if ans[0] == "sudo":
             _sudo_canary()
 
         cpu = self.runtime_values.get("cpu", 0)
@@ -111,39 +111,49 @@ class PodmanContainer(SubprocessBase):
         return ans
 
     def _chown(self, logger: logging.Logger):
-        if not self.cfg.get_bool("task_runtime", "as_user") and (os.geteuid() or os.getegid()):
-            paste = shlex.quote(
-                os.path.join(
-                    self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
+        if (
+            not self.cfg.get_bool("file_io", "chown")
+            or self.cfg.get_bool("task_runtime", "as_user")
+            or (os.geteuid() == 0 and os.getegid() == 0)
+        ):
+            return
+        paste = shlex.quote(
+            os.path.join(
+                self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
+            )
+        )
+        script = f"""
+        (find {paste} -type d -print0 && find {paste} -type f -print0 \
+            && find {paste} -type l -print0) \
+            | xargs -0 -P 10 chown -Ph {os.geteuid()}:{os.getegid()}
+        """.strip()
+        try:
+            subprocess.run(
+                self.cli_exe
+                + [
+                    "run",
+                    "--rm",
+                    "-v",
+                    shlex.quote(f"{self.host_dir}:{self.container_dir}"),
+                    "alpine:3",
+                    "/bin/ash",
+                    "-eo",
+                    "pipefail",
+                    "-c",
+                    script,
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True,
+                check=True,
+            )
+        except subprocess.CalledProcessError as cpe:
+            logger.error(
+                _(
+                    "post-task chown failed; try setting [file_io] chown = false",
+                    error=cpe.stderr.strip().split("\n"),
                 )
             )
-            script = f"""
-            (find {paste} -type d -print0 && find {paste} -type f -print0 \
-                && find {paste} -type l -print0) \
-                | xargs -0 -P 10 chown -Ph {os.geteuid()}:{os.getegid()}
-            """.strip()
-            try:
-                subprocess.run(
-                    self.cli_exe
-                    + [
-                        "run",
-                        "--rm",
-                        "-v",
-                        shlex.quote(f"{self.host_dir}:{self.container_dir}"),
-                        "alpine:3",
-                        "/bin/ash",
-                        "-eo",
-                        "pipefail",
-                        "-c",
-                        script,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True,
-                    check=True,
-                )
-            except subprocess.CalledProcessError as cpe:
-                logger.error(_("post-task chown failed", error=cpe.stderr.strip().split("\n")))
 
 
 def _sudo_canary():
