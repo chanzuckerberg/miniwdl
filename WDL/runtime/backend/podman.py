@@ -19,9 +19,8 @@ class PodmanContainer(SubprocessBase):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
-        podman_version_cmd = ["podman", "--version"]
-        if os.geteuid():
-            podman_version_cmd = ["sudo", "-n"] + podman_version_cmd
+        podman_version_cmd = cfg.get_list("podman", "exe")
+        podman_version_cmd.append("--version")
 
         try:
             podman_version = subprocess.run(
@@ -33,12 +32,10 @@ class PodmanContainer(SubprocessBase):
             )
         except subprocess.CalledProcessError as cpe:
             logger.error(_(" ".join(podman_version_cmd), stderr=cpe.stderr.strip().split("\n")))
-            raise RuntimeError(
-                "Unable to check `sudo podman --version`; verify Podman installation"
-                " and no-password sudo (or run miniwdl as root)"
-                if os.geteuid()
-                else "Unable to check `podman --version`; verify Podman installation"
-            ) from None
+            msg = f"Unable to check `{' '.join(podman_version_cmd)}`; verify Podman installation"
+            if podman_version_cmd[0] == "sudo":
+                msg += " with no-password sudo"
+            raise RuntimeError(msg) from None
 
         logger.notice(  # pyre-ignore
             _(
@@ -51,10 +48,13 @@ class PodmanContainer(SubprocessBase):
     def cli_name(self) -> str:
         return "podman"
 
+    @property
+    def cli_exe(self) -> List[str]:
+        return self.cfg.get_list("podman", "exe")
+
     def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
         image, invocation = super()._pull_invocation(logger, cleanup)
-        if os.geteuid():
-            invocation = ["sudo", "-n"] + invocation
+        if invocation[0] == "sudo":
             _sudo_canary()
         return (image, invocation)
 
@@ -62,16 +62,14 @@ class PodmanContainer(SubprocessBase):
         """
         Formulate `podman run` command-line invocation
         """
-        ans = ["podman"]
-        if os.geteuid():
-            ans = ["sudo", "-n"] + ans
-            _sudo_canary()
-        ans += [
+        ans = self.cli_exe + [
             "run",
             "--rm",
             "--workdir",
             os.path.join(self.container_dir, "work"),
         ]
+        if ans[0] == "sudo":
+            _sudo_canary()
 
         cpu = self.runtime_values.get("cpu", 0)
         if cpu > 0:
@@ -113,55 +111,62 @@ class PodmanContainer(SubprocessBase):
         return ans
 
     def _chown(self, logger: logging.Logger):
-        if not self.cfg.get_bool("task_runtime", "as_user") and (os.geteuid() or os.getegid()):
-            paste = shlex.quote(
-                os.path.join(
-                    self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
-                )
+        if (
+            not self.cfg.get_bool("file_io", "chown")
+            or self.cfg.get_bool("task_runtime", "as_user")
+            or (os.geteuid() == 0 and os.getegid() == 0)
+        ):
+            return
+        paste = shlex.quote(
+            os.path.join(
+                self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
             )
-            script = f"""
-            (find {paste} -type d -print0 && find {paste} -type f -print0 \
-                && find {paste} -type l -print0) \
-                | xargs -0 -P 10 chown -Ph {os.geteuid()}:{os.getegid()}
-            """.strip()
-            try:
-                subprocess.run(
-                    [
-                        "sudo",
-                        "-n",
-                        "podman",
-                        "run",
-                        "--rm",
-                        "-v",
-                        shlex.quote(f"{self.host_dir}:{self.container_dir}"),
-                        "alpine:3",
-                        "/bin/ash",
-                        "-eo",
-                        "pipefail",
-                        "-c",
-                        script,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True,
-                    check=True,
-                )
-            except subprocess.CalledProcessError as cpe:
-                logger.error(_("post-task chown failed", error=cpe.stderr.strip().split("\n")))
-
-
-def _sudo_canary():
-    if os.geteuid():
+        )
+        script = f"""
+        (find {paste} -type d -print0 && find {paste} -type f -print0 \
+            && find {paste} -type l -print0) \
+            | xargs -0 -P 10 chown -Ph {os.geteuid()}:{os.getegid()}
+        """.strip()
         try:
             subprocess.run(
-                ["sudo", "-n", "id"],
+                self.cli_exe
+                + [
+                    "run",
+                    "--rm",
+                    "-v",
+                    shlex.quote(f"{self.host_dir}:{self.container_dir}"),
+                    "alpine:3",
+                    "/bin/ash",
+                    "-eo",
+                    "pipefail",
+                    "-c",
+                    script,
+                ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 universal_newlines=True,
                 check=True,
             )
-        except subprocess.SubprocessError:
-            raise RuntimeError(
-                "passwordless sudo expired (required for Podman)"
-                "; see miniwdl/podman documentation for workarounds"
+        except subprocess.CalledProcessError as cpe:
+            logger.error(
+                _(
+                    "post-task chown failed; try setting [file_io] chown = false",
+                    error=cpe.stderr.strip().split("\n"),
+                )
             )
+
+
+def _sudo_canary():
+    try:
+        subprocess.run(
+            ["sudo", "-n", "id"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+            check=True,
+        )
+    except subprocess.SubprocessError:
+        raise RuntimeError(
+            "no-password sudo expired (required for Podman)"
+            "; see miniwdl/podman documentation for workarounds"
+        )
