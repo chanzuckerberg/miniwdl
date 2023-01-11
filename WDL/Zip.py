@@ -115,7 +115,8 @@ def build_zip_paths(
             # place outside import under __outside_wdl, vaguely reproducing directory structure
             abspath2 = abspath.replace("://", "_")
             prefix = os.path.commonprefix([abspath2, main_dir.replace("://", "_")])
-            assert not prefix or (abspath2.startswith(prefix) and prefix.endswith("/"))
+            if prefix and not prefix.endswith("/"):
+                prefix = os.path.dirname(prefix) + "/"
             ans[abspath] = "__outside_wdl/" + abspath2[len(prefix) :]
             outside_warn = True
         logger.info(f"{ans[abspath]} <= {abspath}")

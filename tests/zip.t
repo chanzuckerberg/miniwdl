@@ -19,8 +19,8 @@ DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
 
-mkdir -p wdl/wf
-cat << 'EOF' > wdl/inner.wdl
+mkdir -p foo/bar foo/bas
+cat << 'EOF' > foo/bar/inner.wdl
 version 1.1
 task hello {
     input {
@@ -34,9 +34,9 @@ task hello {
     }
 }
 EOF
-cat << 'EOF' > wdl/wf/outer.wdl
+cat << 'EOF' > foo/bas/outer.wdl
 version development
-import "../inner.wdl"
+import "../bar/inner.wdl"
 workflow w {
     input {
         String who
@@ -50,7 +50,7 @@ EOF
 
 plan tests 11
 
-$miniwdl zip -o outer.wdl.zip wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' --debug
+$miniwdl zip -o outer.wdl.zip foo/bas/outer.wdl --input ' {"w.who": "Alice"}' --debug
 is "$?" "0" "build zip"
 
 mkdir __extract
