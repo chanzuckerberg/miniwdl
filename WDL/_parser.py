@@ -508,7 +508,7 @@ class _DocTransformer(_ExprTransformer):
         d = dict()
         for k, v in items:
             if k in d:
-                raise Error.MultipleDefinitions(self._sp(meta), "duplicate keys in call inputs")
+                raise Error.MultipleDefinitions(self._sp(meta), f"duplicate call input '{k}'")
             d[k] = v
         return d
 
@@ -627,7 +627,9 @@ class _DocTransformer(_ExprTransformer):
         for d in items[1:]:
             assert not d.expr
             if d.name in members:
-                raise Error.MultipleDefinitions(self._sp(meta), "duplicate members in struct")
+                raise Error.MultipleDefinitions(
+                    self._sp(meta), f"duplicate struct member '{d.name}'"
+                )
             members[d.name] = d.type
         return Tree.StructTypeDef(self._sp(meta), name, members)
 
