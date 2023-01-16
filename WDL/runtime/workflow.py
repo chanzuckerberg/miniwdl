@@ -559,9 +559,9 @@ def _scatter_tags(array: List[Optional[Value.Base]], max_tag: int) -> List[str]:
     # human-readability, and can be embedded in the run id/directory safely. This is to help the
     # operator navigate the run logs & directory tree, looking for specific items.
 
-    # stringify each item and split each string into a list of alphanumeric components
+    # stringify each item and split each string into a list of identifier-like components
     any = False
-    delimiters = regex.compile("[^0-9a-zA-Z]+")
+    delimiters = regex.compile("[^0-9a-zA-Z_]+")
     items = []
     for i, array_i in enumerate(array):
         if (
