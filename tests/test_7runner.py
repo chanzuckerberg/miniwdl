@@ -4,7 +4,6 @@ import tempfile
 import random
 import os
 import shutil
-import json
 import time
 import docker
 import platform
@@ -961,6 +960,45 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["out"], [])
         outp = self._run(wdl, {"create_file": True})
         self.assertTrue(os.path.exists(outp["out"][0]))
+
+    @unittest.expectedFailure # issue #623
+    def test_output_symlink_to_input(self):
+        wdl = r"""
+        version 1.0
+        task create_file {
+            input {}
+            command <<<
+                echo hello > hello.txt
+            >>>
+            output {
+                File file = "hello.txt"
+            }
+        }
+        task use_file {
+            input {
+                File file_in
+            }
+            command <<<
+                ln -s ~{file_in} hello_link.txt
+                >&2 ls -lR
+            >>>
+            output {
+                File file = "hello_link.txt"
+            }
+        }
+        workflow maybe_file {
+            input {}
+            call create_file
+            call use_file {
+                input:
+                file_in = create_file.file
+            }
+            output {
+                Array[File] files = [create_file.file, use_file.file]
+            }
+        }
+        """
+        outp = self._run(wdl, {})
 
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
