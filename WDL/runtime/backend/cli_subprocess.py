@@ -89,6 +89,8 @@ class SubprocessBase(TaskContainer):
             with open(os.path.join(self.host_dir, "command"), "w") as outfile:
                 for k, v in self.runtime_values.get("env", {}).items():
                     outfile.write(f"export {k}={shlex.quote(v)}\n")
+                if self.cfg.get("task_runtime", "command_preamble"):
+                    outfile.write(self.cfg.get("task_runtime", "command_preamble") + "\n")
                 outfile.write(command)
 
             # start subprocess

@@ -168,6 +168,8 @@ class SwarmContainer(TaskContainer):
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "w") as outfile:
+            if self.cfg.get("task_runtime", "command_preamble"):
+                outfile.write(self.cfg.get("task_runtime", "command_preamble") + "\n")
             outfile.write(command)
 
         # prepare docker configuration
