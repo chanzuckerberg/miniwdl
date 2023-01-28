@@ -36,9 +36,9 @@ See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for chang
 
 ## Scaling up
 
-The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory available on the local host; so a more-powerful host enables larger workloads. Separately-maintained plugins can distribute tasks to cloud & HPC backends with a shared filesystem:
+The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory available on the local host; so a more-powerful host enables larger workloads. Separately-maintained projects can distribute tasks to cloud & HPC backends with a shared filesystem:
 
-* [AWS Batch](https://github.com/miniwdl-ext/miniwdl-aws)
+* AWS: [Amazon Omics](https://aws.amazon.com/omics/) (managed service) or [AWS Batch plugin](https://github.com/miniwdl-ext/miniwdl-aws) (DIY)
 * [SLURM](https://github.com/miniwdl-ext/miniwdl-slurm)
 
 ## Getting Help

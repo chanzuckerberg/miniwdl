@@ -360,12 +360,12 @@ class String(Base):
     """
     :type: List[Union[str,WDL.Expr.Placeholder]]
 
-    The parts list begins and ends with matching single- or double- quote marks. Between these is
-    a sequence of literal strings and/or interleaved placeholder expressions. Escape sequences in
-    the literals will NOT have been decoded (although the parser will have checked they're valid).
-    Strings arising from task commands leave escape sequences to be interpreted by the shell in the
-    task container. Other string literals have their escape sequences interpreted upon evaluation
-    to string values.
+    The parts list begins and ends with the original delimiters (quote marks, braces, or triple
+    angle brackets). Between these is a sequence of literal strings and/or interleaved placeholder
+    expressions. Escape sequences in the literals will NOT have been decoded (although the parser
+    will have checked they're valid). Strings arising from task commands leave escape sequences to
+    be interpreted by the shell in the task container. Other string literals have their escape
+    sequences interpreted upon evaluation to string values.
     """
 
     command: bool
@@ -423,7 +423,14 @@ class String(Base):
             else:
                 assert False
         # concatenate the stringified parts and trim the surrounding quotes
-        return Value.String("".join(ans)[1:-1])
+        # TODO: make command repr include delimiters for consistency
+        if self.command:
+            return Value.String("".join(ans))
+        delim = self.parts[0]
+        assert delim in ("'", '"', "{", "<<<")
+        delim2 = self.parts[-1]
+        assert delim2 in ("'", '"', "}", ">>>") and len(delim) == len(delim2)
+        return Value.String("".join(ans)[len(delim) : -len(delim)])
 
     @property
     def literal(self) -> Optional[Value.Base]:

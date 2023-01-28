@@ -4,7 +4,6 @@ import tempfile
 import random
 import os
 import shutil
-import json
 import time
 import docker
 import platform
@@ -954,6 +953,81 @@ class MiscRegressionTests(RunnerTestCase):
             >>>
         }""", {}, expected_exception=WDL.Error.StaticTypeMismatch)
 
+    def test_issue614(self):
+        wdl = r"""
+        version 1.0
+        task create_file_or_not {
+            input {
+                Boolean create_file
+            }
+            command <<<
+                ~{true="touch" false="echo" create_file} file
+            >>>
+            output {
+            File? out = "file"
+            # This is common when there are a lot of (optional) files output by a
+            # task. Just capture them in one variable as an array, so you can easily
+            # delegate to workflow outputs.
+            Array[File] all_output = select_all([out])
+            }
+        }
+        workflow maybe_file {
+            input {
+                Boolean create_file = false
+            }
+            call create_file_or_not {
+                input:
+                create_file = create_file
+            }
+            output {
+            Array[File] out = create_file_or_not.all_output
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        self.assertEqual(outp["out"], [])
+        outp = self._run(wdl, {"create_file": True})
+        self.assertTrue(os.path.exists(outp["out"][0]))
+
+    @unittest.expectedFailure # issue #623
+    def test_output_symlink_to_input(self):
+        wdl = r"""
+        version 1.0
+        task create_file {
+            input {}
+            command <<<
+                echo hello > hello.txt
+            >>>
+            output {
+                File file = "hello.txt"
+            }
+        }
+        task use_file {
+            input {
+                File file_in
+            }
+            command <<<
+                ln -s ~{file_in} hello_link.txt
+                >&2 ls -lR
+            >>>
+            output {
+                File file = "hello_link.txt"
+            }
+        }
+        workflow maybe_file {
+            input {}
+            call create_file
+            call use_file {
+                input:
+                file_in = create_file.file
+            }
+            output {
+                Array[File] files = [create_file.file, use_file.file]
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
@@ -1253,3 +1327,105 @@ class TestDockerNetwork(RunnerTestCase):
             {"docker_swarm": {"allow_networks": ["host"]}}
         )
         self._run(wdl, {}, cfg=cfg)
+
+
+class TestRelativeOutputPaths(RunnerTestCase):
+    """
+    More tests for this feature are in runner.t. This one is for basic coverage.
+    """
+    wdl = """
+    version development
+    workflow w {
+        input {
+            Array[String] names
+        }
+        scatter (name in names) {
+            call t {
+                input: name
+            }
+        }
+        output {
+            Array[File] messages = t.message
+        }
+    }
+    task t {
+        input {
+            String name
+        }
+        command <<<
+            mkdir out
+            echo "Hello, ~{name}]" > 'out/~{name}.txt'
+        >>>
+        output {
+            File message = "out/~{name}.txt"
+        }
+    }
+    """
+
+    def test_ok(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"use_relative_output_paths": True}})
+        outp = self._run(self.wdl, {"names": ["Alyssa", "Ben"]}, cfg=cfg)
+        self.assertTrue(outp["messages"][0].endswith("/out/out/Alyssa.txt"))
+        self.assertTrue(outp["messages"][1].endswith("/out/out/Ben.txt"))
+
+    def test_collision(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"use_relative_output_paths": True}})
+        with self.assertRaises(WDL.runtime.error.RunFailed):
+            self._run(self.wdl, {"names": ["Ben", "Ben"]}, cfg=cfg)
+
+
+class TestEnvDecl(RunnerTestCase):
+    def test_basic(self):
+        outp = self._run("""
+            version development
+            workflow w {
+                scatter (who in ["Alyssa", "Ben"]) {
+                    call t { input: who }
+                }
+                output {
+                    Array[String] messages = t.message
+                }
+            }
+            task t {
+                input {
+                    env String who
+                    String non_env = "XXX"
+                }
+                env String greeting = "Hello"
+                String non_env2 = "YYY"
+                command <<<
+                    echo "${greeting}, $who!${non_env:-}${non_env2:-}" | tee /dev/stderr
+                >>>
+                output {
+                    String message = read_string(stdout())
+                }
+            }
+        """, {})
+        assert outp["messages"] == ["Hello, Alyssa!", "Hello, Ben!"]
+
+    def test_more(self):
+        with open(os.path.join(self._dir, "alyssa.txt"), mode="w") as outfile:
+            print("Alyssa", file=outfile)
+        outp = self._run("""
+            version development
+            struct Person {
+                File name
+                Int age
+            }
+            task t {
+                input {
+                    env Person p
+                }
+                env File name = p.name
+                command <<<
+                    echo "Hello, $(cat "$name")!" | tee /dev/stderr
+                    echo "$p" | tr -d ' ' | grep '"age":42' >&2
+                >>>
+                output {
+                    String message = read_string(stdout())
+                }
+            }
+        """, {"p": {"name": os.path.join(self._dir, "alyssa.txt"), "age": 42}})
+        assert outp["message"] == "Hello, Alyssa!"

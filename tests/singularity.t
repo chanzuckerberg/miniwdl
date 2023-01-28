@@ -19,7 +19,7 @@ DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
 
-plan tests 6
+plan tests 7
 
 export MINIWDL__SCHEDULER__CONTAINER_BACKEND=singularity
 
@@ -37,6 +37,9 @@ $miniwdl run_self_test --dir "$DN/use_cache"
 is "$?" "0" "run_self_test with image cache"
 grep 'SIF found in image cache directory' $(find "$DN/use_cache" -name workflow.log)
 is "$?" "0" "singularity image used from cache"
+
+$miniwdl run $SOURCE_DIR/tests/task_env_inputs.wdl --dir "$DN"
+is "$?" "0" "env input escaping"
 
 git clone --depth=1 https://github.com/broadinstitute/viral-pipelines.git
 cd viral-pipelines

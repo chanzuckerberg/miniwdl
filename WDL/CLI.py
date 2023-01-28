@@ -718,8 +718,10 @@ def runner(
             )
             sys.exit(2)
         if (
-            cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put")
-        ) and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+            (cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put"))
+            and os.path.isabs(cfg["download_cache"]["dir"])
+            and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"])
+        ):
             logger.error(
                 _(
                     "configuration error: 'download_cache.dir' must be within the `file_io.root' directory",
@@ -1375,6 +1377,7 @@ def run_self_test(**kwargs):
                 }
                 output {
                     Array[String] messages = select_all(msg)
+                    Array[File] message_files = select_all(hello.message)
                 }
             }
             task hello {
@@ -1383,11 +1386,13 @@ def run_self_test(**kwargs):
                 }
                 command {
                     if grep -qv ^\# "${who}" ; then
-                        echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                        name="$(cat ${who})"
+                        mkdir messages
+                        echo "Hello, $name!" | tee "messages/$name.txt" 1>&2
                     fi
                 }
                 output {
-                    File? message = "message.txt"
+                    File? message = select_first(flatten([glob("messages/*.txt"), ["nonexistent"]]))
                 }
                 runtime {
                     docker: "ubuntu:18.04"
@@ -1638,7 +1643,9 @@ def localize(
             )
             sys.exit(2)
 
-        if not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+        if os.path.isabs(cfg["download_cache"]["dir"]) and not path_really_within(
+            cfg["download_cache"]["dir"], cfg["file_io"]["root"]
+        ):
             logger.error(
                 _(
                     "configuration error: `download_cache.dir' must be within the `file_io.root' directory",

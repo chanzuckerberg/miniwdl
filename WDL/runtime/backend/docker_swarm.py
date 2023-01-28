@@ -554,42 +554,49 @@ class SwarmContainer(TaskContainer):
         dependent). We do this in a funny way via Docker; see GitHub issue #271 for discussion of
         alternatives and their problems.
         """
-        if not self.cfg["task_runtime"].get_bool("as_user") and (os.geteuid() or os.getegid()):
-            paste = shlex.quote(
-                os.path.join(
-                    self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
-                )
+        if (
+            not self.cfg.get_bool("file_io", "chown")
+            or self.cfg["task_runtime"].get_bool("as_user")
+            or (os.geteuid() == 0 and os.getegid() == 0)
+        ):
+            return
+        paste = shlex.quote(
+            os.path.join(
+                self.container_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
             )
-            script = f"""
-            (find {paste} -type d -print0 && find {paste} -type f -print0 \
-                && find {paste} -type l -print0) \
-                | xargs -0 -P 10 chown -Ph {os.geteuid()}:{os.getegid()}
-            """.strip()
-            volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
-            logger.debug(_("post-task chown", script=script, volumes=volumes))
+        )
+        script = f"""
+        (find {paste} -type d -print0 && find {paste} -type f -print0 \
+            && find {paste} -type l -print0) \
+            | xargs -0 -P 10 chown -Ph {os.geteuid()}:{os.getegid()}
+        """.strip()
+        volumes = {self.host_dir: {"bind": self.container_dir, "mode": "rw"}}
+        logger.debug(_("post-task chown", script=script, volumes=volumes))
+        try:
+            chowner = None
             try:
-                chowner = None
-                try:
-                    chowner = client.containers.run(
-                        "alpine:3",
-                        name=self.unique_service_name("chown-" + self.run_id),
-                        command=["/bin/ash", "-eo", "pipefail", "-c", script],
-                        volumes=volumes,
-                        detach=True,
-                    )
-                    chowner_status = chowner.wait()
-                    assert (
-                        isinstance(chowner_status, dict)
-                        and chowner_status.get("StatusCode", -1) == 0
-                    ), f"post-task chown failed: {chowner_status}"
-                finally:
-                    if chowner:
-                        chowner.remove()
-            except Exception as exn:
-                logger.debug(traceback.format_exc())
-                if success:
-                    raise
-                logger.error(_("post-task chown also failed", exception=str(exn)))
+                chowner = client.containers.run(
+                    "alpine:3",
+                    name=self.unique_service_name("chown-" + self.run_id),
+                    command=["/bin/ash", "-eo", "pipefail", "-c", script],
+                    volumes=volumes,
+                    detach=True,
+                )
+                chowner_status = chowner.wait()
+                assert (
+                    isinstance(chowner_status, dict) and chowner_status.get("StatusCode", -1) == 0
+                ), (
+                    f"post-task chown failed: {chowner_status}"
+                    + "; try setting [file_io] chown = false"
+                )
+            finally:
+                if chowner:
+                    chowner.remove()
+        except Exception as exn:
+            logger.debug(traceback.format_exc())
+            if success:
+                raise
+            logger.error(_("post-task chown also failed", exception=str(exn)))
 
     def unique_service_name(self, run_id: str) -> str:
         # We need to give each service a name unique on the swarm; collisions cause the service

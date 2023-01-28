@@ -6,7 +6,6 @@ import logging
 import math
 import os
 import json
-import copy
 import traceback
 import glob
 import threading
@@ -125,7 +124,11 @@ def run_local_task(
                     )
                 # create out/ and outputs.json
                 _outputs = link_outputs(
-                    cache, cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache,
+                    cached,
+                    run_dir,
+                    hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
                 write_values_json(
                     cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
@@ -203,7 +206,11 @@ def run_local_task(
 
                 # create output_links
                 outputs = link_outputs(
-                    cache, outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache,
+                    outputs,
+                    run_dir,
+                    hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
 
                 # process outputs through plugins
@@ -477,6 +484,7 @@ def _eval_task_runtime(
         logger.info(_("effective runtime", **container.runtime_values))
 
     # add any configured overrides for in-container environment variables
+    container.runtime_values.setdefault("env", {})
     env_vars_override = {}
     env_vars_skipped = []
     for ev_name, ev_value in cfg["task_runtime"].get_dict("env").items():
@@ -508,7 +516,23 @@ def _eval_task_runtime(
         logger.debug(
             _("overriding environment variables (portability warning)", **env_vars_override)
         )
-        container.runtime_values.setdefault("env", {}).update(env_vars_override)
+        container.runtime_values["env"].update(env_vars_override)
+
+    # process decls with "env" decorator (EXPERIMENTAL)
+    env_decls = {}
+    for decl in (task.inputs or []) + task.postinputs:
+        if decl.decor.get("env", False) is True:
+            if not env_decls:
+                logger.warning(
+                    "task env declarations are an experimental feature, subject to change"
+                )
+            v = env[decl.name]
+            if isinstance(v, (Value.String, Value.File, Value.Directory)):
+                v = v.value
+            else:
+                v = json.dumps(v.json)
+            env_decls[decl.name] = v
+    container.runtime_values["env"].update(env_decls)
 
     unused_keys = list(
         key
@@ -633,13 +657,13 @@ def _eval_task_outputs(
                     )
                 )
 
-    # helper to rewrite File/Directory from in-container paths to host paths
-    def rewriter(v: Union[Value.File, Value.Directory], output_name: str) -> str:
+    # Helpers to rewrite File/Directory from in-container paths to host paths
+    # First pass -- convert nonexistent output paths to None/Null
+    def rewriter1(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
         container_path = v.value
         if isinstance(v, Value.Directory) and not container_path.endswith("/"):
             container_path += "/"
-        host_path = container.host_path(container_path)
-        if host_path is None:
+        if container.host_path(container_path) is None:
             logger.warning(
                 _(
                     "output path not found in container (error unless declared type is optional)",
@@ -647,17 +671,24 @@ def _eval_task_outputs(
                     path=container_path,
                 )
             )
-        elif isinstance(v, Value.Directory):
+            return None
+        return v.value
+
+    # Second pass -- convert in-container paths to host paths
+    def rewriter2(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
+        container_path = v.value
+        if isinstance(v, Value.Directory) and not container_path.endswith("/"):
+            container_path += "/"
+        host_path = container.host_path(container_path)
+        assert host_path is not None
+        if isinstance(v, Value.Directory):
             if host_path.endswith("/"):
                 host_path = host_path[:-1]
             _check_directory(host_path, output_name)
             logger.debug(_("output dir", container=container_path, host=host_path))
         else:
             logger.debug(_("output file", container=container_path, host=host_path))
-        # We may overwrite File.value with None, which is an invalid state, then we'll fix it
-        # up (or abort) below. This trickery is because we don't, at this point, know whether
-        # the -declared- output type is optional.
-        return host_path  # pyre-fixme
+        return host_path
 
     stdlib = OutputStdLib(task.effective_wdl_version, logger, container)
     outputs = Env.Bindings()
@@ -680,20 +711,21 @@ def _eval_task_outputs(
         # Now, a delicate sequence for postprocessing File outputs (including Files nested within
         # compound values)
 
-        # First bind the value as-is in the environment, so that subsequent output expressions will
-        # "see" the in-container path(s) if they use this binding.
+        # First convert nonexistent paths to None/Null, and bind this in the environment for
+        # evaluating subsequent output expressions.
+        v = Value.rewrite_paths(v, lambda w: rewriter1(w, decl.name))
         env = env.bind(decl.name, v)
-        # Rewrite each File/Directory path to a host path, or None if it doesn't exist.
-        v = Value.rewrite_paths(v, lambda v: rewriter(v, decl.name))
-        # File.coerce has a special behavior for us so that, if the value is None:
-        #   - produces Value.Null() if the desired type is File?
-        #   - raises FileNotFoundError otherwise.
+        # check if any nonexistent paths were provided for (non-optional) File/Directory types
+        # Value.Null.coerce has a special behavior for us to raise FileNotFoundError for a
+        # non-optional File/Directory type.
         try:
             v = v.coerce(decl.type)
         except FileNotFoundError:
             exn = OutputError("File/Directory path not found in task output " + decl.name)
             setattr(exn, "job_id", decl.workflow_node_id)
             raise exn
+        # Rewrite in-container paths to host paths
+        v = Value.rewrite_paths(v, lambda w: rewriter2(w, decl.name))
         outputs = outputs.bind(decl.name, v)
 
     return outputs
@@ -719,7 +751,11 @@ def _check_directory(host_path: str, output_name: str) -> None:
 
 
 def link_outputs(
-    cache: CallCache, outputs: Env.Bindings[Value.Base], run_dir: str, hardlinks: bool = False
+    cache: CallCache,
+    outputs: Env.Bindings[Value.Base],
+    run_dir: str,
+    hardlinks: bool = False,
+    use_relative_output_paths: bool = False,
 ) -> Env.Bindings[Value.Base]:
     """
     Following a successful run, the output files may be scattered throughout a complex directory
@@ -727,6 +763,16 @@ def link_outputs(
     containing nicely organized symlinks to the output files, and rewrite File values in the
     outputs env to use these symlinks.
     """
+
+    def link1(target: str, link: str, directory: bool) -> None:
+        if hardlinks:
+            # TODO: what if target is an input from a different filesystem?
+            if directory:
+                shutil.copytree(target, link, symlinks=True, copy_function=link_force)
+            else:
+                link_force(target, link)
+        else:
+            symlink_force(target, link)
 
     def map_paths(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, (Value.File, Value.Directory)):
@@ -743,14 +789,7 @@ def link_outputs(
                     target = os.path.relpath(target, start=os.path.realpath(dn))
                 link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
                 os.makedirs(dn, exist_ok=False)
-                if hardlinks:
-                    # TODO: what if target is an input from a different filesystem?
-                    if isinstance(v, Value.Directory):
-                        shutil.copytree(target, link, symlinks=True, copy_function=link_force)
-                    else:
-                        link_force(target, link)
-                else:
-                    symlink_force(target, link)
+                link1(target, link, isinstance(v, Value.Directory))
                 # Drop a dotfile alongside Directory outputs, to inform a program crawling the out/
                 # directory without reference to the output types or JSON for whatever reason. It
                 # might otherwise have trouble distinguishing Directory outputs among the
@@ -771,7 +810,8 @@ def link_outputs(
                 sum(
                     1
                     for b in v.value
-                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0])) is None
+                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0]).strip("'\""))
+                    is None
                 )
                 == 0
             )
@@ -780,7 +820,10 @@ def link_outputs(
                 v.value[i] = (
                     b[0],
                     map_paths(
-                        b[1], os.path.join(dn, str(b[0]) if keys_ok else str(i).rjust(d, "0"))
+                        b[1],
+                        os.path.join(
+                            dn, str(b[0]).strip("'\"") if keys_ok else str(i).rjust(d, "0")
+                        ),
                     ),
                 )
         elif isinstance(v, Value.Pair):
@@ -794,12 +837,79 @@ def link_outputs(
         return v
 
     os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
+
+    if use_relative_output_paths:
+        return link_outputs_relative(link1, cache, outputs, run_dir, hardlinks=hardlinks)
+
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_paths(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
+            map_paths(
+                Value.rewrite_paths(binding.value, lambda v: v.value),  # nop to deep copy
+                os.path.join(run_dir, "out", binding.name),
+            ),
         )
     )
+
+
+def link_outputs_relative(
+    link1: Callable[[str, str, bool], None],
+    cache: CallCache,
+    outputs: Env.Bindings[Value.Base],
+    run_dir: str,
+    hardlinks: bool = False,
+) -> Env.Bindings[Value.Base]:
+    """
+    link_outputs with [file_io] use_relative_output_paths = true. We organize the links to reflect
+    the generated files' paths relative to their task working directory.
+    """
+    link_destinations = dict()
+
+    def map_path_relative(v: Union[Value.File, Value.Directory]) -> str:
+        target = (
+            v.value
+            if os.path.exists(v.value)
+            else cache.get_download(v.value, isinstance(v, Value.Directory))
+        )
+        if target:
+            real_target = os.path.realpath(target)
+            rel_link = None
+            if path_really_within(target, os.path.join(run_dir, "work")):
+                # target was generated by current task; use its path relative to the task work dir
+                if not os.path.basename(run_dir).startswith("download-"):  # except download tasks
+                    rel_link = os.path.relpath(real_target, os.path.join(run_dir, "work"))
+            else:
+                # target is an out/ link generated by a call in the current workflow OR a cached
+                # run; use the link's path relative to that out/ dir, which by induction should
+                # equal its path relative to the original work/ dir.
+                # we need heuristic to find the out/ dir in a task/workflow run directory, since the
+                # user's cwd or the task-generated relative path might coincidentally have
+                # something named 'out'.
+                p = None
+                for p in reversed([m.span()[0] for m in regex.finditer("/out(?=/)", target)]):
+                    if p and (
+                        os.path.isfile(os.path.join(target[:p], "task.log"))
+                        or os.path.isfile(os.path.join(target[:p], "workflow.log"))
+                    ):
+                        break
+                    p = None
+                if p and p + 5 < len(target):
+                    rel_link = os.path.relpath(target, target[: p + 5])
+            # if neither of the above cases applies, then fall back to just the target basename
+            rel_link = rel_link or os.path.basename(target)
+            abs_link = os.path.join(os.path.join(run_dir, "out"), rel_link)
+            if link_destinations.get(abs_link, real_target) != real_target:
+                raise FileExistsError(
+                    "Output filename collision; to allow this, set"
+                    " [file_io] use_relative_output_paths = false. Affected path: " + abs_link
+                )
+            os.makedirs(os.path.dirname(abs_link), exist_ok=True)
+            link1(real_target, abs_link, isinstance(v, Value.Directory))
+            link_destinations[abs_link] = real_target
+            return abs_link
+        return v.value
+
+    return Value.rewrite_env_paths(outputs, map_path_relative)
 
 
 def _delete_work(

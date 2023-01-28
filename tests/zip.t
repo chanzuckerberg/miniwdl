@@ -19,8 +19,8 @@ DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
 
-mkdir -p wdl/wf
-cat << 'EOF' > wdl/inner.wdl
+mkdir -p foo/bar foo/bas
+cat << 'EOF' > foo/bar/inner.wdl
 version 1.1
 task hello {
     input {
@@ -34,9 +34,9 @@ task hello {
     }
 }
 EOF
-cat << 'EOF' > wdl/wf/outer.wdl
+cat << 'EOF' > foo/bas/outer.wdl
 version development
-import "../inner.wdl"
+import "../bar/inner.wdl"
 workflow w {
     input {
         String who
@@ -48,9 +48,9 @@ workflow w {
 }
 EOF
 
-plan tests 9
+plan tests 11
 
-$miniwdl zip -o outer.wdl.zip wdl/wf/outer.wdl --input ' {"w.who": "Alice"}' --debug
+$miniwdl zip -o outer.wdl.zip foo/bas/outer.wdl --input ' {"w.who": "Alice"}' --debug
 is "$?" "0" "build zip"
 
 mkdir __extract
@@ -69,3 +69,25 @@ is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Bob!" "run zip output 2"
 $miniwdl run outer.wdl.zip -i '{"w.who": "Carol"}' | tee out
 is "$?" "0" "run zip with input override file"
 is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Carol!" "run zip output 3"
+
+# issue #610 regression test
+mkdir -p issue610/wdl/tasks
+wget -nv -O issue610/hello1.wdl https://raw.githubusercontent.com/openwdl/learn-wdl/9d05365/1_script_examples/1_hello_worlds/1_hello/hello.wdl
+cp issue610/hello1.wdl issue610/wdl/tasks/hello2.wdl
+cat << 'EOF' > issue610/wdl/test_miniwdl_zip.wdl
+version 1.0
+
+import "../hello1.wdl"
+import "../wdl/tasks/hello2.wdl" as hello_b
+import "https://raw.githubusercontent.com/openwdl/learn-wdl/9d05365/1_script_examples/1_hello_worlds/1_hello/hello.wdl"
+
+workflow HelloWorld {
+  call hello_b.WriteGreeting
+}
+EOF
+$miniwdl zip -o issue610.zip issue610/wdl/test_miniwdl_zip.wdl --debug
+is "$?" "0" "issue 610 (zip)"
+mkdir __extract610
+env -C __extract610 unzip ../issue610.zip
+$miniwdl check __extract610/test_miniwdl_zip.wdl
+is "$?" "0" "issue 610 (check)"

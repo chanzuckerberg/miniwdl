@@ -224,6 +224,7 @@ class gatk4_somatic_snvs_indels(unittest.TestCase):
         "UnusedCall": 1,
         "StringCoercion": 4,
         "MissingVersion": 6,
+        "Deprecated": 1,
     },
     check_quant=False,
 )
@@ -398,7 +399,7 @@ class dxWDL(unittest.TestCase):
         "_suppressions": 8,
         "UnusedImport": 4,
         "NameCollision": 27,
-        "StringCoercion": 6,
+        "StringCoercion": 8,
         "FileCoercion": 3,
         "NonemptyCoercion": 1,
         "UnnecessaryQuantifier": 5,
@@ -408,7 +409,8 @@ class dxWDL(unittest.TestCase):
         "MissingVersion": 7,
         "UnboundDeclaration": 1,
         "UnverifiedStruct": 3,
-        "Deprecated": 2,
+        "Deprecated": 10,
+        "OptionalCoercion": 1,
         "UnexpectedRuntimeValue": 1,
     },
     blocklist=["check_quant", "incomplete_call"],
@@ -423,7 +425,7 @@ class Contrived(unittest.TestCase):
         "_suppressions": 16,
         "UnusedImport": 6,
         "NameCollision": 43,
-        "StringCoercion": 11,
+        "StringCoercion": 13,
         "FileCoercion": 5,
         "OptionalCoercion": 4,
         "NonemptyCoercion": 2,
@@ -435,7 +437,7 @@ class Contrived(unittest.TestCase):
         "MissingVersion": 11,
         "UnboundDeclaration": 1,
         "UnverifiedStruct": 3,
-        "Deprecated": 2,
+        "Deprecated": 11,
         "UnexpectedRuntimeValue": 1,
     },
     check_quant=False,
@@ -462,6 +464,7 @@ class Contrived2(unittest.TestCase):
         "NonemptyCoercion": 1,
         "SelectArray": 1,
         "UnnecessaryQuantifier": 8,
+        "Deprecated": 7,
     },
 )
 class BioWDLTasks(unittest.TestCase):
@@ -477,6 +480,7 @@ class BioWDLTasks(unittest.TestCase):
         "NameCollision": 1,
         "UnverifiedStruct": 1,
         "UnnecessaryQuantifier": 13,
+        "Deprecated": 7,
     },
     check_quant=False,
 )
@@ -493,6 +497,7 @@ class BioWDLAligning(unittest.TestCase):
         "NameCollision": 1,
         "UnverifiedStruct": 1,
         "UnnecessaryQuantifier": 9,
+        "Deprecated": 7,
     },
     check_quant=False,
 )
@@ -509,6 +514,7 @@ class BioWDLExpressionQuantification(unittest.TestCase):
         "NonemptyCoercion": 37,
         "SelectArray": 5,
         "UnnecessaryQuantifier": 3,
+        "Deprecated": 8,
     },
     check_quant=False,
 )
@@ -602,6 +608,10 @@ class TestZip(unittest.TestCase):
 
     def test_empty(self):
         self._roundtrip(WDL.load("test_corpi/contrived/empty.wdl"))
+
+    def test_scatter_collisions(self):
+        # import single-quoted URI (issue #601)
+        self._roundtrip(WDL.load("test_corpi/contrived/scatter_collisions.wdl"))
 
     def test_biowdl_aligning(self):
         self._roundtrip(WDL.load("test_corpi/biowdl/aligning/align-star.wdl"))

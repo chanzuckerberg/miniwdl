@@ -144,7 +144,8 @@ SPACE: /[ \t]+/
 
 ?string: string1 | string2
 
-STRING_INNER1: ("\\'"|/[^']/)
+_DOUBLE_BACKSLASH.2: "\\\\"
+STRING_INNER1: (_DOUBLE_BACKSLASH|"\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
@@ -184,12 +185,12 @@ type: BUILTIN_TYPE _quant?
 BUILTIN_TYPE.2: "Int" | "Float" | "Boolean" | "String" | "File" | "Array" | "Map" | "Pair"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$(?=[^{])/
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'$]/ | /\$(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? "${" expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ |  /\$(?=[^{])/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"$]/ |  /\$(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? "${" expr "}")* STRING2_FRAGMENT? /"/ -> string
 
@@ -229,12 +230,12 @@ type: CNAME _quant?
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
 
@@ -309,15 +310,18 @@ call_input: CNAME ["=" expr]
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 task: "task" CNAME "{" task_section* command task_section* "}"
-?task_section: input_decls
+?task_section: task_input_decls
              | output_decls
              | meta_section
              | runtime_section
-             | any_decl -> noninput_decl
+             | task_env_decl -> noninput_decl
 
 tasks: task*
 
 input_decls: "input" "{" any_decl* "}"
+task_input_decls: "input" "{" task_env_decl* "}" -> input_decls
+ENV.2: "env"
+task_env_decl: ENV? any_decl
 output_decls: "output" "{" bound_decl* "}"
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
@@ -436,21 +440,22 @@ object_kv:  CNAME ":" expr
         | FLOAT -> float
         | SIGNED_FLOAT -> float
 
-?string: string1 | string2
+?string: string1 | string2 | multistring
 
-STRING_INNER1: ("\\'"|/[^']/)
+_DOUBLE_BACKSLASH.2: "\\\\"
+STRING_INNER1: (_DOUBLE_BACKSLASH|"\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
 string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
 string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
 
@@ -461,6 +466,9 @@ command1: "{" (COMMAND1_FRAGMENT? _EITHER_DELIM placeholder "}")* COMMAND1_FRAGM
 COMMAND2_CHAR: /[^~>]/ | /~(?=[^{])/ | />(?=[^>])/ | />>(?=[^>])/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
 command2: "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
+
+// multi-line string (very similar to command2, but processed slightly differently)
+multistring: /<<</ (COMMAND2_FRAGMENT? "~{" expr "}")* COMMAND2_FRAGMENT? />>>/ -> string
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 
@@ -483,9 +491,11 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore COMMENT
 """
 keywords["development"] = set(
-    "Array Directory File Float Int Map None Pair String alias as call command else false if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
-        " "
-    )
+    (
+        "Array Directory File Float Int Map None Pair String"
+        " alias as call command else env false if import input left meta"
+        " object output parameter_meta right runtime scatter struct task then true workflow"
+    ).split(" ")
 )
 
 # For now we're defining 1.1 as 'development minus Directory' (the latter enforced in _parser).

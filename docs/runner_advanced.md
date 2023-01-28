@@ -121,9 +121,20 @@ echo 'version 1.0
           File message = "message.txt"
         }
       }' > /tmp/wdl/hello.wdl
-docker run --rm -it -v /var/run/docker.sock:/var/run/docker.sock -v /tmp/wdl:/tmp/wdl continuumio/miniconda3 \
-  bash -c 'conda install -c conda-forge -y miniwdl &&
+docker run --rm -it \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /tmp/wdl:/tmp/wdl continuumio/miniconda3 \
+  bash -c 'conda install -y -c conda-forge miniwdl &&
     miniwdl run /tmp/wdl/hello.wdl who=/tmp/wdl/alice --dir /tmp/wdl'
 ```
 
 If the input files aren't already located within the desired run directory, then it'd be necessary to mount them with additional `docker run -v` arguments.
+
+miniwdl's built-in self-test operates within the configured temporary directory, so can be run from a container like so:
+
+```bash
+docker run --rm -it \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v ${TMPDIR:-/tmp}:${TMPDIR:-/tmp} continuumio/miniconda3 \
+  bash -c 'conda install -y -c conda-forge miniwdl && miniwdl run_self_test'
+```
