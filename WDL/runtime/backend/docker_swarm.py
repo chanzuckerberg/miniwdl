@@ -196,9 +196,10 @@ class SwarmContainer(TaskContainer):
                 # unique name with some human readability; docker limits to 63 chars (issue #327)
                 "name": self.unique_service_name(self.run_id),
                 "command": [
-                    "/bin/bash",
+                    "/bin/sh",
                     "-c",
-                    "id; ls -Rl ..; bash -l ../command >> ../stdout.txt 2>> ../stderr.txt",
+                    self.cfg.get("task_runtime", "command_shell")
+                    + " ../command >> ../stdout.txt 2>> ../stderr.txt",
                 ],
                 # restart_policy 'none' so that swarm runs the container just once
                 "restart_policy": docker.types.RestartPolicy("none"),

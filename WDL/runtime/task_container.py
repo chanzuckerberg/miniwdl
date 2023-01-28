@@ -310,6 +310,9 @@ class TaskContainer(ABC):
 
         assert not self._running
         if command.strip():  # if the command is empty then don't bother with any of this
+            preamble = self.cfg.get("task_runtime", "command_preamble")
+            if preamble.strip():
+                command = preamble + "\n" + command
             with TerminationSignalFlag(logger) as terminating:
                 if terminating():
                     raise Terminated(quiet=True)
