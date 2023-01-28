@@ -488,7 +488,7 @@ class Object(Base):
             # map value type.
             String().check(rhs.item_type[0])
             for vt in self.members.values():
-                vt.check(rhs.item_type[1])
+                vt.check(rhs.item_type[1], check_quant=check_quant)
             return
         if isinstance(rhs, (Any, Object)):
             # Don't worry about Object coercion because we expect a further coercion to
