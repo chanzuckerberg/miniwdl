@@ -704,7 +704,7 @@ class Struct(Base):
 
         # typecheck members vs struct declaration
         try:
-            object_type.check(struct_type)
+            object_type.check(struct_type, self._check_quant)
         except TypeError as exn:
             raise Error.StaticTypeMismatch(
                 self, struct_type, object_type, exn.args[0] if exn.args else ""

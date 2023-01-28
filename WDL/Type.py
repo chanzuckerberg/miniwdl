@@ -151,7 +151,7 @@ class Boolean(Base):
     def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, String):
-            return
+            return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
 
@@ -162,7 +162,7 @@ class Float(Base):
     def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, String):
-            return
+            return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
 
@@ -175,7 +175,7 @@ class Int(Base):
         if isinstance(rhs, Float):
             return self._check_optional(rhs, check_quant)
         if isinstance(rhs, String):
-            return
+            return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
 
@@ -186,7 +186,7 @@ class File(Base):
     def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, String):
-            return
+            return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
 
@@ -197,7 +197,7 @@ class Directory(Base):
     def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, String):
-            return
+            return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
 
@@ -261,7 +261,9 @@ class Array(Base):
             self.item_type.check(rhs.item_type, check_quant)
             return self._check_optional(rhs, check_quant)
         if isinstance(rhs, String):
-            return None if self.item_type is None else self.item_type.check(String())
+            if self.item_type is not None:
+                self.item_type.check(String())
+            return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
     def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
@@ -486,7 +488,7 @@ class Object(Base):
             # map value type.
             String().check(rhs.item_type[0])
             for vt in self.members.values():
-                vt.check(rhs.item_type[1])
+                vt.check(rhs.item_type[1], check_quant=check_quant)
             return
         if isinstance(rhs, (Any, Object)):
             # Don't worry about Object coercion because we expect a further coercion to

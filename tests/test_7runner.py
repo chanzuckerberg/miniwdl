@@ -925,6 +925,34 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["fivethree"], [5, 3])
         self.assertEqual(outp["is_true"], True)
 
+    def test_issue596(self):
+        self._run("""
+        task reference_prepare {
+            input {
+                # You need to define either this...
+                File? reference_fa_file
+
+                # Or both of these.
+                File?   reference_zipped_directory
+                String? reference_fa_filename_in_zipped_directory
+            }
+
+            # get the basename of the reference
+            String? basename_reference = basename(reference_zipped_directory)
+
+            command <<<
+                set -eux -o pipefail
+
+                if [[ ! "~{reference_zipped_directory}" = "" ]]
+                then
+                    cp ~{reference_zipped_directory} .
+                    unzip ~{basename_reference}
+                fi
+
+                # do other things here
+            >>>
+        }""", {}, expected_exception=WDL.Error.StaticTypeMismatch)
+
     def test_issue614(self):
         wdl = r"""
         version 1.0

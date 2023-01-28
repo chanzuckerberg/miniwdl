@@ -579,7 +579,7 @@ class _AddOperator(_ArithmeticOperator):
         if t2 is None:
             # neither operand is a string; defer to _ArithmeticOperator
             return super().infer_type(expr)
-        if not t2.coerces(Type.String(optional=not expr._check_quant)):
+        if not t2.coerces(Type.String(), check_quant=expr._check_quant):
             raise Error.IncompatibleOperand(
                 expr,
                 "Cannot add/concatenate {} and {}".format(
