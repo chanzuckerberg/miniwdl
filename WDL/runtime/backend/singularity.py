@@ -81,7 +81,7 @@ class SingularityContainer(SubprocessBase):
         if logger.isEnabledFor(logging.DEBUG):
             ans.append("--verbose")
         ans += [
-            "run",
+            "exec",
             "--pwd",
             os.path.join(self.container_dir, "work"),
         ]
