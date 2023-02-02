@@ -276,7 +276,7 @@ class Loader:
             options |= set((section, key) for key in self._defaults.options(section))
 
         all = {}
-        for (section, key) in options:
+        for section, key in options:
             value = self.get(section, key)
             default_value = None
             if not defaults and self._defaults.has_option(section, key):

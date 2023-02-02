@@ -64,7 +64,7 @@ class UdockerContainer(SubprocessBase):
                 binds=len(mounts),
             )
         )
-        for (container_path, host_path, _writable) in mounts:
+        for container_path, host_path, _writable in mounts:
             if ":" in (container_path + host_path):
                 raise InputError("udocker input filenames cannot contain ':'")
             ans.append("-v")

@@ -1893,7 +1893,7 @@ def _import_structs(doc: Document):
         for stb in imp.doc.struct_typedefs:
             assert isinstance(stb, Env.Binding) and isinstance(stb.value, StructTypeDef)
             imported_structs[stb.name] = stb.value
-        for (name, alias) in imp.aliases:
+        for name, alias in imp.aliases:
             if name not in imported_structs:
                 raise Error.NoSuchMember(imp.pos, name)
             if alias in imported_structs:
@@ -1921,7 +1921,7 @@ def _import_structs(doc: Document):
             if alias != name:
                 imported_structs[alias] = imported_structs[name]
                 del imported_structs[name]
-        for (name, st) in imported_structs.items():
+        for name, st in imported_structs.items():
             existing = None
             try:
                 existing = doc.struct_typedefs[name]

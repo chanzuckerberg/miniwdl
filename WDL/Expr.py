@@ -668,7 +668,7 @@ class Struct(Base):
     ):
         super().__init__(pos)
         self.members = {}
-        for (k, v) in members:
+        for k, v in members:
             if k in self.members:
                 raise Error.MultipleDefinitions(self.pos, "duplicate keys " + k)
             self.members[k] = v
@@ -1126,7 +1126,6 @@ class Apply(Base):
             yield arg
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
-
         f = getattr(self._stdlib, self.function_name, None)
         if not f:
             raise Error.NoSuchFunction(self, self.function_name) from None

@@ -1027,7 +1027,6 @@ class SelectArray(Linter):
 
 @a_linter
 class UnknownRuntimeKey(Linter):
-
     # refs:
     # https://cromwell.readthedocs.io/en/develop/RuntimeAttributes/
     # https://github.com/broadinstitute/cromwell/blob/develop/wom/src/main/scala/wom/RuntimeAttributes.scala

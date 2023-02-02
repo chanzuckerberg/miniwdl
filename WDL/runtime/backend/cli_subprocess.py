@@ -149,7 +149,6 @@ class SubprocessBase(TaskContainer):
         self._bind_input_files = False
 
     def prepare_mounts(self) -> List[Tuple[str, str, bool]]:
-
         mounts = []
         # mount stdout, stderr, and working directory read/write
         self.touch_mount_point(self.host_stdout_txt())

@@ -447,7 +447,7 @@ def _struct_type_id(members: Dict[str, Base]) -> str:
     # generates a content hash of the struct type definition, used to recognize
     # equivalent struct types going by different aliases
     ans = []
-    for (name, ty) in sorted(members.items()):
+    for name, ty in sorted(members.items()):
         if isinstance(ty, StructInstance):
             assert ty.members
             ty = _struct_type_id(ty.members) + ("?" if ty.optional else "")

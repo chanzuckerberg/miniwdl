@@ -97,7 +97,7 @@ class PodmanContainer(SubprocessBase):
                 binds=len(mounts),
             )
         )
-        for (container_path, host_path, writable) in mounts:
+        for container_path, host_path, writable in mounts:
             if ":" in (container_path + host_path):
                 raise InputError("Podman input filenames cannot contain ':'")
             ans.append("-v")

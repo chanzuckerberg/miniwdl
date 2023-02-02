@@ -297,7 +297,7 @@ def outline(
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
-            for (pos, cls, msg, suppressed) in sorted(obj.lint, key=lambda t: t[0]):
+            for pos, cls, msg, suppressed in sorted(obj.lint, key=lambda t: t[0]):
                 if not (suppress and str(cls) in suppress) and (show_all or not suppressed):
                     print(
                         f"{s}    (Ln {pos.line}, Col {pos.column}) {cls}{' (suppressed)' if suppressed else ''}, {msg}",

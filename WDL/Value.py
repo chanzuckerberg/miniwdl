@@ -255,7 +255,7 @@ class Map(Base):
 
     @property
     def children(self) -> Iterable[Base]:
-        for (k, v) in self.value:
+        for k, v in self.value:
             yield k
             yield v
 

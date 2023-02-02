@@ -487,7 +487,6 @@ def _scatter(
     last_scatter_indices = None
     scatter_tags = _scatter_tags(array, max_tag)
     for i, array_i in enumerate(array):
-
         # scatter bookkeeping: format the index as a left-zero-padded string so that it'll sort
         # lexicographically in the desired order; bind the scatter variable name to the array value
         scatter_stack_i = scatter_stack
