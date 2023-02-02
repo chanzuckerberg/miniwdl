@@ -7,8 +7,8 @@
 #       --rm -it miniwdl
 # or append 'bash' to that to enter interactive shell
 
-# start with ubuntu:18.04 plus some apt packages
-FROM ubuntu:18.04 as deps
+# start with ubuntu:20.04 plus some apt packages
+FROM ubuntu:20.04 as deps
 ENV LC_ALL C.UTF-8
 ENV LANG C.UTF-8
 RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
