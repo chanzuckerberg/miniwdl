@@ -299,7 +299,7 @@ conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 call: "call" namespaced_ident ("after" CNAME)* _call_body? -> call
     | "call" namespaced_ident "as" CNAME ("after" CNAME)* _call_body? -> call_as
 namespaced_ident: CNAME ("." CNAME)*
-call_inputs: "input" ":" [call_input ("," call_input)*] ","?
+call_inputs: ["input" ":"] [call_input ("," call_input)*] ","?
 _call_body: "{" call_inputs? "}"
 call_input: CNAME ["=" expr]
 

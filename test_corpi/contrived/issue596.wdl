@@ -25,7 +25,6 @@ workflow w {
         File? f
     }
     call t {
-        input:
         s_in = f,
         struct1 = Struct1 { strings:[f, f] }
     }
