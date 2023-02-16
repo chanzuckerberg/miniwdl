@@ -14,6 +14,9 @@ class Pattern:
     def split(self, string: str) -> List[str]:
         ...
 
+    def search(self, string: str) -> Any:
+        ...
+
 def compile(pattern, flags=0, **kwargs) -> Pattern:
     ...
 

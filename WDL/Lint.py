@@ -33,6 +33,7 @@ import os
 import random
 import shutil
 from typing import Any, Optional, Union
+import regex
 from . import Error, Type, Env, Expr, Tree, StdLib, Walker, _util
 
 
@@ -781,6 +782,8 @@ class UnusedDeclaration(Linter):
             #    command
             # 2. dxWDL "native" task stubs, which declare inputs but leave
             #    command empty.
+            # 3. task declaration has "env" decorator and the command uses it
+            #    as an environment variable
             index_suffixes = [
                 "index",
                 "indexes",
@@ -808,8 +811,28 @@ class UnusedDeclaration(Linter):
                     and pt.meta.get("type") == "native"
                     and pt.meta.get("id")
                 )
+                or self._used_as_command_env_var(obj)
             ):
                 self.add(obj, "nothing references {} {}".format(str(obj.type), obj.name))
+
+    def _used_as_command_env_var(self, decl: Tree.Decl) -> bool:
+        # Task input declarations with the "env" modifier are intended to be
+        # used as environment variables in the task command. False-positive
+        # UnusedDeclaration warnings might result because such references are
+        # not modeled in our WDL syntax tree.
+        # Avoid this by searching for apparent usage of the environment
+        # variable in string literal parts of the task command script. This
+        # isn't a perfect heuristic (e.g. it could be single-quoted within the
+        # script), but that's OK for lint warning purposes.
+        task = getattr(decl, "parent")
+        if not (isinstance(task, Tree.Task) and decl.decor.get("env", False)):
+            return False
+        pat = regex.compile(r"\$\{?" + decl.name + r"([^0-9A-Za-z_]|$)")
+        for part in task.command.parts:
+            if isinstance(part, str):
+                if pat.search(part):
+                    return True
+        return False
 
 
 @a_linter
@@ -939,12 +962,22 @@ class CommandShellCheck(Linter):
                 )
 
         if shellcheck_items:
+            env_decls = set(
+                decl.name
+                for decl in ((obj.inputs or []) + obj.postinputs)
+                if decl.decor.get("env", False)
+            )
             try:
                 shellcheck_items = json.loads(shellcheck_items)
                 assert isinstance(shellcheck_items, list)
 
                 # annotate on tree, adding appropriate offsets to line/column positions
                 for item in shellcheck_items:
+                    if item["code"] == 2154 and item["message"].split(" ")[0] in env_decls:
+                        # Suppress SC2154 "var is referenced but not assigned" specifically when
+                        # var corresponds to a declaration with the "env" modifier. ShellCheck
+                        # doesn't know that command expects this var to be set in its environment.
+                        continue
                     line = obj.command.pos.line + item["line"] - 1
                     column = col_offset + item["column"] - 1
                     self.add(
