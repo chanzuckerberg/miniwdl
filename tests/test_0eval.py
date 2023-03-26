@@ -512,7 +512,6 @@ class TestValue(unittest.TestCase):
             (WDL.Type.String(), None, WDL.Error.InputError),
             (pty, {"name": "Alyssa"}, WDL.Error.InputError),
             (pty, {"name": "Alyssa", "age": None, "pets": None}, WDL.Error.InputError),
-            (pty, {"name": "Alyssa", "age": 42, "pets": None, "address": "No 4, Privet Drive"}, WDL.Error.InputError),
         ]
 
         for t in cases:

@@ -734,6 +734,27 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(dict(**alice, lab=None), outputs["alice"])
         self.assertEqual({"samples": [dict(**alice, lab=None), dict(**bob, lab="Biohub")]}, outputs["samplesheet2"])
 
+    def test_struct_from_read_json_with_extra_keys(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+        }
+        task test {
+            command <<<
+                echo '[
+                    {"name": "Alice"},
+                    {"name": "Rishi", "address": "10 Downing St", "city": "Westminster"},
+                    {"name": "Harry", "address": "4 Privet Drive"}
+                ]' > samples.json
+            >>>
+            output {
+                Array[Sample] samples = read_json("samples.json")
+            }
+        }
+        """)
+        self.assertEqual(outputs["samples"], [{"name": "Alice"}, {"name": "Rishi"}, {"name": "Harry"}])
+
     def test_issue524(self):
         # additional cases for struct initialization from read_json(), motivated by issue #524
 

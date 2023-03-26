@@ -329,7 +329,10 @@ class Map(Base):
         if isinstance(rhs, StructInstance) and self.literal_keys is not None:
             # struct assignment from map literal
             return _check_struct_members(
-                {k: self.item_type[1] for k in self.literal_keys}, rhs, check_quant
+                {k: self.item_type[1] for k in self.literal_keys},
+                rhs,
+                check_quant,
+                allow_extra=False,
             )
         if (
             isinstance(rhs, StructInstance)
@@ -482,7 +485,7 @@ class Object(Base):
 
     def check(self, rhs: Base, check_quant: bool = True) -> None:
         if isinstance(rhs, StructInstance):
-            return _check_struct_members(self.members, rhs, check_quant)
+            return _check_struct_members(self.members, rhs, check_quant, allow_extra=True)
         if isinstance(rhs, Map):
             # Member names must coerce to the map key type, and each member type must coerce to the
             # map value type.
@@ -498,7 +501,7 @@ class Object(Base):
 
 
 def _check_struct_members(
-    self_members: Dict[str, Base], rhs: StructInstance, check_quant: bool
+    self_members: Dict[str, Base], rhs: StructInstance, check_quant: bool, allow_extra: bool = False
 ) -> None:
     # shared routine for checking Map or Object type coercion, with useful error messages
     rhs_members = rhs.members
@@ -512,12 +515,13 @@ def _check_struct_members(
             "missing non-optional member(s) in struct "
             f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
         )
-    unknown_keys = self_keys - rhs_keys
-    if unknown_keys:
-        raise TypeError(
-            f"no such member(s) in struct {rhs.type_name}: {' '.join(sorted(unknown_keys))}"
-        )
-    for k in self_keys:
+    if not allow_extra:
+        unknown_keys = self_keys - rhs_keys
+        if unknown_keys:
+            raise TypeError(
+                f"no such member(s) in struct {rhs.type_name}: {' '.join(sorted(unknown_keys))}"
+            )
+    for k in self_keys.intersection(rhs_keys):
         try:
             self_members[k].check(rhs_members[k], check_quant)
         except TypeError as exn:

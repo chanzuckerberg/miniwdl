@@ -703,6 +703,7 @@ def _eval_task_outputs(
             exn2 = Error.EvalError(decl, str(exn))
             setattr(exn2, "job_id", decl.workflow_node_id)
             raise exn2 from exn
+        _warn_struct_extra(logger, decl.name, v)
         vj = json.dumps(v.json)
         logger.info(
             _("output", name=decl.name, value=(v.json if len(vj) < 4096 else "(((large)))"))
@@ -748,6 +749,30 @@ def _check_directory(host_path: str, output_name: str) -> None:
                 or not path_really_within(fn, host_path)
             ):
                 raise OutputError(f"Directory in output {output_name} contains unusable symlink")
+
+
+def _warn_struct_extra(
+    logger: logging.Logger, decl_name: str, v: Value.Base, warned_keys: Optional[Set[str]] = None
+) -> None:
+    """
+    Log notices about extraneous JSON keys found in struct initialization from read_json()
+    """
+    if warned_keys is None:
+        warned_keys = set()
+    if isinstance(v, Value.Struct) and v.extra:
+        extra_keys = set(k for k in v.extra.keys() if not k.startswith("#"))
+        if extra_keys - warned_keys:
+            logger.notice(  # pyre-fixme
+                _(
+                    "extraneous JSON keys in struct initializer",
+                    decl=decl_name,
+                    struct=str(v.type),
+                    extra_keys=list(extra_keys),
+                )
+            )
+            warned_keys.update(extra_keys)
+    for ch in v.children:
+        _warn_struct_extra(logger, decl_name, ch, warned_keys)
 
 
 def link_outputs(

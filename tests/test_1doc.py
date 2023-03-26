@@ -2316,10 +2316,10 @@ class TestStruct(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.MultipleValidationErrors) as ctx:
             doc.typecheck()
-        self.assertEqual(len(ctx.exception.exceptions), 4)
-        for i in range(4):
+        self.assertEqual(len(ctx.exception.exceptions), 3)
+        for i in range(3):
             self.assertTrue(isinstance(ctx.exception.exceptions[i], WDL.Error.StaticTypeMismatch))
-        self.assertEqual(str(ctx.exception.exceptions[2]),
+        self.assertEqual(str(ctx.exception.exceptions[1]),
             "Expected Person instead of object(age : Boolean, name : String);"
             " type mismatch using Boolean to initialize Int age member of struct Person")
 
