@@ -447,7 +447,6 @@ class Struct(Base):
                 extra[k] = self.value[k]
             else:
                 try:
-
                     members[k] = self.value[k].coerce(desired_type.members[k])
                 except Error.RuntimeError as exc:
                     # some coercions that typecheck could still fail, e.g. String to Int; note the
