@@ -12,7 +12,7 @@ import copy
 import base64
 import hashlib
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
+from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set
 from contextlib import suppress
 from . import Error, Type, Env
 
@@ -390,15 +390,16 @@ class Null(Base):
 class Struct(Base):
     value: Dict[str, Base]
 
-    # holds any extraneous keys present in JSON from which struct was initialized
-    extra: Dict[str, Any]
+    # records the names of any extraneous keys that were present in the JSON/Map/Object from which
+    # this struct was initialized
+    extra: Set[str]
 
     def __init__(
         self,
         type: Union[Type.Object, Type.StructInstance],
         value: Dict[str, Base],
         expr: "Optional[Expr.Base]" = None,
-        extra: Optional[Dict[str, Any]] = None,
+        extra: Optional[Set[str]] = None,
     ) -> None:
         # type may be Object for the transient evaluation of an object literal or read_json(); we
         # expect it to be coerced to a StructInstance in short order.
@@ -411,7 +412,7 @@ class Struct(Base):
                     assert type.members[k].optional
                     value[k] = Null()
         self.value = value
-        self.extra = extra or {}
+        self.extra = extra or set()
         super().__init__(type, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
@@ -441,10 +442,10 @@ class Struct(Base):
             self._eval_error(msg)
         # coerce to desired member types
         members = {}
-        extra = {}
+        extra = set()
         for k in self.value:
             if k not in desired_type.members:
-                extra[k] = self.value[k]
+                extra.add(k)
             else:
                 try:
                     members[k] = self.value[k].coerce(desired_type.members[k])
@@ -566,11 +567,11 @@ def from_json(type: Type.Base, value: Any) -> Base:
                     f"initializer for struct {str(type)} omits required field(s)"
                 )
         items = {}
-        extra = {}
+        extra = set()
         for k, v in value.items():
             assert isinstance(k, str)
             if k not in type.members:
-                extra[k] = v
+                extra.add(k)
             else:
                 try:
                     items[k] = from_json(type.members[k], v)

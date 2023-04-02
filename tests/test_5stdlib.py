@@ -755,6 +755,27 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs["samples"], [{"name": "Alice"}, {"name": "Rishi"}, {"name": "Harry"}])
 
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+        }
+        task test {
+            input {
+                Array[Sample] samples
+            }
+            command {}
+            output {
+                Array[Sample] samples2 = read_json(write_json(samples))
+            }
+        }
+        """, {"samples": [
+            {"name": "Alice"},
+            {"name": "Rishi", "address": "10 Downing St", "city": "Westminster"},
+            {"name": "Harry", "address": "4 Privet Drive"}
+        ]})
+        self.assertEqual(outputs["samples2"], [{"name": "Alice"}, {"name": "Rishi"}, {"name": "Harry"}])
+
     def test_issue524(self):
         # additional cases for struct initialization from read_json(), motivated by issue #524
 

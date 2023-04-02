@@ -755,16 +755,16 @@ def _warn_struct_extra(
     logger: logging.Logger, decl_name: str, v: Value.Base, warned_keys: Optional[Set[str]] = None
 ) -> None:
     """
-    Log notices about extraneous JSON keys found in struct initialization from read_json()
+    Log notices about extraneous keys found in struct initialization from JSON/Map/Object
     """
     if warned_keys is None:
         warned_keys = set()
     if isinstance(v, Value.Struct) and v.extra:
-        extra_keys = set(k for k in v.extra.keys() if not k.startswith("#"))
+        extra_keys = set(k for k in v.extra if not k.startswith("#"))
         if extra_keys - warned_keys:
             logger.notice(  # pyre-fixme
                 _(
-                    "extraneous JSON keys in struct initializer",
+                    "extraneous keys in struct initializer",
                     decl=decl_name,
                     struct=str(v.type),
                     extra_keys=list(extra_keys),
