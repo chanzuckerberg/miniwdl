@@ -12,7 +12,8 @@ jobs:
           - integration_tests
           - viral_refbased
           - viral_assemble
-          - skylab_bulk_rna
+          # disabled due to test data bitrot (Apr 2023)
+          # - skylab_bulk_rna
     runs-on: ubuntu-20.04
     steps:
     - name: Login to GitHub Packages Docker Registry
