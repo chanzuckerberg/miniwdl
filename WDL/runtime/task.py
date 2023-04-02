@@ -13,6 +13,7 @@ import shutil
 import regex
 from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union
 from contextlib import ExitStack, suppress
+from collections import Counter
 
 from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
 from .._util import (
@@ -376,27 +377,7 @@ def _eval_task_inputs(
 
     # Map all the provided input File & Directory paths to in-container paths
     container.add_paths(_fspaths(posix_inputs))
-    input_basenames = {}
-    for container_path, host_path in task_container.input_path_map_rev.items():
-        if container_path.endswith("/"):
-            container_path = container_path[:-1]
-        input_basename = os.path.basename(container_path)
-        if input_basename in input_basenames:
-            input_basenames[input_basename].append(host_path)
-        else:
-            input_basenames[input_basename] = [host_path]
-    collisions = [
-        input_basename
-        for input_basename, host_paths in input_basenames.items()
-        if len(host_paths) > 1
-    ]
-    if collisions:
-        logger.warning(
-            _(
-                "input files with colliding base name will be mounted in separate container directories",
-                basenames=collisions,
-            )
-        )
+    _warn_basename_collisions(logger, container)
 
     # copy posix_inputs with all File & Directory values mapped to their in-container paths
     def map_paths(fn: Union[Value.File, Value.Directory]) -> str:
@@ -473,6 +454,22 @@ def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
     for b in env:
         collector(b.value)
     return ans
+
+
+def _warn_basename_collisions(
+    logger: logging.Logger, container: "runtime.task_container.TaskContainer"
+) -> None:
+    basenames = Counter(
+        [os.path.basename((p[:-1] if p.endswith("/") else p)) for p in container.input_path_map_rev]
+    )
+    collisions = [nm for nm, n in basenames.items() if n > 1]
+    if collisions:
+        logger.warning(
+            _(
+                "mounting input files with colliding basenames in separate container directories",
+                basenames=collisions,
+            )
+        )
 
 
 def _eval_task_runtime(
