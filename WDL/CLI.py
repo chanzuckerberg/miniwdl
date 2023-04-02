@@ -1620,6 +1620,9 @@ def localize(
             except Error.InputError as exn:
                 die(exn.args[0])
 
+            for b in input_env:
+                runtime.task._warn_struct_extra(logger, b.name, b.value)
+
             # scan inputs for donwloadable URIs that appear to be downloadable URIs
             def scan(v):
                 is_directory = isinstance(v, Value.Directory)

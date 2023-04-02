@@ -12,7 +12,7 @@ import copy
 import base64
 import hashlib
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
+from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set
 from contextlib import suppress
 from . import Error, Type, Env
 
@@ -390,11 +390,16 @@ class Null(Base):
 class Struct(Base):
     value: Dict[str, Base]
 
+    # records the names of any extraneous keys that were present in the JSON/Map/Object from which
+    # this struct was initialized
+    extra: Set[str]
+
     def __init__(
         self,
         type: Union[Type.Object, Type.StructInstance],
         value: Dict[str, Base],
         expr: "Optional[Expr.Base]" = None,
+        extra: Optional[Set[str]] = None,
     ) -> None:
         # type may be Object for the transient evaluation of an object literal or read_json(); we
         # expect it to be coerced to a StructInstance in short order.
@@ -407,6 +412,7 @@ class Struct(Base):
                     assert type.members[k].optional
                     value[k] = Null()
         self.value = value
+        self.extra = extra or set()
         super().__init__(type, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
@@ -436,23 +442,27 @@ class Struct(Base):
             self._eval_error(msg)
         # coerce to desired member types
         members = {}
+        extra = set()
         for k in self.value:
-            try:
-                members[k] = self.value[k].coerce(desired_type.members[k])
-            except Error.RuntimeError as exc:
-                # some coercions that typecheck could still fail, e.g. String to Int; note the
-                # offending member, taking care not to obscure it if the struct is nested
-                msg = ""
-                if exc.args:
-                    if "member of struct" in exc.args[0]:
-                        raise
-                    msg = ": " + exc.args[0]
-                msg = (
-                    "runtime type mismatch initializing "
-                    f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
-                ) + msg
-                self._eval_error(msg)
-        return Struct(desired_type, members, self.expr)
+            if k not in desired_type.members:
+                extra.add(k)
+            else:
+                try:
+                    members[k] = self.value[k].coerce(desired_type.members[k])
+                except Error.RuntimeError as exc:
+                    # some coercions that typecheck could still fail, e.g. String to Int; note the
+                    # offending member, taking care not to obscure it if the struct is nested
+                    msg = ""
+                    if exc.args:
+                        if "member of struct" in exc.args[0]:
+                            raise
+                        msg = ": " + exc.args[0]
+                    msg = (
+                        "runtime type mismatch initializing "
+                        f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
+                    ) + msg
+                    self._eval_error(msg)
+        return Struct(desired_type, members, expr=self.expr, extra=extra)
 
     def _coerce_to_map(self, desired_type: Type.Map) -> Map:
         # runtime coercion e.g. Map[String,String] foo = read_json("foo.txt")
@@ -550,27 +560,26 @@ def from_json(type: Type.Base, value: Any) -> Base:
             assert isinstance(k, str)
             items.append((String(k).coerce(type.item_type[0]), from_json(type.item_type[1], v)))
         return Map(type.item_type, items)
-    if (
-        isinstance(type, Type.StructInstance)
-        and isinstance(value, dict)
-        and type.members
-        and not set(value.keys()).difference(set(type.members.keys()))
-    ):
+    if isinstance(type, Type.StructInstance) and isinstance(value, dict) and type.members:
         for k, ty in type.members.items():
             if k not in value and not ty.optional:
                 raise Error.InputError(
                     f"initializer for struct {str(type)} omits required field(s)"
                 )
         items = {}
+        extra = set()
         for k, v in value.items():
             assert isinstance(k, str)
-            try:
-                items[k] = from_json(type.members[k], v)
-            except Error.InputError:
-                raise Error.InputError(
-                    f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
-                ) from None
-        return Struct(Type.Object(type.members), items)
+            if k not in type.members:
+                extra.add(k)
+            else:
+                try:
+                    items[k] = from_json(type.members[k], v)
+                except Error.InputError:
+                    raise Error.InputError(
+                        f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
+                    ) from None
+        return Struct(Type.Object(type.members), items, extra=extra)
     if type.optional and value is None:
         return Null()
     raise Error.InputError(f"couldn't construct {str(type)} from {json.dumps(value)}")

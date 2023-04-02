@@ -329,7 +329,9 @@ class Map(Base):
         if isinstance(rhs, StructInstance) and self.literal_keys is not None:
             # struct assignment from map literal
             return _check_struct_members(
-                {k: self.item_type[1] for k in self.literal_keys}, rhs, check_quant
+                {k: self.item_type[1] for k in self.literal_keys},
+                rhs,
+                check_quant,
             )
         if (
             isinstance(rhs, StructInstance)
@@ -512,12 +514,7 @@ def _check_struct_members(
             "missing non-optional member(s) in struct "
             f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
         )
-    unknown_keys = self_keys - rhs_keys
-    if unknown_keys:
-        raise TypeError(
-            f"no such member(s) in struct {rhs.type_name}: {' '.join(sorted(unknown_keys))}"
-        )
-    for k in self_keys:
+    for k in self_keys.intersection(rhs_keys):
         try:
             self_members[k].check(rhs_members[k], check_quant)
         except TypeError as exn:
