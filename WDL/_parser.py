@@ -124,6 +124,14 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         assert parts[0] in ['"', "'", "<<<"], parts[0]
         assert parts[-1] in ['"', "'", ">>>"], parts[-1]
         if parts[0] == "<<<":
+            wdl_version = getattr(self, "_version", None)
+            if wdl_version and wdl_version != "development":
+                raise Error.SyntaxError(
+                    self._sp(meta),
+                    "<<< multi-line strings >>> are not supported in this WDL version",
+                    wdl_version,
+                    None,
+                ) from None
             self._preprocess_multistring(meta, parts)
         return Expr.String(self._sp(meta), parts)
 
@@ -725,7 +733,9 @@ for _klass in [_ExprTransformer, _DocTransformer]:
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
     version = version or "1.0"
     try:
-        return _ExprTransformer().transform(parse(_grammar.get(version)[0], txt, "expr")[0])
+        xformer = _ExprTransformer()
+        setattr(xformer, "_version", version)
+        return xformer.transform(parse(_grammar.get(version)[0], txt, "expr")[0])
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
             uri="(buffer)",

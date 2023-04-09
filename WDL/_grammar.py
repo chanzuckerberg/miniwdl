@@ -498,7 +498,8 @@ keywords["development"] = set(
     ).split(" ")
 )
 
-# For now we're defining 1.1 as 'development minus Directory' (the latter enforced in _parser).
+# For now we're defining 1.1 as 'development minus Directory and multi-line strings' (the
+# subtractions enforced in _parser.py).
 # We'll need to fork them when the development grammar diverges further.
 versions["1.1"] = versions["development"]
 keywords["1.1"] = keywords["development"]

@@ -413,7 +413,8 @@ class TestEval(unittest.TestCase):
         env = cons_env(("color", WDL.Value.String("brown")))
         self._test_tuples(
             ("<<< \n  \\\n  >>>", '""', "development"),
-            ("<<<\n    quick ~{color}\n  fox\n  >>>", json.dumps("  quick brown\nfox"), env, "development")
+            ("<<<\n    quick ~{color}\n  fox\n  >>>", json.dumps("  quick brown\nfox"), env, "development"),
+            ("<<< \n  \\\n  >>>", '""', "1.1", WDL.Error.SyntaxError),
         )
 
 def cons_env(*bindings):
