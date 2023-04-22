@@ -215,39 +215,27 @@ class Bindings(Generic[T]):
         if not namespace.endswith("."):
             namespace += "."
         ans = Bindings()
-        pos = self
-        while pos is not None:
-            if isinstance(pos._binding, Binding):
-                ans = Bindings(
-                    Binding(namespace + pos._binding.name, pos._binding.value, pos._binding.info),
-                    ans,
-                )
-            pos = pos._next
+        for b in self:
+            ans = Bindings(Binding(namespace + b.name, b.value, b.info), ans)
         return _rev(ans)
 
 
 def _rev(env: Bindings[T]) -> Bindings[T]:
     ans = Bindings()
-    pos = env
-    while pos is not None:
-        if pos._binding:
-            ans = Bindings(pos._binding, ans)
-        pos = pos._next
+    for b in env:
+        ans = Bindings(b, ans)
     return ans
 
 
 def merge(*args: Bindings[T]) -> Bindings[T]:
     """
-    Merge several ``Bindings[T]`` environments into one. For efficiency, the largest environment
-    should be supplied as the last argument.
+    Merge several ``Bindings[T]`` environments into one. Should the same name appear in multiple
+    arguments, the first (leftmost) occurrence takes precedence. Otherwise, for efficiency, the
+    largest environment should be supplied last.
     """
-    ans = [args[-1] if args else Bindings()]
-
-    def visit(b: Binding[T]) -> None:
-        ans[0] = Bindings(b, ans[0])
-
+    ans = args[-1] if args else Bindings()
     for env in reversed(args[:-1]):
         assert isinstance(env, Bindings)
         for b in _rev(env):
-            visit(b)
-    return ans[0]
+            ans = Bindings(b, ans)
+    return ans

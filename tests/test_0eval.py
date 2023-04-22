@@ -484,6 +484,15 @@ class TestEnv(unittest.TestCase):
         self.assertTrue(e.has_namespace("fruit.apple"))
         self.assertTrue(e.has_namespace("fruit."))
 
+    def test_merge(self):
+        # regression test issue #637, merge() was incorrect in the presence of shadowed bindings.
+        cdr = WDL.Env.Bindings().bind("opt", None).bind("opt", 1)
+        self.assertEqual(cdr.resolve("opt"), 1)
+        car = WDL.Env.Bindings().bind("opt", None).bind("opt", 2)
+        self.assertEqual(car.resolve("opt"), 2)
+        merged = WDL.Env.merge(car, cdr)
+        self.assertEqual(merged.resolve("opt"), 2)
+
 
 class TestValue(unittest.TestCase):
     def test_json(self):
