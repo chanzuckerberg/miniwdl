@@ -353,6 +353,14 @@ class TestEval(unittest.TestCase):
             ("""'~{if f then "~{pi}" else "~{e}"}'""", '"2.718280"', env, "1.0"),
             (""" "~{if f then "~{pi}" else "~{e}"}" """, '"2.718280"', env, "1.0"),
         )
+        # placeholder options are available in any string expression (not just command) in WDL 1.1
+        # but not draft-2 or WDL 1.0. (regression test issue #633)
+        self._test_tuples(
+            ('''"${true='1' false='0' t}"''', '"1"', env, "1.1"),
+            ('''"${true='1' false='0' f}"''', '"0"', env, "1.1"),
+            ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "1.0"),
+            ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "draft-2")
+        )
 
     def test_pair(self):
         env = cons_env(("p", WDL.Value.Pair(WDL.Type.Float(), WDL.Type.Float(),

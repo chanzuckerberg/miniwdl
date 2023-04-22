@@ -115,6 +115,8 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         for item in items:
             if isinstance(item, Expr.Base):
                 parts.append(Expr.Placeholder(item.pos, {}, item))
+            elif isinstance(item, Expr.Placeholder):
+                parts.append(item)
             else:
                 # validate escape sequences...
                 decode_escapes(self._sp(meta), item.value)
@@ -134,6 +136,20 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 ) from None
             self._preprocess_multistring(meta, parts)
         return Expr.String(self._sp(meta), parts)
+
+    def placeholder_option(self, meta, items):
+        assert len(items) == 2
+        if items[0].value not in ("default", "false", "true", "sep"):
+            raise Error.ValidationError(self._sp(meta), "unknown placeholder option")
+        return (items[0].value, items[1])
+
+    def placeholder(self, meta, items):
+        options = dict(items[:-1])
+        if len(options.items()) < len(items) - 1:
+            raise Error.MultipleDefinitions(
+                self._sp(meta), "duplicate options in expression placeholder"
+            )
+        return Expr.Placeholder(self._sp(meta), options, items[-1])
 
     def _preprocess_multistring(self, meta, parts):
         # From each str part, remove escaped newlines and any whitespace following them. Escaped
@@ -410,20 +426,6 @@ class _DocTransformer(_ExprTransformer):
 
     def noninput_decl(self, meta, items):
         return {"noninput_decl": items[0]}
-
-    def placeholder_option(self, meta, items):
-        assert len(items) == 2
-        if items[0].value not in ("default", "false", "true", "sep"):
-            raise Error.ValidationError(self._sp(meta), "unknown placeholder option")
-        return (items[0].value, items[1])
-
-    def placeholder(self, meta, items):
-        options = dict(items[:-1])
-        if len(options.items()) < len(items) - 1:
-            raise Error.MultipleDefinitions(
-                self._sp(meta), "duplicate options in expression placeholder"
-            )
-        return Expr.Placeholder(self._sp(meta), options, items[-1])
 
     def command(self, meta, items):
         parts = []

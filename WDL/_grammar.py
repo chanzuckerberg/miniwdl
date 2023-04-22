@@ -325,12 +325,6 @@ task_env_decl: ENV? any_decl
 output_decls: "output" "{" bound_decl* "}"
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
-?placeholder_value: string_literal
-                  | INT -> int
-                  | FLOAT -> float
-placeholder_option: CNAME "=" placeholder_value
-placeholder: placeholder_option* expr
-
 ?command: "command" (command1 | command2)
 
 // meta/parameter_meta sections (effectively JSON)
@@ -452,12 +446,12 @@ _EITHER_DELIM.2: "~{" | "${"
 // string (single-quoted)
 STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
+string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM placeholder "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
 STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
+string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM placeholder "}")* STRING2_FRAGMENT? /"/ -> string
 
 COMMAND1_CHAR: /[^~$}]/ | /\$(?=[^{])/ | /~(?=[^{])/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
@@ -468,7 +462,14 @@ COMMAND2_FRAGMENT: COMMAND2_CHAR+
 command2: "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
 
 // multi-line string (very similar to command2, but processed slightly differently)
-multistring: /<<</ (COMMAND2_FRAGMENT? "~{" expr "}")* COMMAND2_FRAGMENT? />>>/ -> string
+multistring: /<<</ (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? />>>/ -> string
+
+?placeholder_value: string_literal
+                  | INT -> int
+                  | FLOAT -> float
+!?placeholder_name: CNAME | "true" | "false"  // extra hints needed here to overcome literal
+placeholder_option: placeholder_name "=" placeholder_value
+placeholder: placeholder_option* expr
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 
