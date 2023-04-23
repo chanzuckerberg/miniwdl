@@ -514,8 +514,23 @@ class _DocTransformer(_ExprTransformer):
             return (items[0].value, items[1])
         return (items[0].value, Expr.Ident(self._sp(meta), items[0].value))
 
+    def input_colon(self, meta, items):
+        return "input:"
+
     def call_inputs(self, meta, items):
         d = dict()
+        if items:
+            input_colon = False
+            if isinstance(items[0], str) and items[0] == "input:":
+                input_colon = True
+                items = items[1:]
+            if self._version == "1.1" and not input_colon:
+                raise Error.SyntaxError(
+                    self._sp(meta),
+                    "WDL 1.1 calls require input: keyword",
+                    self._version,
+                    self._declared_version,
+                )
         for k, v in items:
             if k in d:
                 raise Error.MultipleDefinitions(self._sp(meta), f"duplicate call input '{k}'")

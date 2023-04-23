@@ -705,3 +705,18 @@ class TestCalls(unittest.TestCase):
         """
         doc = WDL.parse_document(txt)
         doc.typecheck()
+
+    def test_input_colon(self):
+        # the shared 1.1/development grammar makes input: keyword optional, but it's still required
+        # in WDL 1.1.
+        w = """
+        workflow w {
+            call sum {
+                x = 1, y = 1
+            }
+        }
+        """
+        doc = WDL.parse_document("version development\n" + tsk + w)
+        doc.typecheck()
+        with self.assertRaises(WDL.Error.SyntaxError):
+            doc = WDL.parse_document("version 1.1\n" + tsk + w)
