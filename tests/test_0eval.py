@@ -353,6 +353,16 @@ class TestEval(unittest.TestCase):
             ("""'~{if f then "~{pi}" else "~{e}"}'""", '"2.718280"', env, "1.0"),
             (""" "~{if f then "~{pi}" else "~{e}"}" """, '"2.718280"', env, "1.0"),
         )
+        # placeholder options are available in any string expression (not just command) in WDL 1.1
+        # but not draft-2 or WDL 1.0. (regression test issue #633)
+        self._test_tuples(
+            ('''"${true='1' false='0' t}"''', '"1"', env, "1.1"),
+            ('''"${true='1' false='0' f}"''', '"0"', env, "1.1"),
+            ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "1.0"),
+            ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "draft-2"),
+            ('''"${true='1' bogus=0 f}"''', None, WDL.Error.ValidationError, env, "1.1"),
+            ('''"${true='1' true='0' f}"''', None, WDL.Error.MultipleDefinitions, env, "1.1")
+        )
 
     def test_pair(self):
         env = cons_env(("p", WDL.Value.Pair(WDL.Type.Float(), WDL.Type.Float(),
@@ -413,7 +423,8 @@ class TestEval(unittest.TestCase):
         env = cons_env(("color", WDL.Value.String("brown")))
         self._test_tuples(
             ("<<< \n  \\\n  >>>", '""', "development"),
-            ("<<<\n    quick ~{color}\n  fox\n  >>>", json.dumps("  quick brown\nfox"), env, "development")
+            ("<<<\n    quick ~{color}\n  fox\n  >>>", json.dumps("  quick brown\nfox"), env, "development"),
+            ("<<< \n  \\\n  >>>", '""', "1.1", WDL.Error.SyntaxError),
         )
 
 def cons_env(*bindings):

@@ -14,6 +14,8 @@ workflow test_multi_line_strings {
     String name = "Henry"
     String company = "Acme"
 
+    Array[String] sep = ["George", "Herbert", "Walker", "Bush"]
+
     # Test cases: pairs with a multi-line string and an escaped single-line string; the two should
     # equal each other.
     Array[Pair[String, String]] examples = [
@@ -78,7 +80,15 @@ workflow test_multi_line_strings {
         (<<<abc\\
 def>>>, "abc\\\ndef"),
         (<<<abc\\\
-                def>>>, "abc\\def")
+                def>>>, "abc\\def"),
+        (<<<
+            Names:
+            ~{sep=' ' sep}
+         >>>, "Names:\nGeorge Herbert Walker Bush"),
+        (<<<
+            Names:
+            ~{sep(' ',sep)}
+         >>>, "Names:\n~{sep(' ',['George','Herbert','Walker','Bush'])}"),
     ]
 
     scatter (ex in examples) {

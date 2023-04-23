@@ -113,7 +113,9 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
     def string(self, meta, items) -> Expr.Base:
         parts = []
         for item in items:
-            if isinstance(item, Expr.Base):
+            if isinstance(item, Expr.Placeholder):
+                parts.append(item)
+            elif isinstance(item, Expr.Base):
                 parts.append(Expr.Placeholder(item.pos, {}, item))
             else:
                 # validate escape sequences...
@@ -124,8 +126,30 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         assert parts[0] in ['"', "'", "<<<"], parts[0]
         assert parts[-1] in ['"', "'", ">>>"], parts[-1]
         if parts[0] == "<<<":
+            wdl_version = getattr(self, "_version", None)
+            if wdl_version and wdl_version != "development":
+                raise Error.SyntaxError(
+                    self._sp(meta),
+                    "<<< multi-line strings >>> are not supported in this WDL version",
+                    wdl_version,
+                    None,
+                ) from None
             self._preprocess_multistring(meta, parts)
         return Expr.String(self._sp(meta), parts)
+
+    def placeholder_option(self, meta, items):
+        assert len(items) == 2
+        if items[0].value not in ("default", "false", "true", "sep"):
+            raise Error.ValidationError(self._sp(meta), "unknown placeholder option")
+        return (items[0].value, items[1])
+
+    def placeholder(self, meta, items):
+        options = dict(items[:-1])
+        if len(options.items()) < len(items) - 1:
+            raise Error.MultipleDefinitions(
+                self._sp(meta), "duplicate options in expression placeholder"
+            )
+        return Expr.Placeholder(self._sp(meta), options, items[-1])
 
     def _preprocess_multistring(self, meta, parts):
         # From each str part, remove escaped newlines and any whitespace following them. Escaped
@@ -402,20 +426,6 @@ class _DocTransformer(_ExprTransformer):
 
     def noninput_decl(self, meta, items):
         return {"noninput_decl": items[0]}
-
-    def placeholder_option(self, meta, items):
-        assert len(items) == 2
-        if items[0].value not in ("default", "false", "true", "sep"):
-            raise Error.ValidationError(self._sp(meta), "unknown placeholder option")
-        return (items[0].value, items[1])
-
-    def placeholder(self, meta, items):
-        options = dict(items[:-1])
-        if len(options.items()) < len(items) - 1:
-            raise Error.MultipleDefinitions(
-                self._sp(meta), "duplicate options in expression placeholder"
-            )
-        return Expr.Placeholder(self._sp(meta), options, items[-1])
 
     def command(self, meta, items):
         parts = []
@@ -725,7 +735,9 @@ for _klass in [_ExprTransformer, _DocTransformer]:
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
     version = version or "1.0"
     try:
-        return _ExprTransformer().transform(parse(_grammar.get(version)[0], txt, "expr")[0])
+        xformer = _ExprTransformer()
+        setattr(xformer, "_version", version)
+        return xformer.transform(parse(_grammar.get(version)[0], txt, "expr")[0])
     except lark.exceptions.UnexpectedInput as exn:
         pos = SourcePosition(
             uri="(buffer)",
