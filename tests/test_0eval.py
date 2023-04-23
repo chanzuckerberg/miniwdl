@@ -359,7 +359,9 @@ class TestEval(unittest.TestCase):
             ('''"${true='1' false='0' t}"''', '"1"', env, "1.1"),
             ('''"${true='1' false='0' f}"''', '"0"', env, "1.1"),
             ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "1.0"),
-            ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "draft-2")
+            ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "draft-2"),
+            ('''"${true='1' bogus=0 f}"''', None, WDL.Error.ValidationError, env, "1.1"),
+            ('''"${true='1' true='0' f}"''', None, WDL.Error.MultipleDefinitions, env, "1.1")
         )
 
     def test_pair(self):

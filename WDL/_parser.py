@@ -113,10 +113,10 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
     def string(self, meta, items) -> Expr.Base:
         parts = []
         for item in items:
-            if isinstance(item, Expr.Base):
-                parts.append(Expr.Placeholder(item.pos, {}, item))
-            elif isinstance(item, Expr.Placeholder):
+            if isinstance(item, Expr.Placeholder):
                 parts.append(item)
+            elif isinstance(item, Expr.Base):
+                parts.append(Expr.Placeholder(item.pos, {}, item))
             else:
                 # validate escape sequences...
                 decode_escapes(self._sp(meta), item.value)
