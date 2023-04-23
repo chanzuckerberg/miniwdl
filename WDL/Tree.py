@@ -1949,14 +1949,19 @@ def _resolve_struct_type(
     ty: Type.StructInstance,
     struct_types: Env.Bindings[Dict[str, Type.Base]],
 ):
-    # On construction, WDL.Type.StructInstance is not yet resolved to the
-    # struct type definition. Here, given the Env.Bindings[StructTypeDef] computed
-    # on document construction, we populate 'members' with the dict of member
-    # types and names.
-    try:
-        ty.members = struct_types[ty.type_name]
-    except KeyError:
-        raise Error.InvalidType(pos, "Unknown type " + ty.type_name) from None
+    # On initial document construction, WDL.Type.StructInstance is not yet resolved to the struct
+    # type definition. Here, we populate 'members' with the dict of member types and names given
+    # the document-wide Env.Bindings[StructTypeDef].
+    #
+    # 'members' may already be populated in WDL.Type.StructInstance imported from another, already-
+    # typechecked document. In that case it's important to leave them be, as the struct type name
+    # could refer to something else in the current document. (issue #635)
+    if ty.members is None:
+        try:
+            ty.members = struct_types[ty.type_name]
+            assert isinstance(ty.members, dict)
+        except KeyError:
+            raise Error.InvalidType(pos, "Unknown type " + ty.type_name) from None
 
 
 def _resolve_struct_types(
