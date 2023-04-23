@@ -42,6 +42,49 @@ class TestStdLib(unittest.TestCase):
             self.assertFalse(str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
 
+    def test_eq_opt(self):
+        # regression test issue #634
+        wdl = """
+        version 1.1
+        task test_cmp {
+            input {
+                Int i
+                Int? j
+                Int? k
+            }
+            command {}
+            output {
+                Boolean a = i == j
+                Boolean b = i != j
+                Boolean c = i == k
+                Boolean d = i != k
+                Boolean e = j == None
+                Boolean f = j != None
+            }
+        }
+        """
+        out = self._test_task(wdl, {"i": 0, "k": 1})
+        assert out["a"] == False
+        assert out["b"] == True
+        assert out["c"] == False
+        assert out["d"] == True
+        assert out["e"] == True
+        assert out["f"] == False
+
+        self._test_task("""
+        version 1.1
+        task test_cmp {
+            input {
+                Int i
+                Int? j
+            }
+            command {}
+            output {
+                Boolean a = i <= j
+            }
+        }
+        """, {"i": 0}, expected_exception=WDL.Error.ValidationError)
+
     def test_size_polytype(self):
         tmpl = """
         version 1.0

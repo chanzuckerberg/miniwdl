@@ -637,42 +637,31 @@ class _ComparisonOperator(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
         if (
-            (
-                expr._check_quant
-                and expr.arguments[0].type.optional != expr.arguments[1].type.optional
-                and not (
+            self.name not in ["==", "!="]
+            and (expr.arguments[0].type.optional or expr.arguments[1].type.optional)
+        ) or (
+            not (
+                expr.arguments[0].type.copy(optional=False)
+                == expr.arguments[1].type.copy(optional=False)
+                or (
                     isinstance(expr.arguments[0], Expr.Null)
                     or isinstance(expr.arguments[1], Expr.Null)
                 )
-            )
-            or (
-                self.name not in ["==", "!="]
-                and (expr.arguments[0].type.optional or expr.arguments[1].type.optional)
-            )
-            or (
-                not (
-                    expr.arguments[0].type.copy(optional=False)
-                    == expr.arguments[1].type.copy(optional=False)
-                    or (
-                        isinstance(expr.arguments[0], Expr.Null)
-                        or isinstance(expr.arguments[1], Expr.Null)
-                    )
-                    or (
-                        isinstance(expr.arguments[0].type, Type.Int)
-                        and isinstance(expr.arguments[1].type, Type.Float)
-                    )
-                    or (
-                        isinstance(expr.arguments[0].type, Type.Float)
-                        and isinstance(expr.arguments[1].type, Type.Int)
-                    )
-                    or (
-                        isinstance(expr.arguments[0].type, Type.Array)
-                        and isinstance(expr.arguments[1].type, Type.Array)
-                        # pyre-ignore
-                        and expr.arguments[0].type.copy(optional=False, nonempty=False)
-                        # pyre-ignore
-                        == expr.arguments[1].type.copy(optional=False, nonempty=False)
-                    )
+                or (
+                    isinstance(expr.arguments[0].type, Type.Int)
+                    and isinstance(expr.arguments[1].type, Type.Float)
+                )
+                or (
+                    isinstance(expr.arguments[0].type, Type.Float)
+                    and isinstance(expr.arguments[1].type, Type.Int)
+                )
+                or (
+                    isinstance(expr.arguments[0].type, Type.Array)
+                    and isinstance(expr.arguments[1].type, Type.Array)
+                    # pyre-ignore
+                    and expr.arguments[0].type.copy(optional=False, nonempty=False)
+                    # pyre-ignore
+                    == expr.arguments[1].type.copy(optional=False, nonempty=False)
                 )
             )
         ):
