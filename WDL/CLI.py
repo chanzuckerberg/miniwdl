@@ -15,7 +15,7 @@ import traceback
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
-from typing import Optional, Dict, Any
+from typing import Optional
 import argcomplete
 from . import (
     load,
@@ -38,6 +38,7 @@ from . import (
     read_source_default,
     ReadSourceResult,
     Zip,
+    decl_to_inputs_dict,
 )
 from ._util import (
     VERBOSE_LEVEL,
@@ -106,14 +107,6 @@ def main(args=None):
             raise exn
         sys.exit(2)
     sys.exit(0)
-
-
-def fill_generate_input_subparser(subparsers):
-    inputs_parser = subparsers.add_parser("inputs")
-    inputs_parser.add_argument(
-        "uri", metavar="WDL_URI", type=str, nargs="?", help="WDL document filename/URI"
-    )
-    return inputs_parser
 
 
 def create_arg_parser():
@@ -187,9 +180,7 @@ def fill_common(subparser):
     )
     group = subparser.add_argument_group("debugging")
     group.add_argument(
-        "--debug",
-        action="store_true",
-        help="maximally verbose logging & exception tracebacks",
+        "--debug", action="store_true", help="maximally verbose logging & exception tracebacks"
     )
 
 
@@ -265,11 +256,7 @@ def check(
                 check_quant=check_quant,
                 read_source=make_read_source(no_outside_imports),
             )
-        except (
-            Error.SyntaxError,
-            Error.ValidationError,
-            Error.MultipleValidationErrors,
-        ) as exn:
+        except (Error.SyntaxError, Error.ValidationError, Error.MultipleValidationErrors) as exn:
             if not getattr(exn, "declared_wdl_version", None):
                 atexit.register(
                     lambda: print(
@@ -304,13 +291,7 @@ def check(
 
 
 def outline(
-    obj,
-    level,
-    file=sys.stdout,
-    show_called=True,
-    suppress=None,
-    show_all=False,
-    shown=None,
+    obj, level, file=sys.stdout, show_called=True, suppress=None, show_all=False, shown=None
 ):
     # recursively pretty-print a brief outline of the workflow
     s = "".join(" " for i in range(level * 4))
@@ -350,10 +331,7 @@ def outline(
             descend(task)
         # imports
         for imp in sorted(obj.imports, key=lambda t: t.namespace):
-            print(
-                "    {}{} : {}".format(s, imp.namespace, os.path.basename(imp.uri)),
-                file=file,
-            )
+            print("    {}{} : {}".format(s, imp.namespace, os.path.basename(imp.uri)), file=file)
             descend(imp.doc)
     # workflow
     elif isinstance(obj, Workflow):
@@ -378,10 +356,7 @@ def outline(
     # call
     elif isinstance(obj, Call):
         if obj.name != obj.callee_id[-1]:
-            print(
-                "{}call {} as {}".format(s, ".".join(obj.callee_id), obj.name),
-                file=file,
-            )
+            print("{}call {} as {}".format(s, ".".join(obj.callee_id), obj.name), file=file)
         else:
             print("{}call {}".format(s, ".".join(obj.callee_id)), file=file)
     # scatter
@@ -474,8 +449,7 @@ def make_read_source(no_outside_imports):
             if not top_dir:
                 top_dir = os.path.dirname(ans.abspath)
             if not next(
-                (p for p in ([top_dir] + path) if path_really_within(ans.abspath, p)),
-                False,
+                (p for p in ([top_dir] + path) if path_really_within(ans.abspath, p)), False
             ):
                 raise PermissionError(
                     "denied import from outside main WDL file's directory; "
@@ -833,11 +807,7 @@ def runner(
                 )
         if enabled_plugins or disabled_plugins:
             logger.debug(
-                _(
-                    "plugin configuration",
-                    enabled=enabled_plugins,
-                    disabled=disabled_plugins,
-                )
+                _("plugin configuration", enabled=enabled_plugins, disabled=disabled_plugins)
             )
 
         rerun_sh = f"pushd {shellquote(os.getcwd())} && miniwdl {' '.join(shellquote(t) for t in sys.argv[1:])}; popd"
@@ -892,10 +862,7 @@ def runner(
             cfg.log_unused_options()
 
     # report
-    outputs_json = {
-        "outputs": values_to_json(output_env, namespace=target.name),
-        "dir": rundir,
-    }
+    outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
     runner_standard_output(outputs_json, stdout_file, error_json, log_json)
     return outputs_json
 
@@ -1187,7 +1154,7 @@ def runner_input_help(target):
     ans = [
         "",
         bold(f"{target.name} ({target.pos.uri})"),
-        bold(f"{'-' * (len(target.name) + len(target.pos.uri) + 3)}"),
+        bold(f"{'-'*(len(target.name)+len(target.pos.uri)+3)}"),
     ]
     required_inputs = target.required_inputs
     ans.append(bold("\nrequired inputs:"))
@@ -1289,8 +1256,7 @@ def runner_input_value(s_value, ty, downloadable, root):
     ):
         # just produce a length-1 array, to be combined ex post facto
         return Value.Array(
-            ty.item_type,
-            [runner_input_value(s_value, ty.item_type, downloadable, root)],
+            ty.item_type, [runner_input_value(s_value, ty.item_type, downloadable, root)]
         )
     if isinstance(ty, Type.Any):
         # infer dynamically-typed runtime overrides
@@ -1385,9 +1351,7 @@ def fill_run_self_test_subparser(subparsers):
     )
     run_parser.add_argument("--log-json", action="store_true", help="write all logs in JSON")
     run_parser.add_argument(
-        "--as-me",
-        action="store_true",
-        help="run all containers as the current user uid:gid",
+        "--as-me", action="store_true", help="run all containers as the current user uid:gid"
     )
     return run_parser
 
@@ -1738,8 +1702,7 @@ def localize(
             cfg,
             localizer.workflow,
             values_from_json(
-                {"files": file, "directories": directory},
-                localizer.workflow.available_inputs,
+                {"files": file, "directories": directory}, localizer.workflow.available_inputs
             ),
             run_dir=os.environ.get("TMPDIR", "/tmp"),
         )
@@ -2019,9 +1982,7 @@ def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_ty
 
 def fill_zip_subparser(subparsers):
     zip_parser = subparsers.add_parser(
-        "zip",
-        help="Zip WDL source",
-        description="Zip WDL source file along with all imports",
+        "zip", help="Zip WDL source", description="Zip WDL source file along with all imports"
     )
     zip_parser.add_argument("top_wdl", metavar="WDL_FILE", help="top-level WDL file")
     zip_parser.add_argument(
@@ -2099,13 +2060,12 @@ def zip_wdl(
         Zip.build(doc, output, logger, meta=meta, inputs=input_dict, archive_format=fmt)
 
 
-def pkg_version(pkg="miniwdl"):
-    import importlib_metadata
-
-    try:
-        return importlib_metadata.version(pkg)
-    except importlib_metadata.PackageNotFoundError:
-        return None
+def fill_generate_input_subparser(subparsers):
+    inputs_parser = subparsers.add_parser("inputs")
+    inputs_parser.add_argument(
+        "uri", metavar="WDL_URI", type=str, nargs="?", help="WDL document filename/URI"
+    )
+    return inputs_parser
 
 
 def generate_inputs(
@@ -2115,36 +2075,46 @@ def generate_inputs(
     no_outside_imports=False,
     **kwargs,
 ) -> str:
+    """Print and returns a json string representing the required inputs for a wdl file.
+
+    Currently, only work for wdl file that contains a workflow and does not destruct wdl structs into json objects
+
+    @param uri: see `load` for more information.
+    @param path: see `load` for more information.
+    @param check_quant: see `load` for more information.
+    @param no_outside_imports:  see `load` for more information.
+    @param kwargs:
+    @return: input template as json string
+    """
+
     doc = load(
         uri=uri,
         path=path,
         check_quant=check_quant,
         read_source=make_read_source(no_outside_imports),
     )
-    """Print and returns a json string representing the required inputs for a wdl file.
-    
-    Currently, only work for wdl file that contains a workflow and does not destruct wdl structs into json objects
-    
-    @param uri: 
-    @param path: 
-    @param check_quant: 
-    @param no_outside_imports: 
-    @param kwargs: 
-    @return: 
-    """
 
     if not doc.workflow:
         die("Generate Inputs is only supported for WDL files with workflow currently.")
 
     available_inputs = (
         (f"{doc.workflow.name}.{k}", v)
-        for k, v in values_to_json(doc.workflow.available_inputs).items()
+        for k, v in decl_to_inputs_dict(doc.workflow.available_inputs).items()
     )
     not_run_time = {k: v for (k, v) in available_inputs if not k.endswith("._runtime")}
 
     input_template = json.dumps(not_run_time, indent=2)
     print(input_template)
     return input_template
+
+
+def pkg_version(pkg="miniwdl"):
+    import importlib_metadata
+
+    try:
+        return importlib_metadata.version(pkg)
+    except importlib_metadata.PackageNotFoundError:
+        return None
 
 
 def die(msg, status=2):

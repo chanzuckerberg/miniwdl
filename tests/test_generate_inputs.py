@@ -52,13 +52,13 @@ def test_with_input_block(tmp_path, version_string):
     body = """
     struct Person {
         String name
-        Int? age
-        
+        Int? age       
     }
     
     struct Group {
         Person leader
         Array[Person] members 
+        Array[String] address
     }
     
     task echo {
@@ -66,7 +66,11 @@ def test_with_input_block(tmp_path, version_string):
             String foo
             String bar
             Group group
-            Person person
+            Person person = { "name" : "asd" }
+            Map[String, Int] score
+            Map[String, Person] friends
+            Map[String, Map[String, String]] nested_map
+            Pair[Person, Person] couples                        
         }
               
         command {
@@ -77,15 +81,15 @@ def test_with_input_block(tmp_path, version_string):
     workflow basic_workflow {
         input {
             String baz
-            String foo = "foo"                   
-        } 
-                   
+            String foo = "foo"    
+            File yellow_pages
+            Int page
+            Float lat
+            Boolean closed               
+        }                   
         call echo {
             input: foo = foo
-        }
-        call echo as echo2 {
-            input: foo =  baz 
-        }               
+        }       
     }
    """
 
@@ -94,15 +98,81 @@ def test_with_input_block(tmp_path, version_string):
     inputs = generate_inputs(str(p))
     assert json.loads(inputs) == {
         "basic_workflow.baz": "String",
+        "basic_workflow.closed": "Boolean",
         "basic_workflow.echo.bar": "String",
-        "basic_workflow.echo.group": "Group",
-        "basic_workflow.echo.person": "Person",
-        "basic_workflow.echo2.bar": "String",
-        "basic_workflow.echo2.group": "Group",
-        "basic_workflow.echo2.person": "Person",
+        "basic_workflow.echo.couples": {"left": "Person", "right": "Person"},
+        "basic_workflow.echo.friends": {"String": "Person"},
+        "basic_workflow.echo.group": {
+            "address": ["String"],
+            "leader": {"age": "Int?", "name": "String"},
+            "members": [{"age": "Int?", "name": "String"}],
+        },
+        "basic_workflow.echo.nested_map": {"String": "Map[String,String]"},
+        "basic_workflow.echo.person": {"age": "Int?", "name": "String"},
+        "basic_workflow.echo.score": {"String": "Int"},
         "basic_workflow.foo": "String",
+        "basic_workflow.lat": "Float",
+        "basic_workflow.page": "Int",
+        "basic_workflow.yellow_pages": "File",
     }
 
+
+def test_with_sub_workflow(tmp_path):
+    main_wdl = tmp_path / "main.wdl"
+    sub_wdl = tmp_path / "sub_wdl.wdl"
+
+    main_content = """
+    import "sub_wdl.wdl" as sub
+    
+    workflow main_workflow {
+        call sub.hello_and_goodbye { input: hello_and_goodbye_input = "sub world" }
+        output {
+            String main_output = hello_and_goodbye.hello_output
+        }
+    }
+    """
+
+    sub_content = """
+    task hello {
+        String addressee
+        command {
+            echo "Hello ${addressee}!"
+        }
+        output {
+            String salutation = read_string(stdout())
+        }
+    }
+
+    task goodbye {
+        String addressee
+        command {
+            echo "Goodbye ${addressee}!4"
+        }
+        output {
+            String salutation = read_string(stdout())
+        }
+    }
+
+    workflow hello_and_goodbye {
+        String hello_and_goodbye_input
+        String goodbye_input
+
+        call hello {input: addressee = hello_and_goodbye_input }
+        call goodbye {input: addressee = goodbye_input }
+
+        output {
+            String hello_output = hello.salutation
+            String goodbye_output = goodbye.salutation
+        }
+    }
+    """
+
+    main_wdl.write_text(main_content)
+    sub_wdl.write_text(sub_content)
+    inputs = generate_inputs(str(main_wdl))
+    assert json.loads(inputs) == {
+        "main_workflow.hello_and_goodbye.goodbye_input": "String"
+    }
 
 def test_incorrect_wld_throws(tmp_path):
     p = tmp_path / "test.wdl"
