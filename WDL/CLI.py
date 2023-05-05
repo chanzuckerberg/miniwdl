@@ -2005,7 +2005,9 @@ def fill_zip_subparser(subparsers):
         "--additional",
         metavar="FILE",
         help="Additional files to include in the zip. Files will be included "
-             "in the zip root. Can be supplied multiple times."
+             "in the zip root. Can be supplied multiple times.",
+        action="append",
+        dest="additional_files"
     )
     return zip_parser
 
