@@ -69,7 +69,7 @@ def build(
         if dirname:
             os.makedirs(dirname, exist_ok=True)
         logger.info(f"Move archive to destination {archive}")
-        os.rename(spool_zip, archive)
+        shutil.move(spool_zip, archive)
 
 
 def build_source_dir(
