@@ -26,6 +26,7 @@ def build(
     inputs: Optional[Dict[str, Any]] = None,
     meta: Optional[Dict[str, Any]] = None,
     archive_format: str = "zip",
+    additional_files: Optional[List[str]] = None,
 ):
     """
     Generate zip archive of the WDL document, all its imports, optional default inputs, and a
@@ -51,6 +52,11 @@ def build(
         with open(os.path.join(dir_to_zip, "MANIFEST.json"), "w") as manifest_file:
             json.dump(manifest, manifest_file, indent=2)
         logger.debug("manifest = " + json.dumps(manifest))
+        if additional_files:
+            logger.debug(f"Additional files: {additional_files}")
+            for file in additional_files:
+                dest_path =os.path.join(dir_to_zip, os.path.basename(file))
+                shutil.copy(file, dest_path)
 
         # zip the temp directory (into another temp directory)
         spool_dir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
