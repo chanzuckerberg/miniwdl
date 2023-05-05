@@ -2005,9 +2005,9 @@ def fill_zip_subparser(subparsers):
         "--additional",
         metavar="FILE",
         help="Additional files to include in the zip. Files will be included "
-             "in the zip root. Can be supplied multiple times.",
+        "in the zip root. Can be supplied multiple times.",
         action="append",
-        dest="additional_files"
+        dest="additional_files",
     )
     return zip_parser
 
@@ -2063,8 +2063,15 @@ def zip_wdl(
             die(output + " already exists; add --force to override")
         fmt = "tar" if output.endswith(".tar") else "zip"
 
-        Zip.build(doc, output, logger, meta=meta, inputs=input_dict, archive_format=fmt,
-                  additional_files=additional_files)
+        Zip.build(
+            doc,
+            output,
+            logger,
+            meta=meta,
+            inputs=input_dict,
+            archive_format=fmt,
+            additional_files=additional_files,
+        )
 
 
 def pkg_version(pkg="miniwdl"):

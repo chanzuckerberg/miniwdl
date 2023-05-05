@@ -55,7 +55,7 @@ def build(
         if additional_files:
             logger.debug(f"Additional files: {additional_files}")
             for file in additional_files:
-                dest_path =os.path.join(dir_to_zip, os.path.basename(file))
+                dest_path = os.path.join(dir_to_zip, os.path.basename(file))
                 shutil.copy(file, dest_path)
 
         # zip the temp directory (into another temp directory)
