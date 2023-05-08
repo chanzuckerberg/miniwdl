@@ -56,6 +56,8 @@ def build(
             logger.debug(f"Additional files: {additional_files}")
             for file in additional_files:
                 dest_path = os.path.join(dir_to_zip, os.path.basename(file))
+                if os.path.exists(dest_path):
+                    raise FileExistsError(f"Additional file overwrites existing path: {dest_path}")
                 shutil.copy(file, dest_path)
 
         # zip the temp directory (into another temp directory)
