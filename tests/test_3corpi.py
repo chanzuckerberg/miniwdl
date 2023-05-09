@@ -581,13 +581,16 @@ class TestZip(unittest.TestCase):
             meta = {"foo": "bar"}
             main_wdl = os.path.basename(doc.pos.abspath)
             zip_fn = os.path.join(testdir, main_wdl + ".zip")
+            additional_files = [__file__]
             WDL.Zip.build(
-                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta, inputs=inputs
+                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta,
+                inputs=inputs, additional_files=additional_files
             )
 
             source_dir, main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             assert not inputs or inputs_file
             WDL.load(os.path.join(source_dir, main_wdl))
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, os.path.basename(__file__))))
 
             # cover misc code paths through WDL.Zip.unpack()
             WDL.load(cleanup.enter_context(WDL.Zip.unpack(source_dir)).main_wdl)
