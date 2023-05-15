@@ -69,8 +69,8 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
   - The optimization guide has [host configuration suggestions](https://miniwdl.readthedocs.io/en/latest/runner_advanced.html#host-configuration)
 - Q: Can miniwdl run workflows on my cloud/cluster?
   - If you can factor the workload into separate workflow runs, submit each one as a job to run miniwdl on a powerful worker node.
-  - [Alternate container runtimes](https://miniwdl.readthedocs.io/en/latest/runner_backends.html) widen compatibility
-  - The separately-maintained [miniwdl-aws](https://github.com/miniwdl-ext/miniwdl-aws) plugin provides task scheduling on AWS Batch
+  - [Alternate container runtimes](https://miniwdl.readthedocs.io/en/latest/runner_backends.html) widen local compatibility
+  - [External plugins](https://miniwdl.readthedocs.io/en/latest/runner_backends.html#external-plugins) enable cloud &cluster integrations, with an API to add new ones.
 
 ---
 
