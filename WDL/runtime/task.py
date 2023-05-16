@@ -963,7 +963,7 @@ def _warn_output_basename_collisions(
 ) -> None:
     targets_by_basename = {}
 
-    def walker(v):
+    def walker(v: Union[Value.File, Value.Directory]) -> str:
         target = v.value
         if os.path.exists(target):
             target = os.path.realpath(target)
