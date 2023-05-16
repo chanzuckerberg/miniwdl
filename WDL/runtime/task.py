@@ -222,6 +222,7 @@ def run_local_task(
                 # downstream tasks
                 _delete_work(cfg, logger, container, True)
                 chmod_R_plus(run_dir, file_bits=0o660, dir_bits=0o770)
+                _warn_output_basename_collisions(logger, outputs)
 
                 # write outputs.json
                 write_values_json(
@@ -377,7 +378,7 @@ def _eval_task_inputs(
 
     # Map all the provided input File & Directory paths to in-container paths
     container.add_paths(_fspaths(posix_inputs))
-    _warn_basename_collisions(logger, container)
+    _warn_input_basename_collisions(logger, container)
 
     # copy posix_inputs with all File & Directory values mapped to their in-container paths
     def map_paths(fn: Union[Value.File, Value.Directory]) -> str:
@@ -456,7 +457,7 @@ def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
     return ans
 
 
-def _warn_basename_collisions(
+def _warn_input_basename_collisions(
     logger: logging.Logger, container: "runtime.task_container.TaskContainer"
 ) -> None:
     basenames = Counter(
@@ -955,6 +956,32 @@ def link_outputs_relative(
         return v.value
 
     return Value.rewrite_env_paths(outputs, map_path_relative)
+
+
+def _warn_output_basename_collisions(
+    logger: logging.Logger, outputs: Env.Bindings[Value.Base]
+) -> None:
+    targets_by_basename = {}
+
+    def walker(v):
+        target = v.value
+        if os.path.exists(target):
+            target = os.path.realpath(target)
+        basename = os.path.basename(target)
+        targets_by_basename.setdefault(basename, set()).add(target)
+        return v.value
+
+    Value.rewrite_env_paths(outputs, walker)
+
+    collisions = [bn for bn, targets in targets_by_basename.items() if len(targets) > 1]
+    if collisions:
+        logger.warning(
+            _(
+                "multiple output files share the same basename; while miniwdl supports this,"
+                " consider modifying WDL to ensure distinct basenames for all output files",
+                basenames=collisions,
+            )
+        )
 
 
 def _delete_work(
