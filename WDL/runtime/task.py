@@ -978,7 +978,7 @@ def _warn_output_basename_collisions(
         logger.warning(
             _(
                 "multiple output files share the same basename; while miniwdl supports this,"
-                " consider modifying WDL to ensure distinct basenames for all output files",
+                " consider modifying WDL to ensure distinct output basenames",
                 basenames=collisions,
             )
         )
