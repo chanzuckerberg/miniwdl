@@ -44,7 +44,13 @@ from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
 from .. import Env, Type, Value, Tree, StdLib, Error
-from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_defaults
+from .task import (
+    run_local_task,
+    _fspaths,
+    link_outputs,
+    _add_downloadable_defaults,
+    _warn_output_basename_collisions,
+)
 from .download import able as downloadable, run_cached as download
 from .._util import (
     write_atomic,
@@ -1017,6 +1023,7 @@ def _workflow_main_loop(
             # process outputs through plugins
             recv = plugins.send({"outputs": outputs})
             outputs = recv["outputs"]
+            _warn_output_basename_collisions(logger, outputs)
 
             # write outputs.json
             write_values_json(
