@@ -5,7 +5,7 @@ referenced therein, and updates their access timestamps (atime).
 """
 import json
 import os
-import shutil
+import hashlib
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Union
@@ -16,7 +16,7 @@ from threading import Lock
 
 from . import config
 
-from .. import Env, Value, Type
+from .. import Env, Value, Type, Tree
 from .._util import (
     StructuredLogMessage as _,
     FlockHolder,
@@ -102,7 +102,7 @@ class CallCache(AbstractContextManager):
             # check that no files/directories referenced by the inputs & cached outputs are newer
             # than the cache file itself
             if _check_files_coherence(
-                self._cfg, self._logger, file_path, inputs
+                self._cfg, self._logger, file_path, inputs, skip_stdlib_written=True
             ) and _check_files_coherence(self._cfg, self._logger, file_path, cache):
                 return cache
             else:
@@ -229,11 +229,11 @@ class CallCache(AbstractContextManager):
         """
         if directory:
             uri = uri.rstrip("/")
-        logger = logger.getChild("CallCache") if logger else self._logger
         p = self.download_cacheable(uri, directory=directory)
         if not p:
             self.memo_download(uri, filename, directory=directory)
             return filename
+        logger = logger.getChild("CallCache") if logger else self._logger
         moved = False
         # transient exclusive flock on whole cache directory (serializes entry add/remove)
         with FlockHolder(logger) as transient:
@@ -316,7 +316,11 @@ class CallCache(AbstractContextManager):
 
 
 def _check_files_coherence(
-    cfg: config.Loader, logger: logging.Logger, cache_file: str, values: Env.Bindings[Value.Base]
+    cfg: config.Loader,
+    logger: logging.Logger,
+    cache_file: str,
+    values: Env.Bindings[Value.Base],
+    skip_stdlib_written: bool = False,
 ) -> bool:
     """
     Verify that none of the files/directories referenced by values are newer than cache_file itself
@@ -338,7 +342,12 @@ def _check_files_coherence(
 
     def check_one(v: Union[Value.File, Value.Directory]):
         assert isinstance(v, (Value.File, Value.Directory))
-        if not downloadable(cfg, v.value):
+        if not downloadable(cfg, v.value) and not (
+            # special case to skip stdlib-written files because we cache them based on content
+            # digest rather than filename+mtime (see derive_call_cache_key below)
+            skip_stdlib_written
+            and _is_stdlib_written_file(v.value)
+        ):
             try:
                 if mtime(v.value) > cache_file_mtime:
                     raise StopIteration
@@ -388,3 +397,34 @@ def new(cfg: config.Loader, logger: logging.Logger) -> CallCache:
     ans = impl_cls(cfg, logger)
     assert isinstance(ans, CallCache)
     return ans
+
+
+def derive_call_cache_key(
+    exe: Union[Tree.Task, Tree.Workflow], inputs: Env.Bindings[Value.Base]
+) -> str:
+    """
+    Derive the call cache key for invocation of the given task/workflow with the inputs
+    """
+
+    # Digesting inputs: for most Files we cache based on filename (and implicitly mtime). But we
+    # make an exception for files written by a stdlib write_* function, since those always get
+    # unique temporary filenames that therefore could never be cached based on filename. For those
+    # only, we replace the filename with a content digest. Such files cannot be too large since
+    # their contents were originally held in memory.
+    def rewriter(fn: str) -> str:
+        if _is_stdlib_written_file(fn):
+            hasher = hashlib.sha256()
+            with open(fn, "rb") as f:
+                for chunk in iter(lambda: f.read(1048576), b""):
+                    hasher.update(chunk)
+            # needs not be pretty, since we just digest it again below:
+            return "_miniwdl_write_" + hasher.hexdigest()
+        return fn
+
+    inputs = Value.rewrite_env_files(inputs, rewriter)
+    return f"{exe.name}/{exe.digest}/{Value.digest_env(inputs)}"
+
+
+def _is_stdlib_written_file(fn: str) -> bool:
+    # heuristic to determine if a file was created by one of the stdlib write_* functions
+    return os.path.isfile(fn) and os.path.basename(os.path.dirname(fn)) == "_miniwdl_write_"

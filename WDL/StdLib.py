@@ -177,7 +177,7 @@ class Base:
                 outfile: BinaryIO = outfile  # pyre-ignore
                 serialize(v, outfile)
                 filename = outfile.name
-            chmod_R_plus(filename, file_bits=0o660)
+            chmod_R_plus(filename, file_bits=0o660)  # ensure accessibility to downstream tasks
             vfn = self._virtualize_filename(filename)
             return Value.File(vfn)
 

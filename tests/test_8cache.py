@@ -525,10 +525,14 @@ Int count = 12
                 input:
                 full_name = read_person.full_name
             }
+            call hello as hello2 {
+                input:
+                full_name = write_lines([read_string(read_person.full_name)])
+            }
         }
 
         output {
-            Array[File] messages = hello.message
+            Array[File] messages = flatten([hello.message, hello2.message])
         }
     }
 

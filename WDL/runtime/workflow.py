@@ -64,7 +64,7 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
-from .cache import CallCache, new as new_call_cache
+from .cache import CallCache, derive_call_cache_key, new as new_call_cache
 from .error import RunFailed, Terminated, error_json
 
 
@@ -680,7 +680,7 @@ class _StdLib(StdLib.Base):
     def __init__(
         self, wdl_version: str, cfg: config.Loader, state: StateMachine, cache: CallCache
     ) -> None:
-        super().__init__(wdl_version, write_dir=os.path.join(state.run_dir, "write_"))
+        super().__init__(wdl_version, write_dir=os.path.join(state.run_dir, "_miniwdl_write_"))
         self.cfg = cfg
         self.state = state
         self.cache = cache
@@ -842,7 +842,7 @@ def run_local_workflow(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
         # query call cache
-        cache_key = f"{workflow.name}/{workflow.digest}/{Value.digest_env(inputs)}"
+        cache_key = derive_call_cache_key(workflow, inputs)
         cached = cache.get(cache_key, inputs, workflow.effective_outputs)
         if cached is not None:
             for outp in workflow.effective_outputs:

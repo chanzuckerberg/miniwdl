@@ -33,7 +33,7 @@ from .._util import (
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .download import able as downloadable, run_cached as download
-from .cache import CallCache, new as new_call_cache
+from .cache import CallCache, derive_call_cache_key, new as new_call_cache
 from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
 
 
@@ -110,7 +110,7 @@ def run_local_task(
         cleanup.enter_context(_statusbar.task_slotted())
         container = None
         try:
-            cache_key = f"{task.name}/{task.digest}/{Value.digest_env(inputs)}"
+            cache_key = derive_call_cache_key(task, inputs)
             cached = cache.get(cache_key, inputs, task.effective_outputs)
             if cached is not None:
                 for decl in task.outputs:
@@ -1014,7 +1014,7 @@ class _StdLib(StdLib.Base):
         container: "runtime.task_container.TaskContainer",
         inputs_only: bool,
     ) -> None:
-        super().__init__(wdl_version, write_dir=os.path.join(container.host_dir, "write_"))
+        super().__init__(wdl_version, write_dir=os.path.join(container.host_dir, "_miniwdl_write_"))
         self.logger = logger
         self.container = container
         self.inputs_only = inputs_only
