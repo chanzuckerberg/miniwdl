@@ -342,35 +342,29 @@ def _check_files_coherence(
 
     def check_one(v: Union[Value.File, Value.Directory]):
         assert isinstance(v, (Value.File, Value.Directory))
-        if not downloadable(cfg, v.value) and not (
-            # special case to skip stdlib-written files because we cache them based on content
-            # digest rather than filename+mtime (see derive_call_cache_key below)
-            skip_stdlib_written
-            and _is_stdlib_written_file(v.value)
-        ):
-            try:
-                if mtime(v.value) > cache_file_mtime:
-                    raise StopIteration
-                if isinstance(v, Value.Directory):
-                    # check everything in directory
-                    for root, subdirs, subfiles in os.walk(
-                        v.value, onerror=raiser, followlinks=False
-                    ):
-                        for subdir in subdirs:
-                            if mtime(os.path.join(root, subdir)) > cache_file_mtime:
-                                raise StopIteration
-                        for fn in subfiles:
-                            if mtime(os.path.join(root, fn)) > cache_file_mtime:
-                                raise StopIteration
-            except (FileNotFoundError, NotADirectoryError, StopIteration):
-                logger.warning(
-                    _(
-                        "cache entry invalid due to deleted or modified file/directory",
-                        cache_file=cache_file,
-                        changed=v.value,
-                    )
-                )
+        if downloadable(cfg, v.value) or (skip_stdlib_written and _is_stdlib_written_file(v.value)):
+            return
+        try:
+            if mtime(v.value) > cache_file_mtime:
                 raise StopIteration
+            if isinstance(v, Value.Directory):
+                # check everything in directory
+                for root, subdirs, subfiles in os.walk(v.value, onerror=raiser, followlinks=False):
+                    for subdir in subdirs:
+                        if mtime(os.path.join(root, subdir)) > cache_file_mtime:
+                            raise StopIteration
+                    for fn in subfiles:
+                        if mtime(os.path.join(root, fn)) > cache_file_mtime:
+                            raise StopIteration
+        except (FileNotFoundError, NotADirectoryError, StopIteration):
+            logger.warning(
+                _(
+                    "cache entry invalid due to deleted or modified file/directory",
+                    cache_file=cache_file,
+                    changed=v.value,
+                )
+            )
+            raise StopIteration
 
     try:
         Value.rewrite_env_paths(values, check_one)
@@ -406,11 +400,12 @@ def derive_call_cache_key(
     Derive the call cache key for invocation of the given task/workflow with the inputs
     """
 
-    # Digesting inputs: for most Files we cache based on filename (and implicitly mtime). But we
-    # make an exception for files written by a stdlib write_* function, since those always get
-    # unique temporary filenames that therefore could never be cached based on filename. For those
-    # only, we replace the filename with a content digest. Such files cannot be too large since
-    # their contents were originally held in memory.
+    # Digesting inputs: for most Files we cache based on the absolute path (and implicitly mtime
+    # relative to the cache entry itself). But we make an exception for files written by a stdlib
+    # write_* function, since those always get unique temporary filenames that therefore could
+    # never be cached based on path. For those only, we use a content digest in the cache key
+    # derivation. Such files cannot be too large since their contents were originally held in
+    # memory.
     def rewriter(fn: str) -> str:
         if _is_stdlib_written_file(fn):
             hasher = hashlib.sha256()
