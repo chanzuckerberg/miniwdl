@@ -580,7 +580,7 @@ Int count = 12
 
         # ensure digest is sensitive to changes in the struct type and called task (but not the
         # uncalled task, or comments/whitespace)
-        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("String? middle", ""))
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("String? middle", "String? middle Int? age"))
         doc2.typecheck()
         self.assertNotEqual(doc.workflow.digest, doc2.workflow.digest)
 
