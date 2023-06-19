@@ -546,7 +546,7 @@ Int count = 12
         command {}
 
         output {
-            File full_name = write_lines([sep(" ", [person.first, person.last])])
+            File full_name = write_lines([sep(" ", select_all([person.first, person.middle, person.last]))])
         }
     }
 
@@ -630,5 +630,5 @@ Int count = 12
                 print('{"first":"Alyssa","last":"Hacker","middle":"P"}', file=outfile)
             _, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
             self.assertEqual(wmock.call_count, 1)
-            self.assertEqual(tmock.call_count, 2)  # reran Alyssa, cached Ben
+            self.assertEqual(tmock.call_count, 3)  # reran Alyssa, cached Ben
             self.assertNotEqual(WDL.values_to_json(outp), WDL.values_to_json(outp2))
