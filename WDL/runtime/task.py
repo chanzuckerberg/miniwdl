@@ -1096,10 +1096,12 @@ class OutputStdLib(_StdLib):
             # convert the host filenames to in-container filenames
             container_files = []
             for hf in host_files:
-                dstrip = lib.container.host_dir
+                dstrip = lib.container.host_work_dir()
                 dstrip += "" if dstrip.endswith("/") else "/"
                 assert hf.startswith(dstrip)
-                container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip) :]))
+                container_files.append(
+                    os.path.join(lib.container.container_dir, "work", hf[len(dstrip) :])
+                )
             return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
 
         setattr(
