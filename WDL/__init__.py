@@ -271,7 +271,12 @@ def values_from_json(
 
             assert isinstance(ty, Type.Base)
             try:
-                ans = ans.bind(key2, Value.from_json(ty, values_json[key]))
+                v = Value.from_json(ty, values_json[key])
+                try:
+                    v.type.check(ty)
+                except Exception:
+                    assert False # just a sanity test of Value.from_json
+                ans = ans.bind(key2, v)
             except Error.InputError as exn:
                 raise Error.InputError(exn.args[0] + f" (in {key})").with_traceback(
                     sys.exc_info()[2]
