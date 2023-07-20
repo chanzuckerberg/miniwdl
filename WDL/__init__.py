@@ -275,7 +275,7 @@ def values_from_json(
                 try:
                     v.type.check(ty)
                 except Exception:
-                    assert False # just a sanity test of Value.from_json
+                    assert False  # just a sanity test of Value.from_json
                 ans = ans.bind(key2, v)
             except Error.InputError as exn:
                 raise Error.InputError(exn.args[0] + f" (in {key})").with_traceback(
