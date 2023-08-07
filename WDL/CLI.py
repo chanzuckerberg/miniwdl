@@ -2082,11 +2082,15 @@ def fill_input_template_subparser(subparsers):
     inputs_parser.add_argument(
         "uri", metavar="WDL_URI", type=str, nargs="?", help="WDL document filename/URI"
     )
+    inputs_parser.add_argument(
+        "all", action="store_true", dest="all_inputs", help="include optional inputs"
+    )
     return inputs_parser
 
 
 def input_template(
     uri=None,
+    all_inputs=False,
     path=None,
     check_quant=True,
     no_outside_imports=False,
@@ -2115,11 +2119,10 @@ def input_template(
         die("Generate Inputs is only supported for WDL files with workflow currently.")
     namespace = doc.workflow.name
 
-    available_inputs = doc.workflow.available_inputs.filter(
-        lambda b: not b.name.endswith("._runtime")
-    )
+    input_decls = doc.workflow.available_inputs if all_inputs else doc.workflow.required_inputs
+    input_decls = input_decls.filter(lambda b: not b.name.endswith("._runtime"))
     input_template = {}
-    for b in available_inputs:
+    for b in input_decls:
         input_template[namespace + "." + b.name] = _type_to_input_template(b.value.type)
 
     input_template = json.dumps(input_template, indent=2)

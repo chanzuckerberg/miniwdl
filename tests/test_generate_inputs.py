@@ -33,6 +33,13 @@ def test_draft2_wdl(tmp_path):
     inputs = input_template(str(p))
     assert json.loads(inputs) == {
         "basic_workflow.baz": "String",
+        "basic_workflow.echo.bar": "String",
+        "basic_workflow.echo2.bar": "String",
+    }
+
+    inputs = input_template(str(p),all_inputs=True)
+    assert json.loads(inputs) == {
+        "basic_workflow.baz": "String",
         "basic_workflow.foo": "String",
         "basic_workflow.echo.bar": "String",
         "basic_workflow.echo2.bar": "String",
@@ -101,9 +108,7 @@ def test_with_input_block(tmp_path, version_string):
             "members": [{"age": "Int?", "name": "String"}],
         },
         "basic_workflow.echo.nested_map": {"String": "Map[String,String]"},
-        "basic_workflow.echo.person": {"age": "Int?", "name": "String"},
         "basic_workflow.echo.score": {"String": "Int"},
-        "basic_workflow.foo": "String",
         "basic_workflow.lat": "Float",
         "basic_workflow.page": "Int",
         "basic_workflow.yellow_pages": "File",
