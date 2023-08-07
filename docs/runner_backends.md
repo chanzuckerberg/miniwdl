@@ -58,6 +58,8 @@ Limitations:
 
 ## External plugins
 
-The separately-maintained [miniwdl-aws](https://github.com/miniwdl-ext/miniwdl-aws) plugin provides task scheduling on AWS Batch.
+* [miniwdl-omics-run](https://github.com/miniwdl-ext/miniwdl-omics-run) tool for the [Amazon Omics](https://aws.amazon.com/omics/) workflow service
+* [AWS Batch](https://github.com/miniwdl-ext/miniwdl-aws)
+* [SLURM](https://github.com/miniwdl-ext/miniwdl-slurm)
 
 New container backends can be added through miniwdl's Python plugin API. The [miniwdl-backend-example](https://github.com/miniwdl-ext/miniwdl-backend-example) provides a reference implementation as a starting point.

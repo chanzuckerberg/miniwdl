@@ -40,11 +40,18 @@ import traceback
 import pickle
 import threading
 import regex
+import hashlib
 from concurrent import futures
 from typing import Optional, List, Set, Tuple, NamedTuple, Dict, Union, Iterable, Callable, Any
 from contextlib import ExitStack
 from .. import Env, Type, Value, Tree, StdLib, Error
-from .task import run_local_task, _fspaths, link_outputs, _add_downloadable_defaults
+from .task import (
+    run_local_task,
+    _fspaths,
+    link_outputs,
+    _add_downloadable_defaults,
+    _warn_output_basename_collisions,
+)
 from .download import able as downloadable, run_cached as download
 from .._util import (
     write_atomic,
@@ -689,6 +696,28 @@ class _StdLib(StdLib.Base):
         )
 
     def _virtualize_filename(self, filename: str) -> str:
+        # After write_* generates a file at the workflow level, query CallCache for an existing
+        # identical file; if available, then return that copy. This improves cacheability of
+        # downstream tasks that consume the written file, given the unique temp filename for each
+        # such file.
+        # We fully content-digest the file, but it can't be too large since it was originally
+        # serialized from miniwdl memory.
+        assert not filename.endswith("/")  # FIXME if/when stdlib functions handle directories
+        hasher = hashlib.sha256()
+        with open(filename, "rb") as f:
+            for chunk in iter(lambda: f.read(1048576), b""):
+                hasher.update(chunk)
+        cache_in = Env.Bindings().bind("file_sha256", Value.String(hasher.hexdigest()))
+        cache_key = "write_/" + Value.digest_env(cache_in)
+        cache_out_types = Env.Bindings().bind("file", Type.File())
+        cache_out = self.cache.get(cache_key, cache_in, cache_out_types)
+        if cache_out:
+            filename = cache_out.resolve("file").value
+        else:
+            # otherwise, put our newly-written file to the cache, and proceed to use it
+            self.cache.put(cache_key, Env.Bindings().bind("file", Value.File(filename)))
+
+        # whichever path we took: allow-list the filename
         self.state.fspath_allowlist.add(filename)
         return filename
 
@@ -1017,6 +1046,7 @@ def _workflow_main_loop(
             # process outputs through plugins
             recv = plugins.send({"outputs": outputs})
             outputs = recv["outputs"]
+            _warn_output_basename_collisions(logger, outputs)
 
             # write outputs.json
             write_values_json(

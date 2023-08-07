@@ -1112,6 +1112,7 @@ class TestWorkflowRunner(unittest.TestCase):
             output {
                 Int time = read_int(stdout())
                 File stdout_txt = stdout()
+                File iwuzhere = glob("iwuz*")[0]
             }
             runtime {
                 maxRetries: 99

@@ -2004,6 +2004,15 @@ def fill_zip_subparser(subparsers):
         metavar="JSON_OR_FILE",
         help="input JSON to include as defaults",
     )
+    zip_parser.add_argument(
+        "-a",
+        "--additional",
+        metavar="FILE",
+        help="Additional files to include in the zip. Files will be included "
+        "in the zip root. Can be supplied multiple times.",
+        action="append",
+        dest="additional_files",
+    )
     return zip_parser
 
 
@@ -2015,6 +2024,7 @@ def zip_wdl(
     check_quant=True,
     path=None,
     no_outside_imports=False,
+    additional_files=None,
     debug=False,
     **kwargs,
 ):
@@ -2057,7 +2067,15 @@ def zip_wdl(
             die(output + " already exists; add --force to override")
         fmt = "tar" if output.endswith(".tar") else "zip"
 
-        Zip.build(doc, output, logger, meta=meta, inputs=input_dict, archive_format=fmt)
+        Zip.build(
+            doc,
+            output,
+            logger,
+            meta=meta,
+            inputs=input_dict,
+            archive_format=fmt,
+            additional_files=additional_files,
+        )
 
 
 def fill_generate_input_subparser(subparsers):

@@ -543,7 +543,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
     if isinstance(type, (Type.String, Type.Any)) and isinstance(value, str):
         return String(value)
     if isinstance(type, Type.Array) and isinstance(value, list):
-        return Array(type, [from_json(type.item_type, item) for item in value])
+        return Array(type.item_type, [from_json(type.item_type, item) for item in value])
     if isinstance(type, Type.Pair) and isinstance(value, dict) and set(value) == {"left", "right"}:
         return Pair(
             type.left_type,
