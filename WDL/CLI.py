@@ -38,7 +38,6 @@ from . import (
     read_source_default,
     ReadSourceResult,
     Zip,
-    decl_to_inputs_dict,
 )
 from ._util import (
     VERBOSE_LEVEL,
@@ -85,8 +84,8 @@ def main(args=None):
             eval_expr(**vars(args))
         elif args.command == "zip":
             zip_wdl(**vars(args))
-        elif args.command == "inputs":
-            generate_inputs(**vars(args))
+        elif args.command in ("input_template", "input-template"):
+            input_template(**vars(args))
         else:
             assert False
     except (
@@ -127,7 +126,7 @@ def create_arg_parser():
     fill_common(fill_zip_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
     fill_common(fill_eval_subparser(subparsers))
-    fill_common(fill_generate_input_subparser(subparsers))
+    fill_common(fill_input_template_subparser(subparsers))
     return parser
 
 
@@ -2078,7 +2077,7 @@ def zip_wdl(
         )
 
 
-def fill_generate_input_subparser(subparsers):
+def fill_input_template_subparser(subparsers):
     inputs_parser = subparsers.add_parser("inputs")
     inputs_parser.add_argument(
         "uri", metavar="WDL_URI", type=str, nargs="?", help="WDL document filename/URI"
@@ -2086,14 +2085,14 @@ def fill_generate_input_subparser(subparsers):
     return inputs_parser
 
 
-def generate_inputs(
+def input_template(
     uri=None,
     path=None,
     check_quant=True,
     no_outside_imports=False,
     **kwargs,
-) -> str:
-    """Print and returns a json string representing the required inputs for a wdl file.
+):
+    """Print a JSON template for the inputs to a WDL workflow.
 
     Currently, only work for wdl file that contains a workflow and does not destruct wdl structs into json objects
 
@@ -2114,16 +2113,36 @@ def generate_inputs(
 
     if not doc.workflow:
         die("Generate Inputs is only supported for WDL files with workflow currently.")
+    namespace = doc.workflow.name
 
-    available_inputs = (
-        (f"{doc.workflow.name}.{k}", v)
-        for k, v in decl_to_inputs_dict(doc.workflow.available_inputs).items()
+    available_inputs = doc.workflow.available_inputs.filter(
+        lambda b: not b.name.endswith("._runtime")
     )
-    not_run_time = {k: v for (k, v) in available_inputs if not k.endswith("._runtime")}
+    input_template = {}
+    for b in available_inputs:
+        input_template[namespace + "." + b.name] = _type_to_input_template(b.value.type)
 
-    input_template = json.dumps(not_run_time, indent=2)
+    input_template = json.dumps(input_template, indent=2)
     print(input_template)
     return input_template
+
+
+def _type_to_input_template(ty: Type.Base):
+    if isinstance(ty, Type.StructInstance):
+        ans = {}
+        for member_name, member_type in ty.members.items():
+            ans[member_name] = _type_to_input_template(member_type)
+        return ans
+    elif isinstance(ty, Type.Array):
+        return [_type_to_input_template(ty.item_type)]
+    elif isinstance(ty, Type.Map):
+        (key, val) = ty.item_type
+        return {str(key): str(val)}
+    elif isinstance(ty, Type.Pair):
+        return {"left": str(ty.left_type), "right": str(ty.right_type)}
+    else:
+        assert isinstance(ty, Type.Base), type(ty)
+        return str(ty)
 
 
 def pkg_version(pkg="miniwdl"):

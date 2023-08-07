@@ -4,14 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from WDL import Error
-from WDL.CLI import create_arg_parser, generate_inputs
-
-
-def test_generate_inputs_argparser():
-    parser = create_arg_parser()
-    args = parser.parse_args(["inputs", "test.wdl"])
-    assert "inputs" == args.command
-    assert "test.wdl" == args.uri
+from WDL.CLI import input_template
 
 
 def test_draft2_wdl(tmp_path):
@@ -37,7 +30,7 @@ def test_draft2_wdl(tmp_path):
     }
     """
     p.write_text(draft2)
-    inputs = generate_inputs(str(p))
+    inputs = input_template(str(p))
     assert json.loads(inputs) == {
         "basic_workflow.baz": "String",
         "basic_workflow.foo": "String",
@@ -95,7 +88,7 @@ def test_with_input_block(tmp_path, version_string):
 
     wdl_content = f"version {version_string}\n{body}"
     p.write_text(wdl_content)
-    inputs = generate_inputs(str(p))
+    inputs = input_template(str(p))
     assert json.loads(inputs) == {
         "basic_workflow.baz": "String",
         "basic_workflow.closed": "Boolean",
@@ -169,7 +162,7 @@ def test_with_sub_workflow(tmp_path):
 
     main_wdl.write_text(main_content)
     sub_wdl.write_text(sub_content)
-    inputs = generate_inputs(str(main_wdl))
+    inputs = input_template(str(main_wdl))
     assert json.loads(inputs) == {
         "main_workflow.hello_and_goodbye.goodbye_input": "String"
     }
@@ -185,7 +178,7 @@ def test_incorrect_wld_throws(tmp_path):
    """
     p.write_text(wdl_content)
     with pytest.raises(Error.SyntaxError):
-        generate_inputs(str(p))
+        input_template(str(p))
 
 
 def test_no_workflow_wdl_dies(tmp_path):
@@ -203,4 +196,4 @@ def test_no_workflow_wdl_dies(tmp_path):
     p.write_text(wdl_content)
 
     with pytest.raises(SystemExit):
-        generate_inputs(str(p))
+        input_template(str(p))
