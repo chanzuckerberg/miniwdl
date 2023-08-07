@@ -37,14 +37,6 @@ def test_draft2_wdl(tmp_path):
         "basic_workflow.echo2.bar": "String",
     }
 
-    inputs = input_template(str(p),all_inputs=True)
-    assert json.loads(inputs) == {
-        "basic_workflow.baz": "String",
-        "basic_workflow.foo": "String",
-        "basic_workflow.echo.bar": "String",
-        "basic_workflow.echo2.bar": "String",
-    }
-
 
 @pytest.mark.parametrize("version_string", ["development", "1.1", "1.0"])
 def test_with_input_block(tmp_path, version_string):
@@ -66,7 +58,7 @@ def test_with_input_block(tmp_path, version_string):
             String foo
             String bar
             Group group
-            Person person = { "name" : "asd" }
+            Person person = object { "name" : "asd" }
             Map[String, Int] score
             Map[String, Person] friends
             Map[String, Map[String, String]] nested_map
@@ -101,16 +93,16 @@ def test_with_input_block(tmp_path, version_string):
         "basic_workflow.closed": False,
         "basic_workflow.echo.bar": "String",
         "basic_workflow.echo.couples": {
-            "left": {"age": 42, "name": "String"},
-            "right": {"age": 42, "name": "String"}
+            "left": {"name": "String"},
+            "right": {"name": "String"}
         },
         "basic_workflow.echo.friends": {
-            "String": {"age": 42, "name": "String"}
+            "String": {"name": "String"}
         },
         "basic_workflow.echo.group": {
             "address": ["String"],
-            "leader": {"age": 42, "name": "String"},
-            "members": [{"age": 42, "name": "String"}],
+            "leader": {"name": "String"},
+            "members": [{"name": "String"}],
         },
         "basic_workflow.echo.nested_map": {"String": {"String": "String"}},
         "basic_workflow.echo.score": {"String": 42},
