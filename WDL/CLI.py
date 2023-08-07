@@ -2123,26 +2123,55 @@ def input_template(
     input_decls = input_decls.filter(lambda b: not b.name.endswith("._runtime"))
     input_template = {}
     for b in input_decls:
-        input_template[namespace + "." + b.name] = _type_to_input_template(b.value.type)
+        input_template[namespace + "." + b.name] = _type_to_input_template(
+            b.value.type, default=b.value.expr
+        )
 
     input_template = json.dumps(input_template, indent=2)
     print(input_template)
     return input_template
 
 
-def _type_to_input_template(ty: Type.Base):
+def _type_to_input_template(ty: Type.Base, default: Optional[Expr.Base] = None):
     if isinstance(ty, Type.StructInstance):
         ans = {}
         for member_name, member_type in ty.members.items():
             ans[member_name] = _type_to_input_template(member_type)
         return ans
     elif isinstance(ty, Type.Array):
+        if isinstance(default, Expr.Array):
+            return [_type_to_input_template(it.type, default=it) for it in default.items]
         return [_type_to_input_template(ty.item_type)]
     elif isinstance(ty, Type.Map):
+        if isinstance(default, Expr.Map):
+            return {
+                str(key): _type_to_input_template(value.type, default=value)
+                for (key, value) in default.items
+            }
         (key, val) = ty.item_type
-        return {str(key): str(val)}
+        return {str(key): _type_to_input_template(val)}
     elif isinstance(ty, Type.Pair):
-        return {"left": str(ty.left_type), "right": str(ty.right_type)}
+        if isinstance(default, Expr.Pair):
+            return {
+                "left": _type_to_input_template(default.left.type, default=default.left),
+                "right": _type_to_input_template(default.right.type, default=default.right),
+            }
+        return {
+            "left": _type_to_input_template(ty.left_type),
+            "right": _type_to_input_template(ty.right_type),
+        }
+    elif isinstance(ty, Type.Int):
+        if isinstance(default, Expr.Int):
+            return default.value
+        return 42
+    elif isinstance(ty, Type.Float):
+        if isinstance(default, Expr.Float):
+            return default.value
+        return 3.14
+    elif isinstance(ty, Type.Boolean):
+        if isinstance(default, Expr.Boolean):
+            return default.value
+        return False
     else:
         assert isinstance(ty, Type.Base), type(ty)
         return str(ty)

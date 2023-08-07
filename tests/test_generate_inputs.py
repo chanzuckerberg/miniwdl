@@ -98,19 +98,24 @@ def test_with_input_block(tmp_path, version_string):
     inputs = input_template(str(p))
     assert json.loads(inputs) == {
         "basic_workflow.baz": "String",
-        "basic_workflow.closed": "Boolean",
+        "basic_workflow.closed": False,
         "basic_workflow.echo.bar": "String",
-        "basic_workflow.echo.couples": {"left": "Person", "right": "Person"},
-        "basic_workflow.echo.friends": {"String": "Person"},
+        "basic_workflow.echo.couples": {
+            "left": {"age": 42, "name": "String"},
+            "right": {"age": 42, "name": "String"}
+        },
+        "basic_workflow.echo.friends": {
+            "String": {"age": 42, "name": "String"}
+        },
         "basic_workflow.echo.group": {
             "address": ["String"],
-            "leader": {"age": "Int?", "name": "String"},
-            "members": [{"age": "Int?", "name": "String"}],
+            "leader": {"age": 42, "name": "String"},
+            "members": [{"age": 42, "name": "String"}],
         },
-        "basic_workflow.echo.nested_map": {"String": "Map[String,String]"},
-        "basic_workflow.echo.score": {"String": "Int"},
-        "basic_workflow.lat": "Float",
-        "basic_workflow.page": "Int",
+        "basic_workflow.echo.nested_map": {"String": {"String": "String"}},
+        "basic_workflow.echo.score": {"String": 42},
+        "basic_workflow.lat": 3.14,
+        "basic_workflow.page": 42,
         "basic_workflow.yellow_pages": "File",
     }
 
