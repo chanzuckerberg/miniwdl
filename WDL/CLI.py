@@ -2078,7 +2078,7 @@ def zip_wdl(
 
 
 def fill_input_template_subparser(subparsers):
-    inputs_parser = subparsers.add_parser("inputs")
+    inputs_parser = subparsers.add_parser("input_template", aliases=["input-template"])
     inputs_parser.add_argument(
         "uri", metavar="WDL_URI", type=str, nargs="?", help="WDL document filename/URI"
     )
