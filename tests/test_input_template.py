@@ -183,7 +183,16 @@ def test_incorrect_wld_throws(tmp_path):
         input_template(str(p))
 
 
-def test_no_workflow_wdl_dies(tmp_path):
+def test_no_workflow(tmp_path):
+    p = tmp_path / "empty.wdl"
+    wdl_content = """
+    version 1.0
+    """
+    p.write_text(wdl_content)
+
+    with pytest.raises(SystemExit):
+        input_template(str(p))
+
     p = tmp_path / "test.wdl"
     wdl_content = """
     version 1.0
@@ -196,6 +205,8 @@ def test_no_workflow_wdl_dies(tmp_path):
         }
     }"""
     p.write_text(wdl_content)
-
-    with pytest.raises(SystemExit):
-        input_template(str(p))
+    inputs = input_template(str(p))
+    assert json.loads(inputs) == {
+        "foo": "String",
+        "bar": "String"
+    }

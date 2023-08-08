@@ -2126,7 +2126,10 @@ def input_template(
         read_source=make_read_source(no_outside_imports),
     )
 
-    exe = runner_exe(doc, task)
+    try:
+        exe = runner_exe(doc, task)
+    except Error.InputError as exn:
+        die(exn.args[0])
     namespace = (exe.name + ".") if isinstance(exe, Workflow) else ""
 
     # TODO: opt in to optional inputs (available_inputs). The tricky part is if the optional inputs
