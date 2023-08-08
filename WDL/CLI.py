@@ -123,10 +123,10 @@ def create_arg_parser():
     fill_configure_subparser(subparsers)
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
+    fill_common(fill_input_template_subparser(subparsers))
     fill_common(fill_zip_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
     fill_common(fill_eval_subparser(subparsers))
-    fill_common(fill_input_template_subparser(subparsers))
     return parser
 
 
@@ -2080,7 +2080,14 @@ def zip_wdl(
 
 
 def fill_input_template_subparser(subparsers):
-    input_template_parser = subparsers.add_parser("input_template", aliases=["input-template"])
+    input_template_parser = subparsers.add_parser(
+        "input_template",
+        aliases=["input-template"],
+        help="Generate JSON template for WDL inputs",
+        description="Generate a skeleton JSON for a task/workflow's required inputs,"
+        " suitable to pass into `miniwdl run -i INPUTS.json`."
+        " Writes to standard output.",
+    )
     input_template_parser.add_argument(
         "uri", metavar="WDL_URI", type=str, nargs="?", help="WDL document filename/URI"
     )
