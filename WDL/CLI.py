@@ -2107,18 +2107,6 @@ def input_template(
     no_outside_imports=False,
     **kwargs,
 ):
-    """Print a JSON template for the inputs to a WDL workflow.
-
-    Currently, only work for wdl file that contains a workflow and does not destruct wdl structs into json objects
-
-    @param uri: see `load` for more information.
-    @param path: see `load` for more information.
-    @param check_quant: see `load` for more information.
-    @param no_outside_imports:  see `load` for more information.
-    @param kwargs:
-    @return: input template as json string
-    """
-
     doc = load(
         uri=uri,
         path=path,
