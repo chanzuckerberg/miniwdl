@@ -93,6 +93,7 @@ def main(args=None):
         Error.ImportError,
         Error.ValidationError,
         Error.MultipleValidationErrors,
+        FileNotFoundError,
     ) as exn:
         global quant_warning
         print_error(exn)
