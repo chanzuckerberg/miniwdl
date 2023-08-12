@@ -84,6 +84,8 @@ def main(args=None):
             eval_expr(**vars(args))
         elif args.command == "zip":
             zip_wdl(**vars(args))
+        elif args.command in ("input_template", "input-template"):
+            input_template(**vars(args))
         else:
             assert False
     except (
@@ -121,6 +123,7 @@ def create_arg_parser():
     fill_configure_subparser(subparsers)
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
+    fill_common(fill_input_template_subparser(subparsers))
     fill_common(fill_zip_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
     fill_common(fill_eval_subparser(subparsers))
@@ -922,23 +925,13 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
                 "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
             )
             return []
-        # resolve target
-        if parsed_args.task:
-            target = next((t for t in doc.tasks if t.name == parsed_args.task), None)
-            if not target:
-                argcomplete.warn(f"no such task {parsed_args.task} in document")
-                return []
-        elif doc.workflow:
-            target = doc.workflow
-        elif len(doc.tasks) == 1:
-            target = doc.tasks[0]
-        elif len(doc.tasks) > 1:
-            argcomplete.warn("specify --task for WDL document with multiple tasks and no workflow")
+
+        try:
+            target = runner_exe(doc, parsed_args.task)
+        except Exception as exn:
+            argcomplete.warn(str(exn))
             return []
-        else:
-            argcomplete.warn("Empty WDL document")
-            return []
-        assert target
+
         # figure the available input names (starting with prefix, if any)
         completed_input_names = [nm + "=" for nm in values_to_json(target.required_inputs)]
         if prefix and prefix.find("=") == -1:
@@ -972,22 +965,7 @@ def runner_input(
     """
 
     # resolve target
-    target = None
-    if task:
-        target = next((t for t in doc.tasks if t.name == task), None)
-        if not target:
-            raise Error.InputError(f"no such task {task} in document")
-    elif doc.workflow:
-        target = doc.workflow
-    elif len(doc.tasks) == 1:
-        target = doc.tasks[0]
-    elif len(doc.tasks) > 1:
-        raise Error.InputError(
-            "specify --task for WDL document with multiple tasks and no workflow"
-        )
-    else:
-        raise Error.InputError("Empty WDL document")
-    assert target
+    target = runner_exe(doc, task)
 
     # build up an values env of the provided inputs
     available_inputs = target.available_inputs
@@ -1099,6 +1077,33 @@ def runner_input(
         input_env,
         values_to_json(input_env, namespace=(target.name if isinstance(target, Workflow) else "")),
     )
+
+
+def runner_exe(doc, task_name=None):
+    """
+    Resolve the workflow or task to run:
+    1. user setting of --task (task_name), ifany
+    2. workflow if present
+    3. the lone task, if there's exactly one
+    4. otherwise error.
+    """
+    target = None
+    if task_name:
+        target = next((t for t in doc.tasks if t.name == task_name), None)
+        if not target:
+            raise Error.InputError(f"no such task {task_name} in document")
+    elif doc.workflow:
+        target = doc.workflow
+    elif len(doc.tasks) == 1:
+        target = doc.tasks[0]
+    elif len(doc.tasks) > 1:
+        raise Error.InputError(
+            "specify --task for WDL document with multiple tasks and no workflow"
+        )
+    else:
+        raise Error.InputError("Empty WDL document")
+    assert target
+    return target
 
 
 def runner_input_json_file(available_inputs, namespace, input_file, downloadable, root):
@@ -2072,6 +2077,93 @@ def zip_wdl(
             archive_format=fmt,
             additional_files=additional_files,
         )
+
+
+def fill_input_template_subparser(subparsers):
+    input_template_parser = subparsers.add_parser(
+        "input_template",
+        aliases=["input-template"],
+        help="Generate JSON template for WDL inputs",
+        description="Generate a skeleton JSON for a task/workflow's required inputs,"
+        " suitable to pass into `miniwdl run -i INPUTS.json`."
+        " Writes to standard output.",
+    )
+    input_template_parser.add_argument(
+        "uri", metavar="WDL_URI", type=str, nargs="?", help="WDL document filename/URI"
+    )
+    input_template_parser.add_argument(
+        "--task",
+        metavar="TASK_NAME",
+        help="name of task (for WDL documents with multiple tasks & no workflow)",
+    )
+    return input_template_parser
+
+
+def input_template(
+    uri=None,
+    task=None,
+    path=None,
+    check_quant=True,
+    no_outside_imports=False,
+    **kwargs,
+):
+    doc = load(
+        uri=uri,
+        path=path,
+        check_quant=check_quant,
+        read_source=make_read_source(no_outside_imports),
+    )
+
+    try:
+        exe = runner_exe(doc, task)
+    except Error.InputError as exn:
+        die(exn.args[0])
+    namespace = (exe.name + ".") if isinstance(exe, Workflow) else ""
+
+    # TODO: opt in to optional inputs (available_inputs). The tricky part is if the optional inputs
+    # have defaults, then we don't necessarily want the template to override those with dummy
+    # values. But nor is it simply copying defaults into the JSON, since a default could be some
+    # WDL expression to be evaluated...
+    input_decls = exe.required_inputs
+
+    input_template = {}
+    for b in input_decls:
+        input_template[namespace + b.name] = _type_to_input_template(b.value.type)
+
+    input_template = json.dumps(input_template, indent=2)
+    print(input_template)
+    return input_template
+
+
+def _type_to_input_template(ty: Type.Base):
+    """
+    Generate an input template value for the given type (with recursion into compound types)
+    """
+    if isinstance(ty, Type.StructInstance):
+        ans = {}
+        for member_name, member_type in ty.members.items():
+            if not member_type.optional:  # TODO: opt in to these
+                ans[member_name] = _type_to_input_template(member_type)
+        return ans
+    elif isinstance(ty, Type.Array):
+        return [_type_to_input_template(ty.item_type)]
+    elif isinstance(ty, Type.Map):
+        (key, val) = ty.item_type
+        return {str(key): _type_to_input_template(val)}
+    elif isinstance(ty, Type.Pair):
+        return {
+            "left": _type_to_input_template(ty.left_type),
+            "right": _type_to_input_template(ty.right_type),
+        }
+    elif isinstance(ty, Type.Int):
+        return 42
+    elif isinstance(ty, Type.Float):
+        return 3.14
+    elif isinstance(ty, Type.Boolean):
+        return False
+    else:
+        assert isinstance(ty, Type.Base), type(ty)
+        return str(ty)
 
 
 def pkg_version(pkg="miniwdl"):
