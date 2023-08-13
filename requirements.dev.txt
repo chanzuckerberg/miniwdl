@@ -2,7 +2,7 @@
 # requirements.txt which are needed for miniwdl to run in common use.
 -r requirements.txt
 pyre-check==0.0.27
-black==23.1.0
+black==23.7.0
 pylint
 sphinx
 sphinx-autobuild
