@@ -168,6 +168,10 @@ def test_with_sub_workflow(tmp_path):
     assert json.loads(inputs) == {
         "main_workflow.hello_and_goodbye.goodbye_input": "String"
     }
+    inputs = input_template(str(main_wdl), no_namespace=True)
+    assert json.loads(inputs) == {
+        "hello_and_goodbye.goodbye_input": "String"
+    }
 
 def test_incorrect_wld_throws(tmp_path):
     p = tmp_path / "test.wdl"

@@ -2097,12 +2097,18 @@ def fill_input_template_subparser(subparsers):
         metavar="TASK_NAME",
         help="name of task (for WDL documents with multiple tasks & no workflow)",
     )
+    input_template_parser.add_argument(
+        "--no-namespace",
+        action="store_true",
+        help="omit top-level workflow name prefix",
+    )
     return input_template_parser
 
 
 def input_template(
     uri=None,
     task=None,
+    no_namespace=False,
     path=None,
     check_quant=True,
     no_outside_imports=False,
@@ -2119,7 +2125,7 @@ def input_template(
         exe = runner_exe(doc, task)
     except Error.InputError as exn:
         die(exn.args[0])
-    namespace = (exe.name + ".") if isinstance(exe, Workflow) else ""
+    namespace = (exe.name + ".") if isinstance(exe, Workflow) and not no_namespace else ""
 
     # TODO: opt in to optional inputs (available_inputs). The tricky part is if the optional inputs
     # have defaults, then we don't necessarily want the template to override those with dummy
