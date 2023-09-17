@@ -185,7 +185,8 @@ Int count = 12
         task_digest = self.doc.tasks[0].digest
         with open(os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}/{task_digest}/{input_digest}.json")) as f:
             read_data = json.loads(f.read())
-        self.assertEqual(read_data, WDL.values_to_json(outputs))
+        self.assertEqual(read_data["outputs"], WDL.values_to_json(outputs))
+        self.assertTrue(os.path.isdir(read_data["dir"]))
 
     def test_cache_prevents_task_rerun(self):
         # run task twice, check _try_task not called for second run
