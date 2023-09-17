@@ -715,7 +715,11 @@ class _StdLib(StdLib.Base):
             filename = cache_out.resolve("file").value
         else:
             # otherwise, put our newly-written file to the cache, and proceed to use it
-            self.cache.put(cache_key, Env.Bindings().bind("file", Value.File(filename)))
+            self.cache.put(
+                cache_key,
+                Env.Bindings().bind("file", Value.File(filename)),
+                run_dir=self.state.run_dir,
+            )
 
         # whichever path we took: allow-list the filename
         self.state.fspath_allowlist.add(filename)
@@ -936,7 +940,7 @@ def run_local_workflow(
                 os.kill(os.getpid(), signal.SIGUSR1)
             raise
 
-        cache.put(cache_key, outputs)
+        cache.put(cache_key, outputs, run_dir=run_dir)
 
     return (run_dir, outputs)
 

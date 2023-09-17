@@ -230,7 +230,7 @@ def run_local_task(
                 )
                 logger.notice("done")  # pyre-fixme
                 if not run_id.startswith("download-"):
-                    cache.put(cache_key, outputs)
+                    cache.put(cache_key, outputs, run_dir=run_dir)
                 return (run_dir, outputs)
         except Exception as exn:
             tbtxt = traceback.format_exc()

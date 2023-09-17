@@ -88,9 +88,15 @@ class CallCache(AbstractContextManager):
             return None
 
         cache = None
+        run_dir = None
         try:
             with open(file_path, "rb") as file_reader:
-                cache = values_from_json(json.loads(file_reader.read()), output_types)  # pyre-fixme
+                outputs = json.loads(file_reader.read())
+                if "miniwdlCallCacheVersion" in outputs:
+                    # envelope: previously, there was none and file contained exactly the outputs.
+                    run_dir = outputs.get("dir", None)
+                    outputs = outputs["outputs"]
+                cache = values_from_json(outputs, output_types)  # pyre-fixme
         except FileNotFoundError:
             self._logger.info(_("call cache miss", cache_file=file_path))
         except Exception as exn:
@@ -98,7 +104,13 @@ class CallCache(AbstractContextManager):
                 _("call cache entry present, but unreadable", cache_file=file_path, error=str(exn))
             )
         if cache:
-            self._logger.notice(_("call cache hit", cache_file=file_path))  # pyre-fixme
+            self._logger.notice(  # pyre-fixme
+                _(
+                    "call cache hit",
+                    run_dir=(run_dir if run_dir else "?"),
+                    cache_file=file_path,
+                )
+            )
             # check that no files/directories referenced by the inputs & cached outputs are newer
             # than the cache file itself
             if _check_files_coherence(
@@ -119,16 +131,24 @@ class CallCache(AbstractContextManager):
                     )
         return None
 
-    def put(self, key: str, outputs: Env.Bindings[Value.Base]) -> None:
+    def put(
+        self, key: str, outputs: Env.Bindings[Value.Base], run_dir: Optional[str] = None
+    ) -> None:
         """
         Store call outputs for future reuse
         """
         from .. import values_to_json
 
         if self._cfg["call_cache"].get_bool("put"):
+            envelope = {
+                "miniwdlCallCacheVersion": 1,
+                "outputs": values_to_json(outputs),  # pyre-ignore
+            }
+            if run_dir:
+                envelope["dir"] = run_dir
             filename = os.path.join(self._call_cache_dir, key + ".json")
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
-            write_atomic(json.dumps(values_to_json(outputs), indent=2), filename)  # pyre-ignore
+            write_atomic(json.dumps(envelope, indent=2), filename)
             self._logger.info(_("call cache insert", cache_file=filename))
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
