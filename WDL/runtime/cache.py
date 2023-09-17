@@ -91,12 +91,11 @@ class CallCache(AbstractContextManager):
         run_dir = None
         try:
             with open(file_path, "rb") as file_reader:
-                envelope = json.loads(file_reader.read())
-                if "miniwdlCallCacheVersion" in envelope:
-                    outputs = envelope["outputs"]
-                    run_dir = envelope.get("dir", None)
-                else:
-                    outputs = envelope
+                outputs = json.loads(file_reader.read())
+                if "miniwdlCallCacheVersion" in outputs:
+                    # envelope: previously, there was none and file contained exactly the outputs.
+                    run_dir = outputs.get("dir", None)
+                    outputs = outputs["outputs"]
                 cache = values_from_json(outputs, output_types)  # pyre-fixme
         except FileNotFoundError:
             self._logger.info(_("call cache miss", cache_file=file_path))
@@ -141,14 +140,14 @@ class CallCache(AbstractContextManager):
         from .. import values_to_json
 
         if self._cfg["call_cache"].get_bool("put"):
-            filename = os.path.join(self._call_cache_dir, key + ".json")
-            Path(filename).parent.mkdir(parents=True, exist_ok=True)
             envelope = {
                 "miniwdlCallCacheVersion": 1,
                 "outputs": values_to_json(outputs),  # pyre-ignore
             }
             if run_dir:
                 envelope["dir"] = run_dir
+            filename = os.path.join(self._call_cache_dir, key + ".json")
+            Path(filename).parent.mkdir(parents=True, exist_ok=True)
             write_atomic(json.dumps(envelope, indent=2), filename)
             self._logger.info(_("call cache insert", cache_file=filename))
 
