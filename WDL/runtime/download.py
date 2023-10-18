@@ -142,7 +142,9 @@ def run_cached(
     if cache_path and not cache_path_preexists:
         # run the download in a holding area under the cache directory, so that it can later be
         # moved atomically into its final cache location
-        run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
+        run_dir = os.path.join(
+            cfg["file_io"]["root"], os.path.join(cfg["download_cache"]["dir"], "ops")
+        )
     filename = run(cfg, logger, uri, directory=directory, run_dir=run_dir, **kwargs)
     if cache_path_preexists:
         # a cache entry had already existed, but we didn't use it (--no-cache).
