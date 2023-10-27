@@ -802,7 +802,7 @@ class _ThreadPools:
                 self._subworkflow_pools.append(pool)
                 self._logger.info(
                     _(
-                        f"{'' if call_depth == 0 else 'sub'}workflow thread pool initialized",
+                        "subworkflow thread pool initialized",
                         subworkflow_concurrency=self._subworkflow_concurrency,
                         call_depth=call_depth,
                     )
