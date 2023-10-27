@@ -779,9 +779,9 @@ class _ThreadPools:
             or multiprocessing.cpu_count()
         )
 
-        self._logger.info(_("initializing task thread pool", task_concurrency=task_concurrency))
         self._task_pool = futures.ThreadPoolExecutor(max_workers=task_concurrency)
         self._cleanup.callback(futures.ThreadPoolExecutor.shutdown, self._task_pool)
+        self._logger.info(_("task thread pool initialized", task_concurrency=task_concurrency))
 
         self._subworkflow_concurrency = cfg.get_int("scheduler", "subworkflow_concurrency") or max(
             task_concurrency, multiprocessing.cpu_count()
@@ -797,16 +797,16 @@ class _ThreadPools:
             if call_depth >= len(self._subworkflow_pools):
                 # First time at this call depth -- initialize a thread pool for it
                 assert call_depth == len(self._subworkflow_pools)
+                pool = futures.ThreadPoolExecutor(self._subworkflow_concurrency)
+                self._cleanup.callback(futures.ThreadPoolExecutor.shutdown, pool)
+                self._subworkflow_pools.append(pool)
                 self._logger.info(
                     _(
-                        "initializing subworkflow thread pool",
+                        f"{'' if call_depth == 0 else 'sub'}workflow thread pool initialized",
                         subworkflow_concurrency=self._subworkflow_concurrency,
                         call_depth=call_depth,
                     )
                 )
-                pool = futures.ThreadPoolExecutor(self._subworkflow_concurrency)
-                self._cleanup.callback(futures.ThreadPoolExecutor.shutdown, pool)
-                self._subworkflow_pools.append(pool)
             return self._subworkflow_pools[call_depth].submit(*args, **kwargs)
 
 
