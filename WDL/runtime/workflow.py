@@ -762,8 +762,10 @@ class _ThreadPools:
     _task_pool: futures.ThreadPoolExecutor
     _subworkflow_pools: List[futures.ThreadPoolExecutor]
     _subworkflow_concurrency: int
+    _logger: logging.Logger
 
-    def __init__(self, cfg: config.Loader, cleanup: ExitStack) -> None:
+    def __init__(self, cfg: config.Loader, cleanup: ExitStack, logger: logging.Logger) -> None:
+        self._logger = logger
         self._lock = threading.Lock()
         self._cleanup = cleanup.enter_context(ExitStack())
 
@@ -777,6 +779,7 @@ class _ThreadPools:
             or multiprocessing.cpu_count()
         )
 
+        self._logger.info(_("initializing task thread pool", task_concurrency=task_concurrency))
         self._task_pool = futures.ThreadPoolExecutor(max_workers=task_concurrency)
         self._cleanup.callback(futures.ThreadPoolExecutor.shutdown, self._task_pool)
 
@@ -794,6 +797,13 @@ class _ThreadPools:
             if call_depth >= len(self._subworkflow_pools):
                 # First time at this call depth -- initialize a thread pool for it
                 assert call_depth == len(self._subworkflow_pools)
+                self._logger.info(
+                    _(
+                        "initializing subworkflow thread pool",
+                        subworkflow_concurrency=self._subworkflow_concurrency,
+                        call_depth=call_depth,
+                    )
+                )
                 pool = futures.ThreadPoolExecutor(self._subworkflow_concurrency)
                 self._cleanup.callback(futures.ThreadPoolExecutor.shutdown, pool)
                 self._subworkflow_pools.append(pool)
@@ -911,7 +921,7 @@ def run_local_workflow(
                 version = "UNKNOWN"
             logger.notice(_("miniwdl", version=version, uname=" ".join(os.uname())))  # pyre-fixme
 
-            thread_pools = _ThreadPools(cfg, cleanup)
+            thread_pools = _ThreadPools(cfg, cleanup, logger)
         else:
             assert _run_id_stack and _cache
             thread_pools = _thread_pools
