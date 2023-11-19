@@ -39,10 +39,7 @@ class TestArgcomplete(unittest.TestCase):
                 tr.seek(0)
                 return tr.read().decode().split(IFS)
 
-    @pytest.mark.skipif(
-        "PYTEST_CURRENT_TEST" in os.environ,
-        reason="must run with unittest, not pytest, due to fd capture conflict",
-    )
+    @pytest.mark.skip(reason="must run with unittest, not pytest, due to fd capture conflict")
     def test_completion(self):
         p = WDL.CLI.create_arg_parser()
 
