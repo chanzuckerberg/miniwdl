@@ -35,9 +35,8 @@ class TestArgcomplete(unittest.TestCase):
                 completer(parser, output_stream=t, exit_method=sys.exit, **kwargs)
             if cm.exception.code != 0:
                 raise Exception("Unexpected exit code %d" % cm.exception.code)
-            with open(t.name, "rb") as tr:
-                tr.seek(0)
-                return tr.read().decode().split(IFS)
+            with open(t.name, "r") as tr:
+                return tr.read().split(IFS)
 
     @pytest.mark.skip(reason="must run with unittest, not pytest, due to fd capture conflict")
     def test_completion(self):
