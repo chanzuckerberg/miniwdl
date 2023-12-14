@@ -32,10 +32,12 @@ from typing import (
 from types import FrameType
 from pythonjsonlogger import jsonlogger
 
+T = TypeVar("T")
+
 __all__: List[str] = []
 
 
-def export(obj) -> str:  # pyre-ignore
+def export(obj: T) -> T:  # pyre-ignore
     __all__.append(obj.__name__)
     return obj
 
@@ -67,7 +69,6 @@ def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
     return (to_strip, "\n".join(lines))
 
 
-T = TypeVar("T")
 
 
 @export
