@@ -69,8 +69,6 @@ def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
     return (to_strip, "\n".join(lines))
 
 
-
-
 @export
 class AdjM(Generic[T]):
     # A sparse adjacency matrix for topological sorting
