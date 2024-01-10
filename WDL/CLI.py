@@ -1254,7 +1254,7 @@ def runner_input_value(s_value, ty, downloadable, root):
     if isinstance(ty, Type.Float):
         return Value.Float(float(s_value))
     if isinstance(ty, Type.Array) and isinstance(
-        ty.item_type, (Type.String, Type.File, Type.Int, Type.Float)
+        ty.item_type, (Type.String, Type.File, Type.Directory, Type.Int, Type.Float)
     ):
         # just produce a length-1 array, to be combined ex post facto
         return Value.Array(
