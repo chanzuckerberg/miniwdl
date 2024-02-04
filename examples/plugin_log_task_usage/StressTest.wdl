@@ -14,6 +14,8 @@ task StressTest {
     command <<<
         set -euxo pipefail
 
+        >&2 ls -l /sys/fs/cgroup
+
         stress --cpu 4 --vm 1 --vm-bytes ~{memory_G}G --vm-hang 0 --timeout ~{cpu_memory_duration_s}s || true
         dd if=/dev/zero of=testfile bs=1G count=~{disk_load_G}
         sync
