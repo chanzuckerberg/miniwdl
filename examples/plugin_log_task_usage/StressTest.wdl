@@ -1,5 +1,6 @@
 version 1.1
 # MINIWDL__LOG_TASK_USAGE__PERIOD=2 miniwdl run examples/plugin_log_task_usage/StressTest.wdl --dir /tmp --verbose
+# MINIWDL__LOG_TASK_USAGE__PERIOD=2 miniwdl-aws-submit plugin_log_task_usage/StressTest.wdl --verbose --follow
 
 task StressTest {
     input {
