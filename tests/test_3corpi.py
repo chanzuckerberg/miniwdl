@@ -188,7 +188,7 @@ class GATK_five_dollar(unittest.TestCase):
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
     expected_lint={
         "UnusedDeclaration": 3,
-        "StringCoercion": 20,
+        "StringCoercion": 15,
         "FileCoercion": 3,
         "UnknownRuntimeKey": 1,
         "MissingVersion": 4,
@@ -306,7 +306,7 @@ class ViralNGS(unittest.TestCase):
     ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
     expected_lint={
         "StringCoercion": 208,
-        "FileCoercion": 154,
+        "FileCoercion": 170,
         "NameCollision": 16,
         "OptionalCoercion": 64,
         "MixedIndentation": 32,
@@ -326,7 +326,7 @@ class ENCODE_ChIPseq(unittest.TestCase):
         "OptionalCoercion": 1020,
         "UnusedCall": 45,
         "StringCoercion": 30,
-        "FileCoercion": 71,
+        "FileCoercion": 236,
         "MissingVersion": 29,
     },
     check_quant=False,
@@ -471,6 +471,7 @@ class BioWDLTasks(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/biowdl/aligning/**"],
     expected_lint={
+        "FileCoercion": 1,
         "OptionalCoercion": 11,
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 1,
@@ -487,6 +488,7 @@ class BioWDLAligning(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/biowdl/expression-quantification/**"],
     expected_lint={
+        "FileCoercion": 1,
         "OptionalCoercion": 11,
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 3,
