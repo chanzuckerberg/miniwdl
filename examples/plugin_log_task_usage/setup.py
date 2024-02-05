@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name='miniwdl_log_task_usage',
     version='0.1.0',
-    description='miniwdl task plugin to log container cpu/mem/io usage',
+    description='miniwdl task plugin to log container cpu/mem usage',
     author='Wid L. Hacker',
     py_modules=["miniwdl_log_task_usage"],
     python_requires='>=3.6',
