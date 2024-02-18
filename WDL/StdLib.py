@@ -3,6 +3,7 @@ import math
 import os
 import json
 import tempfile
+import shlex
 from typing import List, Tuple, Callable, BinaryIO, Optional
 from abc import ABC, abstractmethod
 from contextlib import suppress
@@ -140,7 +141,9 @@ class Base:
             self.min = _ArithmeticOperator("min", lambda l, r: min(l, r))
             self.max = _ArithmeticOperator("max", lambda l, r: max(l, r))
             self.quote = _Quote()
-            self.squote = _Quote(squote=True)
+            self.squote = (
+                _Quote(squote=True) if self.wdl_version != "development" else _ShellQuote()
+            )
             self.keys = _Keys()
             self.as_map = _AsMap()
             self.as_pairs = _AsPairs()
@@ -1022,7 +1025,6 @@ class _Suffix(EagerFunction):
 class _Quote(EagerFunction):
     # t array -> string array
     # if input array is nonempty then so is output
-    # Append a suffix to every element within the array
 
     def __init__(self, squote: bool = False) -> None:
         if squote:
@@ -1035,7 +1037,6 @@ class _Quote(EagerFunction):
             raise Error.WrongArity(expr, 1)
         expr.arguments[0].typecheck(Type.Array(Type.String()))
         arg0ty = expr.arguments[0].type
-        nonempty = isinstance(arg0ty, Type.Array) and arg0ty.nonempty
         return Type.Array(
             Type.String(), nonempty=(isinstance(arg0ty, Type.Array) and arg0ty.nonempty)
         )
@@ -1048,6 +1049,39 @@ class _Quote(EagerFunction):
                 for s in arguments[0].value
             ],
         )
+
+
+class _ShellQuote(EagerFunction):
+    # t -> string or t array -> string array
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        if not isinstance(expr.arguments[0].type, Type.Array):
+            expr.arguments[0].typecheck(Type.String(optional=True))
+            return Type.String()
+        expr.arguments[0].typecheck(Type.Array(Type.String(optional=True), optional=True))
+        arg0ty = expr.arguments[0].type
+        return Type.Array(
+            Type.String(), nonempty=(isinstance(arg0ty, Type.Array) and arg0ty.nonempty)
+        )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        ty = self.infer_type(expr)
+        if isinstance(ty, Type.String):
+            return Value.String(self._shellquote(arguments[0].coerce(Type.String()).value))
+        assert isinstance(ty, Type.Array)
+        return Value.Array(
+            Type.String(),
+            [
+                Value.String(self._shellquote(s.coerce(Type.String()).value))
+                for s in arguments[0].value
+            ],
+        )
+
+    def _shellquote(self, s: str) -> str:
+        q = shlex.quote(s)
+        return q if q != s else ("'" + s + "'")
 
 
 class _Keys(EagerFunction):
