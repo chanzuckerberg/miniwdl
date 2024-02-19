@@ -1429,3 +1429,39 @@ class TestEnvDecl(RunnerTestCase):
             }
         """, {"p": {"name": os.path.join(self._dir, "alyssa.txt"), "age": 42}})
         assert outp["message"] == "Hello, Alyssa!"
+
+class TestNestedInterpolations(RunnerTestCase):
+    wdl = """
+        workflow w {
+            String a = "Alice"
+            Array[String] bc = ["Bob", "Carol"]
+            String sp = " "
+
+            call t
+
+            output {
+                String message = "Hello ${a + "${sp}"}!"
+                String task_out = t.out
+            }
+        } 
+        task t {
+            input {}
+            String a = "Alice"
+            Array[String] bc = ["Bob", "Carol"]
+            String sp = " "
+
+            command <<<
+                echo 'Hello ~{a + "~{sp}~{sep=' ' bc}"}!'
+            >>>
+
+            output {
+                String out = read_string(stdout())
+            }
+        }
+    """
+
+    def test_all(self):
+        for version in ("1.1", "development"):
+            outp = self._run(f"version {version}\n" + self.wdl, {})
+            assert outp["message"] == "Hello Alice !"
+            assert outp["task_out"].strip() == "Hello Alice Bob Carol!"
