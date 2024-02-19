@@ -410,6 +410,7 @@ class dxWDL(unittest.TestCase):
         "UnverifiedStruct": 3,
         "Deprecated": 2,
         "UnexpectedRuntimeValue": 1,
+        "ImportNewerWDL": 1,
     },
     blocklist=["check_quant", "incomplete_call", "issue596"],
 )
@@ -437,6 +438,7 @@ class Contrived(unittest.TestCase):
         "UnverifiedStruct": 3,
         "Deprecated": 3,
         "UnexpectedRuntimeValue": 1,
+        "ImportNewerWDL": 2,
     },
     check_quant=False,
     blocklist=["incomplete_call"],

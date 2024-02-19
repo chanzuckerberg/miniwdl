@@ -748,6 +748,27 @@ class UnusedImport(Linter):
 
 
 @a_linter
+class ImportNewerWDL(Linter):
+    # Document imports a document with a newer WDL version
+    def document(self, obj: Tree.Document) -> Any:
+        doc_version = self._version_order(obj.effective_wdl_version)
+        for imp in obj.imports:
+            if self._version_order(imp.doc.effective_wdl_version) > doc_version:
+                self.add(
+                    obj,
+                    "imported document has newer WDL version",
+                    pos=imp.pos,
+                )
+
+    def _version_order(self, wdl_version: str) -> int:
+        if wdl_version == "draft-2":
+            return 2
+        elif wdl_version == "development":
+            return 99
+        return int(wdl_version.replace(".", ""))
+
+
+@a_linter
 class ForwardReference(Linter):
     # Ident referencing a value or call output lexically precedes Decl/Call
     def expr(self, obj: Expr.Base) -> Any:
