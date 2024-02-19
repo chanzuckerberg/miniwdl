@@ -234,8 +234,8 @@ class UncallableWorkflow(ValidationError):
         super().__init__(
             node,
             (
-                "Cannot call workflow {} because its calls don't supply all required inputs, "
-                "or it lacks an output section"
+                "Cannot call subworkflow {} because its own calls have missing required inputs, "
+                "and/or it lacks an output section"
             ).format(name),
         )
 
