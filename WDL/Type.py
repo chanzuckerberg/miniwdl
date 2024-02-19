@@ -575,16 +575,10 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
         # Int/Float, String/File
         if isinstance(t, Int) and isinstance(t2, Float):
             t = Float()
-        if isinstance(t, String) and isinstance(t2, File):
-            t = File()
-        if isinstance(t, String) and isinstance(t2, Directory):
-            t = Directory()
 
         # String
         if (
             isinstance(t2, String)
-            and not isinstance(t2, (File, Directory))
-            and not isinstance(t, (File, Directory))
             and (not check_quant or not isinstance(t, Array))
             and (not isinstance(t, (Pair, Map)))
         ):

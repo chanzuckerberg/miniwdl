@@ -287,8 +287,11 @@ class StringCoercion(Linter):
                 F = getattr(
                     StdLib.TaskOutputs(_find_doc(obj).effective_wdl_version), obj.function_name
                 )
-                if isinstance(F, StdLib.StaticFunction) and obj.function_name != "basename":
-                    # ok for basename to take either String or File
+                if isinstance(F, StdLib.StaticFunction) and obj.function_name not in (
+                    "basename",  # ok to take either String or File
+                    "write_lines",  # clear intent
+                    "write_tsv",  # clear intent
+                ):
                     for i in range(min(len(F.argument_types), len(obj.arguments))):
                         F_i = F.argument_types[i]
                         arg_i = obj.arguments[i]
