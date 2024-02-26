@@ -76,7 +76,7 @@ class Bindings(Generic[T]):
 
     def __iter__(self) -> Iterator[Binding[T]]:
         mask = set()
-        pos = self
+        pos: Optional[Bindings[T]] = self
         while pos is not None:
             if isinstance(pos._binding, Binding) and pos._binding.name not in mask:
                 mask.add(pos._binding.name)
@@ -146,7 +146,7 @@ class Bindings(Generic[T]):
         Copy the environment with each binding transformed by the given function. If the function
         returns ``None`` then the binding is excluded.
         """
-        ans = Bindings()
+        ans: Bindings[S] = Bindings()
         for b in self:
             fb = f(b)
             if isinstance(fb, Binding):
@@ -214,14 +214,14 @@ class Bindings(Generic[T]):
         assert namespace
         if not namespace.endswith("."):
             namespace += "."
-        ans = Bindings()
+        ans: Bindings[T] = Bindings()
         for b in self:
             ans = Bindings(Binding(namespace + b.name, b.value, b.info), ans)
         return _rev(ans)
 
 
 def _rev(env: Bindings[T]) -> Bindings[T]:
-    ans = Bindings()
+    ans: Bindings[T] = Bindings()
     for b in env:
         ans = Bindings(b, ans)
     return ans

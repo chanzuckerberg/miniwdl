@@ -83,6 +83,13 @@ class SourceNode:
     Source position for this AST node
     """
 
+    parent: Optional[TVSourceNode] = None
+    """
+    :type: Optional[SourceNode]
+
+    Parent node in the AST, if any
+    """
+
     def __init__(self, pos: SourcePosition) -> None:
         self.pos = pos
 
