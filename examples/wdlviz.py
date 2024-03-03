@@ -24,10 +24,28 @@ def main(args=None):
     parser.add_argument("--inputs", action="store_true", help="include input declarations")
     parser.add_argument("--outputs", action="store_true", help="include output declarations")
     parser.add_argument(
+        "--rankdir",
+        choices=("LR", "RL", "TB", "BT"),
+        default="LR",
+        help="layout orientation (default: LR)",
+    )
+    parser.add_argument(
+        "--splines",
+        choices=("spline", "curved", "compound", "ortho"),
+        default="compound",
+        help="edge shape (default: compound)",
+    )
+    parser.add_argument(
         "--no-subworkflow-edges",
         dest="subworkflow_edges",
         action="store_false",
         help="hide dotted edges from call to subworkflow",
+    )
+    parser.add_argument(
+        "--no-render",
+        dest="render",
+        action="store_false",
+        help="skip rendering; just print the graphviz source",
     )
     parser.add_argument(
         "--no-quant-check",
@@ -55,12 +73,17 @@ def main(args=None):
     assert doc.workflow, "No workflow in WDL document"
 
     # visualize workflow
-    dot = wdlviz(doc.workflow, args.inputs, args.outputs, args.subworkflow_edges)
+    dot = wdlviz(
+        doc.workflow, args.rankdir, args.splines, args.inputs, args.outputs, args.subworkflow_edges
+    )
     print(dot.source)
-    dot.render(doc.workflow.name + ".dot", view=True)
+    if args.render:
+        dot.render(doc.workflow.name + ".dot", view=True)
 
 
-def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False, subworkflow_edges=True):
+def wdlviz(
+    workflow: WDL.Workflow, rankdir, splines, inputs=False, outputs=False, subworkflow_edges=True
+):
     """
     Project the workflow's built-in dependency graph onto a graphviz representation
     """
@@ -71,7 +94,15 @@ def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False, subworkflow_edge
     # initialiaze Digraph
     fontname = "Roboto"
     top = graphviz.Digraph()
-    top.attr(label=workflow.name, labelloc="t", fontname=fontname, compound="true", rankdir="LR")
+    top.attr(
+        label=workflow.name,
+        labelloc="t",
+        fontname=fontname,
+        compound="true",
+        rankdir=rankdir,
+        concentrate="true",
+        splines=splines,
+    )
     top.attr("node", fontname=fontname)
     top.attr("edge", color="#00000080")
 
@@ -105,23 +136,24 @@ def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False, subworkflow_edge
                     subworkflows_visited.add(id(node.callee))
                     with top.subgraph(name=f"cluster-{id(node.callee)}") as sg:
                         sg.attr(label=node.callee.name, fontname=fontname, rank="max")
-                        sg.node(  # sink
-                            str(id(node.callee)),
-                            "",
-                            style="invis",
-                            height="0",
-                            width="0",
-                            margin="0",
-                        )
                         add_workflow(sg, node.callee)
-                # dotted connection from call to subworkflow
-                top.edge(
+                # dotted edge from call to subworkflow
+                graph.edge(
                     f"{id(node)}:s",
                     f"{id(node.callee)}:n",
                     lhead=f"cluster-{id(node.callee)}",
                     style="dotted" if subworkflow_edges else "invis",
                     arrowhead="none",
                     constraint="false",
+                )
+                # invisible edge for subworkflow hierarchy
+                top.edge(
+                    f"{id(workflow)}",
+                    f"{id(node.callee)}",
+                    style="invis",
+                    height="0",
+                    width="0",
+                    margin="0",
                 )
                 name = f"{node.callee.name} as {name}"
             # node for call or decl
@@ -170,6 +202,15 @@ def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False, subworkflow_edge
                     sg.node(str(id(outp)), outp.workflow_node_id[7:], shape="plaintext")
                     nodes_visited.add(outp.workflow_node_id)
                 sg.attr(label="outputs", fontname=fontname)
+
+        graph.node(  # sink
+            str(id(workflow)),
+            "",
+            style="invis",
+            height="0",
+            width="0",
+            margin="0",
+        )
 
         for node in (workflow.inputs or []) + workflow.body + (workflow.outputs or []):
             add_edges(graph, workflow, node)
