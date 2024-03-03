@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
 Visualize a WDL workflow using miniwdl and graphviz
+
+pip3 install miniwdl graphviz
+python3 wdlviz.py my_workflow.wdl
 """
 
-# black -l 100 wdlviz.py && pylint wdlviz.py
+# ruff check wdlviz.py && ruff format --line-length 100 wdlviz.py
 import os
 import sys
 import argparse
@@ -146,14 +149,14 @@ def wdlviz(
                         add_workflow(sg, node.callee)
                 graph.edge(str(id(workflow)), str(id(node.callee)), style="invis")  # helps layout
                 # dotted edge from call to subworkflow
-                graph.edge(
-                    f"{id(node)}:s",
-                    f"{id(node.callee)}:n",
-                    lhead=f"cluster-{id(node.callee)}",
-                    style="dotted" if subworkflow_edges else "invis",
-                    arrowhead="none",
-                    constraint="false",
-                )
+                if subworkflow_edges:
+                    graph.edge(
+                        f"{id(node)}:s",
+                        str(id(node.callee)),
+                        lhead=f"cluster-{id(node.callee)}",
+                        style="dotted",
+                        arrowhead="none",
+                    )
                 name = f"<<B>{node.callee.name}</B> <I>as</I> {name}>"
             # node for call or decl
             graph.node(
