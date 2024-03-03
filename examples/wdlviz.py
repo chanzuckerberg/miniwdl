@@ -142,7 +142,7 @@ def wdlviz(
                 if id(node.callee) not in nodes_visited:
                     nodes_visited.add(id(node.callee))
                     with top.subgraph(name=f"cluster-{id(node.callee)}") as sg:
-                        sg.attr(label=f"<<B>{node.callee.name}</B>>", fontname=fontname, rank="max")
+                        sg.attr(label=f"<<B>{node.callee.name}</B>>", fontname=fontname)
                         add_workflow(sg, node.callee)
                 graph.edge(str(id(workflow)), str(id(node.callee)), style="invis")  # helps layout
                 # dotted edge from call to subworkflow
