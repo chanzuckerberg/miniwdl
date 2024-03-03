@@ -24,6 +24,12 @@ def main(args=None):
     parser.add_argument("--inputs", action="store_true", help="include input declarations")
     parser.add_argument("--outputs", action="store_true", help="include output declarations")
     parser.add_argument(
+        "--no-subworkflow-edges",
+        dest="subworkflow_edges",
+        action="store_false",
+        help="hide dotted edges from call to subworkflow",
+    )
+    parser.add_argument(
         "--no-quant-check",
         dest="check_quant",
         action="store_false",
@@ -49,12 +55,12 @@ def main(args=None):
     assert doc.workflow, "No workflow in WDL document"
 
     # visualize workflow
-    dot = wdlviz(doc.workflow, args.inputs, args.outputs)
+    dot = wdlviz(doc.workflow, args.inputs, args.outputs, args.subworkflow_edges)
     print(dot.source)
     dot.render(doc.workflow.name + ".dot", view=True)
 
 
-def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False):
+def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False, subworkflow_edges=True):
     """
     Project the workflow's built-in dependency graph onto a graphviz representation
     """
@@ -113,7 +119,7 @@ def wdlviz(workflow: WDL.Workflow, inputs=False, outputs=False):
                     f"{id(node)}:s",
                     f"{id(node.callee)}:n",
                     lhead=f"cluster-{id(node.callee)}",
-                    style="dotted",
+                    style="dotted" if subworkflow_edges else "invis",
                     arrowhead="none",
                     constraint="false",
                 )
