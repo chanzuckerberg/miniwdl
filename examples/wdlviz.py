@@ -11,6 +11,7 @@ import os
 import sys
 import argparse
 import tempfile
+import html
 import WDL
 import graphviz
 from urllib import request, parse
@@ -120,7 +121,8 @@ def wdlviz(
             # scatter/conditional section: add a cluster subgraph to contain its body
             with graph.subgraph(name=f"cluster-{id(node)}") as sg:
                 label = "scatter" if isinstance(node, WDL.Scatter) else "if"
-                sg.attr(label=f"{label}({node.expr})", fontname=fontname, rank="same")
+                label = f"<<I>{label}</I>({html.escape(str(node.expr))})>"
+                sg.attr(label=label, fontname=fontname, rank="same")
                 for child in node.body:
                     add_node(sg, workflow, child)
                 # Add an invisible node inside the subgraph, which provides a sink for dependencies
@@ -138,7 +140,7 @@ def wdlviz(
                 )
             )
         ):
-            name = node.name
+            label = node.name
             if isinstance(node, WDL.Call) and isinstance(node.callee, WDL.Workflow):
                 # subworkflow call: add a cluster subgraph for the called workflow; only once, if
                 # the subworkflow is called in multiple places.
@@ -151,17 +153,17 @@ def wdlviz(
                 # dotted edge from call to subworkflow
                 if subworkflow_edges:
                     graph.edge(
-                        f"{id(node)}:s",
+                        str(id(node)),
                         str(id(node.callee)),
                         lhead=f"cluster-{id(node.callee)}",
                         style="dotted",
                         arrowhead="none",
                     )
-                name = f"<<B>{node.callee.name}</B> <I>as</I> {name}>"
+                label = f"<<B>{node.callee.name}</B> <I>as</I> {label}>"
             # node for call or decl
             graph.node(
                 str(id(node)),
-                name,
+                label,
                 shape=("cds" if isinstance(node, WDL.Call) else "plaintext"),
             )
             graph.edge(str(id(workflow)), str(id(node)), style="invis")  # helps layout
@@ -206,7 +208,7 @@ def wdlviz(
                     assert inp.workflow_node_id.startswith("decl-")
                     sg.node(str(id(inp)), inp.workflow_node_id[5:], shape="plaintext")
                     nodes_visited.add(id(inp))
-                sg.attr(label="<<I>inputs</I>>", fontname=fontname)
+                sg.attr(label="<<I>input</I>>", fontname=fontname)
 
         # cluster of the output decls
         if outputs:
@@ -215,7 +217,7 @@ def wdlviz(
                     assert outp.workflow_node_id.startswith("output-")
                     sg.node(str(id(outp)), outp.workflow_node_id[7:], shape="plaintext")
                     nodes_visited.add(id(outp))
-                sg.attr(label="<<I>outputs</I>>", fontname=fontname)
+                sg.attr(label="<<I>output</I>>", fontname=fontname)
 
         # edges
         for node in (workflow.inputs or []) + workflow.body + (workflow.outputs or []):
