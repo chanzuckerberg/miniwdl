@@ -61,4 +61,4 @@ def run(
     if "max_tasks" in run_kwargs and isinstance(exe, Tree.Task):
         del run_kwargs["max_tasks"]  # N/A to run_local_task
     entrypoint = run_local_task if isinstance(exe, Tree.Task) else run_local_workflow
-    return entrypoint(cfg, exe, inputs, **run_kwargs)  # pyre-ignore
+    return entrypoint(cfg, exe, inputs, **run_kwargs)  # type: ignore

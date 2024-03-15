@@ -1142,15 +1142,15 @@ def _download_input_files(
     Value.rewrite_env_paths(inputs, scan_uri)
     if not uris:
         return
-    logger.notice(_("downloading input URIs", count=len(uris)))  # pyre-fixme
+    logger.notice(_("downloading input URIs", count=len(uris)))
 
     # download them on the thread pool (but possibly further limiting concurrency)
     download_concurrency = cfg.get_int("scheduler", "download_concurrency")
     if download_concurrency <= 0:
         download_concurrency = 999999
-    ops = {}
+    ops: Dict[futures.Future[Tuple[bool, str]], str] = {}
     incomplete = len(uris)
-    outstanding = set()
+    outstanding: Set[futures.Future[Tuple[bool, str]]] = set()
     downloaded_bytes = 0
     cached_hits = 0
     exn = None
@@ -1208,7 +1208,7 @@ def _download_input_files(
 
     if exn:
         raise exn
-    logger.notice(  # pyre-fixme
+    logger.notice(
         _(
             "processed input URIs",
             cached=cached_hits,

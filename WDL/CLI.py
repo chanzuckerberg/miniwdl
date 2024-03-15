@@ -145,7 +145,7 @@ class PipVersionAction(Action):
         # importlib_metadata doesn't seem to provide EntryPoint.dist to get from an entry point to
         # the metadata of the package providing it; continuing to use pkg_resources for this. Risk
         # that they give inconsistent results?
-        import pkg_resources
+        import pkg_resources  # type: ignore
 
         for group in runtime.config.default_plugins().keys():
             group = f"miniwdl.plugin.{group}"
@@ -1116,7 +1116,8 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
     if input_file:
         input_file = input_file.strip()
     if input_file:
-        import yaml  # delayed heavy import
+        # delayed heavy import:
+        import yaml  # type: ignore
 
         input_json = None
         if input_file[0] == "{":
@@ -1745,7 +1746,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         die("`miniwdl configure` is for interactive use")
 
     from datetime import datetime
-    import bullet
+    import bullet  # type: ignore
     from xdg import XDG_CONFIG_HOME
 
     miniwdl_version = pkg_version()
@@ -2148,6 +2149,7 @@ def _type_to_input_template(ty: Type.Base):
     """
     if isinstance(ty, Type.StructInstance):
         ans = {}
+        assert ty.members
         for member_name, member_type in ty.members.items():
             if not member_type.optional:  # TODO: opt in to these
                 ans[member_name] = _type_to_input_template(member_type)

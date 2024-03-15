@@ -118,8 +118,8 @@ class SubprocessBase(TaskContainer):
                 poll_cli_log()
             if terminating():
                 raise Terminated()
-            assert isinstance(exit_code, int)
-            return exit_code
+        assert isinstance(exit_code, int)
+        return exit_code
 
     @abstractproperty
     def cli_name(self) -> str:
