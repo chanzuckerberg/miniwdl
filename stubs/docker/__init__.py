@@ -1,4 +1,4 @@
-from typing import Dict, Any, List, Iterable, Tuple
+from typing import Dict, Any, List, Iterable, Tuple, Optional
 
 class Container:
     @property
@@ -94,18 +94,6 @@ class types:
 
     class Mount:
         def __init__(self, *args, **kwargs):
-            ...
-
-class errors:
-    class BuildError(Exception):
-        msg : str
-        build_log : Iterable[Dict[str,str]]
-
-    class ImageNotFound(Exception):
-        pass
-
-    class APIError(Exception):
-        def is_server_error(self) -> bool:
             ...
 
 class DockerClient:
