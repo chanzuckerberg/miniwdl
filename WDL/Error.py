@@ -69,9 +69,6 @@ class ImportError(Exception):
         self.pos = pos
 
 
-TVSourceNode = TypeVar("TVSourceNode", bound="SourceNode")
-
-
 @total_ordering
 class SourceNode:
     """Base class for an AST node, recording the source position"""
@@ -83,7 +80,7 @@ class SourceNode:
     Source position for this AST node
     """
 
-    parent: Optional[TVSourceNode] = None
+    parent: Optional["SourceNode"] = None
     """
     :type: Optional[SourceNode]
 
@@ -93,7 +90,7 @@ class SourceNode:
     def __init__(self, pos: SourcePosition) -> None:
         self.pos = pos
 
-    def __lt__(self, rhs: TVSourceNode) -> bool:
+    def __lt__(self, rhs: "SourceNode") -> bool:
         if isinstance(rhs, SourceNode):
             return (
                 self.pos.abspath,
@@ -110,12 +107,12 @@ class SourceNode:
             )
         return False
 
-    def __eq__(self, rhs: TVSourceNode) -> bool:
+    def __eq__(self, rhs: "SourceNode") -> bool:
         assert isinstance(rhs, SourceNode)
         return self.pos == rhs.pos
 
     @property
-    def children(self: TVSourceNode) -> Iterable[TVSourceNode]:
+    def children(self) -> Iterable["SourceNode"]:
         """
         :type: Iterable[SourceNode]
 

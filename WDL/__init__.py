@@ -287,7 +287,9 @@ def values_from_json(
     return ans
 
 
-def values_to_json(values_env: Env.Bindings[Union[Value.Base, Tree.Decl, Type.Base]], namespace: str = "") -> Dict[str, Any]:
+def values_to_json(
+    values_env: Env.Bindings[Union[Value.Base, Tree.Decl, Type.Base]], namespace: str = ""
+) -> Dict[str, Any]:
     """
     Convert a ``WDL.Env.Bindings[WDL.Value.Base]`` to a dict which ``json.dumps`` to
     Cromwell-style JSON.
