@@ -65,7 +65,7 @@ class SwarmContainer(TaskContainer):
                         if worker_nodes:
                             break
                     else:
-                        logging.warning(
+                        logger.warning(
                             "this host is a docker swarm worker but not a manager; "
                             "WDL task scheduling requires manager access"
                         )
@@ -105,7 +105,7 @@ class SwarmContainer(TaskContainer):
         # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
         # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
         # where Docker containers run in a virtual machine with limited resources.
-        resources_max_mem = {}
+        resources_max_mem: Dict[str, int] = {}
         total_NanoCPUs = 0
         total_MemoryBytes = 0
 
@@ -333,8 +333,8 @@ class SwarmContainer(TaskContainer):
         image_log = {"tag": image_tag, "id": image_attrs["Id"]}
         # resolve mutable tag to immutable RepoDigest if possible, to ensure identical image will
         # be used across a multi-node swarm
-        image_digest = bool(image_attrs.get("RepoDigests"))
-        if image_digest and image_tag not in image_attrs["RepoDigests"]:
+        image_digest = None
+        if bool(image_attrs.get("RepoDigests")) and image_tag not in image_attrs["RepoDigests"]:
             image_digest = image_attrs["RepoDigests"][0]
             image_tag = image_digest
         image_log["RepoDigest"] = image_digest
@@ -429,8 +429,8 @@ class SwarmContainer(TaskContainer):
 
     def misc_config(
         self, logger: logging.Logger
-    ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
-        resources = {}
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], List[str]]:
+        resources: Dict[str, Any] = {}
         cpu = self.runtime_values.get("cpu", 0)
         if cpu > 0:
             # the cpu unit expected by swarm is "NanoCPUs"
@@ -445,8 +445,6 @@ class SwarmContainer(TaskContainer):
         if resources:
             logger.debug(_("docker resources", **resources))
             resources = docker.types.Resources(**resources)
-        else:
-            resources = None
         user = None
         if self.cfg["task_runtime"].get_bool("as_user"):
             user = f"{os.geteuid()}:{os.getegid()}"
@@ -464,7 +462,7 @@ class SwarmContainer(TaskContainer):
             )
         if self.runtime_values.get("gpu", False):
             logger.warning("ignored runtime.gpu (not yet implemented)")
-        return resources, user, groups
+        return (resources if resources else None), user, groups
 
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
@@ -612,10 +610,9 @@ class SwarmContainer(TaskContainer):
         junk = hashlib.sha256()
         junk.update(uuid.uuid1().bytes)
         junk.update(uuid.uuid4().bytes)
-        junk = junk.digest()[:15]
-        junk = base64.b32encode(junk).decode().lower()
-        assert len(junk) == 24
-        return f"wdl-{run_id[:34]}-{junk}"  # 4 + 34 + 1 + 24 = 63
+        junks = base64.b32encode(junk.digest()[:15]).decode().lower()
+        assert len(junks) == 24
+        return f"wdl-{run_id[:34]}-{junks}"  # 4 + 34 + 1 + 24 = 63
 
     _build_inline_dockerfile_lock: threading.Lock = threading.Lock()
 
@@ -628,9 +625,8 @@ class SwarmContainer(TaskContainer):
         # formulate image tag using digest of dockerfile text
         dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
         dockerfile_digest = hashlib.sha256(dockerfile_utf8).digest()
-        dockerfile_digest = base64.b32encode(dockerfile_digest[:15]).decode().lower()
         tag_part1 = "miniwdl_auto_"
-        tag_part3 = ":" + dockerfile_digest
+        tag_part3 = ":" + base64.b32encode(dockerfile_digest[:15]).decode().lower()
         tag_part2 = self.run_id.lower()
         if "-" in tag_part2:
             tag_part2 = tag_part2.split("-")[1]
