@@ -6,7 +6,7 @@ import logging
 import shutil
 import threading
 import typing
-from typing import Callable, Iterable, Any, Dict, Optional, ContextManager
+from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from .. import Error, Env, Value, Type
@@ -138,7 +138,7 @@ class TaskContainer(ABC):
         assert not self._running
 
         # partition the files by host directory
-        host_paths_by_dir = {}
+        host_paths_by_dir: Dict[str, Set[str]] = {}
         for host_path in host_paths:
             host_path_strip = host_path.rstrip("/")
             if host_path not in self.input_path_map and host_path_strip not in self.input_path_map:
@@ -203,8 +203,9 @@ class TaskContainer(ABC):
             dockerfile = runtime_eval["inlineDockerfile"]
             if not isinstance(dockerfile, Value.Array):
                 dockerfile = Value.Array(dockerfile.type, [dockerfile])
-            dockerfile = "\n".join(elt.coerce(Type.String()).value for elt in dockerfile.value)
-            ans["inlineDockerfile"] = dockerfile
+            ans["inlineDockerfile"] = "\n".join(
+                elt.coerce(Type.String()).value for elt in dockerfile.value
+            )
         elif "docker" in runtime_eval or "container" in runtime_eval:
             docker_value = runtime_eval["container" if "container" in runtime_eval else "docker"]
             if isinstance(docker_value, Value.Array) and len(docker_value.value):
@@ -249,8 +250,8 @@ class TaskContainer(ABC):
             except ValueError:
                 raise Error.RuntimeError("invalid setting of runtime.memory, " + memory_str)
 
-            memory_max = self.cfg["task_runtime"]["memory_max"].strip()
-            memory_max = -1 if memory_max == "-1" else parse_byte_size(memory_max)
+            memory_max_str = self.cfg["task_runtime"]["memory_max"].strip()
+            memory_max = -1 if memory_max_str == "-1" else parse_byte_size(memory_max_str)
             if memory_max == 0:
                 memory_max = host_limits["mem_bytes"]
             if memory_max > 0 and memory_bytes > memory_max:
@@ -525,7 +526,7 @@ def new(cfg: config.Loader, logger: logging.Logger, run_id: str, host_dir: str) 
     with _backends_lock:
         if not _backends:
             for plugin_name, plugin_cls in config.load_plugins(cfg, "container_backend"):
-                _backends[plugin_name] = plugin_cls  # pyre-fixme
+                _backends[plugin_name] = plugin_cls  # type: ignore
         backend_cls = _backends[cfg["scheduler"]["container_backend"]]
         if not getattr(backend_cls, "_global_init", False):
             backend_cls.global_init(cfg, logger)
