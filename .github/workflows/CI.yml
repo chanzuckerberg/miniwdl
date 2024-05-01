@@ -16,6 +16,9 @@ jobs:
           # - skylab_bulk_rna
     runs-on: ubuntu-20.04
     steps:
+    - name: Maximize build space
+      uses: easimon/maximize-build-space@master
+      if: ${{ matrix.ci_target == 'viral_assemble' }}
     - name: Login to GitHub Packages Docker Registry
       uses: docker/login-action@v1
       with:
