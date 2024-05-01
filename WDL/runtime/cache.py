@@ -5,10 +5,9 @@ referenced therein, and updates their access timestamps (atime).
 """
 import json
 import os
-import shutil
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Any
 from contextlib import AbstractContextManager, suppress
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
@@ -391,7 +390,7 @@ def _check_files_coherence(
 
 
 _backends_lock = Lock()
-_backends = {}
+_backends: Dict[str, Any] = {}
 
 
 def new(cfg: config.Loader, logger: logging.Logger) -> CallCache:

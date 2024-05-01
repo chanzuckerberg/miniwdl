@@ -216,8 +216,8 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[Task]:
 
 def values_from_json(
     values_json: Dict[str, Any],
-    available: Env.Bindings[Union[Tree.Decl, Type.Base]],
-    required: Optional[Env.Bindings[Union[Tree.Decl, Type.Base]]] = None,
+    available: Union[Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]],
+    required: Optional[Union[Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]]] = None,
     namespace: str = "",
 ) -> Env.Bindings[Value.Base]:
     """
@@ -288,7 +288,7 @@ def values_from_json(
 
 
 def values_to_json(
-    values_env: Env.Bindings[Union[Value.Base, Tree.Decl, Type.Base]], namespace: str = ""
+    values_env: Union[Env.Bindings[Value.Base], Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]], namespace: str = ""
 ) -> Dict[str, Any]:
     """
     Convert a ``WDL.Env.Bindings[WDL.Value.Base]`` to a dict which ``json.dumps`` to
