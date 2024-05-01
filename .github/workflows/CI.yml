@@ -17,7 +17,12 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
     - name: Maximize build space
-      uses: easimon/maximize-build-space@master
+      uses: AdityaGarg8/remove-unwanted-software@v3
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
       if: ${{ matrix.ci_target == 'viral_assemble' }}
     - name: Login to GitHub Packages Docker Registry
       uses: docker/login-action@v1
