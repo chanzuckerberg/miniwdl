@@ -11,6 +11,7 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 
 .. inheritance-diagram:: WDL.Expr
 """
+
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable
 import regex

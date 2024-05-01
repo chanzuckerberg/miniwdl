@@ -439,11 +439,11 @@ def configure_logger(
                 fmt=fmt,
             )
             yield (
-                lambda status: _StatusLineStandardErrorHandler._singleton.set_status(  # pyre-fixme
-                    status
+                lambda status: (
+                    _StatusLineStandardErrorHandler._singleton.set_status(status)  # pyre-fixme
+                    if _StatusLineStandardErrorHandler._singleton
+                    else None
                 )
-                if _StatusLineStandardErrorHandler._singleton
-                else None
             )
         finally:
             if tty:

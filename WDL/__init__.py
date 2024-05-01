@@ -7,6 +7,7 @@ documents. Simply ``import WDL`` once miniwdl has been installed.
 * `GitHub repo <https://github.com/chanzuckerberg/miniwdl/>`_ for installation and further background
 * `Codelabs <https://miniwdl.readthedocs.io/en/latest/WDL.html#python-codelabs>`_ on using this package
 """
+
 import sys
 import os
 import errno

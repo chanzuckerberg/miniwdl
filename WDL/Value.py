@@ -7,6 +7,7 @@ Each value is represented by an instance of a Python class inheriting from
 .. inheritance-diagram:: WDL.Value
    :top-classes: WDL.Value.Base
 """
+
 import json
 import copy
 import base64
@@ -284,10 +285,14 @@ class Map(Base):
                 msg = "unusable runtime struct initializer"
                 if exn.args:
                     msg += ", " + exn.args[0]
-                raise Error.EvalError(
-                    self.expr,
-                    msg,
-                ) if self.expr else Error.RuntimeError(msg)
+                raise (
+                    Error.EvalError(
+                        self.expr,
+                        msg,
+                    )
+                    if self.expr
+                    else Error.RuntimeError(msg)
+                )
             assert desired_type.members
             # coerce to desired member types
             ans = {}
@@ -301,10 +306,14 @@ class Map(Base):
                         "runtime type mismatch initializing "
                         f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
                     ) + ((": " + exc.args[0]) if exc.args else "")
-                    raise Error.EvalError(
-                        self.expr,
-                        msg,
-                    ) if self.expr else Error.RuntimeError(msg)
+                    raise (
+                        Error.EvalError(
+                            self.expr,
+                            msg,
+                        )
+                        if self.expr
+                        else Error.RuntimeError(msg)
+                    )
             return Struct(desired_type, ans, self.expr)
         return super().coerce(desired_type)
 

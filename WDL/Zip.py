@@ -3,6 +3,7 @@ Routines for packaging a WDL source file, with all imported source files, into a
 
 *New in v1.5.0*
 """
+
 import io
 import os
 import json

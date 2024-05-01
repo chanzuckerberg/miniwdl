@@ -38,6 +38,7 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
 .. inheritance-diagram:: WDL.Type
    :top-classes: WDL.Type.Base
 """
+
 import copy
 from abc import ABC
 from typing import Optional, Tuple, Dict, Iterable, Set, List
