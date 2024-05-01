@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 89
+plan tests 90
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -599,3 +599,31 @@ workflow outer {
 EOF
 MINIWDL__SCHEDULER__SUBWORKFLOW_CONCURRENCY=2 $miniwdl run --dir nested_deadlock outer.wdl
 is "$?" "0" "avoid deadlocking on nested subworkflows"
+
+cat << 'EOF' > issue686.wdl
+version 1.1
+
+struct ReadGroup {
+    String ID
+    String? KS
+}
+
+task test_task {
+    input {
+        ReadGroup read_group
+    }
+
+    command <<<
+        if [ -z "~{read_group.KS}" ]
+        then
+            echo "KS is empty"
+        fi
+    >>>
+}
+EOF
+$miniwdl run issue686.wdl -i '{
+    "read_group": {
+        "ID": "test"
+    }
+}'
+is "$?" "0" "ensure optional fields in structs initialized from JSON (issue 686 regression)"
