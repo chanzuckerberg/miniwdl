@@ -579,6 +579,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
                     raise Error.InputError(
                         f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
                     ) from None
+        # Struct.__init__ will populate null for any omitted optional members
         return Struct(type, items, extra=extra)
     if type.optional and value is None:
         return Null()
