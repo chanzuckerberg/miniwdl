@@ -621,9 +621,5 @@ task test_task {
     >>>
 }
 EOF
-$miniwdl run issue686.wdl -i '{
-    "read_group": {
-        "ID": "test"
-    }
-}'
+$miniwdl run issue686.wdl read_group='{"ID":"test"}'
 is "$?" "0" "ensure optional fields in structs initialized from JSON (issue 686 regression)"

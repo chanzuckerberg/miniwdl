@@ -1260,6 +1260,9 @@ def runner_input_value(s_value, ty, downloadable, root):
         return Value.Array(
             ty.item_type, [runner_input_value(s_value, ty.item_type, downloadable, root)]
         )
+    if isinstance(ty, Type.StructInstance):
+        # allow structs as JSON
+        return Value.from_json(ty, json.loads(s_value))
     if isinstance(ty, Type.Any):
         # infer dynamically-typed runtime overrides
         try:
