@@ -257,8 +257,8 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return Expr.Get(self._sp(meta), Expr._LeftName(self._sp(meta), items[0]), None)
 
     def get_name(self, meta, items) -> Expr.Base:
-        assert len(items) == 2 and isinstance(items[0], Expr.Base) and isinstance(items[1], str)
-        return Expr.Get(self._sp(meta), items[0], items[1])
+        assert len(items) == 2 and isinstance(items[0], Expr.Base) and isinstance(items[1].value, str)
+        return Expr.Get(self._sp(meta), items[0], items[1].value)
 
 
 # _ExprTransformer infix operators
