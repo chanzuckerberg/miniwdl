@@ -1788,23 +1788,23 @@ class TestStdLib(unittest.TestCase):
 
     def test_squote(self):
         outputs = self._test_task(R"""
-        version development
+        version 1.1
         task test_squote {
             command {}
             output {
-                Array[String] arguments = ["foo","bar","baz"]
-                Array[String] quoted_args = squote(arguments) # ["'foo'","'bar'","'baz'"]
+                Array[String] arguments = ["foo","bar","baz'"]
+                Array[String] quoted_args = squote(arguments) # ["'foo'","'bar'","'baz''"]
             }
         }
         """)
-        # Check to make sure each element has be quoted appropriately
+        # Check to make sure each element has been quoted appropriately
         self.assertEqual(outputs, {
-            "arguments": ["foo","bar","baz"],
-            "quoted_args": ["'foo'","'bar'","'baz'"]
+            "arguments": ["foo","bar","baz'"],
+            "quoted_args": ["'foo'","'bar'","'baz''"]
         })
 
         outputs = self._test_task(R"""
-        version development
+        version 1.1
         task test_squote {
             command {}
             output {
@@ -1822,7 +1822,7 @@ class TestStdLib(unittest.TestCase):
 
         # Check invalid type does not work
         outputs = self._test_task(R"""
-        version development
+        version 1.1
         task test_squote {
             command {}
             output {
@@ -1831,6 +1831,39 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """,expected_exception=WDL.Error.StaticTypeMismatch)
+
+    def test_shellquote(self):
+        outputs = self._test_task(R"""
+        version development
+        task test_squote {
+            command {}
+            output {
+                Array[String?] arguments = ["foo","bar","baz'", None]
+                Array[String] quoted_args = squote(arguments)
+            }
+        }
+        """)
+        # Check to make sure each element has been quoted appropriately
+        self.assertEqual(outputs, {
+            "arguments": ["foo","bar","baz'", None],
+            "quoted_args": ["'foo'","'bar'",""" 'baz'"'"'' """.strip(), "''"]
+        })
+
+        outputs = self._test_task(R"""
+        version development
+        task test_squote {
+            command {}
+            output {
+                String quoted = squote(1)
+                String quoted2 = squote("so'wl'chu'")
+            }
+        }
+        """)
+
+        self.assertEqual(outputs, {
+            "quoted": "'1'",
+            "quoted2": """ 'so'"'"'wl'"'"'chu'"'"'' """.strip()
+        })
 
     def test_keys(self):
         outputs = self._test_task(R"""
