@@ -138,6 +138,8 @@ class ValidationError(Exception):
 
     The complete source text of the WDL document (if available)"""
 
+    declared_wdl_version: Optional[str] = None
+
     def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
         if isinstance(node, SourceNode):
             self.node = node
@@ -166,12 +168,12 @@ class NoSuchCall(ValidationError):
 
 
 class NoSuchFunction(ValidationError):
-    def __init__(self, node: SourceNode, name: str) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
         super().__init__(node, "No such function: " + name)
 
 
 class WrongArity(ValidationError):
-    def __init__(self, node: SourceNode, expected: int) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], expected: int) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Apply)
         msg = "{} expects {} argument(s)".format(getattr(node, "function_name"), expected)
@@ -179,12 +181,12 @@ class WrongArity(ValidationError):
 
 
 class NotAnArray(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition]) -> None:
         super().__init__(node, "Not an array")
 
 
 class NoSuchMember(ValidationError):
-    def __init__(self, node: SourceNode, member: str) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], member: str) -> None:
         super().__init__(node, "No such member '{}'".format(member))
 
 
@@ -269,6 +271,10 @@ class MultipleValidationErrors(Exception):
 
     exceptions: List[ValidationError]
     """:type: List[ValidationError]"""
+
+    source_text: Optional[str] = None
+
+    declared_wdl_version: Optional[str] = None
 
     def __init__(
         self, *exceptions: List[Union[ValidationError, "MultipleValidationErrors"]]
