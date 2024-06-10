@@ -3,7 +3,7 @@ import math
 import os
 import json
 import tempfile
-from typing import List, Tuple, Callable, BinaryIO, Optional
+from typing import List, Tuple, Dict, Callable, IO, Optional
 from abc import ABC, abstractmethod
 from contextlib import suppress
 import regex
@@ -95,7 +95,7 @@ class Base:
             self._write(_serialize_map)
         )
         static([Type.Any()], Type.File(), "write_json")(
-            self._write(lambda v, outfile: outfile.write(json.dumps(v.json).encode("utf-8")))
+            self._write(lambda v, outfile: (outfile.write(json.dumps(v.json).encode("utf-8")), None)[1])
         )
 
         # read_*
@@ -165,7 +165,7 @@ class Base:
         raise NotImplementedError()
 
     def _write(
-        self, serialize: Callable[[Value.Base, BinaryIO], None]
+        self, serialize: Callable[[Value.Base, IO[bytes]], None]
     ) -> Callable[[Value.Base], Value.File]:
         "generate write_* function implementation based on serialize"
 
@@ -174,7 +174,6 @@ class Base:
         ) -> Value.File:
             os.makedirs(self._write_dir, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=self._write_dir, delete=False) as outfile:
-                outfile: BinaryIO = outfile  # pyre-ignore
                 serialize(v, outfile)
                 filename = outfile.name
             chmod_R_plus(filename, file_bits=0o660)
@@ -315,7 +314,7 @@ def basename(*args) -> Value.String:
 
 
 def _parse_lines(s: str) -> Value.Array:
-    ans = []
+    ans: List[Value.Base] = []
     if s:
         ans = [Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")]
     return Value.Array(Type.String(), ans)
@@ -331,14 +330,13 @@ def _parse_boolean(s: str) -> Value.Boolean:
 
 
 def _parse_tsv(s: str) -> Value.Array:
-    ans = [
+    ans: List[Value.Base] = [
         Value.Array(
             Type.Array(Type.String()), [Value.String(field) for field in line.value.split("\t")]
         )
         for line in _parse_lines(s).value
         if line
     ]
-    # pyre-ignore
     return Value.Array(Type.Array(Type.String()), ans)
 
 
@@ -350,7 +348,7 @@ def _parse_objects(s: str) -> Value.Array:
     literal_keys = set(key.value for key in strmat.value[0].value if key.value)
     if len(literal_keys) < len(keys):
         raise Error.InputError("read_objects(): file has empty or duplicate column names")
-    maps = []
+    maps: List[Value.Base] = []
     for row in strmat.value[1:]:
         if len(row.value) != len(keys):
             raise Error.InputError("read_objects(): file's tab-separated lines are ragged")
@@ -385,13 +383,15 @@ def _parse_json(s: str) -> Value.Base:
     return Value.from_json(Type.Any(), json.loads(s))
 
 
-def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
+def _serialize_lines(array: Value.Base, outfile: IO[bytes]) -> None:
+    assert isinstance(array, Value.Array)
     for item in array.value:
         outfile.write(item.coerce(Type.String()).value.encode("utf-8"))
         outfile.write(b"\n")
 
 
-def _serialize_tsv(v: Value.Array, outfile: BinaryIO) -> None:
+def _serialize_tsv(v: Value.Base, outfile: IO[bytes]) -> None:
+    assert isinstance(v, Value.Array)
     return _serialize_lines(
         Value.Array(
             Type.String(),
@@ -404,16 +404,17 @@ def _serialize_tsv(v: Value.Array, outfile: BinaryIO) -> None:
     )
 
 
-def _serialize_map(map: Value.Map, outfile: BinaryIO) -> None:
-    lines = []
+def _serialize_map(map: Value.Base, outfile: IO[bytes]) -> None:
+    assert isinstance(map, Value.Map)
+    lines: List[Value.Base] = []
     for k, v in map.value:
-        k = k.coerce(Type.String()).value
-        v = v.coerce(Type.String()).value
-        if "\n" in k or "\t" in k or "\n" in v or "\t" in v:
+        ks = k.coerce(Type.String()).value
+        vs = v.coerce(Type.String()).value
+        if "\n" in ks or "\t" in ks or "\n" in vs or "\t" in vs:
             raise ValueError(
                 "write_map(): keys & values must not contain tab or newline characters"
             )
-        lines.append(Value.String(k + "\t" + v))
+        lines.append(Value.String(ks + "\t" + vs))
     _serialize_lines(Value.Array(Type.String(), lines), outfile)
 
 
@@ -455,25 +456,25 @@ class _At(EagerFunction):
         rhs = arguments[1]
         if isinstance(lhs, Value.Map):
             mty = expr.arguments[0].type
-            key = rhs
+            mkey = rhs
             if isinstance(mty, Type.Map):
-                key = key.coerce(mty.item_type[0])
+                mkey = mkey.coerce(mty.item_type[0])
             ans = None
             for k, v in lhs.value:
-                if key == k:
+                if mkey == k:
                     ans = v
             if ans is None:
                 raise Error.OutOfBounds(expr.arguments[1], "Map key not found")
             return ans
         elif isinstance(lhs, Value.Struct):
             # allow member access from read_json() (issue #320)
-            key = None
+            skey = None
             if rhs.type.coerces(Type.String()):
                 with suppress(Error.RuntimeError):
-                    key = rhs.coerce(Type.String()).value
-            if key is None or key not in lhs.value:
+                    skey = rhs.coerce(Type.String()).value
+            if skey is None or skey not in lhs.value:
                 raise Error.OutOfBounds(expr.arguments[1], "struct member not found")
-            return lhs.value[key]
+            return lhs.value[skey]
         else:
             lhs = lhs.coerce(Type.Array(Type.Any()))
             rhs = rhs.coerce(Type.Int())
@@ -540,7 +541,7 @@ class _ArithmeticOperator(EagerFunction):
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
-        rt = Type.Int()
+        rt: Type.Base = Type.Int()
         if isinstance(expr.arguments[0].type, Type.Float) or isinstance(
             expr.arguments[1].type, Type.Float
         ):
@@ -719,14 +720,14 @@ class _Size(EagerFunction):
                 ans.append(0)
             else:
                 assert False
-        ans = float(sum(ans))
+        fans = float(sum(ans))
 
         if unit:
             try:
-                ans /= float(byte_size_units[unit.value])
+                fans /= float(byte_size_units[unit.value])
             except KeyError:
                 raise Error.EvalError(expr, "size(): invalid unit " + unit.value)
-        return Value.Float(ans)
+        return Value.Float(fans)
 
 
 class _SelectFirst(EagerFunction):
@@ -934,7 +935,7 @@ class _Transpose(EagerFunction):
         mat = arguments[0].coerce(ty)
         assert isinstance(mat, Value.Array)
         n = None
-        ans = []
+        ans: List[Value.Base] = []
         for row in mat.value:
             assert isinstance(row, Value.Array)
             if n is None:
@@ -1115,7 +1116,7 @@ class _CollectByKey(EagerFunction):
         pairty = arg0ty.item_type
         assert isinstance(pairty, Type.Pair)
 
-        items = {}
+        items: Dict[str, Tuple[Value.Base, List[Value.Base]]] = {}
         for p in arguments[0].value:
             assert isinstance(p, Value.Pair)
             ek = p.value[0].coerce(pairty.left_type)
