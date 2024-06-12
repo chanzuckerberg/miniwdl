@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+
 from typing import Dict, Any, List, Iterable, Tuple, Optional
 
 class Container:

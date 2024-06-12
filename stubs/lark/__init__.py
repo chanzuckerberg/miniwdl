@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+
 # minimal pyre typing stubs for lark
 
 from typing import Any, Callable, Optional, Dict

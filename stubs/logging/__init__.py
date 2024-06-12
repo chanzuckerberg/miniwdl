@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+
 from logging import Logger as OriginalLogger, Formatter, FileHandler, LogRecord, addLevelName
 from logging import DEBUG, INFO, WARNING, ERROR, CRITICAL
 

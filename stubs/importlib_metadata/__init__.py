@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+
 from typing import Iterable, Dict, Any
 
 class EntryPoint:
