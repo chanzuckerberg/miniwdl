@@ -4,7 +4,6 @@ from typing import (
     Optional,
     Union,
     Iterable,
-    TypeVar,
     Generator,
     Callable,
     Any,
@@ -91,8 +90,7 @@ class SourceNode:
         self.pos = pos
 
     def __lt__(self, rhs: "SourceNode") -> bool:
-        if isinstance(rhs, SourceNode):
-            return (
+            return isinstance(rhs, SourceNode) and (
                 self.pos.abspath,
                 self.pos.line,
                 self.pos.column,
@@ -105,11 +103,9 @@ class SourceNode:
                 rhs.pos.end_line,
                 rhs.pos.end_column,
             )
-        return False
 
-    def __eq__(self, rhs: "SourceNode") -> bool:
-        assert isinstance(rhs, SourceNode)
-        return self.pos == rhs.pos
+    def __eq__(self, rhs: Any) -> bool:
+        return isinstance(rhs, SourceNode) and self.pos == rhs.pos
 
     @property
     def children(self) -> Iterable["SourceNode"]:
@@ -314,8 +310,7 @@ class _MultiContext:
         if len(self._exceptions) == 1:
             raise self._exceptions[0]
         if self._exceptions:
-            # pyre-ignore
-            raise MultipleValidationErrors(*self._exceptions) from self._exceptions[0]
+            raise MultipleValidationErrors(*self._exceptions) from self._exceptions[0] # type: ignore
 
 
 @contextmanager
