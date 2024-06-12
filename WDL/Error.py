@@ -90,19 +90,19 @@ class SourceNode:
         self.pos = pos
 
     def __lt__(self, rhs: "SourceNode") -> bool:
-            return isinstance(rhs, SourceNode) and (
-                self.pos.abspath,
-                self.pos.line,
-                self.pos.column,
-                self.pos.end_line,
-                self.pos.end_column,
-            ) < (
-                rhs.pos.abspath,
-                rhs.pos.line,
-                rhs.pos.column,
-                rhs.pos.end_line,
-                rhs.pos.end_column,
-            )
+        return isinstance(rhs, SourceNode) and (
+            self.pos.abspath,
+            self.pos.line,
+            self.pos.column,
+            self.pos.end_line,
+            self.pos.end_column,
+        ) < (
+            rhs.pos.abspath,
+            rhs.pos.line,
+            rhs.pos.column,
+            rhs.pos.end_line,
+            rhs.pos.end_column,
+        )
 
     def __eq__(self, rhs: Any) -> bool:
         return isinstance(rhs, SourceNode) and self.pos == rhs.pos
@@ -310,7 +310,7 @@ class _MultiContext:
         if len(self._exceptions) == 1:
             raise self._exceptions[0]
         if self._exceptions:
-            raise MultipleValidationErrors(*self._exceptions) from self._exceptions[0] # type: ignore
+            raise MultipleValidationErrors(*self._exceptions) from self._exceptions[0]  # type: ignore
 
 
 @contextmanager

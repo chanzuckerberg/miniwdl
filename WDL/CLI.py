@@ -1,6 +1,7 @@
 """
 miniwdl command-line interface
 """
+
 # PYTHON_ARGCOMPLETE_OK
 import sys
 import os

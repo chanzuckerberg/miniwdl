@@ -95,7 +95,9 @@ class Base:
             self._write(_serialize_map)
         )
         static([Type.Any()], Type.File(), "write_json")(
-            self._write(lambda v, outfile: (outfile.write(json.dumps(v.json).encode("utf-8")), None)[1])
+            self._write(
+                lambda v, outfile: (outfile.write(json.dumps(v.json).encode("utf-8")), None)[1]
+            )
         )
 
         # read_*

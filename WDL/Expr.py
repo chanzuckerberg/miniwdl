@@ -11,11 +11,13 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 
 .. inheritance-diagram:: WDL.Expr
 """
+
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
 import regex
 from .Error import SourcePosition, SourceNode
 from . import Type, Value, Env, Error, StdLib
+
 if TYPE_CHECKING:
     from . import Tree
 
@@ -75,9 +77,11 @@ class Base(SourceNode, ABC):
             for child in self.children:
                 assert isinstance(child, Base)
                 errors.try1(
-                    (lambda child: lambda: child.infer_type(
-                        type_env, stdlib, check_quant, struct_types
-                    ))(child)
+                    (
+                        lambda child: lambda: child.infer_type(
+                            type_env, stdlib, check_quant, struct_types
+                        )
+                    )(child)
                 )
         # invoke derived-class logic. we pass check_quant, stdlib, and struct_types hackily through
         # instance variables since only some subclasses use them.
@@ -137,7 +141,7 @@ class Base(SourceNode, ABC):
         result can be an instance of ``WDL.Value.Null`` which is distinct from None.
         """
         if isinstance(self, (Boolean, Int, Float)):
-            return self._eval(Env.Bindings(), None) # type: ignore
+            return self._eval(Env.Bindings(), None)  # type: ignore
         return None
 
 
@@ -725,7 +729,7 @@ class Struct(Base):
             if isinstance(self.type, Type.StructInstance):
                 assert self.type.members
                 ans[k] = ans[k].coerce(self.type.members[k])
-        return Value.Struct(self.type, ans) # type: ignore
+        return Value.Struct(self.type, ans)  # type: ignore
 
     @property
     def literal(self) -> Optional[Value.Base]:

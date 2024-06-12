@@ -7,6 +7,7 @@ documents. Simply ``import WDL`` once miniwdl has been installed.
 * `GitHub repo <https://github.com/chanzuckerberg/miniwdl/>`_ for installation and further background
 * `Codelabs <https://miniwdl.readthedocs.io/en/latest/WDL.html#python-codelabs>`_ on using this package
 """
+
 import sys
 import os
 import errno
@@ -288,7 +289,8 @@ def values_from_json(
 
 
 def values_to_json(
-    values_env: Union[Env.Bindings[Value.Base], Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]], namespace: str = ""
+    values_env: Union[Env.Bindings[Value.Base], Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]],
+    namespace: str = "",
 ) -> Dict[str, Any]:
     """
     Convert a ``WDL.Env.Bindings[WDL.Value.Base]`` to a dict which ``json.dumps`` to

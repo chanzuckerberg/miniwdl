@@ -1,6 +1,7 @@
 """
 Abstract interface for task container runtime
 """
+
 import os
 import logging
 import shutil
@@ -324,12 +325,16 @@ class TaskContainer(ABC):
                     self._running = False
 
                 if not self.success_exit_code(exit_code):
-                    raise CommandFailed(
-                        exit_code,
-                        self.host_stderr_txt(),
-                        self.host_stdout_txt(),
-                        more_info=self.failure_info,
-                    ) if not terminating() else Terminated()
+                    raise (
+                        CommandFailed(
+                            exit_code,
+                            self.host_stderr_txt(),
+                            self.host_stdout_txt(),
+                            more_info=self.failure_info,
+                        )
+                        if not terminating()
+                        else Terminated()
+                    )
 
     @abstractmethod
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:

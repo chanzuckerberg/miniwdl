@@ -38,10 +38,12 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
 .. inheritance-diagram:: WDL.Type
    :top-classes: WDL.Type.Base
 """
+
 import copy
 import typing
 from abc import ABC
 from typing import Optional, Tuple, Dict, Iterable, Set, List, TYPE_CHECKING
+
 if TYPE_CHECKING:
     from .Error import SourcePosition
 
@@ -564,7 +566,10 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
                 unify([t.item_type[0], t2.item_type[0]], check_quant, force_string),  # pyre-ignore
                 unify([t.item_type[1], t2.item_type[1]], check_quant, force_string),  # pyre-ignore
             )
-        if not t_was_array_any and next((pt for pt in t.parameters if isinstance(pt, Any)), None) is not None:
+        if (
+            not t_was_array_any
+            and next((pt for pt in t.parameters if isinstance(pt, Any)), None) is not None
+        ):
             return Any()
         if isinstance(t, Object) and isinstance(t2, Object):
             # unifying Object types (generally transient, pending coercion to a StructInstance)

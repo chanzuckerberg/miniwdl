@@ -30,6 +30,7 @@ from typing import (
 )
 from types import FrameType
 from pythonjsonlogger import jsonlogger
+
 if TYPE_CHECKING:
     from . import Env, Value
 
@@ -310,7 +311,7 @@ def verbose(self, message, *args, **kws):
         self._log(VERBOSE_LEVEL, message, args, **kws)
 
 
-logging.Logger.verbose = verbose # type: ignore
+logging.Logger.verbose = verbose  # type: ignore
 NOTICE_LEVEL = 25
 __all__.append("NOTICE_LEVEL")
 logging.addLevelName(NOTICE_LEVEL, "NOTICE")
@@ -321,7 +322,7 @@ def notice(self, message, *args, **kws):
         self._log(NOTICE_LEVEL, message, args, **kws)
 
 
-logging.Logger.notice = notice # type: ignore
+logging.Logger.notice = notice  # type: ignore
 
 
 @export
@@ -427,7 +428,7 @@ def configure_logger(
 
             # monkey-patch _StatusLineStandardErrorHandler over coloredlogs.StandardErrorHandler for
             # coloredlogs.install() to instantiate
-            coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler # type: ignore
+            coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler  # type: ignore
             sys.stderr.write(ANSI.HIDE_CURSOR)  # hide cursor
 
         try:
@@ -439,11 +440,11 @@ def configure_logger(
                 fmt=fmt,
             )
             yield (
-                lambda status: _StatusLineStandardErrorHandler._singleton.set_status(
-                    status
+                lambda status: (
+                    _StatusLineStandardErrorHandler._singleton.set_status(status)
+                    if _StatusLineStandardErrorHandler._singleton
+                    else None
                 )
-                if _StatusLineStandardErrorHandler._singleton
-                else None
             )
         finally:
             if tty:

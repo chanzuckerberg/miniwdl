@@ -4,6 +4,7 @@ subprocess, capturing its JSON standard output. This leverages its logging, conf
 flexible input loading features; and avoids conflicting with the runtime's thread pools and signal
 handlers. Alternatively, it's possible to call ``WDL.runtime.run()`` directly if needed.
 """
+
 # pyre-strict
 from typing import Union, Dict, Tuple, Any
 from .. import Tree, Value, Env

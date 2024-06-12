@@ -412,9 +412,11 @@ class Task(SourceNode):
             # Typecheck runtime expressions
             for _, runtime_expr in self.runtime.items():
                 errors.try1(
-                    (lambda runtime_expr: lambda: runtime_expr.infer_type(
-                        type_env, stdlib, check_quant=check_quant, struct_types=struct_types
-                    ))(runtime_expr)
+                    (
+                        lambda runtime_expr: lambda: runtime_expr.infer_type(
+                            type_env, stdlib, check_quant=check_quant, struct_types=struct_types
+                        )
+                    )(runtime_expr)
                 )  # .typecheck()
                 # (At this stage we don't care about the overall expression type, just that it
                 #  typechecks internally.)
@@ -620,9 +622,11 @@ class Call(WorkflowNode):
                     # treat input with default as optional, with or without the ? type quantifier
                     decltype = decl.type.copy(optional=True) if decl.expr else decl.type
                     errors.try1(
-                        (lambda expr, decltype: lambda: expr.infer_type(
-                            type_env, stdlib, check_quant=check_quant, struct_types=struct_types
-                        ).typecheck(decltype))(expr, decltype)
+                        (
+                            lambda expr, decltype: lambda: expr.infer_type(
+                                type_env, stdlib, check_quant=check_quant, struct_types=struct_types
+                            ).typecheck(decltype)
+                        )(expr, decltype)
                     )
                 except KeyError:
                     errors.append(Error.NoSuchInput(expr, name))
@@ -1131,12 +1135,14 @@ class Workflow(SourceNode):
             #    sections)
             for decl in self.inputs or []:
                 errors.try1(
-                    (lambda decl, type_env: lambda: decl.typecheck(
-                        type_env,
-                        stdlib,
-                        check_quant=check_quant,
-                        struct_types=doc._struct_types,
-                    ))(decl, self._type_env)
+                    (
+                        lambda decl, type_env: lambda: decl.typecheck(
+                            type_env,
+                            stdlib,
+                            check_quant=check_quant,
+                            struct_types=doc._struct_types,
+                        )
+                    )(decl, self._type_env)
                 )
             if errors.try1(lambda: _typecheck_workflow_body(doc, stdlib, check_quant)) is False:
                 self.complete_calls = False
@@ -1454,7 +1460,11 @@ class Document(SourceNode):
                     )
                 names.add(task.name)
                 errors.try1(
-                    (lambda task: lambda: task.typecheck(self._struct_types, check_quant=check_quant))(task)
+                    (
+                        lambda task: lambda: task.typecheck(
+                            self._struct_types, check_quant=check_quant
+                        )
+                    )(task)
                 )
         # typecheck the workflow
         if self.workflow:
@@ -1736,12 +1746,14 @@ def _typecheck_workflow_body(
                 errors.try1(
                     _translate_struct_mismatch(
                         doc,
-                        (lambda child, type_env: lambda: child.typecheck(
-                            type_env,
-                            stdlib,
-                            check_quant=check_quant,
-                            struct_types=doc._struct_types,
-                        ))(child, self._type_env),
+                        (
+                            lambda child, type_env: lambda: child.typecheck(
+                                type_env,
+                                stdlib,
+                                check_quant=check_quant,
+                                struct_types=doc._struct_types,
+                            )
+                        )(child, self._type_env),
                     )
                 )
             elif isinstance(child, Call):
@@ -1749,9 +1761,11 @@ def _typecheck_workflow_body(
                     errors.try1(
                         _translate_struct_mismatch(
                             doc,
-                            (lambda child, type_env: lambda: child.typecheck_input(
-                                doc._struct_types, type_env, stdlib, check_quant=check_quant
-                            ))(child, self._type_env),
+                            (
+                                lambda child, type_env: lambda: child.typecheck_input(
+                                    doc._struct_types, type_env, stdlib, check_quant=check_quant
+                                )
+                            )(child, self._type_env),
                         )
                     )
                     is False
@@ -1762,9 +1776,11 @@ def _typecheck_workflow_body(
                     errors.try1(
                         _translate_struct_mismatch(
                             doc,
-                            (lambda child: lambda: _typecheck_workflow_body(
-                                doc, stdlib, check_quant, child
-                            ))(child),
+                            (
+                                lambda child: lambda: _typecheck_workflow_body(
+                                    doc, stdlib, check_quant, child
+                                )
+                            )(child),
                         )
                     )
                     is False
