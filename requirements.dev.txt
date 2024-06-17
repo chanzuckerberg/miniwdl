@@ -1,7 +1,7 @@
 # Packages needed for miniwdl development, in addition to those in
 # requirements.txt which are needed for miniwdl to run in common use.
 -r requirements.txt
-black==23.7.0
+black==24.4.2
 pylint
 sphinx
 sphinx-autobuild

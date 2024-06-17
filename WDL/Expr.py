@@ -951,7 +951,8 @@ class Get(Base):
 
     def __init__(self, pos: SourcePosition, expr: Base, member: Optional[str]) -> None:
         super().__init__(pos)
-        assert expr
+        assert isinstance(expr, Base)
+        assert isinstance(member, (str, type(None)))
         self.expr = expr
         self.member = member
 
