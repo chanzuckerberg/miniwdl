@@ -111,7 +111,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return Expr.Float(self._sp(meta), to_float(items[0]))
 
     def string(self, meta, items) -> Expr.Base:
-        parts: List[Union[str,Expr.Placeholder]] = []
+        parts: List[Union[str, Expr.Placeholder]] = []
         for item in items:
             if isinstance(item, Expr.Placeholder):
                 parts.append(item)
