@@ -579,7 +579,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
                 raise Error.InputError(
                     f"initializer for struct {str(type)} omits required field(s)"
                 )
-        fields = {}
+        members = {}
         extra = set()
         for k, v in value.items():
             assert isinstance(k, str)
@@ -587,13 +587,13 @@ def from_json(type: Type.Base, value: Any) -> Base:
                 extra.add(k)
             else:
                 try:
-                    fields[k] = from_json(type.members[k], v)
+                    members[k] = from_json(type.members[k], v)
                 except Error.InputError:
                     raise Error.InputError(
                         f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
                     ) from None
         # Struct.__init__ will populate null for any omitted optional members
-        return Struct(type, items, extra=extra)
+        return Struct(type, members, extra=extra)
     if type.optional and value is None:
         return Null()
     raise Error.InputError(f"couldn't construct {str(type)} from {json.dumps(value)}")
