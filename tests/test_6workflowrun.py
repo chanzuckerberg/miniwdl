@@ -1128,7 +1128,7 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertFalse(outputs["stdout_txt"].endswith("stdout.txt"))
         with open(outputs["stdout_txt"]) as stdout_txt:
             stdout_lines = stdout_txt.read().strip().split("\n")
-            self.assertEquals(len(stdout_lines), 1)
+            self.assertEqual(len(stdout_lines), 1)
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"file_io": {"delete_work": "failure"}, "task_runtime": {"_mock_interruptions": 2}})
         outputs = self._test_workflow(txt, cfg=cfg)

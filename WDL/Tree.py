@@ -1128,7 +1128,7 @@ class Workflow(SourceNode):
         #    conditional section therein
         stdlib = StdLib.Base(self.effective_wdl_version)
         _build_workflow_type_env(doc, stdlib, check_quant)
-        assert self._type_env
+        assert self._type_env is not None
         with Error.multi_context() as errors:
             # 3. typecheck the right-hand side expressions of each declaration
             #    and the inputs to each call (descending into scatter & conditional

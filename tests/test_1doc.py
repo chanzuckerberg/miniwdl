@@ -53,7 +53,7 @@ class TestTasks(unittest.TestCase):
         }
         """]
         for task_str in variants:
-            task = WDL.parse_tasks(task_str)[0]
+            task = WDL.parse_tasks(task_str, "1.0")[0]
             self.assertEqual(len(task.inputs), 1)
             self.assertEqual(str(task.inputs[0]), "String in")
 
@@ -92,7 +92,7 @@ class TestTasks(unittest.TestCase):
                     String in
                 }
                 command {
-                    echo "~{bogus}" | wc
+                    echo "${bogus}" | wc
                 }
             }
             """)[0].typecheck()
@@ -109,7 +109,7 @@ class TestTasks(unittest.TestCase):
                     String ans = "${bogus}"
                 }
             }
-            """)[0].typecheck()
+            """, "1.0")[0].typecheck()
         with self.assertRaises(WDL.Error.MultipleValidationErrors):
             WDL.parse_tasks("""
             task wc {
@@ -124,7 +124,7 @@ class TestTasks(unittest.TestCase):
                 output {
                 }
             }
-            """)[0].typecheck()
+            """, "1.0")[0].typecheck()
 
     def test_placeholders(self):
         task = WDL.parse_tasks("""
@@ -136,7 +136,7 @@ class TestTasks(unittest.TestCase):
                     echo "~{true='yes' false='no' b}"
                 >>>
             }
-            """)[0]
+            """, "1.0")[0]
         task.typecheck()
         stdlib = WDL.StdLib.Base("1.0")
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'yes')
@@ -170,7 +170,7 @@ class TestTasks(unittest.TestCase):
                         echo "~{true='yes' false='no' b}"
                     }
                 }
-                """)[0].typecheck()
+                """, "1.0")[0].typecheck()
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
@@ -179,7 +179,7 @@ class TestTasks(unittest.TestCase):
                         echo "~{true='yes' false='no' 42}"
                     }
                 }
-                """)[0].typecheck()
+                """, "1.0")[0].typecheck()
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
@@ -191,7 +191,7 @@ class TestTasks(unittest.TestCase):
                         echo "~{false='no' b}"
                     }
                 }
-                """)[0].typecheck()
+                """, "1.0")[0].typecheck()
 
         task = WDL.parse_tasks("""
             task wc {
@@ -202,7 +202,7 @@ class TestTasks(unittest.TestCase):
                     echo "~{sep=', ' s} baz"
                 >>>
             }
-            """)[0]
+            """, "1.0")[0]
         task.typecheck()
         foobar = WDL.Value.Array(WDL.Type.String(), [WDL.Value.String("foo"), WDL.Value.String("bar")])
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar), stdlib).value, 'foo, bar')
@@ -218,7 +218,7 @@ class TestTasks(unittest.TestCase):
                     echo "~{s} baz"
                 >>>
             }
-            """)[0].typecheck()
+            """, "1.0")[0].typecheck()
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
             task wc {
@@ -229,7 +229,7 @@ class TestTasks(unittest.TestCase):
                     echo "~{sep=', ' s} baz"
                 >>>
             }
-            """)[0].typecheck()
+            """, "1.0")[0].typecheck()
 
         task = WDL.parse_tasks("""
             task wc {
@@ -325,7 +325,7 @@ class TestTasks(unittest.TestCase):
                 meta_key: 321
             }
         }
-        """)[0]
+        """, "1.0")[0]
         task.typecheck()
         self.assertIsInstance(task.parameter_meta['b']['help'], str)
         self.assertEqual(task.parameter_meta['b']['help'], "it's a boolean")
@@ -360,7 +360,7 @@ class TestTasks(unittest.TestCase):
                 cpu: 42
             }
         }
-        """)[0]
+        """, "1.0")[0]
         task.typecheck()
         self.assertIsInstance(task.meta['description'], str)
         self.assertEqual(task.meta['description'], "it's a task")

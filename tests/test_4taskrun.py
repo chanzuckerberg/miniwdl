@@ -1198,7 +1198,7 @@ class TestTaskRunner(unittest.TestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"file_io": {"mount_tmpdir_for": ["xyz"]}})
         outputs = self._test_task(txt, cfg=cfg)
-        self.assertEquals(outputs["tmpdir"], "")
+        self.assertEqual(outputs["tmpdir"], "")
         outputs = self._test_task(txt.replace("XXX", "xyz"), cfg=cfg)
         self.assertTrue(outputs["tmpdir"].startswith("/mnt/miniwdl"))
 
