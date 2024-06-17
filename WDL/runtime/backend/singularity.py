@@ -43,7 +43,7 @@ class SingularityContainer(SubprocessBase):
         else:
             cls.image_cache_dir = None
 
-        logger.notice(  # pyre-ignore
+        logger.notice(
             _(
                 "Singularity runtime initialized (BETA)",
                 singularity_version=singularity_version.stdout.strip(),

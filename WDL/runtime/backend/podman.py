@@ -37,7 +37,7 @@ class PodmanContainer(SubprocessBase):
                 msg += " with no-password sudo"
             raise RuntimeError(msg) from None
 
-        logger.notice(  # pyre-ignore
+        logger.notice(
             _(
                 "Podman runtime initialized (BETA)",
                 podman_version=podman_version.stdout.strip(),

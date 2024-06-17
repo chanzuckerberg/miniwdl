@@ -274,9 +274,7 @@ class StructuredLogMessage:
         self.kwargs = kwargs
 
     def __str__(self) -> str:
-        return (
-            f"{self.message} :: {', '.join(k+ ': ' + json.dumps(v) for k,v in self.kwargs.items())}"
-        )
+        return f"{self.message} :: {', '.join(k + ': ' + json.dumps(v) for k, v in self.kwargs.items())}"
 
 
 class StructuredLogMessageJSONFormatter(jsonlogger.JsonFormatter):

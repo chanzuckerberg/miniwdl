@@ -93,7 +93,7 @@ def run(
             if "task_wdl" in recv:
                 task_wdl, inputs = (recv[k] for k in ["task_wdl", "inputs"])
 
-                doc = parse_document(task_wdl, version="development")  # pyre-ignore
+                doc = parse_document(task_wdl, version="development")
                 assert len(doc.tasks) == 1 and not doc.workflow
                 doc.typecheck()
                 Walker.SetParents()(doc)
@@ -199,7 +199,7 @@ def aria2c_downloader(
         "task_wdl": wdl,
         "inputs": {"uri": uri, "docker": cfg["download_aria2c"]["docker"]},
     }
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def awscli_downloader(
@@ -248,7 +248,7 @@ def awscli_downloader(
         }
         """
         recv = yield {"task_wdl": wdl, "inputs": inputs}
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def awscli_directory_downloader(
@@ -299,7 +299,7 @@ def awscli_directory_downloader(
         }
         """
         recv = yield {"task_wdl": wdl, "inputs": inputs}
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def prepare_aws_credentials(
@@ -379,7 +379,7 @@ def gsutil_downloader(
         }
     }
     """
-    yield (  # pyre-ignore
+    yield (
         yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
     )
 
@@ -414,6 +414,6 @@ def gsutil_directory_downloader(
         }
     }
     """
-    yield (  # pyre-ignore
+    yield (
         yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
     )

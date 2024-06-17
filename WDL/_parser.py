@@ -282,7 +282,7 @@ for op in [
         assert len(items) == 2
         return Expr.Apply(self._sp(meta), "_" + op, items)
 
-    setattr(_ExprTransformer, op, lark.v_args(meta=True)(fn))  # pyre-fixme
+    setattr(_ExprTransformer, op, lark.v_args(meta=True)(fn))
 
 
 class _DocTransformer(_ExprTransformer):
@@ -744,7 +744,7 @@ class _DocTransformer(_ExprTransformer):
 for _klass in [_ExprTransformer, _DocTransformer]:
     for name, method in inspect.getmembers(_klass, inspect.isfunction):
         if not name.startswith("_"):
-            setattr(_klass, name, lark.v_args(meta=True)(method))  # pyre-fixme
+            setattr(_klass, name, lark.v_args(meta=True)(method))
 
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:

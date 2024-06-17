@@ -547,7 +547,7 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
     t = next((t for t in types if not isinstance(t, (String, Any))), types[0])
     if not check_quant:
         t = next((a for a in types if isinstance(a, Array) and not isinstance(a.item_type, Any)), t)
-    t = t.copy()  # pyre-ignore
+    t = t.copy()
 
     # potentially promote/generalize t to other types seen
     optional = False
@@ -562,9 +562,9 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
             t.left_type = unify([t.left_type, t2.left_type], check_quant, force_string)
             t.right_type = unify([t.right_type, t2.right_type], check_quant, force_string)
         if isinstance(t, Map) and isinstance(t2, Map):
-            t.item_type = (  # pyre-ignore
-                unify([t.item_type[0], t2.item_type[0]], check_quant, force_string),  # pyre-ignore
-                unify([t.item_type[1], t2.item_type[1]], check_quant, force_string),  # pyre-ignore
+            t.item_type = (
+                unify([t.item_type[0], t2.item_type[0]], check_quant, force_string),
+                unify([t.item_type[1], t2.item_type[1]], check_quant, force_string),
             )
         if (
             not t_was_array_any

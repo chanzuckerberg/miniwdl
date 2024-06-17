@@ -1,4 +1,3 @@
-# pyre-strict
 """
 Workflow runner building blocks & local driver
 
@@ -315,7 +314,7 @@ class StateMachine:
         """
         assert job_id in self.running
         outlog = self.values_to_json(outputs)
-        self.logger.notice(_("finish", job=job_id))  # pyre-fixme
+        self.logger.notice(_("finish", job=job_id))
         self.logger.info(
             _(
                 "output",
@@ -349,7 +348,6 @@ class StateMachine:
         scatter_vars: Env.Bindings[Value.Base] = Env.Bindings()
         for p in job.scatter_stack:
             scatter_vars = Env.Bindings(p[1], scatter_vars)
-        # pyre-ignore
         env = Env.merge(scatter_vars, *(self.job_outputs[dep] for dep in job.dependencies))
         envlog = self.values_to_json(env)
         self.logger.debug(
@@ -431,7 +429,7 @@ class StateMachine:
                 ),
             )
             # issue CallInstructions
-            self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))  # pyre-fixme
+            self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))
             inplog = self.values_to_json(call_inputs)
             self.logger.info(
                 _(
@@ -792,11 +790,11 @@ class _ThreadPools:
         )
         self._subworkflow_pools = []
 
-    def submit_task(self, *args, **kwargs):  # pyre-ignore
+    def submit_task(self, *args, **kwargs):
         with self._lock:
             return self._task_pool.submit(*args, **kwargs)
 
-    def submit_subworkflow(self, call_depth: int, *args, **kwargs):  # pyre-ignore
+    def submit_subworkflow(self, call_depth: int, *args, **kwargs):
         with self._lock:
             if call_depth >= len(self._subworkflow_pools):
                 # First time at this call depth -- initialize a thread pool for it
@@ -862,7 +860,7 @@ def run_local_workflow(
                     json=True,
                 )
             )
-        logger.notice(  # pyre-fixme
+        logger.notice(
             _(
                 "workflow start",
                 name=workflow.name,
@@ -906,7 +904,7 @@ def run_local_workflow(
             write_values_json(
                 cached, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
             )
-            logger.notice("done (cached)")  # pyre-fixme
+            logger.notice("done (cached)")
             # returning `cached`, not the rewritten `_outputs`, to retain opportunity to find
             # cached downstream inputs
             return (run_dir, cached)
@@ -923,7 +921,7 @@ def run_local_workflow(
                 version = "v" + importlib_metadata.version("miniwdl")
             except importlib_metadata.PackageNotFoundError:
                 version = "UNKNOWN"
-            logger.notice(_("miniwdl", version=version, uname=" ".join(os.uname())))  # pyre-fixme
+            logger.notice(_("miniwdl", version=version, uname=" ".join(os.uname())))
 
             thread_pools = _ThreadPools(cfg, cleanup, logger)
         else:

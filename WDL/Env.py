@@ -1,7 +1,7 @@
-# pyre-strict
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
+
 from typing import Optional, TypeVar, Generic, Any, Callable, Set, Iterator
 
 T = TypeVar("T")
@@ -18,9 +18,9 @@ class Binding(Generic[T]):
 
     _name: str
     _value: T
-    _info: Any  # pyre-ignore
+    _info: Any
 
-    def __init__(self, name: str, value: T, info: Any = None) -> None:  # pyre-ignore
+    def __init__(self, name: str, value: T, info: Any = None) -> None:
         self._name = name
         self._value = value
         self._info = info
@@ -39,7 +39,7 @@ class Binding(Generic[T]):
         return self._value
 
     @property
-    def info(self) -> Any:  # pyre-ignore
+    def info(self) -> Any:
         ":type: Any"
         return self._info
 
@@ -86,7 +86,7 @@ class Bindings(Generic[T]):
     def __len__(self) -> int:
         return sum(1 for _ in self)
 
-    def bind(self, name: str, value: T, info: Any = None) -> "Bindings[T]":  # pyre-ignore
+    def bind(self, name: str, value: T, info: Any = None) -> "Bindings[T]":
         """
         Return an environment with a new binding prepended. Any existing binding for the same name
         is shadowed by the new one. (This should not usually arise in view of the immutability of

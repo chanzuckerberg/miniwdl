@@ -1158,7 +1158,7 @@ def runner_input_help(target):
     ans = [
         "",
         bold(f"{target.name} ({target.pos.uri})"),
-        bold(f"{'-'*(len(target.name)+len(target.pos.uri)+3)}"),
+        bold(f"{'-' * (len(target.name) + len(target.pos.uri) + 3)}"),
     ]
     required_inputs = target.required_inputs
     ans.append(bold("\nrequired inputs:"))

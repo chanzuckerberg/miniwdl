@@ -82,7 +82,7 @@ class SwarmContainer(TaskContainer):
                         if "already part of a swarm" not in str(exn):
                             raise exn
 
-                logger.notice(  # pyre-fixme
+                logger.notice(
                     _(
                         "waiting for local docker swarm manager & worker(s)",
                         manager=state,
@@ -136,7 +136,7 @@ class SwarmContainer(TaskContainer):
 
         max_cpu = int(resources_max_mem["NanoCPUs"] / 1_000_000_000)
         max_mem = resources_max_mem["MemoryBytes"]
-        logger.notice(  # pyre-ignore
+        logger.notice(
             _(
                 "docker swarm resources",
                 workers=len(worker_nodes),
@@ -339,7 +339,7 @@ class SwarmContainer(TaskContainer):
             image_digest = image_attrs["RepoDigests"][0]
             image_tag = image_digest
         image_log["RepoDigest"] = image_digest
-        logger.notice(_("docker image", **image_log))  # pyre-fixme
+        logger.notice(_("docker image", **image_log))
         return image_tag
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
@@ -505,7 +505,7 @@ class SwarmContainer(TaskContainer):
                 loginfo["message"] = logmsg
             method = logger.info
             if state == "running":
-                method = logger.notice  # pyre-fixme
+                method = logger.notice
             elif state in ["failed", "shutdown", "rejected", "orphaned", "remove"]:
                 method = logger.error
             method(_(f"docker task {state}", **loginfo))
@@ -522,7 +522,7 @@ class SwarmContainer(TaskContainer):
             if state == "failed":
                 logger.error(msg)
             else:
-                logger.notice(msg)  # pyre-fixme
+                logger.notice(msg)
             assert isinstance(exit_code, int) and (exit_code == 0) == (state == "complete")
             return exit_code
         elif {state, status.get("DesiredState")}.intersection(
@@ -638,7 +638,7 @@ class SwarmContainer(TaskContainer):
         # short-circuit if digest-tagged image already exists
         try:
             existing = client.images.get(tag)
-            logger.notice(_("docker build cached", tag=tag, id=existing.id))  # pyre-ignore
+            logger.notice(_("docker build cached", tag=tag, id=existing.id))
             return tag
         except docker.errors.ImageNotFound:
             pass
@@ -680,7 +680,5 @@ class SwarmContainer(TaskContainer):
                 raise exn
 
         write_log(build_log)
-        logger.notice(  # pyre-ignore
-            _("docker build", tag=image.tags[0], id=image.id, log=build_logfile)
-        )
+        logger.notice(_("docker build", tag=image.tags[0], id=image.id, log=build_logfile))
         return tag

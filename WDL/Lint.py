@@ -240,7 +240,7 @@ class StringCoercion(Linter):
             lambda from_type: not isinstance(
                 from_type,
                 (
-                    (Type.Any, Type.String, Type.File, Type.Directory)  # pyre-ignore
+                    (Type.Any, Type.String, Type.File, Type.Directory)
                     if isinstance(_parent_executable(obj), Tree.Task)
                     else (Type.Any, Type.String)
                 ),
@@ -303,7 +303,7 @@ class StringCoercion(Linter):
                                 from_type,
                                 (
                                     (
-                                        Type.Any,  # pyre-ignore
+                                        Type.Any,
                                         Type.String,
                                         Type.File,
                                         Type.Directory,
@@ -1139,7 +1139,7 @@ class UnexpectedRuntimeValue(Linter):
 
     def task(self, obj: Tree.Task) -> Any:
         for k in obj.runtime:
-            if not isinstance(obj.runtime[k].type, self.expected.get(k, Type.Base)):  # pyre-ignore
+            if not isinstance(obj.runtime[k].type, self.expected.get(k, Type.Base)):
                 self.add(
                     obj,
                     f"expected {'/'.join(ty.__name__ for ty in self.expected[k])} for task runtime.{k}",

@@ -661,9 +661,7 @@ class _ComparisonOperator(EagerFunction):
                 or (
                     isinstance(expr.arguments[0].type, Type.Array)
                     and isinstance(expr.arguments[1].type, Type.Array)
-                    # pyre-ignore
                     and expr.arguments[0].type.copy(optional=False, nonempty=False)
-                    # pyre-ignore
                     == expr.arguments[1].type.copy(optional=False, nonempty=False)
                 )
             )

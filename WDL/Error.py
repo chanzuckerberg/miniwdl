@@ -1,4 +1,3 @@
-# pyre-strict
 from typing import (
     List,
     Optional,
@@ -296,7 +295,7 @@ class _MultiContext:
     def __init__(self) -> None:
         self._exceptions = []
 
-    def try1(self, fn: Callable[[], Any]) -> Optional[Any]:  # pyre-ignore
+    def try1(self, fn: Callable[[], Any]) -> Optional[Any]:
         try:
             return fn()
         except (ValidationError, MultipleValidationErrors) as exn:
@@ -350,7 +349,6 @@ class RuntimeError(Exception):
     Backend-specific information about an error (for example, pointer to a centralized log system)
     """
 
-    # pyre-ignore
     def __init__(self, *args, more_info: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.more_info = more_info if more_info else {}

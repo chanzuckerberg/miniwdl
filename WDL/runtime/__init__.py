@@ -5,7 +5,6 @@ flexible input loading features; and avoids conflicting with the runtime's threa
 handlers. Alternatively, it's possible to call ``WDL.runtime.run()`` directly if needed.
 """
 
-# pyre-strict
 from typing import Union, Dict, Tuple, Any
 from .. import Tree, Value, Env
 from . import config

@@ -704,6 +704,6 @@ def digest_env(env: Env.Bindings[Base]) -> str:
     """
     from . import values_to_json
 
-    env_json = json.dumps(values_to_json(env), separators=(",", ":"), sort_keys=True)  # pyre-ignore
+    env_json = json.dumps(values_to_json(env), separators=(",", ":"), sort_keys=True)
     sha256 = hashlib.sha256(env_json.encode("utf-8")).digest()
     return base64.b32encode(sha256[:20]).decode().lower()

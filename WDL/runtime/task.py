@@ -1,7 +1,7 @@
-# pyre-strict
 """
 Local task runner
 """
+
 import logging
 import math
 import os
@@ -90,7 +90,7 @@ def run_local_task(  # type: ignore[return]
                     json=True,
                 )
             )
-        logger.notice(  # pyre-fixme
+        logger.notice(
             _(
                 "task setup",
                 name=task.name,
@@ -137,7 +137,7 @@ def run_local_task(  # type: ignore[return]
                 write_values_json(
                     cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
-                logger.notice("done (cached)")  # pyre-fixme
+                logger.notice("done (cached)")
                 # returning `cached`, not the rewritten `_outputs`, to retain opportunity to find
                 # cached downstream inputs
                 return (run_dir, cached)
@@ -232,7 +232,7 @@ def run_local_task(  # type: ignore[return]
                 write_values_json(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
-                logger.notice("done")  # pyre-fixme
+                logger.notice("done")
                 if not run_id.startswith("download-"):
                     cache.put(cache_key, outputs, run_dir=run_dir)
                 return (run_dir, outputs)
@@ -320,7 +320,7 @@ def _download_input_files(
 
     ans = Value.rewrite_env_paths(inputs, rewriter)
     if downloads or cached_hits:
-        logger.notice(  # pyre-fixme
+        logger.notice(
             _(
                 "processed input URIs",
                 downloaded=downloads,
@@ -529,7 +529,7 @@ def _eval_task_runtime(
         )
     if env_vars_override:
         # usually don't dump values into log, as they may often be auth tokens
-        logger.notice(  # pyre-ignore
+        logger.notice(
             _(
                 "overriding environment variables (portability warning)",
                 names=list(env_vars_override.keys()),
@@ -784,7 +784,7 @@ def _warn_struct_extra(
     if isinstance(v, Value.Struct) and v.extra:
         extra_keys = set(k for k in v.extra if not k.startswith("#"))
         if extra_keys - warned_keys:
-            logger.notice(  # pyre-fixme
+            logger.notice(
                 _(
                     "extraneous keys in struct initializer",
                     decl=decl_name,
