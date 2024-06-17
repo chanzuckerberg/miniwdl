@@ -932,7 +932,7 @@ class TestWorkflowRunner(unittest.TestCase):
             }
 
             runtime {
-                docker: "quay.io/vgteam/vg:v1.19.0"
+                docker: "quay.io/vgteam/vg:v1.57.0"
             }
         }
 
