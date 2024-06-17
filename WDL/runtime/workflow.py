@@ -1150,9 +1150,11 @@ def _download_input_files(
     download_concurrency = cfg.get_int("scheduler", "download_concurrency")
     if download_concurrency <= 0:
         download_concurrency = 999999
-    ops: Dict[futures.Future[Tuple[bool, str]], str] = {}
+    ops: Dict[futures.Future[Tuple[bool, str]], str] = {}  # pylint: disable=unsubscriptable-object
     incomplete = len(uris)
-    outstanding: Set[futures.Future[Tuple[bool, str]]] = set()
+    outstanding: Set[futures.Future[Tuple[bool, str]]] = (  # pylint: disable=unsubscriptable-object
+        set()
+    )
     downloaded_bytes = 0
     cached_hits = 0
     exn = None
