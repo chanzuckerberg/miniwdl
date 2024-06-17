@@ -3,7 +3,7 @@ import inspect
 import threading
 import regex
 import codecs
-from typing import List, Optional, Set, Tuple, Any
+from typing import List, Optional, Set, Tuple, Any, Union
 import lark
 from .Error import SourcePosition
 from . import Error, Tree, Type, Expr, _grammar
@@ -111,7 +111,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return Expr.Float(self._sp(meta), to_float(items[0]))
 
     def string(self, meta, items) -> Expr.Base:
-        parts: List[str | Expr.Placeholder] = []
+        parts: List[Union[str,Expr.Placeholder]] = []
         for item in items:
             if isinstance(item, Expr.Placeholder):
                 parts.append(item)
