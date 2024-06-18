@@ -1,10 +1,8 @@
-# pyre-strict
 from typing import (
     List,
     Optional,
     Union,
     Iterable,
-    TypeVar,
     Generator,
     Callable,
     Any,
@@ -69,9 +67,6 @@ class ImportError(Exception):
         self.pos = pos
 
 
-TVSourceNode = TypeVar("TVSourceNode", bound="SourceNode")
-
-
 @total_ordering
 class SourceNode:
     """Base class for an AST node, recording the source position"""
@@ -83,32 +78,36 @@ class SourceNode:
     Source position for this AST node
     """
 
+    parent: Optional["SourceNode"] = None
+    """
+    :type: Optional[SourceNode]
+
+    Parent node in the AST, if any
+    """
+
     def __init__(self, pos: SourcePosition) -> None:
         self.pos = pos
 
-    def __lt__(self, rhs: TVSourceNode) -> bool:
-        if isinstance(rhs, SourceNode):
-            return (
-                self.pos.abspath,
-                self.pos.line,
-                self.pos.column,
-                self.pos.end_line,
-                self.pos.end_column,
-            ) < (
-                rhs.pos.abspath,
-                rhs.pos.line,
-                rhs.pos.column,
-                rhs.pos.end_line,
-                rhs.pos.end_column,
-            )
-        return False
+    def __lt__(self, rhs: "SourceNode") -> bool:
+        return isinstance(rhs, SourceNode) and (
+            self.pos.abspath,
+            self.pos.line,
+            self.pos.column,
+            self.pos.end_line,
+            self.pos.end_column,
+        ) < (
+            rhs.pos.abspath,
+            rhs.pos.line,
+            rhs.pos.column,
+            rhs.pos.end_line,
+            rhs.pos.end_column,
+        )
 
-    def __eq__(self, rhs: TVSourceNode) -> bool:
-        assert isinstance(rhs, SourceNode)
-        return self.pos == rhs.pos
+    def __eq__(self, rhs: Any) -> bool:
+        return isinstance(rhs, SourceNode) and self.pos == rhs.pos
 
     @property
-    def children(self: TVSourceNode) -> Iterable[TVSourceNode]:
+    def children(self) -> Iterable["SourceNode"]:
         """
         :type: Iterable[SourceNode]
 
@@ -133,6 +132,8 @@ class ValidationError(Exception):
     """:type: Optional[str]
 
     The complete source text of the WDL document (if available)"""
+
+    declared_wdl_version: Optional[str] = None
 
     def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
         if isinstance(node, SourceNode):
@@ -162,12 +163,12 @@ class NoSuchCall(ValidationError):
 
 
 class NoSuchFunction(ValidationError):
-    def __init__(self, node: SourceNode, name: str) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
         super().__init__(node, "No such function: " + name)
 
 
 class WrongArity(ValidationError):
-    def __init__(self, node: SourceNode, expected: int) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], expected: int) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Apply)
         msg = "{} expects {} argument(s)".format(getattr(node, "function_name"), expected)
@@ -175,12 +176,12 @@ class WrongArity(ValidationError):
 
 
 class NotAnArray(ValidationError):
-    def __init__(self, node: SourceNode) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition]) -> None:
         super().__init__(node, "Not an array")
 
 
 class NoSuchMember(ValidationError):
-    def __init__(self, node: SourceNode, member: str) -> None:
+    def __init__(self, node: Union[SourceNode, SourcePosition], member: str) -> None:
         super().__init__(node, "No such member '{}'".format(member))
 
 
@@ -266,6 +267,10 @@ class MultipleValidationErrors(Exception):
     exceptions: List[ValidationError]
     """:type: List[ValidationError]"""
 
+    source_text: Optional[str] = None
+
+    declared_wdl_version: Optional[str] = None
+
     def __init__(
         self, *exceptions: List[Union[ValidationError, "MultipleValidationErrors"]]
     ) -> None:
@@ -290,7 +295,7 @@ class _MultiContext:
     def __init__(self) -> None:
         self._exceptions = []
 
-    def try1(self, fn: Callable[[], Any]) -> Optional[Any]:  # pyre-ignore
+    def try1(self, fn: Callable[[], Any]) -> Optional[Any]:
         try:
             return fn()
         except (ValidationError, MultipleValidationErrors) as exn:
@@ -304,8 +309,7 @@ class _MultiContext:
         if len(self._exceptions) == 1:
             raise self._exceptions[0]
         if self._exceptions:
-            # pyre-ignore
-            raise MultipleValidationErrors(*self._exceptions) from self._exceptions[0]
+            raise MultipleValidationErrors(*self._exceptions) from self._exceptions[0]  # type: ignore
 
 
 @contextmanager
@@ -345,7 +349,6 @@ class RuntimeError(Exception):
     Backend-specific information about an error (for example, pointer to a centralized log system)
     """
 
-    # pyre-ignore
     def __init__(self, *args, more_info: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.more_info = more_info if more_info else {}

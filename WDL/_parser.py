@@ -3,14 +3,14 @@ import inspect
 import threading
 import regex
 import codecs
-from typing import List, Optional, Set, Tuple, Any
+from typing import List, Optional, Set, Tuple, Any, Union
 import lark
 from .Error import SourcePosition
 from . import Error, Tree, Type, Expr, _grammar
 
 # memoize Lark parsers constructed for version & start symbol
 _lark_cache = {}
-_lark_comments_buffer = []
+_lark_comments_buffer: List[lark.Token] = []
 _lark_lock = threading.Lock()
 
 
@@ -111,7 +111,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return Expr.Float(self._sp(meta), to_float(items[0]))
 
     def string(self, meta, items) -> Expr.Base:
-        parts = []
+        parts: List[Union[str, Expr.Placeholder]] = []
         for item in items:
             if isinstance(item, Expr.Placeholder):
                 parts.append(item)
@@ -284,7 +284,7 @@ for op in [
         assert len(items) == 2
         return Expr.Apply(self._sp(meta), "_" + op, items)
 
-    setattr(_ExprTransformer, op, lark.v_args(meta=True)(fn))  # pyre-fixme
+    setattr(_ExprTransformer, op, lark.v_args(meta=True)(fn))
 
 
 class _DocTransformer(_ExprTransformer):
@@ -507,7 +507,7 @@ class _DocTransformer(_ExprTransformer):
     def tasks(self, meta, items):
         return items
 
-    def namespaced_ident(self, meta, items) -> Expr.Base:
+    def namespaced_ident(self, meta, items) -> List[str]:
         assert items
         return [item.value for item in items]
 
@@ -746,7 +746,7 @@ class _DocTransformer(_ExprTransformer):
 for _klass in [_ExprTransformer, _DocTransformer]:
     for name, method in inspect.getmembers(_klass, inspect.isfunction):
         if not name.startswith("_"):
-            setattr(_klass, name, lark.v_args(meta=True)(method))  # pyre-fixme
+            setattr(_klass, name, lark.v_args(meta=True)(method))
 
 
 def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
@@ -759,25 +759,25 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
         pos = SourcePosition(
             uri="(buffer)",
             abspath="(buffer)",
-            line=getattr(exn, "line", "?"),
-            column=getattr(exn, "column", "?"),
-            end_line=getattr(exn, "line", "?"),
-            end_column=getattr(exn, "column", "?"),
+            line=getattr(exn, "line", 0),
+            column=getattr(exn, "column", 0),
+            end_line=getattr(exn, "line", 0),
+            end_column=getattr(exn, "column", 0),
         )
         raise Error.SyntaxError(pos, str(exn), version, None) from None
     except lark.exceptions.VisitError as exn:
-        exn = exn.__context__ or exn
-        if isinstance(exn, BadCharacterEncoding):
+        exn2 = exn.__context__ or exn
+        if isinstance(exn2, BadCharacterEncoding):
             raise Error.SyntaxError(
-                exn.pos,
+                exn2.pos,
                 "Bad escape sequence in string literal",
                 version,
                 None,
             ) from None
         # attach WDL version info to all parser exceptions (not just SyntaxError)
-        setattr(exn, "wdl_version", version)
-        setattr(exn, "declared_wdl_version", None)
-        raise exn from None
+        setattr(exn2, "wdl_version", version)
+        setattr(exn2, "declared_wdl_version", None)
+        raise exn2 from None
 
 
 def _parse_doctransformer(
@@ -813,33 +813,33 @@ def _parse_doctransformer(
         pos = SourcePosition(
             uri=(uri if uri else "(buffer)"),
             abspath=(abspath if abspath else "(buffer)"),
-            line=getattr(exn, "line", "?"),
-            column=getattr(exn, "column", "?"),
-            end_line=getattr(exn, "line", "?"),
-            end_column=getattr(exn, "column", "?"),
+            line=getattr(exn, "line", 0),
+            column=getattr(exn, "column", 0),
+            end_line=getattr(exn, "line", 0),
+            end_column=getattr(exn, "column", 0),
         )
         raise Error.SyntaxError(pos, str(exn), version, declared_version) from None
     except lark.exceptions.VisitError as exn:
-        exn = exn.__context__ or exn
-        if isinstance(exn, BadCharacterEncoding):
+        exn2 = exn.__context__ or exn
+        if isinstance(exn2, BadCharacterEncoding):
             raise Error.SyntaxError(
-                exn.pos,
+                exn2.pos,
                 "Bad escape sequence in string literal",
                 version,
                 declared_version,
             ) from None
         # attach WDL version info to all parser exceptions (not just SyntaxError)
-        setattr(exn, "wdl_version", version)
-        setattr(exn, "declared_wdl_version", declared_version)
-        raise exn from None
+        setattr(exn2, "wdl_version", version)
+        setattr(exn2, "declared_wdl_version", declared_version)
+        raise exn2 from None
 
 
-def parse_tasks(txt: str, version: str = "draft-2") -> List[Tree.Task]:
-    return _parse_doctransformer("tasks", txt, version)
+def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
+    return _parse_doctransformer("tasks", txt, version or "draft-2")
 
 
-def parse_bound_decl(txt: str, version: str = "draft-2") -> Tree.Decl:
-    return _parse_doctransformer("bound_decl", txt, version)
+def parse_bound_decl(txt: str, version: Optional[str] = None) -> Tree.Decl:
+    return _parse_doctransformer("bound_decl", txt, version or "draft-2")
 
 
 def parse_document(

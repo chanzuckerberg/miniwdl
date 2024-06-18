@@ -1,4 +1,3 @@
-# pyre-strict
 from typing import Union, Dict, Any, Optional
 from ..Error import RuntimeError as _RuntimeError, SourcePosition
 from ..Tree import Task as _Task, Workflow as _Workflow
@@ -31,7 +30,7 @@ class CommandFailed(_RuntimeError):
         stderr_file: str,
         stdout_file: str,
         message: str = "",
-        **kwargs,  # pyre-ignore
+        **kwargs,
     ) -> None:
         oom_hint = ", a possible indication that it ran out of memory" if exit_status == 137 else ""
         super().__init__(
@@ -52,7 +51,7 @@ class Terminated(_RuntimeError):
     Termination warrants less logging because it was a secondary side-effect of a previous error
     """
 
-    def __init__(self, quiet: bool = False, **kwargs) -> None:  # pyre-ignore
+    def __init__(self, quiet: bool = False, **kwargs) -> None:
         super().__init__(**kwargs)
         self.quiet = quiet
         _statusbar.abort()
@@ -94,7 +93,6 @@ class RunFailed(_RuntimeError):
     run_id: str
     run_dir: str
 
-    # pyre-ignore
     def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str, **kwargs) -> None:
         super().__init__(
             f"{'task' if isinstance(exe, _Task) else 'workflow'} {exe.name} "
@@ -126,7 +124,7 @@ def error_json(
         info["run"] = getattr(exn, "run_id")
         info["dir"] = getattr(exn, "run_dir")
         # follow __cause__s to find the original triggering exception
-        from_exn = exn
+        from_exn: BaseException = exn
         from_run = None
         from_dir = dir
         from_pos = pos
@@ -134,7 +132,7 @@ def error_json(
             from_pos = getattr(getattr(from_exn, "exe"), "pos", from_pos)
             from_dir = getattr(from_exn, "run_dir")
             from_run = getattr(from_exn, "run_id")
-            from_exn = cause or from_exn.__cause__
+            from_exn = cause or from_exn.__cause__ or from_exn
             from_pos = getattr(from_exn, "pos", from_pos)
             cause = None
         if from_exn and from_exn is not exn:

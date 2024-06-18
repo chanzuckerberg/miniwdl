@@ -99,9 +99,7 @@ class SubprocessBase(TaskContainer):
             proc = subprocess.Popen(
                 invocation, stdout=cli_log, stderr=subprocess.STDOUT, cwd=self.host_dir
             )
-            logger.notice(  # pyre-ignore
-                _(f"{self.cli_name} run", pid=proc.pid, log=cli_log_filename)
-            )
+            logger.notice(_(f"{self.cli_name} run", pid=proc.pid, log=cli_log_filename))
             cleanup.enter_context(self.task_running_context())
 
             # long-poll for completion
@@ -118,8 +116,8 @@ class SubprocessBase(TaskContainer):
                 poll_cli_log()
             if terminating():
                 raise Terminated()
-            assert isinstance(exit_code, int)
-            return exit_code
+        assert isinstance(exit_code, int)
+        return exit_code
 
     @abstractproperty
     def cli_name(self) -> str:
@@ -223,7 +221,7 @@ class SubprocessBase(TaskContainer):
             with self._pulled_images_lock:
                 self._pulled_images.add(image)
 
-        logger.notice(  # pyre-ignore
+        logger.notice(
             _(
                 f"{self.cli_name} pull",
                 image=image,

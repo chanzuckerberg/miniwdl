@@ -27,6 +27,7 @@ from .Tree import (
     WorkflowNode,
     WorkflowSection,
     SourceComment,
+    ReadSourceResult,
 )
 
 SourcePosition = Error.SourcePosition
@@ -116,7 +117,10 @@ async def read_source_default(
     :param importer: The document importing the one here requested, if any; the
                      ``importer.pos.uri`` and ``importer.pos.abspath`` fields may be relevant to
                      resolve relative imports.
-    :returns: ``ReadSourceResult(source_text="...", abspath="...")``
+    :returns: ``WDL.ReadSourceResult(source_text="...", abspath="...")``
+
+    The returned ``NamedTuple`` provides the WDL source code and the absolute filename/URI from
+    which the source was read (e.g. after resolving a relative path).
 
     Callers may wish to override ``read_source`` with logic to download source code from network
     URIs, and for local filenames fall back to ``return await WDL.read_source_default(...)``.
@@ -125,14 +129,6 @@ async def read_source_default(
     ``asyncio.get_event_loop()`` and awaits the result.
     """
     return await Tree.read_source_default(uri, path, importer)
-
-
-class ReadSourceResult(Tree.ReadSourceResult):
-    """
-    The ``NamedTuple`` to be returned by the ``read_source`` routine. Its ``source_text: str`` field
-    provides the WDL source code, and the ``abspath: str`` field is the absolute filename/URI from
-    which the source was read (e.g. after resolving a relative path).
-    """
 
 
 async def resolve_file_import(uri: str, path: List[str], importer: Optional[Document]) -> str:
@@ -171,6 +167,7 @@ def copy_source(doc: Document, dir: str) -> str:
                 and not imp.uri.startswith("https:")
                 and not os.path.isabs(imp.uri)
             ):
+                assert imp.doc
                 queue.append(imp.doc)
     # find longest common prefix (up to a '/') among docs' pos.abspath (note these could be URIs!)
     lcp = os.path.dirname(os.path.commonprefix([a_doc.pos.abspath for a_doc in docs]))
@@ -220,8 +217,8 @@ def parse_tasks(txt: str, version: Optional[str] = None) -> List[Task]:
 
 def values_from_json(
     values_json: Dict[str, Any],
-    available: Env.Bindings[Union[Tree.Decl, Type.Base]],
-    required: Optional[Env.Bindings[Union[Tree.Decl, Type.Base]]] = None,
+    available: Union[Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]],
+    required: Optional[Union[Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]]] = None,
     namespace: str = "",
 ) -> Env.Bindings[Value.Base]:
     """
@@ -236,7 +233,7 @@ def values_from_json(
     """
     if namespace and not namespace.endswith("."):
         namespace += "."
-    ans = Env.Bindings()
+    ans: Env.Bindings[Value.Base] = Env.Bindings()
     for key in values_json:
         if not key.startswith("#"):  # ignore "comments"
             key2 = key
@@ -286,12 +283,15 @@ def values_from_json(
         missing = required.subtract(ans)
         if missing:
             raise Error.InputError(
-                "missing required inputs/outputs: " + ", ".join(values_to_json(missing))
+                "missing required inputs/outputs: " + ", ".join(values_to_json(missing))  # type: ignore
             )
     return ans
 
 
-def values_to_json(values_env: Env.Bindings[Value.Base], namespace: str = "") -> Dict[str, Any]:
+def values_to_json(
+    values_env: Union[Env.Bindings[Value.Base], Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]],
+    namespace: str = "",
+) -> Dict[str, Any]:
     """
     Convert a ``WDL.Env.Bindings[WDL.Value.Base]`` to a dict which ``json.dumps`` to
     Cromwell-style JSON.

@@ -6,10 +6,9 @@ referenced therein, and updates their access timestamps (atime).
 
 import json
 import os
-import shutil
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, Any
 from contextlib import AbstractContextManager, suppress
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
@@ -97,7 +96,7 @@ class CallCache(AbstractContextManager):
                     # envelope: previously, there was none and file contained exactly the outputs.
                     run_dir = outputs.get("dir", None)
                     outputs = outputs["outputs"]
-                cache = values_from_json(outputs, output_types)  # pyre-fixme
+                cache = values_from_json(outputs, output_types)
         except FileNotFoundError:
             self._logger.info(_("call cache miss", cache_file=file_path))
         except Exception as exn:
@@ -105,7 +104,7 @@ class CallCache(AbstractContextManager):
                 _("call cache entry present, but unreadable", cache_file=file_path, error=str(exn))
             )
         if cache:
-            self._logger.notice(  # pyre-fixme
+            self._logger.notice(
                 _(
                     "call cache hit",
                     run_dir=(run_dir if run_dir else "?"),
@@ -143,7 +142,7 @@ class CallCache(AbstractContextManager):
         if self._cfg["call_cache"].get_bool("put"):
             envelope = {
                 "miniwdlCallCacheVersion": 1,
-                "outputs": values_to_json(outputs),  # pyre-ignore
+                "outputs": values_to_json(outputs),
             }
             if run_dir:
                 envelope["dir"] = run_dir
@@ -392,7 +391,7 @@ def _check_files_coherence(
 
 
 _backends_lock = Lock()
-_backends = {}
+_backends: Dict[str, Any] = {}
 
 
 def new(cfg: config.Loader, logger: logging.Logger) -> CallCache:

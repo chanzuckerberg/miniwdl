@@ -93,18 +93,18 @@ def run(
             if "task_wdl" in recv:
                 task_wdl, inputs = (recv[k] for k in ["task_wdl", "inputs"])
 
-                doc = parse_document(task_wdl, version="development")  # pyre-ignore
+                doc = parse_document(task_wdl, version="development")
                 assert len(doc.tasks) == 1 and not doc.workflow
                 doc.typecheck()
                 Walker.SetParents()(doc)
                 task = doc.tasks[0]
-                inputs = values_from_json(inputs, task.available_inputs)  # pyre-ignore
+                inputs = values_from_json(inputs, task.available_inputs)  # type: ignore[arg-type]
                 subdir, outputs_env = run_local_task(
                     cfg, task, inputs, run_id=("download-" + task.name), **kwargs
                 )
 
                 recv = cor.send(
-                    {"outputs": values_to_json(outputs_env), "dir": subdir}  # pyre-ignore
+                    {"outputs": values_to_json(outputs_env), "dir": subdir}  # type: ignore[arg-type]
                 )
 
             ans = recv["outputs"]["directory" if directory else "file"]
@@ -199,7 +199,7 @@ def aria2c_downloader(
         "task_wdl": wdl,
         "inputs": {"uri": uri, "docker": cfg["download_aria2c"]["docker"]},
     }
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def awscli_downloader(
@@ -248,7 +248,7 @@ def awscli_downloader(
         }
         """
         recv = yield {"task_wdl": wdl, "inputs": inputs}
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def awscli_directory_downloader(
@@ -299,7 +299,7 @@ def awscli_directory_downloader(
         }
         """
         recv = yield {"task_wdl": wdl, "inputs": inputs}
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def prepare_aws_credentials(
@@ -311,7 +311,7 @@ def prepare_aws_credentials(
         host_aws_credentials["AWS_EC2_METADATA_DISABLED"] = os.environ["AWS_EC2_METADATA_DISABLED"]
     # get AWS credentials from boto3 (unless prevented by configuration)
     if cfg["download_awscli"].get_bool("host_credentials"):
-        import boto3  # pyre-fixme
+        import boto3  # type: ignore
 
         try:
             b3creds = boto3.session.Session().get_credentials()
@@ -323,18 +323,18 @@ def prepare_aws_credentials(
 
     if host_aws_credentials:
         # write credentials to temp file that'll self-destruct afterwards
-        host_aws_credentials = (
+        host_aws_credentials_str = (
             "\n".join(f"export {k}={shlex.quote(v)}" for (k, v) in host_aws_credentials.items())
             + "\n"
         )
         aws_credentials_file = cleanup.enter_context(
             tempfile.NamedTemporaryFile(
-                prefix=hashlib.sha256(host_aws_credentials.encode()).hexdigest(),
+                prefix=hashlib.sha256(host_aws_credentials_str.encode()).hexdigest(),
                 delete=True,
                 mode="w",
             )
         )
-        print(host_aws_credentials, file=aws_credentials_file, flush=True)
+        print(host_aws_credentials_str, file=aws_credentials_file, flush=True)
         # make file group-readable to ensure it'll be usable if the docker image runs as non-root
         os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
         logger.getChild("awscli_downloader").info("loaded host AWS credentials")
@@ -379,7 +379,7 @@ def gsutil_downloader(
         }
     }
     """
-    yield (  # pyre-ignore
+    yield (
         yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
     )
 
@@ -414,6 +414,6 @@ def gsutil_directory_downloader(
         }
     }
     """
-    yield (  # pyre-ignore
+    yield (
         yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
     )

@@ -43,7 +43,7 @@ def build(
 
         # add MANIFEST.json; schema roughly following Amazon Genomics CLI's:
         #  https://aws.github.io/amazon-genomics-cli/docs/concepts/workflows/#multi-file-workflows
-        manifest = {"mainWorkflowURL": os.path.basename(top_doc.pos.abspath)}
+        manifest: Dict[str, Any] = {"mainWorkflowURL": os.path.basename(top_doc.pos.abspath)}
         if meta:
             manifest["meta"] = meta
         if inputs:
@@ -87,6 +87,7 @@ def build_source_dir(
     while queue:
         a_doc = queue.pop()
         for imported_doc in a_doc.imports:
+            assert imported_doc.doc
             queue.append(imported_doc.doc)
         wdls[a_doc.pos.abspath] = a_doc
 
@@ -147,6 +148,7 @@ def rewrite_imports(
     source_lines = doc.source_lines.copy()
 
     for imp in doc.imports:
+        assert imp.doc
         lo = imp.pos.line - 1
         hi = imp.pos.end_line
         found = False

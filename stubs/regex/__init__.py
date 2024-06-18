@@ -1,4 +1,6 @@
-from typing import Any, Iterator, Tuple, List
+# mypy: ignore-errors
+
+from typing import Any, Iterator, Tuple, List, Callable
 
 POSIX: int
 UNICODE: int
@@ -8,7 +10,7 @@ class Pattern:
     def fullmatch(self, string: str) -> Any:
         ...
 
-    def sub(self, repl: str, string: str) -> str:
+    def sub(self, repl: str | Callable, string: str) -> str:
         ...
 
     def split(self, string: str) -> List[str]:

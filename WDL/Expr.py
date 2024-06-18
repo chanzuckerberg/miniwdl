@@ -13,10 +13,13 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Tuple, Union, Iterable
+from typing import List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
 import regex
 from .Error import SourcePosition, SourceNode
 from . import Type, Value, Env, Error, StdLib
+
+if TYPE_CHECKING:
+    from . import Tree
 
 
 class Base(SourceNode, ABC):
@@ -74,9 +77,11 @@ class Base(SourceNode, ABC):
             for child in self.children:
                 assert isinstance(child, Base)
                 errors.try1(
-                    lambda child=child: child.infer_type(
-                        type_env, stdlib, check_quant, struct_types
-                    )
+                    (
+                        lambda child: lambda: child.infer_type(
+                            type_env, stdlib, check_quant, struct_types
+                        )
+                    )(child)
                 )
         # invoke derived-class logic. we pass check_quant, stdlib, and struct_types hackily through
         # instance variables since only some subclasses use them.
@@ -136,7 +141,7 @@ class Base(SourceNode, ABC):
         result can be an instance of ``WDL.Value.Null`` which is distinct from None.
         """
         if isinstance(self, (Boolean, Int, Float)):
-            return self._eval(Env.Bindings(), None)  # pyre-fixme
+            return self._eval(Env.Bindings(), None)  # type: ignore
         return None
 
 
@@ -278,6 +283,7 @@ class Placeholder(Base):
             if isinstance(ch, Apply) and ch.function_name == "_add":
                 ch.function_name = "_interpolation_add"
             for ch2 in ch.children:
+                assert isinstance(ch2, Base)
                 rewrite_adds(ch2)
 
         rewrite_adds(self.expr)
@@ -346,7 +352,7 @@ class Placeholder(Base):
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         ans = self._eval_impl(env, stdlib)
-        placeholder_regex: regex.Pattern = getattr(stdlib, "_placeholder_regex", None)
+        placeholder_regex: Optional[regex.Pattern] = getattr(stdlib, "_placeholder_regex", None)
         if placeholder_regex and not placeholder_regex.fullmatch(ans.value):
             raise Error.InputError(
                 "Task command placeholder value forbidden by configuration [task_runtime] placeholder_regex"
@@ -403,9 +409,9 @@ class String(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.String()
 
-    def typecheck(self, expected: Optional[Type.Base]) -> Base:
+    def typecheck(self, expected: Type.Base) -> Base:
         """"""
-        return super().typecheck(expected)  # pyre-ignore
+        return super().typecheck(expected)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         """"""
@@ -428,8 +434,10 @@ class String(Base):
         if self.command:
             return Value.String("".join(ans))
         delim = self.parts[0]
+        assert isinstance(delim, str)
         assert delim in ("'", '"', "{", "<<<")
         delim2 = self.parts[-1]
+        assert isinstance(delim2, str)
         assert delim2 in ("'", '"', "}", ">>>") and len(delim) == len(delim2)
         return Value.String("".join(ans)[len(delim) : -len(delim)])
 
@@ -437,7 +445,7 @@ class String(Base):
     def literal(self) -> Optional[Value.Base]:
         if next((p for p in self.parts if not isinstance(p, str)), None):
             return None
-        return self._eval(Env.Bindings(), None)  # pyre-fixme
+        return self._eval(Env.Bindings(), None)  # type: ignore
 
 
 class Array(Base):
@@ -477,12 +485,12 @@ class Array(Base):
             raise Error.IndeterminateType(self, "unable to unify array item types")
         return Type.Array(item_type, optional=False, nonempty=True)
 
-    def typecheck(self, expected: Optional[Type.Base]) -> Base:
+    def typecheck(self, expected: Type.Base) -> Base:
         """"""
         if not self.items and isinstance(expected, Type.Array):
             # the literal empty array satisfies any array type
             return self
-        return super().typecheck(expected)  # pyre-ignore
+        return super().typecheck(expected)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Array:
         """"""
@@ -595,7 +603,7 @@ class Map(Base):
         )
         if isinstance(vty, Type.Any):
             raise Error.IndeterminateType(self, "unable to unify map value types")
-        literal_keys = None
+        literal_keys: Optional[Set[str]] = None
         if kty == Type.String():
             # If the keys are string constants, record them in the Type object
             # for potential later use in struct coercion. (Normally the Type
@@ -721,7 +729,7 @@ class Struct(Base):
             if isinstance(self.type, Type.StructInstance):
                 assert self.type.members
                 ans[k] = ans[k].coerce(self.type.members[k])
-        return Value.Struct(self.type, ans)
+        return Value.Struct(self.type, ans)  # type: ignore
 
     @property
     def literal(self) -> Optional[Value.Base]:

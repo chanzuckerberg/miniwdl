@@ -1035,7 +1035,7 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
-        self.assertEquals(outp["result"], {"map": {"foo":"bar", "fizz":"buzz"}})
+        self.assertEqual(outp["result"], {"map": {"foo":"bar", "fizz":"buzz"}})
 
     def test_issue563(self):
         # still more struct init regression
@@ -1055,7 +1055,7 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, {"j": {"x": 0}})
-        self.assertEquals(outp, {"out": [{"x": 0}]})
+        self.assertEqual(outp, {"out": [{"x": 0}]})
 
     def test_issue580(self):
         # error in nested struct

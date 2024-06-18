@@ -1,8 +1,8 @@
-# pyre-strict
 """
 1. Process-global counters for queued/running tasks
 2. Logic for filling out the log stderr "status bar" with that info
 """
+
 import threading
 import time
 import datetime

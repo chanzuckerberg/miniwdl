@@ -90,11 +90,9 @@ class Loader:
         self._used = set()
         self._used_env = set(["MINIWDL_CFG"])
 
-        common_kws = {}
-
-        self._defaults = configparser.ConfigParser(**common_kws)
-        self._options = configparser.ConfigParser(**common_kws)
-        self._overrides = configparser.ConfigParser(**common_kws)
+        self._defaults = configparser.ConfigParser()
+        self._options = configparser.ConfigParser()
+        self._overrides = configparser.ConfigParser()
 
         # load default.cfg
         default_cfg = os.path.join(os.path.dirname(__file__), "config_templates", "default.cfg")
@@ -126,7 +124,7 @@ class Loader:
             self.override(overrides)
 
     def override(self, options: Dict[str, Dict[str, Any]]) -> None:
-        options2 = {}
+        options2: Dict[str, Dict[str, Any]] = {}
         for section in options:
             if options[section]:
                 options2[section] = {}
@@ -146,7 +144,7 @@ class Loader:
         represented in default.cfg).
         (DEPRECATED)
         """
-        options2 = {}
+        options2: Dict[str, Dict[str, Any]] = {}
         for section in options:
             for key in options[section]:
                 if not self._defaults.has_option(section, key):
@@ -171,12 +169,11 @@ class Loader:
     def get(self, section: str, key: str, default: Optional[str] = None) -> str:
         section = str(section).lower()
         key = str(key).lower()
-        common_kws = {}
         ans = None
 
         # first check overrides
         if self._overrides.has_option(section, key):
-            ans = self._overrides.get(section, key, **common_kws)
+            ans = self._overrides.get(section, key)
         else:
             # ...then environment
             env_key = _env_var_name(section, key)
@@ -185,10 +182,10 @@ class Loader:
                 self._used_env.add(env_key)
             # ...then the config file
             elif self._options.has_option(section, key):
-                ans = self._options.get(section, key, **common_kws)
+                ans = self._options.get(section, key)
             # ...then the default config
             elif self._defaults.has_option(section, key):
-                ans = self._defaults.get(section, key, **common_kws)
+                ans = self._defaults.get(section, key)
 
         if ans is None:
             if default is not None:
@@ -319,7 +316,7 @@ class Loader:
             self._logger.warning(_("unused environment", variables=list(ev_unused)))
 
 
-def _strip(value):
+def _strip(value: str) -> str:
     ans = value
     if ans:
         ans = value.strip()
@@ -373,7 +370,7 @@ def _parse_list(v: str) -> List[Any]:
     return ans
 
 
-def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
+def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":  # type: ignore
     import importlib_metadata  # delayed heavy import
 
     return {

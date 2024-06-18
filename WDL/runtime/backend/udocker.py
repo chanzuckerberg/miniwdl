@@ -30,7 +30,7 @@ class UdockerContainer(SubprocessBase):
             )
         except:
             raise RuntimeError(f"Unable to check `{' '.join(cmd)}`; verify udocker installation")
-        logger.notice(  # pyre-ignore
+        logger.notice(
             _(
                 "udocker runtime initialized (BETA)",
                 udocker_version=udocker_version.stdout.strip().split("\n"),

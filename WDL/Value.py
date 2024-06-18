@@ -13,9 +13,12 @@ import copy
 import base64
 import hashlib
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set
+from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set, TYPE_CHECKING
 from contextlib import suppress
 from . import Error, Type, Env
+
+if TYPE_CHECKING:
+    from . import Expr
 
 
 class Base(ABC):
@@ -297,14 +300,14 @@ class Map(Base):
             # coerce to desired member types
             ans = {}
             for k, v in self.value:
-                k = k.coerce(Type.String()).value
+                ks = k.coerce(Type.String()).value
                 try:
-                    ans[k] = v.coerce(desired_type.members[k])
+                    ans[ks] = v.coerce(desired_type.members[ks])
                 except Error.RuntimeError as exc:
                     # some coercions that typecheck could still fail, e.g. String to Int
                     msg = (
                         "runtime type mismatch initializing "
-                        f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
+                        f"{desired_type.members[ks]} {ks} member of struct {desired_type.type_name}"
                     ) + ((": " + exc.args[0]) if exc.args else "")
                     raise (
                         Error.EvalError(
@@ -497,6 +500,7 @@ class Struct(Base):
                         "cannot coerce struct member"
                         f" {self.type.members[k]} {k} to {value_type} map value"
                     )
+                assert map_key and map_value
                 entries.append((map_key, map_value))
         return Map(desired_type.item_type, entries)
 
@@ -575,7 +579,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
                 raise Error.InputError(
                     f"initializer for struct {str(type)} omits required field(s)"
                 )
-        items = {}
+        members = {}
         extra = set()
         for k, v in value.items():
             assert isinstance(k, str)
@@ -583,13 +587,13 @@ def from_json(type: Type.Base, value: Any) -> Base:
                 extra.add(k)
             else:
                 try:
-                    items[k] = from_json(type.members[k], v)
+                    members[k] = from_json(type.members[k], v)
                 except Error.InputError:
                     raise Error.InputError(
                         f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
                     ) from None
         # Struct.__init__ will populate null for any omitted optional members
-        return Struct(type, items, extra=extra)
+        return Struct(type, members, extra=extra)
     if type.optional and value is None:
         return Null()
     raise Error.InputError(f"couldn't construct {str(type)} from {json.dumps(value)}")
@@ -637,10 +641,10 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]])
             w.value = fw
         # recursive descent into compound Values
         elif isinstance(w.value, list):
-            value2 = []
+            value2: List[Any] = []
             for elt in w.value:
                 if isinstance(elt, tuple):
-                    assert len(elt) == 2 and sum(1 for x in elt if not isinstance(x, Base)) == 0
+                    assert len(elt) == 2 and all(isinstance(x, Base) for x in elt)
                     value2.append((map_paths(elt[0]), map_paths(elt[1])))
                 else:
                     assert isinstance(elt, Base)
@@ -650,11 +654,11 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]])
             assert len(w.value) == 2 and sum(1 for x in w.value if not isinstance(x, Base)) == 0
             w.value = (map_paths(w.value[0]), map_paths(w.value[1]))
         elif isinstance(w.value, dict):
-            value2 = {}
+            value3 = {}
             for key in w.value:
                 assert isinstance(key, str) and isinstance(w.value[key], Base)
-                value2[key] = map_paths(w.value[key])
-            w.value = value2
+                value3[key] = map_paths(w.value[key])
+            w.value = value3
         else:
             assert w.value is None or isinstance(w.value, (int, float, bool, str))
         return w
@@ -701,6 +705,6 @@ def digest_env(env: Env.Bindings[Base]) -> str:
     """
     from . import values_to_json
 
-    env_json = json.dumps(values_to_json(env), separators=(",", ":"), sort_keys=True)  # pyre-ignore
+    env_json = json.dumps(values_to_json(env), separators=(",", ":"), sort_keys=True)
     sha256 = hashlib.sha256(env_json.encode("utf-8")).digest()
     return base64.b32encode(sha256[:20]).decode().lower()

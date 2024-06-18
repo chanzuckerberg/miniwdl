@@ -40,8 +40,12 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
 """
 
 import copy
+import typing
 from abc import ABC
-from typing import Optional, Tuple, Dict, Iterable, Set, List
+from typing import Optional, Tuple, Dict, Iterable, Set, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .Error import SourcePosition
 
 
 class Base(ABC):
@@ -125,7 +129,7 @@ class Base(ABC):
     def __str__(self) -> str:
         return type(self).__name__ + ("?" if self.optional else "")
 
-    def __eq__(self, rhs: "Base") -> bool:
+    def __eq__(self, rhs: typing.Any) -> bool:
         return isinstance(rhs, Base) and str(self) == str(rhs)
 
 
@@ -270,7 +274,7 @@ class Array(Base):
     def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
         ans = super().copy(optional)
         if nonempty is not None:
-            ans._nonempty = nonempty
+            setattr(ans, "_nonempty", nonempty)
         return ans
 
 
@@ -453,10 +457,10 @@ def _struct_type_id(members: Dict[str, Base]) -> str:
     for name, ty in sorted(members.items()):
         if isinstance(ty, StructInstance):
             assert ty.members
-            ty = _struct_type_id(ty.members) + ("?" if ty.optional else "")
+            sty = _struct_type_id(ty.members) + ("?" if ty.optional else "")
         else:
-            ty = str(ty)
-        ans.append(name + " : " + ty)
+            sty = str(ty)
+        ans.append(name + " : " + sty)
     return "struct(" + ", ".join(ans) + ")"
 
 
@@ -543,7 +547,7 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
     t = next((t for t in types if not isinstance(t, (String, Any))), types[0])
     if not check_quant:
         t = next((a for a in types if isinstance(a, Array) and not isinstance(a.item_type, Any)), t)
-    t = t.copy()  # pyre-ignore
+    t = t.copy()
 
     # potentially promote/generalize t to other types seen
     optional = False
@@ -558,11 +562,14 @@ def unify(types: List[Base], check_quant: bool = True, force_string: bool = Fals
             t.left_type = unify([t.left_type, t2.left_type], check_quant, force_string)
             t.right_type = unify([t.right_type, t2.right_type], check_quant, force_string)
         if isinstance(t, Map) and isinstance(t2, Map):
-            t.item_type = (  # pyre-ignore
-                unify([t.item_type[0], t2.item_type[0]], check_quant, force_string),  # pyre-ignore
-                unify([t.item_type[1], t2.item_type[1]], check_quant, force_string),  # pyre-ignore
+            t.item_type = (
+                unify([t.item_type[0], t2.item_type[0]], check_quant, force_string),
+                unify([t.item_type[1], t2.item_type[1]], check_quant, force_string),
             )
-        if not t_was_array_any and next((pt for pt in t.parameters if isinstance(pt, Any)), False):
+        if (
+            not t_was_array_any
+            and next((pt for pt in t.parameters if isinstance(pt, Any)), None) is not None
+        ):
             return Any()
         if isinstance(t, Object) and isinstance(t2, Object):
             # unifying Object types (generally transient, pending coercion to a StructInstance)

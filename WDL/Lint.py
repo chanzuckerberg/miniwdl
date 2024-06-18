@@ -106,8 +106,8 @@ class Linter(Walker.Base):
                 suppress = True
 
         if not hasattr(obj, "lint"):
-            obj.lint = []
-        obj.lint.append((pos, self.__class__.__name__, message, suppress))
+            setattr(obj, "lint", [])
+        getattr(obj, "lint").append((pos, self.__class__.__name__, message, suppress))
         return True
 
 
@@ -240,7 +240,7 @@ class StringCoercion(Linter):
             lambda from_type: not isinstance(
                 from_type,
                 (
-                    (Type.Any, Type.String, Type.File, Type.Directory)  # pyre-ignore
+                    (Type.Any, Type.String, Type.File, Type.Directory)
                     if isinstance(_parent_executable(obj), Tree.Task)
                     else (Type.Any, Type.String)
                 ),
@@ -303,7 +303,7 @@ class StringCoercion(Linter):
                                 from_type,
                                 (
                                     (
-                                        Type.Any,  # pyre-ignore
+                                        Type.Any,
                                         Type.String,
                                         Type.File,
                                         Type.Directory,
@@ -753,6 +753,7 @@ class ImportNewerWDL(Linter):
     def document(self, obj: Tree.Document) -> Any:
         doc_version = self._version_order(obj.effective_wdl_version)
         for imp in obj.imports:
+            assert imp.doc
             if self._version_order(imp.doc.effective_wdl_version) > doc_version:
                 self.add(
                     obj,
@@ -776,9 +777,9 @@ class ForwardReference(Linter):
             referee = obj.referee
             if isinstance(referee, Tree.Gather):
                 referee = referee.final_referee
-            if referee.pos.line > obj.pos.line or (  # pyre-ignore
-                referee.pos.line == obj.pos.line  # pyre-ignore
-                and referee.pos.column > obj.pos.column  # pyre-ignore
+            if referee.pos.line > obj.pos.line or (  # type: ignore
+                referee.pos.line == obj.pos.line  # type: ignore
+                and referee.pos.column > obj.pos.column  # type: ignore
             ):
                 if isinstance(referee, Tree.Decl):
                     msg = "reference to {} precedes its declaration".format(obj.name)
@@ -823,12 +824,12 @@ class UnusedDeclaration(Linter):
             if not (
                 (
                     isinstance(obj.type, Type.File)
-                    and sum(1 for sfx in index_suffixes if obj.name.lower().endswith(sfx))
+                    and (sum(1 for sfx in index_suffixes if obj.name.lower().endswith(sfx)) > 0)
                 )
                 or (
                     isinstance(obj.type, Type.Array)
                     and isinstance(obj.type.item_type, Type.File)
-                    and sum(1 for sfx in index_suffixes if obj.name.lower().endswith(sfx))
+                    and (sum(1 for sfx in index_suffixes if obj.name.lower().endswith(sfx)) > 0)
                 )
                 or (
                     isinstance(pt, Tree.Task)
@@ -952,12 +953,12 @@ class CommandShellCheck(Linter):
             else:
                 assert isinstance(part, str)
                 command.append(part)
-        col_offset, command = _util.strip_leading_whitespace("".join(command))
+        col_offset, command_str = _util.strip_leading_whitespace("".join(command))
 
         # write out a temp file with this fake script
         tfn = os.path.join(self._tmpdir, obj.name)
         with open(tfn, "w") as outfile:
-            outfile.write(command)
+            outfile.write(command_str)
 
         # run shellcheck on it & collect JSON results
         shellcheck_items = None
@@ -1138,7 +1139,7 @@ class UnexpectedRuntimeValue(Linter):
 
     def task(self, obj: Tree.Task) -> Any:
         for k in obj.runtime:
-            if not isinstance(obj.runtime[k].type, self.expected.get(k, Type.Base)):  # pyre-ignore
+            if not isinstance(obj.runtime[k].type, self.expected.get(k, Type.Base)):
                 self.add(
                     obj,
                     f"expected {'/'.join(ty.__name__ for ty in self.expected[k])} for task runtime.{k}",
@@ -1148,7 +1149,7 @@ class UnexpectedRuntimeValue(Linter):
         if "cpu" in obj.runtime and isinstance(obj.runtime["cpu"].type, Type.String):
             # for historical reasons, allow strings that are int literals, or a single placeholder
             # for an int value
-            cpu = obj.runtime["cpu"]
+            cpu: Optional[Expr.Base] = obj.runtime["cpu"]
             if isinstance(cpu, Expr.String) and len(cpu.parts) == 3:
                 cpu_part = cpu.parts[1]
                 if (isinstance(cpu_part, str) and cpu_part.isdigit()) or (

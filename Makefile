@@ -41,15 +41,12 @@ ci_housekeeping: sopretty check_check check doc
 ci_unit_tests: unit_tests
 
 check:
-	pyre \
-		--search-path stubs \
-		--typeshed `python3 -c 'import sys, site, os; print(next(p for p in (os.path.join(dir,"lib/pyre_check/typeshed") for dir in (sys.prefix,site.getuserbase())) if os.path.isdir(p)))'` \
-		--show-parse-errors check
+	mypy WDL
 	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
 	flake8 WDL
 
 check_check:
-	# regression test against pyre doing nothing (issue #100)
+	# regression test against pyre/mypy doing nothing (issue #100)
 	echo "check_check: str = 42" > WDL/DELETEME_check_check.py
 	$(MAKE) check > /dev/null 2>&1 && exit 1 || exit 0
 	rm WDL/DELETEME_check_check.py

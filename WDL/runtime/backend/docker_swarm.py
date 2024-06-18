@@ -66,7 +66,7 @@ class SwarmContainer(TaskContainer):
                         if worker_nodes:
                             break
                     else:
-                        logging.warning(
+                        logger.warning(
                             "this host is a docker swarm worker but not a manager; "
                             "WDL task scheduling requires manager access"
                         )
@@ -82,7 +82,7 @@ class SwarmContainer(TaskContainer):
                         if "already part of a swarm" not in str(exn):
                             raise exn
 
-                logger.notice(  # pyre-fixme
+                logger.notice(
                     _(
                         "waiting for local docker swarm manager & worker(s)",
                         manager=state,
@@ -106,7 +106,7 @@ class SwarmContainer(TaskContainer):
         # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
         # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
         # where Docker containers run in a virtual machine with limited resources.
-        resources_max_mem = {}
+        resources_max_mem: Dict[str, int] = {}
         total_NanoCPUs = 0
         total_MemoryBytes = 0
 
@@ -136,7 +136,7 @@ class SwarmContainer(TaskContainer):
 
         max_cpu = int(resources_max_mem["NanoCPUs"] / 1_000_000_000)
         max_mem = resources_max_mem["MemoryBytes"]
-        logger.notice(  # pyre-ignore
+        logger.notice(
             _(
                 "docker swarm resources",
                 workers=len(worker_nodes),
@@ -334,12 +334,12 @@ class SwarmContainer(TaskContainer):
         image_log = {"tag": image_tag, "id": image_attrs["Id"]}
         # resolve mutable tag to immutable RepoDigest if possible, to ensure identical image will
         # be used across a multi-node swarm
-        image_digest = bool(image_attrs.get("RepoDigests"))
-        if image_digest and image_tag not in image_attrs["RepoDigests"]:
+        image_digest = None
+        if bool(image_attrs.get("RepoDigests")) and image_tag not in image_attrs["RepoDigests"]:
             image_digest = image_attrs["RepoDigests"][0]
             image_tag = image_digest
         image_log["RepoDigest"] = image_digest
-        logger.notice(_("docker image", **image_log))  # pyre-fixme
+        logger.notice(_("docker image", **image_log))
         return image_tag
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
@@ -430,8 +430,8 @@ class SwarmContainer(TaskContainer):
 
     def misc_config(
         self, logger: logging.Logger
-    ) -> Tuple[Optional[Dict[str, str]], Optional[str], List[str]]:
-        resources = {}
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], List[str]]:
+        resources: Dict[str, Any] = {}
         cpu = self.runtime_values.get("cpu", 0)
         if cpu > 0:
             # the cpu unit expected by swarm is "NanoCPUs"
@@ -446,8 +446,6 @@ class SwarmContainer(TaskContainer):
         if resources:
             logger.debug(_("docker resources", **resources))
             resources = docker.types.Resources(**resources)
-        else:
-            resources = None
         user = None
         if self.cfg["task_runtime"].get_bool("as_user"):
             user = f"{os.geteuid()}:{os.getegid()}"
@@ -465,7 +463,7 @@ class SwarmContainer(TaskContainer):
             )
         if self.runtime_values.get("gpu", False):
             logger.warning("ignored runtime.gpu (not yet implemented)")
-        return resources, user, groups
+        return (resources if resources else None), user, groups
 
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
@@ -507,7 +505,7 @@ class SwarmContainer(TaskContainer):
                 loginfo["message"] = logmsg
             method = logger.info
             if state == "running":
-                method = logger.notice  # pyre-fixme
+                method = logger.notice
             elif state in ["failed", "shutdown", "rejected", "orphaned", "remove"]:
                 method = logger.error
             method(_(f"docker task {state}", **loginfo))
@@ -524,7 +522,7 @@ class SwarmContainer(TaskContainer):
             if state == "failed":
                 logger.error(msg)
             else:
-                logger.notice(msg)  # pyre-fixme
+                logger.notice(msg)
             assert isinstance(exit_code, int) and (exit_code == 0) == (state == "complete")
             return exit_code
         elif {state, status.get("DesiredState")}.intersection(
@@ -613,10 +611,9 @@ class SwarmContainer(TaskContainer):
         junk = hashlib.sha256()
         junk.update(uuid.uuid1().bytes)
         junk.update(uuid.uuid4().bytes)
-        junk = junk.digest()[:15]
-        junk = base64.b32encode(junk).decode().lower()
-        assert len(junk) == 24
-        return f"wdl-{run_id[:34]}-{junk}"  # 4 + 34 + 1 + 24 = 63
+        junks = base64.b32encode(junk.digest()[:15]).decode().lower()
+        assert len(junks) == 24
+        return f"wdl-{run_id[:34]}-{junks}"  # 4 + 34 + 1 + 24 = 63
 
     _build_inline_dockerfile_lock: threading.Lock = threading.Lock()
 
@@ -629,9 +626,8 @@ class SwarmContainer(TaskContainer):
         # formulate image tag using digest of dockerfile text
         dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
         dockerfile_digest = hashlib.sha256(dockerfile_utf8).digest()
-        dockerfile_digest = base64.b32encode(dockerfile_digest[:15]).decode().lower()
         tag_part1 = "miniwdl_auto_"
-        tag_part3 = ":" + dockerfile_digest
+        tag_part3 = ":" + base64.b32encode(dockerfile_digest[:15]).decode().lower()
         tag_part2 = self.run_id.lower()
         if "-" in tag_part2:
             tag_part2 = tag_part2.split("-")[1]
@@ -642,7 +638,7 @@ class SwarmContainer(TaskContainer):
         # short-circuit if digest-tagged image already exists
         try:
             existing = client.images.get(tag)
-            logger.notice(_("docker build cached", tag=tag, id=existing.id))  # pyre-ignore
+            logger.notice(_("docker build cached", tag=tag, id=existing.id))
             return tag
         except docker.errors.ImageNotFound:
             pass
@@ -684,7 +680,5 @@ class SwarmContainer(TaskContainer):
                 raise exn
 
         write_log(build_log)
-        logger.notice(  # pyre-ignore
-            _("docker build", tag=image.tags[0], id=image.id, log=build_logfile)
-        )
+        logger.notice(_("docker build", tag=image.tags[0], id=image.id, log=build_logfile))
         return tag

@@ -3,7 +3,7 @@
 setuptools>=39.1.0
 importlib-metadata>=3.10.1
 regex>=2020.4.4
-xdg>=2.0.0
+xdg>=5.0.0
 docker>=3.4.0
 PyYAML>=5.4.1,<7
 argcomplete>=3,<4

@@ -1,4 +1,3 @@
-# pyre-strict
 """
 Workflow runner building blocks & local driver
 
@@ -172,7 +171,7 @@ class StateMachine:
 
         from .. import values_to_json
 
-        self.values_to_json = values_to_json  # pyre-ignore
+        self.values_to_json = values_to_json  # type: ignore
 
         # Preprocess inputs: if None value is supplied for an input declared with a default but
         # without the ? type quantifier, remove the binding entirely so that the default will be
@@ -264,7 +263,7 @@ class StateMachine:
         doing so after initialization and after each ``call_finished()`` invocation, until at last
         the workflow outputs are available.
         """
-        runnable = []
+        runnable: List[str] = []
         while True:
             # select a job whose dependencies are all finished
             if not runnable:
@@ -315,7 +314,7 @@ class StateMachine:
         """
         assert job_id in self.running
         outlog = self.values_to_json(outputs)
-        self.logger.notice(_("finish", job=job_id))  # pyre-fixme
+        self.logger.notice(_("finish", job=job_id))
         self.logger.info(
             _(
                 "output",
@@ -346,10 +345,9 @@ class StateMachine:
 
         # for all non-Gather nodes, derive the environment by merging the outputs of all the
         # dependencies (+ any current scatter variable bindings)
-        scatter_vars = Env.Bindings()
+        scatter_vars: Env.Bindings[Value.Base] = Env.Bindings()
         for p in job.scatter_stack:
             scatter_vars = Env.Bindings(p[1], scatter_vars)
-        # pyre-ignore
         env = Env.merge(scatter_vars, *(self.job_outputs[dep] for dep in job.dependencies))
         envlog = self.values_to_json(env)
         self.logger.debug(
@@ -396,11 +394,12 @@ class StateMachine:
 
         if isinstance(job.node, Tree.Call):
             # evaluate input expressions
-            call_inputs = Env.Bindings()
+            call_name = job.node.name
+            call_inputs: Env.Bindings[Value.Base] = Env.Bindings()
             for name, expr in job.node.inputs.items():
                 call_inputs = call_inputs.bind(name, expr.eval(env, stdlib=stdlib))
             # check workflow inputs for additional inputs supplied to this call
-            for b in self.inputs.enter_namespace(job.node.name):
+            for b in self.inputs.enter_namespace(call_name):
                 call_inputs = call_inputs.bind(b.name, b.value)
 
             # coerce inputs to required types (treating inputs with defaults as optional even if
@@ -426,11 +425,11 @@ class StateMachine:
             call_inputs = Value.rewrite_env_paths(
                 call_inputs,
                 lambda v: _check_path_allowed(
-                    cfg, self.fspath_allowlist, f"call {job.node.name} input", v
+                    cfg, self.fspath_allowlist, f"call {call_name} input", v
                 ),
             )
             # issue CallInstructions
-            self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))  # pyre-fixme
+            self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))
             inplog = self.values_to_json(call_inputs)
             self.logger.info(
                 _(
@@ -470,7 +469,7 @@ def _scatter(
 ) -> Iterable[_Job]:
     # we'll be tracking, for each body node ID, the IDs of the potentially multiple corresponding
     # jobs scheduled
-    multiplex = {}
+    multiplex: Dict[str, Set[str]] = {}
     for body_node in section.body:
         multiplex[body_node.workflow_node_id] = set()
         if isinstance(body_node, Tree.WorkflowSection):
@@ -479,10 +478,11 @@ def _scatter(
 
     # evaluate scatter array or boolean condition
     v = section.expr.eval(env, stdlib=stdlib)
-    array = []
+    array: List[Optional[Value.Base]] = []
     if isinstance(section, Tree.Scatter):
         assert isinstance(v, Value.Array)
-        array = v.value
+        for v_i in v.value:
+            array.append(v_i)
     else:
         assert isinstance(v, Value.Boolean)
         if v.value:
@@ -653,7 +653,7 @@ def _gather(
         assert False
 
     # for each such name,
-    ans = Env.Bindings()
+    ans: Env.Bindings[Value.Base] = Env.Bindings()
     ns = [leaf.name] if isinstance(leaf, Tree.Call) else []
     for name in names:
         # gather the corresponding values
@@ -662,7 +662,7 @@ def _gather(
         assert v0 is None or isinstance(v0, Value.Base)
         # bind the array, singleton value, or None as appropriate
         if isinstance(gather.section, Tree.Scatter):
-            rhs = Value.Array((v0.type if v0 else Type.Any()), values)
+            rhs: Value.Base = Value.Array((v0.type if v0 else Type.Any()), values)
         else:
             assert isinstance(gather.section, Tree.Conditional)
             assert len(values) <= 1
@@ -707,9 +707,11 @@ class _StdLib(StdLib.Base):
         with open(filename, "rb") as f:
             for chunk in iter(lambda: f.read(1048576), b""):
                 hasher.update(chunk)
-        cache_in = Env.Bindings().bind("file_sha256", Value.String(hasher.hexdigest()))
+        cache_in: Env.Bindings[Value.Base] = Env.Bindings()
+        cache_in = cache_in.bind("file_sha256", Value.String(hasher.hexdigest()))
         cache_key = "write_/" + Value.digest_env(cache_in)
-        cache_out_types = Env.Bindings().bind("file", Type.File())
+        cache_out_types: Env.Bindings[Type.Base] = Env.Bindings()
+        cache_out_types = cache_out_types.bind("file", Type.File())
         cache_out = self.cache.get(cache_key, cache_in, cache_out_types)
         if cache_out:
             filename = cache_out.resolve("file").value
@@ -717,7 +719,7 @@ class _StdLib(StdLib.Base):
             # otherwise, put our newly-written file to the cache, and proceed to use it
             self.cache.put(
                 cache_key,
-                Env.Bindings().bind("file", Value.File(filename)),
+                Env.Bindings(Env.Binding("file", Value.File(filename))),
                 run_dir=self.state.run_dir,
             )
 
@@ -788,11 +790,11 @@ class _ThreadPools:
         )
         self._subworkflow_pools = []
 
-    def submit_task(self, *args, **kwargs):  # pyre-ignore
+    def submit_task(self, *args, **kwargs):
         with self._lock:
             return self._task_pool.submit(*args, **kwargs)
 
-    def submit_subworkflow(self, call_depth: int, *args, **kwargs):  # pyre-ignore
+    def submit_subworkflow(self, call_depth: int, *args, **kwargs):
         with self._lock:
             if call_depth >= len(self._subworkflow_pools):
                 # First time at this call depth -- initialize a thread pool for it
@@ -858,7 +860,7 @@ def run_local_workflow(
                     json=True,
                 )
             )
-        logger.notice(  # pyre-fixme
+        logger.notice(
             _(
                 "workflow start",
                 name=workflow.name,
@@ -873,7 +875,7 @@ def run_local_workflow(
         cache = _cache
         if not cache:
             cache = cleanup.enter_context(new_call_cache(cfg, logger))
-            assert _thread_pools is None
+            assert cache and _thread_pools is None
         if not _thread_pools:
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
@@ -902,7 +904,7 @@ def run_local_workflow(
             write_values_json(
                 cached, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
             )
-            logger.notice("done (cached)")  # pyre-fixme
+            logger.notice("done (cached)")
             # returning `cached`, not the rewritten `_outputs`, to retain opportunity to find
             # cached downstream inputs
             return (run_dir, cached)
@@ -919,7 +921,7 @@ def run_local_workflow(
                 version = "v" + importlib_metadata.version("miniwdl")
             except importlib_metadata.PackageNotFoundError:
                 version = "UNKNOWN"
-            logger.notice(_("miniwdl", version=version, uname=" ".join(os.uname())))  # pyre-fixme
+            logger.notice(_("miniwdl", version=version, uname=" ".join(os.uname())))
 
             thread_pools = _ThreadPools(cfg, cleanup, logger)
         else:
@@ -975,7 +977,7 @@ def _workflow_main_loop(
         with compose_coroutines(
             [
                 (
-                    lambda kwargs, cor=cor: cor(
+                    lambda kwargs, cor=cor: cor(  # type: ignore
                         cfg, logger, run_id_stack, run_dir, workflow, **kwargs
                     )
                 )
@@ -1071,7 +1073,7 @@ def _workflow_main_loop(
     except Exception as exn:
         tbtxt = traceback.format_exc()
         logger.debug(tbtxt)
-        cause = exn
+        cause: BaseException = exn
         while isinstance(cause, RunFailed) and cause.__cause__:
             cause = cause.__cause__
         wrapper = RunFailed(workflow, run_id_stack[-1], run_dir)
@@ -1142,15 +1144,17 @@ def _download_input_files(
     Value.rewrite_env_paths(inputs, scan_uri)
     if not uris:
         return
-    logger.notice(_("downloading input URIs", count=len(uris)))  # pyre-fixme
+    logger.notice(_("downloading input URIs", count=len(uris)))
 
     # download them on the thread pool (but possibly further limiting concurrency)
     download_concurrency = cfg.get_int("scheduler", "download_concurrency")
     if download_concurrency <= 0:
         download_concurrency = 999999
-    ops = {}
+    ops: Dict[futures.Future[Tuple[bool, str]], str] = {}  # pylint: disable=unsubscriptable-object
     incomplete = len(uris)
-    outstanding = set()
+    outstanding: Set[futures.Future[Tuple[bool, str]]] = (  # pylint: disable=unsubscriptable-object
+        set()
+    )
     downloaded_bytes = 0
     cached_hits = 0
     exn = None
@@ -1208,7 +1212,7 @@ def _download_input_files(
 
     if exn:
         raise exn
-    logger.notice(  # pyre-fixme
+    logger.notice(
         _(
             "processed input URIs",
             cached=cached_hits,
