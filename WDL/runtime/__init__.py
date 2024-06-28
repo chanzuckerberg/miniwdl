@@ -8,10 +8,9 @@ handlers. Alternatively, it's possible to call ``WDL.runtime.run()`` directly if
 from typing import Union, Dict, Tuple, Any
 from .. import Tree, Value, Env
 from . import config
-from . import task
-from . import workflow
-from . import _statusbar
-from .error import (
+from . import task  # noqa: F401
+from . import workflow  # noqa: F401
+from .error import (  # noqa: F401
     RunFailed,
     CommandFailed,
     Terminated,

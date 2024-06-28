@@ -1586,7 +1586,7 @@ def localize(
     )
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-localize")
-    with configure_logger(json=log_json) as set_status:
+    with configure_logger(json=log_json) as _set_status:
         from . import runtime
 
         cfg_arg = None
@@ -1767,7 +1767,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
     logging.raiseExceptions = False
     logging.basicConfig(level=VERBOSE_LEVEL)
     logger = logging.getLogger("miniwdl-configure")
-    with configure_logger() as set_status:
+    with configure_logger() as _set_status:
         if (show or not force) and configure_existing(logger, cfg, always=show):
             sys.exit(0)
 

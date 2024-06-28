@@ -113,8 +113,6 @@ def build_zip_paths(
     main_dir: str, wdls: Dict[str, Tree.Document], logger: logging.Logger
 ) -> Dict[str, str]:
     # compute the path inside the archive at which to store each document
-    import hashlib
-    import base64
 
     ans = {}
     outside_warn = False
@@ -249,7 +247,7 @@ def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
             dn = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_"))
             try:
                 shutil.unpack_archive(archive_fn, dn)
-            except:
+            except Exception:
                 raise Error.InputError("Unreadable source archive " + archive_fn)
             manifest_fn = os.path.join(dn, "MANIFEST.json")
 
@@ -259,7 +257,7 @@ def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
             assert isinstance(manifest, dict) and isinstance(
                 manifest.get("mainWorkflowURL", None), str
             )
-        except:
+        except Exception:
             raise Error.InputError("Missing or invalid MANIFEST.json in " + archive_fn)
 
         dn = os.path.abspath(os.path.dirname(manifest_fn))

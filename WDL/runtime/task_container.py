@@ -10,7 +10,7 @@ import typing
 from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set
 from abc import ABC, abstractmethod
 from contextlib import suppress
-from .. import Error, Env, Value, Type
+from .. import Error, Value, Type
 from .._util import (
     TerminationSignalFlag,
     path_really_within,
@@ -283,7 +283,7 @@ class TaskContainer(ABC):
             elif isinstance(rcv, Value.Array):
                 try:
                     ans["returnCodes"] = [v.coerce(Type.Int()).value for v in rcv.value]
-                except:
+                except Exception:
                     pass
             if "returnCodes" not in ans:
                 raise Error.RuntimeError("invalid setting of runtime.returnCodes")

@@ -1,5 +1,5 @@
 # miniwdl
-**[Workflow Description Language](http://openwdl.org/) local runner & developer toolkit for Python 3.6+**
+**[Workflow Description Language](http://openwdl.org/) local runner & developer toolkit for Python 3.8+**
 
 ![Project Status](https://img.shields.io/badge/status-stable-green.svg)
 [![MIT license](https://img.shields.io/badge/license-MIT-brightgreen.svg)](https://github.com/chanzuckerberg/miniwdl/blob/main/LICENSE)
@@ -9,7 +9,7 @@
 
 ## Install miniwdl
 
-Installation requires Python 3.6+, pip3 (or conda) and Docker (or Podman/Singularity/udocker). Linux preferred; [macOS (Intel) compatible with extra steps](https://github.com/chanzuckerberg/miniwdl/issues/145). More detail in [full documentation](https://miniwdl.readthedocs.io/en/latest/getting_started.html).
+Installation requires Python 3.8+, pip3 (or conda) and Docker (or Podman/Singularity/udocker). Linux preferred; [macOS (Intel) compatible with extra steps](https://github.com/chanzuckerberg/miniwdl/issues/145). More detail in [full documentation](https://miniwdl.readthedocs.io/en/latest/getting_started.html).
 
 - Install with pip [![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/) : run `pip3 install miniwdl`
 - Install with conda [![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl) : run `conda install -c conda-forge miniwdl`

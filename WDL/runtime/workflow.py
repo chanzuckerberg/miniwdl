@@ -674,6 +674,7 @@ def _gather(
 
 class _StdLib(StdLib.Base):
     "checks against & updates the file/directory allowlist for the read_* and write_* functions"
+
     cfg: config.Loader
     state: StateMachine
     cache: CallCache
@@ -913,7 +914,7 @@ def run_local_workflow(
         if not _thread_pools:
             # delayed heavy imports -- load .task_container now to work around python issue41567
             import importlib_metadata
-            from .task_container import new as _new_task_container
+            from .task_container import new as _new_task_container  # noqa: F401
 
             assert not _run_id_stack
             try:

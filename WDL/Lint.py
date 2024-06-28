@@ -26,6 +26,7 @@ Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
 The ``descend_imports`` flag controls whether lint warnings are generated for imported documents
 recursively (true, default), or otherwise only the given document (false).
 """
+
 import subprocess
 import tempfile
 import json
@@ -208,7 +209,7 @@ def _compound_coercion(
         if predicates:
             return predicates(to_type, from_type)
         if not from_type_predicate:
-            from_type_predicate = lambda ty: not isinstance(  # noqa: disable=E731
+            from_type_predicate = lambda ty: not isinstance(  # noqa: E731
                 ty, (base_to_type, Type.Any)
             )
         return from_type_predicate(from_type)
@@ -1167,7 +1168,7 @@ class UnexpectedRuntimeValue(Linter):
                 if isinstance(lit, str):
                     try:
                         _util.parse_byte_size(lit)
-                    except:
+                    except Exception:
                         self.add(
                             obj,
                             "runtime.memory doesn't follow expected format like '8G' or '1024 MiB'",

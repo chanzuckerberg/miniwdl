@@ -10,11 +10,9 @@ documents. Simply ``import WDL`` once miniwdl has been installed.
 
 import sys
 import os
-import errno
-import inspect
 from typing import List, Optional, Callable, Dict, Any, Awaitable, Union
-from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker, Zip
-from .Tree import (
+from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker
+from .Tree import (  # noqa: F401
     Decl,
     StructTypeDef,
     Task,

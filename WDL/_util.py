@@ -9,7 +9,6 @@ import threading
 import time
 import fcntl
 import shutil
-import hashlib
 import uuid
 from time import sleep
 from datetime import datetime
@@ -212,7 +211,7 @@ def link_force(src: str, dst: str) -> None:
 
 @export
 def write_values_json(
-    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""  # noqa
+    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""
 ) -> None:
     from . import values_to_json
 
@@ -923,5 +922,5 @@ def currently_in_container() -> bool:
     try:
         with open(f"/proc/{os.getpid()}/mounts") as infile:
             return " / overlay" in infile.read()
-    except:
+    except Exception:
         return False
