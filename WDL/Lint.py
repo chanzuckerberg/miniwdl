@@ -26,6 +26,7 @@ Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
 The ``descend_imports`` flag controls whether lint warnings are generated for imported documents
 recursively (true, default), or otherwise only the given document (false).
 """
+
 import subprocess
 import tempfile
 import json

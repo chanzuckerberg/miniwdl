@@ -211,7 +211,7 @@ def link_force(src: str, dst: str) -> None:
 
 @export
 def write_values_json(
-    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""  # noqa
+    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""
 ) -> None:
     from . import values_to_json
 

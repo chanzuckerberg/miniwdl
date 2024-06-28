@@ -321,11 +321,7 @@ def _strip(value: str) -> str:
     if ans:
         ans = value.strip()
         if len(ans) >= 2 and (
-            (
-                ans.startswith("'")
-                and ans.endswith("'")
-                or (ans.startswith('"') and ans.endswith('"'))
-            )
+            ans.startswith("'") and ans.endswith("'") or (ans.startswith('"') and ans.endswith('"'))
         ):
             ans = ans[1:-1]
     return ans

@@ -36,13 +36,14 @@ singularity_tests:
 	MINIWDL__SCHEDULER__CONTAINER_BACKEND=singularity \
 	sh -c 'python3 -m WDL run_self_test && prove -v tests/applied/viral_assemble.t'
 
-ci_housekeeping: sopretty check_check check doc
+ci_housekeeping: check_check check doc
 
 ci_unit_tests: unit_tests
 
 check:
 	ruff check --ignore E741 WDL
 	mypy WDL
+	ruff format --check --line-length 100 WDL
 
 check_check:
 	# regression test against pyre/mypy doing nothing (issue #100)
@@ -50,16 +51,8 @@ check_check:
 	$(MAKE) check > /dev/null 2>&1 && exit 1 || exit 0
 	rm WDL/DELETEME_check_check.py
 
-# uses black to rewrite source files!
 pretty:
-	black --line-length 100 --target-version py36 WDL/
-	pylint -d cyclic-import,empty-docstring,missing-docstring,invalid-name,bad-continuation --exit-zero WDL
-
-# for use in CI: complain if source code isn't at a fixed point for black
-sopretty:
-	@git diff --quiet || (echo "ERROR: 'make sopretty' must start with a clean working tree"; exit 1)
-	$(MAKE) pretty
-	@git diff --quiet || (echo "ERROR: source files were modified by black; please fix up this commit with 'make pretty'"; exit 1)
+	ruff format --line-length 100 WDL
 
 # build docker image with current source tree, poised to run tests e.g.:
 #   docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp miniwdl
@@ -86,4 +79,4 @@ doc:
 
 docs: doc
 
-.PHONY: check check_check sopretty pretty test qtest docker doc docs pypi_test pypi bdist ci_housekeeping unit_tests integration_tests skylab_bulk_rna DVGLx viral_assemble
+.PHONY: check check_check pretty test qtest docker doc docs pypi_test pypi bdist ci_housekeeping unit_tests integration_tests skylab_bulk_rna DVGLx viral_assemble
