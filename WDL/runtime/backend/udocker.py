@@ -28,7 +28,7 @@ class UdockerContainer(SubprocessBase):
                 check=True,
                 universal_newlines=True,
             )
-        except:
+        except Exception:
             raise RuntimeError(f"Unable to check `{' '.join(cmd)}`; verify udocker installation")
         logger.notice(
             _(

@@ -1037,9 +1037,7 @@ class _Quote(EagerFunction):
         expr.arguments[0].typecheck(Type.Array(Type.String()))
         arg0ty = expr.arguments[0].type
         nonempty = isinstance(arg0ty, Type.Array) and arg0ty.nonempty
-        return Type.Array(
-            Type.String(), nonempty=(isinstance(arg0ty, Type.Array) and arg0ty.nonempty)
-        )
+        return Type.Array(Type.String(), nonempty=nonempty)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         return Value.Array(

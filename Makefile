@@ -41,9 +41,8 @@ ci_housekeeping: sopretty check_check check doc
 ci_unit_tests: unit_tests
 
 check:
+	ruff check --ignore E741 WDL
 	mypy WDL
-	pylint -j `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --errors-only WDL
-	flake8 WDL
 
 check_check:
 	# regression test against pyre/mypy doing nothing (issue #100)

@@ -842,7 +842,7 @@ def link_outputs(
                 # might otherwise have trouble distinguishing Directory outputs among the
                 # structured subdirectories we create for compound types.
                 if isinstance(v, Value.Directory):
-                    with open(os.path.join(dn, ".WDL_Directory"), "w") as dotfile:
+                    with open(os.path.join(dn, ".WDL_Directory"), "w") as _dotfile:
                         pass
                 v.value = link
         # recurse into compound values

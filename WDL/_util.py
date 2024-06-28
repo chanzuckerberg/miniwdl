@@ -9,7 +9,6 @@ import threading
 import time
 import fcntl
 import shutil
-import hashlib
 import uuid
 from time import sleep
 from datetime import datetime
@@ -923,5 +922,5 @@ def currently_in_container() -> bool:
     try:
         with open(f"/proc/{os.getpid()}/mounts") as infile:
             return " / overlay" in infile.read()
-    except:
+    except Exception:
         return False

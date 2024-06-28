@@ -234,7 +234,7 @@ class Loader:
             raise
         try:
             return parse(ans)
-        except:
+        except Exception:
             self._logger.debug(
                 _(
                     "failed to parse configuration option",
@@ -370,7 +370,7 @@ def _parse_list(v: str) -> List[Any]:
     return ans
 
 
-def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":  # type: ignore
+def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":  # type: ignore # noqa: F821
     import importlib_metadata  # delayed heavy import
 
     return {

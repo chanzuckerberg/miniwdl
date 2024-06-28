@@ -1,8 +1,6 @@
 # Packages needed for miniwdl development, in addition to those in
 # requirements.txt which are needed for miniwdl to run in common use.
 -r requirements.txt
-black==24.4.2
-pylint
 sphinx
 sphinx-autobuild
 sphinx_rtd_theme
@@ -19,5 +17,5 @@ pytest-xdist
 recommonmark
 sphinx-argparse
 boto3
-flake8
 mypy
+ruff

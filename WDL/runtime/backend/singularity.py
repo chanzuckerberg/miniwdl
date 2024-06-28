@@ -31,7 +31,7 @@ class SingularityContainer(SubprocessBase):
                 check=True,
                 universal_newlines=True,
             )
-        except:
+        except Exception:
             raise RuntimeError(
                 f"Unable to check `{' '.join(cmd)}`; verify Singularity installation"
             )
