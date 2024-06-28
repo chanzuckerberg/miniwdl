@@ -22,8 +22,8 @@ The Makefile has a few typical flows:
 
 - `make` or `make test` runs the full test suite with code coverage report (takes several minutes)
 - `make qtest` runs most of the tests more quickly (by omitting some slower cases, and not tracking coverage)
-- `make pretty` reformats the code with [black](https://github.com/python/black)
-- `make check` validates the code with [Pylint](https://www.pylint.org/) and [Pyre](https://pyre-check.org/)
+- `make pretty` reformats the code with `ruff format`
+- `make check` validates the code with `ruff check` and `mypy`
 
 To quickly run only a relevant subset of the tests, you can e.g. `python3 -m unittest -f tests/test_5stdlib.py` or `python3 -m unittest -f tests.test_5stdlib.TestStdLib.test_glob`.
 
