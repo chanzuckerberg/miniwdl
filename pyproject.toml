@@ -38,13 +38,23 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "pytest-xdist",
-    "testfixtures",
-    "build",
-    "twine",
+    "ruff",
     "mypy",
-    "ruff"
+    "pytest",
+    "testfixtures",
+    "pytest-xdist",
+    "build",
+    "wheel",
+    "twine",
+    "coverage",
+    "python-coveralls",
+    "sphinx",
+    "sphinx-autobuild",
+    "sphinx_rtd_theme",
+    "sphinx-argparse",
+    "recommonmark",
+    "graphviz",
+    "boto3"
 ]
 
 [project.scripts]
