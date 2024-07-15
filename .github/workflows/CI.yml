@@ -75,7 +75,7 @@ jobs:
           FROM ubuntu:20.04
           ENV LC_ALL C.UTF-8
           ENV LANG C.UTF-8
-          RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-pip
+          RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-pip git-core
 
           RUN useradd -ms /bin/bash -u 1337 wdler
           USER wdler
