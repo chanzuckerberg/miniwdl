@@ -71,7 +71,7 @@ pypi: bdist
 # build dist
 bdist:
 	rm -rf dist/
-	python3 setup.py sdist bdist_wheel
+	python -m build
 
 # sphinx
 doc:

@@ -84,20 +84,17 @@ jobs:
           WORKDIR /home/wdler
           RUN mkdir miniwdl
 
-          COPY requirements.txt /home/wdler/
-          RUN pip3 install --user -r requirements.txt
-
-          ENV PYTHONPATH $PYTHONPATH:/home/wdler/.local/lib/python3.6
           ENV PATH $PATH:/home/wdler/.local/bin
+          COPY . /home/wdler/miniwdl
+          RUN cd miniwdl && pip3 install --user .
 
-          # expectation -- mount miniwdl source tree at /home/wdler/miniwdl
-          CMD env -C miniwdl python3 -m WDL run_self_test
+          CMD miniwdl run_self_test
         EOF
         docker build -t miniwdl_focal_self_test focal_self_test
     - name: miniwdl run_self_test
       run: |
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
-          -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
+          -v /tmp:/tmp \
           -e AWS_EC2_METADATA_DISABLED=true \
           miniwdl_focal_self_test

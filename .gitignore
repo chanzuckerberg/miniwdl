@@ -9,3 +9,4 @@ build/
 .eggs/
 .venv/
 venv/
+WDL/_version.py
