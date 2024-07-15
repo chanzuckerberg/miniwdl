@@ -2187,11 +2187,6 @@ def _type_to_input_template(ty: Type.Base):
 
 
 def pkg_version(pkg="miniwdl"):
-    if pkg == "miniwdl":
-        from . import _version
-
-        return _version.version
-
     import importlib_metadata
 
     try:
