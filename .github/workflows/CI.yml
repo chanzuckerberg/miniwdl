@@ -70,34 +70,29 @@ jobs:
     - uses: actions/checkout@v2
     - name: docker build
       run: |
-        mkdir focal_self_test
-        cp requirements.txt focal_self_test
-
-        cat << 'EOF' > focal_self_test/Dockerfile
+        # overwriting Dockerfile!
+        cat << 'EOF' > Dockerfile
           FROM ubuntu:20.04
           ENV LC_ALL C.UTF-8
           ENV LANG C.UTF-8
-          RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-pip
+          RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-pip git-core
 
           RUN useradd -ms /bin/bash -u 1337 wdler
           USER wdler
           WORKDIR /home/wdler
           RUN mkdir miniwdl
 
-          COPY requirements.txt /home/wdler/
-          RUN pip3 install --user -r requirements.txt
-
-          ENV PYTHONPATH $PYTHONPATH:/home/wdler/.local/lib/python3.6
           ENV PATH $PATH:/home/wdler/.local/bin
+          COPY . /home/wdler/miniwdl
+          RUN cd miniwdl && pip3 install --user .
 
-          # expectation -- mount miniwdl source tree at /home/wdler/miniwdl
-          CMD env -C miniwdl python3 -m WDL run_self_test
+          CMD miniwdl run_self_test
         EOF
-        docker build -t miniwdl_focal_self_test focal_self_test
+        docker build -t miniwdl_focal_self_test .
     - name: miniwdl run_self_test
       run: |
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
-          -v $(pwd):/home/wdler/miniwdl -v /tmp:/tmp \
+          -v /tmp:/tmp \
           -e AWS_EC2_METADATA_DISABLED=true \
           miniwdl_focal_self_test

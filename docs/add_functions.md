@@ -5,8 +5,7 @@ This lab will show how to add new functions to the WDL standard library, thus in
 ```bash
 git clone --recursive https://github.com/chanzuckerberg/miniwdl.git  # or your own fork
 cd miniwdl
-pip3 install -r requirements.txt
-pip3 install -r requirements.dev.txt
+pip3 install '.[dev]'  # to install dev dependencies
 ```
 
 The standard library is implemented in `WDL/StdLib.py`, except for some details specific to the task runtime environment.

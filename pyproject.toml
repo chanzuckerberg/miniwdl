@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm[toml]>=6.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "miniwdl"
+dynamic = ["version"]
+description = "Workflow Description Language (WDL) local runner & developer toolkit"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "CZI", email = "security@chanzuckerberg.com"}
+]
+urls = { "Homepage" = "https://github.com/chanzuckerberg/miniwdl" }
+classifiers = [
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 5 - Production/Stable",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Software Development :: Interpreters"
+]
+dependencies = [
+    "importlib-metadata>=3.10.1",
+    "regex>=2020.4.4",
+    "xdg>=5.0.0",
+    "docker>=3.4.0",
+    "PyYAML>=5.4.1,<7",
+    "argcomplete>=3,<4",
+    "pygtail~=0.14",
+    "coloredlogs>=15,<16",
+    "python-json-logger>=2,<3",
+    "lark~=1.1",
+    "bullet>=2,<3",
+    "psutil>=5,<6"
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+    "testfixtures",
+    "pytest-xdist",
+    "pytest-cov",
+    "coverage",
+    "python-coveralls",
+    "build",
+    "wheel",
+    "twine",
+    "sphinx",
+    "sphinx-autobuild",
+    "sphinx_rtd_theme",
+    "sphinx-argparse",
+    "recommonmark",
+    "graphviz",
+    "boto3"
+]
+
+[project.scripts]
+miniwdl = "WDL.CLI:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["WDL"]
+
+[tool.setuptools_scm]
+write_to = "WDL/_version.py"
+
+[tool.mypy]
+mypy_path = "${MYPY_CONFIG_FILE_DIR}/stubs"
+
+[tool.ruff]
+exclude = ["WDL/_version.py"]
