@@ -12,7 +12,7 @@ Feedback and contributions to miniwdl are welcome, via issues and pull requests 
 To set up your Linux development environment,
 
 1. `git clone --recursive` this repository or your fork thereof, and `cd` into it
-2. Install dependencies as illustrated in the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/main/Dockerfile) (OS packages) and [pyproject.toml](pyproject.toml)  (PyPI dependencies).
+2. Install OS packages as illustrated in the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/main/Dockerfile) (OS packages) and PyPI dependencies with `pip3 install '.[dev]'`
 3. Invoking user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
 4. Try `python3 -m WDL run_self_test` to test the configuration
 
