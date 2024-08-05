@@ -373,9 +373,12 @@ class SwarmContainer(TaskContainer):
 
     def get_registry_name_and_provider(self, logger: logging.Logger, image_tag: str) -> Tuple[str, str]:
         logger.debug(f"Get registry name and provider for {image_tag}")
-        # LOCATION-docker.pkg.dev/PROJECT-ID/REPOSITORY
-        gcp_registry_pattern = r"^(?P<gcp>[a-z-]+[0-9]+-docker\.pkg\.dev/[a-z0-9-]+/[a-z0-9-]+)/.*$"
-        # aws_account_id.dkr.ecr.us-west-2.amazonaws.com
+        # GCP:
+        #   - <LOCATION>-docker.pkg.dev/<PROJECT-ID>/<REPOSITORY>
+        #   - <LOCATION>.gcr.io/<PROJECT-ID> (legacy)
+        gcp_registry_pattern = r"^(?P<gcp>[a-z-]+[0-9]+-docker\.pkg\.dev/[a-z0-9-]+/[a-z0-9-]+|[a-z\.]*gcr\.io)/.*$"
+        # AWS:
+        #   - <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com
         aws_registry_pattern = r"^(?P<aws>[0-9]{12}\.dkr\.ecr\.[a-z-]+[0-9]+\.amazonaws\.com)/.*$"
         
         pattern_match = re.match(gcp_registry_pattern, image_tag) or re.match(aws_registry_pattern, image_tag)
