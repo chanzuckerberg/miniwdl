@@ -120,7 +120,7 @@ class Float(Base):
         super().__init__(Type.Float(), value, expr)
 
     def __str__(self) -> str:
-        #converting to string using repr to retain the float value as is and eliminating rounding.
+        # converting to string using repr to retain the float value as is and eliminating rounding.
         return repr(self.value)
 
 
@@ -550,7 +550,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return Int(value)
     if isinstance(type, (Type.Float, Type.Any)) and isinstance(value, (float, int)):
         return Float(float(value))
-    if isinstance(type, (Type.Float, Type.Any)) and 'e' in value.lower():
+    if isinstance(type, (Type.Float, Type.Any)) and "e" in value.lower():
         return Float(float(value))
     if isinstance(type, Type.File) and isinstance(value, str):
         return File(value)
