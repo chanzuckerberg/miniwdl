@@ -425,7 +425,7 @@ class SwarmContainer(TaskContainer):
     def docker_login(
         self, client: docker.DockerClient, username: str, password: str, registry_name: str
     ) -> None:
-        client.login(username, password, registry=registry_name)  # type: ignore[attr-defined]
+        client.login(username, password, registry=registry_name, reauth=True)  # type: ignore[attr-defined]
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
         def escape(s):
