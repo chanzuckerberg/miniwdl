@@ -7,7 +7,7 @@ import logging
 import shutil
 import threading
 import typing
-from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set
+from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set,Tuple
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from .. import Error, Value, Type
@@ -18,9 +18,23 @@ from .._util import (
     PygtailLogger,
     parse_byte_size,
 )
+import base64
+from enum import Enum
+import re
+import warnings
+import boto3
+import docker
+import google.auth
+import google.auth.transport.requests
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .error import OutputError, Terminated, CommandFailed
+
+
+class SupportedProviders(Enum):
+    AWS = "aws"
+    GCP = "gcp"
+    UNKNOWN = None
 
 
 class TaskContainer(ABC):
@@ -292,6 +306,83 @@ class TaskContainer(ABC):
             if not isinstance(runtime_eval["gpu"], Value.Boolean):
                 raise Error.RuntimeError("invalid setting of runtime.gpu")
             ans["gpu"] = runtime_eval["gpu"].value
+
+    def _get_runtime_image(self):
+        image = self.runtime_values.get(
+            "docker", self.cfg.get_dict("task_runtime", "defaults")["docker"]
+        )
+        return image
+
+    def get_image_registry_credentials(self, logger: logging.Logger, image_tag: str, docker_client: docker.DockerClient = None) -> Tuple[str, str]:
+        close_docker_client = False
+        if not docker_client:
+            docker_client = docker.from_env(version="auto")
+            close_docker_client = True
+        logger.debug(f"Need to login to {image_tag} registry")
+        registry_name, provider = self._get_registry_name_and_provider(logger, image_tag)
+        if registry_name and provider is SupportedProviders.AWS:
+            user, password = self._aws_ecr_login_args(logger, registry_name)
+        if registry_name and provider is SupportedProviders.GCP:
+            user, password = self._gcp_docker_registry_login_args()
+        if provider is SupportedProviders.UNKNOWN:
+            logger.warning(
+                f"{image_tag} registry pattern unrecognized. If login is needed do it before running the workflow"
+            )
+            user, password = None, None
+        # close the docker client in case it was instantiated in the scope of the function
+        if close_docker_client:
+            docker_client.close()
+        return user, password, registry_name
+
+    def _get_registry_name_and_provider(
+        self, logger: logging.Logger, image_tag: str
+    ) -> Tuple[str | None, SupportedProviders]:
+        logger.debug(f"Get registry name and provider for {image_tag}")
+        # GCP:
+        #   - <LOCATION>-docker.pkg.dev/<PROJECT-ID>/<REPOSITORY>
+        #   - <LOCATION>.gcr.io/<PROJECT-ID> (legacy)
+        gcp_registry_pattern = (
+            r"^(?P<gcp>[a-z-]+[0-9]+-docker\.pkg\.dev/[a-z0-9-]+/[a-z0-9-]+|[a-z\.]*gcr\.io)/.*$"
+        )
+        # AWS:
+        #   - <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com
+        aws_registry_pattern = r"^(?P<aws>[0-9]{12}\.dkr\.ecr\.[a-z-]+[0-9]+\.amazonaws\.com)/.*$"
+
+        pattern_match = re.match(gcp_registry_pattern, image_tag) or re.match(
+            aws_registry_pattern, image_tag
+        )
+        registry_name = pattern_match.group(1) if pattern_match else None
+        provider = SupportedProviders(
+            list(pattern_match.groupdict().keys())[0] if pattern_match else None
+        )
+        logger.debug(f"Registry: {registry_name}. Provider: {provider}")
+        return registry_name, provider
+
+    def _aws_ecr_login_args(
+        self, logger: logging.Logger, registry_name: str
+    ) -> Tuple[str, str]:
+        logger.debug(f"Get region and account ID from registry name {registry_name}")
+        aws_account_id, _, _, aws_region, _, _ = registry_name.split(".")
+        logger.debug(f"AWS account: {aws_account_id}. Region: {aws_region}")
+        ecr_client = boto3.client("ecr", region_name=aws_region)
+        logger.debug(f"Get ECR token for {registry_name}")
+        response = ecr_client.get_authorization_token(registryIds=[aws_account_id])
+        ecr_password = (
+            base64.b64decode(response["authorizationData"][0]["authorizationToken"])
+            .replace(b"AWS:", b"")
+            .decode("utf-8")
+        )
+        return "AWS", ecr_password
+
+    def _gcp_docker_registry_login_args(self) -> Tuple[str, str]:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            creds, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+            auth_req = google.auth.transport.requests.Request()
+            creds.refresh(auth_req)
+            return "oauth2accesstoken", creds.token
 
     def run(self, logger: logging.Logger, command: str) -> None:
         """

@@ -35,12 +35,6 @@ from ..task_container import TaskContainer
 logging.getLogger("botocore").setLevel(logging.WARNING)
 
 
-class SupportedProviders(Enum):
-    AWS = "aws"
-    GCP = "gcp"
-    UNKNOWN = None
-
-
 class SwarmContainer(TaskContainer):
     """
     TaskContainer docker (swarm) runtime
@@ -344,16 +338,10 @@ class SwarmContainer(TaskContainer):
                 # docker.errors.APIError is thrown if permissions are missing
                 client.images.get_registry_data(image_tag)  # type: ignore[attr-defined]
             except docker.errors.APIError:
-                logger.debug(f"Need to login to {image_tag} registry")
-                registry_name, provider = self.get_registry_name_and_provider(logger, image_tag)
-                if registry_name and provider is SupportedProviders.AWS:
-                    self.aws_ecr_login(logger, client, registry_name)
-                if registry_name and provider is SupportedProviders.GCP:
-                    self.gcp_docker_registry_login(client, registry_name)
-                if provider is SupportedProviders.UNKNOWN:
-                    logger.warning(
-                        f"{image_tag} registry pattern unrecognized. If login is needed do it before running the workflow"
-                    )
+                user, password, registry_name = super().get_image_registry_credentials(logger, image_tag, client)
+                if all((user, password, registry_name)):
+                    self.docker_login(logger, client, user, password, registry_name)
+                                
             try:
                 logger.info(_("docker pull", tag=image_tag))
                 client.images.pull(image_tag)
@@ -371,60 +359,10 @@ class SwarmContainer(TaskContainer):
         logger.notice(_("docker image", **image_log))
         return image_tag
 
-    def get_registry_name_and_provider(
-        self, logger: logging.Logger, image_tag: str
-    ) -> Tuple[str | None, SupportedProviders]:
-        logger.debug(f"Get registry name and provider for {image_tag}")
-        # GCP:
-        #   - <LOCATION>-docker.pkg.dev/<PROJECT-ID>/<REPOSITORY>
-        #   - <LOCATION>.gcr.io/<PROJECT-ID> (legacy)
-        gcp_registry_pattern = (
-            r"^(?P<gcp>[a-z-]+[0-9]+-docker\.pkg\.dev/[a-z0-9-]+/[a-z0-9-]+|[a-z\.]*gcr\.io)/.*$"
-        )
-        # AWS:
-        #   - <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com
-        aws_registry_pattern = r"^(?P<aws>[0-9]{12}\.dkr\.ecr\.[a-z-]+[0-9]+\.amazonaws\.com)/.*$"
-
-        pattern_match = re.match(gcp_registry_pattern, image_tag) or re.match(
-            aws_registry_pattern, image_tag
-        )
-        registry_name = pattern_match.group(1) if pattern_match else None
-        provider = SupportedProviders(
-            list(pattern_match.groupdict().keys())[0] if pattern_match else None
-        )
-        logger.debug(f"Registry: {registry_name}. Provider: {provider}")
-        return registry_name, provider
-
-    def aws_ecr_login(
-        self, logger: logging.Logger, docker_client: docker.DockerClient, registry_name: str
-    ) -> None:
-        logger.debug(f"Get region and account ID from registry name {registry_name}")
-        aws_account_id, _, _, aws_region, _, _ = registry_name.split(".")
-        logger.debug(f"AWS account: {aws_account_id}. Region: {aws_region}")
-        ecr_client = boto3.client("ecr", region_name=aws_region)
-        logger.debug(f"Get ECR token for {registry_name}")
-        response = ecr_client.get_authorization_token(registryIds=[aws_account_id])
-        ecr_password = (
-            base64.b64decode(response["authorizationData"][0]["authorizationToken"])
-            .replace(b"AWS:", b"")
-            .decode("utf-8")
-        )
-        logger.debug(f"Login to {registry_name}")
-        self.docker_login(docker_client, "AWS", ecr_password, registry_name)
-
-    def gcp_docker_registry_login(self, client: docker.DockerClient, registry_name: str) -> None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            creds, _ = google.auth.default(
-                scopes=["https://www.googleapis.com/auth/cloud-platform"]
-            )
-            auth_req = google.auth.transport.requests.Request()
-            creds.refresh(auth_req)
-            self.docker_login(client, "oauth2accesstoken", creds.token, registry_name)
-
     def docker_login(
-        self, client: docker.DockerClient, username: str, password: str, registry_name: str
+        self, logger: logging.Logger, client: docker.DockerClient, username: str, password: str, registry_name: str
     ) -> None:
+        logger.debug(f"Login to {registry_name} registry")
         client.login(username, password, registry=registry_name, reauth=True)  # type: ignore[attr-defined]
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
