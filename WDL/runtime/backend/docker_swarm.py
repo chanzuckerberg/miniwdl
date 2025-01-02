@@ -3,7 +3,6 @@ Default TaskContainer implementation using Docker Swarm
 """
 
 import os
-import re
 import json
 import stat
 import time
@@ -13,17 +12,12 @@ import base64
 import random
 import hashlib
 import logging
-import warnings
 import threading
 import traceback
 import contextlib
-from enum import Enum
 from io import BytesIO
 from typing import List, Dict, Set, Optional, Any, Callable, Tuple, Iterable
-import boto3
 import docker
-import google.auth
-import google.auth.transport.requests
 from ... import Error
 from ..._util import chmod_R_plus, TerminationSignalFlag
 from ..._util import StructuredLogMessage as _
@@ -338,10 +332,12 @@ class SwarmContainer(TaskContainer):
                 # docker.errors.APIError is thrown if permissions are missing
                 client.images.get_registry_data(image_tag)  # type: ignore[attr-defined]
             except docker.errors.APIError:
-                user, password, registry_name = super().get_image_registry_credentials(logger, image_tag, client)
+                user, password, registry_name = super().get_image_registry_credentials(
+                    logger, image_tag, client
+                )
                 if all((user, password, registry_name)):
-                    self.docker_login(logger, client, user, password, registry_name)
-                                
+                    self.docker_login(logger, client, user, password, registry_name)  # type: ignore[arg-type]
+
             try:
                 logger.info(_("docker pull", tag=image_tag))
                 client.images.pull(image_tag)
@@ -360,7 +356,12 @@ class SwarmContainer(TaskContainer):
         return image_tag
 
     def docker_login(
-        self, logger: logging.Logger, client: docker.DockerClient, username: str, password: str, registry_name: str
+        self,
+        logger: logging.Logger,
+        client: docker.DockerClient,
+        username: str,
+        password: str,
+        registry_name: str,
     ) -> None:
         logger.debug(f"Login to {registry_name} registry")
         client.login(username, password, registry=registry_name, reauth=True)  # type: ignore[attr-defined]

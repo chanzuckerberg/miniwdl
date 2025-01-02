@@ -7,7 +7,7 @@ import logging
 import shutil
 import threading
 import typing
-from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set,Tuple
+from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set, Tuple
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from .. import Error, Value, Type
@@ -313,7 +313,12 @@ class TaskContainer(ABC):
         )
         return image
 
-    def get_image_registry_credentials(self, logger: logging.Logger, image_tag: str, docker_client: docker.DockerClient = None) -> Tuple[str, str]:
+    def get_image_registry_credentials(
+        self,
+        logger: logging.Logger,
+        image_tag: str,
+        docker_client: Optional[docker.DockerClient] = None,
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         close_docker_client = False
         if not docker_client:
             docker_client = docker.from_env(version="auto")
@@ -328,7 +333,7 @@ class TaskContainer(ABC):
             logger.warning(
                 f"{image_tag} registry pattern unrecognized. If login is needed do it before running the workflow"
             )
-            user, password = None, None
+            user, password = None, None  # type: ignore[assignment]
         # close the docker client in case it was instantiated in the scope of the function
         if close_docker_client:
             docker_client.close()
@@ -358,9 +363,7 @@ class TaskContainer(ABC):
         logger.debug(f"Registry: {registry_name}. Provider: {provider}")
         return registry_name, provider
 
-    def _aws_ecr_login_args(
-        self, logger: logging.Logger, registry_name: str
-    ) -> Tuple[str, str]:
+    def _aws_ecr_login_args(self, logger: logging.Logger, registry_name: str) -> Tuple[str, str]:
         logger.debug(f"Get region and account ID from registry name {registry_name}")
         aws_account_id, _, _, aws_region, _, _ = registry_name.split(".")
         logger.debug(f"AWS account: {aws_account_id}. Region: {aws_region}")

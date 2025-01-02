@@ -132,7 +132,7 @@ class SubprocessBase(TaskContainer):
         return (image, self.cli_exe + ["pull", image])
 
     @abstractmethod
-    def _login_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
+    def _login_invocation(self, logger: logging.Logger) -> Optional[List[str]]:
         pass
 
     @abstractmethod
@@ -235,7 +235,9 @@ class SubprocessBase(TaskContainer):
                             check=True,
                         )
 
-                        logger.info(_(f"retry {self.cli_name} pull", command=" ".join(pull_invocation)))
+                        logger.info(
+                            _(f"retry {self.cli_name} pull", command=" ".join(pull_invocation))
+                        )
                         subprocess.run(
                             pull_invocation,
                             stdout=subprocess.PIPE,
