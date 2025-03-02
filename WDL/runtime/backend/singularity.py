@@ -59,7 +59,7 @@ class SingularityContainer(SubprocessBase):
         return self.cfg.get_list("singularity", "exe")
 
     def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
-        image, invocation = super()._pull_invocation(logger, cleanup)
+        image = super()._get_runtime_image()
         docker_uri = "docker://" + image
         pulldir = self.image_cache_dir or cleanup.enter_context(
             tempfile.TemporaryDirectory(prefix="miniwdl_sif_")
@@ -71,6 +71,23 @@ class SingularityContainer(SubprocessBase):
         # If path already exists, no need to use a pull invocation.
         logger.info(_("Singularity SIF found in image cache directory", sif=image_path))
         return image_path, []
+
+    def _login_invocation(self, logger: logging.Logger) -> Optional[List[str]]:
+        login_invocation = None
+        image = super()._get_runtime_image()
+        user, password, registry_name = super().get_image_registry_credentials(logger, image)
+        if all((user, password, registry_name)):
+            registry_name = registry_name.split("/")[0]  # type: ignore[union-attr]
+            login_invocation = self.cli_exe + [
+                "registry",
+                "login",
+                "--username",
+                user,
+                "--password",
+                password,
+                "docker://" + registry_name,
+            ]
+        return login_invocation  # type: ignore[return-value]
 
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
         """

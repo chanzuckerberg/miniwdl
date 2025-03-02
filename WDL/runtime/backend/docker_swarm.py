@@ -6,8 +6,8 @@ import os
 import json
 import stat
 import time
-import shlex
 import uuid
+import shlex
 import base64
 import random
 import hashlib
@@ -24,6 +24,9 @@ from ..._util import StructuredLogMessage as _
 from .. import config
 from ..error import Interrupted, Terminated
 from ..task_container import TaskContainer
+
+
+logging.getLogger("botocore").setLevel(logging.WARNING)
 
 
 class SwarmContainer(TaskContainer):
@@ -326,6 +329,16 @@ class SwarmContainer(TaskContainer):
             image_attrs = client.images.get(image_tag).attrs
         except docker.errors.ImageNotFound:
             try:
+                # docker.errors.APIError is thrown if permissions are missing
+                client.images.get_registry_data(image_tag)  # type: ignore[attr-defined]
+            except docker.errors.APIError:
+                user, password, registry_name = super().get_image_registry_credentials(
+                    logger, image_tag, client
+                )
+                if all((user, password, registry_name)):
+                    self.docker_login(logger, client, user, password, registry_name)  # type: ignore[arg-type]
+
+            try:
                 logger.info(_("docker pull", tag=image_tag))
                 client.images.pull(image_tag)
                 image_attrs = client.images.get(image_tag).attrs
@@ -341,6 +354,17 @@ class SwarmContainer(TaskContainer):
         image_log["RepoDigest"] = image_digest
         logger.notice(_("docker image", **image_log))
         return image_tag
+
+    def docker_login(
+        self,
+        logger: logging.Logger,
+        client: docker.DockerClient,
+        username: str,
+        password: str,
+        registry_name: str,
+    ) -> None:
+        logger.debug(f"Login to {registry_name} registry")
+        client.login(username, password, registry=registry_name, reauth=True)  # type: ignore[attr-defined]
 
     def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
         def escape(s):

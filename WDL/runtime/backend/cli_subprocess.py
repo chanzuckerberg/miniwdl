@@ -128,10 +128,12 @@ class SubprocessBase(TaskContainer):
         return [self.cli_name]
 
     def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
-        image = self.runtime_values.get(
-            "docker", self.cfg.get_dict("task_runtime", "defaults")["docker"]
-        )
+        image = self._get_runtime_image()
         return (image, self.cli_exe + ["pull", image])
+
+    @abstractmethod
+    def _login_invocation(self, logger: logging.Logger) -> Optional[List[str]]:
+        pass
 
     @abstractmethod
     def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
@@ -183,7 +185,7 @@ class SubprocessBase(TaskContainer):
         Pull the image under a global lock, ensuring we'll only download it once even if used by
         many parallel tasks all starting at the same time.
         """
-        image, invocation = self._pull_invocation(logger, cleanup)
+        image, pull_invocation = self._pull_invocation(logger, cleanup)
         with self._pulled_images_lock:
             if image in self._pulled_images:
                 logger.info(_(f"{self.cli_name} image already pulled", image=image))
@@ -197,13 +199,13 @@ class SubprocessBase(TaskContainer):
                     logger.info(_(f"{self.cli_name} image already pulled", image=image))
                     return image
 
-            if not invocation:
+            if not pull_invocation:
                 # No action required, image could be cached externally.
                 return image
-            logger.info(_(f"begin {self.cli_name} pull", command=" ".join(invocation)))
+            logger.info(_(f"begin {self.cli_name} pull", command=" ".join(pull_invocation)))
             try:
                 subprocess.run(
-                    invocation,
+                    pull_invocation,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     universal_newlines=True,
@@ -217,7 +219,45 @@ class SubprocessBase(TaskContainer):
                         stdout=cpe.stdout.strip().split("\n"),
                     )
                 )
-                raise DownloadFailed(image) from None
+                raise_error = True
+
+                logger.info("Pull failed, try to login")
+                # I didn't find a way to test in advance if registry login is needed for a specific registry
+                # using singularity cli, therefore we try to login if pull fails and pull again
+                login_invocation = self._login_invocation(logger)
+                if login_invocation:
+                    try:
+                        subprocess.run(
+                            login_invocation,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            universal_newlines=True,
+                            check=True,
+                        )
+
+                        logger.info(
+                            _(f"retry {self.cli_name} pull", command=" ".join(pull_invocation))
+                        )
+                        subprocess.run(
+                            pull_invocation,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            universal_newlines=True,
+                            check=True,
+                        )
+                        raise_error = False
+                    except subprocess.CalledProcessError as cpe:
+                        logger.error(
+                            _(
+                                f"Retry {self.cli_name} pull failed",
+                                stderr=cpe.stderr.strip().split("\n"),
+                                stdout=cpe.stdout.strip().split("\n"),
+                            )
+                        )
+
+                if raise_error:
+                    raise DownloadFailed(image) from None
+
             with self._pulled_images_lock:
                 self._pulled_images.add(image)
 
