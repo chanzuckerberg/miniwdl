@@ -850,7 +850,7 @@ def link_outputs(
             d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
             for i in range(len(v.value)):
                 v.value[i] = map_paths(v.value[i], os.path.join(dn, str(i).rjust(d, "0")))
-        elif isinstance(v, Value.Map):
+        elif isinstance(v, Value.Map) and v.value:
             # create a subdirectory for each key, as long as the key names seem to make reasonable
             # path components; otherwise, treat the dict as a list of its values
             keys_ok = (
