@@ -481,9 +481,9 @@ class SwarmContainer(TaskContainer):
                 logger.debug(_("docker task status", **status))
             state = status["State"]
         else:
-            assert (
-                len(self._observed_states or []) <= 1
-            ), "docker task shouldn't disappear from service"
+            assert len(self._observed_states or []) <= 1, (
+                "docker task shouldn't disappear from service"
+            )
 
         # references on docker task states:
         # https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/

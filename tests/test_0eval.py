@@ -296,6 +296,7 @@ class TestEval(unittest.TestCase):
             ("1 <= 1.0", "true"),
             ("[1, 2.0]", "[1.000000, 2.000000]", WDL.Type.Array(WDL.Type.Float())),
             ("[1, 2.0][0]", "1.000000", WDL.Type.Float()),
+            ("6.02e23", "601999999999999995805696.000000", WDL.Type.Float()),
             # TODO: more sophisticated unification algo to handle this
             # ("[[1],[2.0]]", "[[1.0], [2.0]]", WDL.Type.Array(WDL.Type.Float())),
         )
@@ -517,6 +518,7 @@ class TestValue(unittest.TestCase):
             (WDL.Type.Boolean(), False),
             (WDL.Type.Int(), 42),
             (WDL.Type.Float(), 3.14),
+            (WDL.Type.Float(), 6.02e23),
             (WDL.Type.String(), 'CNN is working frantically to find their "source."'),
             (WDL.Type.String(optional=True), None),
             (WDL.Type.File(), '/tmp/stdout.txt'),
