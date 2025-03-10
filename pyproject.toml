@@ -30,10 +30,10 @@ dependencies = [
     "argcomplete>=3,<4",
     "pygtail~=0.14",
     "coloredlogs>=15,<16",
-    "python-json-logger>=2,<3",
-    "lark~=1.1",
+    "python-json-logger>=2,<4",
+    "lark~=1.2",
     "bullet>=2,<3",
-    "psutil>=5,<7"
+    "psutil>=5,<8"
 ]
 
 [project.optional-dependencies]
