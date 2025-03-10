@@ -9,12 +9,12 @@
 
 ## Install miniwdl
 
-Installation requires Python 3.8+, pip3 (or conda) and Docker (or Podman/Singularity/udocker). Linux preferred; [macOS (Intel) compatible with extra steps](https://github.com/chanzuckerberg/miniwdl/issues/145). More detail in [full documentation](https://miniwdl.readthedocs.io/en/latest/getting_started.html).
+Installation requires Python 3.8+, pip (or conda) and Docker (or Podman/Singularity/udocker). Linux preferred; [macOS compatible with extra steps](https://github.com/chanzuckerberg/miniwdl/issues/145). More detail in [full documentation](https://miniwdl.readthedocs.io/en/latest/getting_started.html).
 
 - Install with pip [![PyPI version](https://img.shields.io/pypi/v/miniwdl.svg)](https://pypi.org/project/miniwdl/) : run `pip3 install miniwdl`
-- Install with conda [![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl) : run `conda install -c conda-forge miniwdl`
+- Install with conda [![Anaconda-Server Badge](https://anaconda.org/conda-forge/miniwdl/badges/version.svg)](https://anaconda.org/conda-forge/miniwdl) : [setup conda-forge](https://conda-forge.org/docs/user/introduction/#how-can-i-install-packages-from-conda-forge) and run `conda install miniwdl`
 - Verify your miniwdl installation: `miniwdl run_self_test`
-- Install from source code: see the [Dockerfile](https://github.com/chanzuckerberg/miniwdl/blob/main/Dockerfile) for dependencies to run `setup.py`
+- Install from source code for development: see [CONTRIBUTING.md](CONTRIBUTING.md)
 
 <img src="https://github.com/openwdl/learn-wdl/blob/master/images/miniwdl-dev.png" width=600>
 

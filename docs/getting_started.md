@@ -14,7 +14,7 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 Requirements:
 
 1. GNU/Linux or [macOS (specific steps required)](https://github.com/chanzuckerberg/miniwdl/issues/145)
-2. Python 3.6 or higher
+2. Python 3.8 or higher
 3. [Docker Engine](https://docs.docker.com/install/) 17 or higher (if unable, see [alternate container runtimes](https://miniwdl.readthedocs.io/en/latest/runner_backends.html))
 4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
 
@@ -22,7 +22,8 @@ Requirements:
 Installation options:
 
 * via PyPI: `pip3 install miniwdl`
-* via conda: `conda install -c conda-forge miniwdl`
+* via conda: [setup conda-forge](https://conda-forge.org/docs/user/introduction/#how-can-i-install-packages-from-conda-forge) and run `conda install miniwdl`
+- Verify your miniwdl installation: `miniwdl run_self_test`
 * see the [GitHub repo README](https://github.com/chanzuckerberg/miniwdl/) to install from source
 
 Then open a command prompt and try,
