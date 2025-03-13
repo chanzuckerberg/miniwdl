@@ -633,3 +633,27 @@ Int count = 12
             self.assertEqual(wmock.call_count, 1)
             self.assertEqual(tmock.call_count, 3)  # reran Alyssa, cached Ben
             self.assertNotEqual(WDL.values_to_json(outp), WDL.values_to_json(outp2))
+
+    def test_cache_of_task_with_empty_outputs(self):
+        # regression test issue 715
+        wdl = """
+                task TestTask {
+                    input {
+                    }
+                    command <<<
+                        ls
+                    >>>
+                    output {
+                    }
+                    runtime {
+                        container: "ubuntu:latest"
+                        cpu: 1
+                    }
+                }
+                """
+        self._run(wdl, {}, cfg=self.cfg)
+        #check cache used
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(wdl, {}, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 0)

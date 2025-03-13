@@ -103,7 +103,7 @@ class CallCache(AbstractContextManager):
             self._logger.warning(
                 _("call cache entry present, but unreadable", cache_file=file_path, error=str(exn))
             )
-        if cache:
+        if cache is not None:
             self._logger.notice(
                 _(
                     "call cache hit",
