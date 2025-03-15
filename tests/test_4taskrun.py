@@ -263,6 +263,42 @@ class TestTaskRunner(unittest.TestCase):
         with open(outputs["message"]) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
 
+    def test_command_dedenting(self):
+        task_wdl = R"""
+        version 1.0
+        task test_dedent {
+            command <<<
+                echo "Line 1"
+                    # indented comment
+                echo "Line 2"
+            >>>
+            output {}
+        }
+        """
+        self._test_task(task_wdl)
+        with open(os.path.join(self._rundir, "command"), "r") as infile:
+            content = infile.read().lstrip("\n").rstrip()
+        self.assertEqual(content, 'echo "Line 1"\n' + '    # indented comment\n' + 'echo "Line 2"')
+
+        # newlines in interpolated content shouldn't affect dedenting of other lines
+        # (regression test issue #674)
+        task_wdl = R"""
+        version 1.0
+        task test_dedent {
+            String x = "Interpolated\nContent"
+            command <<<
+                echo "Line 1"
+                    # indented comment
+                echo "~{x}"
+            >>>
+            output {}
+        }
+        """
+        self._test_task(task_wdl)
+        with open(os.path.join(self._rundir, "command"), "r") as infile:
+            content = infile.read().lstrip("\n").rstrip()
+        self.assertEqual(content, 'echo "Line 1"\n' + '    # indented comment\n' + 'echo "Interpolated\nContent"')
+
     def test_command_escaping(self):
         # miniwdl evaluates escape sequences in WDL string constants, but in commands it should
         # leave them for the shell to deal with
