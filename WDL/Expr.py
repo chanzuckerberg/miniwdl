@@ -415,11 +415,7 @@ class String(Base):
             for part in self.parts
         ]
         # concatenate the stringified parts and trim the surrounding delimiters
-        delim = parts[0]
-        assert isinstance(delim, str)
-        assert delim in ("'", '"')
-        delim2 = parts[-1]
-        assert delim2 == delim
+        assert len(parts) >= 2 and parts[0] in ("'", '"') and parts[-1] == parts[0]
         return Value.String("".join(parts)[1:-1])
 
     @property
@@ -449,8 +445,9 @@ class String(Base):
     @staticmethod
     def _dedent(parts: List[Any]) -> List[Any]:
         """"""
-        # Helper: given a list of parts (strs or placeholders [anything but str]), remove common
-        # leading whitespace from non-blank lines, passing placeholders through.
+        # Helper for dedenting task commands and multi-line strings: given a list of parts (strs or
+        # placeholders [anything but str]), remove common leading whitespace from non-blank lines,
+        # passing placeholders through.
 
         # Detect common leading whitespace on the non-blank lines. For this purpose, use a
         # pseudo-string with dummy "~{}" substituted for placeholders, which is simpler than tracking
