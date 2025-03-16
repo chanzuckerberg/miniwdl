@@ -16,7 +16,7 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
 import regex
 from .Error import SourcePosition, SourceNode
-from . import Type, Value, Env, Error, StdLib
+from . import Type, Value, Env, Error, StdLib, Any
 
 if TYPE_CHECKING:
     from . import Tree
@@ -119,14 +119,14 @@ class Base(SourceNode, ABC):
         # exceptions raised
         pass
 
-    def eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+    def eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base, **kwargs) -> Value.Base:
         """
         Evaluate the expression in the given environment
 
         :param stdlib: a context-specific standard function library implementation
         """
         try:
-            ans = self._eval(env, stdlib)
+            ans = self._eval(env, stdlib, **kwargs)
             ans.expr = self
             return ans
         except Error.RuntimeError:
@@ -369,19 +369,8 @@ class String(Base):
 
     The parts list begins and ends with the original delimiters (quote marks, braces, or triple
     angle brackets). Between these is a sequence of literal strings and/or interleaved placeholder
-    expressions. Escape sequences in the literals will NOT have been decoded (although the parser
-    will have checked they're valid). Strings arising from task commands leave escape sequences to
-    be interpreted by the shell in the task container. Other string literals have their escape
-    sequences interpreted upon evaluation to string values.
-    """
-
-    command: bool
-    """
-    :type: bool
-
-    True if this expression is a task command template, as opposed to a string expression anywhere
-    else. Controls whether backslash escape sequences are evaluated or (for commands) passed
-    through for shell interpretation.
+    expressions. Escape sequences in the literals are NOT decoded until the string literal is
+    evaluated (although the parser will have checked they're valid).
     """
 
     def __init__(
@@ -389,6 +378,8 @@ class String(Base):
     ) -> None:
         super().__init__(pos)
         self.parts = parts
+        # self.command: legacy attribute predating the TaskCommand subclass
+        assert not command or isinstance(self, TaskCommand)
         self.command = command
 
     def __str__(self):
@@ -415,37 +406,96 @@ class String(Base):
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         """"""
-        ans = []
-        for part in self.parts:
-            if isinstance(part, Placeholder):
-                # evaluate interpolated expression & stringify
-                ans.append(part.eval(env, stdlib).value)
-            elif isinstance(part, str):
-                if self.command:
-                    ans.append(part)
-                else:
-                    from ._parser import decode_escapes  # avoiding circular import
+        # eval parts & decode escape sequences
+        from ._parser import decode_escapes  # avoiding circular import
 
-                    ans.append(decode_escapes(self.pos, part))
-            else:
-                assert False
-        # concatenate the stringified parts and trim the surrounding quotes
-        # TODO: make command repr include delimiters for consistency
-        if self.command:
-            return Value.String("".join(ans))
-        delim = self.parts[0]
+        parts = [
+            part.eval(env, stdlib).value
+            if isinstance(part, Placeholder)
+            else decode_escapes(self.pos, part)
+            for part in self.parts
+        ]
+        # concatenate the stringified parts and trim the surrounding delimiters
+        delim = parts[0]
         assert isinstance(delim, str)
         assert delim in ("'", '"', "{", "<<<")
-        delim2 = self.parts[-1]
+        delim2 = parts[-1]
         assert isinstance(delim2, str)
         assert delim2 in ("'", '"', "}", ">>>") and len(delim) == len(delim2)
-        return Value.String("".join(ans)[len(delim) : -len(delim)])
+        return Value.String("".join(parts)[len(delim) : -len(delim)])
 
     @property
     def literal(self) -> Optional[Value.Base]:
         if next((p for p in self.parts if not isinstance(p, str)), None):
             return None
         return self._eval(Env.Bindings(), None)  # type: ignore
+
+    @staticmethod
+    def _dedent(parts: List[Any]) -> List[Any]:
+        """"""
+        # Helper: given a list of parts (strs or placeholders [anything but str]), remove common
+        # leading whitespace from non-blank lines, passing placeholders through.
+
+        # Detect common leading whitespace on the non-blank lines. For this purpose, use a
+        # pseudo-string with dummy "~{}" substituted for placeholders, which is simpler than tracking
+        # how newlines intersperse with the placeholders.
+        common_ws = None
+        pseudo = "".join((part if isinstance(part, str) else "~{}") for part in parts)
+        for line in pseudo.split("\n"):
+            line_ws = len(line) - len(line.lstrip())
+            if line_ws < len(line):
+                if common_ws is not None:
+                    common_ws = min(line_ws, common_ws)
+                else:
+                    common_ws = line_ws
+        # Remove the common leading whitespace, passing through placeholders (which don't
+        # necessarily break the line they start on).
+        if common_ws in (None, 0):
+            return [part for part in parts]
+        parts2 = []
+        at_new_line = True
+        for part in parts:
+            if not isinstance(part, str):  # placeholder
+                at_new_line = False
+                parts2.append(part)
+            else:
+                lines2 = []
+                for line in part.split("\n"):
+                    if at_new_line:
+                        assert not line[:common_ws].strip()
+                        lines2.append(line[common_ws:])
+                    else:
+                        lines2.append(line)
+                    at_new_line = True
+                parts2.append("\n".join(lines2))
+                at_new_line = parts2[-1].endswith("\n")
+        return parts2
+
+
+class TaskCommand(String):
+    """
+    Specialization of ``String`` for task commands, with slightly different evaluation rules:
+    common leading whitespace is removed (dedentation) and escape sequences are passed through for
+    shell interpretation. Also, for historical reasons, the ``parts`` does not include the
+    beginning & ending delimiters.
+    """
+
+    def __init__(self, pos: SourcePosition, parts: List[Union[str, Placeholder]]) -> None:
+        super().__init__(pos, parts, command=True)
+
+    def _eval(
+        self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base, dedent: bool = True
+    ) -> Value.String:
+        # in contrast to Expr.String._eval:
+        # 1. dedents
+        # 2. doesn't decode escape sequences
+        # 3. doesn't assume the first and last parts are delimiters
+        return Value.String(
+            "".join(
+                part.eval(env, stdlib).value if isinstance(part, Placeholder) else part
+                for part in (String._dedent(self.parts) if dedent else self.parts)
+            )
+        )
 
 
 class Array(Base):
