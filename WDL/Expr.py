@@ -14,6 +14,7 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
+import codecs
 import regex
 from .Error import SourcePosition, SourceNode
 from . import Type, Value, Env, Error, StdLib, Any
@@ -406,23 +407,16 @@ class String(Base):
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         """"""
-        # eval parts & decode escape sequences
-        from ._parser import decode_escapes  # avoiding circular import
-
+        # eval placeholders & decode escape sequences
         parts = [
             part.eval(env, stdlib).value
             if isinstance(part, Placeholder)
-            else decode_escapes(self.pos, part)
+            else String._decode_escapes(self.pos, part)
             for part in self.parts
         ]
         # concatenate the stringified parts and trim the surrounding delimiters
-        delim = parts[0]
-        assert isinstance(delim, str)
-        assert delim in ("'", '"', "{", "<<<")
-        delim2 = parts[-1]
-        assert isinstance(delim2, str)
-        assert delim2 in ("'", '"', "}", ">>>") and len(delim) == len(delim2)
-        return Value.String("".join(parts)[len(delim) : -len(delim)])
+        assert len(parts) >= 2 and parts[0] in ("'", '"') and parts[-1] == parts[0]
+        return Value.String("".join(parts)[1:-1])
 
     @property
     def literal(self) -> Optional[Value.Base]:
@@ -430,11 +424,30 @@ class String(Base):
             return None
         return self._eval(Env.Bindings(), None)  # type: ignore
 
+    _ASCII_PARTS_RE = regex.compile(r"[\x01-\x7f]+", regex.UNICODE)
+
+    @staticmethod
+    def _decode_escapes(pos: SourcePosition, s: str) -> str:
+        """"""
+        # Helper: decode backslash-escaped sequences in a str that may also contain unescaped,
+        # non-ASCII unicode characters. codecs.decode gets tripped up by the latter, so we use
+        # ASCII_PARTS_RE to apply it only to the ASCII parts of the string.
+        # more info: https://stackoverflow.com/a/24519338/13393076
+
+        # FIXME (issue #661): reject unicode-escape sequences that aren't allowed by the WDL spec
+        try:
+            return String._ASCII_PARTS_RE.sub(
+                lambda match: codecs.decode(match.group(0), "unicode-escape"), s
+            )
+        except (SyntaxError, ValueError, UnicodeError):
+            raise Error._BadCharacterEncoding(pos)
+
     @staticmethod
     def _dedent(parts: List[Any]) -> List[Any]:
         """"""
-        # Helper: given a list of parts (strs or placeholders [anything but str]), remove common
-        # leading whitespace from non-blank lines, passing placeholders through.
+        # Helper for dedenting task commands and multi-line strings: given a list of parts (strs or
+        # placeholders [anything but str]), remove common leading whitespace from non-blank lines,
+        # passing placeholders through.
 
         # Detect common leading whitespace on the non-blank lines. For this purpose, use a
         # pseudo-string with dummy "~{}" substituted for placeholders, which is simpler than tracking
@@ -486,6 +499,7 @@ class TaskCommand(String):
     def _eval(
         self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base, dedent: bool = True
     ) -> Value.String:
+        """"""
         # in contrast to Expr.String._eval:
         # 1. dedents
         # 2. doesn't decode escape sequences
@@ -494,6 +508,56 @@ class TaskCommand(String):
             "".join(
                 part.eval(env, stdlib).value if isinstance(part, Placeholder) else part
                 for part in (String._dedent(self.parts) if dedent else self.parts)
+            )
+        )
+
+
+class MultiLineString(String):
+    """
+    Specialization of ``String`` for WDL 1.2 multi-line string literals, with special evaluation
+    rules: trim whitespace following the ``<<<`` and preceding the ``>>>`` delimiters and dedent
+    the remaining non-blank lines, while allowing newlines to be escaped.
+    """
+
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
+        """"""
+        # From each str part, remove escaped newlines and any whitespace following them. Escaped
+        # newlines are preceded by an odd number of backslashes.
+        parts: List[Union[str, Placeholder]] = []
+        for part in self.parts:
+            if isinstance(part, str):
+                part_lines = part.split("\n")
+                for j in range(len(part_lines) - 1):
+                    part_line = part_lines[j]
+                    if (len(part_line) - len(part_line.rstrip("\\"))) % 2 == 1:
+                        part_lines[j] = part_line[:-1]
+                        if j < len(part_lines) - 1:
+                            part_lines[j + 1] = part_lines[j + 1].lstrip(" \t")
+                    else:
+                        part_lines[j] += "\n"
+                parts.append("".join(part_lines))
+            else:
+                parts.append(part)
+
+        # Trim whitespace from the left of the first line and the right of the last line (including
+        # the first/last newline, if any).
+        assert parts[0] == "<<<" and parts[-1] == ">>>"
+        if len(parts) > 2 and isinstance(parts[1], str):
+            parts[1] = parts[1].lstrip(" \t")
+            if parts[1] and parts[1][0] == "\n":
+                parts[1] = parts[1][1:]
+        if len(parts) > 2 and isinstance(parts[-2], str):
+            parts[-2] = parts[-2].rstrip(" \t")
+            if parts[-2] and parts[-2][-1] == "\n":
+                parts[-2] = parts[-2][:-1]
+
+        # dedent (without delimiters), eval placeholders, decode escape sequences, concatenate
+        return Value.String(
+            "".join(
+                part.eval(env, stdlib).value
+                if isinstance(part, Placeholder)
+                else String._decode_escapes(self.pos, part)
+                for part in String._dedent(parts[1:-1])
             )
         )
 

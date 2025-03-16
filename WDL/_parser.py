@@ -1,8 +1,6 @@
-# pylint: skip-file
 import inspect
 import threading
 import regex
-import codecs
 from typing import List, Optional, Set, Tuple, Any, Union
 import lark
 from .Error import SourcePosition
@@ -44,29 +42,6 @@ def to_int(x):
 
 def to_float(x):
     return float(x)
-
-
-class BadCharacterEncoding(Exception):
-    pos: SourcePosition
-
-    def __init__(self, pos: SourcePosition):
-        self.pos = pos
-
-
-# Decode backslash-escape sequences in a str that may also contain unescaped, non-ASCII unicode
-# characters. Inspired by: https://stackoverflow.com/a/24519338/13393076 however that solution
-# fails to reject some invalid escape sequences.
-ASCII_PARTS_RE = regex.compile(r"[\x01-\x7f]+", regex.UNICODE)
-# INVALID_ESCAPE_RE = regex.compile(r'\\(?=[^\n\\\'"abfnrtv0-7xNuU])')
-
-
-def decode_escapes(pos: SourcePosition, s: str):
-    # if INVALID_ESCAPE_RE.search(s):
-    #     raise BadCharacterEncoding(pos)
-    try:
-        return ASCII_PARTS_RE.sub(lambda match: codecs.decode(match.group(0), "unicode-escape"), s)
-    except (SyntaxError, ValueError, UnicodeError):
-        raise BadCharacterEncoding(pos)
 
 
 class _SourcePositionTransformerMixin:
@@ -119,7 +94,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                 parts.append(Expr.Placeholder(item.pos, {}, item))
             else:
                 # validate escape sequences...
-                decode_escapes(self._sp(meta), item.value)
+                Expr.String._decode_escapes(self._sp(meta), item.value)
                 # ...but preserve originals in AST.
                 parts.append(item.value)
         assert len(parts) >= 2
@@ -134,7 +109,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
                     wdl_version,
                     None,
                 ) from None
-            self._preprocess_multistring(meta, parts)
+            return Expr.MultiLineString(self._sp(meta), parts)
         return Expr.String(self._sp(meta), parts)
 
     def placeholder_option(self, meta, items):
@@ -151,39 +126,10 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
             )
         return Expr.Placeholder(self._sp(meta), options, items[-1])
 
-    def _preprocess_multistring(self, meta, parts):
-        # From each str part, remove escaped newlines and any whitespace following them. Escaped
-        # newlines are preceded by an odd number of backslashes.
-        for i in range(1, len(parts) - 1):
-            part = parts[i]
-            if isinstance(part, str):
-                part_lines = part.split("\n")
-                for j in range(len(part_lines) - 1):
-                    part_line = part_lines[j]
-                    if (len(part_line) - len(part_line.rstrip("\\"))) % 2 == 1:
-                        part_lines[j] = part_line[:-1]
-                        if j < len(part_lines) - 1:
-                            part_lines[j + 1] = part_lines[j + 1].lstrip(" \t")
-                    else:
-                        part_lines[j] += "\n"
-                parts[i] = "".join(part_lines)
-        # Trim whitespace from the left of the first line and the right of the last line (including
-        # the first/last newline, if any).
-        if len(parts) > 2 and isinstance(parts[1], str):
-            parts[1] = parts[1].lstrip(" \t")
-            if parts[1] and parts[1][0] == "\n":
-                parts[1] = parts[1][1:]
-        if len(parts) > 2 and isinstance(parts[-2], str):
-            parts[-2] = parts[-2].rstrip(" \t")
-            if parts[-2] and parts[-2][-1] == "\n":
-                parts[-2] = parts[-2][:-1]
-        # Strip common leading whitespace from non-blank lines
-        parts[1:-1] = Expr.String._dedent(parts[1:-1])
-
     def string_literal(self, meta, items):
         assert len(items) == 1
         assert items[0].value.startswith('"') or items[0].value.startswith("'")
-        return decode_escapes(self._sp(meta), items[0].value[1:-1])
+        return Expr.String._decode_escapes(self._sp(meta), items[0].value[1:-1])
 
     def array(self, meta, items) -> Expr.Base:
         return Expr.Array(self._sp(meta), items)
@@ -743,7 +689,7 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
         raise Error.SyntaxError(pos, str(exn), version, None) from None
     except lark.exceptions.VisitError as exn:
         exn2 = exn.__context__ or exn
-        if isinstance(exn2, BadCharacterEncoding):
+        if isinstance(exn2, Error._BadCharacterEncoding):
             raise Error.SyntaxError(
                 exn2.pos,
                 "Bad escape sequence in string literal",
@@ -797,7 +743,7 @@ def _parse_doctransformer(
         raise Error.SyntaxError(pos, str(exn), version, declared_version) from None
     except lark.exceptions.VisitError as exn:
         exn2 = exn.__context__ or exn
-        if isinstance(exn2, BadCharacterEncoding):
+        if isinstance(exn2, Error._BadCharacterEncoding):
             raise Error.SyntaxError(
                 exn2.pos,
                 "Bad escape sequence in string literal",
