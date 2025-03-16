@@ -299,6 +299,18 @@ class TestTaskRunner(unittest.TestCase):
             content = infile.read().lstrip("\n").rstrip()
         self.assertEqual(content, 'echo "Line 1"\n' + '    # indented comment\n' + 'echo "Interpolated\nContent"')
 
+        # ..unless the old_command_dedent option is set (non-WDL-compliant; for backwards
+        # compatibility with pre-#674 behavior)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"old_command_dedent": True}})
+        self._test_task(task_wdl, cfg=cfg)
+        with open(os.path.join(self._rundir, "command"), "r") as infile:
+            content = infile.read().lstrip("\n").rstrip()
+        self.assertEqual(content,
+                         '                echo "Line 1"\n' +
+                         '                    # indented comment\n' +
+                         '                echo "Interpolated\nContent"')
+
     def test_command_escaping(self):
         # miniwdl evaluates escape sequences in WDL string constants, but in commands it should
         # leave them for the shell to deal with

@@ -184,6 +184,7 @@ def run_local_task(  # type: ignore[return]
                 )
 
                 # interpolate command
+                old_command_dedent = cfg["task_runtime"].get_bool("old_command_dedent")
                 # pylint: disable=E1101
                 placeholder_re = regex.compile(
                     cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX
@@ -193,10 +194,13 @@ def run_local_task(  # type: ignore[return]
                     "_placeholder_regex",
                     placeholder_re,
                 )  # hack to pass regex to WDL.Expr.Placeholder._eval
-                command = _util.strip_leading_whitespace(
-                    task.command.eval(container_env, stdlib).value
-                )[1]
+                assert isinstance(task.command, Expr.TaskCommand)
+                command = task.command.eval(
+                    container_env, stdlib, dedent=not old_command_dedent
+                ).value
                 delattr(stdlib, "_placeholder_regex")
+                if old_command_dedent:  # see issue #674
+                    command = _util.strip_leading_whitespace(command)[1]
                 logger.debug(_("command", command=command.strip()))
 
                 # process command & container through plugins
