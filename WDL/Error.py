@@ -52,6 +52,17 @@ class SyntaxError(Exception):
         self.declared_wdl_version = declared_wdl_version
 
 
+class _BadCharacterEncoding(Exception):
+    """"""
+
+    # Invalid escape sequence in a string literal; this is used internally, eventually resurfaced
+    # as a SyntaxError.
+    pos: SourcePosition
+
+    def __init__(self, pos: SourcePosition):
+        self.pos = pos
+
+
 class ImportError(Exception):
     """Failure to open/retrieve an imported WDL document
 

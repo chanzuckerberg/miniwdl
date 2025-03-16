@@ -14,6 +14,7 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 
 from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
+import codecs
 import regex
 from .Error import SourcePosition, SourceNode
 from . import Type, Value, Env, Error, StdLib, Any
@@ -407,12 +408,10 @@ class String(Base):
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         """"""
         # eval parts & decode escape sequences
-        from ._parser import decode_escapes  # avoiding circular import
-
         parts = [
             part.eval(env, stdlib).value
             if isinstance(part, Placeholder)
-            else decode_escapes(self.pos, part)
+            else String._decode_escapes(self.pos, part)
             for part in self.parts
         ]
         # concatenate the stringified parts and trim the surrounding delimiters
@@ -429,6 +428,24 @@ class String(Base):
         if next((p for p in self.parts if not isinstance(p, str)), None):
             return None
         return self._eval(Env.Bindings(), None)  # type: ignore
+
+    _ASCII_PARTS_RE = regex.compile(r"[\x01-\x7f]+", regex.UNICODE)
+
+    @staticmethod
+    def _decode_escapes(pos: SourcePosition, s: str) -> str:
+        """"""
+        # Helper: decode backslash-escaped sequences in a str that may also contain unescaped,
+        # non-ASCII unicode characters. codecs.decode gets tripped up by the latter, so we use
+        # ASCII_PARTS_RE to apply it only to the ASCII parts of the string.
+        # more info: https://stackoverflow.com/a/24519338/13393076
+
+        # FIXME (issue #661): reject unicode-escape sequences that aren't allowed by the WDL spec
+        try:
+            return String._ASCII_PARTS_RE.sub(
+                lambda match: codecs.decode(match.group(0), "unicode-escape"), s
+            )
+        except (SyntaxError, ValueError, UnicodeError):
+            raise Error._BadCharacterEncoding(pos)
 
     @staticmethod
     def _dedent(parts: List[Any]) -> List[Any]:
