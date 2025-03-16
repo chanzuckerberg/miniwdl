@@ -431,7 +431,7 @@ class String(Base):
         return self._eval(Env.Bindings(), None)  # type: ignore
 
     @staticmethod
-    def _dedent(parts: List[str | Any]) -> List[str | Any]:
+    def _dedent(parts: List[Any]) -> List[Any]:
         """"""
         # Helper: given a list of parts (strs or placeholders [anything but str]), remove common
         # leading whitespace from non-blank lines, passing placeholders through.
