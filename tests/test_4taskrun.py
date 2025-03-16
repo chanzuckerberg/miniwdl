@@ -310,6 +310,33 @@ class TestTaskRunner(unittest.TestCase):
                          '                echo "Line 1"\n' +
                          '                    # indented comment\n' +
                          '                echo "Interpolated\nContent"')
+        
+        # actual example from issue #674
+        task_wdl = R"""
+        version 1.0
+        task the_task {
+            input {
+            }
+
+            Array[String] lines = ["a", "b", "c"]
+
+            command <<<
+                set -ex
+                cat >result.txt <<EOF2
+                ~{sep="\n" lines}
+                EOF2
+                echo "Task ran"
+            >>>
+
+            output {
+                File result = "result.txt"
+            }
+        }
+        """
+        outputs = self._test_task(task_wdl)
+        with open(outputs["result"], "r") as infile:
+            content = infile.read()
+        self.assertEqual(content, "a\nb\nc\n")
 
     def test_command_escaping(self):
         # miniwdl evaluates escape sequences in WDL string constants, but in commands it should
