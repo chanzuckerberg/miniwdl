@@ -1440,7 +1440,7 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
-    def test_bad_boolean(self):
+    def test_boolean(self):
         self._test_task(R"""
         version 1.0
         task bad_map {
@@ -1452,6 +1452,24 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
+        outp = self._test_task(R"""
+        version 1.0
+
+        task read_bool {
+            command <<<
+            printf "  true  \n" > true_file
+            printf "  FALSE  \n" > false_file
+            >>>
+
+            output {
+                Boolean b1 = read_boolean("true_file")
+                Boolean b2 = read_boolean("false_file")
+            }
+        }
+        """)
+        self.assertEqual(outp["b1"], True)
+        self.assertEqual(outp["b2"], False)
 
     def test_write(self):
         outputs = self._test_task(R"""

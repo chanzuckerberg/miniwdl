@@ -323,7 +323,7 @@ def _parse_lines(s: str) -> Value.Array:
 
 
 def _parse_boolean(s: str) -> Value.Boolean:
-    s = s.rstrip().lower()
+    s = s.strip().lower()
     if s == "true":
         return Value.Boolean(True)
     if s == "false":
