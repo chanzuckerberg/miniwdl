@@ -989,6 +989,34 @@ class MiscRegressionTests(RunnerTestCase):
         outp = self._run(wdl, {"create_file": True})
         self.assertTrue(os.path.exists(outp["out"][0]))
 
+    def test_issue696(self):
+        wdl = r"""
+        version 1.0
+        task issue696 {
+            command <<<
+                touch file1
+            >>>
+            output {
+                Array[File?] files = select_all(["file1","file2"])
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        """
+        This is a corner case of the treatment of File? outputs from tasks, where the correct
+        answer isn't crystal clear. Specifically in task outputs, File? outputs referring to
+        nonexistent container paths implicitly evaluate to None instead of raising. But when
+        precisely should that conversion occur?
+        
+        Currently, the literal argument to select_all() above evaluates to an Array[String], and
+        with no special File? treatment select_all() naturally passes through an equivalent
+        length-2 array. THEN, we coerce it to Array[File?] and convert the second element to None.
+
+        But are we supposed to have coerced the literal strings to File? -before- further
+        evaluating the expression? If so, then we should only get a length-1 array.
+        """
+        self.assertEqual(len(outp["files"]), 2)
+
     @unittest.expectedFailure # issue #623
     def test_output_symlink_to_input(self):
         wdl = r"""
