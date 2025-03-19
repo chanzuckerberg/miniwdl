@@ -940,7 +940,7 @@ class _Transpose(EagerFunction):
             assert isinstance(row, Value.Array)
             if n is None:
                 n = len(row.value)
-                ans = [Value.Array(ty.item_type, []) for _ in row.value]
+                ans = [Value.Array(ty.item_type.item_type, []) for _ in row.value]
             if len(row.value) != n:
                 raise Error.EvalError(expr, "transpose(): ragged input matrix")
             for i in range(len(row.value)):

@@ -43,9 +43,9 @@ class Base(ABC):
             self.expr = expr
 
     def __eq__(self, other) -> bool:
-        if self.value is None:
-            return other.value is None
-        return self.type == other.type and self.value == other.value
+        # nb: assumes static typechecking has ensured self & other are comparable
+        #     (see StdLib._ComparisonOperator.infer_type)
+        return self.value == other.value
 
     def __str__(self) -> str:
         return json.dumps(self.json)
