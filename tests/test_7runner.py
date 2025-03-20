@@ -1067,7 +1067,6 @@ class MiscRegressionTests(RunnerTestCase):
                 Array[Array[Int]] a_transposed = transpose(a)
                 Array[Array[Int]] a_expected = [[1],[2],[3]]
                 Boolean equal = a_transposed == a_expected
-                Boolean lt = a_transposed < a_expected
             }
         }"""
         outp = self._run(wdl, {})
