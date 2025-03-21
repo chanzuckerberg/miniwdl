@@ -43,8 +43,7 @@ class Base(ABC):
             self.expr = expr
 
     def __eq__(self, other) -> bool:
-        # nb: assumes static typechecking has ensured self & other are comparable
-        #     (see StdLib._ComparisonOperator.infer_type)
+        # nb: assumes static typechecking has ensured it's sensible to test these for equality
         return self.value == other.value
 
     def __str__(self) -> str:
