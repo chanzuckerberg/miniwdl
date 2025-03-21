@@ -1056,6 +1056,22 @@ class MiscRegressionTests(RunnerTestCase):
         """
         outp = self._run(wdl, {})
 
+    def test_issue699(self):
+        wdl = r"""
+        version 1.1
+
+        workflow wf {
+            input {}
+            Array[Array[Int]] a = [[1,2,3]]
+            output {
+                Array[Array[Int]] a_transposed = transpose(a)
+                Array[Array[Int]] a_expected = [[1],[2],[3]]
+                Boolean equal = a_transposed == a_expected
+            }
+        }"""
+        outp = self._run(wdl, {})
+        self.assertEqual(outp["equal"], True)
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
