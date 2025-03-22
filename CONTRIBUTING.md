@@ -108,3 +108,14 @@ This directory contains the runtime implementation for executing WDL tasks and w
 *   **`task_container.py`:**  Defines the abstract base class for task container implementations.
 *   **`task.py`:**  Implements the logic for running individual WDL tasks, including setting up the container environment, copying input files, and executing the command.
 *   **`workflow.py`:** Implements the logic for running WDL workflows, including managing the workflow state machine, scheduling tasks, and handling scatter/conditional sections.
+
+### Test Suite
+
+The miniwdl test suite is located in the `tests/` directory and is organized into several categories:
+
+*   **Unit Tests (test_\*.py):** These Python files use the `unittest` framework to test individual components of miniwdl, such as the parser, type checker, expression evaluator, standard library functions, and runtime.  These include:
+    - true unit tests of isolated components
+    - artificial WDL sources exercising various aspects of the runtime
+    - tests of the parser and linter on a collection of WDL from external sources found under `test_corpi/`
+*   **Bash-TAP Tests (\*.t):**  These files are shell scripts that use the `bash-tap` framework to run commands and check their output.  They primarily exercise the `miniwdl` command-line interface (parsing arguments, executing workflows/tasks, etc.) and associated shell integration.
+*   **Applied Tests (applied/):** These are bash-tap that run `miniwdl run` on complete WDL workflows, drawn from various sources, with specific input JSON files.  These tests are used to ensure that miniwdl correctly executes realistic workflows.

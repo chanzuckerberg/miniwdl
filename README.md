@@ -51,7 +51,7 @@ The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory avail
 
 ## [Contributing](https://github.com/chanzuckerberg/miniwdl/blob/main/CONTRIBUTING.md)
 
-Feedback and contributions to miniwdl are welcome, via issues and pull requests on this repository. See [CONTRIBUTING.md](https://github.com/chanzuckerberg/miniwdl/blob/main/CONTRIBUTING.md) for guidelines and instructions to set up your development environment.
+Feedback and contributions to miniwdl are welcome, via issues and pull requests on this repository. See [CONTRIBUTING.md](https://github.com/chanzuckerberg/miniwdl/blob/main/CONTRIBUTING.md) for guidelines, instructions to set up your development environment, and a codebase overview.
 
 ## Security
 
