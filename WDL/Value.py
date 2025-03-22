@@ -44,6 +44,7 @@ class Base(ABC):
 
     def __eq__(self, other) -> bool:
         # nb: assumes static typechecking has ensured it's sensible to test these for equality
+        assert isinstance(other, Base) and self.type.equatable(other.type)
         return self.value == other.value
 
     def __str__(self) -> str:

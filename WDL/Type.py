@@ -132,6 +132,14 @@ class Base(ABC):
     def __eq__(self, rhs: typing.Any) -> bool:
         return isinstance(rhs, Base) and str(self) == str(rhs)
 
+    def equatable(self, rhs: "Base", compound: bool = False) -> bool:
+        """
+        Check if values of the given types may be equated with the WDL == operator (and its
+        negation). This mostly means they have the same type, but there are specializations like
+        Int/Float and quantifiers within compound types.
+        """
+        return isinstance(rhs, (type(self), Any))  # intentionally ignores optional quantifier
+
 
 class Any(Base):
     """
@@ -147,6 +155,12 @@ class Any(Base):
     def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         self._check_optional(rhs, check_quant)
+
+    def __str__(self) -> str:
+        return "None" if self._optional else "Any"
+
+    def equatable(self, rhs, compound: bool = False):
+        return True
 
 
 class Boolean(Base):
@@ -170,6 +184,10 @@ class Float(Base):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
+    def equatable(self, rhs, compound: bool = False):
+        # per WDL spec, Int/Float can be equated directly, but not as part of a compound type
+        return super().equatable(rhs, compound) or (not compound and isinstance(rhs, Int))
+
 
 class Int(Base):
     def __init__(self, optional: bool = False) -> None:
@@ -182,6 +200,9 @@ class Int(Base):
         if isinstance(rhs, String):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
+
+    def equatable(self, rhs, compound: bool = True):
+        return super().equatable(rhs, compound) or (not compound and isinstance(rhs, Float))
 
 
 class File(Base):
@@ -277,6 +298,10 @@ class Array(Base):
             setattr(ans, "_nonempty", nonempty)
         return ans
 
+    def equatable(self, rhs, compound: bool = False):
+        # intentionally ignores optional and nonempty quantifiers:
+        return isinstance(rhs, Array) and self.item_type.equatable(rhs.item_type, compound=True)
+
 
 class Map(Base):
     """
@@ -350,6 +375,13 @@ class Map(Base):
             return
         super().check(rhs, check_quant)
 
+    def equatable(self, rhs, compound: bool = False):
+        return (
+            isinstance(rhs, Map)
+            and self.item_type[0].equatable(rhs.item_type[0], compound=True)
+            and self.item_type[1].equatable(rhs.item_type[1], compound=True)
+        )
+
 
 class Pair(Base):
     """
@@ -390,6 +422,13 @@ class Pair(Base):
             self.right_type.check(rhs.right_type, check_quant)
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
+
+    def equatable(self, rhs, compound=True):
+        return (
+            isinstance(rhs, Pair)
+            and self.left_type.equatable(rhs.left_type, compound=True)
+            and self.right_type.equatable(rhs.right_type, compound=True)
+        )
 
 
 class StructInstance(Base):
@@ -449,6 +488,9 @@ class StructInstance(Base):
         assert self.members is not None
         return self.members.values()
 
+    def equatable(self, rhs, coerce=True):
+        return isinstance(rhs, StructInstance) and self.type_id == rhs.type_id
+
 
 def _struct_type_id(members: Dict[str, Base]) -> str:
     # generates a content hash of the struct type definition, used to recognize
@@ -502,6 +544,9 @@ class Object(Base):
             # StructInstance to follow in short order, constraining the expected member types.
             return
         raise TypeError()
+
+    def equatable(self, rhs, compound: bool = False):
+        return False
 
 
 def _check_struct_members(
