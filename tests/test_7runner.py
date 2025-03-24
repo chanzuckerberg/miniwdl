@@ -1073,6 +1073,10 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["equal"], True)
 
     def test_issue700(self):
+        # TODO:
+        # - merge issue 699 fix
+        # - move to runner.t
+        # - touch the files so that it can run through
         wdl = r"""
         version 1.1
 
