@@ -912,13 +912,6 @@ class IfThenElse(Base):
         ty = Type.unify(
             [self.consequent.type, self.alternative.type], check_quant=self._check_quant
         )
-        if isinstance(ty, Type.Any):
-            raise Error.StaticTypeMismatch(
-                self,
-                self.consequent.type,
-                self.alternative.type,
-                "(unable to unify consequent & alternative types)",
-            )
         return ty
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
