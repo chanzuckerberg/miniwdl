@@ -1072,6 +1072,23 @@ class MiscRegressionTests(RunnerTestCase):
         outp = self._run(wdl, {})
         self.assertEqual(outp["equal"], True)
 
+    def test_issue700(self):
+        wdl = r"""
+        version 1.1
+
+        workflow test_as_map {
+            input {
+                Array[Pair[String, File]] test_arr = [("a.bam", "a.bai")]
+            }
+
+            output {
+                Map[String, File] o = as_map(test_arr)
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        self.assertEqual(outp["o"]["a.bam"], "a.bai")
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
