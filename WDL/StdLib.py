@@ -662,17 +662,10 @@ class _ComparisonOperator(EagerFunction):
     def __init__(self, name: str, op: Callable) -> None:
         self.name = name
         self.op = op
-        self.comparable_types = (Type.Int, Type.Float, Type.String)
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
-        if (
-            not isinstance(expr.arguments[0].type, self.comparable_types)
-            or not isinstance(expr.arguments[1].type, self.comparable_types)
-            or expr.arguments[0].type.optional
-            or expr.arguments[1].type.optional
-            or not expr.arguments[0].type.equatable(expr.arguments[1].type)
-        ):
+        if not expr.arguments[0].type.comparable(expr.arguments[1].type):
             raise Error.IncompatibleOperand(
                 expr,
                 "Cannot compare {} and {}".format(

@@ -135,10 +135,23 @@ class Base(ABC):
     def equatable(self, rhs: "Base", compound: bool = False) -> bool:
         """
         Check if values of the given types may be equated with the WDL == operator (and its
-        negation). This mostly means they have the same type, but there are specializations like
-        Int/Float and quantifiers within compound types.
+        negation). This mostly requires they have the same type, with quirks like ignoring
+        quantifiers and Int/Float coercion (allowed at 'top level' but not within compound types).
         """
         return isinstance(rhs, (type(self), Any))  # intentionally ignores optional quantifier
+
+    def comparable(self, rhs: "Base") -> bool:
+        """
+        Check if values of the given types may be compared with the WDL comparison operators (<, <=,
+        >, >=). Currently these are allowed only for non-optional primitive values.
+        """
+        allowed = (Int, Float, String, Boolean)
+        return (
+            isinstance(self, allowed)
+            and not self.optional
+            and isinstance(rhs, allowed)
+            and not rhs.optional
+        )
 
 
 class Any(Base):
@@ -201,7 +214,7 @@ class Int(Base):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
-    def equatable(self, rhs, compound: bool = True):
+    def equatable(self, rhs, compound: bool = False):
         return super().equatable(rhs, compound) or (not compound and isinstance(rhs, Float))
 
 
