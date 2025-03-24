@@ -1117,8 +1117,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
     if input_file:
         input_file = input_file.strip()
     if input_file:
-        # delayed heavy import:
-        import yaml  # type: ignore
+        from ruamel.yaml import YAML  # delayed heavy import
 
         input_json = None
         if input_file[0] == "{":
@@ -1131,7 +1130,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
                 .run_until_complete(make_read_source(False)(input_file, [], None))
                 .source_text
             )
-        input_json = yaml.safe_load(input_json)
+        input_json = YAML(typ="safe", pure=True).load(input_json)
         if not isinstance(input_json, dict):
             raise Error.InputError("check JSON input; expected top-level object")
         try:
