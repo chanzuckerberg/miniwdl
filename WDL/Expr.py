@@ -345,9 +345,9 @@ class Placeholder(Base):
             return Value.String(
                 self.options["sep"].join(item.coerce(Type.String()).value for item in v.value)
             )
-        if v == Value.Boolean(True) and "true" in self.options:
+        if isinstance(v, Value.Boolean) and v.value and "true" in self.options:
             return Value.String(self.options["true"])
-        if v == Value.Boolean(False) and "false" in self.options:
+        if isinstance(v, Value.Boolean) and not v.value and "false" in self.options:
             return Value.String(self.options["false"])
         return Value.String(str(v))
 
