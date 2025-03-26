@@ -44,6 +44,9 @@ class Base(ABC):
 
     def __eq__(self, other) -> bool:
         # nb: assumes static typechecking has ensured it's sensible to test these for equality
+        assert isinstance(other, Base) and self.type.equatable(other.type), (
+            f"cannot equate {self.type} {self} with {other.type} {other}"
+        )
         return self.value == other.value
 
     def __str__(self) -> str:
@@ -218,7 +221,9 @@ class Array(Base):
             ):
                 return self
             return Array(
-                desired_type, [v.coerce(desired_type.item_type) for v in self.value], self.expr
+                desired_type.item_type,
+                [v.coerce(desired_type.item_type) for v in self.value],
+                self.expr,
             )
         return super().coerce(desired_type)
 
