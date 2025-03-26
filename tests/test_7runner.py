@@ -1102,27 +1102,6 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["equal"], True)
         self.assertEqual(outp["structs_equal"], [True, True, True, False, False])
 
-    def test_issue700(self):
-        # TODO:
-        # - merge issue 699 fix
-        # - move to runner.t
-        # - touch the files so that it can run through
-        wdl = r"""
-        version 1.1
-
-        workflow test_as_map {
-            input {
-                Array[Pair[String, File]] test_arr = [("a.bam", "a.bai")]
-            }
-
-            output {
-                Map[String, File] o = as_map(test_arr)
-            }
-        }
-        """
-        outp = self._run(wdl, {})
-        self.assertEqual(outp["o"]["a.bam"], "a.bai")
-
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):

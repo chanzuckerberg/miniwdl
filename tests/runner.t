@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 90
+plan tests 94
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -623,3 +623,40 @@ task test_task {
 EOF
 $miniwdl run issue686.wdl read_group='{"ID":"test"}'
 is "$?" "0" "ensure optional fields in structs initialized from JSON (issue 686 regression)"
+
+cat << 'EOF' > issue700.wdl
+version 1.1
+
+workflow issue700 {
+  input {
+    Array[Pair[String, String]] test_arr = [("a.bam", "a.bai")]
+    Map[String,String] expected = {"a": "a.bai"}
+    Array[Pair[String, Int]] x = [("a", 1), ("b", 2), ("a", 3)]
+    Array[Pair[String, Pair[File, File]]] y = [
+      ("a", ("a_1.bam", "a_1.bai")),
+      ("b", ("b.bam", "b.bai")),
+      ("a", ("a_2.bam", "a_2.bai"))
+    ]
+    Map[String, Array[Int]] expected1 = {"a": [1, 3], "b": [2]}
+    Map[String, Array[Pair[File, File]]] expected2 = {
+      "a": [("a_1.bam", "a_1.bai"), ("a_2.bam", "a_2.bai")],
+      "b": [("b.bam", "b.bai")]
+    }
+  }
+
+  output {
+    Boolean is_true3 = as_map(test_arr) == expected
+    Boolean is_true1 = collect_by_key(x) == expected1
+    Boolean is_true2 = collect_by_key(y) == expected2
+  }
+}
+EOF
+mkdir -p issue700
+pushd issue700
+touch a.bam a.bai a_1.bam a_1.bai a_2.bam a_2.bai b.bam b.bai
+MINIWDL__FILE_IO__ALLOW_ANY_INPUT=true $miniwdl run issue700.wdl
+is "$?" "0" "issue 700 regression"
+is "$(jq -r '.outputs["issue700.is_true1"]' _LAST/outputs.json)" "true" "issue 700 is_true1"
+is "$(jq -r '.outputs["issue700.is_true2"]' _LAST/outputs.json)" "true" "issue 700 is_true2"
+is "$(jq -r '.outputs["issue700.is_true3"]' _LAST/outputs.json)" "true" "issue 700 is_true3"
+popd
