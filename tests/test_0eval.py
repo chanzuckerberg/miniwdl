@@ -240,6 +240,10 @@ class TestEval(unittest.TestCase):
             ("[[1], [2], [3]] == [[1], [2], []]", "false"),
             ('{"a": 1, "b": 2} == {"a": 1, "b": 2}', "true"),
             ('{"a": 1, "b": 2} == {"b": 2, "a": 1}', "false"),
+            ('(0,1) == (0,1)', "true"),
+            ('(0,1) != (0,None)', "true", "development"),
+            ('(0,1) == {"left": 0, "right": 1}', "(Ln 1, Col 1) Cannot compare Pair[Int,Int] and Map[String,Int]", WDL.Error.IncompatibleOperand),
+            ('{"left": 0, "right": 1} != (0,1)', "(Ln 1, Col 1) Cannot compare Map[String,Int] and Pair[Int,Int]", WDL.Error.IncompatibleOperand),
             ('1 == None', "false", "development"),
             ('None == None', "true", "development"),
             ("[0] <= [1]", "(Ln 1, Col 1) Cannot compare Array[Int]+ and Array[Int]+", WDL.Error.IncompatibleOperand),
@@ -248,6 +252,7 @@ class TestEval(unittest.TestCase):
             #       in equality tests; and that the following comparison is allowable but yields
             #       false. We cannot agree with that, so we made the comparison unallowable.
             ("[1,2,3] == [1.0,2.0,3.0]", "(Ln 1, Col 1) Cannot compare Array[Int]+ and Array[Float]+", WDL.Error.IncompatibleOperand),
+            ("object {k: 42} == object {k: 42}", "Cannot test equality of object(k : Int) and object(k : Int)", WDL.Error.IncompatibleOperand),
         )
 
         # equatabile() ignores optional quantifier
