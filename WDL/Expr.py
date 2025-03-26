@@ -592,6 +592,10 @@ class Array(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if not self.items:
             return Type.Array(Type.Any())
+        if any(isinstance(item.type, Type.Any) for item in self.items):
+            if all((isinstance(item.type, Type.Any) and item.type.optional) for item in self.items):
+                return Type.Array(Type.Any(null=True), nonempty=True)
+            return Type.Array(Type.Any(), nonempty=True)
         item_type = Type.unify(
             [item.type for item in self.items], check_quant=self._check_quant, force_string=True
         )
@@ -909,9 +913,12 @@ class IfThenElse(Base):
             raise Error.StaticTypeMismatch(
                 self, Type.Boolean(), self.condition.type, "in if condition"
             )
-        ty = Type.unify(
-            [self.consequent.type, self.alternative.type], check_quant=self._check_quant
-        )
+        branch_types = [self.consequent.type, self.alternative.type]
+        if any(isinstance(ty, Type.Any) for ty in branch_types):
+            if all((isinstance(ty, Type.Any) and ty.optional) for ty in branch_types):
+                return Type.Any(null=True)
+            return Type.Any()
+        ty = Type.unify(branch_types, check_quant=self._check_quant)
         if isinstance(ty, Type.Any):
             raise Error.StaticTypeMismatch(
                 self,

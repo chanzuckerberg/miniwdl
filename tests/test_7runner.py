@@ -1072,6 +1072,30 @@ class MiscRegressionTests(RunnerTestCase):
         outp = self._run(wdl, {})
         self.assertEqual(outp["equal"], True)
 
+    def test_issue740(self):
+        wdl = r"""
+        version development
+        task echo {
+            command <<<
+                echo '{}' > out.json
+            >>>
+
+            output {
+                Map[String, String]? out = if true then read_json("out.json") else None
+                Int? out2 = if true then None else None
+                Array[Map[String,String]] out3 = [read_json("out.json")]
+                Array[Int?] out4 = [None,None]
+                Array[Map[String,String]?] out5 = [if true then read_json("out.json") else None]
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        self.assertEqual(outp["out"], {})
+        self.assertEqual(outp["out2"], None)
+        self.assertEqual(outp["out3"], [{}])
+        self.assertEqual(outp["out4"], [None, None])
+        self.assertEqual(outp["out5"], [{}])
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
