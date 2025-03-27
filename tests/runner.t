@@ -654,7 +654,7 @@ EOF
 mkdir -p issue700
 pushd issue700
 touch a.bam a.bai a_1.bam a_1.bai a_2.bam a_2.bai b.bam b.bai
-MINIWDL__FILE_IO__ALLOW_ANY_INPUT=true $miniwdl run issue700.wdl
+MINIWDL__FILE_IO__ALLOW_ANY_INPUT=true $miniwdl run ../issue700.wdl
 is "$?" "0" "issue 700 regression"
 is "$(jq -r '.outputs["issue700.is_true1"]' _LAST/outputs.json)" "true" "issue 700 is_true1"
 is "$(jq -r '.outputs["issue700.is_true2"]' _LAST/outputs.json)" "true" "issue 700 is_true2"
