@@ -630,7 +630,7 @@ version 1.1
 workflow issue700 {
   input {
     Array[Pair[String, String]] test_arr = [("a.bam", "a.bai")]
-    Map[String,String] expected = {"a": "a.bai"}
+    Map[String,String] expected = {"a.bam": "a.bai"}
     Array[Pair[String, Int]] x = [("a", 1), ("b", 2), ("a", 3)]
     Array[Pair[String, Pair[File, File]]] y = [
       ("a", ("a_1.bam", "a_1.bai")),
@@ -645,7 +645,7 @@ workflow issue700 {
   }
 
   output {
-    Boolean is_true3 = as_map(test_arr) == expected
+    Boolean is_true0 = as_map(test_arr) == expected
     Boolean is_true1 = collect_by_key(x) == expected1
     Boolean is_true2 = collect_by_key(y) == expected2
   }
@@ -656,7 +656,7 @@ pushd issue700
 touch a.bam a.bai a_1.bam a_1.bai a_2.bam a_2.bai b.bam b.bai
 MINIWDL__FILE_IO__ALLOW_ANY_INPUT=true $miniwdl run ../issue700.wdl
 is "$?" "0" "issue 700 regression"
-is "$(jq -r '.outputs["issue700.is_true1"]' _LAST/outputs.json)" "true" "issue 700 is_true1"
-is "$(jq -r '.outputs["issue700.is_true2"]' _LAST/outputs.json)" "true" "issue 700 is_true2"
-is "$(jq -r '.outputs["issue700.is_true3"]' _LAST/outputs.json)" "true" "issue 700 is_true3"
+is "$(jq -r '.["issue700.is_true0"]' _LAST/outputs.json)" "true" "issue 700 is_true0"
+is "$(jq -r '.["issue700.is_true1"]' _LAST/outputs.json)" "true" "issue 700 is_true1"
+is "$(jq -r '.["issue700.is_true2"]' _LAST/outputs.json)" "true" "issue 700 is_true2"
 popd
