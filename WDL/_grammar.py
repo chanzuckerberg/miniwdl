@@ -331,7 +331,7 @@ meta_object: "{" [meta_kv (","? meta_kv)*] ","? "}"
 meta_kv: CNAME ":" meta_value
 ?meta_value: literal | string_literal
            | meta_object
-           | "[" [meta_value ("," meta_value)*] "]" -> meta_array
+           | "[" [meta_value ("," meta_value)*] ","? "]" -> meta_array
 !meta_section: ("meta" | "parameter_meta") meta_object
 
 // task runtime section (key-expression pairs)
