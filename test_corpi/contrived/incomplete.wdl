@@ -19,4 +19,7 @@ task sum {
     output {
         Int z = read_int(stdout())
     }
+    runtime {
+        cpu: 0.5
+    }
 }

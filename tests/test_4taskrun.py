@@ -896,7 +896,7 @@ class TestTaskRunner(unittest.TestCase):
                 String memory_limit_in_bytes = read_string(stdout())
             }
             runtime {
-                cpu: 1
+                cpu: 0.5
                 memory: "~{memory}"
             }
         }
