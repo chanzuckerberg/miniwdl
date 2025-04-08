@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 94
+plan tests 96
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -623,6 +623,35 @@ task test_task {
 EOF
 $miniwdl run issue686.wdl read_group='{"ID":"test"}'
 is "$?" "0" "ensure optional fields in structs initialized from JSON (issue 686 regression)"
+
+cat << 'EOF' > issue693.wdl
+version 1.1
+
+task glob {
+  input {
+    Int num_files
+  }
+
+  command <<<
+  for i in $(seq ~{num_files}); do
+    printf ${i} > file_${i}.txt
+  done
+  >>>
+
+  output {
+    Array[File] outfiles = glob("*.txt")
+    Int last_file_contents = read_int(outfiles[num_files-1])
+  }
+}
+EOF
+cat << 'EOF' > issue693.json
+{
+  "glob.num_files": 3
+}
+EOF
+$miniwdl run issue693.wdl -i issue693.json
+is "$?" "0" "issue 693 regression"
+is "$(jq -r '.["glob.outfiles"] | length' _LAST/outputs.json)" "3" "issue 693 regression (output)"
 
 cat << 'EOF' > issue700.wdl
 version 1.1
