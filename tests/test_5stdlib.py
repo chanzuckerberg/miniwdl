@@ -168,7 +168,29 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
-        self.assertEqual(outputs, {"ans": [3, -3, 42, 43]})
+        self.assertEqual(outputs, {"ans": [3, -3, 43, 43]})
+
+        # regression test issue #698
+        outputs = self._test_task(R"""
+        version 1.1
+
+        task test_round {
+            input {
+                Int i1
+            }
+
+            Int i2 = i1 + 1
+            Float f1 = i1 + 0.49
+            Float f2 = i1 + 0.50
+
+            command {}
+
+            output {
+                Array[Boolean] all_true = [round(f1) == i1, round(f2) == i2]
+            }
+        }
+        """, {"i1": 42})
+        self.assertEqual(outputs, {"all_true": [True, True]})
 
     def test_basename_prefix(self):
         outputs = self._test_task(R"""

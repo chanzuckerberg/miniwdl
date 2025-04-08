@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from contextlib import suppress
 import regex
 from . import Type, Value, Expr, Env, Error
-from ._util import byte_size_units, chmod_R_plus
+from ._util import byte_size_units, chmod_R_plus, round_half_up
 
 
 class Base:
@@ -44,8 +44,8 @@ class Base:
         self._rem = StaticFunction(
             "_rem", [Type.Int(), Type.Int()], Type.Int(), lambda l, r: Value.Int(l.value % r.value)
         )
-        self._eqeq = _ComparisonOperator("==", lambda l, r: l == r)
-        self._neq = _ComparisonOperator("!=", lambda l, r: l != r)
+        self._eqeq = _EqualityOperator()
+        self._neq = _EqualityOperator(negate=True)
         self._lt = _ComparisonOperator("<", lambda l, r: l < r)
         self._lte = _ComparisonOperator("<=", lambda l, r: l <= r)
         self._gt = _ComparisonOperator(">", lambda l, r: l > r)
@@ -66,7 +66,7 @@ class Base:
 
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
-        static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round(v.value)))
+        static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
         static([Type.Array(Type.Any())], Type.Int(), "length")(lambda v: Value.Int(len(v.value)))
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
@@ -625,10 +625,36 @@ class _InterpolationAddOperator(_AddOperator):
         return super()._call_eager(expr, arguments)
 
 
+class _EqualityOperator(EagerFunction):
+    # Test for [in]equality of two values of suitable types
+
+    negate: bool
+    name: str
+
+    def __init__(self, negate: bool = False) -> None:
+        self.negate = negate
+        self.name = "!=" if negate else "=="
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        assert len(expr.arguments) == 2
+        if not expr.arguments[0].type.equatable(expr.arguments[1].type):
+            raise Error.IncompatibleOperand(
+                expr,
+                "Cannot test equality of {} and {}".format(
+                    str(expr.arguments[0].type), str(expr.arguments[1].type)
+                ),
+            )
+        return Type.Boolean()
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert len(arguments) == 2
+        ans = arguments[0] == arguments[1]  # Value.Base.__eq__()
+        return Value.Boolean(self.negate ^ ans)
+
+
 class _ComparisonOperator(EagerFunction):
-    # Comparison operators can compare any two operands of the same type.
-    # Furthermore, given one Int and one Float, coerces the Int to Float for
-    # comparison.
+    # < > <= >= operators; reuses some of the equatability logic, but not valid for optional or
+    # compound types.
 
     name: str
     op: Callable
@@ -639,33 +665,7 @@ class _ComparisonOperator(EagerFunction):
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
-        if (
-            self.name not in ["==", "!="]
-            and (expr.arguments[0].type.optional or expr.arguments[1].type.optional)
-        ) or (
-            not (
-                expr.arguments[0].type.copy(optional=False)
-                == expr.arguments[1].type.copy(optional=False)
-                or (
-                    isinstance(expr.arguments[0], Expr.Null)
-                    or isinstance(expr.arguments[1], Expr.Null)
-                )
-                or (
-                    isinstance(expr.arguments[0].type, Type.Int)
-                    and isinstance(expr.arguments[1].type, Type.Float)
-                )
-                or (
-                    isinstance(expr.arguments[0].type, Type.Float)
-                    and isinstance(expr.arguments[1].type, Type.Int)
-                )
-                or (
-                    isinstance(expr.arguments[0].type, Type.Array)
-                    and isinstance(expr.arguments[1].type, Type.Array)
-                    and expr.arguments[0].type.copy(optional=False, nonempty=False)
-                    == expr.arguments[1].type.copy(optional=False, nonempty=False)
-                )
-            )
-        ):
+        if not expr.arguments[0].type.comparable(expr.arguments[1].type):
             raise Error.IncompatibleOperand(
                 expr,
                 "Cannot compare {} and {}".format(

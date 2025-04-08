@@ -10,6 +10,7 @@ import time
 import fcntl
 import shutil
 import uuid
+import decimal
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager, AbstractContextManager
@@ -924,3 +925,11 @@ def currently_in_container() -> bool:
             return " / overlay" in infile.read()
     except Exception:
         return False
+
+
+@export
+def round_half_up(x: float) -> int:
+    """
+    Round a float to the nearest integer, rounding half up.
+    """
+    return int(decimal.Decimal(x).to_integral_value(rounding=decimal.ROUND_HALF_UP))

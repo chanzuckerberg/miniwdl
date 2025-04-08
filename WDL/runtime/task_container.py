@@ -7,6 +7,7 @@ import logging
 import shutil
 import threading
 import typing
+import math
 from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set
 from abc import ABC, abstractmethod
 from contextlib import suppress
@@ -231,8 +232,7 @@ class TaskContainer(ABC):
 
         host_limits = self.detect_resource_limits(self.cfg, logger)
         if "cpu" in runtime_eval:
-            cpu_value = runtime_eval["cpu"].coerce(Type.Int()).value
-            assert isinstance(cpu_value, int)
+            cpu_value = math.ceil(runtime_eval["cpu"].coerce(Type.Float()).value)
             cpu_max = self.cfg["task_runtime"].get_int("cpu_max")
             if cpu_max == 0:
                 cpu_max = host_limits["cpu"]

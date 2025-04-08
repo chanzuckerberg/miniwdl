@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 91
+plan tests 97
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -623,6 +623,72 @@ task test_task {
 EOF
 $miniwdl run issue686.wdl read_group='{"ID":"test"}'
 is "$?" "0" "ensure optional fields in structs initialized from JSON (issue 686 regression)"
+
+cat << 'EOF' > issue693.wdl
+version 1.1
+
+task glob {
+  input {
+    Int num_files
+  }
+
+  command <<<
+  for i in $(seq ~{num_files}); do
+    printf ${i} > file_${i}.txt
+  done
+  >>>
+
+  output {
+    Array[File] outfiles = glob("*.txt")
+    Int last_file_contents = read_int(outfiles[num_files-1])
+  }
+}
+EOF
+cat << 'EOF' > issue693.json
+{
+  "glob.num_files": 3
+}
+EOF
+$miniwdl run issue693.wdl -i issue693.json
+is "$?" "0" "issue 693 regression"
+is "$(jq -r '.["glob.outfiles"] | length' _LAST/outputs.json)" "3" "issue 693 regression (output)"
+
+cat << 'EOF' > issue700.wdl
+version 1.1
+
+workflow issue700 {
+  input {
+    Array[Pair[String, String]] test_arr = [("a.bam", "a.bai")]
+    Map[String,String] expected = {"a.bam": "a.bai"}
+    Array[Pair[String, Int]] x = [("a", 1), ("b", 2), ("a", 3)]
+    Array[Pair[String, Pair[File, File]]] y = [
+      ("a", ("a_1.bam", "a_1.bai")),
+      ("b", ("b.bam", "b.bai")),
+      ("a", ("a_2.bam", "a_2.bai"))
+    ]
+    Map[String, Array[Int]] expected1 = {"a": [1, 3], "b": [2]}
+    Map[String, Array[Pair[File, File]]] expected2 = {
+      "a": [("a_1.bam", "a_1.bai"), ("a_2.bam", "a_2.bai")],
+      "b": [("b.bam", "b.bai")]
+    }
+  }
+
+  output {
+    Boolean is_true0 = as_map(test_arr) == expected
+    Boolean is_true1 = collect_by_key(x) == expected1
+    Boolean is_true2 = collect_by_key(y) == expected2
+  }
+}
+EOF
+mkdir -p issue700
+pushd issue700
+touch a.bam a.bai a_1.bam a_1.bai a_2.bam a_2.bai b.bam b.bai
+MINIWDL__FILE_IO__ALLOW_ANY_INPUT=true $miniwdl run ../issue700.wdl
+is "$?" "0" "issue 700 regression"
+is "$(jq -r '.["issue700.is_true0"]' _LAST/outputs.json)" "true" "issue 700 is_true0"
+is "$(jq -r '.["issue700.is_true1"]' _LAST/outputs.json)" "true" "issue 700 is_true1"
+is "$(jq -r '.["issue700.is_true2"]' _LAST/outputs.json)" "true" "issue 700 is_true2"
+popd
 
 # regression test issue 717: reading exponential-notation values in JSON inputs
 # PyYAML reads 1e-30 as a string instead of a float (but 1.0e-3 is recognized)

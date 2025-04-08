@@ -973,7 +973,7 @@ def runner_input(
     available_inputs = target.available_inputs
     input_env = runner_input_json_file(
         available_inputs,
-        (target.name if isinstance(target, Workflow) else ""),
+        target.name,
         input_file,
         downloadable,
         root,

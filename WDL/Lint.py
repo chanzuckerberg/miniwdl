@@ -1132,7 +1132,7 @@ class UnknownRuntimeKey(Linter):
 @a_linter
 class UnexpectedRuntimeValue(Linter):
     expected = {
-        "cpu": (Type.Int, Type.String),
+        "cpu": (Type.Int, Type.Float, Type.String),
         "memory": (Type.Int, Type.String),
         "docker": (Type.String, Type.Array),
         "gpu": (Type.Boolean,),

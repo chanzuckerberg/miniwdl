@@ -345,9 +345,9 @@ class Placeholder(Base):
             return Value.String(
                 self.options["sep"].join(item.coerce(Type.String()).value for item in v.value)
             )
-        if v == Value.Boolean(True) and "true" in self.options:
+        if isinstance(v, Value.Boolean) and v.value and "true" in self.options:
             return Value.String(self.options["true"])
-        if v == Value.Boolean(False) and "false" in self.options:
+        if isinstance(v, Value.Boolean) and not v.value and "false" in self.options:
             return Value.String(self.options["false"])
         return Value.String(str(v))
 
@@ -592,6 +592,12 @@ class Array(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if not self.items:
             return Type.Array(Type.Any())
+        if any((isinstance(item.type, Type.Any) and not item.type.optional) for item in self.items):
+            # an item is read_json() or something like that
+            return Type.Array(Type.Any(), nonempty=True)
+        if all((isinstance(item.type, Type.Any) for item in self.items)):
+            # all items are literally None...
+            return Type.Array(Type.Any(null=True), nonempty=True)
         item_type = Type.unify(
             [item.type for item in self.items], check_quant=self._check_quant, force_string=True
         )
@@ -909,9 +915,14 @@ class IfThenElse(Base):
             raise Error.StaticTypeMismatch(
                 self, Type.Boolean(), self.condition.type, "in if condition"
             )
-        ty = Type.unify(
-            [self.consequent.type, self.alternative.type], check_quant=self._check_quant
-        )
+        branch_types = [self.consequent.type, self.alternative.type]
+        if any((isinstance(ty, Type.Any) and not ty.optional) for ty in branch_types):
+            # a branch is read_json() or something like that
+            return Type.Any()
+        if all(isinstance(ty, Type.Any) for ty in branch_types):
+            # both branches are literally None...
+            return Type.Any(null=True)
+        ty = Type.unify(branch_types, check_quant=self._check_quant)
         if isinstance(ty, Type.Any):
             raise Error.StaticTypeMismatch(
                 self,

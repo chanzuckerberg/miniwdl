@@ -1060,17 +1060,71 @@ class MiscRegressionTests(RunnerTestCase):
         wdl = r"""
         version 1.1
 
+        struct S1 {
+            String f1
+            Array[Int] f2
+        }
+        struct S2 {
+            String f1
+            Array[Int] f2
+        }
+
         workflow wf {
             input {}
             Array[Array[Int]] a = [[1,2,3]]
+            S1 s1 = S1 {
+                f1: "hello",
+                f2: [42]
+            }
+            S2 s2 = S2 {
+                f1: "hello",
+                f2: [42]
+            }
+            S2 s3 = S2 {
+                f1: "hello",
+                f2: []
+            }
             output {
                 Array[Array[Int]] a_transposed = transpose(a)
                 Array[Array[Int]] a_expected = [[1],[2],[3]]
                 Boolean equal = a_transposed == a_expected
+
+                Array[Boolean] structs_equal = [
+                    s1 == s1,
+                    s1 == s2,
+                    s2 == s1,
+                    s1 == s3,
+                    s3 == s2
+                ]
             }
         }"""
         outp = self._run(wdl, {})
         self.assertEqual(outp["equal"], True)
+        self.assertEqual(outp["structs_equal"], [True, True, True, False, False])
+
+    def test_issue740(self):
+        wdl = r"""
+        version development
+        task echo {
+            command <<<
+                echo '{}' > out.json
+            >>>
+
+            output {
+                Map[String, String]? out = if true then read_json("out.json") else None
+                Int? out2 = if true then None else None
+                Array[Map[String,String]] out3 = [read_json("out.json")]
+                Array[Int?] out4 = [None,None]
+                Array[Map[String,String]?] out5 = [if true then read_json("out.json") else None]
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        self.assertEqual(outp["out"], {})
+        self.assertEqual(outp["out2"], None)
+        self.assertEqual(outp["out3"], [{}])
+        self.assertEqual(outp["out4"], [None, None])
+        self.assertEqual(outp["out5"], [{}])
 
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
