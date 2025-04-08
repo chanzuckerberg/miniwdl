@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 96
+plan tests 97
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -689,3 +689,41 @@ is "$(jq -r '.["issue700.is_true0"]' _LAST/outputs.json)" "true" "issue 700 is_t
 is "$(jq -r '.["issue700.is_true1"]' _LAST/outputs.json)" "true" "issue 700 is_true1"
 is "$(jq -r '.["issue700.is_true2"]' _LAST/outputs.json)" "true" "issue 700 is_true2"
 popd
+
+# regression test issue 717: reading exponential-notation values in JSON inputs
+# PyYAML reads 1e-30 as a string instead of a float (but 1.0e-3 is recognized)
+# see: 
+#   https://github.com/yaml/pyyaml/issues/173
+#   https://stackoverflow.com/questions/30458977/yaml-loads-5e-6-as-string-and-not-a-number
+cat << 'EOF' > issue717.wdl
+version 1.0
+workflow PrintFloatWorkflow {
+    input {
+        Float floatToPrint=1e-30
+    }
+    call PrintFloat {
+        input: floatInput = floatToPrint
+    }
+    output {
+        String printedMessage = PrintFloat.outMessage
+    }
+}
+task PrintFloat {
+    input {
+        Float floatInput
+    }
+    command {
+        echo "The float value is: ~{floatInput}"
+    }
+    output {
+        String outMessage = read_string(stdout())
+    }
+}
+EOF
+cat << 'EOF' > issue717.json
+{
+    "floatToPrint": 1e-30
+}
+EOF
+$miniwdl run issue717.wdl -i issue717.json
+is "$?" "0" "read exponential-notation values in JSON inputs (issue 717 regression)"
