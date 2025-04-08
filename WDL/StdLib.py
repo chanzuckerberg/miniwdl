@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from contextlib import suppress
 import regex
 from . import Type, Value, Expr, Env, Error
-from ._util import byte_size_units, chmod_R_plus
+from ._util import byte_size_units, chmod_R_plus, round_half_up
 
 
 class Base:
@@ -66,7 +66,7 @@ class Base:
 
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
-        static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round(v.value)))
+        static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
         static([Type.Array(Type.Any())], Type.Int(), "length")(lambda v: Value.Int(len(v.value)))
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
