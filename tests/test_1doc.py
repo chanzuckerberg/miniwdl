@@ -365,6 +365,26 @@ class TestTasks(unittest.TestCase):
         self.assertIsInstance(task.meta['description'], str)
         self.assertEqual(task.meta['description'], "it's a task")
 
+        # regression test issue #708
+        task = WDL.parse_tasks(r"""
+        task foo {
+            parameter_meta {
+                bar: {
+                    suggestions: [1,2,3,],
+                    help: "bar",
+                    default: 1,
+                }
+            }
+            input {
+                Array[Int] bar = [1,2,3,]
+            }
+
+            command <<< >>>
+        }
+        """, "1.1")[0]
+        task.typecheck()
+        self.assertEqual([e.value for e in task.parameter_meta['bar']['suggestions']], [1, 2, 3])
+
     def test_compare_md5sums(self):
         txt = """
 task compare_md5sum {
