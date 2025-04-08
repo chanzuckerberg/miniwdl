@@ -633,7 +633,7 @@ task glob {
   }
 
   command <<<
-  for i in 1..~{num_files}; do
+  for i in $(seq ~{num_files}); do
     printf ${i} > file_${i}.txt
   done
   >>>
