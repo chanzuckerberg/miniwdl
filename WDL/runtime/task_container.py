@@ -293,6 +293,13 @@ class TaskContainer(ABC):
                 raise Error.RuntimeError("invalid setting of runtime.gpu")
             ans["gpu"] = runtime_eval["gpu"].value
 
+        if "acceleratorCount" in runtime_eval:
+            # HealthOmics-style acceleratorCount:1 to gpu:true (FIXME for proper multi-GPU support)
+            if not isinstance(runtime_eval["acceleratorCount"], Value.Int):
+                raise Error.RuntimeError("invalid setting of runtime.acceleratorCount")
+            if runtime_eval["acceleratorCount"].coerce(Type.Int()).value > 0:
+                ans["gpu"] = True
+
     def run(self, logger: logging.Logger, command: str) -> None:
         """
         1. Container is instantiated with the configured mounts and resources
