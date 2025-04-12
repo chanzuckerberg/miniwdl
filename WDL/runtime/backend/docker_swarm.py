@@ -16,7 +16,7 @@ import threading
 import traceback
 import contextlib
 from io import BytesIO
-from typing import List, Dict, Set, Optional, Any, Callable, Tuple, Iterable
+from typing import List, Dict, Set, Optional, Any, Callable, Iterable
 import docker
 from ... import Error
 from ..._util import chmod_R_plus, TerminationSignalFlag
@@ -183,7 +183,7 @@ class SwarmContainer(TaskContainer):
                 logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
             )
         mounts = self.prepare_mounts(logger)
-        resources, user, groups = self.misc_config(logger)
+        misc_kwargs = self.misc_config(logger)
 
         polling_period = self.cfg.get_float("docker_swarm", "polling_period_seconds")
         server_error_retries = self.cfg.get_int("docker_swarm", "server_error_retries")
@@ -206,28 +206,11 @@ class SwarmContainer(TaskContainer):
                 "restart_policy": docker.types.RestartPolicy("none"),
                 "workdir": os.path.join(self.container_dir, "work"),
                 "mounts": mounts,
-                "resources": resources,
-                "user": user,
-                "groups": groups,
                 "labels": {"miniwdl_run_id": self.run_id},
                 "container_labels": {"miniwdl_run_id": self.run_id},
                 "env": [f"{k}={v}" for (k, v) in self.runtime_values.get("env", {}).items()],
             }
-            network = self.runtime_values.get("docker_network", None)
-            if network:
-                if network in self.cfg.get_list("docker_swarm", "allow_networks"):
-                    kwargs["networks"] = [network]
-                else:
-                    logger.warning(
-                        _(
-                            "runtime.docker_network ignored; network name must appear in JSON list from config"
-                            " [docker_swarm] allow_networks / env MINIWDL__DOCKER_SWARM__ALLOW_NETWORKS",
-                            docker_network=network,
-                        )
-                    )
-            if self.runtime_values.get("privileged", False) is True:
-                logger.warning("runtime.privileged enabled (security & portability warning)")
-                kwargs["cap_add"] = ["ALL"]
+            kwargs.update(misc_kwargs)
             kwargs.update(self.create_service_kwargs or {})
             logger.debug(_("docker create service kwargs", **kwargs))
             svc = client.services.create(image_tag, **kwargs)
@@ -428,9 +411,9 @@ class SwarmContainer(TaskContainer):
 
         return mounts
 
-    def misc_config(
-        self, logger: logging.Logger
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], List[str]]:
+    def misc_config(self, logger: logging.Logger) -> Dict[str, Any]:
+        kwargs: Dict[str, Any] = {"resources": None}
+
         resources: Dict[str, Any] = {}
         cpu = self.runtime_values.get("cpu", 0)
         if cpu > 0:
@@ -445,11 +428,11 @@ class SwarmContainer(TaskContainer):
             resources["mem_limit"] = memory_limit
         if resources:
             logger.debug(_("docker resources", **resources))
-            resources = docker.types.Resources(**resources)
-        user = None
+            kwargs["resources"] = docker.types.Resources(**resources)
+
         if self.cfg["task_runtime"].get_bool("as_user"):
-            user = f"{os.geteuid()}:{os.getegid()}"
-            logger.info(_("docker user", uid_gid=user))
+            kwargs["user"] = f"{os.geteuid()}:{os.getegid()}"
+            logger.info(_("docker user", uid_gid=kwargs["user"]))
             if os.geteuid() == 0:
                 logger.warning(
                     "container command will run explicitly as root, since you are root and set --as-me"
@@ -461,9 +444,41 @@ class SwarmContainer(TaskContainer):
             logger.warning(
                 "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
             )
+        kwargs["groups"] = groups
+
+        network = self.runtime_values.get("docker_network", None)
+        if network:
+            if network in self.cfg.get_list("docker_swarm", "allow_networks"):
+                kwargs["networks"] = [network]
+            else:
+                logger.warning(
+                    _(
+                        "runtime.docker_network ignored; network name must appear in JSON list from config"
+                        " [docker_swarm] allow_networks / env MINIWDL__DOCKER_SWARM__ALLOW_NETWORKS",
+                        docker_network=network,
+                    )
+                )
+
+        if self.runtime_values.get("privileged", False) is True:
+            logger.warning("runtime.privileged enabled (security & portability warning)")
+            kwargs["cap_add"] = ["ALL"]
+
         if self.runtime_values.get("gpu", False):
-            logger.warning("ignored runtime.gpu (not yet implemented)")
-        return (resources if resources else None), user, groups
+            kwargs["task_template"] = {
+                "ContainerSpec": {
+                    "HostConfig": {
+                        "DeviceRequests": [
+                            {
+                                "Driver": "nvidia",
+                                "Count": -1,  # -1 == "all GPUs"
+                                "Capabilities": [["gpu"]],
+                            }
+                        ]
+                    }
+                }
+            }
+
+        return kwargs
 
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
