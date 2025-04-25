@@ -54,6 +54,78 @@ class SwarmContainer(TaskContainer):
         # now that files have been copied into the working dir, it won't be necessary to bind-mount
         # them individually
         self._bind_input_files = False
+    
+    def _create_service_low_level(
+        self,
+        client: docker.DockerClient,
+        image_tag: str,
+        mounts: List[docker.types.Mount],
+        misc_kwargs: Dict[str, Any],
+        logger: logging.Logger,
+    ) -> docker.models.services.Service:
+        """
+        Create a Docker Swarm service via the low-level APIClient, using docker types.
+        """
+        # assemble basic parameters
+        name = self.unique_service_name(self.run_id)
+        # shell command to execute in container
+        shell = self.cfg.get("task_runtime", "command_shell")
+        command = ["/bin/sh", "-c", shell + " ../command >> ../stdout.txt 2>> ../stderr.txt"]
+        # restart only once
+        restart = docker.types.RestartPolicy("none")
+        workdir = os.path.join(self.container_dir, "work")
+        labels = {"miniwdl_run_id": self.run_id}
+        container_labels = {"miniwdl_run_id": self.run_id}
+        env = [f"{k}={v}" for (k, v) in self.runtime_values.get("env", {}).items()]
+
+        # build container spec
+        container_spec = docker.types.ContainerSpec(
+            image_tag,
+            command=command,
+            env=env,
+            workdir=workdir,
+            user=misc_kwargs.get("user"),
+            groups=misc_kwargs.get("groups"),
+            mounts=mounts,
+            labels=container_labels,
+            cap_add=misc_kwargs.get("cap_add"),
+        )
+        # GPU support via HostConfig device requests
+        if self.runtime_values.get("gpu", False):
+            dev_req = docker.types.DeviceRequest(
+                driver="nvidia", count=-1, capabilities=[["gpu"]]
+            )
+            host_cfg = docker.types.HostConfig(
+                client.api._version, device_requests=[dev_req]
+            )
+            container_spec["HostConfig"] = host_cfg
+
+        # build task template
+        task_template = docker.types.TaskTemplate(
+            container_spec,
+            resources=misc_kwargs.get("resources"),
+            restart_policy=restart,
+        )
+
+        # assemble service-level kwargs
+        svc_kwargs: Dict[str, Any] = {"task_template": task_template, "name": name, "labels": labels}
+        # include networks if set
+        if misc_kwargs.get("networks") is not None:
+            svc_kwargs["networks"] = misc_kwargs.get("networks")
+        # apply any additional overrides (mode, update_config, endpoint_spec, rollback_config, etc.)
+        if self.create_service_kwargs:
+            svc_kwargs.update(self.create_service_kwargs)
+
+        # log service creation args
+        logger.debug("docker create service kwargs: %r", svc_kwargs)
+        # create via low-level API
+        result = client.api.create_service(**svc_kwargs)
+        # extract service ID
+        service_id = result.get("ID") if isinstance(result, dict) else result
+        # fetch high-level Service model
+        svc = client.services.get(service_id)
+        logger.debug("docker service %s %s", svc.name, svc.short_id)
+        return svc
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         self._observed_states = set()
@@ -82,74 +154,8 @@ class SwarmContainer(TaskContainer):
         svc = None
         exit_code = None
         try:
-            kwargs = {
-                # unique name with some human readability; docker limits to 63 chars (issue #327)
-                "name": self.unique_service_name(self.run_id),
-                "command": [
-                    "/bin/sh",
-                    "-c",
-                    self.cfg.get("task_runtime", "command_shell")
-                    + " ../command >> ../stdout.txt 2>> ../stderr.txt",
-                ],
-                # restart_policy 'none' so that swarm runs the container just once
-                "restart_policy": docker.types.RestartPolicy("none"),
-                "workdir": os.path.join(self.container_dir, "work"),
-                "mounts": mounts,
-                "labels": {"miniwdl_run_id": self.run_id},
-                "container_labels": {"miniwdl_run_id": self.run_id},
-                "env": [f"{k}={v}" for (k, v) in self.runtime_values.get("env", {}).items()],
-            }
-            kwargs.update(misc_kwargs)
-            kwargs.update(self.create_service_kwargs or {})
-            logger.debug(_("docker create service kwargs", **kwargs))
-            # use low-level API for service creation to support GPU and advanced configs
-            # build the container spec for the task
-            container_spec = docker.types.ContainerSpec(
-                image_tag,
-                command=kwargs.get("command"),
-                env=kwargs.get("env"),
-                workdir=kwargs.get("workdir"),
-                user=kwargs.get("user"),
-                groups=kwargs.get("groups"),
-                mounts=kwargs.get("mounts"),
-                labels=kwargs.get("container_labels"),
-                cap_add=kwargs.get("cap_add"),
-            )
-            # enable GPU support if requested
-            if self.runtime_values.get("gpu", False):
-                # request all GPUs via nvidia driver
-                device_req = docker.types.DeviceRequest(
-                    driver="nvidia",
-                    count=-1,
-                    capabilities=[["gpu"]],
-                )
-                host_config = docker.types.HostConfig(
-                    client.api._version,
-                    device_requests=[device_req],
-                )
-                container_spec["HostConfig"] = host_config
-            # build the task template
-            task_template = docker.types.TaskTemplate(
-                container_spec,
-                resources=kwargs.get("resources"),
-                restart_policy=kwargs.get("restart_policy"),
-            )
-            # assemble service-level arguments
-            svc_kwargs: Dict[str, Any] = {
-                "task_template": task_template,
-                "name": kwargs.get("name"),
-                "labels": kwargs.get("labels"),
-            }
-            # include optional service parameters
-            for key in ("networks", "mode", "update_config", "endpoint_spec", "rollback_config"):
-                if key in kwargs and kwargs.get(key) is not None:
-                    svc_kwargs[key] = kwargs.get(key)
-            # create the service via the low-level API
-            result = client.api.create_service(**svc_kwargs)
-            # extract the service ID (could be a dict or string)
-            service_id = result.get("ID") if isinstance(result, dict) else result
-            svc = client.services.get(service_id)
-            logger.debug(_("docker service", name=svc.name, id=svc.short_id))
+            # create the service via low-level APIClient
+            svc = self._create_service_low_level(client, image_tag, mounts, misc_kwargs, logger)
 
             # stream stderr into log
             with contextlib.ExitStack() as cleanup:
