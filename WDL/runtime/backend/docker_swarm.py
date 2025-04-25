@@ -163,6 +163,13 @@ class SwarmContainer(TaskContainer):
         # Create the Docker Swarm service for scheduling the task container. We use the low-level
         # client.api.create_service() because the higher-level Service model doesn't support GPU
         # requests.
+        if self.create_service_kwargs:
+            logger.warning(
+                _(
+                    "old plug-in (using deprecated SwarmContainer.create_service_kwargs)"
+                    " may be incompatible with this miniwdl version"
+                )
+            )
         svc_kwargs = self.prepare_create_service(logger, client)
         logger.debug(_("docker create_service", **svc_kwargs))
         service_id = client.api.create_service(**svc_kwargs)["ID"]
@@ -175,6 +182,7 @@ class SwarmContainer(TaskContainer):
         self, logger: logging.Logger, client: docker.DockerClient
     ) -> Dict[str, Any]:
         # prepare kwargs for create_service()
+        # plugin subclasses might override this (or its sub-methods) to customize.
 
         task_template_args, task_template_kwargs = self.prepare_task_template(logger, client)
         svc_kwargs: Dict[str, Any] = {
