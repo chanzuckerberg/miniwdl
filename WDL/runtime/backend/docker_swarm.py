@@ -35,118 +35,7 @@ class SwarmContainer(TaskContainer):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
-        worker_nodes = []
-
-        with contextlib.ExitStack() as cleanup:
-            client = docker.from_env(version="auto")
-            cleanup.callback(lambda: client.close())
-            terminating = cleanup.enter_context(TerminationSignalFlag(logger))
-            logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
-
-            # initialize swarm
-            state = "(unknown)"
-            while True:
-                if terminating():
-                    raise Terminated()
-
-                info = client.info()
-                if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
-                    logger.debug(_("swarm info", **info["Swarm"]))
-                    state = info["Swarm"]["LocalNodeState"]
-
-                # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
-                if state == "active":
-                    if info["Swarm"]["ControlAvailable"]:
-                        worker_nodes = [
-                            node
-                            for node in client.nodes.list()
-                            if node.attrs["Spec"]["Availability"] == "active"
-                            and node.attrs["Status"]["State"] == "ready"
-                        ]
-                        if worker_nodes:
-                            break
-                    else:
-                        logger.warning(
-                            "this host is a docker swarm worker but not a manager; "
-                            "WDL task scheduling requires manager access"
-                        )
-                elif state == "inactive" and cfg["docker_swarm"].get_bool("auto_init"):
-                    logger.warning(
-                        "docker swarm is inactive on this host; "
-                        "performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
-                    )
-                    try:
-                        client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
-                    except Exception as exn:
-                        # smooth over race condition with multiple processes trying to init swarm
-                        if "already part of a swarm" not in str(exn):
-                            raise exn
-
-                logger.notice(
-                    _(
-                        "waiting for local docker swarm manager & worker(s)",
-                        manager=state,
-                        workers=len(worker_nodes),
-                    )
-                )
-                time.sleep(2)
-
-            miniwdl_services = [
-                d
-                for d in [s.attrs for s in client.services.list()]
-                if "Spec" in d and "Labels" in d["Spec"] and "miniwdl_run_id" in d["Spec"]["Labels"]
-            ]
-            if miniwdl_services and cfg["docker_swarm"].get_bool("auto_init"):
-                logger.warning(
-                    "docker swarm lists existing miniwdl-related services. "
-                    "This is normal if other miniwdl processes are running concurrently; "
-                    "otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
-                )
-
-        # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
-        # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
-        # where Docker containers run in a virtual machine with limited resources.
-        resources_max_mem: Dict[str, int] = {}
-        total_NanoCPUs = 0
-        total_MemoryBytes = 0
-
-        for node in worker_nodes:
-            logger.debug(
-                _(
-                    "swarm worker",
-                    ID=node.attrs["ID"],
-                    Spec=node.attrs["Spec"],
-                    Hostname=node.attrs["Description"]["Hostname"],
-                    Resources=node.attrs["Description"]["Resources"],
-                    Status=node.attrs["Status"],
-                )
-            )
-            resources = node.attrs["Description"]["Resources"]
-            total_NanoCPUs += resources["NanoCPUs"]
-            total_MemoryBytes += resources["MemoryBytes"]
-            if (
-                not resources_max_mem
-                or resources["MemoryBytes"] > resources_max_mem["MemoryBytes"]
-                or (
-                    resources["MemoryBytes"] == resources_max_mem["MemoryBytes"]
-                    and resources["NanoCPUs"] > resources_max_mem["NanoCPUs"]
-                )
-            ):
-                resources_max_mem = resources
-
-        max_cpu = int(resources_max_mem["NanoCPUs"] / 1_000_000_000)
-        max_mem = resources_max_mem["MemoryBytes"]
-        logger.notice(
-            _(
-                "docker swarm resources",
-                workers=len(worker_nodes),
-                max_cpus=max_cpu,
-                max_mem_bytes=max_mem,
-                total_cpus=int(total_NanoCPUs / 1_000_000_000),
-                total_mem_bytes=total_MemoryBytes,
-            )
-        )
-        cls._limits = {"cpu": max_cpu, "mem_bytes": max_mem}
+        cls._limits = _init_docker_swarm(cfg, logger)
 
     @classmethod
     def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
@@ -697,3 +586,121 @@ class SwarmContainer(TaskContainer):
         write_log(build_log)
         logger.notice(_("docker build", tag=image.tags[0], id=image.id, log=build_logfile))
         return tag
+
+
+def _init_docker_swarm(cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+    """
+    Initialize Docker Swarm and detect the host's CPU and memory resources.
+    """
+    worker_nodes = []
+
+    with contextlib.ExitStack() as cleanup:
+        client = docker.from_env(version="auto")
+        cleanup.callback(lambda: client.close())
+        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
+        logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
+
+        # initialize swarm
+        state = "(unknown)"
+        while True:
+            if terminating():
+                raise Terminated()
+
+            info = client.info()
+            if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
+                logger.debug(_("swarm info", **info["Swarm"]))
+                state = info["Swarm"]["LocalNodeState"]
+
+            # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
+            if state == "active":
+                if info["Swarm"]["ControlAvailable"]:
+                    worker_nodes = [
+                        node
+                        for node in client.nodes.list()
+                        if node.attrs["Spec"]["Availability"] == "active"
+                        and node.attrs["Status"]["State"] == "ready"
+                    ]
+                    if worker_nodes:
+                        break
+                else:
+                    logger.warning(
+                        "this host is a docker swarm worker but not a manager; "
+                        "WDL task scheduling requires manager access"
+                    )
+            elif state == "inactive" and cfg["docker_swarm"].get_bool("auto_init"):
+                logger.warning(
+                    "docker swarm is inactive on this host; "
+                    "performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
+                )
+                try:
+                    client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
+                except Exception as exn:
+                    # smooth over race condition with multiple processes trying to init swarm
+                    if "already part of a swarm" not in str(exn):
+                        raise exn
+
+            logger.notice(
+                _(
+                    "waiting for local docker swarm manager & worker(s)",
+                    manager=state,
+                    workers=len(worker_nodes),
+                )
+            )
+            time.sleep(2)
+
+        miniwdl_services = [
+            d
+            for d in [s.attrs for s in client.services.list()]
+            if "Spec" in d and "Labels" in d["Spec"] and "miniwdl_run_id" in d["Spec"]["Labels"]
+        ]
+        if miniwdl_services and cfg["docker_swarm"].get_bool("auto_init"):
+            logger.warning(
+                "docker swarm lists existing miniwdl-related services. "
+                "This is normal if other miniwdl processes are running concurrently; "
+                "otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
+            )
+
+    # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
+    # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
+    # where Docker containers run in a virtual machine with limited resources.
+    resources_max_mem: Dict[str, int] = {}
+    total_NanoCPUs = 0
+    total_MemoryBytes = 0
+
+    for node in worker_nodes:
+        logger.debug(
+            _(
+                "swarm worker",
+                ID=node.attrs["ID"],
+                Spec=node.attrs["Spec"],
+                Hostname=node.attrs["Description"]["Hostname"],
+                Resources=node.attrs["Description"]["Resources"],
+                Status=node.attrs["Status"],
+            )
+        )
+        resources = node.attrs["Description"]["Resources"]
+        total_NanoCPUs += resources["NanoCPUs"]
+        total_MemoryBytes += resources["MemoryBytes"]
+        if (
+            not resources_max_mem
+            or resources["MemoryBytes"] > resources_max_mem["MemoryBytes"]
+            or (
+                resources["MemoryBytes"] == resources_max_mem["MemoryBytes"]
+                and resources["NanoCPUs"] > resources_max_mem["NanoCPUs"]
+            )
+        ):
+            resources_max_mem = resources
+
+    max_cpu = int(resources_max_mem["NanoCPUs"] / 1_000_000_000)
+    max_mem = resources_max_mem["MemoryBytes"]
+    logger.notice(
+        _(
+            "docker swarm resources",
+            workers=len(worker_nodes),
+            max_cpus=max_cpu,
+            max_mem_bytes=max_mem,
+            total_cpus=int(total_NanoCPUs / 1_000_000_000),
+            total_mem_bytes=total_MemoryBytes,
+        )
+    )
+    return {"cpu": max_cpu, "mem_bytes": max_mem}
