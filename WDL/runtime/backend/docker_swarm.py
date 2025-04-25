@@ -54,78 +54,6 @@ class SwarmContainer(TaskContainer):
         # now that files have been copied into the working dir, it won't be necessary to bind-mount
         # them individually
         self._bind_input_files = False
-    
-    def _create_service_low_level(
-        self,
-        client: docker.DockerClient,
-        image_tag: str,
-        mounts: List[docker.types.Mount],
-        misc_kwargs: Dict[str, Any],
-        logger: logging.Logger,
-    ) -> docker.models.services.Service:
-        """
-        Create a Docker Swarm service via the low-level APIClient, using docker types.
-        """
-        # assemble basic parameters
-        name = self.unique_service_name(self.run_id)
-        # shell command to execute in container
-        shell = self.cfg.get("task_runtime", "command_shell")
-        command = ["/bin/sh", "-c", shell + " ../command >> ../stdout.txt 2>> ../stderr.txt"]
-        # restart only once
-        restart = docker.types.RestartPolicy("none")
-        workdir = os.path.join(self.container_dir, "work")
-        labels = {"miniwdl_run_id": self.run_id}
-        container_labels = {"miniwdl_run_id": self.run_id}
-        env = [f"{k}={v}" for (k, v) in self.runtime_values.get("env", {}).items()]
-
-        # build container spec
-        container_spec = docker.types.ContainerSpec(
-            image_tag,
-            command=command,
-            env=env,
-            workdir=workdir,
-            user=misc_kwargs.get("user"),
-            groups=misc_kwargs.get("groups"),
-            mounts=mounts,
-            labels=container_labels,
-            cap_add=misc_kwargs.get("cap_add"),
-        )
-        # GPU support via HostConfig device requests
-        if self.runtime_values.get("gpu", False):
-            dev_req = docker.types.DeviceRequest(
-                driver="nvidia", count=-1, capabilities=[["gpu"]]
-            )
-            host_cfg = docker.types.HostConfig(
-                client.api._version, device_requests=[dev_req]
-            )
-            container_spec["HostConfig"] = host_cfg
-
-        # build task template
-        task_template = docker.types.TaskTemplate(
-            container_spec,
-            resources=misc_kwargs.get("resources"),
-            restart_policy=restart,
-        )
-
-        # assemble service-level kwargs
-        svc_kwargs: Dict[str, Any] = {"task_template": task_template, "name": name, "labels": labels}
-        # include networks if set
-        if misc_kwargs.get("networks") is not None:
-            svc_kwargs["networks"] = misc_kwargs.get("networks")
-        # apply any additional overrides (mode, update_config, endpoint_spec, rollback_config, etc.)
-        if self.create_service_kwargs:
-            svc_kwargs.update(self.create_service_kwargs)
-
-        # log service creation args
-        logger.debug("docker create service kwargs: %r", svc_kwargs)
-        # create via low-level API
-        result = client.api.create_service(**svc_kwargs)
-        # extract service ID
-        service_id = result.get("ID") if isinstance(result, dict) else result
-        # fetch high-level Service model
-        svc = client.services.get(service_id)
-        logger.debug("docker service %s %s", svc.name, svc.short_id)
-        return svc
 
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         self._observed_states = set()
@@ -134,17 +62,6 @@ class SwarmContainer(TaskContainer):
 
         # prepare docker configuration
         client = docker.from_env(version="auto", timeout=900)
-        if "inlineDockerfile" in self.runtime_values:
-            logger.warning(
-                "runtime.inlineDockerfile is an experimental extension, subject to change"
-            )
-            image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
-        else:
-            image_tag = self.resolve_tag(
-                logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
-            )
-        mounts = self.prepare_mounts(logger)
-        misc_kwargs = self.misc_config(logger)
 
         polling_period = self.cfg.get_float("docker_swarm", "polling_period_seconds")
         server_error_retries = self.cfg.get_int("docker_swarm", "server_error_retries")
@@ -155,7 +72,7 @@ class SwarmContainer(TaskContainer):
         exit_code = None
         try:
             # create the service via low-level APIClient
-            svc = self._create_service_low_level(client, image_tag, mounts, misc_kwargs, logger)
+            svc = self.create_service(logger, client)
 
             # stream stderr into log
             with contextlib.ExitStack() as cleanup:
@@ -238,6 +155,124 @@ class SwarmContainer(TaskContainer):
                 logger, client, isinstance(exit_code, int) and self.success_exit_code(exit_code)
             )
             client.close()
+
+    def create_service(
+        self,
+        logger: logging.Logger,
+        client: docker.DockerClient,
+    ) -> docker.models.services.Service:
+        """
+        Create a Docker Swarm service via the low-level APIClient, using docker types.
+        """
+
+        task_template = self.prepare_task_template(logger, client)
+
+        # assemble service-level kwargs
+        svc_kwargs: Dict[str, Any] = {
+            "task_template": task_template,
+            "name": self.unique_service_name(self.run_id),
+            "labels": {"miniwdl_run_id": self.run_id},
+        }
+        network = self.runtime_values.get("docker_network", None)
+        if network:
+            if network in self.cfg.get_list("docker_swarm", "allow_networks"):
+                svc_kwargs["networks"] = [network]
+            else:
+                logger.warning(
+                    _(
+                        "runtime.docker_network ignored; network name must appear in JSON list from config"
+                        " [docker_swarm] allow_networks / env MINIWDL__DOCKER_SWARM__ALLOW_NETWORKS",
+                        docker_network=network,
+                    )
+                )
+        # apply any additional overrides (mode, update_config, endpoint_spec, rollback_config, etc.)
+        if self.create_service_kwargs:
+            svc_kwargs.update(self.create_service_kwargs)
+
+        # create via low-level API
+        logger.debug(_("docker create_service", **svc_kwargs))
+        service_id = client.api.create_service(**svc_kwargs)["ID"]
+        # fetch high-level Service model
+        svc = client.services.get(service_id)
+        logger.debug(_("docker service", name=svc.name, short_id=svc.short_id))
+        return svc
+
+    def prepare_task_template(
+        self, logger: logging.Logger, client: docker.DockerClient
+    ) -> docker.types.TaskTemplate:
+        if "inlineDockerfile" in self.runtime_values:
+            image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
+        else:
+            image_tag = self.resolve_tag(
+                logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
+            )
+        command = [
+            "/bin/sh",
+            "-c",
+            self.cfg.get("task_runtime", "command_shell")
+            + " ../command >> ../stdout.txt 2>> ../stderr.txt",
+        ]
+        env = [f"{k}={v}" for (k, v) in self.runtime_values.get("env", {}).items()]
+
+        # build container spec
+        container_spec_kwargs = {
+            "command": command,
+            "env": env,
+            "workdir": os.path.join(self.container_dir, "work"),
+            "mounts": self.prepare_mounts(logger),
+            "labels": {"miniwdl_run_id": self.run_id},
+            # add invoking user's group to ensure that command can access the mounted working
+            # directory even if the docker image assumes some arbitrary uid
+            "groups": [str(os.getegid())],
+        }
+        if container_spec_kwargs == ["0"]:
+            logger.warning(
+                "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
+            )
+        if self.cfg["task_runtime"].get_bool("as_user"):
+            container_spec_kwargs["user"] = f"{os.geteuid()}:{os.getegid()}"
+            logger.info(_("docker user", uid_gid=container_spec_kwargs["user"]))
+            if os.geteuid() == 0:
+                logger.warning(
+                    "container command will run explicitly as root, since you are root and set --as-me"
+                )
+        if self.runtime_values.get("privileged", False) is True:
+            logger.warning("runtime.privileged enabled (security & portability warning)")
+            container_spec_kwargs["cap_add"] = ["ALL"]
+        container_spec = docker.types.ContainerSpec(image_tag, **container_spec_kwargs)
+        # GPU support via HostConfig device requests
+        if self.runtime_values.get("gpu", False):
+            # docker.types.ContainerSpec doesn't have a host_config kwarg, so we set it by dict key
+            container_spec["HostConfig"] = docker.types.HostConfig(
+                client.api._version,
+                device_requests=[
+                    docker.types.DeviceRequest(driver="nvidia", count=-1, capabilities=[["gpu"]])
+                ],
+            )
+
+        # build task template
+        task_template_kwargs = {
+            "restart_policy": docker.types.RestartPolicy("none"),
+        }
+        resources: Dict[str, Any] = {}
+        cpu = self.runtime_values.get("cpu", 0)
+        if cpu > 0:
+            # the cpu unit expected by swarm is "NanoCPUs"
+            resources["cpu_limit"] = cpu * 1_000_000_000
+            resources["cpu_reservation"] = cpu * 1_000_000_000
+        memory_reservation = self.runtime_values.get("memory_reservation", 0)
+        if memory_reservation > 0:
+            resources["mem_reservation"] = memory_reservation
+        memory_limit = self.runtime_values.get("memory_limit", 0)
+        if memory_limit > 0:
+            resources["mem_limit"] = memory_limit
+        if resources:
+            logger.debug(_("docker resources", **resources))
+            task_template_kwargs["resources"] = docker.types.Resources(**resources)
+        return docker.types.TaskTemplate(
+            container_spec,
+            **task_template_kwargs,
+        )
 
     def resolve_tag(
         self, logger: logging.Logger, client: docker.DockerClient, image_tag: str
@@ -351,75 +386,6 @@ class SwarmContainer(TaskContainer):
             chmod_R_plus(mnt, file_bits=0o660, dir_bits=0o770)
 
         return mounts
-
-    def misc_config(self, logger: logging.Logger) -> Dict[str, Any]:
-        kwargs: Dict[str, Any] = {"resources": None}
-
-        resources: Dict[str, Any] = {}
-        cpu = self.runtime_values.get("cpu", 0)
-        if cpu > 0:
-            # the cpu unit expected by swarm is "NanoCPUs"
-            resources["cpu_limit"] = cpu * 1_000_000_000
-            resources["cpu_reservation"] = cpu * 1_000_000_000
-        memory_reservation = self.runtime_values.get("memory_reservation", 0)
-        if memory_reservation > 0:
-            resources["mem_reservation"] = memory_reservation
-        memory_limit = self.runtime_values.get("memory_limit", 0)
-        if memory_limit > 0:
-            resources["mem_limit"] = memory_limit
-        if resources:
-            logger.debug(_("docker resources", **resources))
-            kwargs["resources"] = docker.types.Resources(**resources)
-
-        if self.cfg["task_runtime"].get_bool("as_user"):
-            kwargs["user"] = f"{os.geteuid()}:{os.getegid()}"
-            logger.info(_("docker user", uid_gid=kwargs["user"]))
-            if os.geteuid() == 0:
-                logger.warning(
-                    "container command will run explicitly as root, since you are root and set --as-me"
-                )
-        # add invoking user's group to ensure that command can access the mounted working
-        # directory even if the docker image assumes some arbitrary uid
-        groups = [str(os.getegid())]
-        if groups == ["0"]:
-            logger.warning(
-                "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
-            )
-        kwargs["groups"] = groups
-
-        network = self.runtime_values.get("docker_network", None)
-        if network:
-            if network in self.cfg.get_list("docker_swarm", "allow_networks"):
-                kwargs["networks"] = [network]
-            else:
-                logger.warning(
-                    _(
-                        "runtime.docker_network ignored; network name must appear in JSON list from config"
-                        " [docker_swarm] allow_networks / env MINIWDL__DOCKER_SWARM__ALLOW_NETWORKS",
-                        docker_network=network,
-                    )
-                )
-
-        if self.runtime_values.get("privileged", False) is True:
-            logger.warning("runtime.privileged enabled (security & portability warning)")
-            kwargs["cap_add"] = ["ALL"]
-
-        if self.runtime_values.get("gpu", False):
-            kwargs["task_template"] = {
-                "ContainerSpec": {
-                    "HostConfig": {
-                        "DeviceRequests": [
-                            {
-                                "Driver": "nvidia",
-                                "Count": -1,  # -1 == "all GPUs"
-                                "Capabilities": [["gpu"]],
-                            }
-                        ]
-                    }
-                }
-            }
-
-        return kwargs
 
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
@@ -579,6 +545,7 @@ class SwarmContainer(TaskContainer):
         client: docker.DockerClient,
         tries: Optional[int] = None,
     ) -> str:
+        logger.warning("runtime.inlineDockerfile is an experimental extension, subject to change")
         # formulate image tag using digest of dockerfile text
         dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
         dockerfile_digest = hashlib.sha256(dockerfile_utf8).digest()
