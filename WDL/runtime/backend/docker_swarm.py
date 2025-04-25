@@ -102,7 +102,53 @@ class SwarmContainer(TaskContainer):
             kwargs.update(misc_kwargs)
             kwargs.update(self.create_service_kwargs or {})
             logger.debug(_("docker create service kwargs", **kwargs))
-            svc = client.services.create(image_tag, **kwargs)
+            # use low-level API for service creation to support GPU and advanced configs
+            # build the container spec for the task
+            container_spec = docker.types.ContainerSpec(
+                image_tag,
+                command=kwargs.get("command"),
+                env=kwargs.get("env"),
+                workdir=kwargs.get("workdir"),
+                user=kwargs.get("user"),
+                groups=kwargs.get("groups"),
+                mounts=kwargs.get("mounts"),
+                labels=kwargs.get("container_labels"),
+                cap_add=kwargs.get("cap_add"),
+            )
+            # enable GPU support if requested
+            if self.runtime_values.get("gpu", False):
+                # request all GPUs via nvidia driver
+                device_req = docker.types.DeviceRequest(
+                    driver="nvidia",
+                    count=-1,
+                    capabilities=[["gpu"]],
+                )
+                host_config = docker.types.HostConfig(
+                    client.api._version,
+                    device_requests=[device_req],
+                )
+                container_spec["HostConfig"] = host_config
+            # build the task template
+            task_template = docker.types.TaskTemplate(
+                container_spec,
+                resources=kwargs.get("resources"),
+                restart_policy=kwargs.get("restart_policy"),
+            )
+            # assemble service-level arguments
+            svc_kwargs: Dict[str, Any] = {
+                "task_template": task_template,
+                "name": kwargs.get("name"),
+                "labels": kwargs.get("labels"),
+            }
+            # include optional service parameters
+            for key in ("networks", "mode", "update_config", "endpoint_spec", "rollback_config"):
+                if key in kwargs and kwargs.get(key) is not None:
+                    svc_kwargs[key] = kwargs.get(key)
+            # create the service via the low-level API
+            result = client.api.create_service(**svc_kwargs)
+            # extract the service ID (could be a dict or string)
+            service_id = result.get("ID") if isinstance(result, dict) else result
+            svc = client.services.get(service_id)
             logger.debug(_("docker service", name=svc.name, id=svc.short_id))
 
             # stream stderr into log
