@@ -160,10 +160,15 @@ class SwarmContainer(TaskContainer):
         logger: logging.Logger,
         client: docker.DockerClient,
     ) -> docker.models.services.Service:
-        # Create the Docker Swarm service for scheduling the task container. We use the low-level
-        # client.api.create_service() because the higher-level Service model doesn't support GPU
-        # requests.
+        """
+        Create a Docker Swarm service which will schedule the task container.
+
+        We use the low-level client.api.create_service() because the higher-level Service model
+        doesn't support GPU requests.
+        """
         if self.create_service_kwargs:
+            # plugins should be updated to subclass SwarmContainer and override
+            # prepare_create_service() instead of the old create_service_kwargs dict.
             logger.warning(
                 _(
                     "old plug-in (using deprecated SwarmContainer.create_service_kwargs)"
@@ -181,8 +186,11 @@ class SwarmContainer(TaskContainer):
     def prepare_create_service(
         self, logger: logging.Logger, client: docker.DockerClient
     ) -> Dict[str, Any]:
-        # prepare kwargs for create_service()
-        # plugin subclasses might override this (or its sub-methods) to customize.
+        """
+        Prepare kwargs for create_service()
+
+        Plugin subclasses might override this method (or its sub-methods) to customize.
+        """
 
         task_template_args, task_template_kwargs = self.prepare_task_template(logger, client)
         svc_kwargs: Dict[str, Any] = {
@@ -207,7 +215,7 @@ class SwarmContainer(TaskContainer):
     def prepare_task_template(
         self, logger: logging.Logger, client: docker.DockerClient
     ) -> Tuple[List[Any], Dict[str, Any]]:
-        # prepare args & kwargs for TaskTemplate
+        "Prepare args & kwargs for TaskTemplate"
 
         container_spec_args, container_spec_kwargs = self.prepare_container_spec(logger, client)
         container_spec = docker.types.ContainerSpec(*container_spec_args, **container_spec_kwargs)
@@ -245,7 +253,7 @@ class SwarmContainer(TaskContainer):
     def prepare_container_spec(
         self, logger: logging.Logger, client: docker.DockerClient
     ) -> Tuple[List[Any], Dict[str, Any]]:
-        # prepare args & kwargs for ContainerSpec
+        "Prepare args & kwargs for ContainerSpec"
 
         if "inlineDockerfile" in self.runtime_values:
             image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
