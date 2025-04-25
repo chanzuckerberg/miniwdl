@@ -16,7 +16,7 @@ import threading
 import traceback
 import contextlib
 from io import BytesIO
-from typing import List, Dict, Set, Optional, Any, Callable, Iterable
+from typing import List, Dict, Set, Optional, Any, Callable, Iterable, Tuple
 import docker
 from ... import Error
 from ..._util import chmod_R_plus, TerminationSignalFlag
@@ -42,8 +42,7 @@ class SwarmContainer(TaskContainer):
         assert cls._limits, f"{cls.__name__}.global_init"
         return cls._limits
 
-    create_service_kwargs: Optional[Dict[str, Any]] = None
-    # override kwargs to docker service create() (may be set by plugins)
+    create_service_kwargs: Optional[Dict[str, Any]] = None  # DEPRECATED
 
     _bind_input_files: bool = True
     _observed_states: Optional[Set[str]] = None
@@ -161,15 +160,25 @@ class SwarmContainer(TaskContainer):
         logger: logging.Logger,
         client: docker.DockerClient,
     ) -> docker.models.services.Service:
-        """
-        Create a Docker Swarm service via the low-level APIClient, using docker types.
-        """
+        # Create the Docker Swarm service for scheduling the task container. We use the low-level
+        # client.api.create_service() because the higher-level Service model doesn't support GPU
+        # requests.
+        svc_kwargs = self.prepare_create_service(logger, client)
+        logger.debug(_("docker create_service", **svc_kwargs))
+        service_id = client.api.create_service(**svc_kwargs)["ID"]
+        # fetch high-level Service model
+        svc = client.services.get(service_id)
+        logger.debug(_("docker service", name=svc.name, short_id=svc.short_id))
+        return svc
 
-        task_template = self.prepare_task_template(logger, client)
+    def prepare_create_service(
+        self, logger: logging.Logger, client: docker.DockerClient
+    ) -> Dict[str, Any]:
+        # prepare kwargs for create_service()
 
-        # assemble service-level kwargs
+        task_template_args, task_template_kwargs = self.prepare_task_template(logger, client)
         svc_kwargs: Dict[str, Any] = {
-            "task_template": task_template,
+            "task_template": docker.types.TaskTemplate(*task_template_args, **task_template_kwargs),
             "name": self.unique_service_name(self.run_id),
             "labels": {"miniwdl_run_id": self.run_id},
         }
@@ -185,21 +194,51 @@ class SwarmContainer(TaskContainer):
                         docker_network=network,
                     )
                 )
-        # apply any additional overrides (mode, update_config, endpoint_spec, rollback_config, etc.)
-        if self.create_service_kwargs:
-            svc_kwargs.update(self.create_service_kwargs)
-
-        # create via low-level API
-        logger.debug(_("docker create_service", **svc_kwargs))
-        service_id = client.api.create_service(**svc_kwargs)["ID"]
-        # fetch high-level Service model
-        svc = client.services.get(service_id)
-        logger.debug(_("docker service", name=svc.name, short_id=svc.short_id))
-        return svc
+        return svc_kwargs
 
     def prepare_task_template(
         self, logger: logging.Logger, client: docker.DockerClient
-    ) -> docker.types.TaskTemplate:
+    ) -> Tuple[List[Any], Dict[str, Any]]:
+        # prepare args & kwargs for TaskTemplate
+
+        container_spec_args, container_spec_kwargs = self.prepare_container_spec(logger, client)
+        container_spec = docker.types.ContainerSpec(*container_spec_args, **container_spec_kwargs)
+        if self.runtime_values.get("gpu", False):
+            # docker.types.ContainerSpec doesn't have a host_config kwarg, so we set it by dict key
+            container_spec["HostConfig"] = docker.types.HostConfig(
+                client.api._version,
+                device_requests=[
+                    docker.types.DeviceRequest(driver="nvidia", count=-1, capabilities=[["gpu"]])
+                ],
+            )
+
+        # build task template
+        resources: Dict[str, Any] = {}
+        cpu = self.runtime_values.get("cpu", 0)
+        if cpu > 0:
+            # the cpu unit expected by swarm is "NanoCPUs"
+            resources["cpu_limit"] = cpu * 1_000_000_000
+            resources["cpu_reservation"] = cpu * 1_000_000_000
+        memory_reservation = self.runtime_values.get("memory_reservation", 0)
+        if memory_reservation > 0:
+            resources["mem_reservation"] = memory_reservation
+        memory_limit = self.runtime_values.get("memory_limit", 0)
+        if memory_limit > 0:
+            resources["mem_limit"] = memory_limit
+
+        kwargs = {
+            "restart_policy": docker.types.RestartPolicy("none"),
+        }
+        if resources:
+            logger.debug(_("docker resources", **resources))
+            kwargs["resources"] = docker.types.Resources(**resources)
+        return [container_spec], kwargs
+
+    def prepare_container_spec(
+        self, logger: logging.Logger, client: docker.DockerClient
+    ) -> Tuple[List[Any], Dict[str, Any]]:
+        # prepare args & kwargs for ContainerSpec
+
         if "inlineDockerfile" in self.runtime_values:
             image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
         else:
@@ -239,40 +278,7 @@ class SwarmContainer(TaskContainer):
         if self.runtime_values.get("privileged", False) is True:
             logger.warning("runtime.privileged enabled (security & portability warning)")
             container_spec_kwargs["cap_add"] = ["ALL"]
-        container_spec = docker.types.ContainerSpec(image_tag, **container_spec_kwargs)
-        # GPU support via HostConfig device requests
-        if self.runtime_values.get("gpu", False):
-            # docker.types.ContainerSpec doesn't have a host_config kwarg, so we set it by dict key
-            container_spec["HostConfig"] = docker.types.HostConfig(
-                client.api._version,
-                device_requests=[
-                    docker.types.DeviceRequest(driver="nvidia", count=-1, capabilities=[["gpu"]])
-                ],
-            )
-
-        # build task template
-        task_template_kwargs = {
-            "restart_policy": docker.types.RestartPolicy("none"),
-        }
-        resources: Dict[str, Any] = {}
-        cpu = self.runtime_values.get("cpu", 0)
-        if cpu > 0:
-            # the cpu unit expected by swarm is "NanoCPUs"
-            resources["cpu_limit"] = cpu * 1_000_000_000
-            resources["cpu_reservation"] = cpu * 1_000_000_000
-        memory_reservation = self.runtime_values.get("memory_reservation", 0)
-        if memory_reservation > 0:
-            resources["mem_reservation"] = memory_reservation
-        memory_limit = self.runtime_values.get("memory_limit", 0)
-        if memory_limit > 0:
-            resources["mem_limit"] = memory_limit
-        if resources:
-            logger.debug(_("docker resources", **resources))
-            task_template_kwargs["resources"] = docker.types.Resources(**resources)
-        return docker.types.TaskTemplate(
-            container_spec,
-            **task_template_kwargs,
-        )
+        return [image_tag], container_spec_kwargs
 
     def resolve_tag(
         self, logger: logging.Logger, client: docker.DockerClient, image_tag: str
