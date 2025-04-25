@@ -222,7 +222,7 @@ class SwarmContainer(TaskContainer):
         if self.runtime_values.get("gpu", False):
             # docker.types.ContainerSpec doesn't have a host_config kwarg, so we set it by dict key
             container_spec["HostConfig"] = docker.types.HostConfig(
-                client.api._version,
+                client.api.api_version,
                 device_requests=[
                     docker.types.DeviceRequest(driver="nvidia", count=-1, capabilities=[["gpu"]])
                 ],
@@ -280,7 +280,7 @@ class SwarmContainer(TaskContainer):
             # directory even if the docker image assumes some arbitrary uid
             "groups": [str(os.getegid())],
         }
-        if container_spec_kwargs == ["0"]:
+        if container_spec_kwargs["groups"] == ["0"]:
             logger.warning(
                 "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
             )

@@ -2,7 +2,7 @@
 
 from typing import Dict, Any, List, Iterable, Tuple, Optional
 class APIClient:
-    _version: str
+    api_version: str
     def create_service(
         self,
         task_template: Any,
