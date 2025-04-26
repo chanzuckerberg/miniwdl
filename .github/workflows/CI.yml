@@ -14,7 +14,7 @@ jobs:
           - viral_assemble
           # disabled due to test data bitrot (Apr 2023)
           # - skylab_bulk_rna
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     steps:
     - name: Maximize build space
       uses: AdityaGarg8/remove-unwanted-software@v3
@@ -64,8 +64,8 @@ jobs:
       uses: AndreMiras/coveralls-python-action@develop
 
   focal_self_test:
-    # run_self_test in a ubuntu:20.04 image with only the minimal runtime dependencies installed
-    runs-on: ubuntu-20.04
+    # run_self_test in an ubuntu-20.04 image with only the minimal runtime dependencies installed
+    runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v2
     - name: docker build
