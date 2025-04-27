@@ -462,7 +462,9 @@ class SwarmContainer(TaskContainer):
                 "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
             )
         if self.runtime_values.get("gpu", False):
-            logger.warning("ignored runtime.gpu (not yet implemented)")
+            logger.warning(
+                "ignoring runtime.gpu, but see https://miniwdl.readthedocs.io/en/latest/runner_reference.html#using-nvidia-gpu"
+            )
         return (resources if resources else None), user, groups
 
     def poll_service(
