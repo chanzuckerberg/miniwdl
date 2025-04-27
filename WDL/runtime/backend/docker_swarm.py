@@ -16,7 +16,7 @@ import threading
 import traceback
 import contextlib
 from io import BytesIO
-from typing import List, Dict, Set, Optional, Any, Callable, Tuple, Iterable
+from typing import List, Dict, Set, Optional, Any, Callable, Iterable, Tuple
 import docker
 from ... import Error
 from ..._util import chmod_R_plus, TerminationSignalFlag
@@ -35,126 +35,14 @@ class SwarmContainer(TaskContainer):
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
-        worker_nodes = []
-
-        with contextlib.ExitStack() as cleanup:
-            client = docker.from_env(version="auto")
-            cleanup.callback(lambda: client.close())
-            terminating = cleanup.enter_context(TerminationSignalFlag(logger))
-            logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
-
-            # initialize swarm
-            state = "(unknown)"
-            while True:
-                if terminating():
-                    raise Terminated()
-
-                info = client.info()
-                if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
-                    logger.debug(_("swarm info", **info["Swarm"]))
-                    state = info["Swarm"]["LocalNodeState"]
-
-                # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
-                if state == "active":
-                    if info["Swarm"]["ControlAvailable"]:
-                        worker_nodes = [
-                            node
-                            for node in client.nodes.list()
-                            if node.attrs["Spec"]["Availability"] == "active"
-                            and node.attrs["Status"]["State"] == "ready"
-                        ]
-                        if worker_nodes:
-                            break
-                    else:
-                        logger.warning(
-                            "this host is a docker swarm worker but not a manager; "
-                            "WDL task scheduling requires manager access"
-                        )
-                elif state == "inactive" and cfg["docker_swarm"].get_bool("auto_init"):
-                    logger.warning(
-                        "docker swarm is inactive on this host; "
-                        "performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
-                    )
-                    try:
-                        client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
-                    except Exception as exn:
-                        # smooth over race condition with multiple processes trying to init swarm
-                        if "already part of a swarm" not in str(exn):
-                            raise exn
-
-                logger.notice(
-                    _(
-                        "waiting for local docker swarm manager & worker(s)",
-                        manager=state,
-                        workers=len(worker_nodes),
-                    )
-                )
-                time.sleep(2)
-
-            miniwdl_services = [
-                d
-                for d in [s.attrs for s in client.services.list()]
-                if "Spec" in d and "Labels" in d["Spec"] and "miniwdl_run_id" in d["Spec"]["Labels"]
-            ]
-            if miniwdl_services and cfg["docker_swarm"].get_bool("auto_init"):
-                logger.warning(
-                    "docker swarm lists existing miniwdl-related services. "
-                    "This is normal if other miniwdl processes are running concurrently; "
-                    "otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
-                )
-
-        # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
-        # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
-        # where Docker containers run in a virtual machine with limited resources.
-        resources_max_mem: Dict[str, int] = {}
-        total_NanoCPUs = 0
-        total_MemoryBytes = 0
-
-        for node in worker_nodes:
-            logger.debug(
-                _(
-                    "swarm worker",
-                    ID=node.attrs["ID"],
-                    Spec=node.attrs["Spec"],
-                    Hostname=node.attrs["Description"]["Hostname"],
-                    Resources=node.attrs["Description"]["Resources"],
-                    Status=node.attrs["Status"],
-                )
-            )
-            resources = node.attrs["Description"]["Resources"]
-            total_NanoCPUs += resources["NanoCPUs"]
-            total_MemoryBytes += resources["MemoryBytes"]
-            if (
-                not resources_max_mem
-                or resources["MemoryBytes"] > resources_max_mem["MemoryBytes"]
-                or (
-                    resources["MemoryBytes"] == resources_max_mem["MemoryBytes"]
-                    and resources["NanoCPUs"] > resources_max_mem["NanoCPUs"]
-                )
-            ):
-                resources_max_mem = resources
-
-        max_cpu = int(resources_max_mem["NanoCPUs"] / 1_000_000_000)
-        max_mem = resources_max_mem["MemoryBytes"]
-        logger.notice(
-            _(
-                "docker swarm resources",
-                workers=len(worker_nodes),
-                max_cpus=max_cpu,
-                max_mem_bytes=max_mem,
-                total_cpus=int(total_NanoCPUs / 1_000_000_000),
-                total_mem_bytes=total_MemoryBytes,
-            )
-        )
-        cls._limits = {"cpu": max_cpu, "mem_bytes": max_mem}
+        cls._limits = _init_docker_swarm(cfg, logger)
 
     @classmethod
     def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
         assert cls._limits, f"{cls.__name__}.global_init"
         return cls._limits
 
-    create_service_kwargs: Optional[Dict[str, Any]] = None
-    # override kwargs to docker service create() (may be set by plugins)
+    create_service_kwargs: Optional[Dict[str, Any]] = None  # DEPRECATED
 
     _bind_input_files: bool = True
     _observed_states: Optional[Set[str]] = None
@@ -173,17 +61,6 @@ class SwarmContainer(TaskContainer):
 
         # prepare docker configuration
         client = docker.from_env(version="auto", timeout=900)
-        if "inlineDockerfile" in self.runtime_values:
-            logger.warning(
-                "runtime.inlineDockerfile is an experimental extension, subject to change"
-            )
-            image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
-        else:
-            image_tag = self.resolve_tag(
-                logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
-            )
-        mounts = self.prepare_mounts(logger)
-        resources, user, groups = self.misc_config(logger)
 
         polling_period = self.cfg.get_float("docker_swarm", "polling_period_seconds")
         server_error_retries = self.cfg.get_int("docker_swarm", "server_error_retries")
@@ -193,45 +70,8 @@ class SwarmContainer(TaskContainer):
         svc = None
         exit_code = None
         try:
-            kwargs = {
-                # unique name with some human readability; docker limits to 63 chars (issue #327)
-                "name": self.unique_service_name(self.run_id),
-                "command": [
-                    "/bin/sh",
-                    "-c",
-                    self.cfg.get("task_runtime", "command_shell")
-                    + " ../command >> ../stdout.txt 2>> ../stderr.txt",
-                ],
-                # restart_policy 'none' so that swarm runs the container just once
-                "restart_policy": docker.types.RestartPolicy("none"),
-                "workdir": os.path.join(self.container_dir, "work"),
-                "mounts": mounts,
-                "resources": resources,
-                "user": user,
-                "groups": groups,
-                "labels": {"miniwdl_run_id": self.run_id},
-                "container_labels": {"miniwdl_run_id": self.run_id},
-                "env": [f"{k}={v}" for (k, v) in self.runtime_values.get("env", {}).items()],
-            }
-            network = self.runtime_values.get("docker_network", None)
-            if network:
-                if network in self.cfg.get_list("docker_swarm", "allow_networks"):
-                    kwargs["networks"] = [network]
-                else:
-                    logger.warning(
-                        _(
-                            "runtime.docker_network ignored; network name must appear in JSON list from config"
-                            " [docker_swarm] allow_networks / env MINIWDL__DOCKER_SWARM__ALLOW_NETWORKS",
-                            docker_network=network,
-                        )
-                    )
-            if self.runtime_values.get("privileged", False) is True:
-                logger.warning("runtime.privileged enabled (security & portability warning)")
-                kwargs["cap_add"] = ["ALL"]
-            kwargs.update(self.create_service_kwargs or {})
-            logger.debug(_("docker create service kwargs", **kwargs))
-            svc = client.services.create(image_tag, **kwargs)
-            logger.debug(_("docker service", name=svc.name, id=svc.short_id))
+            # create the service via low-level APIClient
+            svc = self.create_service(logger, client)
 
             # stream stderr into log
             with contextlib.ExitStack() as cleanup:
@@ -314,6 +154,145 @@ class SwarmContainer(TaskContainer):
                 logger, client, isinstance(exit_code, int) and self.success_exit_code(exit_code)
             )
             client.close()
+
+    def create_service(
+        self,
+        logger: logging.Logger,
+        client: docker.DockerClient,
+    ) -> docker.models.services.Service:
+        """
+        Create a Docker Swarm service which will schedule the task container.
+
+        We use the low-level client.api.create_service() because the higher-level Service model
+        doesn't support GPU requests.
+        """
+        if self.create_service_kwargs:
+            # plugins should be updated to subclass SwarmContainer and override
+            # prepare_create_service() instead of the old create_service_kwargs dict.
+            logger.warning(
+                _(
+                    "old plug-in (using deprecated SwarmContainer.create_service_kwargs)"
+                    " may be incompatible with this miniwdl version"
+                )
+            )
+        svc_kwargs = self.prepare_create_service(logger, client)
+        logger.debug(_("docker create_service", **svc_kwargs))
+        service_id = client.api.create_service(**svc_kwargs)["ID"]
+        # fetch high-level Service model
+        svc = client.services.get(service_id)
+        logger.debug(_("docker service", name=svc.name, short_id=svc.short_id))
+        return svc
+
+    def prepare_create_service(
+        self, logger: logging.Logger, client: docker.DockerClient
+    ) -> Dict[str, Any]:
+        """
+        Prepare kwargs for create_service()
+
+        Plugin subclasses might override this method (or its sub-methods) to customize.
+        """
+
+        task_template_args, task_template_kwargs = self.prepare_task_template(logger, client)
+        task_template = docker.types.TaskTemplate(*task_template_args, **task_template_kwargs)
+        if self.runtime_values.get("gpu", False):
+            # docker.types.TaskTemplate doesn't have a runtime kwarg, so we set it by dict key
+            # https://docs.docker.com/reference/api/engine/version/v1.37/#tag/Service/operation/ServiceCreate
+            # https://github.com/docker/docker-py/blob/db7f8b8bb67e485a7192846906f600a52e0aa623/docker/types/services.py#L13
+            task_template["Runtime"] = "nvidia"
+        svc_kwargs: Dict[str, Any] = {
+            "task_template": task_template,
+            "name": self.unique_service_name(self.run_id),
+            "labels": {"miniwdl_run_id": self.run_id},
+        }
+        network = self.runtime_values.get("docker_network", None)
+        if network:
+            if network in self.cfg.get_list("docker_swarm", "allow_networks"):
+                svc_kwargs["networks"] = [network]
+            else:
+                logger.warning(
+                    _(
+                        "runtime.docker_network ignored; network name must appear in JSON list from config"
+                        " [docker_swarm] allow_networks / env MINIWDL__DOCKER_SWARM__ALLOW_NETWORKS",
+                        docker_network=network,
+                    )
+                )
+        return svc_kwargs
+
+    def prepare_task_template(
+        self, logger: logging.Logger, client: docker.DockerClient
+    ) -> Tuple[List[Any], Dict[str, Any]]:
+        "Prepare args & kwargs for TaskTemplate"
+
+        container_spec_args, container_spec_kwargs = self.prepare_container_spec(logger, client)
+        container_spec = docker.types.ContainerSpec(*container_spec_args, **container_spec_kwargs)
+
+        # build task template
+        resources: Dict[str, Any] = {}
+        cpu = self.runtime_values.get("cpu", 0)
+        if cpu > 0:
+            # the cpu unit expected by swarm is "NanoCPUs"
+            resources["cpu_limit"] = cpu * 1_000_000_000
+            resources["cpu_reservation"] = cpu * 1_000_000_000
+        memory_reservation = self.runtime_values.get("memory_reservation", 0)
+        if memory_reservation > 0:
+            resources["mem_reservation"] = memory_reservation
+        memory_limit = self.runtime_values.get("memory_limit", 0)
+        if memory_limit > 0:
+            resources["mem_limit"] = memory_limit
+
+        kwargs = {
+            "restart_policy": docker.types.RestartPolicy("none"),
+        }
+        if resources:
+            logger.debug(_("docker resources", **resources))
+            kwargs["resources"] = docker.types.Resources(**resources)
+        return [container_spec], kwargs
+
+    def prepare_container_spec(
+        self, logger: logging.Logger, client: docker.DockerClient
+    ) -> Tuple[List[Any], Dict[str, Any]]:
+        "Prepare args & kwargs for ContainerSpec"
+
+        if "inlineDockerfile" in self.runtime_values:
+            image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
+        else:
+            image_tag = self.resolve_tag(
+                logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
+            )
+        command = [
+            "/bin/sh",
+            "-c",
+            self.cfg.get("task_runtime", "command_shell")
+            + " ../command >> ../stdout.txt 2>> ../stderr.txt",
+        ]
+        env = [f"{k}={v}" for (k, v) in self.runtime_values.get("env", {}).items()]
+
+        # build container spec
+        container_spec_kwargs = {
+            "command": command,
+            "env": env,
+            "workdir": os.path.join(self.container_dir, "work"),
+            "mounts": self.prepare_mounts(logger),
+            "labels": {"miniwdl_run_id": self.run_id},
+            # add invoking user's group to ensure that command can access the mounted working
+            # directory even if the docker image assumes some arbitrary uid
+            "groups": [str(os.getegid())],
+        }
+        if container_spec_kwargs["groups"] == ["0"]:
+            logger.warning(
+                "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
+            )
+        if self.cfg["task_runtime"].get_bool("as_user"):
+            container_spec_kwargs["user"] = f"{os.geteuid()}:{os.getegid()}"
+            logger.info(_("docker user", uid_gid=container_spec_kwargs["user"]))
+            if os.geteuid() == 0:
+                logger.warning(
+                    "container command will run explicitly as root, since you are root and set --as-me"
+                )
+        if self.runtime_values.get("privileged", False) is True:
+            logger.warning("runtime.privileged enabled (security & portability warning)")
+            container_spec_kwargs["cap_add"] = ["ALL"]
+        return [image_tag], container_spec_kwargs
 
     def resolve_tag(
         self, logger: logging.Logger, client: docker.DockerClient, image_tag: str
@@ -427,43 +406,6 @@ class SwarmContainer(TaskContainer):
             chmod_R_plus(mnt, file_bits=0o660, dir_bits=0o770)
 
         return mounts
-
-    def misc_config(
-        self, logger: logging.Logger
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], List[str]]:
-        resources: Dict[str, Any] = {}
-        cpu = self.runtime_values.get("cpu", 0)
-        if cpu > 0:
-            # the cpu unit expected by swarm is "NanoCPUs"
-            resources["cpu_limit"] = cpu * 1_000_000_000
-            resources["cpu_reservation"] = cpu * 1_000_000_000
-        memory_reservation = self.runtime_values.get("memory_reservation", 0)
-        if memory_reservation > 0:
-            resources["mem_reservation"] = memory_reservation
-        memory_limit = self.runtime_values.get("memory_limit", 0)
-        if memory_limit > 0:
-            resources["mem_limit"] = memory_limit
-        if resources:
-            logger.debug(_("docker resources", **resources))
-            resources = docker.types.Resources(**resources)
-        user = None
-        if self.cfg["task_runtime"].get_bool("as_user"):
-            user = f"{os.geteuid()}:{os.getegid()}"
-            logger.info(_("docker user", uid_gid=user))
-            if os.geteuid() == 0:
-                logger.warning(
-                    "container command will run explicitly as root, since you are root and set --as-me"
-                )
-        # add invoking user's group to ensure that command can access the mounted working
-        # directory even if the docker image assumes some arbitrary uid
-        groups = [str(os.getegid())]
-        if groups == ["0"]:
-            logger.warning(
-                "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
-            )
-        if self.runtime_values.get("gpu", False):
-            logger.warning("ignored runtime.gpu (not yet implemented)")
-        return (resources if resources else None), user, groups
 
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
@@ -623,6 +565,7 @@ class SwarmContainer(TaskContainer):
         client: docker.DockerClient,
         tries: Optional[int] = None,
     ) -> str:
+        logger.warning("runtime.inlineDockerfile is an experimental extension, subject to change")
         # formulate image tag using digest of dockerfile text
         dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
         dockerfile_digest = hashlib.sha256(dockerfile_utf8).digest()
@@ -682,3 +625,121 @@ class SwarmContainer(TaskContainer):
         write_log(build_log)
         logger.notice(_("docker build", tag=image.tags[0], id=image.id, log=build_logfile))
         return tag
+
+
+def _init_docker_swarm(cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+    """
+    Initialize Docker Swarm and detect the host's CPU and memory resources.
+    """
+    worker_nodes = []
+
+    with contextlib.ExitStack() as cleanup:
+        client = docker.from_env(version="auto")
+        cleanup.callback(lambda: client.close())
+        terminating = cleanup.enter_context(TerminationSignalFlag(logger))
+        logger.debug("dockerd :: " + json.dumps(client.version())[1:-1])
+
+        # initialize swarm
+        state = "(unknown)"
+        while True:
+            if terminating():
+                raise Terminated()
+
+            info = client.info()
+            if "Swarm" in info and "LocalNodeState" in info["Swarm"]:
+                logger.debug(_("swarm info", **info["Swarm"]))
+                state = info["Swarm"]["LocalNodeState"]
+
+            # https://github.com/moby/moby/blob/e7b5f7dbe98c559b20c0c8c20c0b31a6b197d717/api/types/swarm/swarm.go#L185
+            if state == "active":
+                if info["Swarm"]["ControlAvailable"]:
+                    worker_nodes = [
+                        node
+                        for node in client.nodes.list()
+                        if node.attrs["Spec"]["Availability"] == "active"
+                        and node.attrs["Status"]["State"] == "ready"
+                    ]
+                    if worker_nodes:
+                        break
+                else:
+                    logger.warning(
+                        "this host is a docker swarm worker but not a manager; "
+                        "WDL task scheduling requires manager access"
+                    )
+            elif state == "inactive" and cfg["docker_swarm"].get_bool("auto_init"):
+                logger.warning(
+                    "docker swarm is inactive on this host; "
+                    "performing `docker swarm init --advertise-addr 127.0.0.1 --listen-addr 127.0.0.1`"
+                )
+                try:
+                    client.swarm.init(advertise_addr="127.0.0.1", listen_addr="127.0.0.1")
+                except Exception as exn:
+                    # smooth over race condition with multiple processes trying to init swarm
+                    if "already part of a swarm" not in str(exn):
+                        raise exn
+
+            logger.notice(
+                _(
+                    "waiting for local docker swarm manager & worker(s)",
+                    manager=state,
+                    workers=len(worker_nodes),
+                )
+            )
+            time.sleep(2)
+
+        miniwdl_services = [
+            d
+            for d in [s.attrs for s in client.services.list()]
+            if "Spec" in d and "Labels" in d["Spec"] and "miniwdl_run_id" in d["Spec"]["Labels"]
+        ]
+        if miniwdl_services and cfg["docker_swarm"].get_bool("auto_init"):
+            logger.warning(
+                "docker swarm lists existing miniwdl-related services. "
+                "This is normal if other miniwdl processes are running concurrently; "
+                "otherwise, stale state could interfere with this run. To reset it, `docker swarm leave --force`"
+            )
+
+    # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
+    # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
+    # where Docker containers run in a virtual machine with limited resources.
+    resources_max_mem: Dict[str, int] = {}
+    total_NanoCPUs = 0
+    total_MemoryBytes = 0
+
+    for node in worker_nodes:
+        logger.debug(
+            _(
+                "swarm worker",
+                ID=node.attrs["ID"],
+                Spec=node.attrs["Spec"],
+                Hostname=node.attrs["Description"]["Hostname"],
+                Resources=node.attrs["Description"]["Resources"],
+                Status=node.attrs["Status"],
+            )
+        )
+        resources = node.attrs["Description"]["Resources"]
+        total_NanoCPUs += resources["NanoCPUs"]
+        total_MemoryBytes += resources["MemoryBytes"]
+        if (
+            not resources_max_mem
+            or resources["MemoryBytes"] > resources_max_mem["MemoryBytes"]
+            or (
+                resources["MemoryBytes"] == resources_max_mem["MemoryBytes"]
+                and resources["NanoCPUs"] > resources_max_mem["NanoCPUs"]
+            )
+        ):
+            resources_max_mem = resources
+
+    max_cpu = int(resources_max_mem["NanoCPUs"] / 1_000_000_000)
+    max_mem = resources_max_mem["MemoryBytes"]
+    logger.notice(
+        _(
+            "docker swarm resources",
+            workers=len(worker_nodes),
+            max_cpus=max_cpu,
+            max_mem_bytes=max_mem,
+            total_cpus=int(total_NanoCPUs / 1_000_000_000),
+            total_mem_bytes=total_MemoryBytes,
+        )
+    )
+    return {"cpu": max_cpu, "mem_bytes": max_mem}

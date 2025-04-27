@@ -88,6 +88,8 @@ class SingularityContainer(SubprocessBase):
         if self.runtime_values.get("privileged", False) is True:
             logger.warning("runtime.privileged enabled (security & portability warning)")
             ans += ["--add-caps", "all"]
+        if self.runtime_values.get("gpu", False):
+            ans += ["--nv"]
         ans += self.cfg.get_list("singularity", "run_options")
 
         mounts = self.prepare_mounts()

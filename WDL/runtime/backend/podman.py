@@ -89,6 +89,9 @@ class PodmanContainer(SubprocessBase):
             logger.warning("runtime.privileged enabled (security & portability warning)")
             ans.append("--privileged")
 
+        if self.runtime_values.get("gpu", False):
+            ans += ["--device", "nvidia.com/gpu=all"]
+
         mounts = self.prepare_mounts()
         logger.info(
             _(

@@ -1,6 +1,21 @@
 # mypy: ignore-errors
 
 from typing import Dict, Any, List, Iterable, Tuple, Optional
+class APIClient:
+    api_version: str
+    def create_service(
+        self,
+        task_template: Any,
+        name: Optional[str] = None,
+        labels: Optional[Dict[str, Any]] = None,
+        mode: Any = None,
+        update_config: Any = None,
+        networks: Any = None,
+        endpoint_config: Any = None,
+        endpoint_spec: Any = None,
+        rollback_config: Any = None,
+    ) -> Dict[str, Any]:
+        ...
 
 class Container:
     @property
@@ -59,6 +74,7 @@ class Services:
 
     def list(self, **kwargs) -> List[models.services.Service]:
         ...
+    def get(self, service_id: str, *args, **kwargs) -> models.services.Service: ...
 
 class Nodes:
     def list(self, **kwargs) -> List[Node]:
@@ -97,8 +113,43 @@ class types:
     class Mount:
         def __init__(self, *args, **kwargs):
             ...
+    class ContainerSpec(dict):
+        def __init__(
+            self,
+            image: str,
+            command=None,
+            env=None,
+            workdir=None,
+            user=None,
+            groups=None,
+            mounts=None,
+            labels=None,
+            cap_add=None,
+        ) -> None: ...
+    class TaskTemplate(dict):
+        def __init__(
+            self,
+            container_spec: Any,
+            resources=None,
+            restart_policy=None,
+        ) -> None: ...
+    class DeviceRequest(dict):
+        def __init__(
+            self,
+            driver=None,
+            count=None,
+            capabilities=None,
+            options=None,
+        ) -> None: ...
+    class HostConfig:
+        def __init__(
+            self,
+            version: Any,
+            device_requests=None,
+        ) -> None: ...
 
 class DockerClient:
+    api: APIClient
     @property
     def containers(self) -> Containers:
         ...
