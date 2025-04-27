@@ -193,8 +193,14 @@ class SwarmContainer(TaskContainer):
         """
 
         task_template_args, task_template_kwargs = self.prepare_task_template(logger, client)
+        task_template = docker.types.TaskTemplate(*task_template_args, **task_template_kwargs)
+        if self.runtime_values.get("gpu", False):
+            # docker.types.TaskTemplate doesn't have a runtime kwarg, so we set it by dict key
+            # https://docs.docker.com/reference/api/engine/version/v1.37/#tag/Service/operation/ServiceCreate
+            # https://github.com/docker/docker-py/blob/db7f8b8bb67e485a7192846906f600a52e0aa623/docker/types/services.py#L13
+            task_template["Runtime"] = "nvidia"
         svc_kwargs: Dict[str, Any] = {
-            "task_template": docker.types.TaskTemplate(*task_template_args, **task_template_kwargs),
+            "task_template": task_template,
             "name": self.unique_service_name(self.run_id),
             "labels": {"miniwdl_run_id": self.run_id},
         }
@@ -219,14 +225,6 @@ class SwarmContainer(TaskContainer):
 
         container_spec_args, container_spec_kwargs = self.prepare_container_spec(logger, client)
         container_spec = docker.types.ContainerSpec(*container_spec_args, **container_spec_kwargs)
-        if self.runtime_values.get("gpu", False):
-            # docker.types.ContainerSpec doesn't have a host_config kwarg, so we set it by dict key
-            container_spec["HostConfig"] = docker.types.HostConfig(
-                client.api.api_version,
-                device_requests=[
-                    docker.types.DeviceRequest(driver="nvidia", count=-1, capabilities=[["gpu"]])
-                ],
-            )
 
         # build task template
         resources: Dict[str, Any] = {}
