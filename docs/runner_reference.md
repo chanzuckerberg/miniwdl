@@ -150,6 +150,21 @@ Details:
 
 Please review [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) for numerous advanced configuration options, which can be set as described above.
 
+## Using NVIDIA GPU
+
+While `miniwdl` itself ignores GPU directives in a task’s `runtime` / `requirements` block, most scenarios with a local NVIDIA GPU will work with these steps:
+
+1. Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+2. Edit `/etc/docker/daemon.json` to add the top-level key `"default-runtime":"nvidia"`
+3. Restart Docker, e.g. `systemctl restart docker`
+
+**Limitations**
+
+* The host then uses the NVIDIA runtime for all containers, which could (but doesn't usually) cause a conflict for certain Docker images.
+* The GPU isn't considered for task scheduling, so intensive workloads may need GPU task parallelism constrained by *either*:
+  * Reserving most of the host’s `cpu` or `memory` in each GPU-using task’s `runtime`/`requirements`.
+  * Setting the configuration `[scheduler] task_concurrency = 1` (affecting all tasks, GPU-using or not).
+
 ## WDL interoperability
 
 The runner supports versions 1.1, 1.0, and draft-2 of the [WDL specification](https://github.com/openwdl/wdl), with known errata:
