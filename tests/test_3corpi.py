@@ -578,6 +578,14 @@ class warp_pipelines_skylab(unittest.TestCase):
     pass
 
 
+@wdl_corpus(
+    ["test_corpi/broadinstitute/gatk/scripts/**"],
+    check_quant=False,
+)
+class gatk_scripts(unittest.TestCase):
+    pass
+
+
 class TestZip(unittest.TestCase):
     def _roundtrip(self, doc, inputs=None):
         with contextlib.ExitStack() as cleanup:
