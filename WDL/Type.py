@@ -506,7 +506,7 @@ class StructInstance(Base):
         assert self.members is not None
         return self.members.values()
 
-    def equatable(self, rhs, *, coerce=True):
+    def equatable(self, rhs, *, compound: bool = False):
         return isinstance(rhs, StructInstance) and self.type_id == rhs.type_id
 
 
