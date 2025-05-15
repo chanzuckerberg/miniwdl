@@ -132,7 +132,7 @@ class Base(ABC):
     def __eq__(self, rhs: typing.Any) -> bool:
         return isinstance(rhs, Base) and str(self) == str(rhs)
 
-    def equatable(self, rhs: "Base", compound: bool = False) -> bool:
+    def equatable(self, rhs: "Base", *, compound: bool = False) -> bool:
         """
         Check if values of the given types may be equated with the WDL == operator (and its
         negation). This mostly requires they have the same type, with quirks like ignoring
@@ -140,18 +140,21 @@ class Base(ABC):
         """
         return isinstance(rhs, (type(self), Any))  # intentionally ignores optional quantifier
 
-    def comparable(self, rhs: "Base") -> bool:
+    def comparable(self, rhs: "Base", *, check_quant: bool = True) -> bool:
         """
         Check if values of the given types may be compared with the WDL comparison operators (<, <=,
-        >, >=). Currently these are allowed only for non-optional primitive values.
+        >, >=).
         """
+        # Since this is currently only allowed for primitive types, we can code all cases here
+        # instead of fanning out to subclasses (still possible if we need to in the future).
         allowed = (Int, Float, String, Boolean)
-        return (
-            isinstance(self, allowed)
-            and not self.optional
-            and isinstance(rhs, allowed)
-            and not rhs.optional
-        )
+        if not (isinstance(self, allowed) and isinstance(rhs, allowed)):
+            return False
+        if check_quant and (self.optional or rhs.optional):
+            return False
+        if isinstance(self, (Int, Float)) and isinstance(rhs, (Int, Float)):
+            return True
+        return isinstance(rhs, type(self))
 
 
 class Any(Base):
@@ -172,7 +175,7 @@ class Any(Base):
     def __str__(self) -> str:
         return "None" if self._optional else "Any"
 
-    def equatable(self, rhs, compound: bool = False):
+    def equatable(self, rhs, *, compound: bool = False):
         return True
 
 
@@ -197,9 +200,9 @@ class Float(Base):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
-    def equatable(self, rhs, compound: bool = False):
+    def equatable(self, rhs, *, compound: bool = False):
         # per WDL spec, Int/Float can be equated directly, but not as part of a compound type
-        return super().equatable(rhs, compound) or (not compound and isinstance(rhs, Int))
+        return super().equatable(rhs, compound=compound) or (not compound and isinstance(rhs, Int))
 
 
 class Int(Base):
@@ -214,8 +217,10 @@ class Int(Base):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
-    def equatable(self, rhs, compound: bool = False):
-        return super().equatable(rhs, compound) or (not compound and isinstance(rhs, Float))
+    def equatable(self, rhs, *, compound: bool = False):
+        return super().equatable(rhs, compound=compound) or (
+            not compound and isinstance(rhs, Float)
+        )
 
 
 class File(Base):
@@ -311,7 +316,7 @@ class Array(Base):
             setattr(ans, "_nonempty", nonempty)
         return ans
 
-    def equatable(self, rhs, compound: bool = False):
+    def equatable(self, rhs, *, compound: bool = False):
         # intentionally ignores optional and nonempty quantifiers:
         return isinstance(rhs, Array) and self.item_type.equatable(rhs.item_type, compound=True)
 
@@ -388,7 +393,7 @@ class Map(Base):
             return
         super().check(rhs, check_quant)
 
-    def equatable(self, rhs, compound: bool = False):
+    def equatable(self, rhs, *, compound: bool = False):
         return (
             isinstance(rhs, Map)
             and self.item_type[0].equatable(rhs.item_type[0], compound=True)
@@ -436,7 +441,7 @@ class Pair(Base):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
-    def equatable(self, rhs, compound=True):
+    def equatable(self, rhs, *, compound: bool = True):
         return (
             isinstance(rhs, Pair)
             and self.left_type.equatable(rhs.left_type, compound=True)
@@ -501,7 +506,7 @@ class StructInstance(Base):
         assert self.members is not None
         return self.members.values()
 
-    def equatable(self, rhs, coerce=True):
+    def equatable(self, rhs, *, compound: bool = False):
         return isinstance(rhs, StructInstance) and self.type_id == rhs.type_id
 
 
@@ -558,7 +563,7 @@ class Object(Base):
             return
         raise TypeError()
 
-    def equatable(self, rhs, compound: bool = False):
+    def equatable(self, rhs, *, compound: bool = False):
         return False
 
 
