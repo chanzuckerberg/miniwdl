@@ -653,8 +653,7 @@ class _EqualityOperator(EagerFunction):
 
 
 class _ComparisonOperator(EagerFunction):
-    # < > <= >= operators; reuses some of the equatability logic, but not valid for optional or
-    # compound types.
+    # < > <= >= operators
 
     name: str
     op: Callable
@@ -665,7 +664,9 @@ class _ComparisonOperator(EagerFunction):
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
-        if not expr.arguments[0].type.comparable(expr.arguments[1].type):
+        if not expr.arguments[0].type.comparable(
+            expr.arguments[1].type, check_quant=expr._check_quant
+        ):
             raise Error.IncompatibleOperand(
                 expr,
                 "Cannot compare {} and {}".format(

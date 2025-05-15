@@ -581,6 +581,7 @@ class warp_pipelines_skylab(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/broadinstitute/gatk/scripts/**"],
     check_quant=False,
+    expected_lint={'UnusedDeclaration': 11, 'OptionalCoercion': 4, 'UnnecessaryQuantifier': 1}
 )
 class gatk_scripts(unittest.TestCase):
     pass
