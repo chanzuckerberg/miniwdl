@@ -1,8 +1,8 @@
 #!/bin/bash
 # Maintenance script for the miniwdl File/Directory download cache directory. Evicts (deletes)
-# least-recently used items until total space usage is below a threshold given in GB; while using
-# lock to avoid interfering with any concurrent miniwdl process. Waits if all items are in use
-# concurrently.
+# least-recently used items until total space usage is below a threshold given in GB. This script
+# should be run under exclusive flock on the file ${DIR}/_miniwdl_flock (which should be created if
+# necessary). It also uses flocks on cache items to avoid interfering with ongoing runs using them.
 
 set -euo pipefail
 
@@ -40,10 +40,15 @@ while true ; do
         # If we can get an exclusive flock, rename the file/directory and then delete it.
         # - miniwdl takes shared flocks on any items in use by a running workflow
         # - the rename step ensures cached directories disappear "atomically"
+        # - lockfiles are used for dirs, since not all filesystems support directory flocks
         flock_status=0
+        flock_fn="$fn"
+        if [ -d "$flock_fn" ]; then
+            flock_fn="${flock_fn}._miniwdl_flock"
+        fi
         deleting_fn="${DIR}/ops/_deleting"
         rm -rf "$deleting_fn"
-        (flock -xnE 142 "$fn" mv "$fn" "$deleting_fn" && rm -rf "$deleting_fn") || flock_status=$?
+        (flock -xnE 142 "$flock_fn" mv "$fn" "$deleting_fn" && rm -rf "$deleting_fn") || flock_status=$?
         if (( flock_status == 0 )); then
             >&2 echo "evicted: $fn"
             eviction=1
@@ -56,9 +61,9 @@ while true ; do
         fi
     done
 
-    # if we weren't able to evict anything, pause awhile before continuing
     if (( eviction == 0 )); then
-        >&2 echo "all files in use; waiting 30s..."
-        sleep 30
+        >&2 echo "WARNING: unable to shrink miniwdl download cache ${DIR} to <${MAX_GB}GB, " \
+                 "as ${used}GB of cached files are all in use"
+        exit
     fi
 done

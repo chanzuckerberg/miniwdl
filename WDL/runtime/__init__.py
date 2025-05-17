@@ -4,15 +4,22 @@ subprocess, capturing its JSON standard output. This leverages its logging, conf
 flexible input loading features; and avoids conflicting with the runtime's thread pools and signal
 handlers. Alternatively, it's possible to call ``WDL.runtime.run()`` directly if needed.
 """
-# pyre-strict
+
 from typing import Union, Dict, Tuple, Any
 from .. import Tree, Value, Env
 from . import config
-from . import task
-from . import workflow
-from . import _statusbar
-from .error import RunFailed, CommandFailed, Terminated, OutputError, DownloadFailed, error_json
-from .task import run_local_task, link_outputs
+from . import task  # noqa: F401
+from . import workflow  # noqa: F401
+from .error import (  # noqa: F401
+    RunFailed,
+    CommandFailed,
+    Terminated,
+    Interrupted,
+    OutputError,
+    DownloadFailed,
+    error_json,
+)
+from .task import run_local_task
 from .workflow import run_local_workflow
 
 
@@ -53,4 +60,4 @@ def run(
     if "max_tasks" in run_kwargs and isinstance(exe, Tree.Task):
         del run_kwargs["max_tasks"]  # N/A to run_local_task
     entrypoint = run_local_task if isinstance(exe, Tree.Task) else run_local_workflow
-    return entrypoint(cfg, exe, inputs, **run_kwargs)  # pyre-ignore
+    return entrypoint(cfg, exe, inputs, **run_kwargs)  # type: ignore

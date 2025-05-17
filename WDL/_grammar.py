@@ -25,11 +25,11 @@ scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 ?inner_workflow_element: any_decl | call | scatter | conditional
 
-call: "call" namespaced_ident call_body? -> call
-    | "call" namespaced_ident "as" CNAME call_body? -> call_as
+call: "call" namespaced_ident _call_body? -> call
+    | "call" namespaced_ident "as" CNAME _call_body? -> call_as
 namespaced_ident: CNAME ("." CNAME)*
 call_inputs: "input" ":" [call_input ("," call_input)*] ","?
-?call_body: "{" call_inputs? "}"
+_call_body: "{" call_inputs? "}"
 call_input: CNAME "=" expr
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -144,7 +144,8 @@ SPACE: /[ \t]+/
 
 ?string: string1 | string2
 
-STRING_INNER1: ("\\'"|/[^']/)
+_DOUBLE_BACKSLASH.2: "\\\\"
+STRING_INNER1: (_DOUBLE_BACKSLASH|"\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
@@ -184,22 +185,22 @@ type: BUILTIN_TYPE _quant?
 BUILTIN_TYPE.2: "Int" | "Float" | "Boolean" | "String" | "File" | "Array" | "Map" | "Pair"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'$]/ | /\$[^{$'\n]/
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'$]/ | /\$(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? /\$/* "${" expr "}")* STRING1_FRAGMENT? /\$/* /'/ -> string
+string1: /'/ (STRING1_FRAGMENT? "${" expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"$]/ | /\$[^{$"\n]/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"$]/ |  /\$(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? /\$/* "${" expr "}")* STRING2_FRAGMENT? /\$/* /"/ -> string
+string2: /"/ (STRING2_FRAGMENT? "${" expr "}")* STRING2_FRAGMENT? /"/ -> string
 
-COMMAND1_CHAR: /[^$}]/ | /\$[^{$]/
+COMMAND1_CHAR: /[^$}]/ | /\$(?=[^{])/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* "${" placeholder "}")* COMMAND1_FRAGMENT? /\$/* "}" -> command
+command1: "command" "{" (COMMAND1_FRAGMENT? "${" placeholder "}")* COMMAND1_FRAGMENT? "}" -> command
 
-COMMAND2_CHAR: /[^$>]/ | /\$[^{$]/ | />[^>]/ | />>[^>]/
+COMMAND2_CHAR: /[^$>]/ | /\$(?=[^{])/ | />(?=[^>])/ | />>(?=[^>])/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? /\$/* "${" placeholder "}")* COMMAND2_FRAGMENT? /\$/* ">>>" -> command
+command2: "command" "<<<" (COMMAND2_FRAGMENT? "${" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
 
 ?workflow_outputs: "output" "{" workflow_output_decls "}"
 workflow_output_decls: workflow_output_decl*
@@ -229,22 +230,22 @@ type: CNAME _quant?
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~'\n]/ | /\~[^{$~']/
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
+string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"\n]/ | /~[^{$~"]/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
+string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /"/ -> string
 
-COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
+COMMAND1_CHAR: /[^~$}]/ | /\$(?=[^{])/ | /~(?=[^{])/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "command" "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
+command1: "command" "{" (COMMAND1_FRAGMENT? _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? "}" -> command
 
-COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
+COMMAND2_CHAR: /[^~>]/ | /~(?=[^{])/ | />(?=[^>])/ | />>(?=[^>])/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "command" "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
+command2: "command" "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
 
 ?workflow_outputs: output_decls
 
@@ -268,9 +269,7 @@ keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
 
 # Development grammar version; any bugfixes to the draft-2/1.0 grammar may need to be forward-
 # ported into this.
-versions[
-    "development"
-] = r"""
+versions["development"] = r"""
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // document
 ///////////////////////////////////////////////////////////////////////////////////////////////////
@@ -295,11 +294,12 @@ scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
 ?inner_workflow_element: any_decl | call | scatter | conditional
 
-call: "call" namespaced_ident ("after" CNAME)* call_body? -> call
-    | "call" namespaced_ident "as" CNAME ("after" CNAME)* call_body? -> call_as
+call: "call" namespaced_ident ("after" CNAME)* _call_body? -> call
+    | "call" namespaced_ident "as" CNAME ("after" CNAME)* _call_body? -> call_as
 namespaced_ident: CNAME ("." CNAME)*
-call_inputs: "input" ":" [call_input ("," call_input)*] ","?
-?call_body: "{" call_inputs? "}"
+call_inputs: input_colon? [call_input ("," call_input)*] ","?
+input_colon: "input" ":"
+_call_body: "{" call_inputs? "}"
 call_input: CNAME ["=" expr]
 
 ?workflow_outputs: output_decls
@@ -309,21 +309,22 @@ call_input: CNAME ["=" expr]
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 task: "task" CNAME "{" task_section* command task_section* "}"
-?task_section: input_decls
+?task_section: task_input_decls
              | output_decls
              | meta_section
              | runtime_section
              | hints_section
-             | any_decl -> noninput_decl
+             | task_env_decl -> noninput_decl
 
 tasks: task*
 
 input_decls: "input" "{" any_decl* "}"
+task_input_decls: "input" "{" task_env_decl* "}" -> input_decls
+ENV.2: "env"
+task_env_decl: ENV? any_decl
 output_decls: "output" "{" bound_decl* "}"
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
-placeholder: expr
-
 ?command: "command" (command1 | command2)
 
 // meta/parameter_meta sections (effectively JSON)
@@ -331,7 +332,7 @@ meta_object: "{" [meta_kv (","? meta_kv)*] ","? "}"
 meta_kv: CNAME ":" meta_value
 ?meta_value: literal | string_literal
            | meta_object
-           | "[" [meta_value ("," meta_value)*] "]" -> meta_array
+           | "[" [meta_value ("," meta_value)*] ","? "]" -> meta_array
 !meta_section: ("meta" | "parameter_meta") meta_object
 
 // task runtime section (key-expression pairs)
@@ -434,31 +435,42 @@ object_kv:  CNAME ":" expr
         | FLOAT -> float
         | SIGNED_FLOAT -> float
 
-?string: string1 | string2
+?string: string1 | string2 | multistring
 
-STRING_INNER1: ("\\'"|/[^']/)
+_DOUBLE_BACKSLASH.2: "\\\\"
+STRING_INNER1: (_DOUBLE_BACKSLASH|"\\'"|/[^']/)
 ESCAPED_STRING1: "'" STRING_INNER1* "'"
 string_literal: ESCAPED_STRING | ESCAPED_STRING1
 
 _EITHER_DELIM.2: "~{" | "${"
 
 // string (single-quoted)
-STRING1_CHAR: "\\'" | /[^'~$]/ | /\$[^{$~'\n]/ | /\~[^{$~']/
+STRING1_CHAR: _DOUBLE_BACKSLASH | "\\'" | /[^'~$]/ | /\$(?=[^{])/ | /\~(?=[^{])/
 STRING1_FRAGMENT: STRING1_CHAR+
-string1: /'/ (STRING1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING1_FRAGMENT? /\$/* /\~/* /'/ -> string
+string1: /'/ (STRING1_FRAGMENT? _EITHER_DELIM placeholder "}")* STRING1_FRAGMENT? /'/ -> string
 
 // string (double-quoted)
-STRING2_CHAR: "\\\"" | /[^"~$]/ | /\$[^{$~"\n]/ | /~[^{$~"]/
+STRING2_CHAR: _DOUBLE_BACKSLASH | "\\\"" | /[^"~$]/ | /\$(?=[^{])/ | /~(?=[^{])/
 STRING2_FRAGMENT: STRING2_CHAR+
-string2: /"/ (STRING2_FRAGMENT? /\$/* /\~/* _EITHER_DELIM expr "}")* STRING2_FRAGMENT? /\$/* /\~/* /"/ -> string
+string2: /"/ (STRING2_FRAGMENT? _EITHER_DELIM placeholder "}")* STRING2_FRAGMENT? /"/ -> string
 
-COMMAND1_CHAR: /[^~$}]/ | /\$[^{$~]/ | /~[^{$~]/
+COMMAND1_CHAR: /[^~$}]/ | /\$(?=[^{])/ | /~(?=[^{])/
 COMMAND1_FRAGMENT: COMMAND1_CHAR+
-command1: "{" (COMMAND1_FRAGMENT? /\$/* /\~/* _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? /\$/* /\~/* "}" -> command
+command1: "{" (COMMAND1_FRAGMENT? _EITHER_DELIM placeholder "}")* COMMAND1_FRAGMENT? "}" -> command
 
-COMMAND2_CHAR: /[^~>]/ | /~[^{~]/ | />[^>]/ | />>[^>]/
+COMMAND2_CHAR: /[^~>]/ | /~(?=[^{])/ | />(?=[^>])/ | />>(?=[^>])/
 COMMAND2_FRAGMENT: COMMAND2_CHAR+
-command2: "<<<" (COMMAND2_FRAGMENT? /\~/? "~{" placeholder "}")* COMMAND2_FRAGMENT? /\~/* ">>>" -> command
+command2: "<<<" (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? ">>>" -> command
+
+// multi-line string (very similar to command2, but processed slightly differently)
+multistring: /<<</ (COMMAND2_FRAGMENT? "~{" placeholder "}")* COMMAND2_FRAGMENT? />>>/ -> string
+
+?placeholder_value: string_literal
+                  | INT -> int
+                  | FLOAT -> float
+!?placeholder_name: CNAME | "true" | "false"  // extra hints needed here to overcome literal
+placeholder_option: placeholder_name "=" placeholder_value
+placeholder: placeholder_option* expr
 
 CNAME: /[a-zA-Z][a-zA-Z0-9_]*/
 
@@ -481,12 +493,15 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore COMMENT
 """
 keywords["development"] = set(
-    "Array Directory File Float Int Map None Pair String alias as call command else false hints if import input left meta object output parameter_meta right runtime scatter struct task then true workflow".split(
-        " "
-    )
+    (
+        "Array Directory File Float Int Map None Pair String"
+        " alias as call command else env false hints if import input left meta"
+        " object output parameter_meta right runtime scatter struct task then true workflow"
+    ).split(" ")
 )
 
-# For now we're defining 1.1 as 'development minus Directory' (the latter enforced in _parser).
+# For now we're defining 1.1 as 'development minus Directory and multi-line strings' (the
+# subtractions enforced in _parser.py).
 # We'll need to fork them when the development grammar diverges further.
 versions["1.1"] = versions["development"]
 keywords["1.1"] = keywords["development"]

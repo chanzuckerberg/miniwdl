@@ -1,7 +1,7 @@
-# pyre-strict
 """
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
+
 from typing import Optional, TypeVar, Generic, Any, Callable, Set, Iterator
 
 T = TypeVar("T")
@@ -18,9 +18,9 @@ class Binding(Generic[T]):
 
     _name: str
     _value: T
-    _info: Any  # pyre-ignore
+    _info: Any
 
-    def __init__(self, name: str, value: T, info: Any = None) -> None:  # pyre-ignore
+    def __init__(self, name: str, value: T, info: Any = None) -> None:
         self._name = name
         self._value = value
         self._info = info
@@ -39,7 +39,7 @@ class Binding(Generic[T]):
         return self._value
 
     @property
-    def info(self) -> Any:  # pyre-ignore
+    def info(self) -> Any:
         ":type: Any"
         return self._info
 
@@ -76,7 +76,7 @@ class Bindings(Generic[T]):
 
     def __iter__(self) -> Iterator[Binding[T]]:
         mask = set()
-        pos = self
+        pos: Optional[Bindings[T]] = self
         while pos is not None:
             if isinstance(pos._binding, Binding) and pos._binding.name not in mask:
                 mask.add(pos._binding.name)
@@ -86,7 +86,7 @@ class Bindings(Generic[T]):
     def __len__(self) -> int:
         return sum(1 for _ in self)
 
-    def bind(self, name: str, value: T, info: Any = None) -> "Bindings[T]":  # pyre-ignore
+    def bind(self, name: str, value: T, info: Any = None) -> "Bindings[T]":
         """
         Return an environment with a new binding prepended. Any existing binding for the same name
         is shadowed by the new one. (This should not usually arise in view of the immutability of
@@ -146,7 +146,7 @@ class Bindings(Generic[T]):
         Copy the environment with each binding transformed by the given function. If the function
         returns ``None`` then the binding is excluded.
         """
-        ans = Bindings()
+        ans: Bindings[S] = Bindings()
         for b in self:
             fb = f(b)
             if isinstance(fb, Binding):
@@ -214,40 +214,28 @@ class Bindings(Generic[T]):
         assert namespace
         if not namespace.endswith("."):
             namespace += "."
-        ans = Bindings()
-        pos = self
-        while pos is not None:
-            if isinstance(pos._binding, Binding):
-                ans = Bindings(
-                    Binding(namespace + pos._binding.name, pos._binding.value, pos._binding.info),
-                    ans,
-                )
-            pos = pos._next
+        ans: Bindings[T] = Bindings()
+        for b in self:
+            ans = Bindings(Binding(namespace + b.name, b.value, b.info), ans)
         return _rev(ans)
 
 
 def _rev(env: Bindings[T]) -> Bindings[T]:
-    ans = Bindings()
-    pos = env
-    while pos is not None:
-        if pos._binding:
-            ans = Bindings(pos._binding, ans)
-        pos = pos._next
+    ans: Bindings[T] = Bindings()
+    for b in env:
+        ans = Bindings(b, ans)
     return ans
 
 
 def merge(*args: Bindings[T]) -> Bindings[T]:
     """
-    Merge several ``Bindings[T]`` environments into one. For efficiency, the largest environment
-    should be supplied as the last argument.
+    Merge several ``Bindings[T]`` environments into one. Should the same name appear in multiple
+    arguments, the first (leftmost) occurrence takes precedence. Otherwise, for efficiency, the
+    largest environment should be supplied last.
     """
-    ans = [args[-1] if args else Bindings()]
-
-    def visit(b: Binding[T]) -> None:
-        ans[0] = Bindings(b, ans[0])
-
+    ans = args[-1] if args else Bindings()
     for env in reversed(args[:-1]):
         assert isinstance(env, Bindings)
         for b in _rev(env):
-            visit(b)
-    return ans[0]
+            ans = Bindings(b, ans)
+    return ans

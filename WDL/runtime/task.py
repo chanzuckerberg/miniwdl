@@ -1,19 +1,19 @@
-# pyre-strict
 """
 Local task runner
 """
+
 import logging
 import math
 import os
 import json
-import copy
 import traceback
 import glob
 import threading
 import shutil
-import re
-from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union
-from contextlib import ExitStack
+import regex
+from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union, TYPE_CHECKING
+from contextlib import ExitStack, suppress
+from collections import Counter
 
 from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
 from .._util import (
@@ -21,12 +21,14 @@ from .._util import (
     write_values_json,
     provision_run_dir,
     TerminationSignalFlag,
-    parse_byte_size,
     chmod_R_plus,
     path_really_within,
     LoggingFileHandler,
     compose_coroutines,
     pathsize,
+    link_force,
+    symlink_force,
+    rmtree_atomic,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -34,8 +36,11 @@ from .download import able as downloadable, run_cached as download
 from .cache import CallCache, new as new_call_cache
 from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
 
+if TYPE_CHECKING:  # otherwise-delayed heavy imports
+    from .task_container import TaskContainer
 
-def run_local_task(
+
+def run_local_task(  # type: ignore[return]
     cfg: config.Loader,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
@@ -71,18 +76,23 @@ def run_local_task(
         # provision run directory and log file
         run_dir = provision_run_dir(task.name, run_dir, last_link=not _run_id_stack)
         logfile = os.path.join(run_dir, "task.log")
-        fh = cleanup.enter_context(
+        cleanup.enter_context(
             LoggingFileHandler(
                 logger,
                 logfile,
-                json=(
-                    cfg["logging"].get_bool("json") if cfg.has_option("logging", "json") else False
-                ),
             )
         )
-        logger.notice(  # pyre-fixme
+        if cfg.has_option("logging", "json") and cfg["logging"].get_bool("json"):
+            cleanup.enter_context(
+                LoggingFileHandler(
+                    logger,
+                    logfile + ".json",
+                    json=True,
+                )
+            )
+        logger.notice(
             _(
-                "task start",
+                "task setup",
                 name=task.name,
                 source=task.pos.uri,
                 line=task.pos.line,
@@ -96,12 +106,12 @@ def run_local_task(
         if not _run_id_stack:
             cache = _cache or cleanup.enter_context(new_call_cache(cfg, logger))
             cache.flock(logfile, exclusive=True)  # no containing workflow; flock task.log
-            cache.flock(run_dir, exclusive=True)
         else:
             cache = _cache
         assert cache
 
-        container = None
+        cleanup.enter_context(_statusbar.task_slotted())
+        maybe_container = None
         try:
             cache_key = f"{task.name}/{task.digest}/{Value.digest_env(inputs)}"
             cached = cache.get(cache_key, inputs, task.effective_outputs)
@@ -117,19 +127,25 @@ def run_local_task(
                         )
                     )
                 # create out/ and outputs.json
-                outputs = link_outputs(
-                    cached, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                _outputs = link_outputs(
+                    cache,
+                    cached,
+                    run_dir,
+                    hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
                 write_values_json(
                     cached, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
-                logger.notice("done (cached)")  # pyre-fixme
+                logger.notice("done (cached)")
+                # returning `cached`, not the rewritten `_outputs`, to retain opportunity to find
+                # cached downstream inputs
                 return (run_dir, cached)
             # start plugin coroutines and process inputs through them
             with compose_coroutines(
                 [
                     (
-                        lambda kwargs, cor=cor: cor(
+                        lambda kwargs, cor=cor: cor(  # type: ignore
                             cfg, logger, _run_id_stack + [run_id], run_dir, task, **kwargs
                         )
                     )
@@ -155,6 +171,7 @@ def run_local_task(
 
                 # create TaskContainer according to configuration
                 container = new_task_container(cfg, logger, run_id, run_dir)
+                maybe_container = container
 
                 # evaluate input/postinput declarations, including mapping from host to
                 # in-container file paths
@@ -162,14 +179,28 @@ def run_local_task(
 
                 # evaluate runtime fields
                 stdlib = InputStdLib(task.effective_wdl_version, logger, container)
-                container.runtime_values = _eval_task_runtime(
-                    cfg, logger, task, posix_inputs, container, container_env, stdlib
+                _eval_task_runtime(
+                    cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
 
                 # interpolate command
-                command = _util.strip_leading_whitespace(
-                    task.command.eval(container_env, stdlib).value
-                )[1]
+                old_command_dedent = cfg["task_runtime"].get_bool("old_command_dedent")
+                # pylint: disable=E1101
+                placeholder_re = regex.compile(
+                    cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX
+                )
+                setattr(
+                    stdlib,
+                    "_placeholder_regex",
+                    placeholder_re,
+                )  # hack to pass regex to WDL.Expr.Placeholder._eval
+                assert isinstance(task.command, Expr.TaskCommand)
+                command = task.command.eval(
+                    container_env, stdlib, dedent=not old_command_dedent
+                ).value
+                delattr(stdlib, "_placeholder_regex")
+                if old_command_dedent:  # see issue #674
+                    command = _util.strip_leading_whitespace(command)[1]
                 logger.debug(_("command", command=command.strip()))
 
                 # process command & container through plugins
@@ -177,15 +208,18 @@ def run_local_task(
                 command, container = (recv[k] for k in ("command", "container"))
 
                 # start container & run command (and retry if needed)
-                cleanup.enter_context(_statusbar.task_slotted())
-                _try_task(cfg, logger, container, command, terminating)
+                _try_task(cfg, task, logger, container, command, terminating)
 
                 # evaluate output declarations
-                outputs = _eval_task_outputs(logger, task, container_env, container)
+                outputs = _eval_task_outputs(logger, run_id, task, container_env, container)
 
                 # create output_links
                 outputs = link_outputs(
-                    outputs, run_dir, hardlinks=cfg["file_io"].get_bool("output_hardlinks")
+                    cache,
+                    outputs,
+                    run_dir,
+                    hardlinks=cfg["file_io"].get_bool("output_hardlinks"),
+                    use_relative_output_paths=cfg["file_io"].get_bool("use_relative_output_paths"),
                 )
 
                 # process outputs through plugins
@@ -196,35 +230,52 @@ def run_local_task(
                 # downstream tasks
                 _delete_work(cfg, logger, container, True)
                 chmod_R_plus(run_dir, file_bits=0o660, dir_bits=0o770)
+                _warn_output_basename_collisions(logger, outputs)
 
                 # write outputs.json
                 write_values_json(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
                 )
-                logger.notice("done")  # pyre-fixme
+                logger.notice("done")
                 if not run_id.startswith("download-"):
-                    cache.put(cache_key, outputs)
+                    cache.put(cache_key, outputs, run_dir=run_dir)
                 return (run_dir, outputs)
         except Exception as exn:
-            logger.debug(traceback.format_exc())
+            tbtxt = traceback.format_exc()
+            logger.debug(tbtxt)
             wrapper = RunFailed(task, run_id, run_dir)
-            logmsg = _(str(wrapper), dir=run_dir, **error_json(exn))
+            logmsg = _(
+                str(wrapper),
+                dir=run_dir,
+                **error_json(
+                    exn, traceback=tbtxt if not isinstance(exn, Error.RuntimeError) else None
+                ),
+            )
             if isinstance(exn, Terminated) and getattr(exn, "quiet", False):
                 logger.debug(logmsg)
             else:
                 logger.error(logmsg)
             try:
                 write_atomic(
-                    json.dumps(error_json(wrapper, cause=exn), indent=2),
+                    json.dumps(
+                        error_json(
+                            wrapper,
+                            cause=exn,
+                            traceback=tbtxt if not isinstance(exn, Error.RuntimeError) else None,
+                        ),
+                        indent=2,
+                    ),
                     os.path.join(run_dir, "error.json"),
                 )
             except Exception as exn2:
                 logger.debug(traceback.format_exc())
                 logger.critical(_("failed to write error.json", dir=run_dir, message=str(exn2)))
             try:
-                _delete_work(cfg, logger, container, False)
-            except:
-                logger.exception("delete_work failed")
+                if maybe_container:
+                    _delete_work(cfg, logger, maybe_container, False)
+            except Exception as exn2:
+                logger.debug(traceback.format_exc())
+                logger.error(_("delete_work also failed", exception=str(exn2)))
             raise wrapper from exn
 
 
@@ -273,7 +324,7 @@ def _download_input_files(
 
     ans = Value.rewrite_env_paths(inputs, rewriter)
     if downloads or cached_hits:
-        logger.notice(  # pyre-fixme
+        logger.notice(
             _(
                 "processed input URIs",
                 downloaded=downloads,
@@ -318,11 +369,25 @@ def _eval_task_inputs(
     logger: logging.Logger,
     task: Tree.Task,
     posix_inputs: Env.Bindings[Value.Base],
-    container: "runtime.task_container.TaskContainer",
+    container: "TaskContainer",
 ) -> Env.Bindings[Value.Base]:
+    # Preprocess inputs: if None value is supplied for an input declared with a default but without
+    # the ? type quantifier, remove the binding entirely so that the default will be used. In
+    # contrast, if the input declaration has an -explicitly- optional type, then we'll allow the
+    # supplied None to override any default.
+    input_decls = task.available_inputs
+    posix_inputs = posix_inputs.filter(
+        lambda b: not (
+            isinstance(b.value, Value.Null)
+            and b.name in input_decls
+            and input_decls[b.name].expr
+            and not input_decls[b.name].type.optional
+        )
+    )
 
     # Map all the provided input File & Directory paths to in-container paths
     container.add_paths(_fspaths(posix_inputs))
+    _warn_input_basename_collisions(logger, container)
 
     # copy posix_inputs with all File & Directory values mapped to their in-container paths
     def map_paths(fn: Union[Value.File, Value.Directory]) -> str:
@@ -334,7 +399,7 @@ def _eval_task_inputs(
     container_inputs = Value.rewrite_env_paths(posix_inputs, map_paths)
 
     # initialize value environment with the inputs
-    container_env = Env.Bindings()
+    container_env: Env.Bindings[Value.Base] = Env.Bindings()
     for b in container_inputs:
         assert isinstance(b, Env.Binding)
         v = b.value
@@ -401,111 +466,114 @@ def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
     return ans
 
 
+def _warn_input_basename_collisions(logger: logging.Logger, container: "TaskContainer") -> None:
+    basenames = Counter(
+        [os.path.basename((p[:-1] if p.endswith("/") else p)) for p in container.input_path_map_rev]
+    )
+    collisions = [nm for nm, n in basenames.items() if n > 1]
+    if collisions:
+        logger.warning(
+            _(
+                "mounting input files with colliding basenames in separate container directories",
+                basenames=collisions,
+            )
+        )
+
+
 def _eval_task_runtime(
     cfg: config.Loader,
     logger: logging.Logger,
+    run_id: str,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
-    container: "runtime.task_container.TaskContainer",
+    container: "TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
-) -> Dict[str, Union[int, str]]:
+) -> None:
+    # evaluate runtime{} expressions (merged with any configured defaults)
+    runtime_defaults = cfg.get_dict("task_runtime", "defaults")
+    if run_id.startswith("download-"):
+        runtime_defaults.update(cfg.get_dict("task_runtime", "download_defaults"))
     runtime_values = {}
-    for key, v in cfg["task_runtime"].get_dict("defaults").items():
-        if isinstance(v, str):
-            runtime_values[key] = Value.String(v)
-        elif isinstance(v, int):
-            runtime_values[key] = Value.Int(v)
-        else:
-            raise Error.InputError(f"invalid default runtime setting {key} = {v}")
+    for key, v in runtime_defaults.items():
+        runtime_values[key] = Value.from_json(Type.Any(), v)
     for key, expr in task.runtime.items():  # evaluate expressions in source code
         runtime_values[key] = expr.eval(env, stdlib)
     for b in inputs.enter_namespace("runtime"):
         runtime_values[b.name] = b.value  # input overrides
-    if "container" in runtime_values:  # alias
-        runtime_values["docker"] = runtime_values["container"]
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
-    ans = {}
 
-    if "inlineDockerfile" in runtime_values:
-        # join Array[String]
-        dockerfile = runtime_values["inlineDockerfile"]
-        if not isinstance(dockerfile, Value.Array):
-            dockerfile = Value.Array(dockerfile.type, [dockerfile])
-        dockerfile = "\n".join(elt.coerce(Type.String()).value for elt in dockerfile.value)
-        ans["inlineDockerfile"] = dockerfile
-    elif "docker" in runtime_values:
-        docker_value = runtime_values["docker"]
-        if isinstance(docker_value, Value.Array) and len(docker_value.value):
-            # TODO: ask TaskContainer to choose preferred candidate
-            docker_value = docker_value.value[0]
-        ans["docker"] = docker_value.coerce(Type.String()).value
+    # have container implementation validate & postprocess into container.runtime_values
+    container.process_runtime(logger, runtime_values)
 
-    host_limits = container.__class__.detect_resource_limits(cfg, logger)
-    if "cpu" in runtime_values:
-        cpu_value = runtime_values["cpu"].coerce(Type.Int()).value
-        assert isinstance(cpu_value, int)
-        cpu_max = cfg["task_runtime"].get_int("cpu_max")
-        if cpu_max == 0:
-            cpu_max = host_limits["cpu"]
-        cpu = max(1, cpu_value if cpu_value <= cpu_max or cpu_max < 0 else cpu_max)
-        if cpu != cpu_value:
-            logger.warning(
-                _("runtime.cpu adjusted to host limit", original=cpu_value, adjusted=cpu)
+    if container.runtime_values:
+        logger.info(_("effective runtime", **container.runtime_values))
+
+    # add any configured overrides for in-container environment variables
+    container.runtime_values.setdefault("env", {})
+    env_vars_override = {}
+    env_vars_skipped = []
+    for ev_name, ev_value in cfg["task_runtime"].get_dict("env").items():
+        if ev_value is None:
+            try:
+                env_vars_override[ev_name] = os.environ[ev_name]
+            except KeyError:
+                env_vars_skipped.append(ev_name)
+        else:
+            env_vars_override[ev_name] = str(ev_value)
+    if env_vars_skipped:
+        logger.warning(
+            _("skipping pass-through of undefined environment variable(s)", names=env_vars_skipped)
+        )
+    if cfg.get_bool("file_io", "mount_tmpdir") or task.name in cfg.get_list(
+        "file_io", "mount_tmpdir_for"
+    ):
+        env_vars_override["TMPDIR"] = os.path.join(
+            container.container_dir, "work", "_miniwdl_tmpdir"
+        )
+    if env_vars_override:
+        # usually don't dump values into log, as they may often be auth tokens
+        logger.notice(
+            _(
+                "overriding environment variables (portability warning)",
+                names=list(env_vars_override.keys()),
             )
-        ans["cpu"] = cpu
+        )
+        logger.debug(
+            _("overriding environment variables (portability warning)", **env_vars_override)
+        )
+        container.runtime_values["env"].update(env_vars_override)
 
-    if "memory" in runtime_values:
-        memory_str = runtime_values["memory"].coerce(Type.String()).value
-        assert isinstance(memory_str, str)
-        try:
-            memory_bytes = parse_byte_size(memory_str)
-        except ValueError:
-            raise Error.EvalError(
-                task.runtime["memory"], "invalid setting of runtime.memory, " + memory_str
-            )
-
-        memory_max = cfg["task_runtime"]["memory_max"].strip()
-        memory_max = -1 if memory_max == "-1" else parse_byte_size(memory_max)
-        if memory_max == 0:
-            memory_max = host_limits["mem_bytes"]
-        if memory_max > 0 and memory_bytes > memory_max:
-            logger.warning(
-                _(
-                    "runtime.memory adjusted to host limit",
-                    original=memory_bytes,
-                    adjusted=memory_max,
+    # process decls with "env" decorator (EXPERIMENTAL)
+    env_decls: Dict[str, Value.Base] = {}
+    for decl in (task.inputs or []) + task.postinputs:
+        if decl.decor.get("env", False) is True:
+            if not env_decls:
+                logger.warning(
+                    "task env declarations are an experimental feature, subject to change"
                 )
-            )
-            memory_bytes = memory_max
-        ans["memory_reservation"] = memory_bytes
+            v = env[decl.name]
+            if isinstance(v, (Value.String, Value.File, Value.Directory)):
+                v = v.value
+            else:
+                v = json.dumps(v.json)
+            env_decls[decl.name] = v
+    container.runtime_values["env"].update(env_decls)
 
-        memory_limit_multiplier = cfg["task_runtime"].get_float("memory_limit_multiplier")
-        if memory_limit_multiplier > 0.0:
-            ans["memory_limit"] = int(memory_limit_multiplier * memory_bytes)
-
-    if "maxRetries" in runtime_values:
-        ans["maxRetries"] = max(0, runtime_values["maxRetries"].coerce(Type.Int()).value)
-    if "preemptible" in runtime_values:
-        ans["preemptible"] = max(0, runtime_values["preemptible"].coerce(Type.Int()).value)
-
-    if ans:
-        logger.info(_("effective runtime", **ans))
     unused_keys = list(
         key
         for key in runtime_values
-        if key not in ("cpu", "memory", "docker", "container") and key not in ans
+        if key not in ("memory", "docker", "container") and key not in container.runtime_values
     )
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
 
-    return ans
-
 
 def _try_task(
     cfg: config.Loader,
+    task: Tree.Task,
     logger: logging.Logger,
-    container: "runtime.task_container.TaskContainer",
+    container: "TaskContainer",
     command: str,
     terminating: Callable[[], bool],
 ) -> None:
@@ -524,22 +592,34 @@ def _try_task(
         if terminating():
             raise Terminated()
         # copy input files, if needed
-        if cfg["file_io"].get_bool("copy_input_files"):
+        if cfg.get_bool("file_io", "copy_input_files") or task.name in cfg.get_list(
+            "file_io", "copy_input_files_for"
+        ):
             container.copy_input_files(logger)
+        host_tmpdir = (
+            os.path.join(container.host_work_dir(), "_miniwdl_tmpdir")
+            if cfg.get_bool("file_io", "mount_tmpdir")
+            or task.name in cfg.get_list("file_io", "mount_tmpdir_for")
+            else None
+        )
 
         try:
             # start container & run command
+            if host_tmpdir:
+                logger.debug(_("creating task temp directory", TMPDIR=host_tmpdir))
+                os.mkdir(host_tmpdir, mode=0o770)
             try:
                 return container.run(logger, command)
             finally:
+                if host_tmpdir:
+                    logger.info(_("deleting task temp directory", TMPDIR=host_tmpdir))
+                    rmtree_atomic(host_tmpdir)
                 if (
                     "preemptible" in container.runtime_values
                     and cfg.has_option("task_runtime", "_mock_interruptions")
                     and interruptions < cfg["task_runtime"].get_int("_mock_interruptions")
                 ):
                     raise Interrupted("mock interruption") from None
-                if terminating():
-                    raise Terminated()
         except Exception as exn:
             if isinstance(exn, Interrupted) and interruptions < max_interruptions:
                 logger.error(
@@ -552,7 +632,11 @@ def _try_task(
                     )
                 )
                 interruptions += 1
-            elif not isinstance(exn, (Terminated, DockerBuildError)) and retries < max_retries:
+            elif (
+                not isinstance(exn, (Terminated, DockerBuildError))
+                and retries < max_retries
+                and not terminating()
+            ):
                 logger.error(
                     _(
                         "failed task will be retried",
@@ -571,18 +655,41 @@ def _try_task(
 
 def _eval_task_outputs(
     logger: logging.Logger,
+    run_id: str,
     task: Tree.Task,
     env: Env.Bindings[Value.Base],
-    container: "runtime.task_container.TaskContainer",
+    container: "TaskContainer",
 ) -> Env.Bindings[Value.Base]:
+    stdout_file = os.path.join(container.host_dir, "stdout.txt")
+    with suppress(FileNotFoundError):
+        if os.path.getsize(stdout_file) > 0 and not run_id.startswith("download-"):
+            # If the task produced nonempty stdout that isn't used in the WDL outputs, generate a
+            # courtesy log message directing user where to find it
+            stdout_used = False
+            expr_stack = [outp.expr for outp in task.outputs]
+            while expr_stack:
+                expr = expr_stack.pop()
+                assert isinstance(expr, Expr.Base)
+                if isinstance(expr, Expr.Apply) and expr.function_name == "stdout":
+                    stdout_used = True
+                else:
+                    expr_stack.extend(expr.children)  # type: ignore[arg-type]
+            if not stdout_used:
+                logger.info(
+                    _(
+                        "command stdout unused; consider output `File cmd_out = stdout()`"
+                        " or redirect command to stderr log >&2",
+                        stdout_file=stdout_file,
+                    )
+                )
 
-    # helper to rewrite File/Directory from in-container paths to host paths
-    def rewriter(v: Union[Value.File, Value.Directory], output_name: str) -> str:
+    # Helpers to rewrite File/Directory from in-container paths to host paths
+    # First pass -- convert nonexistent output paths to None/Null
+    def rewriter1(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
         container_path = v.value
         if isinstance(v, Value.Directory) and not container_path.endswith("/"):
             container_path += "/"
-        host_path = container.host_path(container_path)
-        if host_path is None:
+        if container.host_path(container_path) is None:
             logger.warning(
                 _(
                     "output path not found in container (error unless declared type is optional)",
@@ -590,20 +697,27 @@ def _eval_task_outputs(
                     path=container_path,
                 )
             )
-        elif isinstance(v, Value.Directory):
+            return None
+        return v.value
+
+    # Second pass -- convert in-container paths to host paths
+    def rewriter2(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
+        container_path = v.value
+        if isinstance(v, Value.Directory) and not container_path.endswith("/"):
+            container_path += "/"
+        host_path = container.host_path(container_path)
+        assert host_path is not None
+        if isinstance(v, Value.Directory):
             if host_path.endswith("/"):
                 host_path = host_path[:-1]
             _check_directory(host_path, output_name)
             logger.debug(_("output dir", container=container_path, host=host_path))
         else:
             logger.debug(_("output file", container=container_path, host=host_path))
-        # We may overwrite File.value with None, which is an invalid state, then we'll fix it
-        # up (or abort) below. This trickery is because we don't, at this point, know whether
-        # the -declared- output type is optional.
-        return host_path  # pyre-fixme
+        return host_path
 
     stdlib = OutputStdLib(task.effective_wdl_version, logger, container)
-    outputs = Env.Bindings()
+    outputs: Env.Bindings[Value.Base] = Env.Bindings()
     for decl in task.outputs:
         assert decl.expr
         try:
@@ -615,6 +729,7 @@ def _eval_task_outputs(
             exn2 = Error.EvalError(decl, str(exn))
             setattr(exn2, "job_id", decl.workflow_node_id)
             raise exn2 from exn
+        _warn_struct_extra(logger, decl.name, v)
         vj = json.dumps(v.json)
         logger.info(
             _("output", name=decl.name, value=(v.json if len(vj) < 4096 else "(((large)))"))
@@ -623,20 +738,21 @@ def _eval_task_outputs(
         # Now, a delicate sequence for postprocessing File outputs (including Files nested within
         # compound values)
 
-        # First bind the value as-is in the environment, so that subsequent output expressions will
-        # "see" the in-container path(s) if they use this binding.
+        # First convert nonexistent paths to None/Null, and bind this in the environment for
+        # evaluating subsequent output expressions.
+        v = Value.rewrite_paths(v, lambda w: rewriter1(w, decl.name))
         env = env.bind(decl.name, v)
-        # Rewrite each File/Directory path to a host path, or None if it doesn't exist.
-        v = Value.rewrite_paths(v, lambda v: rewriter(v, decl.name))
-        # File.coerce has a special behavior for us so that, if the value is None:
-        #   - produces Value.Null() if the desired type is File?
-        #   - raises FileNotFoundError otherwise.
+        # check if any nonexistent paths were provided for (non-optional) File/Directory types
+        # Value.Null.coerce has a special behavior for us to raise FileNotFoundError for a
+        # non-optional File/Directory type.
         try:
             v = v.coerce(decl.type)
         except FileNotFoundError:
-            exn = OutputError("File/Directory path not found in task output " + decl.name)
-            setattr(exn, "job_id", decl.workflow_node_id)
-            raise exn
+            err = OutputError("File/Directory path not found in task output " + decl.name)
+            setattr(err, "job_id", decl.workflow_node_id)
+            raise err
+        # Rewrite in-container paths to host paths
+        v = Value.rewrite_paths(v, lambda w: rewriter2(w, decl.name))
         outputs = outputs.bind(decl.name, v)
 
     return outputs
@@ -661,8 +777,36 @@ def _check_directory(host_path: str, output_name: str) -> None:
                 raise OutputError(f"Directory in output {output_name} contains unusable symlink")
 
 
+def _warn_struct_extra(
+    logger: logging.Logger, decl_name: str, v: Value.Base, warned_keys: Optional[Set[str]] = None
+) -> None:
+    """
+    Log notices about extraneous keys found in struct initialization from JSON/Map/Object
+    """
+    if warned_keys is None:
+        warned_keys = set()
+    if isinstance(v, Value.Struct) and v.extra:
+        extra_keys = set(k for k in v.extra if not k.startswith("#"))
+        if extra_keys - warned_keys:
+            logger.notice(
+                _(
+                    "extraneous keys in struct initializer",
+                    decl=decl_name,
+                    struct=str(v.type),
+                    extra_keys=list(extra_keys),
+                )
+            )
+            warned_keys.update(extra_keys)
+    for ch in v.children:
+        _warn_struct_extra(logger, decl_name, ch, warned_keys)
+
+
 def link_outputs(
-    outputs: Env.Bindings[Value.Base], run_dir: str, hardlinks: bool = False
+    cache: CallCache,
+    outputs: Env.Bindings[Value.Base],
+    run_dir: str,
+    hardlinks: bool = False,
+    use_relative_output_paths: bool = False,
 ) -> Env.Bindings[Value.Base]:
     """
     Following a successful run, the output files may be scattered throughout a complex directory
@@ -671,37 +815,54 @@ def link_outputs(
     outputs env to use these symlinks.
     """
 
+    def link1(target: str, link: str, directory: bool) -> None:
+        if hardlinks:
+            # TODO: what if target is an input from a different filesystem?
+            if directory:
+                shutil.copytree(target, link, symlinks=True, copy_function=link_force)
+            else:
+                link_force(target, link)
+        else:
+            symlink_force(target, link)
+
     def map_paths(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, (Value.File, Value.Directory)):
-            if os.path.exists(v.value):
-                target = os.path.realpath(v.value)
+            target = (
+                v.value
+                if os.path.exists(v.value)
+                else cache.get_download(v.value, isinstance(v, Value.Directory))
+            )
+            if target:
+                target = os.path.realpath(target)
+                assert os.path.exists(target)
                 if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
-                link = os.path.join(dn, os.path.basename(v.value))
+                link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
                 os.makedirs(dn, exist_ok=False)
-                if hardlinks:
-                    # TODO: what if target is an input from a different filesystem?
-                    if isinstance(v, Value.Directory):
-                        shutil.copytree(target, link, symlinks=True, copy_function=os.link)
-                    else:
-                        os.link(target, link)
-                else:
-                    os.symlink(target, link)
+                link1(target, link, isinstance(v, Value.Directory))
+                # Drop a dotfile alongside Directory outputs, to inform a program crawling the out/
+                # directory without reference to the output types or JSON for whatever reason. It
+                # might otherwise have trouble distinguishing Directory outputs among the
+                # structured subdirectories we create for compound types.
+                if isinstance(v, Value.Directory):
+                    with open(os.path.join(dn, ".WDL_Directory"), "w") as _dotfile:
+                        pass
                 v.value = link
         # recurse into compound values
         elif isinstance(v, Value.Array) and v.value:
             d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
             for i in range(len(v.value)):
                 v.value[i] = map_paths(v.value[i], os.path.join(dn, str(i).rjust(d, "0")))
-        elif isinstance(v, Value.Map):
+        elif isinstance(v, Value.Map) and v.value:
             # create a subdirectory for each key, as long as the key names seem to make reasonable
             # path components; otherwise, treat the dict as a list of its values
             keys_ok = (
                 sum(
                     1
                     for b in v.value
-                    if re.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0])) is None
+                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0]).strip("'\""))
+                    is None
                 )
                 == 0
             )
@@ -710,7 +871,10 @@ def link_outputs(
                 v.value[i] = (
                     b[0],
                     map_paths(
-                        b[1], os.path.join(dn, str(b[0]) if keys_ok else str(i).rjust(d, "0"))
+                        b[1],
+                        os.path.join(
+                            dn, str(b[0]).strip("'\"") if keys_ok else str(i).rjust(d, "0")
+                        ),
                     ),
                 )
         elif isinstance(v, Value.Pair):
@@ -724,18 +888,113 @@ def link_outputs(
         return v
 
     os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
+
+    if use_relative_output_paths:
+        return link_outputs_relative(link1, cache, outputs, run_dir, hardlinks=hardlinks)
+
     return outputs.map(
         lambda binding: Env.Binding(
             binding.name,
-            map_paths(copy.deepcopy(binding.value), os.path.join(run_dir, "out", binding.name)),
+            map_paths(
+                Value.rewrite_paths(binding.value, lambda v: v.value),  # nop to deep copy
+                os.path.join(run_dir, "out", binding.name),
+            ),
         )
     )
+
+
+def link_outputs_relative(
+    link1: Callable[[str, str, bool], None],
+    cache: CallCache,
+    outputs: Env.Bindings[Value.Base],
+    run_dir: str,
+    hardlinks: bool = False,
+) -> Env.Bindings[Value.Base]:
+    """
+    link_outputs with [file_io] use_relative_output_paths = true. We organize the links to reflect
+    the generated files' paths relative to their task working directory.
+    """
+    link_destinations: Dict[str, str] = dict()
+
+    def map_path_relative(v: Union[Value.File, Value.Directory]) -> str:
+        target = (
+            v.value
+            if os.path.exists(v.value)
+            else cache.get_download(v.value, isinstance(v, Value.Directory))
+        )
+        if target:
+            real_target = os.path.realpath(target)
+            rel_link = None
+            if path_really_within(target, os.path.join(run_dir, "work")):
+                # target was generated by current task; use its path relative to the task work dir
+                if not os.path.basename(run_dir).startswith("download-"):  # except download tasks
+                    rel_link = os.path.relpath(
+                        real_target, os.path.realpath(os.path.join(run_dir, "work"))
+                    )
+            else:
+                # target is an out/ link generated by a call in the current workflow OR a cached
+                # run; use the link's path relative to that out/ dir, which by induction should
+                # equal its path relative to the original work/ dir.
+                # we need heuristic to find the out/ dir in a task/workflow run directory, since the
+                # user's cwd or the task-generated relative path might coincidentally have
+                # something named 'out'.
+                p = None
+                for p in reversed([m.span()[0] for m in regex.finditer("/out(?=/)", target)]):
+                    if p and (
+                        os.path.isfile(os.path.join(target[:p], "task.log"))
+                        or os.path.isfile(os.path.join(target[:p], "workflow.log"))
+                    ):
+                        break
+                    p = None
+                if p and p + 5 < len(target):
+                    rel_link = os.path.relpath(target, target[: p + 5])
+            # if neither of the above cases applies, then fall back to just the target basename
+            rel_link = rel_link or os.path.basename(target)
+            abs_link = os.path.join(os.path.join(run_dir, "out"), rel_link)
+            if link_destinations.get(abs_link, real_target) != real_target:
+                raise FileExistsError(
+                    "Output filename collision; to allow this, set"
+                    " [file_io] use_relative_output_paths = false. Affected path: " + abs_link
+                )
+            os.makedirs(os.path.dirname(abs_link), exist_ok=True)
+            link1(real_target, abs_link, isinstance(v, Value.Directory))
+            link_destinations[abs_link] = real_target
+            return abs_link
+        return v.value
+
+    return Value.rewrite_env_paths(outputs, map_path_relative)
+
+
+def _warn_output_basename_collisions(
+    logger: logging.Logger, outputs: Env.Bindings[Value.Base]
+) -> None:
+    targets_by_basename: Dict[str, Set[str]] = {}
+
+    def walker(v: Union[Value.File, Value.Directory]) -> str:
+        target = v.value
+        if os.path.exists(target):
+            target = os.path.realpath(target)
+        basename = os.path.basename(target)
+        targets_by_basename.setdefault(basename, set()).add(target)
+        return v.value
+
+    Value.rewrite_env_paths(outputs, walker)
+
+    collisions = [bn for bn, targets in targets_by_basename.items() if len(targets) > 1]
+    if collisions:
+        logger.warning(
+            _(
+                "multiple output files share the same basename; while miniwdl supports this,"
+                " consider modifying WDL to ensure distinct output basenames",
+                basenames=collisions,
+            )
+        )
 
 
 def _delete_work(
     cfg: config.Loader,
     logger: logging.Logger,
-    container: "Optional[runtime.task_container.TaskContainer]",
+    container: "Optional[TaskContainer]",
     success: bool,
 ) -> None:
     opt = cfg["file_io"]["delete_work"].strip().lower()
@@ -752,14 +1011,14 @@ def _delete_work(
 
 class _StdLib(StdLib.Base):
     logger: logging.Logger
-    container: "runtime.task_container.TaskContainer"
+    container: "TaskContainer"
     inputs_only: bool  # if True then only permit access to input files
 
     def __init__(
         self,
         wdl_version: str,
         logger: logging.Logger,
-        container: "runtime.task_container.TaskContainer",
+        container: "TaskContainer",
         inputs_only: bool,
     ) -> None:
         super().__init__(wdl_version, write_dir=os.path.join(container.host_dir, "write_"))
@@ -791,7 +1050,7 @@ class InputStdLib(_StdLib):
         self,
         wdl_version: str,
         logger: logging.Logger,
-        container: "runtime.task_container.TaskContainer",
+        container: "TaskContainer",
     ) -> None:
         super().__init__(wdl_version, logger, container, True)
 
@@ -802,7 +1061,7 @@ class OutputStdLib(_StdLib):
         self,
         wdl_version: str,
         logger: logging.Logger,
-        container: "runtime.task_container.TaskContainer",
+        container: "TaskContainer",
     ) -> None:
         super().__init__(wdl_version, logger, container, False)
 
@@ -844,10 +1103,12 @@ class OutputStdLib(_StdLib):
             # convert the host filenames to in-container filenames
             container_files = []
             for hf in host_files:
-                dstrip = lib.container.host_dir
+                dstrip = lib.container.host_work_dir()
                 dstrip += "" if dstrip.endswith("/") else "/"
                 assert hf.startswith(dstrip)
-                container_files.append(os.path.join(lib.container.container_dir, hf[len(dstrip) :]))
+                container_files.append(
+                    os.path.join(lib.container.container_dir, "work", hf[len(dstrip) :])
+                )
             return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
 
         setattr(

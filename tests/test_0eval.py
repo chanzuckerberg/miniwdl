@@ -12,6 +12,8 @@ class TestEval(unittest.TestCase):
         self.assertEqual(str(WDL.parse_expr('{"A": "Map"}')), '{"A": "Map"}')
         self.assertEqual(str(WDL.parse_expr('("A", "Pair")')), '("A", "Pair")')
         self.assertEqual(str(WDL.parse_expr('object {"A": "struct"}', "1.0")), '{"A": "struct"}')
+        self.assertEqual(str(WDL.parse_expr('''object {"A\\\\": 'struct'}''', "1.0")), '''{"A\\": 'struct'}''')
+        self.assertEqual(str(WDL.parse_expr('''object {'A\\\\': 'struct'}''', "1.0")), '''{"A\\": 'struct'}''')
 
         # logic
         self.assertEqual(str(WDL.parse_expr("true && false")), "true && false")
@@ -211,6 +213,7 @@ class TestEval(unittest.TestCase):
             (r'''"\xyz"''', None, WDL.Error.SyntaxError),
             (r'''"\u"''', None, WDL.Error.SyntaxError),
             (r'''"\uvwxyz"''', None, WDL.Error.SyntaxError),
+            (r'''"foo''', None, WDL.Error.SyntaxError),
         )
         chars = [c for c in (chr(i) for i in range(1,4096)) if c not in "\"'\\\n$~"]
         junk = []
@@ -220,15 +223,57 @@ class TestEval(unittest.TestCase):
         for i in range(len(junk)):
             junk[i] = ('"' + junk[i] + '"', json.dumps(junk[i]))
         self._test_tuples(*junk)
+        # string literals ending in backslash
+        self._test_tuples(
+            ('''"\\\\"''', '''"\\\\"'''),
+            ("""'\\\\'""", '''"\\\\"'''),
+            ('''"\\"\\\\"''', '''"\\"\\\\"'''),
+            ("""'\\'\\\\'""", '''"'\\\\"''')
+        )
 
     def test_compound_equality(self):
         self._test_tuples(
             ("[1, 2, 3] == [1,2,3]", "true"),
             ("[1, 2, 3] == [2, 1, 3]", "false"),
+            ("[[1], [2], [3]] == [[1], [2], [3]]", "true"),
+            ("[[1], [2], [3]] == [[2], [1], [3]]", "false"),
+            ("[[1], [2], [3]] == [[1], [2], []]", "false"),
             ('{"a": 1, "b": 2} == {"a": 1, "b": 2}', "true"),
             ('{"a": 1, "b": 2} == {"b": 2, "a": 1}', "false"),
+            ('(0,1) == (0,1)', "true"),
+            ('(0,1) != (0,None)', "true", "development"),
+            ('(0,1) == {"left": 0, "right": 1}', "(Ln 1, Col 1) Cannot compare Pair[Int,Int] and Map[String,Int]", WDL.Error.IncompatibleOperand),
+            ('{"left": 0, "right": 1} != (0,1)', "(Ln 1, Col 1) Cannot compare Map[String,Int] and Pair[Int,Int]", WDL.Error.IncompatibleOperand),
             ('1 == None', "false", "development"),
-            ('None == None', "true", "development")
+            ('None == None', "true", "development"),
+            ("[0] <= [1]", "(Ln 1, Col 1) Cannot compare Array[Int]+ and Array[Int]+", WDL.Error.IncompatibleOperand),
+            ("[0] > []", "(Ln 1, Col 1) Cannot compare Array[Int]+ and Array[Any]", WDL.Error.IncompatibleOperand),
+            # NOTE: WDL spec says that automatic type coercion does not apply to compound types
+            #       in equality tests; and that the following comparison is allowable but yields
+            #       false. We cannot agree with that, so we made the comparison unallowable.
+            ("[1,2,3] == [1.0,2.0,3.0]", "(Ln 1, Col 1) Cannot compare Array[Int]+ and Array[Float]+", WDL.Error.IncompatibleOperand),
+            ("object {k: 42} == object {k: 42}", "Cannot test equality of object(k : Int) and object(k : Int)", WDL.Error.IncompatibleOperand),
+        )
+
+        # equatabile() ignores optional quantifier
+        env = cons_env(
+            ("a1", WDL.Value.Array(WDL.Type.Int(optional=True), [WDL.Value.Int(1), WDL.Value.Null()])),
+            ("a2", WDL.Value.Array(WDL.Type.Int(), [WDL.Value.Int(1), WDL.Value.Int(2)])),
+            ("a3", WDL.Value.Array(WDL.Type.Float(), [WDL.Value.Float(1.0)])),
+        )
+        self._test_tuples(
+            ("a1 == a2", "false", env),
+            ("a2 == a1", "false", env),
+            ("a1 == a1", "true", env),
+            ("a1[0] == a2[0]", "true", env),
+            ("a2[0] == a1[0]", "true", env),
+            ("a1[1] != a1[0]", "true", env),
+            ("a1[1] != a2[0]", "true", env),
+            ("a1[0] != a1[1]", "true", env),
+            ("a2[0] != a1[1]", "true", env),
+            ("a1[0] == a3[0]", "true", env),  # implicit Int->Float coercion
+            ("a1 == a3", "(Ln 1, Col 1) Cannot compare Array[Int?]+ and Array[Float]+", WDL.Error.IncompatibleOperand, env),
+            ("a2 != a3", "(Ln 1, Col 1) Cannot compare Array[Int]+ and Array[Float]+", WDL.Error.IncompatibleOperand, env),
         )
 
     def test_if(self):
@@ -286,6 +331,7 @@ class TestEval(unittest.TestCase):
             ("1 <= 1.0", "true"),
             ("[1, 2.0]", "[1.000000, 2.000000]", WDL.Type.Array(WDL.Type.Float())),
             ("[1, 2.0][0]", "1.000000", WDL.Type.Float()),
+            ("6.02e23", "601999999999999995805696.000000", WDL.Type.Float()),
             # TODO: more sophisticated unification algo to handle this
             # ("[[1],[2.0]]", "[[1.0], [2.0]]", WDL.Type.Array(WDL.Type.Float())),
         )
@@ -343,6 +389,16 @@ class TestEval(unittest.TestCase):
             ("""'~{if f then "~{pi}" else "~{e}"}'""", '"2.718280"', env, "1.0"),
             (""" "~{if f then "~{pi}" else "~{e}"}" """, '"2.718280"', env, "1.0"),
         )
+        # placeholder options are available in any string expression (not just command) in WDL 1.1
+        # but not draft-2 or WDL 1.0. (regression test issue #633)
+        self._test_tuples(
+            ('''"${true='1' false='0' t}"''', '"1"', env, "1.1"),
+            ('''"${true='1' false='0' f}"''', '"0"', env, "1.1"),
+            ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "1.0"),
+            ('''"${true='t' false='f' f}"''', None, WDL.Error.SyntaxError, env, "draft-2"),
+            ('''"${true='1' bogus=0 f}"''', None, WDL.Error.ValidationError, env, "1.1"),
+            ('''"${true='1' true='0' f}"''', None, WDL.Error.MultipleDefinitions, env, "1.1")
+        )
 
     def test_pair(self):
         env = cons_env(("p", WDL.Value.Pair(WDL.Type.Float(), WDL.Type.Float(),
@@ -394,6 +450,17 @@ class TestEval(unittest.TestCase):
             ("false && 1/0 == 1", "false"),
             ("false || 1/0 == 1", "", WDL.Error.EvalError),
             ("true || 1/0 == 1", "true"),
+        )
+
+    def test_multi_line_strings(self):
+        # NOTE: most of the multi-line string tests are in tests/multi_line_strings.wdl which runs
+        # in the integration suite. Generally easier to write there without having to double-escape
+        # (python+WDL). These are here mainly to provide code coverage.
+        env = cons_env(("color", WDL.Value.String("brown")))
+        self._test_tuples(
+            ("<<< \n  \\\n  >>>", '""', "development"),
+            ("<<<\n    quick ~{color}\n  fox\n  >>>", json.dumps("  quick brown\nfox"), env, "development"),
+            ("<<< \n  \\\n  >>>", '""', "1.1", WDL.Error.SyntaxError),
         )
 
 def cons_env(*bindings):
@@ -464,6 +531,15 @@ class TestEnv(unittest.TestCase):
         self.assertTrue(e.has_namespace("fruit.apple"))
         self.assertTrue(e.has_namespace("fruit."))
 
+    def test_merge(self):
+        # regression test issue #637, merge() was incorrect in the presence of shadowed bindings.
+        cdr = WDL.Env.Bindings().bind("opt", None).bind("opt", 1)
+        self.assertEqual(cdr.resolve("opt"), 1)
+        car = WDL.Env.Bindings().bind("opt", None).bind("opt", 2)
+        self.assertEqual(car.resolve("opt"), 2)
+        merged = WDL.Env.merge(car, cdr)
+        self.assertEqual(merged.resolve("opt"), 2)
+
 
 class TestValue(unittest.TestCase):
     def test_json(self):
@@ -477,6 +553,7 @@ class TestValue(unittest.TestCase):
             (WDL.Type.Boolean(), False),
             (WDL.Type.Int(), 42),
             (WDL.Type.Float(), 3.14),
+            (WDL.Type.Float(), 6.02e23),
             (WDL.Type.String(), 'CNN is working frantically to find their "source."'),
             (WDL.Type.String(optional=True), None),
             (WDL.Type.File(), '/tmp/stdout.txt'),
@@ -484,7 +561,6 @@ class TestValue(unittest.TestCase):
             (WDL.Type.Array(WDL.Type.String(optional=True)), ["apple", "orange", None]),
             (WDL.Type.Map((WDL.Type.String(), WDL.Type.Int())), {"cats": 42, "dogs": 99}),
             (pty, {"name": "Alyssa", "age": 42, "pets": None}),
-            (pty, {"name": "Alyssa", "age": 42}),
             (pty, {"name": "Alyssa", "age": 42, "pets": {"cats": 42, "dogs": 99}}),
             (WDL.Type.Array(WDL.Type.Pair(WDL.Type.String(), WDL.Type.Int())), [{"left": "a", "right": 0},{"left": "b", "right": 1}]),
 
@@ -493,7 +569,6 @@ class TestValue(unittest.TestCase):
             (WDL.Type.String(), None, WDL.Error.InputError),
             (pty, {"name": "Alyssa"}, WDL.Error.InputError),
             (pty, {"name": "Alyssa", "age": None, "pets": None}, WDL.Error.InputError),
-            (pty, {"name": "Alyssa", "age": 42, "pets": None, "address": "No 4, Privet Drive"}, WDL.Error.InputError),
         ]
 
         for t in cases:

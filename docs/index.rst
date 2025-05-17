@@ -11,7 +11,10 @@ the bioinformatics-focused `Workflow Description Language (WDL) <http://openwdl.
    runner_cli.rst
    runner_reference.md
    runner_advanced.md
-   check.md
+   runner_backends.md
+   check.rst
+   input_template.rst
+   zip.rst
    FAQ.md
    WDL.rst
 

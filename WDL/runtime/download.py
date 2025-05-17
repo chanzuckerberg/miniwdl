@@ -15,11 +15,13 @@ resource scheduling & isolation, logging, error/signal handling, retry, etc.
 The Python context manager itself might be used to obtain and manage the lifetime of any needed
 security credentials.
 """
+
 import os
 import logging
 import traceback
 import tempfile
 import hashlib
+import shlex
 from contextlib import ExitStack
 from typing import Optional, Generator, Dict, Any, Tuple, Callable
 from . import config
@@ -91,25 +93,23 @@ def run(
             if "task_wdl" in recv:
                 task_wdl, inputs = (recv[k] for k in ["task_wdl", "inputs"])
 
-                doc = parse_document(task_wdl, version="development")  # pyre-ignore
+                doc = parse_document(task_wdl, version="development")
                 assert len(doc.tasks) == 1 and not doc.workflow
                 doc.typecheck()
                 Walker.SetParents()(doc)
                 task = doc.tasks[0]
-                inputs = values_from_json(inputs, task.available_inputs)  # pyre-ignore
+                inputs = values_from_json(inputs, task.available_inputs)  # type: ignore[arg-type]
                 subdir, outputs_env = run_local_task(
                     cfg, task, inputs, run_id=("download-" + task.name), **kwargs
                 )
 
                 recv = cor.send(
-                    {"outputs": values_to_json(outputs_env), "dir": subdir}  # pyre-ignore
+                    {"outputs": values_to_json(outputs_env), "dir": subdir}  # type: ignore[arg-type]
                 )
 
             ans = recv["outputs"]["directory" if directory else "file"]
             assert isinstance(ans, str) and os.path.exists(ans)
-            logger.notice(  # pyre-ignore
-                _(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans)
-            )
+            logger.info(_(f"downloaded{' directory' if directory else ' file'}", uri=uri, file=ans))
             return ans
 
     except RunFailed as exn:
@@ -138,11 +138,29 @@ def run_cached(
     cached = cache.get_download(uri, directory=directory, logger=logger)
     if cached:
         return True, cached
-    if cache.download_cacheable(uri, directory=directory):
+    cache_path = cache.download_cacheable(uri, directory=directory)
+    cache_path_preexists = cache_path and os.path.exists(cache_path)
+    if cache_path and not cache_path_preexists:
         # run the download in a holding area under the cache directory, so that it can later be
         # moved atomically into its final cache location
-        run_dir = os.path.join(cfg["download_cache"]["dir"], "ops")
+        run_dir = os.path.join(
+            cfg["file_io"]["root"], os.path.join(cfg["download_cache"]["dir"], "ops")
+        )
     filename = run(cfg, logger, uri, directory=directory, run_dir=run_dir, **kwargs)
+    if cache_path_preexists:
+        # a cache entry had already existed, but we didn't use it (--no-cache).
+        # FIXME: it'd be better to replace the old copy...but what if another workflow is using it?
+        logger.warning(
+            _(
+                "ignored a previously-cached download, which remains in the cache",
+                uri=uri,
+                downloaded=filename,
+                cache_path=cache_path,
+            )
+        )
+        # use the newly downloaded copy in the current run directory
+        cache.memo_download(uri, filename, directory=directory)
+        return False, filename
     return False, cache.put_download(
         uri, os.path.realpath(filename), directory=directory, logger=logger
     )
@@ -173,8 +191,6 @@ def aria2c_downloader(
             File file = glob("__out/*")[0]
         }
         runtime {
-            cpu: 4
-            memory: "1G"
             docker: docker
         }
     }
@@ -183,7 +199,7 @@ def aria2c_downloader(
         "task_wdl": wdl,
         "inputs": {"uri": uri, "docker": cfg["download_aria2c"]["docker"]},
     }
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def awscli_downloader(
@@ -206,6 +222,8 @@ def awscli_downloader(
                 if [ -n "~{aws_credentials}" ]; then
                     source "~{aws_credentials}"
                 fi
+                export AWS_RETRY_MODE=standard
+                export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir __out
                 if ! aws s3 cp "~{uri}" __out/ ; then
@@ -214,6 +232,8 @@ def awscli_downloader(
                     # credentials are available or (ii) the IAM policy restricts accessible S3
                     # buckets regardless of whether the desired object is public.
                     rm -f __out/*
+                    >&2 echo 'Retrying with --no-sign-request in case the object is public.' \
+                         ' If the overall operation fails, the real error may precede this message.'
                     aws s3 cp --no-sign-request "~{uri}" __out/
                 fi
             >>>
@@ -223,14 +243,12 @@ def awscli_downloader(
             }
 
             runtime {
-                cpu: 4
-                memory: "1G"
                 docker: docker
             }
         }
         """
         recv = yield {"task_wdl": wdl, "inputs": inputs}
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def awscli_directory_downloader(
@@ -255,6 +273,8 @@ def awscli_directory_downloader(
                 if [ -n "~{aws_credentials}" ]; then
                     source "~{aws_credentials}"
                 fi
+                export AWS_RETRY_MODE=standard
+                export AWS_MAX_ATTEMPTS=5
                 set -x
                 mkdir -p "__out/~{dnm}/"
                 if ! aws s3 cp --recursive "~{uri}" "__out/~{dnm}/" ; then
@@ -263,6 +283,8 @@ def awscli_directory_downloader(
                     # credentials are available or (ii) the IAM policy restricts accessible S3
                     # buckets regardless of whether the desired object is public.
                     rm -f "__out/~{dnm}/*"
+                    >&2 echo 'Retrying with --no-sign-request in case the folder is public.' \
+                        ' If the overall operation fails, the real error may precede this message.'
                     aws s3 cp --recursive --no-sign-request "~{uri}" "__out/~{dnm}/"
                 fi
             >>>
@@ -272,14 +294,12 @@ def awscli_directory_downloader(
             }
 
             runtime {
-                cpu: 4
-                memory: "1G"
                 docker: docker
             }
         }
         """
         recv = yield {"task_wdl": wdl, "inputs": inputs}
-    yield recv  # pyre-ignore
+    yield recv
 
 
 def prepare_aws_credentials(
@@ -291,9 +311,9 @@ def prepare_aws_credentials(
         host_aws_credentials["AWS_EC2_METADATA_DISABLED"] = os.environ["AWS_EC2_METADATA_DISABLED"]
     # get AWS credentials from boto3 (unless prevented by configuration)
     if cfg["download_awscli"].get_bool("host_credentials"):
-        try:
-            import boto3  # pyre-fixme
+        import boto3  # type: ignore
 
+        try:
             b3creds = boto3.session.Session().get_credentials()
             host_aws_credentials["AWS_ACCESS_KEY_ID"] = b3creds.access_key
             host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
@@ -303,17 +323,18 @@ def prepare_aws_credentials(
 
     if host_aws_credentials:
         # write credentials to temp file that'll self-destruct afterwards
-        host_aws_credentials = (
-            "\n".join(f"export {k}='{v}'" for (k, v) in host_aws_credentials.items()) + "\n"
+        host_aws_credentials_str = (
+            "\n".join(f"export {k}={shlex.quote(v)}" for (k, v) in host_aws_credentials.items())
+            + "\n"
         )
         aws_credentials_file = cleanup.enter_context(
             tempfile.NamedTemporaryFile(
-                prefix=hashlib.sha256(host_aws_credentials.encode()).hexdigest(),
+                prefix=hashlib.sha256(host_aws_credentials_str.encode()).hexdigest(),
                 delete=True,
                 mode="w",
             )
         )
-        print(host_aws_credentials, file=aws_credentials_file, flush=True)
+        print(host_aws_credentials_str, file=aws_credentials_file, flush=True)
         # make file group-readable to ensure it'll be usable if the docker image runs as non-root
         os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
         logger.getChild("awscli_downloader").info("loaded host AWS credentials")
@@ -354,12 +375,45 @@ def gsutil_downloader(
             File file = glob("__out/*")[0]
         }
         runtime {
-            cpu: 4
-            memory: "1G"
             docker: docker
         }
     }
     """
-    yield (  # pyre-ignore
+    yield (
+        yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
+    )
+
+
+def gsutil_directory_downloader(
+    cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
+) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+    """
+    Built-in downloader plugin for public gs:// URIs; registered by setup.cfg entry_points section
+
+    TODO: adopt security credentials from runtime environment
+    """
+    wdl = r"""
+    task gsutil_cp {
+        input {
+            String uri
+            String docker
+        }
+
+        String dnm = basename(uri, "/")
+
+        command <<<
+            set -euxo pipefail
+            mkdir __out/
+            gsutil -q -m cp -r "~{uri}" __out/
+        >>>
+        output {
+            Directory directory = "__out/" + dnm
+        }
+        runtime {
+            docker: docker
+        }
+    }
+    """
+    yield (
         yield {"task_wdl": wdl, "inputs": {"uri": uri, "docker": cfg["download_gsutil"]["docker"]}}
     )

@@ -6,3 +6,7 @@ docs/_build/
 dist/
 build/
 *.egg-info/
+.eggs/
+.venv/
+venv/
+WDL/_version.py

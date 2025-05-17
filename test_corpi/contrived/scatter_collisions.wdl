@@ -2,7 +2,7 @@
 version 1.0
 
 import "empty.wdl" as popular
-import "empty.wdl" as contrived
+import 'empty.wdl' as contrived  # tests issue #601
 
 struct contrived {
 }

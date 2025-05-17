@@ -263,6 +263,81 @@ class TestTaskRunner(unittest.TestCase):
         with open(outputs["message"]) as infile:
             self.assertEqual(infile.read(), "Hello, Alyssa!")
 
+    def test_command_dedenting(self):
+        task_wdl = R"""
+        version 1.0
+        task test_dedent {
+            command <<<
+                echo "Line 1"
+                    # indented comment
+                echo "Line 2"
+            >>>
+            output {}
+        }
+        """
+        self._test_task(task_wdl)
+        with open(os.path.join(self._rundir, "command"), "r") as infile:
+            content = infile.read().lstrip("\n").rstrip()
+        self.assertEqual(content, 'echo "Line 1"\n' + '    # indented comment\n' + 'echo "Line 2"')
+
+        # newlines in interpolated content shouldn't affect dedenting of other lines
+        # (regression test issue #674)
+        task_wdl = R"""
+        version 1.0
+        task test_dedent {
+            String x = "Interpolated\nContent"
+            command <<<
+                echo "Line 1"
+                    # indented comment
+                echo "~{x}"
+            >>>
+            output {}
+        }
+        """
+        self._test_task(task_wdl)
+        with open(os.path.join(self._rundir, "command"), "r") as infile:
+            content = infile.read().lstrip("\n").rstrip()
+        self.assertEqual(content, 'echo "Line 1"\n' + '    # indented comment\n' + 'echo "Interpolated\nContent"')
+
+        # ..unless the old_command_dedent option is set (non-WDL-compliant; for backwards
+        # compatibility with pre-#674 behavior)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"old_command_dedent": True}})
+        self._test_task(task_wdl, cfg=cfg)
+        with open(os.path.join(self._rundir, "command"), "r") as infile:
+            content = infile.read().lstrip("\n").rstrip()
+        self.assertEqual(content,
+                         '                echo "Line 1"\n' +
+                         '                    # indented comment\n' +
+                         '                echo "Interpolated\nContent"')
+        
+        # actual example from issue #674
+        task_wdl = R"""
+        version 1.0
+        task the_task {
+            input {
+            }
+
+            Array[String] lines = ["a", "b", "c"]
+
+            command <<<
+                set -ex
+                cat >result.txt <<EOF2
+                ~{sep="\n" lines}
+                EOF2
+                echo "Task ran"
+            >>>
+
+            output {
+                File result = "result.txt"
+            }
+        }
+        """
+        outputs = self._test_task(task_wdl)
+        with open(outputs["result"], "r") as infile:
+            content = infile.read()
+        self.assertEqual(content, "a\nb\nc\n")
+
     def test_command_escaping(self):
         # miniwdl evaluates escape sequences in WDL string constants, but in commands it should
         # leave them for the shell to deal with
@@ -301,26 +376,28 @@ class TestTaskRunner(unittest.TestCase):
 
     def test_weird_output_files(self):
         # nonexistent output file
-        self._test_task(R"""
-        version 1.0
-        task hello {
-            command {}
-            output {
-                File issue = "bogus.txt"
+        with self.assertRaisesRegex(WDL.runtime.OutputError, "path not found in task output issue"):
+            self._test_task(R"""
+            version 1.0
+            task hello {
+                command {}
+                output {
+                    File issue = "bogus.txt"
+                }
             }
-        }
-        """, expected_exception=WDL.runtime.OutputError)
+            """)
 
         # attempt to output file which exists but we're not allowed to output
-        self._test_task(R"""
-        version 1.0
-        task hello {
-            command {}
-            output {
-                File issue = "/etc/issue"
+        with self.assertRaisesRegex(WDL.runtime.OutputError, "task outputs attempted to use a path outside its working directory"):
+            self._test_task(R"""
+            version 1.0
+            task hello {
+                command {}
+                output {
+                    File issue = "/etc/issue"
+                }
             }
-        }
-        """, expected_exception=WDL.runtime.OutputError)
+            """)
 
         self._test_task(R"""
         version 1.0
@@ -578,6 +655,23 @@ class TestTaskRunner(unittest.TestCase):
         """)
         self.assertEqual(outputs["car"], {"model": "Mazda", "year": 2017, "mileage": None})
         self.assertEqual(outputs["car2"], {"model": "Toyota", "year": None, "mileage": None})
+        # bad struct init from map
+        self._test_task(R"""
+        version 1.0
+        struct Car {
+            String model
+            Float mileage
+        }
+        task t {
+            command {}
+            output {
+                Car car = {
+                    "model": "Mazda",
+                    "mileage": "bogus"
+                }
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_errors(self):
         self._test_task(R"""
@@ -772,6 +866,7 @@ class TestTaskRunner(unittest.TestCase):
             runtime {
                 memory: "~{memory}"
                 disks: "ignored"
+                gpu: true
             }
         }
         """
@@ -782,9 +877,9 @@ class TestTaskRunner(unittest.TestCase):
         self._test_task(txt, {"memory": "99T"}, cfg=cfg)
         cfg.override({"task_runtime": {"memory_max": " 123.45 MiB "}})
         self._test_task(txt, {"memory": "99T"}, cfg=cfg)
-        self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.EvalError)
-        self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.EvalError)
-        self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.EvalError)
+        self._test_task(txt, {"memory": "-1"}, expected_exception=WDL.Error.RuntimeError)
+        self._test_task(txt, {"memory": "1Gaga"}, expected_exception=WDL.Error.RuntimeError)
+        self._test_task(txt, {"memory": "bogus"}, expected_exception=WDL.Error.RuntimeError)
 
     def test_runtime_memory_limit(self):
         txt = R"""
@@ -794,23 +889,89 @@ class TestTaskRunner(unittest.TestCase):
                 String memory
             }
             command <<<
-                cat /sys/fs/cgroup/memory/memory.limit_in_bytes
+                cat /sys/fs/cgroup/memory/memory.limit_in_bytes \
+                    || cat /sys/fs/cgroup/memory.max
             >>>
             output {
-                Int memory_limit_in_bytes = read_int(stdout())
+                String memory_limit_in_bytes = read_string(stdout())
             }
             runtime {
-                cpu: 1
+                cpu: 0.5
                 memory: "~{memory}"
             }
         }
         """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         outputs = self._test_task(txt, {"memory": "256MB"}, cfg=cfg)
-        self.assertGreater(outputs["memory_limit_in_bytes"], 300*1024*1024)
+        if outputs["memory_limit_in_bytes"] != "max":
+            self.assertGreater(int(outputs["memory_limit_in_bytes"]), 300*1024*1024)
         cfg.override({"task_runtime": {"memory_limit_multiplier": 0.9}})
         outputs = self._test_task(txt, {"memory": "256MB"}, cfg=cfg)
-        self.assertLess(outputs["memory_limit_in_bytes"], 300*1024*1024)
+        self.assertLess(int(outputs["memory_limit_in_bytes"]), 300*1024*1024)
+
+    def test_runtime_returnCodes(self):
+        txt = R"""
+        version 1.0
+        task limit {
+            input {
+                Int status
+            }
+            command <<<
+                echo Hi
+                exit ~{status}
+            >>>
+            output {
+                File out = stdout()
+            }
+            runtime {
+                returnCodes: 42
+            }
+        }
+        """
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        self._test_task(txt, {"status": 0}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"status": 42}, cfg=cfg)
+        txt = R"""
+        version 1.0
+        task limit {
+            input {
+                Int status
+            }
+            command <<<
+                echo Hi
+                exit ~{status}
+            >>>
+            output {
+                File out = stdout()
+            }
+            runtime {
+                returnCodes: [0,42]
+            }
+        }
+        """
+        self._test_task(txt, {"status": 0}, cfg=cfg)
+        self._test_task(txt, {"status": 42}, cfg=cfg)
+        self._test_task(txt, {"status": 41}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
+        txt = R"""
+        version 1.0
+        task limit {
+            input {
+                Int status
+            }
+            command <<<
+                echo Hi
+                exit ~{status}
+            >>>
+            output {
+                File out = stdout()
+            }
+            runtime {
+                returnCodes: "*"
+            }
+        }
+        """
+        self._test_task(txt, {"status": 0}, cfg=cfg)
+        self._test_task(txt, {"status": 42}, cfg=cfg)
 
     def test_input_files_rw(self):
         txt = R"""
@@ -840,6 +1001,11 @@ class TestTaskRunner(unittest.TestCase):
 
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"file_io": {"copy_input_files": True}})
+        outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]}, cfg=cfg)
+        self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"copy_input_files_for": ["clobber"]}})
         outputs = self._test_task(txt, {"files": [os.path.join(self._dir, "alyssa.txt"), os.path.join(self._dir, "ben.txt")]}, cfg=cfg)
         self.assertTrue(outputs["outfile"].endswith("alyssa2.txt"))
 
@@ -1064,6 +1230,53 @@ class TestTaskRunner(unittest.TestCase):
         except WDL.runtime.error.CommandFailed as exn:
             self.assertEqual(exn.exit_status, 42)
 
+    def test_runtime_privileged(self):
+        txt = R"""
+        version 1.0
+        task xxx {
+            input {
+                Boolean privileged
+            }
+            command {
+                dmesg > /dev/null
+            }
+            output {
+            }
+            runtime {
+                privileged: privileged
+            }
+        }
+        """
+        self._test_task(txt, {"privileged": False}, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"privileged": True}, expected_exception=WDL.runtime.CommandFailed)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"allow_privileged": True}})
+        self._test_task(txt, {"privileged": False}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"privileged": True}, cfg=cfg)
+
+    def test_mount_tmpdir(self):
+        txt = R"""
+        version 1.0
+        task XXX {
+            input {
+            }
+            command <<<
+                echo $TMPDIR > "${TMPDIR}/tmpdir.txt"
+                cp "${TMPDIR}/tmpdir.txt" tmpdir.txt
+            >>>
+            output {
+                String tmpdir = read_string("tmpdir.txt")
+            }
+        }
+        """
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"mount_tmpdir_for": ["xyz"]}})
+        outputs = self._test_task(txt, cfg=cfg)
+        self.assertEqual(outputs["tmpdir"], "")
+        outputs = self._test_task(txt.replace("XXX", "xyz"), cfg=cfg)
+        self.assertTrue(outputs["tmpdir"].startswith("/mnt/miniwdl"))
+
 
 class TestConfigLoader(unittest.TestCase):
     @classmethod
@@ -1078,7 +1291,7 @@ class TestConfigLoader(unittest.TestCase):
         self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
         self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), False)
 
-        self.assertEqual(cfg["scheduler"].get_int("call_concurrency"), 0)
+        self.assertEqual(cfg["scheduler"].get_int("task_concurrency"), 0)
 
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), overrides = {"file_io":{"copy_input_files": "true"}})
         self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
@@ -1106,12 +1319,19 @@ class TestConfigLoader(unittest.TestCase):
             """, file=tmp)
             tmp.flush()
             os.environ["MINIWDL_CFG"] = tmp.name
-            os.environ["MINIWDL__SCHEDULER__CALL_CONCURRENCY"] = "4"
+            os.environ["MINIWDL__SCHEDULER__TASK_CONCURRENCY"] = "4"
             os.environ["MINIWDL__BOGUS__OPTION"] = "42"
             cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
             cfg.override({"bogus": {"option2": "42"}})
-            self.assertEqual(cfg["scheduler"].get_int("call_concurrency"), 4)
+            self.assertEqual(cfg["scheduler"].get_int("task_concurrency"), 4)
             self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
             cfg.log_all()
             cfg.log_unused_options()
             self.assertTrue(os.path.isabs(cfg["file_io"]["expansion"]))
+
+    def test_plugin_defaults(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
+        cfg.plugin_defaults({"file_io": {"copy_input_files": True}, "x": {"y":"z"}})
+        self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
+        self.assertEqual(cfg.get("x","y"), "z")

@@ -1,4 +1,3 @@
-# pyre-strict
 from typing import Union, Dict, Any, Optional
 from ..Error import RuntimeError as _RuntimeError, SourcePosition
 from ..Tree import Task as _Task, Workflow as _Workflow
@@ -20,11 +19,26 @@ class CommandFailed(_RuntimeError):
     Path to a file containing the task's standard error
     """
 
-    def __init__(self, exit_status: int, stderr_file: str, message: str = "") -> None:
+    stdout_file: str
+    """
+    Path to a file containing the task's standard output
+    """
+
+    def __init__(
+        self,
+        exit_status: int,
+        stderr_file: str,
+        stdout_file: str,
+        message: str = "",
+        **kwargs,
+    ) -> None:
         oom_hint = ", a possible indication that it ran out of memory" if exit_status == 137 else ""
-        super().__init__(message or f"task command failed with exit status {exit_status}{oom_hint}")
+        super().__init__(
+            message or f"task command failed with exit status {exit_status}{oom_hint}", **kwargs
+        )
         self.exit_status = exit_status
         self.stderr_file = stderr_file
+        self.stdout_file = stdout_file
 
 
 class Terminated(_RuntimeError):
@@ -37,7 +51,8 @@ class Terminated(_RuntimeError):
     Termination warrants less logging because it was a secondary side-effect of a previous error
     """
 
-    def __init__(self, quiet: bool = False) -> None:
+    def __init__(self, quiet: bool = False, **kwargs) -> None:
+        super().__init__(**kwargs)
         self.quiet = quiet
         _statusbar.abort()
 
@@ -78,10 +93,11 @@ class RunFailed(_RuntimeError):
     run_id: str
     run_dir: str
 
-    def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str) -> None:
+    def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str, **kwargs) -> None:
         super().__init__(
             f"{'task' if isinstance(exe, _Task) else 'workflow'} {exe.name} "
-            f"({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed"
+            f"({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed",
+            **kwargs,
         )
         self.exe = exe
         self.run_id = run_id
@@ -89,7 +105,9 @@ class RunFailed(_RuntimeError):
         _statusbar.abort()
 
 
-def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[str, Any]:
+def error_json(
+    exn: BaseException, cause: Optional[Exception] = None, traceback: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Make a json-dumpable dict to write into error sentinel file
     """
@@ -99,7 +117,6 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
 
     info: Dict[str, Any] = {"error": exn.__class__.__name__}
     pos = None
-    from_pos = None
     if isinstance(exn, RunFailed):
         exe = getattr(exn, "exe")
         pos = getattr(exe, "pos")
@@ -107,14 +124,16 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
         info["run"] = getattr(exn, "run_id")
         info["dir"] = getattr(exn, "run_dir")
         # follow __cause__s to find the original triggering exception
-        from_exn = exn
+        from_exn: BaseException = exn
         from_run = None
         from_dir = dir
+        from_pos = pos
         while isinstance(from_exn, RunFailed):
+            from_pos = getattr(getattr(from_exn, "exe"), "pos", from_pos)
             from_dir = getattr(from_exn, "run_dir")
             from_run = getattr(from_exn, "run_id")
-            from_pos = getattr(from_exn, "pos", None) or getattr(getattr(from_exn, "exe"), "pos")
-            from_exn = cause or from_exn.__cause__
+            from_exn = cause or from_exn.__cause__ or from_exn
+            from_pos = getattr(from_exn, "pos", from_pos)
             cause = None
         if from_exn and from_exn is not exn:
             info["cause"] = error_json(from_exn)
@@ -124,6 +143,7 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
     elif isinstance(exn, CommandFailed):
         info["exit_status"] = getattr(exn, "exit_status")
         info["stderr_file"] = getattr(exn, "stderr_file")
+        info["stdout_file"] = getattr(exn, "stdout_file")
     elif str(exn):
         info["message"] = str(exn)
     if hasattr(exn, "job_id"):
@@ -131,4 +151,11 @@ def error_json(exn: BaseException, cause: Optional[Exception] = None) -> Dict[st
     pos = pos or getattr(exn, "pos", None)
     if isinstance(pos, SourcePosition):
         info["pos"] = pos_json(pos)
+    if isinstance(getattr(exn, "more_info", None), dict):
+        more_info = getattr(exn, "more_info")
+        for k in more_info:
+            if k not in info:
+                info[k] = more_info[k]
+    if traceback:
+        info["traceback"] = traceback.strip().splitlines()
     return info

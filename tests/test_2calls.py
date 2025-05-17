@@ -222,6 +222,17 @@ class TestCalls(unittest.TestCase):
             doc.typecheck()
         txt = tasks + r"""
         workflow contrived {
+            scatter (i in range(3)) {
+                call sum
+                call sum
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
             call sum
             call p as sum
         }
@@ -233,6 +244,17 @@ class TestCalls(unittest.TestCase):
         workflow contrived {
             call sum as foo
             call p as foo
+        }
+        """
+        doc = WDL.parse_document(txt)
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc.typecheck()
+        txt = tasks + r"""
+        workflow contrived {
+            scatter (i in range(3)) {
+                call sum as foo
+                call p as foo
+            }
         }
         """
         doc = WDL.parse_document(txt)
@@ -650,3 +672,51 @@ class TestCalls(unittest.TestCase):
         """)
         with self.assertRaises(WDL.Error.InvalidType):
             doc.typecheck()
+
+    def test_agc_hello(self):
+        txt = r"""
+        version 1.0
+        workflow hello_agc {
+            call hello {}
+        }
+        task hello {
+            command { echo "Hello Amazon Genomics CLI!" }
+            runtime {
+                docker: "ubuntu:latest"
+            }
+            output { String out = read_string( stdout() ) }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+        txt = r"""
+        version 1.0
+        workflow hello_agc {
+            call hello as foo {}
+        }
+        task hello {
+            command { echo "Hello Amazon Genomics CLI!" }
+            runtime {
+                docker: "ubuntu:latest"
+            }
+            output { String out = read_string( stdout() ) }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+
+    def test_input_colon(self):
+        # the shared 1.1/development grammar makes input: keyword optional, but it's still required
+        # in WDL 1.1.
+        w = """
+        workflow w {
+            call sum {
+                x = 1, y = 1
+            }
+        }
+        """
+        doc = WDL.parse_document("version development\n" + tsk + w)
+        doc.typecheck()
+        with self.assertRaises(WDL.Error.SyntaxError):
+            doc = WDL.parse_document("version 1.1\n" + tsk + w)

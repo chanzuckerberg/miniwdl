@@ -1,8 +1,8 @@
 # wdlviz
 
-In this lab, we'll develop a Python program using miniwdl's API to generate a [graphviz](https://www.graphviz.org/) visualization of a WDL workflow's internal dependency structure. We'll keep this example brief and barebones, while a more-elaborate version can be found [in the miniwdl repo](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/wdlviz.py).
+In this lab, we'll develop a Python program using miniwdl's API to generate a [graphviz](https://www.graphviz.org/) visualization of a WDL workflow's internal dependency structure. We'll keep this example barebones for educational purposes, while a more-complete version can be found [in its own project](https://github.com/miniwdl-ext/wdlviz).
 
-Begin by installing (i) graphviz using your OS package manager (e.g. `apt install graphviz`), and (ii) either `pip3 install miniwdl graphviz` or `conda install miniwdl graphviz` as you prefer.
+Begin by installing (i) graphviz using your OS package manager (e.g. `apt install graphviz`), and (ii) either `pip3 install miniwdl graphviz` or `conda install miniwdl python-graphviz` as you prefer.
 
 
 ## Loading the WDL document
@@ -252,7 +252,7 @@ if __name__ == "__main__":
 We can use this on any local WDL file with a workflow, e.g.
 
 ```bash
-$ wget https://raw.githubusercontent.com/gatk-workflows/gatk4-germline-snps-indels/master/joint-discovery-gatk4-local.wdl
+$ wget https://raw.githubusercontent.com/gatk-workflows/gatk4-germline-snps-indels/1.1.2/joint-discovery-gatk4-local.wdl
 $ python3 wdlviz.py joint-discovery-gatk4-local.wdl
 ```
 
@@ -260,4 +260,4 @@ which generates this interesting graphic:
 
 ![](wdlviz_ex2.png)
 
-A more-elaborate version of this barebones example can be found [in the miniwdl repo](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/wdlviz.py). Pull requests with feature and visual improvements are welcome!
+A more-complete version of this barebones example can be found [in its own project](https://github.com/miniwdl-ext/wdlviz). Pull requests with feature and visual improvements are welcome!

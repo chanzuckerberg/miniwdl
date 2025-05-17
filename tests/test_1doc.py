@@ -1,5 +1,4 @@
-import unittest, inspect, tempfile, os, pickle
-from typing import Optional
+import unittest, tempfile, os, pickle
 from .context import WDL
 
 class TestTasks(unittest.TestCase):
@@ -54,7 +53,7 @@ class TestTasks(unittest.TestCase):
         }
         """]
         for task_str in variants:
-            task = WDL.parse_tasks(task_str)[0]
+            task = WDL.parse_tasks(task_str, "1.0")[0]
             self.assertEqual(len(task.inputs), 1)
             self.assertEqual(str(task.inputs[0]), "String in")
 
@@ -93,7 +92,7 @@ class TestTasks(unittest.TestCase):
                     String in
                 }
                 command {
-                    echo "~{bogus}" | wc
+                    echo "${bogus}" | wc
                 }
             }
             """)[0].typecheck()
@@ -110,7 +109,7 @@ class TestTasks(unittest.TestCase):
                     String ans = "${bogus}"
                 }
             }
-            """)[0].typecheck()
+            """, "1.0")[0].typecheck()
         with self.assertRaises(WDL.Error.MultipleValidationErrors):
             WDL.parse_tasks("""
             task wc {
@@ -125,7 +124,7 @@ class TestTasks(unittest.TestCase):
                 output {
                 }
             }
-            """)[0].typecheck()
+            """, "1.0")[0].typecheck()
 
     def test_placeholders(self):
         task = WDL.parse_tasks("""
@@ -137,7 +136,7 @@ class TestTasks(unittest.TestCase):
                     echo "~{true='yes' false='no' b}"
                 >>>
             }
-            """)[0]
+            """, "1.0")[0]
         task.typecheck()
         stdlib = WDL.StdLib.Base("1.0")
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('b', WDL.Value.Boolean(True)), stdlib).value, 'yes')
@@ -171,7 +170,7 @@ class TestTasks(unittest.TestCase):
                         echo "~{true='yes' false='no' b}"
                     }
                 }
-                """)[0].typecheck()
+                """, "1.0")[0].typecheck()
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
@@ -180,7 +179,7 @@ class TestTasks(unittest.TestCase):
                         echo "~{true='yes' false='no' 42}"
                     }
                 }
-                """)[0].typecheck()
+                """, "1.0")[0].typecheck()
 
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
@@ -192,7 +191,7 @@ class TestTasks(unittest.TestCase):
                         echo "~{false='no' b}"
                     }
                 }
-                """)[0].typecheck()
+                """, "1.0")[0].typecheck()
 
         task = WDL.parse_tasks("""
             task wc {
@@ -203,7 +202,7 @@ class TestTasks(unittest.TestCase):
                     echo "~{sep=', ' s} baz"
                 >>>
             }
-            """)[0]
+            """, "1.0")[0]
         task.typecheck()
         foobar = WDL.Value.Array(WDL.Type.String(), [WDL.Value.String("foo"), WDL.Value.String("bar")])
         self.assertEqual(task.command.parts[1].eval(WDL.Env.Bindings().bind('s', foobar), stdlib).value, 'foo, bar')
@@ -219,7 +218,7 @@ class TestTasks(unittest.TestCase):
                     echo "~{s} baz"
                 >>>
             }
-            """)[0].typecheck()
+            """, "1.0")[0].typecheck()
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_tasks("""
             task wc {
@@ -230,7 +229,7 @@ class TestTasks(unittest.TestCase):
                     echo "~{sep=', ' s} baz"
                 >>>
             }
-            """)[0].typecheck()
+            """, "1.0")[0].typecheck()
 
         task = WDL.parse_tasks("""
             task wc {
@@ -281,6 +280,26 @@ class TestTasks(unittest.TestCase):
                 }
                 """)[0]
 
+    def test_issue571(self):
+        # regression test https://github.com/chanzuckerberg/miniwdl/issues/571
+        for version in ("1.0", "1.1", "development"):
+            task = WDL.parse_tasks("""
+                task echo {
+                    input {String name = "world"}
+                    command <<<
+                        echo hello, ~{name} >> out
+                        echo ">~{name}" >> out
+                        echo ">>~~{name}" >> out~
+                    ~~>>>
+                    output {String out = read_string("out")}
+                }
+            """, version=version)[0]
+            task.typecheck()
+            self.assertEqual(len(task.command.parts), 7, version)
+            self.assertIsInstance(task.command.parts[1], WDL.Expr.Placeholder, version)
+            self.assertIsInstance(task.command.parts[3], WDL.Expr.Placeholder, version)
+            self.assertIsInstance(task.command.parts[5], WDL.Expr.Placeholder, version)
+
     def test_meta(self):
         task = WDL.parse_tasks("""
         task wc {
@@ -306,7 +325,7 @@ class TestTasks(unittest.TestCase):
                 meta_key: 321
             }
         }
-        """)[0]
+        """, "1.0")[0]
         task.typecheck()
         self.assertIsInstance(task.parameter_meta['b']['help'], str)
         self.assertEqual(task.parameter_meta['b']['help'], "it's a boolean")
@@ -341,10 +360,30 @@ class TestTasks(unittest.TestCase):
                 cpu: 42
             }
         }
-        """)[0]
+        """, "1.0")[0]
         task.typecheck()
         self.assertIsInstance(task.meta['description'], str)
         self.assertEqual(task.meta['description'], "it's a task")
+
+        # regression test issue #708
+        task = WDL.parse_tasks(r"""
+        task foo {
+            parameter_meta {
+                bar: {
+                    suggestions: [1,2,3,],
+                    help: "bar",
+                    default: 1,
+                }
+            }
+            input {
+                Array[Int] bar = [1,2,3,]
+            }
+
+            command <<< >>>
+        }
+        """, "1.1")[0]
+        task.typecheck()
+        self.assertEqual([e.value for e in task.parameter_meta['bar']['suggestions']], [1, 2, 3])
 
     def test_compare_md5sums(self):
         txt = """
@@ -811,7 +850,7 @@ task count_lines {
         }
         """
         doc = WDL.parse_document(doc)
-        with self.assertRaises(WDL.Error.UnknownIdentifier):
+        with self.assertRaisesRegex(WDL.Error.UnknownIdentifier, " in namespace "):
             doc.typecheck()
 
         doc = r"""
@@ -969,6 +1008,14 @@ task count_lines {
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.IndeterminateType):
             doc.typecheck()
+
+        doc = r"""
+        workflow wf {
+            String s = "\uvwxyz"
+        }
+        """
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(doc)
 
     def test_task_forward_reference(self):
         doc = r"""
@@ -1543,6 +1590,26 @@ task count_lines {
         }
         """
         WDL.parse_document(doc).typecheck()
+
+    def test_issue548_comments_buffer(self):
+        # bug where the comments cache was not emptied after a SyntaxError
+        bad_doc = r"""
+        version development
+        
+        # comment 1
+        # comment 2
+        workflow a {
+        """
+        good_doc = r"""
+        version development
+
+        workflow a {}
+        """
+        # Previous to the fix, the comments in the bad doc were preserved, causing an
+        # assertion error when parsing the good doc.
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(bad_doc)
+        WDL.parse_document(good_doc).typecheck()
 
 class TestCycleDetection(unittest.TestCase):
     def test_task(self):
@@ -2269,10 +2336,12 @@ class TestStruct(unittest.TestCase):
         doc = WDL.parse_document(doc)
         with self.assertRaises(WDL.Error.MultipleValidationErrors) as ctx:
             doc.typecheck()
-        self.assertEqual(len(ctx.exception.exceptions), 4)
-        for i in range(4):
+        self.assertEqual(len(ctx.exception.exceptions), 3)
+        for i in range(3):
             self.assertTrue(isinstance(ctx.exception.exceptions[i], WDL.Error.StaticTypeMismatch))
-        self.assertEqual(str(ctx.exception.exceptions[2]), "Expected Person instead of object(age : Boolean, name : String)")
+        self.assertEqual(str(ctx.exception.exceptions[1]),
+            "Expected Person instead of object(age : Boolean, name : String);"
+            " type mismatch using Boolean to initialize Int age member of struct Person")
 
         doc = r"""
         version 1.0
@@ -2280,7 +2349,7 @@ class TestStruct(unittest.TestCase):
         workflow wf {
             Array[Person] ppl = [
                 object { name: 'alyssa', friends: [2,4] },
-                object { "name": "ben", 'friends': [8,16]},
+                object { "name": "ben", 'friends': [8,16], id: 42},
                 object { 'name': "cy", "friends": [32,64] }
             ]
         }
@@ -2288,6 +2357,7 @@ class TestStruct(unittest.TestCase):
         struct Person {
             String name
             Array[Int] friends
+            Int? id
         }
         """
         doc = WDL.parse_document(doc)

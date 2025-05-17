@@ -68,8 +68,8 @@ done
 export MINIWDL__DOWNLOAD_CACHE__PUT=1
 export MINIWDL__DOWNLOAD_CACHE__GET=1
 export MINIWDL__DOWNLOAD_CACHE__DIR="${DN}/cache"
-export MINIWDL__DOWNLOAD_CACHE__ALLOW_PATTERNS='["*"]'
-export MINIWDL__DOWNLOAD_CACHE__DENY_PATTERNS='[]'
+export MINIWDL__DOWNLOAD_CACHE__ENABLE_PATTERNS='["*"]'
+export MINIWDL__DOWNLOAD_CACHE__DISABLE_PATTERNS='[]'
 for i in $(seq "$TEST_ITERATIONS"); do
     # pick two random URIs
     shuf uris.txt | head -n 2 | tee uris.random2.txt
@@ -80,7 +80,7 @@ for i in $(seq "$TEST_ITERATIONS"); do
     is "$?" "0" "run $i"
 
     # run cache cleaner with 1GB target
-    ls -lhR --time=atime "${DN}/cache/files/https/1000genomes.s3.amazonaws.com/release_20130502/" || true
+    ls -lhR --time=atime "${DN}/cache/files/https/1000genomes.s3.amazonaws.com/_release_20130502/" || true
     "${SOURCE_DIR}/examples/clean_download_cache.sh" "${DN}/cache" 1
     is "$?" "0" "clean $i"
 done

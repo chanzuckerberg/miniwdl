@@ -29,26 +29,26 @@ class Section:
         self._parent = parent
         self._section = section
 
-    def get(self, key: str) -> str:
-        return self._parent.get(self._section, key)
+    def get(self, key: str, default: Optional[str] = None) -> str:
+        return self._parent.get(self._section, key, default)
 
     def __getitem__(self, key: str) -> str:
         return self.get(key)
 
-    def get_int(self, key: str) -> int:
-        return self._parent.get_int(self._section, key)
+    def get_int(self, key: str, default: Optional[int] = None) -> int:
+        return self._parent.get_int(self._section, key, default)
 
-    def get_float(self, key: str) -> float:
-        return self._parent.get_float(self._section, key)
+    def get_float(self, key: str, default: Optional[float] = None) -> float:
+        return self._parent.get_float(self._section, key, default)
 
-    def get_bool(self, key: str) -> bool:
-        return self._parent.get_bool(self._section, key)
+    def get_bool(self, key: str, default: Optional[bool] = None) -> bool:
+        return self._parent.get_bool(self._section, key, default)
 
-    def get_dict(self, key: str) -> Dict[str, Any]:
-        return self._parent.get_dict(self._section, key)
+    def get_dict(self, key: str, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._parent.get_dict(self._section, key, default)
 
-    def get_list(self, key: str) -> List[Any]:
-        return self._parent.get_list(self._section, key)
+    def get_list(self, key: str, default: Optional[List[Any]] = None) -> List[Any]:
+        return self._parent.get_list(self._section, key, default)
 
 
 class Loader:
@@ -90,11 +90,9 @@ class Loader:
         self._used = set()
         self._used_env = set(["MINIWDL_CFG"])
 
-        common_kws = {}
-
-        self._defaults = configparser.ConfigParser(**common_kws)
-        self._options = configparser.ConfigParser(**common_kws)
-        self._overrides = configparser.ConfigParser(**common_kws)
+        self._defaults = configparser.ConfigParser()
+        self._options = configparser.ConfigParser()
+        self._overrides = configparser.ConfigParser()
 
         # load default.cfg
         default_cfg = os.path.join(os.path.dirname(__file__), "config_templates", "default.cfg")
@@ -126,7 +124,7 @@ class Loader:
             self.override(overrides)
 
     def override(self, options: Dict[str, Dict[str, Any]]) -> None:
-        options2 = {}
+        options2: Dict[str, Dict[str, Any]] = {}
         for section in options:
             if options[section]:
                 options2[section] = {}
@@ -140,15 +138,42 @@ class Loader:
             self._logger.debug(_("applying configuration overrides", **options2))
             self._overrides.read_dict(options2)
 
-    def get(self, section: str, key: str) -> str:
+    def plugin_defaults(self, options: Dict[str, Dict[str, Any]]) -> None:
+        """
+        Last-priority default settings; typically added by plugins (whose options won't be
+        represented in default.cfg).
+        (DEPRECATED)
+        """
+        options2: Dict[str, Dict[str, Any]] = {}
+        for section in options:
+            for key in options[section]:
+                if not self._defaults.has_option(section, key):
+                    options2section = options2.setdefault(section, {})
+                    v = options[section][key]
+                    if isinstance(v, (list, dict, bool)) or v is None:
+                        options2section[key] = json.dumps(v)
+                    else:
+                        options2section[key] = str(v)
+                else:
+                    self._logger.warning(
+                        _(
+                            "ignored plugin's attempt to change existing default configuration option",
+                            section=section,
+                            option=key,
+                        )
+                    )
+        if options2:
+            self._logger.debug(_("applying plugin configuration defaults", **options2))
+            self._defaults.read_dict(options2)
+
+    def get(self, section: str, key: str, default: Optional[str] = None) -> str:
         section = str(section).lower()
         key = str(key).lower()
-        common_kws = {}
         ans = None
 
         # first check overrides
         if self._overrides.has_option(section, key):
-            ans = self._overrides.get(section, key, **common_kws)
+            ans = self._overrides.get(section, key)
         else:
             # ...then environment
             env_key = _env_var_name(section, key)
@@ -157,18 +182,24 @@ class Loader:
                 self._used_env.add(env_key)
             # ...then the config file
             elif self._options.has_option(section, key):
-                ans = self._options.get(section, key, **common_kws)
+                ans = self._options.get(section, key)
             # ...then the default config
             elif self._defaults.has_option(section, key):
-                ans = self._defaults.get(section, key, **common_kws)
+                ans = self._defaults.get(section, key)
 
         if ans is None:
+            if default is not None:
+                return default
             if not self.has_section(section):
                 raise ConfigMissing(f"missing config section [{section}]")
             raise ConfigMissing(f"missing config option [{section}] {key}")
 
         self._used.add((section, key))
-        return _expand_env_var(_strip(ans))
+        ans = _strip(ans)
+        if (section, key) not in [("task_runtime", "placeholder_regex")]:
+            # expand environment variables unless in a hard-coded list of exceptions
+            ans = _expand_env_var(ans)
+        return ans
 
     def has_section(self, section: str) -> bool:
         return (
@@ -187,11 +218,23 @@ class Loader:
     def __getitem__(self, section: str) -> Section:
         return Section(self, section)
 
-    def _parse(self, section: str, key: str, ty: str, parse: Callable[[str], _T]) -> _T:
-        ans = self.get(section, key)
+    def _parse(
+        self,
+        section: str,
+        key: str,
+        ty: str,
+        parse: Callable[[str], _T],
+        default: Optional[_T] = None,
+    ) -> _T:
+        try:
+            ans = self.get(section, key)
+        except ConfigMissing:
+            if default is not None:
+                return default
+            raise
         try:
             return parse(ans)
-        except:
+        except Exception:
             self._logger.debug(
                 _(
                     "failed to parse configuration option",
@@ -203,20 +246,22 @@ class Loader:
             )
             raise ValueError(f"configuration option [{section}] {key} should be {ty}")
 
-    def get_int(self, section: str, key: str) -> int:
-        return self._parse(section, key, "int", int)
+    def get_int(self, section: str, key: str, default: Optional[int] = None) -> int:
+        return self._parse(section, key, "int", int, default)
 
-    def get_float(self, section: str, key: str) -> float:
-        return self._parse(section, key, "float", float)
+    def get_float(self, section: str, key: str, default: Optional[float] = None) -> float:
+        return self._parse(section, key, "float", float, default)
 
-    def get_bool(self, section: str, key: str) -> bool:
-        return self._parse(section, key, "bool", _parse_bool)
+    def get_bool(self, section: str, key: str, default: Optional[bool] = None) -> bool:
+        return self._parse(section, key, "bool", _parse_bool, default)
 
-    def get_dict(self, section: str, key: str) -> Dict[str, Any]:
-        return self._parse(section, key, "JSON dict", _parse_dict)
+    def get_dict(
+        self, section: str, key: str, default: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        return self._parse(section, key, "JSON dict", _parse_dict, default)
 
-    def get_list(self, section: str, key: str) -> List[Any]:
-        return self._parse(section, key, "JSON list", _parse_list)
+    def get_list(self, section: str, key: str, default: Optional[List[Any]] = None) -> List[Any]:
+        return self._parse(section, key, "JSON list", _parse_list, default)
 
     def get_all(self, defaults=True):
         options = set()
@@ -228,9 +273,13 @@ class Loader:
             options |= set((section, key) for key in self._defaults.options(section))
 
         all = {}
-        for (section, key) in options:
+        for section, key in options:
             value = self.get(section, key)
-            if defaults or value != _expand_env_var(_strip(self._defaults.get(section, key))):
+            default_value = None
+            if not defaults and self._defaults.has_option(section, key):
+                default_value = self._defaults.get(section, key)
+                default_value = _expand_env_var(_strip(default_value))
+            if defaults or value != default_value:
                 all[section] = all.get(section, dict())
                 all[section][key] = value
 
@@ -267,16 +316,12 @@ class Loader:
             self._logger.warning(_("unused environment", variables=list(ev_unused)))
 
 
-def _strip(value):
+def _strip(value: str) -> str:
     ans = value
     if ans:
         ans = value.strip()
         if len(ans) >= 2 and (
-            (
-                ans.startswith("'")
-                and ans.endswith("'")
-                or (ans.startswith('"') and ans.endswith('"'))
-            )
+            ans.startswith("'") and ans.endswith("'") or (ans.startswith('"') and ans.endswith('"'))
         ):
             ans = ans[1:-1]
     return ans
@@ -314,12 +359,14 @@ def _parse_dict(v: str) -> Dict[str, Any]:
 
 
 def _parse_list(v: str) -> List[Any]:
+    if not v.startswith("["):
+        return [v]
     ans = json.loads(v)
     assert isinstance(ans, list)
     return ans
 
 
-def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
+def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":  # type: ignore # noqa: F821
     import importlib_metadata  # delayed heavy import
 
     return {
@@ -340,7 +387,12 @@ def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
                 group="miniwdl.plugin.directory_download",
                 name="s3",
                 value="WDL.runtime.download:awscli_directory_downloader",
-            )
+            ),
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.directory_download",
+                name="gs",
+                value="WDL.runtime.download:gsutil_directory_downloader",
+            ),
         ],
         "task": [],
         "workflow": [],
@@ -348,8 +400,23 @@ def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":
             importlib_metadata.EntryPoint(
                 group="miniwdl.plugin.container_backend",
                 name="docker_swarm",
-                value="WDL.runtime.task_container:SwarmContainer",
-            )
+                value="WDL.runtime.backend.docker_swarm:SwarmContainer",
+            ),
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.container_backend",
+                name="singularity",
+                value="WDL.runtime.backend.singularity:SingularityContainer",
+            ),
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.container_backend",
+                name="podman",
+                value="WDL.runtime.backend.podman:PodmanContainer",
+            ),
+            importlib_metadata.EntryPoint(
+                group="miniwdl.plugin.container_backend",
+                name="udocker",
+                value="WDL.runtime.backend.udocker:UdockerContainer",
+            ),
         ],
         "cache_backend": [
             importlib_metadata.EntryPoint(
@@ -370,7 +437,7 @@ def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
     enable_patterns = cfg["plugins"].get_list("enable_patterns")
     disable_patterns = cfg["plugins"].get_list("disable_patterns")
     for plugin in defaults[group] + list(
-        importlib_metadata.entry_points().get(f"miniwdl.plugin.{group}", [])
+        importlib_metadata.entry_points(group=f"miniwdl.plugin.{group}")
     ):
         enabled = next(
             (pat for pat in enable_patterns if fnmatchcase(plugin.value, pat)), False

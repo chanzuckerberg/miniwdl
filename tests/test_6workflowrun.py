@@ -4,7 +4,6 @@ import tempfile
 import os
 import time
 import sys
-import docker
 from .context import WDL
 
 class TestWorkflowRunner(unittest.TestCase):
@@ -232,6 +231,44 @@ class TestWorkflowRunner(unittest.TestCase):
             {"left": 3, "right": 0},
             {"left": 3, "right": 1}
         ])
+
+    def test_scatter_tags(self):
+        outputs = self._test_workflow("""
+        version 1.0
+
+        workflow scatter_tags {
+            input {
+                Array[String] firsts = ["Alyssa P.", "Ben"]
+                Array[String] lasts = ["Hacker", "Bit_diddle012345", "Bit_diddle0123456"]
+            }
+            scatter (first in firsts) {
+                scatter (last in lasts) {
+                    call hello {
+                        input:
+                        who = "~{first} ~{last}"
+                    }
+                }
+            }
+            output {
+                Array[File] messages = flatten(hello.message)
+            }
+        }
+
+        task hello {
+            input {
+                String who
+            }
+            command {
+                echo "Hello, ~{who}!" > message.txt
+            }
+            output {
+                File message = "message.txt"
+            }
+        }
+        """)
+        for tag in ("-0-AlyssaP-0-Hacker/", "-0-AlyssaP-1-Bit_diddle012345/", "-0-AlyssaP-2-it_diddle0123456/",
+                    "-1-Ben-0-Hacker/", "-1-Ben-1-Bit_diddle012345/", "-1-Ben-2-it_diddle0123456/"):
+            self.assertTrue(next(True for fn in outputs["messages"] if tag in os.path.realpath(fn)))
 
     def test_ifs(self):
         outputs = self._test_workflow("""
@@ -632,6 +669,20 @@ class TestWorkflowRunner(unittest.TestCase):
         workflow hacker9000 {
             input {
             }
+            String half1 = "/etc/"
+            String half2 = "passwd"
+            output {
+                File your_passwords = half1 + half2
+            }
+        }
+        """, expected_exception=WDL.Error.InputError)
+        self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
+
+        exn = self._test_workflow("""
+        version 1.0
+        workflow hacker9000 {
+            input {
+            }
             File your_passwords = "/etc/passwd"
             call tweet_file { input: file = your_passwords }
         }
@@ -644,7 +695,7 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.InputError)
-        self.assertTrue("inputs use unknown file" in str(exn))
+        self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
 
         exn = self._test_workflow("""
         version 1.0
@@ -678,7 +729,7 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.InputError)
-        self.assertTrue("inputs use unknown file" in str(exn))
+        self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
 
         # positive control
         with open(os.path.join(self._dir, "allowed.txt"), "w") as outfile:
@@ -727,6 +778,49 @@ class TestWorkflowRunner(unittest.TestCase):
         """, inputs={"box": { "str": [os.path.join(self._dir, "allowed.txt")] }})
         self.assertEqual(outputs["tweets"], ["yo", "Hello, world!"])
 
+        with tempfile.NamedTemporaryFile("w") as tmp:
+            print("foobar", file=tmp)
+            tmp.flush()
+
+            hacker9000 = """
+            version 1.0
+            workflow hacker9000 {
+                input {
+                }
+                File your_passwords = "XXX"
+                call tweet_file { input: file = your_passwords }
+                output {
+                    String tweet = tweet_file.tweet
+                }
+            }
+            task tweet_file {
+                input {
+                    File file
+                }
+                command {
+                    cat ~{file}
+                }
+                output {
+                    String tweet = read_string(stdout())
+                }
+            }
+            """
+
+            cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+            cfg.override({"file_io": {"allow_any_input": "true"}})
+            outp = self._test_workflow(hacker9000.replace("XXX", tmp.name), cfg=cfg)
+            self.assertEqual("foobar", outp["tweet"].strip())
+
+            exn = self._test_workflow(hacker9000.replace("XXX", "/nonexistentPath999"),
+                                      cfg=cfg, expected_exception=WDL.Error.InputError)
+            self.assertTrue("uses nonexistent" in str(exn))
+
+            cfg.override({"file_io": {"root": "/home"}})
+            exn = self._test_workflow(hacker9000.replace("XXX", tmp.name),
+                                      cfg=cfg, expected_exception=WDL.Error.InputError)
+            self.assertTrue("must reside within" in str(exn))
+
+
     def test_stdlib_io(self):
         with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
             outfile.write("Alyssa\n")
@@ -757,7 +851,7 @@ class TestWorkflowRunner(unittest.TestCase):
             Array[String] your_passwords = read_lines("/etc/passwd")
         }
         """, expected_exception=WDL.Error.EvalError)
-        self.assertTrue("attempted read from" in str(exn))
+        self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
 
         outputs = self._test_workflow("""
             version 1.0
@@ -838,7 +932,7 @@ class TestWorkflowRunner(unittest.TestCase):
             }
 
             runtime {
-                docker: "quay.io/vgteam/vg:v1.19.0"
+                docker: "quay.io/vgteam/vg:v1.57.0"
             }
         }
 
@@ -1018,6 +1112,7 @@ class TestWorkflowRunner(unittest.TestCase):
             output {
                 Int time = read_int(stdout())
                 File stdout_txt = stdout()
+                File iwuzhere = glob("iwuz*")[0]
             }
             runtime {
                 maxRetries: 99
@@ -1031,6 +1126,9 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertTrue(os.path.isfile(outputs["stdout_txt"]))
         self.assertTrue(outputs["stdout_txt"].endswith(".txt"))
         self.assertFalse(outputs["stdout_txt"].endswith("stdout.txt"))
+        with open(outputs["stdout_txt"]) as stdout_txt:
+            stdout_lines = stdout_txt.read().strip().split("\n")
+            self.assertEqual(len(stdout_lines), 1)
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"file_io": {"delete_work": "failure"}, "task_runtime": {"_mock_interruptions": 2}})
         outputs = self._test_workflow(txt, cfg=cfg)

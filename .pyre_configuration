@@ -1,9 +1,0 @@
-{
-  "source_directories": [
-    "WDL"
-  ],
-  "search_path": [
-    "stubs"
-  ],
-  "workers": 4
-}

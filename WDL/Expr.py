@@ -11,10 +11,16 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 
 .. inheritance-diagram:: WDL.Expr
 """
+
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Tuple, Union, Iterable
+from typing import List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
+import codecs
+import regex
 from .Error import SourcePosition, SourceNode
-from . import Type, Value, Env, Error, StdLib
+from . import Type, Value, Env, Error, StdLib, Any
+
+if TYPE_CHECKING:
+    from . import Tree
 
 
 class Base(SourceNode, ABC):
@@ -72,9 +78,11 @@ class Base(SourceNode, ABC):
             for child in self.children:
                 assert isinstance(child, Base)
                 errors.try1(
-                    lambda child=child: child.infer_type(
-                        type_env, stdlib, check_quant, struct_types
-                    )
+                    (
+                        lambda child: lambda: child.infer_type(
+                            type_env, stdlib, check_quant, struct_types
+                        )
+                    )(child)
                 )
         # invoke derived-class logic. we pass check_quant, stdlib, and struct_types hackily through
         # instance variables since only some subclasses use them.
@@ -98,8 +106,12 @@ class Base(SourceNode, ABC):
         :raise WDL.Error.StaticTypeMismatch:
         :return: `self`
         """
-        if not self.type.coerces(expected, self._check_quant):
-            raise Error.StaticTypeMismatch(self, expected, self.type)
+        try:
+            self.type.check(expected, self._check_quant)
+        except TypeError as exn:
+            raise Error.StaticTypeMismatch(
+                self, expected, self.type, exn.args[0] if exn.args else ""
+            )
         return self
 
     @abstractmethod
@@ -108,14 +120,14 @@ class Base(SourceNode, ABC):
         # exceptions raised
         pass
 
-    def eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+    def eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base, **kwargs) -> Value.Base:
         """
         Evaluate the expression in the given environment
 
         :param stdlib: a context-specific standard function library implementation
         """
         try:
-            ans = self._eval(env, stdlib)
+            ans = self._eval(env, stdlib, **kwargs)
             ans.expr = self
             return ans
         except Error.RuntimeError:
@@ -130,7 +142,7 @@ class Base(SourceNode, ABC):
         result can be an instance of ``WDL.Value.Null`` which is distinct from None.
         """
         if isinstance(self, (Boolean, Int, Float)):
-            return self._eval(Env.Bindings(), None)  # pyre-fixme
+            return self._eval(Env.Bindings(), None)  # type: ignore
         return None
 
 
@@ -157,7 +169,7 @@ class Boolean(Base):
         return Type.Boolean()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Boolean:
-        ""
+        """"""
         return Value.Boolean(self.value)
 
 
@@ -184,7 +196,7 @@ class Int(Base):
         return Type.Int()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Int:
-        ""
+        """"""
         return Value.Int(self.value)
 
 
@@ -214,7 +226,7 @@ class Float(Base):
         return Type.Float()
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Float:
-        ""
+        """"""
         return Value.Float(self.value)
 
 
@@ -241,7 +253,7 @@ class Null(Base):
         return Type.Any(null=True)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Null:
-        ""
+        """"""
         return Value.Null()
 
 
@@ -272,6 +284,7 @@ class Placeholder(Base):
             if isinstance(ch, Apply) and ch.function_name == "_add":
                 ch.function_name = "_interpolation_add"
             for ch2 in ch.children:
+                assert isinstance(ch2, Base)
                 rewrite_adds(ch2)
 
         rewrite_adds(self.expr)
@@ -319,8 +332,8 @@ class Placeholder(Base):
                 )
         return Type.String()
 
-    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
-        ""
+    def _eval_impl(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
+        """"""
         v = self.expr.eval(env, stdlib)
         if isinstance(v, Value.Null):
             if "default" in self.options:
@@ -332,11 +345,20 @@ class Placeholder(Base):
             return Value.String(
                 self.options["sep"].join(item.coerce(Type.String()).value for item in v.value)
             )
-        if v == Value.Boolean(True) and "true" in self.options:
+        if isinstance(v, Value.Boolean) and v.value and "true" in self.options:
             return Value.String(self.options["true"])
-        if v == Value.Boolean(False) and "false" in self.options:
+        if isinstance(v, Value.Boolean) and not v.value and "false" in self.options:
             return Value.String(self.options["false"])
         return Value.String(str(v))
+
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
+        ans = self._eval_impl(env, stdlib)
+        placeholder_regex: Optional[regex.Pattern] = getattr(stdlib, "_placeholder_regex", None)
+        if placeholder_regex and not placeholder_regex.fullmatch(ans.value):
+            raise Error.InputError(
+                "Task command placeholder value forbidden by configuration [task_runtime] placeholder_regex"
+            )
+        return ans
 
 
 class String(Base):
@@ -346,21 +368,10 @@ class String(Base):
     """
     :type: List[Union[str,WDL.Expr.Placeholder]]
 
-    The parts list begins and ends with matching single- or double- quote marks. Between these is
-    a sequence of literal strings and/or interleaved placeholder expressions. Escape sequences in
-    the literals will NOT have been decoded (although the parser will have checked they're valid).
-    Strings arising from task commands leave escape sequences to be interpreted by the shell in the
-    task container. Other string literals have their escape sequences interpreted upon evaluation
-    to string values.
-    """
-
-    command: bool
-    """
-    :type: bool
-
-    True if this expression is a task command template, as opposed to a string expression anywhere
-    else. Controls whether backslash escape sequences are evaluated or (for commands) passed
-    through for shell interpretation.
+    The parts list begins and ends with the original delimiters (quote marks, braces, or triple
+    angle brackets). Between these is a sequence of literal strings and/or interleaved placeholder
+    expressions. Escape sequences in the literals are NOT decoded until the string literal is
+    evaluated (although the parser will have checked they're valid).
     """
 
     def __init__(
@@ -368,6 +379,8 @@ class String(Base):
     ) -> None:
         super().__init__(pos)
         self.parts = parts
+        # self.command: legacy attribute predating the TaskCommand subclass
+        assert not command or isinstance(self, TaskCommand)
         self.command = command
 
     def __str__(self):
@@ -388,34 +401,165 @@ class String(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         return Type.String()
 
-    def typecheck(self, expected: Optional[Type.Base]) -> Base:
-        ""
-        return super().typecheck(expected)  # pyre-ignore
+    def typecheck(self, expected: Type.Base) -> Base:
+        """"""
+        return super().typecheck(expected)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
-        ""
-        ans = []
-        for part in self.parts:
-            if isinstance(part, Placeholder):
-                # evaluate interpolated expression & stringify
-                ans.append(part.eval(env, stdlib).value)
-            elif isinstance(part, str):
-                if self.command:
-                    ans.append(part)
-                else:
-                    from ._parser import decode_escapes  # avoiding circular import
-
-                    ans.append(decode_escapes(self.pos, part))
-            else:
-                assert False
-        # concatenate the stringified parts and trim the surrounding quotes
-        return Value.String("".join(ans)[1:-1])
+        """"""
+        # eval placeholders & decode escape sequences
+        parts = [
+            part.eval(env, stdlib).value
+            if isinstance(part, Placeholder)
+            else String._decode_escapes(self.pos, part)
+            for part in self.parts
+        ]
+        # concatenate the stringified parts and trim the surrounding delimiters
+        assert len(parts) >= 2 and parts[0] in ("'", '"') and parts[-1] == parts[0]
+        return Value.String("".join(parts)[1:-1])
 
     @property
     def literal(self) -> Optional[Value.Base]:
         if next((p for p in self.parts if not isinstance(p, str)), None):
             return None
-        return self._eval(Env.Bindings(), None)  # pyre-fixme
+        return self._eval(Env.Bindings(), None)  # type: ignore
+
+    _ASCII_PARTS_RE = regex.compile(r"[\x01-\x7f]+", regex.UNICODE)
+
+    @staticmethod
+    def _decode_escapes(pos: SourcePosition, s: str) -> str:
+        """"""
+        # Helper: decode backslash-escaped sequences in a str that may also contain unescaped,
+        # non-ASCII unicode characters. codecs.decode gets tripped up by the latter, so we use
+        # ASCII_PARTS_RE to apply it only to the ASCII parts of the string.
+        # more info: https://stackoverflow.com/a/24519338/13393076
+
+        # FIXME (issue #661): reject unicode-escape sequences that aren't allowed by the WDL spec
+        try:
+            return String._ASCII_PARTS_RE.sub(
+                lambda match: codecs.decode(match.group(0), "unicode-escape"), s
+            )
+        except (SyntaxError, ValueError, UnicodeError):
+            raise Error._BadCharacterEncoding(pos)
+
+    @staticmethod
+    def _dedent(parts: List[Any]) -> List[Any]:
+        """"""
+        # Helper for dedenting task commands and multi-line strings: given a list of parts (strs or
+        # placeholders [anything but str]), remove common leading whitespace from non-blank lines,
+        # passing placeholders through.
+
+        # Detect common leading whitespace on the non-blank lines. For this purpose, use a
+        # pseudo-string with dummy "~{}" substituted for placeholders, which is simpler than tracking
+        # how newlines intersperse with the placeholders.
+        common_ws = None
+        pseudo = "".join((part if isinstance(part, str) else "~{}") for part in parts)
+        for line in pseudo.split("\n"):
+            line_ws = len(line) - len(line.lstrip())
+            if line_ws < len(line):
+                if common_ws is not None:
+                    common_ws = min(line_ws, common_ws)
+                else:
+                    common_ws = line_ws
+        # Remove the common leading whitespace, passing through placeholders (which don't
+        # necessarily break the line they start on).
+        if common_ws in (None, 0):
+            return [part for part in parts]
+        parts2 = []
+        at_new_line = True
+        for part in parts:
+            if not isinstance(part, str):  # placeholder
+                at_new_line = False
+                parts2.append(part)
+            else:
+                lines2 = []
+                for line in part.split("\n"):
+                    if at_new_line:
+                        assert not line[:common_ws].strip()
+                        lines2.append(line[common_ws:])
+                    else:
+                        lines2.append(line)
+                    at_new_line = True
+                parts2.append("\n".join(lines2))
+                at_new_line = parts2[-1].endswith("\n")
+        return parts2
+
+
+class TaskCommand(String):
+    """
+    Specialization of ``String`` for task commands, with slightly different evaluation rules:
+    common leading whitespace is removed (dedentation) and escape sequences are passed through for
+    shell interpretation. Also, for historical reasons, the ``parts`` does not include the
+    beginning & ending delimiters.
+    """
+
+    def __init__(self, pos: SourcePosition, parts: List[Union[str, Placeholder]]) -> None:
+        super().__init__(pos, parts, command=True)
+
+    def _eval(
+        self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base, dedent: bool = True
+    ) -> Value.String:
+        """"""
+        # in contrast to Expr.String._eval:
+        # 1. dedents
+        # 2. doesn't decode escape sequences
+        # 3. doesn't assume the first and last parts are delimiters
+        return Value.String(
+            "".join(
+                part.eval(env, stdlib).value if isinstance(part, Placeholder) else part
+                for part in (String._dedent(self.parts) if dedent else self.parts)
+            )
+        )
+
+
+class MultiLineString(String):
+    """
+    Specialization of ``String`` for WDL 1.2 multi-line string literals, with special evaluation
+    rules: trim whitespace following the ``<<<`` and preceding the ``>>>`` delimiters and dedent
+    the remaining non-blank lines, while allowing newlines to be escaped.
+    """
+
+    def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
+        """"""
+        # From each str part, remove escaped newlines and any whitespace following them. Escaped
+        # newlines are preceded by an odd number of backslashes.
+        parts: List[Union[str, Placeholder]] = []
+        for part in self.parts:
+            if isinstance(part, str):
+                part_lines = part.split("\n")
+                for j in range(len(part_lines) - 1):
+                    part_line = part_lines[j]
+                    if (len(part_line) - len(part_line.rstrip("\\"))) % 2 == 1:
+                        part_lines[j] = part_line[:-1]
+                        if j < len(part_lines) - 1:
+                            part_lines[j + 1] = part_lines[j + 1].lstrip(" \t")
+                    else:
+                        part_lines[j] += "\n"
+                parts.append("".join(part_lines))
+            else:
+                parts.append(part)
+
+        # Trim whitespace from the left of the first line and the right of the last line (including
+        # the first/last newline, if any).
+        assert parts[0] == "<<<" and parts[-1] == ">>>"
+        if len(parts) > 2 and isinstance(parts[1], str):
+            parts[1] = parts[1].lstrip(" \t")
+            if parts[1] and parts[1][0] == "\n":
+                parts[1] = parts[1][1:]
+        if len(parts) > 2 and isinstance(parts[-2], str):
+            parts[-2] = parts[-2].rstrip(" \t")
+            if parts[-2] and parts[-2][-1] == "\n":
+                parts[-2] = parts[-2][:-1]
+
+        # dedent (without delimiters), eval placeholders, decode escape sequences, concatenate
+        return Value.String(
+            "".join(
+                part.eval(env, stdlib).value
+                if isinstance(part, Placeholder)
+                else String._decode_escapes(self.pos, part)
+                for part in String._dedent(parts[1:-1])
+            )
+        )
 
 
 class Array(Base):
@@ -448,6 +592,12 @@ class Array(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if not self.items:
             return Type.Array(Type.Any())
+        if any((isinstance(item.type, Type.Any) and not item.type.optional) for item in self.items):
+            # an item is read_json() or something like that
+            return Type.Array(Type.Any(), nonempty=True)
+        if all((isinstance(item.type, Type.Any) for item in self.items)):
+            # all items are literally None...
+            return Type.Array(Type.Any(null=True), nonempty=True)
         item_type = Type.unify(
             [item.type for item in self.items], check_quant=self._check_quant, force_string=True
         )
@@ -455,15 +605,15 @@ class Array(Base):
             raise Error.IndeterminateType(self, "unable to unify array item types")
         return Type.Array(item_type, optional=False, nonempty=True)
 
-    def typecheck(self, expected: Optional[Type.Base]) -> Base:
-        ""
+    def typecheck(self, expected: Type.Base) -> Base:
+        """"""
         if not self.items and isinstance(expected, Type.Array):
             # the literal empty array satisfies any array type
             return self
-        return super().typecheck(expected)  # pyre-ignore
+        return super().typecheck(expected)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Array:
-        ""
+        """"""
         assert isinstance(self.type, Type.Array)
         return Value.Array(
             self.type.item_type,
@@ -518,7 +668,7 @@ class Pair(Base):
         return Type.Pair(self.left.type, self.right.type)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
         assert isinstance(self.type, Type.Pair)
         lv = self.left.eval(env, stdlib)
         rv = self.right.eval(env, stdlib)
@@ -573,7 +723,7 @@ class Map(Base):
         )
         if isinstance(vty, Type.Any):
             raise Error.IndeterminateType(self, "unable to unify map value types")
-        literal_keys = None
+        literal_keys: Optional[Set[str]] = None
         if kty == Type.String():
             # If the keys are string constants, record them in the Type object
             # for potential later use in struct coercion. (Normally the Type
@@ -592,7 +742,7 @@ class Map(Base):
         return Type.Map((kty, vty), literal_keys=literal_keys)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
         assert isinstance(self.type, Type.Map)
         keystrs = set()
         eitems = []
@@ -647,7 +797,7 @@ class Struct(Base):
     ):
         super().__init__(pos)
         self.members = {}
-        for (k, v) in members:
+        for k, v in members:
             if k in self.members:
                 raise Error.MultipleDefinitions(self.pos, "duplicate keys " + k)
             self.members[k] = v
@@ -682,21 +832,24 @@ class Struct(Base):
         struct_type.members = struct_type_members
 
         # typecheck members vs struct declaration
-        if not object_type.coerces(struct_type):
+        try:
+            object_type.check(struct_type, self._check_quant)
+        except TypeError as exn:
             raise Error.StaticTypeMismatch(
-                self,
-                struct_type,
-                object_type,
+                self, struct_type, object_type, exn.args[0] if exn.args else ""
             )
 
         return struct_type
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
+        assert isinstance(self.type, (Type.Object, Type.StructInstance))
         ans = {}
         for k, v in self.members.items():
             ans[k] = v.eval(env, stdlib)
-        assert isinstance(self.type, (Type.Object, Type.StructInstance))
-        return Value.Struct(self.type, ans)
+            if isinstance(self.type, Type.StructInstance):
+                assert self.type.members
+                ans[k] = ans[k].coerce(self.type.members[k])
+        return Value.Struct(self.type, ans)  # type: ignore
 
     @property
     def literal(self) -> Optional[Value.Base]:
@@ -762,9 +915,14 @@ class IfThenElse(Base):
             raise Error.StaticTypeMismatch(
                 self, Type.Boolean(), self.condition.type, "in if condition"
             )
-        ty = Type.unify(
-            [self.consequent.type, self.alternative.type], check_quant=self._check_quant
-        )
+        branch_types = [self.consequent.type, self.alternative.type]
+        if any((isinstance(ty, Type.Any) and not ty.optional) for ty in branch_types):
+            # a branch is read_json() or something like that
+            return Type.Any()
+        if all(isinstance(ty, Type.Any) for ty in branch_types):
+            # both branches are literally None...
+            return Type.Any(null=True)
+        ty = Type.unify(branch_types, check_quant=self._check_quant)
         if isinstance(ty, Type.Any):
             raise Error.StaticTypeMismatch(
                 self,
@@ -775,7 +933,7 @@ class IfThenElse(Base):
         return ty
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
         if self.condition.eval(env, stdlib).expect(Type.Boolean()).value:
             ans = self.consequent.eval(env, stdlib)
         else:
@@ -835,7 +993,7 @@ class Ident(Base):
         return ans
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
         return env[self.name]
 
     @property
@@ -918,7 +1076,8 @@ class Get(Base):
 
     def __init__(self, pos: SourcePosition, expr: Base, member: Optional[str]) -> None:
         super().__init__(pos)
-        assert expr
+        assert isinstance(expr, Base)
+        assert isinstance(member, (str, type(None)))
         self.expr = expr
         self.member = member
 
@@ -956,7 +1115,11 @@ class Get(Base):
             # attempt to resolve "expr.member" and if that works, transform
             # expr to Ident("expr.member")
             if self.expr._ident + "." + self.member not in type_env:
-                raise Error.UnknownIdentifier(self) from None
+                message = None
+                if type_env.has_namespace(self.expr._ident):
+                    # specific error message when namespace exists but member doesn't
+                    message = f"No {self.member} in namespace {self.expr._ident}"
+                raise Error.UnknownIdentifier(self, message=message) from None
             self.expr = Ident(self.pos, self._ident)
             self.expr.infer_type(type_env, self._stdlib, self._check_quant)
             self.member = None
@@ -1098,7 +1261,6 @@ class Apply(Base):
             yield arg
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
-
         f = getattr(self._stdlib, self.function_name, None)
         if not f:
             raise Error.NoSuchFunction(self, self.function_name) from None
@@ -1106,7 +1268,7 @@ class Apply(Base):
         return f.infer_type(self)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
-        ""
+        """"""
 
         f = getattr(stdlib, self.function_name, None)
         assert isinstance(f, StdLib.Function)

@@ -74,6 +74,8 @@ Individual warnings can be suppressed by a WDL comment containing ``!WarningName
 
 ShellCheck warnings can be suppressed using `that tool's own convention <https://github.com/koalaman/shellcheck/wiki/Ignore>`_.
 
+Warnings may be suppressed globally with a command-line flag such as `--suppress ForwardReference,StringCoercion` (not recommended). On the other hand, the flag `--no-suppress` causes the checker to ignore inline suppression comments and report the warnings anyway.
+
 Pre-commit hook
 ---------------
 

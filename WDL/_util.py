@@ -1,4 +1,3 @@
-# pyre-strict
 # misc utility functions...
 
 import sys
@@ -10,7 +9,8 @@ import threading
 import time
 import fcntl
 import shutil
-import hashlib
+import uuid
+import decimal
 from time import sleep
 from datetime import datetime
 from contextlib import contextmanager, AbstractContextManager
@@ -18,7 +18,6 @@ from typing import (
     Tuple,
     Dict,
     Set,
-    Iterable,
     Iterator,
     List,
     TypeVar,
@@ -27,15 +26,21 @@ from typing import (
     Callable,
     Generator,
     Any,
+    TYPE_CHECKING,
 )
 from types import FrameType
 from pythonjsonlogger import jsonlogger
 
+if TYPE_CHECKING:
+    from . import Env, Value
+
+T = TypeVar("T")
+
 __all__: List[str] = []
 
 
-def export(obj) -> str:  # pyre-ignore
-    __all__.append(obj.__name__)
+def export(obj: T) -> T:
+    __all__.append(obj.__name__)  # type: ignore
     return obj
 
 
@@ -66,9 +71,6 @@ def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
     return (to_strip, "\n".join(lines))
 
 
-T = TypeVar("T")
-
-
 @export
 class AdjM(Generic[T]):
     # A sparse adjacency matrix for topological sorting
@@ -82,21 +84,21 @@ class AdjM(Generic[T]):
         self._reverse = dict()
         self._unconstrained = set()
 
-    def sinks(self, source: T) -> Iterable[T]:
+    def sinks(self, source: T) -> Iterator[T]:
         for sink in self._forward.get(source, []):
             yield sink
 
-    def sources(self, sink: T) -> Iterable[T]:
+    def sources(self, sink: T) -> Iterator[T]:
         for source in self._reverse.get(sink, []):
             yield source
 
     @property
-    def nodes(self) -> Iterable[T]:
+    def nodes(self) -> Iterator[T]:
         for node in self._forward:
             yield node
 
     @property
-    def unconstrained(self) -> Iterable[T]:
+    def unconstrained(self) -> Iterator[T]:
         for n in self._unconstrained:
             assert not self._reverse[n]
             yield n
@@ -147,12 +149,12 @@ def topsort(adj: AdjM[T]) -> List[T]:
     # if there's a cycle, raises err: StopIteration with err.node = ID of a
     # node involved in a cycle.
     ans = []
-    node = next(adj.unconstrained, None)  # pyre-ignore
+    node = next(adj.unconstrained, None)
     while node:
         adj.remove_node(node)
         ans.append(node)
-        node = next(adj.unconstrained, None)  # pyre-ignore
-    node = next(adj.nodes, None)  # pyre-ignore
+        node = next(adj.unconstrained, None)
+    node = next(adj.nodes, None)
     if node:
         err = StopIteration()
         setattr(err, "node", node)
@@ -162,8 +164,10 @@ def topsort(adj: AdjM[T]) -> List[T]:
 
 @export
 def write_atomic(contents: str, filename: str, end: str = "\n") -> None:
-    tn = filename + ".tmp"
-    with open(tn, "x") as outfile:
+    # 04-JUN-2021 changed to use UUID filename instead of relying on open(tn, "x") in case network
+    # filesystem is wonky with O_EXCL.
+    tn = filename + ".tmp." + str(uuid.uuid1())
+    with open(tn, "w") as outfile:
         print(contents, file=outfile, end=end)
     os.rename(tn, filename)
 
@@ -177,22 +181,47 @@ def rmtree_atomic(path: str) -> None:
     """
     path = os.path.abspath(path)
     assert path and path.strip("/")
-    tmp_path = os.path.join(
-        os.path.dirname(path), "._rmtree_atomic_" + hashlib.sha256(path.encode("utf-8")).hexdigest()
-    )
-    shutil.rmtree(tmp_path, ignore_errors=True)
+    tmp_path = os.path.join(os.path.dirname(path), ".rmtree_atomic." + str(uuid.uuid1()))
     os.renames(path, tmp_path)
     shutil.rmtree(tmp_path)
 
 
 @export
+def symlink_force(src: str, dst: str, hard: bool = False) -> None:
+    """
+    Create a symbolic pointing to src named dst, atomically replacing any existing symbolic or
+    hard link at dst.
+    """
+    assert not dst.endswith("/")
+    tn = dst + ".tmp." + str(uuid.uuid1())
+    if hard:
+        os.link(src, tn)
+    else:
+        os.symlink(src, tn)
+    os.rename(tn, dst)
+
+
+@export
+def link_force(src: str, dst: str) -> None:
+    """
+    Create a hard link pointing to src named dst, atomically replacing any existing symbolic or hard
+    link at dst.
+    """
+    symlink_force(src, dst, hard=True)
+
+
+@export
 def write_values_json(
-    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""  # noqa
+    values_env: "Env.Bindings[Value.Base]", filename: str, namespace: str = ""
 ) -> None:
     from . import values_to_json
 
     write_atomic(
-        json.dumps(values_to_json(values_env, namespace=namespace), indent=2),  # pyre-ignore
+        json.dumps(
+            values_to_json(values_env, namespace=namespace),
+            indent=2,
+            sort_keys=True,
+        ),
         filename,
     )
 
@@ -229,10 +258,7 @@ def provision_run_dir(name: str, parent_dir: Optional[str], last_link: bool = Fa
     if last_link and run_dir != parent_dir:
         last_link_name = os.path.join(parent_dir, "_LAST")
         if os.path.islink(last_link_name) or not (here or os.path.lexists(last_link_name)):
-            run_dir_basename = os.path.basename(run_dir)
-            tmp_link_name = last_link_name + "." + run_dir_basename
-            os.symlink(run_dir_basename, tmp_link_name)
-            os.rename(tmp_link_name, last_link_name)
+            symlink_force(os.path.basename(run_dir), last_link_name)
 
     return run_dir
 
@@ -243,14 +269,12 @@ class StructuredLogMessage:
     kwargs: Dict[str, Any]
 
     # from https://docs.python.org/3.8/howto/logging-cookbook.html#implementing-structured-logging
-    def __init__(self, _message: str, **kwargs) -> None:  # pyre-fixme
+    def __init__(self, _message: str, **kwargs) -> None:
         self.message = _message
         self.kwargs = kwargs
 
     def __str__(self) -> str:
-        return (
-            f"{self.message} :: {', '.join(k+ ': ' + json.dumps(v) for k,v in self.kwargs.items())}"
-        )
+        return f"{self.message} :: {', '.join(k + ': ' + json.dumps(v) for k, v in self.kwargs.items())}"
 
 
 class StructuredLogMessageJSONFormatter(jsonlogger.JsonFormatter):
@@ -280,23 +304,23 @@ __all__.append("VERBOSE_LEVEL")
 logging.addLevelName(VERBOSE_LEVEL, "VERBOSE")
 
 
-def verbose(self, message, *args, **kws):  # pyre-fixme
+def verbose(self, message, *args, **kws):
     if self.isEnabledFor(VERBOSE_LEVEL):
         self._log(VERBOSE_LEVEL, message, args, **kws)
 
 
-logging.Logger.verbose = verbose
+logging.Logger.verbose = verbose  # type: ignore
 NOTICE_LEVEL = 25
 __all__.append("NOTICE_LEVEL")
 logging.addLevelName(NOTICE_LEVEL, "NOTICE")
 
 
-def notice(self, message, *args, **kws):  # pyre-fixme
+def notice(self, message, *args, **kws):
     if self.isEnabledFor(NOTICE_LEVEL):
         self._log(NOTICE_LEVEL, message, args, **kws)
 
 
-logging.Logger.notice = notice
+logging.Logger.notice = notice  # type: ignore
 
 
 @export
@@ -329,7 +353,7 @@ __all__.append("LOGGING_FORMAT")
 @contextmanager
 def configure_logger(
     force_tty: bool = False, json: bool = False
-) -> Iterator[Callable[[str], None]]:
+) -> Iterator[Callable[[List[str]], None]]:
     """
     contextmanager to set up the root/stderr logger; yields a function to set the status line at
     the bottom of the screen (if stderr isatty, else it does nothing)
@@ -346,7 +370,7 @@ def configure_logger(
         _singleton: "Optional[_StatusLineStandardErrorHandler]" = None
         _status: str = ""
 
-        def __init__(self, *args, **kwargs):  # pyre-ignore
+        def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             assert not self.__class__._singleton
             self.__class__._singleton = self
@@ -402,7 +426,7 @@ def configure_logger(
 
             # monkey-patch _StatusLineStandardErrorHandler over coloredlogs.StandardErrorHandler for
             # coloredlogs.install() to instantiate
-            coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler
+            coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler  # type: ignore
             sys.stderr.write(ANSI.HIDE_CURSOR)  # hide cursor
 
         try:
@@ -414,11 +438,11 @@ def configure_logger(
                 fmt=fmt,
             )
             yield (
-                lambda status: _StatusLineStandardErrorHandler._singleton.set_status(  # pyre-fixme
-                    status
+                lambda status: (
+                    _StatusLineStandardErrorHandler._singleton.set_status(status)
+                    if _StatusLineStandardErrorHandler._singleton
+                    else None
                 )
-                if _StatusLineStandardErrorHandler._singleton
-                else None
             )
         finally:
             if tty:
@@ -429,7 +453,10 @@ def configure_logger(
 @export
 @contextmanager
 def PygtailLogger(
-    logger: logging.Logger, filename: str, callback: Optional[Callable[[str], None]] = None
+    logger: logging.Logger,
+    filename: str,
+    callback: Optional[Callable[[str], None]] = None,
+    level: int = VERBOSE_LEVEL,
 ) -> Iterator[Callable[[], None]]:
     """
     Helper for streaming task stderr into logger using pygtail. Context manager yielding a function
@@ -441,13 +468,13 @@ def PygtailLogger(
     from pygtail import Pygtail  # delayed heavy import
 
     pygtail = None
-    if logger.isEnabledFor(VERBOSE_LEVEL):
+    if logger.isEnabledFor(level):
         pygtail = Pygtail(filename, full_lines=True)
     logger2 = logger.getChild("stderr")
 
     def default_callback(line: str) -> None:
         assert len(line) <= 4096, "line > 4KB"
-        logger2.verbose(line.rstrip())  # pyre-fixme
+        logger2.log(level, line.rstrip())
 
     callback = callback or default_callback
 
@@ -498,7 +525,7 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
         # don't trap SIGPIPE -- Python has a default handler to generate BrokenPipeError
     ]
 
-    def handle_signal(sig: int, frame: FrameType) -> None:
+    def handle_signal(sig: int, frame: Optional[FrameType]) -> None:
         global _terminating
         if not _terminating:
             if sig != signal.SIGUSR1:
@@ -506,7 +533,7 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
             else:
                 # SIGUSR1 comes from ourselves, as the signal to abort after something else has
                 # already gone wrong
-                logger.notice("aborting workflow")  # pyre-fixme
+                logger.notice("aborting workflow")
         _terminating = True
 
     global _terminating
@@ -519,7 +546,7 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
             )
             _terminating = False
     try:
-        yield lambda: _terminating
+        yield lambda: _terminating or False
     finally:
         if restore_signal_handlers:
             with _terminating_lock:
@@ -601,8 +628,8 @@ def splitall(path: str) -> List[str]:
     """
     https://www.oreilly.com/library/view/python-cookbook/0596001673/ch04s16.html
     """
-    allparts = []
-    while 1:
+    allparts: List[str] = []
+    while True:
         parts = os.path.split(path)
         if parts[0] == path:  # sentinel for absolute paths
             allparts.insert(0, parts[0])
@@ -678,8 +705,8 @@ def LoggingFileHandler(
 
 @export
 @contextmanager
-def compose_coroutines(  # pyre-fixme
-    generators: List[Callable[[Any], Generator[Any, Any, None]]], x: Any  # pyre-fixme
+def compose_coroutines(
+    generators: List[Callable[[Any], Generator[Any, Any, None]]], x: Any
 ) -> Iterator[Generator[Any, Any, None]]:
     """
     Coroutine (generator) which composes several other coroutines to run in lockstep for one or
@@ -690,7 +717,7 @@ def compose_coroutines(  # pyre-fixme
     one of the other coroutines.
     """
 
-    def _impl() -> Generator[Any, Any, None]:  # pyre-fixme
+    def _impl() -> Generator[Any, Any, None]:
         # start the coroutines by invoking each generator and taking the first value it yields
         nonlocal x
         cors = []
@@ -711,17 +738,17 @@ def compose_coroutines(  # pyre-fixme
                             exn = exn2
                     raise exn
                 # pass value through coroutines
-                exn = None
+                cor_exn = None
                 for cor in cors:
                     try:
-                        if not exn:
+                        if not cor_exn:
                             x = cor.send(x)
                         else:
-                            cor.throw(exn)
+                            cor.throw(cor_exn)
                     except Exception as exn2:
-                        exn = exn2
-                if exn:
-                    raise exn
+                        cor_exn = exn2
+                if cor_exn:
+                    raise cor_exn
         finally:
             close_exn = None
             for cor in cors:
@@ -738,7 +765,7 @@ def compose_coroutines(  # pyre-fixme
     try:
         yield chain
     except Exception as exn:
-        chain.throw(exn)  # pyre-ignore
+        chain.throw(exn)
         raise
     finally:
         chain.close()
@@ -770,7 +797,7 @@ class FlockHolder(AbstractContextManager):
         self._entries += 1
         return self
 
-    def __exit__(self, *exc_details) -> None:  # pyre-fixme
+    def __exit__(self, *exc_details) -> None:
         assert self._entries > 0, "FlockHolder context exited prematurely"
         self._entries -= 1
         if self._entries == 0:
@@ -795,20 +822,18 @@ class FlockHolder(AbstractContextManager):
         mode: Optional[int] = None,
         exclusive: bool = False,
         wait: bool = False,
-        update_atime: bool = False,
     ) -> int:
         """
-        Open a file/directory and an advisory lock on it. The file is closed and the lock released
-        upon exit of the outermost context. Returns the open file descriptor, which the caller
-        shouldn't close (this is taken care of).
+        Open a file and an advisory lock on it. The file is closed and the lock released upon exit
+        of the outermost context. Returns the open file descriptor, which the caller shouldn't
+        close (managed by the object).
 
-        :param filename: file/directory to open & lock
+        :param filename: file to open & lock
         :param mode: os.open() mode flags, default: OS.O_RDWR if exclusive else os.O_RDONLY
         :param exclusive: True to open an exclusive lock (default: shared lock)
         :param wait: True to wait as long as needed to obtain the lock, otherwise (default) raise
                      OSError if the lock isn't available immediately. Self-deadlock is possible;
                      see Python fcntl.flock docs for further details.
-        :param update_atime: True to 'touch -a' the file after obtaining the lock
         """
         assert self._entries, "FlockHolder.flock() used out of context"
         while True:
@@ -826,7 +851,7 @@ class FlockHolder(AbstractContextManager):
                     return self._flocks[realfilename][0]
                 openfile = os.open(
                     realfilename,
-                    mode if mode is not None else os.O_RDONLY,
+                    mode if mode is not None else (os.O_RDWR if exclusive else os.O_RDONLY),
                 )
                 try:
                     op = fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
@@ -845,8 +870,6 @@ class FlockHolder(AbstractContextManager):
                     # the flock will release whenever we ultimately openfile.close()
 
                     file_st = os.stat(openfile)
-                    if update_atime:
-                        os.utime(openfile, ns=(int(time.time() * 1e9), file_st.st_mtime_ns))
 
                     # Even if all concurrent processes obey the advisory flocks, the filename link
                     # could have been replaced or removed in the duration between our open() and
@@ -879,8 +902,34 @@ class FlockHolder(AbstractContextManager):
                 os.close(openfile)  # NOT finally -- for next while-loop iteration
 
 
+def bump_atime(filename: str) -> None:
+    fd = os.open(os.path.realpath(filename), os.O_RDONLY)
+    try:
+        file_st = os.stat(fd)
+        os.utime(fd, ns=(int(time.time() * 1e9), file_st.st_mtime_ns))
+    finally:
+        os.close(fd)
+
+
 @export
 class RepeatTimer(threading.Timer):
     def run(self) -> None:
-        while not self.finished.wait(self.interval):  # pyre-ignore
-            self.function(*self.args, **self.kwargs)  # pyre-ignore
+        while not self.finished.wait(self.interval):
+            self.function(*self.args, **self.kwargs)
+
+
+def currently_in_container() -> bool:
+    # https://github.com/containers/podman/issues/3586#issuecomment-512191693
+    try:
+        with open(f"/proc/{os.getpid()}/mounts") as infile:
+            return " / overlay" in infile.read()
+    except Exception:
+        return False
+
+
+@export
+def round_half_up(x: float) -> int:
+    """
+    Round a float to the nearest integer, rounding half up.
+    """
+    return int(decimal.Decimal(x).to_integral_value(rounding=decimal.ROUND_HALF_UP))

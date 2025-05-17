@@ -1,8 +1,8 @@
-# pyre-strict
 """
 1. Process-global counters for queued/running tasks
 2. Logic for filling out the log stderr "status bar" with that info
 """
+
 import threading
 import time
 import datetime
@@ -125,7 +125,7 @@ def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
                 msg += [
                     "    reserved CPUs: " + str(_counters["tasks_running_cpu"]),
                     ", RAM: "
-                    + str(math.ceil(_counters["tasks_running_mem_bytes"] / (2 ** 30)))
+                    + str(math.ceil(_counters["tasks_running_mem_bytes"] / (2**30)))
                     + "GiB",
                 ]
             set_status(msg)

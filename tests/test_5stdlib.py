@@ -1,3 +1,4 @@
+from math import exp
 import unittest
 import logging
 import tempfile
@@ -40,6 +41,49 @@ class TestStdLib(unittest.TestCase):
         if expected_exception:
             self.assertFalse(str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
+
+    def test_eq_opt(self):
+        # regression test issue #634
+        wdl = """
+        version 1.1
+        task test_cmp {
+            input {
+                Int i
+                Int? j
+                Int? k
+            }
+            command {}
+            output {
+                Boolean a = i == j
+                Boolean b = i != j
+                Boolean c = i == k
+                Boolean d = i != k
+                Boolean e = j == None
+                Boolean f = j != None
+            }
+        }
+        """
+        out = self._test_task(wdl, {"i": 0, "k": 1})
+        assert out["a"] == False
+        assert out["b"] == True
+        assert out["c"] == False
+        assert out["d"] == True
+        assert out["e"] == True
+        assert out["f"] == False
+
+        self._test_task("""
+        version 1.1
+        task test_cmp {
+            input {
+                Int i
+                Int? j
+            }
+            command {}
+            output {
+                Boolean a = i <= j
+            }
+        }
+        """, {"i": 0}, expected_exception=WDL.Error.ValidationError)
 
     def test_size_polytype(self):
         tmpl = """
@@ -124,7 +168,29 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
-        self.assertEqual(outputs, {"ans": [3, -3, 42, 43]})
+        self.assertEqual(outputs, {"ans": [3, -3, 43, 43]})
+
+        # regression test issue #698
+        outputs = self._test_task(R"""
+        version 1.1
+
+        task test_round {
+            input {
+                Int i1
+            }
+
+            Int i2 = i1 + 1
+            Float f1 = i1 + 0.49
+            Float f2 = i1 + 0.50
+
+            command {}
+
+            output {
+                Array[Boolean] all_true = [round(f1) == i1, round(f2) == i2]
+            }
+        }
+        """, {"i1": 42})
+        self.assertEqual(outputs, {"all_true": [True, True]})
 
     def test_basename_prefix(self):
         outputs = self._test_task(R"""
@@ -192,7 +258,8 @@ class TestStdLib(unittest.TestCase):
                 Array[Int] bogus = select_first([one])
             }
         }
-        """, expected_exception=WDL.Error.NullValue)
+        """, expected_exception=WDL.Error.EvalError)
+        self.assertTrue("given empty or all-null array" in str(outputs))
         outputs = self._test_task(R"""
         version 1.0
         task test_select {
@@ -549,7 +616,25 @@ class TestStdLib(unittest.TestCase):
                 Array[String] my_array = read_json(stdout())
             }
         }
-        """, expected_exception=WDL.Error.InputError)
+        """, expected_exception=WDL.Error.EvalError)
+
+        self._test_task(R"""
+        version 1.0
+        struct Point {
+            Int x
+            Int y
+        }
+        task test {
+            input {
+                String json = '{"foo": "bar"}'
+            }
+            Map[Point, String] my_map = read_json(write_lines([json]))
+            command <<<
+            >>>
+            output {
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
         outputs = self._test_task(R"""
         version 1.0
@@ -576,6 +661,18 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.InputError)
 
+        self._test_task(R"""
+        version 1.0
+        task test {
+            command <<<
+                echo '{"foo":"bar"}'
+            >>>
+            output {
+                String baz = read_json(stdout())["baz"]
+            }
+        }
+        """, expected_exception=WDL.Error.OutOfBounds)
+
     def test_read_map_ints(self):
         outputs = self._test_task(R"""
         version 1.0
@@ -597,13 +694,11 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["my_ints"], {"key_0": 0, "key_1": 1, "key_2": 2})
 
     def test_struct_from_read(self):
-        # initialize a struct via Map[String,String] from read_{map,object[s],json}
+        # initialize struct from read_{map,object[s],json}
 
         alice = {"name": "Alice", "lane": 3, "barcode": "GATTACA"}
-        samplesheet2 = [
-            {"name": "Alice", "lane": 3, "barcode": "GATTACA"},
-            {"name": "Bob", "lane": 4, "barcode": "TGTAATC"},
-        ]
+        bob = {"name": "Bob", "lane": 4, "barcode": "TGTAATC"}
+        samplesheet2 = [alice, bob]
 
         outputs = self._test_task(R"""
         version 1.0
@@ -651,12 +746,14 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["samplesheet2"], samplesheet2)
         self.assertEqual(outputs["empty"], [])
 
+        # optional field coercion
         outputs = self._test_task(R"""
         version 1.0
         struct Sample {
             String name
             Int lane
             String barcode
+            String? lab
         }
         task test {
             command <<<
@@ -671,8 +768,642 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """)
-        self.assertEqual(outputs["alice"], alice)
-        self.assertEqual(outputs["samplesheet2"], samplesheet2)
+        self.assertEqual(dict(**alice, lab=None), outputs["alice"])
+        self.assertEqual([dict(**it, lab=None) for it in samplesheet2], outputs["samplesheet2"])
+
+        # struct-array-struct JSON nesting
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+            String? lab
+        }
+        struct MultiSample {
+            Array[Sample] samples
+        }
+        task test {
+            command <<<
+                echo '{"name":"Alice","lane":3,"barcode":"GATTACA"}' >> alice.txt
+                echo '{"samples":[' >> samplesheet2.txt
+                cat alice.txt >> samplesheet2.txt
+                echo ',{"name":"Bob","lane":4,"barcode":"TGTAATC","lab":"Biohub"}]}' >> samplesheet2.txt
+            >>>
+            output {
+                Sample alice = read_json("alice.txt")
+                MultiSample samplesheet2 = read_json("samplesheet2.txt")
+            }
+        }
+        """)
+        self.assertEqual(dict(**alice, lab=None), outputs["alice"])
+        self.assertEqual({"samples": [dict(**alice, lab=None), dict(**bob, lab="Biohub")]}, outputs["samplesheet2"])
+
+    def test_struct_from_read_json_with_extra_keys(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+        }
+        task test {
+            command <<<
+                echo '[
+                    {"name": "Alice"},
+                    {"name": "Rishi", "address": "10 Downing St", "city": "Westminster"},
+                    {"name": "Harry", "address": "4 Privet Drive"}
+                ]' > samples.json
+            >>>
+            output {
+                Array[Sample] samples = read_json("samples.json")
+            }
+        }
+        """)
+        self.assertEqual(outputs["samples"], [{"name": "Alice"}, {"name": "Rishi"}, {"name": "Harry"}])
+
+        outputs = self._test_task(R"""
+        version 1.0
+        struct Sample {
+            String name
+        }
+        task test {
+            input {
+                Array[Sample] samples
+            }
+            command {}
+            output {
+                Array[Sample] samples2 = read_json(write_json(samples))
+            }
+        }
+        """, {"samples": [
+            {"name": "Alice"},
+            {"name": "Rishi", "address": "10 Downing St", "city": "Westminster"},
+            {"name": "Harry", "address": "4 Privet Drive"}
+        ]})
+        self.assertEqual(outputs["samples2"], [{"name": "Alice"}, {"name": "Rishi"}, {"name": "Harry"}])
+
+    def test_issue524(self):
+        # additional cases for struct initialization from read_json(), motivated by issue #524
+
+        # explicit null value should be acceptable initializer for optional struct field
+        outp = self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Int x
+            String? y
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": 123,
+                    "y": null
+                }
+                EOL
+            >>>
+
+            output {
+                MyStruct data = read_json("data.json")
+            }
+        }
+        """)
+        self.assertEqual(outp["data"], {"x": 123, "y": None})
+        # elaboration with a heterogeneous unification:
+        outp = self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": 3.14159,
+                    "y": null,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                MyStruct data = read_json("data.json")
+            }
+        }
+        """)
+        self.assertEqual(outp["data"], {"x": 3.14159, "y": None, "z": [4,2,None]})
+        # unusable null
+        self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": "bogus",
+                    "y": null,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                MyStruct data = read_json("data.json")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+        # top-level null
+        outp = self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                echo null > data.json
+            >>>
+
+            output {
+                MyStruct? data = read_json("data.json")
+            }
+        }
+        """)
+        self.assertEqual(outp, {"data": None})
+        # coercion failure -- required member missing
+        self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "y": null,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                MyStruct data = read_json("data.json")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+        # bad coercion to Map (key type)
+        self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": 3.14159,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                Map[Float,String] data = read_json("data.json")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+        # bad coercion to Map (value type)
+        self._test_task(R"""
+        version 1.0
+
+        struct MyStruct {
+            Float x
+            String? y
+            Array[Int?] z
+        }
+
+        task mytask {
+            input {
+            }
+
+            command <<<
+                cat > data.json <<EOL
+                {
+                    "x": 3.14159,
+                    "z": [4,2,null]
+                }
+                EOL
+            >>>
+
+            output {
+                Map[String,Float] data = read_json("data.json")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+    def test_issue538(self):
+        # more struct init regression
+        outp = self._test_task(R"""
+        version 1.0
+        struct StructWithMap { Map[String, String] map }
+        task RoundTripJson {
+            input {}
+            StructWithMap example = object {
+                map: { "foo":"bar", "fizz":"buzz" }
+            }
+            String dbg = read_string(write_json(example))
+            command {}
+            output {
+                StructWithMap result = read_json(write_json(example))
+            }
+        }
+        """)
+        self.assertEqual(outp["result"], {"map": {"foo":"bar", "fizz":"buzz"}})
+
+    def test_issue563(self):
+        # still more struct init regression
+        outp = self._test_task(R"""
+        version 1.0
+        struct Foo {
+            Int x
+        }
+        task test {
+            input {
+                Foo? i
+                Foo? j
+            }
+            command {}
+            output {
+                Array[Foo] out = select_all([i, j])
+            }
+        }
+        """, {"j": {"x": 0}})
+        self.assertEqual(outp, {"out": [{"x": 0}]})
+
+    def test_issue580(self):
+        # error in nested struct
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                File R1
+                File? R2
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Array[Readgroup] readgroups
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R1_md5": "b859d6dd76a6861ce7e9a978ae2e530e",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "R2_md5": "986acc7bda0bf2ef55c52431f54fe3a9",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                                {
+                                "id": "rg2",
+                                "R1": "tests/data/wgs2/wgs2-lib2_R1.fq.gz",
+                                "R1_md5": "df64e84fdc9a2d7a9301f2aac0071aee",
+                                "R2": "tests/data/wgs2/wgs2-lib2_R2.fq.gz",
+                                "R2_md5": "47a65ad648ac08e802c07669629054ea",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
+
+        # slightly simpler version covering a different exception handling path (#1)
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                File R1
+                File? R2
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Readgroup readgroup
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroup":
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "lib_id": "lib1"
+                                },
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroup":
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("unusable runtime struct initializer, no such member(s) in struct Readgroup: R1_md5 R2_md5" in str(exn))
+
+        # slightly simpler version covering a different exception handling path (#2)
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Int count
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "id": "wgs1-paired-end",
+                            "control": null,
+                            "count": {"not":"a number"}
+                            },
+                            {
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end",
+                            "count": 100
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("to initialize Int count member of struct Sample" in str(exn))
+
+        # slightly simpler version covering a different exception handling path (#3)
+        try:
+            self._test_task(R"""
+            version 1.0
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Int count
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "id": "wgs1-paired-end",
+                            "control": null,
+                            "count": "not a number"
+                            },
+                            {
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end",
+                            "count": 100
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                }
+            }""")
+        except Exception as exn:
+            self.assertTrue("runtime type mismatch initializing Int count member of struct Sample" in str(exn))
+
+        # unifying arrays of structs with optional members
+        outp = self._test_task(R"""
+            version 1.0
+
+            struct Readgroup {
+                String id
+                String lib_id
+                String R1
+                String R1_md5
+                String? R2
+                String? R2_md5
+            }
+
+            struct Sample {
+                String id
+                String? control
+                String? gender
+                Array[Readgroup] readgroups
+            }
+
+            struct SampleConfig {
+                Array[Sample] samples
+            }
+
+            task mytask {
+                input {
+                }
+
+                command <<<
+                    cat > data.json <<EOL
+                    {
+                        "samples": [
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs1/R1.fq.gz",
+                                "R1_md5": "b859d6dd76a6861ce7e9a978ae2e530e",
+                                "R2": "tests/data/wgs1/R2.fq.gz",
+                                "R2_md5": "986acc7bda0bf2ef55c52431f54fe3a9",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs1-paired-end",
+                            "control": null
+                            },
+                            {
+                            "readgroups": [
+                                {
+                                "id": "rg1",
+                                "R1": "tests/data/wgs2/wgs2-lib1_R1.fq.gz",
+                                "R1_md5": "6fb02af910026041f9ea76cd28968732",
+                                "R2": "tests/data/wgs2/wgs2-lib1_R2.fq.gz",
+                                "R2_md5": "537ffc52342314d839e7fdd91bbdccd0",
+                                "lib_id": "lib1"
+                                },
+                                {
+                                "id": "rg2",
+                                "R1": "tests/data/wgs2/wgs2-lib2_R1.fq.gz",
+                                "R1_md5": "df64e84fdc9a2d7a9301f2aac0071aee",
+                                "R2": "tests/data/wgs2/wgs2-lib2_R2.fq.gz",
+                                "lib_id": "lib1"
+                                }
+                            ],
+                            "id": "wgs2-paired-end",
+                            "control": "wgs1-paired-end"
+                            }
+                        ]
+                    }
+                    EOL
+                >>>
+
+                output {
+                    SampleConfig data = read_json("data.json")
+                    String? control0 = data.samples[0].control
+                    String? control1 = data.samples[1].control
+                    String? gender0 = data.samples[0].gender
+                    String? gender1 = data.samples[1].gender
+                }
+            }""")
+        self.assertEqual(None, outp["control0"])
+        self.assertEqual("wgs1-paired-end", outp["control1"])
+        self.assertEqual(None, outp["gender0"])
+        self.assertEqual(None, outp["gender1"])
+        self.assertEqual("537ffc52342314d839e7fdd91bbdccd0", outp["data"]["samples"][1]["readgroups"][0]["R2_md5"])
+        self.assertEqual(None, outp["data"]["samples"][1]["readgroups"][1]["R2_md5"])
 
     def test_bad_object(self):
         self._test_task(R"""
@@ -731,7 +1462,7 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
-    def test_bad_boolean(self):
+    def test_boolean(self):
         self._test_task(R"""
         version 1.0
         task bad_map {
@@ -743,6 +1474,24 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
+        outp = self._test_task(R"""
+        version 1.0
+
+        task read_bool {
+            command <<<
+            printf "  true  \n" > true_file
+            printf "  FALSE  \n" > false_file
+            >>>
+
+            output {
+                Boolean b1 = read_boolean("true_file")
+                Boolean b2 = read_boolean("false_file")
+            }
+        }
+        """)
+        self.assertEqual(outp["b1"], True)
+        self.assertEqual(outp["b2"], False)
 
     def test_write(self):
         outputs = self._test_task(R"""
@@ -875,6 +1624,42 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+    def test_unzip(self):
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            Array[Int] xs = [ 1, 2, 3 ]
+            Array[String] ys = [ "a", "b", "c" ]
+            Array[String] zs = [ "d", "e" ]
+            command {}
+            output {
+                Pair[Array[Int], Array[String]] unzipped = unzip(zip(xs, ys))
+                Pair[Array[Int], Array[String]] uncrossed = unzip(cross(xs, zs))
+            }
+        }
+        """)
+        self.assertEqual(outputs["unzipped"], {
+            "left": [1, 2, 3],
+            "right": ["a", "b", "c"]
+        })
+        self.assertEqual(outputs["uncrossed"], {
+            "left": [1, 1, 2, 2, 3, 3],
+            "right": ["d", "e", "d", "e", "d", "e"]
+        })
+
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            input {
+                Array[Array[Int]] x
+            }
+            command {}
+            output {
+                Array[Pair[Int, Int]] zipped = unzip(x)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
     def test_sep(self):
         outputs = self._test_task(R"""
         version development
@@ -907,7 +1692,8 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual("value1,value2,value3", outputs["out"])
 
-        self._test_task(R"""
+        # deprecated, not removed in WDL 1.1:
+        outputs = self._test_task(R"""
         version development
         task SepTest {
             input {
@@ -916,8 +1702,12 @@ class TestStdLib(unittest.TestCase):
             command <<<
                 echo ~{sep="," inp}
             >>>
+            output {
+                String out = read_string(stdout())
+            }
         }
-        """, expected_exception=WDL.Error.SyntaxError)
+        """) #, expected_exception=WDL.Error.SyntaxError)
+        self.assertEqual("value1,value2,value3", outputs["out"])
 
 
     def test_suffix(self):

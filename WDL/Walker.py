@@ -174,13 +174,10 @@ class SetParents(Base):
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
 
-    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional, Task. Also, set
-    in_placeholder=True on any Expr nested within a string interpolation placeholder (including the
-    Placeholder itself)
+    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional, Task.
     """
 
     _parent_stack: List[Error.SourceNode] = []
-    _placeholder_depth = 0
 
     def document(self, obj: Tree.Document) -> None:
         super().document(obj)
@@ -199,7 +196,7 @@ class SetParents(Base):
         super().workflow(obj)
         obj.parent = None
         for elt in (obj.inputs or []) + obj.body + (obj.outputs or []):
-            elt.parent = obj
+            elt.parent = obj  # type: ignore
 
     def call(self, obj: Tree.Call) -> None:
         self._parent_stack.append(obj)
@@ -236,16 +233,10 @@ class SetParents(Base):
         self._parent_stack.pop()
 
     def expr(self, obj: Expr.Base) -> None:
-        if isinstance(obj, Expr.Placeholder):
-            self._placeholder_depth += 1
         self._parent_stack.append(obj)
         super().expr(obj)
         self._parent_stack.pop()
-        if self._placeholder_depth > 0:
-            obj.in_placeholder = True
         obj.parent = self._parent_stack[-1]
-        if isinstance(obj, Expr.Placeholder):
-            self._placeholder_depth -= 1
 
 
 class MarkCalled(Base):
@@ -260,14 +251,15 @@ class MarkCalled(Base):
     marking: bool = False  # True while recursing from the top-level workflow
 
     def task(self, obj: Tree.Task) -> None:
-        obj.called = getattr(obj, "called", False)
+        setattr(obj, "called", getattr(obj, "called", False))
         super().task(obj)
 
     def workflow(self, obj: Tree.Workflow) -> None:
-        obj.called = getattr(obj, "called", False)
-        if obj.parent.parent is None:  # pyre-ignore
+        setattr(obj, "called", getattr(obj, "called", False))
+        assert obj.parent
+        if obj.parent.parent is None:
             assert not self.marking
-            obj.called = True
+            setattr(obj, "called", True)
             self.marking = True
             super().workflow(obj)
             self.marking = False
@@ -278,7 +270,7 @@ class MarkCalled(Base):
         assert self.marking
         if isinstance(obj.callee, Tree.Workflow):
             self(obj.callee)
-        obj.callee.called = True
+        setattr(obj.callee, "called", True)
 
 
 class MarkImportsUsed(Base):
@@ -293,7 +285,7 @@ class MarkImportsUsed(Base):
         super().__init__(auto_descend=True)
 
     def document(self, obj: Tree.Document) -> None:
-        obj.imports_used = set()
+        setattr(obj, "imports_used", set())
         for stb in obj.struct_typedefs:
             st: Tree.StructTypeDef = stb.value
             # if struct has members that are imported structs, mark those used

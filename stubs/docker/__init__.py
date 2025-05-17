@@ -1,4 +1,6 @@
-from typing import Dict, Any, List, Iterable, Tuple
+# mypy: ignore-errors
+
+from typing import Dict, Any, List, Iterable, Tuple, Optional
 
 class Container:
     @property
@@ -21,14 +23,6 @@ class Container:
 class Containers:
     def run(self, image_tag: str, **kwargs) -> Container:
         ...
-
-class Images:
-    def build(self, **kwargs) -> Tuple[Image, Iterable[Dict[str,str]]]:
-        ...
-
-class Image:
-    id: str
-    tags: List[str]
 
 class Node:
     attrs: Dict[str,Any]
@@ -63,17 +57,17 @@ class Services:
     def create(self, image: str, **kwargs) -> models.services.Service:
         ...
 
-    def list(**kwargs) -> List[models.services.Service]:
+    def list(self, **kwargs) -> List[models.services.Service]:
         ...
 
 class Nodes:
-    def list(**kwargs) -> List[Node]:
+    def list(self, **kwargs) -> List[Node]:
         ...
 
 class Image:
-    @property
-    def attrs(self) -> Dict[str,Any]:
-        ...
+    id: str
+    tags: List[str]
+    attrs: Dict[str,Any]
 
 class Images:
     def get(self, tag: str, **kwargs) -> Image:
@@ -81,6 +75,10 @@ class Images:
 
     def pull(self, tag: str, **kwargs) -> None:
         ...
+
+    def build(self, **kwargs) -> Tuple[Image, Iterable[Dict[str,str]]]:
+        ...
+
 
 class types:
     def RestartPolicy(p: str) -> Any:
@@ -99,14 +97,6 @@ class types:
     class Mount:
         def __init__(self, *args, **kwargs):
             ...
-
-class errors:
-    class BuildError(Exception):
-        msg : str
-        build_log : Iterable[Dict[str,str]]
-
-    class ImageNotFound(Exception):
-        pass
 
 class DockerClient:
     @property
@@ -136,10 +126,6 @@ class DockerClient:
 
     @property
     def nodes(self) -> Nodes:
-        ...
-
-    @property
-    def images(self) -> Images:
         ...
 
 def from_env(version: Optional[str] = None, timeout: Optional[int] = None) -> DockerClient:

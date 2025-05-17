@@ -12,9 +12,18 @@ jobs:
           - integration_tests
           - viral_refbased
           - viral_assemble
-          - skylab_bulk_rna
-    runs-on: ubuntu-20.04
+          # disabled due to test data bitrot (Apr 2023)
+          # - skylab_bulk_rna
+    runs-on: ubuntu-22.04
     steps:
+    - name: Maximize build space
+      uses: AdityaGarg8/remove-unwanted-software@v3
+      with:
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
+        remove-codeql: 'true'
+      if: ${{ matrix.ci_target == 'viral_assemble' }}
     - name: Login to GitHub Packages Docker Registry
       uses: docker/login-action@v1
       with:
@@ -29,7 +38,7 @@ jobs:
       run: |
         # Cache the dependency-installation image layer on GitHub Packages to speed up CI. Use a
         # year/month tag to ensure we do refresh them occasionally.
-        DOCKER_TAG="docker.pkg.github.com/chanzuckerberg/miniwdl/miniwdl_ci:$(date +%Y%m)"
+        DOCKER_TAG="docker.pkg.github.com/${GITHUB_REPOSITORY}/miniwdl_ci:$(date +%Y%m)"
         echo "DOCKER_TAG=${DOCKER_TAG}" >> $GITHUB_ENV
         if docker pull "$DOCKER_TAG"; then
           docker build -t "$DOCKER_TAG" --cache-from "$DOCKER_TAG" .
@@ -37,7 +46,7 @@ jobs:
           docker build -t "$DOCKER_TAG" .
         fi
         if [ "${{ matrix.ci_target }}" == "ci_housekeeping" ]; then
-          docker push "$DOCKER_TAG"
+          docker push "$DOCKER_TAG" || true  # allow failure for third-party PRs
         fi
     - name: make ${{ matrix.ci_target }}
       run: |
@@ -53,3 +62,37 @@ jobs:
       # https://github.com/coverallsapp/github-action/issues/30
       # https://github.com/marketplace/actions/coveralls-python
       uses: AndreMiras/coveralls-python-action@develop
+
+  focal_self_test:
+    # run_self_test in an ubuntu-20.04 image with only the minimal runtime dependencies installed
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/checkout@v2
+    - name: docker build
+      run: |
+        # overwriting Dockerfile!
+        cat << 'EOF' > Dockerfile
+          FROM ubuntu:20.04
+          ENV LC_ALL C.UTF-8
+          ENV LANG C.UTF-8
+          RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-pip git-core
+
+          RUN useradd -ms /bin/bash -u 1337 wdler
+          USER wdler
+          WORKDIR /home/wdler
+          RUN mkdir miniwdl
+
+          ENV PATH $PATH:/home/wdler/.local/bin
+          COPY . /home/wdler/miniwdl
+          RUN cd miniwdl && pip3 install --user .
+
+          CMD miniwdl run_self_test
+        EOF
+        docker build -t miniwdl_focal_self_test .
+    - name: miniwdl run_self_test
+      run: |
+        docker run \
+          --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
+          -v /tmp:/tmp \
+          -e AWS_EC2_METADATA_DISABLED=true \
+          miniwdl_focal_self_test

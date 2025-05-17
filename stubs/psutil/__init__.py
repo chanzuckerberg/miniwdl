@@ -1,3 +1,5 @@
+# mypy: ignore-errors
+
 class svmem:
     total: int
     ...

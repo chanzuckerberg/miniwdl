@@ -7,13 +7,18 @@ Each value is represented by an instance of a Python class inheriting from
 .. inheritance-diagram:: WDL.Value
    :top-classes: WDL.Value.Base
 """
+
 import json
 import copy
 import base64
 import hashlib
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable
+from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set, TYPE_CHECKING
+from contextlib import suppress
 from . import Error, Type, Env
+
+if TYPE_CHECKING:
+    from . import Expr
 
 
 class Base(ABC):
@@ -30,51 +35,22 @@ class Base(ABC):
     def __init__(self, type: Type.Base, value: Any, expr: "Optional[Expr.Base]" = None) -> None:
         assert isinstance(type, Type.Base)
         self.type = type
+        if self.type.optional and not isinstance(self, Null):
+            self.type = self.type.copy(optional=False)  # normalize runtime type
         self.value = value
         self._expr = None
         if expr:
             self.expr = expr
 
     def __eq__(self, other) -> bool:
-        if self.value is None:
-            return other.value is None
-        return self.type == other.type and self.value == other.value
+        # nb: assumes static typechecking has ensured it's sensible to test these for equality
+        assert isinstance(other, Base) and self.type.equatable(other.type), (
+            f"cannot equate {self.type} {self} with {other.type} {other}"
+        )
+        return self.value == other.value
 
     def __str__(self) -> str:
         return json.dumps(self.json)
-
-    def __deepcopy__(self, memo: Dict[int, Any]) -> Any:
-        cls = self.__class__
-        cp = cls.__new__(cls)
-        shallow = ("_expr", "type")  # avoid deep-copying large, immutable structures
-        for k, v in self.__dict__.items():
-            if k != "value":
-                setattr(cp, k, copy.deepcopy(v, memo) if k not in shallow else v)
-        # override deepcopy of self.value to eliminate sharing; this accommodates rewrite_files()
-        # which wants a deep copy for the purpose of modifying the copied File.value, and isn't
-        # expecting to encounter shared ones.
-        if isinstance(self.value, list):
-            value2 = []
-            for elt in self.value:
-                if isinstance(elt, tuple):
-                    assert len(elt) == 2
-                    value2.append((copy.deepcopy(elt[0]), copy.deepcopy(elt[1])))
-                else:
-                    assert isinstance(elt, Base)
-                    value2.append(copy.deepcopy(elt))
-            cp.value = value2
-        elif isinstance(self.value, tuple):
-            assert len(self.value) == 2
-            cp.value = (copy.deepcopy(self.value[0]), copy.deepcopy(self.value[1]))
-        elif isinstance(self.value, dict):
-            value2 = {}
-            for key in self.value:
-                value2[copy.deepcopy(key)] = copy.deepcopy(self.value[key])
-            cp.value = value2
-        else:
-            assert self.value is None or isinstance(self.value, (int, float, bool, str))
-            cp.value = self.value
-        return cp
 
     @property
     def expr(self) -> "Optional[Expr.Base]":
@@ -123,7 +99,7 @@ class Base(ABC):
 
     @property
     def json(self) -> Any:
-        """Return a value representation which can be serialized to JSON using ``json.dumps`` """
+        """Return a value representation which can be serialized to JSON using ``json.dumps``"""
         """(str, int, float, list, dict, or null)"""
         return self.value
 
@@ -156,7 +132,7 @@ class Int(Base):
         super().__init__(Type.Int(), value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.Float):
             return Float(float(self.value), self.expr)
         return super().coerce(desired_type)
@@ -172,7 +148,7 @@ class String(Base):
         super().__init__(subtype, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.String):
             return String(self.value, self.expr)
         if isinstance(desired_type, Type.File) and not isinstance(self, File):
@@ -185,9 +161,8 @@ class String(Base):
             if isinstance(desired_type, Type.Float):
                 return Float(float(self.value), self.expr)
         except ValueError as exn:
-            if self.expr:
-                raise Error.EvalError(self.expr, "coercing String to number: " + str(exn)) from exn
-            raise
+            msg = f"coercing String to {desired_type}: {exn}"
+            raise Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg)
         return super().coerce(desired_type)
 
 
@@ -199,33 +174,12 @@ class File(String):
         if value != value.rstrip("/"):
             raise Error.InputError("WDL.Value.File invalid path: " + value)
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
-        if self.value is None:
-            # special case for dealing with File? task outputs; see _eval_task_outputs in
-            # runtime/task.py. Only on that path should self.value possibly be None.
-            if isinstance(desired_type, Type.File) and desired_type.optional:
-                return Null(self.expr)
-            else:
-                raise FileNotFoundError()
-        return super().coerce(desired_type)
-
 
 class Directory(String):
     """``value`` has Python type ``str``"""
 
     def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
         super().__init__(value, expr=expr, subtype=Type.Directory())
-
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
-        if self.value is None:
-            # as above
-            if isinstance(desired_type, Type.Directory) and desired_type.optional:
-                return Null(self.expr)
-            else:
-                raise FileNotFoundError()
-        return super().coerce(desired_type)
 
 
 class Array(Base):
@@ -243,7 +197,7 @@ class Array(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         return [item.json for item in self.value]
 
     def __str__(self) -> Any:
@@ -255,7 +209,7 @@ class Array(Base):
         return self.value
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.Array):
             if desired_type.nonempty and not self.value:
                 if self.expr:
@@ -264,11 +218,12 @@ class Array(Base):
                     raise ValueError("Empty array for Array+ input/declaration")
             if desired_type.item_type == self.type.item_type or (
                 isinstance(desired_type.item_type, Type.Any)
-                or isinstance(self.type.item_type, Type.Any)
             ):
                 return self
             return Array(
-                desired_type, [v.coerce(desired_type.item_type) for v in self.value], self.expr
+                desired_type.item_type,
+                [v.coerce(desired_type.item_type) for v in self.value],
+                self.expr,
             )
         return super().coerce(desired_type)
 
@@ -289,7 +244,7 @@ class Map(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         ans = {}
         if not self.type.item_type[0].coerces(Type.String()):
             msg = f"cannot write {str(self.type)} to JSON"
@@ -308,12 +263,12 @@ class Map(Base):
 
     @property
     def children(self) -> Iterable[Base]:
-        for (k, v) in self.value:
+        for k, v in self.value:
             yield k
             yield v
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.Map) and desired_type != self.type:
             return Map(
                 desired_type.item_type,
@@ -324,24 +279,48 @@ class Map(Base):
                 self.expr,
             )
         if isinstance(desired_type, Type.StructInstance):
-            if self.type.item_type[0] == Type.String():
-                # Runtime typecheck for initializing struct from read_{object[s],map,json}
-                # This couldn't have been checked statically because the map keys weren't known.
-                litty = Type.Map(
-                    self.type.item_type, self.type.optional, set(kv[0].value for kv in self.value)
-                )
-                if not litty.coerces(desired_type):
-                    msg = "runtime struct initializer doesn't have the required fields with the expected types"
-                    raise Error.EvalError(
+            # Runtime typecheck for initializing struct from read_{object,objects,map}
+            # This couldn't have been checked statically because the map keys weren't known.
+            assert self.type.item_type[0].coerces(Type.String())
+            try:
+                Type.Map(
+                    self.type.item_type,
+                    self.type.optional,
+                    set(kv[0].coerce(Type.String()).value for kv in self.value),
+                ).check(desired_type)
+            except TypeError as exn:
+                msg = "unusable runtime struct initializer"
+                if exn.args:
+                    msg += ", " + exn.args[0]
+                raise (
+                    Error.EvalError(
                         self.expr,
                         msg,
-                    ) if self.expr else Error.RuntimeError(msg)
+                    )
+                    if self.expr
+                    else Error.RuntimeError(msg)
+                )
             assert desired_type.members
+            # coerce to desired member types
             ans = {}
             for k, v in self.value:
-                k = k.coerce(Type.String()).value
-                assert k in desired_type.members
-                ans[k] = v
+                ks = k.coerce(Type.String()).value
+                try:
+                    ans[ks] = v.coerce(desired_type.members[ks])
+                except Error.RuntimeError as exc:
+                    # some coercions that typecheck could still fail, e.g. String to Int
+                    msg = (
+                        "runtime type mismatch initializing "
+                        f"{desired_type.members[ks]} {ks} member of struct {desired_type.type_name}"
+                    ) + ((": " + exc.args[0]) if exc.args else "")
+                    raise (
+                        Error.EvalError(
+                            self.expr,
+                            msg,
+                        )
+                        if self.expr
+                        else Error.RuntimeError(msg)
+                    )
             return Struct(desired_type, ans, self.expr)
         return super().coerce(desired_type)
 
@@ -367,7 +346,7 @@ class Pair(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         return {"left": self.value[0].json, "right": self.value[1].json}
 
     @property
@@ -376,7 +355,7 @@ class Pair(Base):
         yield self.value[1]
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if isinstance(desired_type, Type.Pair) and desired_type != self.type:
             return Pair(
                 desired_type.left_type,
@@ -395,13 +374,17 @@ class Null(Base):
     ``type`` and ``value`` are both None."""
 
     def __init__(self, expr: "Optional[Expr.Base]" = None) -> None:
-        super().__init__(Type.Any(optional=True), None, expr)
+        super().__init__(Type.Any(null=True), None, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
+        """"""
         if desired_type and not desired_type.optional and not isinstance(desired_type, Type.Any):
-            # normally the typechecker should prevent this, but it might have
-            # had check_quant=False
+            if isinstance(desired_type, (Type.File, Type.Directory)):
+                # This case arises processing task outputs; we convert nonexistent paths to Null
+                # before coercing to the declared output type (+ checking whether it's optional).
+                raise FileNotFoundError()
+            # normally the typechecker should prevent the following cases, but it might have had
+            # check_quant=False
             if isinstance(desired_type, Type.String):
                 return String("", self.expr)
             if isinstance(desired_type, Type.Array) and desired_type.item_type.optional:
@@ -416,47 +399,131 @@ class Null(Base):
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         return None
 
 
 class Struct(Base):
     value: Dict[str, Base]
 
+    # records the names of any extraneous keys that were present in the JSON/Map/Object from which
+    # this struct was initialized
+    extra: Set[str]
+
     def __init__(
         self,
         type: Union[Type.Object, Type.StructInstance],
         value: Dict[str, Base],
         expr: "Optional[Expr.Base]" = None,
+        extra: Optional[Set[str]] = None,
     ) -> None:
+        # type may be Object for the transient evaluation of an object literal or read_json(); we
+        # expect it to be coerced to a StructInstance in short order.
         value = dict(value)
         if isinstance(type, Type.StructInstance):
+            # fill in null for any omitted optional members
             assert type.members
-            # coerce values to member types
-            for k in value:
-                assert k in type.members
-                value[k] = value[k].coerce(type.members[k])
-            # if initializer (map or object literal) omits optional members,
-            # fill them in with null
             for k in type.members:
                 if k not in value:
                     assert type.members[k].optional
                     value[k] = Null()
         self.value = value
+        self.extra = extra or set()
         super().__init__(type, value, expr)
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
-        ""
-        if isinstance(self.type, Type.Object) and isinstance(desired_type, Type.StructInstance):
-            return Struct(desired_type, self.value, self.expr)
+        """"""
+        if isinstance(desired_type, Type.StructInstance):
+            return self._coerce_to_struct(desired_type)
+        if isinstance(desired_type, Type.Map):
+            return self._coerce_to_map(desired_type)
+        if not isinstance(desired_type, (Type.Any, Type.Object)):
+            self._eval_error(f"cannot coerce struct to {desired_type}")
+        # Object coercion is a no-op because we expect a further coercion to StructInstance to
+        # follow in short order, providing the expected member types.
         return self
+
+    def _coerce_to_struct(self, desired_type: Type.StructInstance) -> Base:
+        assert desired_type.members
+        if isinstance(self.type, Type.StructInstance) and self.type.type_id == desired_type.type_id:
+            return self
+        try:
+            # Runtime typecheck for initializing StructInstance from read_json(), where the
+            # Object type isn't known until runtime
+            self.type.check(desired_type)
+        except TypeError as exn:
+            msg = "unusable runtime struct initializer"
+            if exn.args:
+                msg += ", " + exn.args[0]
+            self._eval_error(msg)
+        # coerce to desired member types
+        members = {}
+        extra = set()
+        for k in self.value:
+            if k not in desired_type.members:
+                extra.add(k)
+            else:
+                try:
+                    members[k] = self.value[k].coerce(desired_type.members[k])
+                except Error.RuntimeError as exc:
+                    # some coercions that typecheck could still fail, e.g. String to Int; note the
+                    # offending member, taking care not to obscure it if the struct is nested
+                    msg = ""
+                    if exc.args:
+                        if "member of struct" in exc.args[0]:
+                            raise
+                        msg = ": " + exc.args[0]
+                    msg = (
+                        "runtime type mismatch initializing "
+                        f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
+                    ) + msg
+                    self._eval_error(msg)
+        return Struct(desired_type, members, expr=self.expr, extra=extra)
+
+    def _coerce_to_map(self, desired_type: Type.Map) -> Map:
+        # runtime coercion e.g. Map[String,String] foo = read_json("foo.txt")
+        assert isinstance(self.type, Type.Object)
+        key_type = desired_type.item_type[0]
+        if not Type.String().coerces(key_type):
+            self._eval_error(f"cannot coerce struct member names to {desired_type} keys")
+        value_type = desired_type.item_type[1]
+        entries = []
+        for k, v in self.value.items():
+            if not isinstance(v, Null) or value_type.optional:
+                map_key = None
+                map_value = None
+                try:
+                    map_key = String(k).coerce(key_type)
+                except Error.RuntimeError:
+                    self._eval_error(f"cannot coerce struct member name {k} to {desired_type} key")
+                if self.type.members[k].coerces(value_type):
+                    with suppress(Error.RuntimeError):
+                        map_value = v.coerce(value_type)
+                if map_value is None:
+                    self._eval_error(
+                        "cannot coerce struct member"
+                        f" {self.type.members[k]} {k} to {value_type} map value"
+                    )
+                assert map_key and map_value
+                entries.append((map_key, map_value))
+        return Map(desired_type.item_type, entries)
+
+    def _eval_error(self, msg: str) -> None:
+        raise (
+            Error.EvalError(
+                self.expr,
+                msg,
+            )
+            if self.expr
+            else Error.RuntimeError(msg)
+        ) from None
 
     def __str__(self) -> Any:
         return "{" + ", ".join(f"{k}: {str(v)}" for k, v in self.value.items()) + "}"
 
     @property
     def json(self) -> Any:
-        ""
+        """"""
         ans = {}
         for k, v in self.value.items():
             ans[k] = v.json
@@ -493,7 +560,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
     if isinstance(type, (Type.String, Type.Any)) and isinstance(value, str):
         return String(value)
     if isinstance(type, Type.Array) and isinstance(value, list):
-        return Array(type, [from_json(type.item_type, item) for item in value])
+        return Array(type.item_type, [from_json(type.item_type, item) for item in value])
     if isinstance(type, Type.Pair) and isinstance(value, dict) and set(value) == {"left", "right"}:
         return Pair(
             type.left_type,
@@ -510,27 +577,27 @@ def from_json(type: Type.Base, value: Any) -> Base:
             assert isinstance(k, str)
             items.append((String(k).coerce(type.item_type[0]), from_json(type.item_type[1], v)))
         return Map(type.item_type, items)
-    if (
-        isinstance(type, Type.StructInstance)
-        and isinstance(value, dict)
-        and type.members
-        and not set(value.keys()).difference(set(type.members.keys()))
-    ):
+    if isinstance(type, Type.StructInstance) and isinstance(value, dict) and type.members:
         for k, ty in type.members.items():
             if k not in value and not ty.optional:
                 raise Error.InputError(
                     f"initializer for struct {str(type)} omits required field(s)"
                 )
-        items = {}
+        members = {}
+        extra = set()
         for k, v in value.items():
             assert isinstance(k, str)
-            try:
-                items[k] = from_json(type.members[k], v)
-            except Error.InputError:
-                raise Error.InputError(
-                    f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
-                ) from None
-        return Struct(Type.Object(type.members), items)
+            if k not in type.members:
+                extra.add(k)
+            else:
+                try:
+                    members[k] = from_json(type.members[k], v)
+                except Error.InputError:
+                    raise Error.InputError(
+                        f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
+                    ) from None
+        # Struct.__init__ will populate null for any omitted optional members
+        return Struct(type, members, extra=extra)
     if type.optional and value is None:
         return Null()
     raise Error.InputError(f"couldn't construct {str(type)} from {json.dumps(value)}")
@@ -547,39 +614,64 @@ def _infer_from_json(j: Any) -> Base:
         return Float(j)
     if j is None:
         return Null()
+    # compound: don't yet try to infer unified types for nested values, since we expect a coercion
+    # to a StructInstance type to follow in short order, providing the expected item/member types
     if isinstance(j, list):
-        items = [_infer_from_json(v) for v in j]
-        item_type = Type.unify([item.type for item in items])
-        return Array(item_type, [item.coerce(item_type) for item in items])
+        return Array(Type.Any(), [_infer_from_json(v) for v in j])
     if isinstance(j, dict):
-        items = [(String(str(k)), _infer_from_json(j[k])) for k in j]
-        value_type = Type.unify([v.type for _, v in items])
-        return Map((Type.String(), value_type), [(k, v.coerce(value_type)) for k, v in items])
+        members = {}
+        member_types = {}
+        for k in j:
+            assert isinstance(k, str)
+            members[k] = _infer_from_json(j[k])
+            member_types[k] = members[k].type
+        return Struct(Type.Object(member_types), members)
     raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
 
 
-def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], str]) -> Base:
+def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]]) -> Base:
     """
     Produce a deep copy of the given Value with all File & Directory paths (including those nested
-    inside compound Values) rewritten by the given function.
+    inside compound Values) rewritten by the given function. The function may return None to
+    replace the File/Directory value with None/Null.
     """
 
-    mapped_paths = set()
+    def map_paths(w: Base) -> Base:
+        w = copy.copy(w)
+        if isinstance(w, (File, Directory)):
+            fw = f(w)
+            if fw is None:
+                return Null(expr=w.expr)
+            w.value = fw
+        # recursive descent into compound Values
+        elif isinstance(w.value, list):
+            value2: List[Any] = []
+            for elt in w.value:
+                if isinstance(elt, tuple):
+                    assert len(elt) == 2 and all(isinstance(x, Base) for x in elt)
+                    value2.append((map_paths(elt[0]), map_paths(elt[1])))
+                else:
+                    assert isinstance(elt, Base)
+                    value2.append(map_paths(elt))
+            w.value = value2
+        elif isinstance(w.value, tuple):
+            assert len(w.value) == 2 and sum(1 for x in w.value if not isinstance(x, Base)) == 0
+            w.value = (map_paths(w.value[0]), map_paths(w.value[1]))
+        elif isinstance(w.value, dict):
+            value3 = {}
+            for key in w.value:
+                assert isinstance(key, str) and isinstance(w.value[key], Base)
+                value3[key] = map_paths(w.value[key])
+            w.value = value3
+        else:
+            assert w.value is None or isinstance(w.value, (int, float, bool, str))
+        return w
 
-    def map_paths(v2: Base) -> Base:
-        if isinstance(v2, (File, Directory)):
-            assert id(v2) not in mapped_paths, f"File/Directory {id(v2)} reused in deepcopy"
-            v2.value = f(v2)
-            mapped_paths.add(id(v2))
-        for ch in v2.children:
-            map_paths(ch)
-        return v2
-
-    return map_paths(copy.deepcopy(v))
+    return map_paths(v)
 
 
 def rewrite_env_paths(
-    env: Env.Bindings[Base], f: Callable[[Union[File, Directory]], str]
+    env: Env.Bindings[Base], f: Callable[[Union[File, Directory]], Optional[str]]
 ) -> Env.Bindings[Base]:
     """
     Produce a deep copy of the given Value Env with all File & Directory paths rewritten by the
@@ -588,7 +680,7 @@ def rewrite_env_paths(
     return env.map(lambda binding: Env.Binding(binding.name, rewrite_paths(binding.value, f)))
 
 
-def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
+def rewrite_files(v: Base, f: Callable[[str], Optional[str]]) -> Base:
     """
     Produce a deep copy of the given Value with all File names rewritten by the given function
     (including Files nested inside compound Values).
@@ -599,7 +691,9 @@ def rewrite_files(v: Base, f: Callable[[str], str]) -> Base:
     return rewrite_paths(v, lambda fd: f(fd.value) if isinstance(fd, File) else fd.value)
 
 
-def rewrite_env_files(env: Env.Bindings[Base], f: Callable[[str], str]) -> Env.Bindings[Base]:
+def rewrite_env_files(
+    env: Env.Bindings[Base], f: Callable[[str], Optional[str]]
+) -> Env.Bindings[Base]:
     """
     Produce a deep copy of the given Value Env with all File names rewritten by the given function.
 
@@ -615,6 +709,6 @@ def digest_env(env: Env.Bindings[Base]) -> str:
     """
     from . import values_to_json
 
-    env_json = json.dumps(values_to_json(env), separators=(",", ":"), sort_keys=True)  # pyre-ignore
+    env_json = json.dumps(values_to_json(env), separators=(",", ":"), sort_keys=True)
     sha256 = hashlib.sha256(env_json.encode("utf-8")).digest()
     return base64.b32encode(sha256[:20]).decode().lower()

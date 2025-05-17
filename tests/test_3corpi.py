@@ -1,4 +1,4 @@
-import unittest, inspect, subprocess, tempfile, os, glob, json, urllib, urllib.request
+import unittest, tempfile, os, glob, json, urllib, urllib.request, logging, shutil, contextlib, pathlib, hashlib, time
 from .context import WDL
 import WDL.Lint
 
@@ -42,7 +42,7 @@ async def read_source(uri, path, importer_uri):
     return await WDL.read_source_default(uri, path, importer_uri)
 
 
-def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
+def wdl_corpus(dir, path=[], blocklist=[], expected_lint={}, check_quant=True):
     def decorator(test_klass):
 
         test_klass._lint_count = {}
@@ -62,7 +62,7 @@ def wdl_corpus(dir, path=[], blacklist=[], expected_lint={}, check_quant=True):
         for fn in files:
             name = os.path.split(fn)[1]
             name = name[:-4]
-            if name not in blacklist:
+            if name not in blocklist:
                 name = "test_" + prefix + "_" + name.replace(".", "_")
                 while hasattr(test_klass, name):
                     name += "_"
@@ -169,6 +169,7 @@ class HCAskylab_task(unittest.TestCase):
         "MixedIndentation": 1,
         "FileCoercion": 1,
         "MissingVersion": 34,
+        "UnnecessaryQuantifier": 3,
     },
 )
 class HCAskylab_workflow(unittest.TestCase):
@@ -187,7 +188,7 @@ class GATK_five_dollar(unittest.TestCase):
     ["test_corpi/gatk-workflows/gatk4-germline-snps-indels/**"],
     expected_lint={
         "UnusedDeclaration": 3,
-        "StringCoercion": 20,
+        "StringCoercion": 15,
         "FileCoercion": 3,
         "UnknownRuntimeKey": 1,
         "MissingVersion": 4,
@@ -232,7 +233,7 @@ class gatk4_cnn_variant_filter(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/gatk-workflows/broad-prod-wgs-germline-snps-indels/**"],
-    blacklist=["JointGenotypingWf"],
+    blocklist=["JointGenotypingWf"],
     expected_lint={
         "StringCoercion": 50,
         "UnusedDeclaration": 10,
@@ -248,7 +249,7 @@ class broad_prod_wgs(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/broadinstitute/gtex-pipeline/**"],
     # need URI import
-    blacklist=["rnaseq_pipeline_bam", "rnaseq_pipeline_fastq"],
+    blocklist=["rnaseq_pipeline_bam", "rnaseq_pipeline_fastq"],
     expected_lint={
         "IncompleteCall": 30,
         "UnusedDeclaration": 3,
@@ -263,7 +264,7 @@ class GTEx(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/DataBiosphere/topmed-workflows/**"],
     # need URI import
-    blacklist=[
+    blocklist=[
         "CRAM_md5sum_checker_wrapper",
         "checker-workflow-wrapping-alignment-workflow",
         "topmed_freeze3_calling",
@@ -275,6 +276,8 @@ class GTEx(unittest.TestCase):
         "UnusedDeclaration": 74,
         "OptionalCoercion": 1,
         "MissingVersion": 8,
+        "UnnecessaryQuantifier": 1,
+        "UnexpectedRuntimeValue": 4,
     },
     check_quant=False,
 )
@@ -292,6 +295,7 @@ class TOPMed(unittest.TestCase):
         "UnusedImport": 1,
         "SelectArray": 4,
         "MissingVersion": 62,
+        "UnnecessaryQuantifier": 191,
     },
 )
 class ViralNGS(unittest.TestCase):
@@ -302,7 +306,7 @@ class ViralNGS(unittest.TestCase):
     ["test_corpi/ENCODE-DCC/chip-seq-pipeline2/**"],
     expected_lint={
         "StringCoercion": 208,
-        "FileCoercion": 154,
+        "FileCoercion": 170,
         "NameCollision": 16,
         "OptionalCoercion": 64,
         "MixedIndentation": 32,
@@ -322,7 +326,7 @@ class ENCODE_ChIPseq(unittest.TestCase):
         "OptionalCoercion": 1020,
         "UnusedCall": 45,
         "StringCoercion": 30,
-        "FileCoercion": 71,
+        "FileCoercion": 236,
         "MissingVersion": 29,
     },
     check_quant=False,
@@ -359,7 +363,7 @@ class ENCODE_WGBS(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/dnanexus/dxWDL/test/**"],
-    blacklist=[
+    blocklist=[
         # output/call name collision (draft-2)
         "conditionals2",
         # decl/output name collision
@@ -375,10 +379,12 @@ class ENCODE_WGBS(unittest.TestCase):
         "UnusedCall": 16,
         "NameCollision": 2,
         "OptionalCoercion": 3,
-        "FileCoercion": 2,
+        "FileCoercion": 3,
         "StringCoercion": 2,
         "UnnecessaryQuantifier": 1,
         "MissingVersion": 52,
+        "UnnecessaryQuantifier": 10,
+        "UnexpectedRuntimeValue": 1,
     },
     check_quant=False,
 )
@@ -392,18 +398,21 @@ class dxWDL(unittest.TestCase):
         "_suppressions": 8,
         "UnusedImport": 4,
         "NameCollision": 27,
-        "StringCoercion": 4,
-        "FileCoercion": 2,
+        "StringCoercion": 7,
+        "FileCoercion": 3,
         "NonemptyCoercion": 1,
-        "UnnecessaryQuantifier": 2,
-        "UnusedDeclaration": 2,
+        "UnnecessaryQuantifier": 5,
+        "UnusedDeclaration": 4,
         "IncompleteCall": 2,
         "SelectArray": 1,
         "MissingVersion": 7,
         "UnboundDeclaration": 1,
         "UnverifiedStruct": 3,
+        "Deprecated": 2,
+        "UnexpectedRuntimeValue": 1,
+        "ImportNewerWDL": 1,
     },
-    blacklist=["check_quant", "incomplete_call"],
+    blocklist=["check_quant", "incomplete_call", "issue596"],
 )
 class Contrived(unittest.TestCase):
     pass
@@ -415,21 +424,24 @@ class Contrived(unittest.TestCase):
         "_suppressions": 16,
         "UnusedImport": 6,
         "NameCollision": 43,
-        "StringCoercion": 9,
-        "FileCoercion": 4,
-        "OptionalCoercion": 3,
+        "StringCoercion": 13,
+        "FileCoercion": 5,
+        "OptionalCoercion": 10,
         "NonemptyCoercion": 2,
-        "UnnecessaryQuantifier": 4,
-        "UnusedDeclaration": 9,
+        "UnnecessaryQuantifier": 9,
+        "UnusedDeclaration": 11,
         "IncompleteCall": 3,
         "ArrayCoercion": 2,
         "SelectArray": 4,
         "MissingVersion": 11,
         "UnboundDeclaration": 1,
         "UnverifiedStruct": 3,
+        "Deprecated": 3,
+        "UnexpectedRuntimeValue": 1,
+        "ImportNewerWDL": 2,
     },
     check_quant=False,
-    blacklist=["incomplete_call"],
+    blocklist=["incomplete_call"],
 )
 class Contrived2(unittest.TestCase):
     pass
@@ -437,18 +449,21 @@ class Contrived2(unittest.TestCase):
 
 @wdl_corpus(
     ["test_corpi/biowdl/tasks/**"],
-    blacklist=[
+    blocklist=[
         # these use the pattern 'input { Type? x = default }' and need check_quant=False
         "mergecounts",
         "somaticseq",
+        "bamstats",
+        "biopet",
+        "sampleconfig",
+        "seqstat",
     ],
     expected_lint={
-        "OptionalCoercion": 9,
-        "UnusedDeclaration": 18,
+        "OptionalCoercion": 2,
+        "UnusedDeclaration": 15,
         "NonemptyCoercion": 1,
-        "NameCollision": 1,
         "SelectArray": 1,
-        "UnverifiedStruct": 1,
+        "UnnecessaryQuantifier": 8,
     },
 )
 class BioWDLTasks(unittest.TestCase):
@@ -458,11 +473,13 @@ class BioWDLTasks(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/biowdl/aligning/**"],
     expected_lint={
-        "OptionalCoercion": 12,
+        "FileCoercion": 1,
+        "OptionalCoercion": 11,
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 1,
         "NameCollision": 1,
-        "UnverifiedStruct": 1
+        "UnverifiedStruct": 1,
+        "UnnecessaryQuantifier": 13,
     },
     check_quant=False,
 )
@@ -473,11 +490,13 @@ class BioWDLAligning(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/biowdl/expression-quantification/**"],
     expected_lint={
+        "FileCoercion": 1,
         "OptionalCoercion": 11,
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 3,
         "NameCollision": 1,
         "UnverifiedStruct": 1,
+        "UnnecessaryQuantifier": 9,
     },
     check_quant=False,
 )
@@ -493,6 +512,7 @@ class BioWDLExpressionQuantification(unittest.TestCase):
         "UnusedDeclaration": 11,
         "NonemptyCoercion": 37,
         "SelectArray": 5,
+        "UnnecessaryQuantifier": 3,
     },
     check_quant=False,
 )
@@ -505,10 +525,10 @@ class BioWDLSomaticVariantCalling(unittest.TestCase):
     expected_lint={
         "UnusedDeclaration": 8,
         "SelectArray": 2,
-        "OptionalCoercion": 2,
         "NonemptyCoercion": 3,
         "UnusedCall": 1,
         "UnverifiedStruct": 1,
+        "UnnecessaryQuantifier": 7,
     },
     check_quant=False,
 )
@@ -519,22 +539,16 @@ class BioWDLSmallRNA(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/broadinstitute/warp/pipelines/broad/**"],
     path=[["test_corpi/broadinstitute/warp/tasks"]],
-    # has a task with a name collision between output & input
-    blacklist=[
-        "JointGenotyping",
-        "JointGenotypingByChromosomePartOne",
-        "JointGenotypingByChromosomePartTwo",
-    ],
     expected_lint={
         "UnusedImport": 22,
-        "StringCoercion": 63,
-        "UnusedDeclaration": 79,
+        "UnusedCall": 1,
+        "StringCoercion": 86,
+        "UnusedDeclaration": 106,
         "NameCollision": 12,
-        "ForwardReference": 4,
+        "ForwardReference": 5,
         "NonemptyCoercion": 4,
-        "FileCoercion": 3,
+        "FileCoercion": 17,
     },
-    check_quant=False,
 )
 class warp_pipelines_broad(unittest.TestCase):
     pass
@@ -545,7 +559,6 @@ class warp_pipelines_broad(unittest.TestCase):
     expected_lint={
         "UnusedDeclaration": 1,
     },
-    check_quant=False,
 )
 class warp_pipelines_cemba(unittest.TestCase):
     pass
@@ -560,7 +573,107 @@ class warp_pipelines_cemba(unittest.TestCase):
         "FileCoercion": 3,
         "NameCollision": 3,
     },
-    check_quant=False,
 )
 class warp_pipelines_skylab(unittest.TestCase):
     pass
+
+
+class TestZip(unittest.TestCase):
+    def _roundtrip(self, doc, inputs=None):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            meta = {"foo": "bar"}
+            main_wdl = os.path.basename(doc.pos.abspath)
+            zip_fn = os.path.join(testdir, main_wdl + ".zip")
+            additional_files = [__file__]
+            WDL.Zip.build(
+                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta,
+                inputs=inputs, additional_files=additional_files
+            )
+
+            source_dir, main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            assert not inputs or inputs_file
+            WDL.load(os.path.join(source_dir, main_wdl))
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, os.path.basename(__file__))))
+
+            # cover misc code paths through WDL.Zip.unpack()
+            WDL.load(cleanup.enter_context(WDL.Zip.unpack(source_dir)).main_wdl)
+            WDL.load(
+                cleanup.enter_context(
+                    WDL.Zip.unpack(os.path.join(source_dir, "MANIFEST.json"))
+                ).main_wdl
+            )
+            os.unlink(os.path.join(source_dir, "MANIFEST.json"))
+            with self.assertRaises(WDL.Error.InputError):
+                cleanup.enter_context(WDL.Zip.unpack(source_dir))
+
+    def test_empty(self):
+        self._roundtrip(WDL.load("test_corpi/contrived/empty.wdl"))
+
+    def test_scatter_collisions(self):
+        # import single-quoted URI (issue #601)
+        self._roundtrip(WDL.load("test_corpi/contrived/scatter_collisions.wdl"))
+
+    def test_biowdl_aligning(self):
+        self._roundtrip(WDL.load("test_corpi/biowdl/aligning/align-star.wdl"))
+
+    def test_wgs(self):
+        # multiple nested subworkflows
+        self._roundtrip(
+            WDL.load(
+                "test_corpi/broadinstitute/warp/pipelines/broad/reprocessing/wgs/WholeGenomeReprocessing.wdl",
+            ),
+            inputs={"foo": ["bar", "baz"]},
+        )
+
+    def test_assemble_refbased(self):
+        self._roundtrip(
+            WDL.load(
+                "test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/assemble_denovo.wdl",
+                path=["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"],
+            ),
+        )
+
+    def test_reproducible_zip(self):
+        self._reproducible_test("zip")
+
+    def test_reproducible_tar(self):
+        self._reproducible_test("tar")
+
+    def _reproducible_test(self, format):
+        original_wdl = "test_corpi/biowdl/expression-quantification/multi-bam-quantify.wdl"
+        doc = WDL.load(original_wdl)
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            meta = {"foo": "bar"}
+            main_wdl = os.path.basename(doc.pos.abspath)
+            zip_fn = os.path.join(testdir, main_wdl + f".{format}")
+            WDL.Zip.build(
+                doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta,
+                archive_format=format
+            )
+            zip_contents = pathlib.Path(zip_fn).read_bytes()
+            zip_checksum = hashlib.sha1(zip_contents).hexdigest()
+
+            time.sleep(2)  # Sleep 2 seconds to make sure modification times are different.
+
+            copy_pipeline_dir = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix="miniwdl_reproducible_zip_test")
+            )
+            copy_pipeline_dir = os.path.join(copy_pipeline_dir, "contents")
+            # Copy file contents, but not file metadata.
+            copied_pipeline_dir = shutil.copytree(
+                os.path.dirname(original_wdl),
+                copy_pipeline_dir, copy_function=shutil.copyfile)
+            copied_wdl = os.path.join(copied_pipeline_dir,
+                                      "multi-bam-quantify.wdl")
+            copied_doc = WDL.load(copied_wdl)
+            copied_zip_fn = os.path.join(testdir, main_wdl + f".copied.{format}")
+            WDL.Zip.build(
+                copied_doc, copied_zip_fn, logging.getLogger("miniwdl_zip_test"),
+                meta=meta, archive_format=format
+            )
+            copied_zip_contents = pathlib.Path(copied_zip_fn).read_bytes()
+            copied_zip_checksum = hashlib.sha1(copied_zip_contents).hexdigest()
+            self.assertEqual(zip_checksum, copied_zip_checksum)

@@ -3,11 +3,12 @@ import math
 import os
 import json
 import tempfile
-from typing import List, Tuple, Callable, BinaryIO, Optional
+from typing import List, Tuple, Dict, Callable, IO, Optional
 from abc import ABC, abstractmethod
+from contextlib import suppress
 import regex
 from . import Type, Value, Expr, Env, Error
-from ._util import byte_size_units, chmod_R_plus
+from ._util import byte_size_units, chmod_R_plus, round_half_up
 
 
 class Base:
@@ -43,8 +44,8 @@ class Base:
         self._rem = StaticFunction(
             "_rem", [Type.Int(), Type.Int()], Type.Int(), lambda l, r: Value.Int(l.value % r.value)
         )
-        self._eqeq = _ComparisonOperator("==", lambda l, r: l == r)
-        self._neq = _ComparisonOperator("!=", lambda l, r: l != r)
+        self._eqeq = _EqualityOperator()
+        self._neq = _EqualityOperator(negate=True)
         self._lt = _ComparisonOperator("<", lambda l, r: l < r)
         self._lte = _ComparisonOperator("<=", lambda l, r: l <= r)
         self._gt = _ComparisonOperator(">", lambda l, r: l > r)
@@ -65,14 +66,13 @@ class Base:
 
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
-        static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round(v.value)))
+        static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
         static([Type.Array(Type.Any())], Type.Int(), "length")(lambda v: Value.Int(len(v.value)))
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
         def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
-            return Value.String(
-                regex.compile(pattern.value, flags=regex.POSIX).sub(replace.value, input.value)
-            )
+            pattern_re = regex.compile(pattern.value, flags=regex.POSIX)  # pylint: disable=E1101
+            return Value.String(pattern_re.sub(replace.value, input.value))
 
         static([Type.String(), Type.String(optional=True)], Type.String())(basename)
 
@@ -95,7 +95,9 @@ class Base:
             self._write(_serialize_map)
         )
         static([Type.Any()], Type.File(), "write_json")(
-            self._write(lambda v, outfile: outfile.write(json.dumps(v.json).encode("utf-8")))
+            self._write(
+                lambda v, outfile: (outfile.write(json.dumps(v.json).encode("utf-8")), None)[1]
+            )
         )
 
         # read_*
@@ -131,6 +133,7 @@ class Base:
         self.select_first = _SelectFirst()
         self.select_all = _SelectAll()
         self.zip = _Zip()
+        self.unzip = _Unzip()
         self.cross = _Cross()
         self.flatten = _Flatten()
         self.transpose = _Transpose()
@@ -158,13 +161,13 @@ class Base:
         """
         'devirtualize' filename passed to a read_* function: return a filename that can be open()ed
         on the local host. Subclasses may further wish to forbid access to files outside of a
-        designated directory or whitelist (by raising an exception)
+        designated directory or allowlist (by raising an exception)
         """
         # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()
 
     def _write(
-        self, serialize: Callable[[Value.Base, BinaryIO], None]
+        self, serialize: Callable[[Value.Base, IO[bytes]], None]
     ) -> Callable[[Value.Base], Value.File]:
         "generate write_* function implementation based on serialize"
 
@@ -173,7 +176,6 @@ class Base:
         ) -> Value.File:
             os.makedirs(self._write_dir, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=self._write_dir, delete=False) as outfile:
-                outfile: BinaryIO = outfile  # pyre-ignore
                 serialize(v, outfile)
                 filename = outfile.name
             chmod_R_plus(filename, file_bits=0o660)
@@ -293,7 +295,7 @@ class TaskOutputs(Base):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for (name, argument_types, return_type, F) in [
+        for name, argument_types, return_type, F in [
             ("stdout", [], Type.File(), _notimpl),
             ("stderr", [], Type.File(), _notimpl),
             ("glob", [Type.String()], Type.Array(Type.File()), _notimpl),
@@ -314,14 +316,14 @@ def basename(*args) -> Value.String:
 
 
 def _parse_lines(s: str) -> Value.Array:
-    ans = []
+    ans: List[Value.Base] = []
     if s:
         ans = [Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")]
     return Value.Array(Type.String(), ans)
 
 
 def _parse_boolean(s: str) -> Value.Boolean:
-    s = s.rstrip().lower()
+    s = s.strip().lower()
     if s == "true":
         return Value.Boolean(True)
     if s == "false":
@@ -330,14 +332,13 @@ def _parse_boolean(s: str) -> Value.Boolean:
 
 
 def _parse_tsv(s: str) -> Value.Array:
-    ans = [
+    ans: List[Value.Base] = [
         Value.Array(
             Type.Array(Type.String()), [Value.String(field) for field in line.value.split("\t")]
         )
         for line in _parse_lines(s).value
         if line
     ]
-    # pyre-ignore
     return Value.Array(Type.Array(Type.String()), ans)
 
 
@@ -349,7 +350,7 @@ def _parse_objects(s: str) -> Value.Array:
     literal_keys = set(key.value for key in strmat.value[0].value if key.value)
     if len(literal_keys) < len(keys):
         raise Error.InputError("read_objects(): file has empty or duplicate column names")
-    maps = []
+    maps: List[Value.Base] = []
     for row in strmat.value[1:]:
         if len(row.value) != len(keys):
             raise Error.InputError("read_objects(): file's tab-separated lines are ragged")
@@ -384,13 +385,15 @@ def _parse_json(s: str) -> Value.Base:
     return Value.from_json(Type.Any(), json.loads(s))
 
 
-def _serialize_lines(array: Value.Array, outfile: BinaryIO) -> None:
+def _serialize_lines(array: Value.Base, outfile: IO[bytes]) -> None:
+    assert isinstance(array, Value.Array)
     for item in array.value:
         outfile.write(item.coerce(Type.String()).value.encode("utf-8"))
         outfile.write(b"\n")
 
 
-def _serialize_tsv(v: Value.Array, outfile: BinaryIO) -> None:
+def _serialize_tsv(v: Value.Base, outfile: IO[bytes]) -> None:
+    assert isinstance(v, Value.Array)
     return _serialize_lines(
         Value.Array(
             Type.String(),
@@ -403,16 +406,17 @@ def _serialize_tsv(v: Value.Array, outfile: BinaryIO) -> None:
     )
 
 
-def _serialize_map(map: Value.Map, outfile: BinaryIO) -> None:
-    lines = []
-    for (k, v) in map.value:
-        k = k.coerce(Type.String()).value
-        v = v.coerce(Type.String()).value
-        if "\n" in k or "\t" in k or "\n" in v or "\t" in v:
+def _serialize_map(map: Value.Base, outfile: IO[bytes]) -> None:
+    assert isinstance(map, Value.Map)
+    lines: List[Value.Base] = []
+    for k, v in map.value:
+        ks = k.coerce(Type.String()).value
+        vs = v.coerce(Type.String()).value
+        if "\n" in ks or "\t" in ks or "\n" in vs or "\t" in vs:
             raise ValueError(
                 "write_map(): keys & values must not contain tab or newline characters"
             )
-        lines.append(Value.String(k + "\t" + v))
+        lines.append(Value.String(ks + "\t" + vs))
     _serialize_lines(Value.Array(Type.String(), lines), outfile)
 
 
@@ -427,7 +431,7 @@ class _At(EagerFunction):
         if isinstance(lhs.type, Type.Array):
             if isinstance(lhs, Expr.Array) and not lhs.items:
                 # the user wrote: [][idx]
-                raise Error.OutOfBounds(expr)
+                raise Error.OutOfBounds(expr, "Cannot acess empty array")
             try:
                 rhs.typecheck(Type.Int())
             except Error.StaticTypeMismatch:
@@ -435,7 +439,7 @@ class _At(EagerFunction):
             return lhs.type.item_type
         if isinstance(lhs.type, Type.Map):
             if lhs.type.item_type is None:
-                raise Error.OutOfBounds(expr)
+                raise Error.OutOfBounds(expr, "Cannot access empty map")
             try:
                 rhs.typecheck(lhs.type.item_type[0])
             except Error.StaticTypeMismatch:
@@ -443,8 +447,8 @@ class _At(EagerFunction):
                     rhs, lhs.type.item_type[0], rhs.type, "Map key"
                 ) from None
             return lhs.type.item_type[1]
-        if isinstance(lhs.type, Type.Any):
-            # e.g. read_json(): assume lhs is Array[Any] or Map[String,Any]
+        if isinstance(lhs.type, Type.Any) and not lhs.type.optional:
+            # e.g. read_json(): assume lhs is Array[Any] or Struct
             return Type.Any()
         raise Error.NotAnArray(lhs)
 
@@ -454,16 +458,25 @@ class _At(EagerFunction):
         rhs = arguments[1]
         if isinstance(lhs, Value.Map):
             mty = expr.arguments[0].type
-            key = rhs
+            mkey = rhs
             if isinstance(mty, Type.Map):
-                key = key.coerce(mty.item_type[0])
+                mkey = mkey.coerce(mty.item_type[0])
             ans = None
             for k, v in lhs.value:
-                if key == k:
+                if mkey == k:
                     ans = v
             if ans is None:
-                raise Error.OutOfBounds(expr.arguments[1])  # TODO: KeyNotFound
+                raise Error.OutOfBounds(expr.arguments[1], "Map key not found")
             return ans
+        elif isinstance(lhs, Value.Struct):
+            # allow member access from read_json() (issue #320)
+            skey = None
+            if rhs.type.coerces(Type.String()):
+                with suppress(Error.RuntimeError):
+                    skey = rhs.coerce(Type.String()).value
+            if skey is None or skey not in lhs.value:
+                raise Error.OutOfBounds(expr.arguments[1], "struct member not found")
+            return lhs.value[skey]
         else:
             lhs = lhs.coerce(Type.Array(Type.Any()))
             rhs = rhs.coerce(Type.Int())
@@ -473,7 +486,7 @@ class _At(EagerFunction):
                 or rhs.value < 0
                 or rhs.value >= len(lhs.value)
             ):
-                raise Error.OutOfBounds(expr.arguments[1])
+                raise Error.OutOfBounds(expr.arguments[1], "Array index out of bounds")
             return lhs.value[rhs.value]
 
 
@@ -530,7 +543,7 @@ class _ArithmeticOperator(EagerFunction):
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
-        rt = Type.Int()
+        rt: Type.Base = Type.Int()
         if isinstance(expr.arguments[0].type, Type.Float) or isinstance(
             expr.arguments[1].type, Type.Float
         ):
@@ -569,7 +582,7 @@ class _AddOperator(_ArithmeticOperator):
         if t2 is None:
             # neither operand is a string; defer to _ArithmeticOperator
             return super().infer_type(expr)
-        if not t2.coerces(Type.String(optional=not expr._check_quant)):
+        if not t2.coerces(Type.String(), check_quant=expr._check_quant):
             raise Error.IncompatibleOperand(
                 expr,
                 "Cannot add/concatenate {} and {}".format(
@@ -612,10 +625,36 @@ class _InterpolationAddOperator(_AddOperator):
         return super()._call_eager(expr, arguments)
 
 
+class _EqualityOperator(EagerFunction):
+    # Test for [in]equality of two values of suitable types
+
+    negate: bool
+    name: str
+
+    def __init__(self, negate: bool = False) -> None:
+        self.negate = negate
+        self.name = "!=" if negate else "=="
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        assert len(expr.arguments) == 2
+        if not expr.arguments[0].type.equatable(expr.arguments[1].type):
+            raise Error.IncompatibleOperand(
+                expr,
+                "Cannot test equality of {} and {}".format(
+                    str(expr.arguments[0].type), str(expr.arguments[1].type)
+                ),
+            )
+        return Type.Boolean()
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert len(arguments) == 2
+        ans = arguments[0] == arguments[1]  # Value.Base.__eq__()
+        return Value.Boolean(self.negate ^ ans)
+
+
 class _ComparisonOperator(EagerFunction):
-    # Comparison operators can compare any two operands of the same type.
-    # Furthermore, given one Int and one Float, coerces the Int to Float for
-    # comparison.
+    # < > <= >= operators; reuses some of the equatability logic, but not valid for optional or
+    # compound types.
 
     name: str
     op: Callable
@@ -626,38 +665,7 @@ class _ComparisonOperator(EagerFunction):
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
-        if (
-            (
-                expr._check_quant
-                and expr.arguments[0].type.optional != expr.arguments[1].type.optional
-                and not (
-                    isinstance(expr.arguments[0], Expr.Null)
-                    or isinstance(expr.arguments[1], Expr.Null)
-                )
-            )
-            or (
-                self.name not in ["==", "!="]
-                and (expr.arguments[0].type.optional or expr.arguments[1].type.optional)
-            )
-            or (
-                not (
-                    expr.arguments[0].type.copy(optional=False)
-                    == expr.arguments[1].type.copy(optional=False)
-                    or (
-                        isinstance(expr.arguments[0], Expr.Null)
-                        or isinstance(expr.arguments[1], Expr.Null)
-                    )
-                    or (
-                        isinstance(expr.arguments[0].type, Type.Int)
-                        and isinstance(expr.arguments[1].type, Type.Float)
-                    )
-                    or (
-                        isinstance(expr.arguments[0].type, Type.Float)
-                        and isinstance(expr.arguments[1].type, Type.Int)
-                    )
-                )
-            )
-        ):
+        if not expr.arguments[0].type.comparable(expr.arguments[1].type):
             raise Error.IncompatibleOperand(
                 expr,
                 "Cannot compare {} and {}".format(
@@ -712,14 +720,14 @@ class _Size(EagerFunction):
                 ans.append(0)
             else:
                 assert False
-        ans = float(sum(ans))
+        fans = float(sum(ans))
 
         if unit:
             try:
-                ans /= float(byte_size_units[unit.value])
+                fans /= float(byte_size_units[unit.value])
             except KeyError:
                 raise Error.EvalError(expr, "size(): invalid unit " + unit.value)
-        return Value.Float(ans)
+        return Value.Float(fans)
 
 
 class _SelectFirst(EagerFunction):
@@ -741,7 +749,10 @@ class _SelectFirst(EagerFunction):
         for arg in arr.value:
             if not isinstance(arg, Value.Null):
                 return arg
-        raise Error.NullValue(expr)
+        raise Error.EvalError(
+            expr,
+            "select_first() given empty or all-null array; prevent this or append a default value",
+        )
 
 
 class _SelectAll(EagerFunction):
@@ -763,7 +774,8 @@ class _SelectAll(EagerFunction):
         arrty = arr.type
         assert isinstance(arrty, Type.Array)
         return Value.Array(
-            arrty.item_type, [arg for arg in arr.value if not isinstance(arg, Value.Null)]
+            arrty.item_type.copy(optional=False),
+            [arg for arg in arr.value if not isinstance(arg, Value.Null)],
         )
 
 
@@ -829,6 +841,45 @@ class _Cross(_ZipOrCross):
         )
 
 
+class _Unzip(EagerFunction):
+    # Array[Pair[X,Y]] -> Pair[Array[X],Array[Y]]
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty: Type.Base = expr.arguments[0].type
+        if (
+            not isinstance(arg0ty, Type.Array)
+            or (expr._check_quant and arg0ty.optional)
+            or not isinstance(arg0ty.item_type, Type.Pair)
+            or (expr._check_quant and arg0ty.item_type.optional)
+        ):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Array(Type.Pair(Type.Any(), Type.Any())), arg0ty
+            )
+        return Type.Pair(
+            Type.Array(arg0ty.item_type.left_type, nonempty=arg0ty.nonempty),
+            Type.Array(arg0ty.item_type.right_type, nonempty=arg0ty.nonempty),
+        )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Pair:
+        pty = self.infer_type(expr)
+        assert isinstance(pty, Type.Pair)
+        lty = pty.left_type
+        assert isinstance(lty, Type.Array)
+        rty = pty.right_type
+        assert isinstance(rty, Type.Array)
+        arr = arguments[0]
+        assert isinstance(arr, Value.Array)
+        return Value.Pair(
+            lty,
+            rty,
+            (
+                Value.Array(lty.item_type, [p.value[0] for p in arr.value]),
+                Value.Array(rty.item_type, [p.value[1] for p in arr.value]),
+            ),
+        )
+
+
 class _Flatten(EagerFunction):
     # t array array -> t array
     # TODO: if any of the input arrays are statically nonempty then so is output
@@ -884,12 +935,12 @@ class _Transpose(EagerFunction):
         mat = arguments[0].coerce(ty)
         assert isinstance(mat, Value.Array)
         n = None
-        ans = []
+        ans: List[Value.Base] = []
         for row in mat.value:
             assert isinstance(row, Value.Array)
             if n is None:
                 n = len(row.value)
-                ans = [Value.Array(ty.item_type, []) for _ in row.value]
+                ans = [Value.Array(ty.item_type.item_type, []) for _ in row.value]
             if len(row.value) != n:
                 raise Error.EvalError(expr, "transpose(): ragged input matrix")
             for i in range(len(row.value)):
@@ -986,9 +1037,7 @@ class _Quote(EagerFunction):
         expr.arguments[0].typecheck(Type.Array(Type.String()))
         arg0ty = expr.arguments[0].type
         nonempty = isinstance(arg0ty, Type.Array) and arg0ty.nonempty
-        return Type.Array(
-            Type.String(), nonempty=(isinstance(arg0ty, Type.Array) and arg0ty.nonempty)
-        )
+        return Type.Array(Type.String(), nonempty=nonempty)
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         return Value.Array(
@@ -1065,7 +1114,7 @@ class _CollectByKey(EagerFunction):
         pairty = arg0ty.item_type
         assert isinstance(pairty, Type.Pair)
 
-        items = {}
+        items: Dict[str, Tuple[Value.Base, List[Value.Base]]] = {}
         for p in arguments[0].value:
             assert isinstance(p, Value.Pair)
             ek = p.value[0].coerce(pairty.left_type)

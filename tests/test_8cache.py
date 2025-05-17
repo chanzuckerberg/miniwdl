@@ -2,6 +2,7 @@ import glob
 import json
 import logging
 import os
+import stat
 import random
 import shutil
 import tempfile
@@ -184,7 +185,8 @@ Int count = 12
         task_digest = self.doc.tasks[0].digest
         with open(os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}/{task_digest}/{input_digest}.json")) as f:
             read_data = json.loads(f.read())
-        self.assertEqual(read_data, WDL.values_to_json(outputs))
+        self.assertEqual(read_data["outputs"], WDL.values_to_json(outputs))
+        self.assertTrue(os.path.isdir(read_data["dir"]))
 
     def test_cache_prevents_task_rerun(self):
         # run task twice, check _try_task not called for second run
@@ -522,12 +524,16 @@ Int count = 12
             }
             call hello {
                 input:
-                who = read_person.person
+                full_name = read_person.full_name
+            }
+            call hello as hello2 {
+                input:
+                full_name = write_lines([read_string(read_person.full_name)])
             }
         }
 
         output {
-            Array[File] messages = hello.message
+            Array[File] messages = flatten([hello.message, hello2.message])
         }
     }
 
@@ -536,21 +542,23 @@ Int count = 12
             File json
         }
 
+        Person person = read_json(json)
+
         command {}
 
         output {
-            Person person = read_json(json)
+            File full_name = write_lines([sep(" ", select_all([person.first, person.middle, person.last]))])
         }
     }
 
     task hello {
         input {
-            Person who
+            File full_name
             String? greeting = "Hello"
         }
 
         command <<<
-            echo "~{greeting}, ~{who}!"
+            echo '~{greeting}, ~{read_string(full_name)}!'
         >>>
 
         output {
@@ -573,7 +581,7 @@ Int count = 12
 
         # ensure digest is sensitive to changes in the struct type and called task (but not the
         # uncalled task, or comments/whitespace)
-        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("String? middle", ""))
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("String? middle", "String? middle Int? age"))
         doc2.typecheck()
         self.assertNotEqual(doc.workflow.digest, doc2.workflow.digest)
 
@@ -599,21 +607,53 @@ Int count = 12
         with open(os.path.join(self._dir, "ben.json"), mode="w") as outfile:
             print('{"first":"Ben","last":"Bitdiddle"}', file=outfile)
         inp = {"people_json": [os.path.join(self._dir, "alyssa.json"), os.path.join(self._dir, "ben.json")]}
-        _, outp = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
+        rundir1, outp = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
 
         wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
         tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
         with patch('WDL.runtime.workflow._workflow_main_loop', wmock), patch('WDL.runtime.task._try_task', tmock):
             # control
-            _, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
+            rundir2, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
             self.assertEqual(wmock.call_count, 0)
             self.assertEqual(tmock.call_count, 0)
-            self.assertEqual(WDL.values_to_json(outp), WDL.values_to_json(outp2))
+            outp_inodes = set()
+            WDL.Value.rewrite_env_paths(outp, lambda p: outp_inodes.add(os.stat(p.value)[stat.ST_INO]))
+            outp2_inodes = set()
+            WDL.Value.rewrite_env_paths(outp2, lambda p: outp2_inodes.add(os.stat(p.value)[stat.ST_INO]))
+            self.assertEqual(outp_inodes, outp2_inodes)
+
+            with open(os.path.join(rundir1, "outputs.json")) as outputs1:
+                with open(os.path.join(rundir2, "outputs.json")) as outputs2:
+                    assert outputs1.read() == outputs2.read()
 
             # touch a file & check cache invalidated
             with open(os.path.join(self._dir, "alyssa.json"), mode="w") as outfile:
                 print('{"first":"Alyssa","last":"Hacker","middle":"P"}', file=outfile)
             _, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
             self.assertEqual(wmock.call_count, 1)
-            self.assertEqual(tmock.call_count, 2)  # reran Alyssa, cached Ben
+            self.assertEqual(tmock.call_count, 3)  # reran Alyssa, cached Ben
             self.assertNotEqual(WDL.values_to_json(outp), WDL.values_to_json(outp2))
+
+    def test_cache_of_task_with_empty_outputs(self):
+        # regression test issue 715
+        wdl = """
+                task TestTask {
+                    input {
+                    }
+                    command <<<
+                        ls
+                    >>>
+                    output {
+                    }
+                    runtime {
+                        container: "ubuntu:latest"
+                        cpu: 1
+                    }
+                }
+                """
+        self._run(wdl, {}, cfg=self.cfg)
+        #check cache used
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch('WDL.runtime.task._try_task', mock):
+            self._run(wdl, {}, cfg=self.cfg)
+        self.assertEqual(mock.call_count, 0)

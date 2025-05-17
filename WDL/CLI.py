@@ -1,6 +1,7 @@
 """
 miniwdl command-line interface
 """
+
 # PYTHON_ARGCOMPLETE_OK
 import sys
 import os
@@ -11,9 +12,11 @@ import logging
 import asyncio
 import atexit
 import textwrap
+import traceback
 from shlex import quote as shellquote
 from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
 from contextlib import ExitStack
+from typing import Optional
 import argcomplete
 from . import (
     load,
@@ -29,13 +32,13 @@ from . import (
     Call,
     Scatter,
     Conditional,
-    SourcePosition,
     parse_document,
     copy_source,
     values_from_json,
     values_to_json,
     read_source_default,
     ReadSourceResult,
+    Zip,
 )
 from ._util import (
     VERBOSE_LEVEL,
@@ -44,6 +47,9 @@ from ._util import (
     parse_byte_size,
     path_really_within,
     ANSI,
+    currently_in_container,
+    LoggingFileHandler,
+    write_atomic,
 )
 from ._util import StructuredLogMessage as _
 
@@ -69,12 +75,18 @@ def main(args=None):
             check(**vars(args))
         elif args.command == "run":
             runner(**vars(args))
-        elif args.command == "run_self_test":
+        elif args.command in ("run_self_test", "run-self-test"):
             run_self_test(**vars(args))
         elif args.command == "localize":
             localize(**vars(args))
         elif args.command == "configure":
             configure(**vars(args))
+        elif args.command == "eval":
+            eval_expr(**vars(args))
+        elif args.command == "zip":
+            zip_wdl(**vars(args))
+        elif args.command in ("input_template", "input-template"):
+            input_template(**vars(args))
         else:
             assert False
     except (
@@ -82,6 +94,7 @@ def main(args=None):
         Error.ImportError,
         Error.ValidationError,
         Error.MultipleValidationErrors,
+        FileNotFoundError,
     ) as exn:
         global quant_warning
         print_error(exn)
@@ -112,7 +125,10 @@ def create_arg_parser():
     fill_configure_subparser(subparsers)
     fill_common(fill_run_subparser(subparsers))
     fill_common(fill_run_self_test_subparser(subparsers))
+    fill_common(fill_input_template_subparser(subparsers))
+    fill_common(fill_zip_subparser(subparsers))
     fill_common(fill_localize_subparser(subparsers))
+    fill_common(fill_eval_subparser(subparsers))
     return parser
 
 
@@ -130,7 +146,7 @@ class PipVersionAction(Action):
         # importlib_metadata doesn't seem to provide EntryPoint.dist to get from an entry point to
         # the metadata of the package providing it; continuing to use pkg_resources for this. Risk
         # that they give inconsistent results?
-        import pkg_resources
+        import pkg_resources  # type: ignore
 
         for group in runtime.config.default_plugins().keys():
             group = f"miniwdl.plugin.{group}"
@@ -139,8 +155,21 @@ class PipVersionAction(Action):
         sys.exit(0)
 
 
-def fill_common(subparser, path=True):
+def fill_common(subparser):
     group = subparser.add_argument_group("language")
+    group.add_argument(
+        "-p",
+        "--path",
+        metavar="DIR",
+        type=str,
+        action="append",
+        help="local directory to search for imports (can supply multiple times)",
+    )
+    group.add_argument(
+        "--no-outside-imports",
+        action="store_true",
+        help="deny local imports from outside directory of main WDL file (or --path)",
+    )
     group.add_argument(
         "--no-quant-check",
         dest="check_quant",
@@ -150,15 +179,6 @@ def fill_common(subparser, path=True):
             "backwards compatibility with older WDL)"
         ),
     )
-    if path:
-        group.add_argument(
-            "-p",
-            "--path",
-            metavar="DIR",
-            type=str,
-            action="append",
-            help="local directory to search for imports",
-        )
     group = subparser.add_argument_group("debugging")
     group.add_argument(
         "--debug", action="store_true", help="maximally verbose logging & exception tracebacks"
@@ -186,33 +206,57 @@ def fill_check_subparser(subparsers):
         help="exit with nonzero status code if any lint warnings are shown (in addition to syntax and type errors)",
     )
     check_parser.add_argument(
+        "--suppress",
+        metavar="Warning1,Warning2",
+        type=str,
+        help="comma-separated set of warnings to disable globally e.g. StringCoercion,NonemptyCoercion",
+    )
+    check_parser.add_argument(
         "--no-suppress",
         dest="show_all",
         action="store_true",
-        help="show lint warnings even if they have suppression comments",
+        help="show warnings even if they have inline suppression comments",
     )
     check_parser.add_argument(
+        # old option maintained for backwards-compatibility
         "--no-shellcheck",
         dest="shellcheck",
         action="store_false",
-        help="don't use shellcheck on task commands even if available, and suppress suggestion if it isn't",
+        help=SUPPRESS,
     )
     return check_parser
 
 
 def check(
-    uri=None, path=None, check_quant=True, shellcheck=True, strict=False, show_all=False, **kwargs
+    uri=None,
+    path=None,
+    check_quant=True,
+    strict=False,
+    show_all=False,
+    suppress=None,
+    shellcheck=True,
+    no_outside_imports=False,
+    **kwargs,
 ):
     from . import Lint
 
-    # Load the document (read, parse, and typecheck)
+    suppress = set(suppress.split(",")) if suppress else set()
     if not shellcheck:
+        suppress.add("CommandShellCheck")
+
+    # Load the document (read, parse, and typecheck)
+    if "CommandShellCheck" in suppress:
         Lint._shellcheck_available = False
 
     shown = [0]
     for uri1 in uri or []:
         try:
-            doc = load(uri1, path or [], check_quant=check_quant, read_source=read_source)
+            doc = load(
+                uri1,
+                path or [],
+                check_quant=check_quant,
+                read_source=make_read_source(no_outside_imports),
+            )
         except (Error.SyntaxError, Error.ValidationError, Error.MultipleValidationErrors) as exn:
             if not getattr(exn, "declared_wdl_version", None):
                 atexit.register(
@@ -227,12 +271,19 @@ def check(
 
         # Print an outline
         print(os.path.basename(uri1))
-        outline(doc, 0, show_called=(doc.workflow is not None), show_all=show_all, shown=shown)
+        outline(
+            doc,
+            0,
+            show_called=(doc.workflow is not None),
+            suppress=suppress,
+            show_all=show_all,
+            shown=shown,
+        )
 
-    if shellcheck and Lint._shellcheck_available is False:
+    if "CommandShellCheck" not in suppress and Lint._shellcheck_available is False:
         print(
-            "* Suggestion: install shellcheck (www.shellcheck.net) to check task commands. (--no-shellcheck "
-            "suppresses this message)",
+            "* Suggestion: install shellcheck (www.shellcheck.net) to check task commands. (--suppress "
+            "CommandShellCheck suppresses this message)",
             file=sys.stderr,
         )
 
@@ -240,7 +291,9 @@ def check(
         sys.exit(2)
 
 
-def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown=None):
+def outline(
+    obj, level, file=sys.stdout, show_called=True, suppress=None, show_all=False, shown=None
+):
     # recursively pretty-print a brief outline of the workflow
     s = "".join(" " for i in range(level * 4))
 
@@ -249,8 +302,8 @@ def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
-            for (pos, cls, msg, suppressed) in sorted(obj.lint, key=lambda t: t[0]):
-                if show_all or not suppressed:
+            for pos, cls, msg, suppressed in sorted(obj.lint, key=lambda t: t[0]):
+                if not (suppress and str(cls) in suppress) and (show_all or not suppressed):
                     print(
                         f"{s}    (Ln {pos.line}, Col {pos.column}) {cls}{' (suppressed)' if suppressed else ''}, {msg}",
                         file=file,
@@ -264,6 +317,7 @@ def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown
                 level + (1 if not isinstance(dobj, Decl) else 0),
                 file=file,
                 show_called=show_called,
+                suppress=suppress,
                 show_all=show_all,
                 shown=shown,
             )
@@ -323,7 +377,7 @@ def outline(obj, level, file=sys.stdout, show_called=True, show_all=False, shown
     descend()
 
 
-def print_error(exn):
+def print_error(exn: Optional[BaseException]) -> None:
     global quant_warning
     if isinstance(exn, Error.MultipleValidationErrors):
         for exn1 in exn.exceptions:
@@ -331,17 +385,23 @@ def print_error(exn):
     else:
         if sys.stderr.isatty():
             sys.stderr.write(ANSI.BHRED)
-        if isinstance(getattr(exn, "pos", None), SourcePosition):
-            print(f"({exn.pos.uri} Ln {exn.pos.line} Col {exn.pos.column}) {exn}", file=sys.stderr)
+        if hasattr(exn, "pos"):
+            pos = getattr(exn, "pos", None)
+            if isinstance(pos, Error.SourcePosition):
+                print(f"({pos.uri} Ln {pos.line} Col {pos.column}) {exn}", file=sys.stderr)
+            else:
+                print(str(exn), file=sys.stderr)
         else:
             print(str(exn), file=sys.stderr)
         if sys.stderr.isatty():
             sys.stderr.write(ANSI.RESET)
         if isinstance(exn, Error.ImportError) and hasattr(exn, "__cause__"):
             print_error(exn.__cause__)
-        if isinstance(exn, Error.ValidationError) and exn.source_text:
+        if isinstance(exn, (Error.SyntaxError, Error.ValidationError)) and getattr(
+            exn, "source_text", None
+        ):
             # show source excerpt
-            lines = exn.source_text.split("\n")
+            lines = getattr(exn, "source_text", "").split("\n")
             error_line = lines[exn.pos.line - 1].replace("\t", " ")
             print("    " + error_line, file=sys.stderr)
             end_line = exn.pos.end_line
@@ -352,7 +412,7 @@ def print_error(exn):
             while end_column > exn.pos.column + 1 and error_line[end_column - 2] == " ":
                 end_column = end_column - 1
             print(
-                "    " + " " * (exn.pos.column - 1) + "^" * (end_column - exn.pos.column),
+                "    " + " " * (exn.pos.column - 1) + "^" * max(1, end_column - exn.pos.column),
                 file=sys.stderr,
             )
             if isinstance(exn, Error.StaticTypeMismatch) and exn.actual.coerces(
@@ -361,23 +421,44 @@ def print_error(exn):
                 quant_warning = True
 
 
-async def read_source(uri, path, importer):
-    from urllib import parse, request
+def make_read_source(no_outside_imports):
+    top_dir = None
 
-    if uri.startswith("http:") or uri.startswith("https:"):
-        fn = os.path.join(
-            tempfile.mkdtemp(prefix="miniwdl_import_uri_"),
-            os.path.basename(parse.urlsplit(uri).path),
-        )
-        request.urlretrieve(uri, filename=fn)
-        with open(fn, "r") as infile:
-            return ReadSourceResult(infile.read(), uri)
-    elif importer and (
-        importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
-    ):
-        assert not os.path.isabs(uri), "absolute import from downloaded WDL"
-        return await read_source(parse.urljoin(importer.pos.abspath, uri), [], importer)
-    return await read_source_default(uri, path, importer)
+    async def read_source(uri, path, importer):
+        from urllib import parse, request
+
+        if uri.startswith("http:") or uri.startswith("https:"):
+            with tempfile.TemporaryDirectory(prefix="miniwdl_import_uri_") as tmpdir:
+                assert isinstance(tmpdir, str) and os.path.isdir(tmpdir)
+                fn = os.path.join(
+                    tmpdir,
+                    os.path.basename(parse.urlsplit(uri).path),
+                )
+                request.urlretrieve(uri, filename=fn)
+                with open(fn, "r") as infile:
+                    return ReadSourceResult(infile.read(), uri)
+        elif importer and (
+            importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
+        ):
+            assert not os.path.isabs(uri), "absolute import from downloaded WDL"
+            return await read_source(parse.urljoin(importer.pos.abspath, uri), [], importer)
+        ans = await read_source_default(uri, path, importer)
+        if no_outside_imports:
+            # Require all imported local WDL files to be in/under the directory of the main WDL
+            # file (the first loaded), or one of the --path directoires.
+            nonlocal top_dir
+            if not top_dir:
+                top_dir = os.path.dirname(ans.abspath)
+            if not next(
+                (p for p in ([top_dir] + path) if path_really_within(ans.abspath, p)), False
+            ):
+                raise PermissionError(
+                    "denied import from outside main WDL file's directory; "
+                    "strike --no-outside-imports or add to --path: " + os.path.dirname(ans.abspath)
+                )
+        return ans
+
+    return read_source
 
 
 def fill_run_subparser(subparsers):
@@ -444,6 +525,12 @@ def fill_run_subparser(subparsers):
         action="store_true",
         help="upon failure, print error information JSON to standard output (in addition to standard error logging)",
     )
+    group.add_argument(
+        "-o",
+        metavar="OUT.json",
+        dest="stdout_file",
+        help="write JSON output/error to specified file instead of standard output (implies --error-json)",
+    )
     group = run_parser.add_argument_group("logging")
     group.add_argument(
         "-v",
@@ -457,6 +544,7 @@ def fill_run_subparser(subparsers):
         help="disable colored logging and status bar on terminal (also set by NO_COLOR environment variable)",
     )
     group.add_argument("--log-json", action="store_true", help="write all logs in JSON")
+    group.add_argument("-e", metavar="ERR.json", dest="stderr_file", help=SUPPRESS)
     group = run_parser.add_argument_group("configuration")
     group.add_argument(
         "--cfg",
@@ -484,9 +572,24 @@ def fill_run_subparser(subparsers):
         help="override any configuration enabling cache lookup for call outputs & downloaded files",
     )
     group.add_argument(
+        "--env",
+        action="append",
+        metavar="VARNAME[=VALUE]",
+        type=str,
+        help="Environment variable to pass through to [or set outright in]"
+        " all task environments (can supply multiple times; warning, non-portable side channel)",
+    )
+    group.add_argument(
         "--copy-input-files",
         action="store_true",
         help="copy input files for each task and mount them read/write (unblocks task commands that mv/rm/write them)",
+    )
+    group.add_argument(
+        "--copy-input-files-for",
+        action="append",
+        metavar="TASK_NAME",
+        type=str,
+        help="copy input files only for specifically named task (can supply multiple times)",
     )
     group.add_argument(
         "--as-me",
@@ -515,13 +618,18 @@ def runner(
     cfg=None,
     runtime_cpu_max=None,
     runtime_memory_max=None,
+    env=[],
     runtime_defaults=None,
     max_tasks=None,
     copy_input_files=False,
+    copy_input_files_for=[],
     as_me=False,
     no_cache=False,
     error_json=False,
     log_json=False,
+    stdout_file=None,
+    stderr_file=None,
+    no_outside_imports=False,
     **kwargs,
 ):
     # set up logging
@@ -545,15 +653,11 @@ def runner(
     logger = logging.getLogger("miniwdl-run")
 
     with ExitStack() as cleanup:
-        set_status = cleanup.enter_context(configure_logger(json=log_json))
-
-        if os.geteuid() == 0:
-            logger.warning(
-                (
-                    "running as root; non-root users should be able to `miniwdl run` "
-                    "as long as they're in the `docker` group"
-                )
+        if stderr_file:
+            cleanup.enter_context(
+                LoggingFileHandler(logging.getLogger(), stderr_file, json=log_json)
             )
+        set_status = cleanup.enter_context(configure_logger(json=log_json))
 
         # load configuration & apply command-line overrides
         from . import runtime
@@ -572,9 +676,11 @@ def runner(
             "logging": {"json": log_json},
         }
         if max_tasks is not None:
-            cfg_overrides["scheduler"]["call_concurrency"] = max_tasks
+            cfg_overrides["scheduler"]["task_concurrency"] = max_tasks
         if copy_input_files:
             cfg_overrides["file_io"]["copy_input_files"] = copy_input_files
+        if copy_input_files_for:
+            cfg_overrides["file_io"]["copy_input_files_for"] = copy_input_files_for
         if as_me:
             cfg_overrides["task_runtime"]["as_user"] = as_me
         if runtime_defaults:
@@ -586,6 +692,8 @@ def runner(
                     cfg_overrides["task_runtime"]["defaults"] = infile.read()
         if runtime_cpu_max is not None:
             cfg_overrides["task_runtime"]["cpu_max"] = runtime_cpu_max
+        if env:
+            cfg_overrides["task_runtime"]["env"] = runner_env_override(cfg, env)
         if runtime_memory_max is not None:
             runtime_memory_max = (
                 -1 if runtime_memory_max.strip() == "-1" else parse_byte_size(runtime_memory_max)
@@ -597,6 +705,12 @@ def runner(
 
         cfg.override(cfg_overrides)
         cfg.log_all()
+        if os.geteuid() == 0 and not currently_in_container():
+            logger.warning("running miniwdl as root is usually avoidable (see docs)")
+        if cfg["task_runtime"].get_dict("env"):
+            logger.warning(
+                "--env is a non-standard side channel; relying on it is probably not portable"
+            )
 
         # check root
         if not path_really_within((run_dir or os.getcwd()), cfg["file_io"]["root"]):
@@ -609,8 +723,10 @@ def runner(
             )
             sys.exit(2)
         if (
-            cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put")
-        ) and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+            (cfg["download_cache"].get_bool("get") or cfg["download_cache"].get_bool("put"))
+            and os.path.isabs(cfg["download_cache"]["dir"])
+            and not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"])
+        ):
             logger.error(
                 _(
                     "configuration error: 'download_cache.dir' must be within the `file_io.root' directory",
@@ -620,9 +736,22 @@ def runner(
             )
             sys.exit(2)
 
+        # unpack zip & manifest, if applicable
+        uri, manifest_input_file = unpack_source_zip(logger, cleanup, uri)
+        if manifest_input_file:
+            if input_file:
+                logger.warning("specified --input file replacing source zip's")
+            else:
+                input_file = manifest_input_file
+
         try:
             # load WDL document
-            doc = load(uri, path or [], check_quant=check_quant, read_source=read_source)
+            doc = load(
+                uri,
+                path or [],
+                check_quant=check_quant,
+                read_source=make_read_source(no_outside_imports),
+            )
 
             # parse and validate the provided inputs
             eff_root = (
@@ -640,21 +769,19 @@ def runner(
                 root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
             )
         except Error.InputError as exn:
-            if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=2))
+            runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
             die(exn.args[0])
         except Exception as exn:
-            if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=2))
+            runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
             raise
 
         if json_only:
-            print(json.dumps(input_json, indent=2))
+            print(json.dumps(input_json, indent=(None if log_json else 2)))
             sys.exit(0)
 
         # debug logging
-        versionlog = {"python": sys.version}
-        for pkg in ["miniwdl", "docker", "lark-parser", "argcomplete", "pygtail"]:
+        versionlog = {"python": sys.version, "uname": " ".join(os.uname())}
+        for pkg in ["miniwdl", "docker", "lark", "argcomplete", "pygtail"]:
             pkver = pkg_version(pkg)
             versionlog[pkg] = str(pkver) if pkver else "UNKNOWN"
         logger.debug(_("package versions", **versionlog))
@@ -688,13 +815,12 @@ def runner(
 
         # run & log any errors
         cleanup.enter_context(runtime._statusbar.enable(set_status))
-        cache = cleanup.enter_context(runtime.cache.CallCache(cfg, logger))
+        cache = cleanup.enter_context(runtime.cache.new(cfg, logger))
         rundir = None
         try:
             rundir, output_env = runtime.run(cfg, target, input_env, run_dir=run_dir, _cache=cache)
         except Exception as exn:
-            if error_json:
-                print(json.dumps(runtime.error_json(exn), indent=2))
+            runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
             exit_status = 2
             from_rundir = None
             while isinstance(exn, runtime.RunFailed):
@@ -708,7 +834,12 @@ def runner(
                     logger.notice(
                         "run with --verbose to include task standard error streams in this log"
                     )
-            info = runtime.error_json(exn)
+            info = runtime.error_json(
+                exn,
+                traceback=(
+                    traceback.format_exc() if not isinstance(exn, Error.RuntimeError) else None
+                ),
+            )
             if rundir:
                 info["dir"] = rundir
             if from_rundir and from_rundir != rundir:
@@ -733,8 +864,42 @@ def runner(
 
     # report
     outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
-    print(json.dumps(outputs_json, indent=2))
+    runner_standard_output(outputs_json, stdout_file, error_json, log_json)
     return outputs_json
+
+
+def unpack_source_zip(logger, cleanup, uri):
+    # preprocess a source zip given to `miniwdl run`
+    source_zip = uri
+    if os.path.isdir(uri):
+        logger.notice(_("assuming directory is unpacked source zip", dir=uri))
+    else:
+        if not uri.endswith(".zip"):  # nothing to do
+            return (uri, None)
+
+        if uri.startswith("http:") or uri.startswith("https:"):
+            from urllib import parse, request
+
+            source_zip = os.path.join(
+                cleanup.enter_context(
+                    tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_download_")
+                ),
+                os.path.basename(parse.urlsplit(uri).path),
+            )
+            # read_source() isn't suitable for this because it's binary data
+            logger.notice(_("downloading source zip", uri=uri, zip=source_zip))
+            request.urlretrieve(uri, filename=source_zip)
+
+    unpacked = cleanup.enter_context(Zip.unpack(source_zip))
+    logger.notice(
+        _(
+            "opened source zip",
+            zip=source_zip,
+            main_wdl=unpacked.main_wdl,
+            input_file=unpacked.input_file,
+        )
+    )
+    return unpacked.main_wdl, unpacked.input_file
 
 
 def runner_input_completer(prefix, parsed_args, **kwargs):
@@ -751,30 +916,24 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
                 uri,
                 path=(parsed_args.path if hasattr(parsed_args, "path") else []),
                 check_quant=parsed_args.check_quant,
-                read_source=read_source,
+                read_source=make_read_source(
+                    parsed_args.no_outside_imports
+                    if hasattr(parsed_args, "no_outside_imports")
+                    else False
+                ),
             )
         except Exception as exn:
             argcomplete.warn(
                 "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
             )
             return []
-        # resolve target
-        if parsed_args.task:
-            target = next((t for t in doc.tasks if t.name == parsed_args.task), None)
-            if not target:
-                argcomplete.warn(f"no such task {parsed_args.task} in document")
-                return []
-        elif doc.workflow:
-            target = doc.workflow
-        elif len(doc.tasks) == 1:
-            target = doc.tasks[0]
-        elif len(doc.tasks) > 1:
-            argcomplete.warn("specify --task for WDL document with multiple tasks and no workflow")
+
+        try:
+            target = runner_exe(doc, parsed_args.task)
+        except Exception as exn:
+            argcomplete.warn(str(exn))
             return []
-        else:
-            argcomplete.warn("Empty WDL document")
-            return []
-        assert target
+
         # figure the available input names (starting with prefix, if any)
         completed_input_names = [nm + "=" for nm in values_to_json(target.required_inputs)]
         if prefix and prefix.find("=") == -1:
@@ -808,32 +967,18 @@ def runner_input(
     """
 
     # resolve target
-    target = None
-    if task:
-        target = next((t for t in doc.tasks if t.name == task), None)
-        if not target:
-            raise Error.InputError(f"no such task {task} in document")
-    elif doc.workflow:
-        target = doc.workflow
-    elif len(doc.tasks) == 1:
-        target = doc.tasks[0]
-    elif len(doc.tasks) > 1:
-        raise Error.InputError(
-            "specify --task for WDL document with multiple tasks and no workflow"
-        )
-    else:
-        raise Error.InputError("Empty WDL document")
-    assert target
+    target = runner_exe(doc, task)
 
     # build up an values env of the provided inputs
     available_inputs = target.available_inputs
     input_env = runner_input_json_file(
         available_inputs,
-        (target.name if isinstance(target, Workflow) else ""),
+        target.name,
         input_file,
         downloadable,
         root,
     )
+    json_keys = set(b.name for b in input_env)
 
     # set explicitly empty arrays or strings
     for empty_name in empty or []:
@@ -910,7 +1055,7 @@ def runner_input(
 
         # insert value into input_env
         existing = input_env.get(name)
-        if existing:
+        if existing and name not in json_keys:
             if isinstance(v, Value.Array):
                 assert isinstance(existing, Value.Array) and v.type.coerces(existing.type)
                 existing.value.extend(v.value)
@@ -919,6 +1064,7 @@ def runner_input(
                 raise Error.InputError(f"non-array input {buf[0]} duplicated")
         else:
             input_env = input_env.bind(name, v, decl)
+            json_keys.discard(name)  # command-line overrides JSON input
 
     # check for missing inputs
     if check_required:
@@ -935,6 +1081,33 @@ def runner_input(
         input_env,
         values_to_json(input_env, namespace=(target.name if isinstance(target, Workflow) else "")),
     )
+
+
+def runner_exe(doc, task_name=None):
+    """
+    Resolve the workflow or task to run:
+    1. user setting of --task (task_name), ifany
+    2. workflow if present
+    3. the lone task, if there's exactly one
+    4. otherwise error.
+    """
+    target = None
+    if task_name:
+        target = next((t for t in doc.tasks if t.name == task_name), None)
+        if not target:
+            raise Error.InputError(f"no such task {task_name} in document")
+    elif doc.workflow:
+        target = doc.workflow
+    elif len(doc.tasks) == 1:
+        target = doc.tasks[0]
+    elif len(doc.tasks) > 1:
+        raise Error.InputError(
+            "specify --task for WDL document with multiple tasks and no workflow"
+        )
+    else:
+        raise Error.InputError("Empty WDL document")
+    assert target
+    return target
 
 
 def runner_input_json_file(available_inputs, namespace, input_file, downloadable, root):
@@ -956,10 +1129,12 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         else:
             input_json = (
                 asyncio.get_event_loop()
-                .run_until_complete(read_source(input_file, [], None))
+                .run_until_complete(make_read_source(False)(input_file, [], None))
                 .source_text
             )
         input_json = YAML(typ="safe", pure=True).load(input_json)
+        if not isinstance(input_json, dict):
+            raise Error.InputError("check JSON input; expected top-level object")
         try:
             ans = values_from_json(input_json, available_inputs, namespace=namespace)
         except Error.InputError as exn:
@@ -984,7 +1159,7 @@ def runner_input_help(target):
     ans = [
         "",
         bold(f"{target.name} ({target.pos.uri})"),
-        bold(f"{'-'*(len(target.name)+len(target.pos.uri)+3)}"),
+        bold(f"{'-' * (len(target.name) + len(target.pos.uri) + 3)}"),
     ]
     required_inputs = target.required_inputs
     ans.append(bold("\nrequired inputs:"))
@@ -1013,6 +1188,20 @@ def runner_input_help(target):
         ans.append(bold(f"  {str(b.value)} {b.name}"))
     for line in ans:
         print(line, file=sys.stderr)
+
+
+def runner_env_override(cfg, args):
+    env_override = cfg["task_runtime"].get_dict("env")
+    for item in args:
+        sep = item.find("=")
+        if sep == 0:
+            raise Error.InputError("invalid --env argument: " + item)
+        name = item[: sep if sep >= 0 else len(item)]
+        value = None
+        if sep != -1:
+            value = item[sep + 1 :]
+        env_override[name] = value
+    return env_override
 
 
 def is_constant_expr(expr):
@@ -1068,12 +1257,22 @@ def runner_input_value(s_value, ty, downloadable, root):
     if isinstance(ty, Type.Float):
         return Value.Float(float(s_value))
     if isinstance(ty, Type.Array) and isinstance(
-        ty.item_type, (Type.String, Type.File, Type.Int, Type.Float)
+        ty.item_type, (Type.String, Type.File, Type.Directory, Type.Int, Type.Float)
     ):
         # just produce a length-1 array, to be combined ex post facto
         return Value.Array(
             ty.item_type, [runner_input_value(s_value, ty.item_type, downloadable, root)]
         )
+    if isinstance(ty, (Type.Pair, Type.Map, Type.StructInstance)):
+        # parse JSON for compound types
+        try:
+            return Value.from_json(ty, json.loads(s_value))
+        except json.JSONDecodeError as exn:
+            raise Error.InputError(
+                "Invalid JSON for input of type {}, check syntax and shell quoting: {}".format(
+                    str(ty), exn
+                )
+            )
     if isinstance(ty, Type.Any):
         # infer dynamically-typed runtime/hints overrides
         try:
@@ -1131,9 +1330,23 @@ def validate_input_path(path, directory, downloadable, root):
     return path
 
 
+def runner_standard_output(content, stdout_file, error_json, log_json):
+    """
+    Write the runner output/error JSON in the way requested by the user
+    """
+    if error_json or stdout_file or "error" not in content:
+        content_json = json.dumps(content, indent=(None if log_json else 2), sort_keys=True)
+        if stdout_file:
+            write_atomic(content_json, stdout_file)
+        else:
+            print(content_json)
+
+
 def fill_run_self_test_subparser(subparsers):
     run_parser = subparsers.add_parser(
-        "run_self_test", help="Run a short built-in workflow to test system configuration"
+        "run_self_test",
+        aliases=["run-self-test"],
+        help="Run a short built-in workflow to test system configuration",
     )
     run_parser.add_argument(
         "--dir",
@@ -1160,7 +1373,9 @@ def fill_run_self_test_subparser(subparsers):
 
 def run_self_test(**kwargs):
     dn = kwargs["dir"]
-    if not dn:
+    if dn:
+        os.makedirs(dn, exist_ok=True)
+    else:
         dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
     with open(os.path.join(dn, "test.wdl"), "w") as outfile:
         outfile.write(
@@ -1181,6 +1396,7 @@ def run_self_test(**kwargs):
                 }
                 output {
                     Array[String] messages = select_all(msg)
+                    Array[File] message_files = select_all(hello.message)
                 }
             }
             task hello {
@@ -1188,12 +1404,14 @@ def run_self_test(**kwargs):
                     File who
                 }
                 command {
-                    if grep -v ^\# "${who}" ; then
-                        echo "Hello, $(cat ${who})!" | tee message.txt 1>&2
+                    if grep -qv ^\# "${who}" ; then
+                        name="$(cat ${who})"
+                        mkdir messages
+                        echo "Hello, $name!" | tee "messages/$name.txt" 1>&2
                     fi
                 }
                 output {
-                    File? message = "message.txt"
+                    File? message = select_first(flatten([glob("messages/*.txt"), ["nonexistent"]]))
                 }
                 runtime {
                     docker: "ubuntu:18.04"
@@ -1211,7 +1429,10 @@ def run_self_test(**kwargs):
         "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
         "--dir",
         dn if dn not in [".", "./"] else os.getcwd(),
+        "--no-cache",
         "--debug",
+        "-e",
+        os.path.join(dn, "miniwdl_run_self_test.log"),
     ]
     if kwargs["as_me"]:
         argv.append("--as-me")
@@ -1221,7 +1442,7 @@ def run_self_test(**kwargs):
     if kwargs["log_json"]:
         argv.append("--log-json")
     try:
-        outputs = main(argv)["outputs"]
+        outputs = main(argv)["outputs"]  # pylint: disable=E1136
         assert len(outputs["hello_caller.messages"]) == 2
         assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
         assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"
@@ -1231,24 +1452,31 @@ def run_self_test(**kwargs):
                 lambda: print(
                     "* Hint: ensure Docker is installed & running"
                     + (
-                        ", and user has permission to control it per "
-                        "https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
+                        ", and user has permission to control it per\n"
+                        "  https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
                         if platform.system() != "Darwin"
                         else "; and on macOS override the environment variable TMPDIR=/tmp/"
-                    ),
+                    )
+                    + "\n* To request help at https://github.com/chanzuckerberg/miniwdl/issues\n"
+                    "  attach the log file " + os.path.join(dn, "miniwdl_run_self_test.log"),
                     file=sys.stderr,
                 )
             )
             raise exn
 
+    miniwdl_version = pkg_version()
+    if miniwdl_version:
+        miniwdl_version = "v" + miniwdl_version
+
     print(
-        "\n🗹  miniwdl run_self_test OK; try `miniwdl configure` to set common options or show current selections.",
+        "\nminiwdl run_self_test OK ("
+        + (miniwdl_version or "version unknown")
+        + "); try `miniwdl configure` to set common options or show current selections.",
         file=sys.stderr,
     )
     if os.geteuid() == 0:
         print(
-            "* Hint: non-root users should be able to run miniwdl if they have permission to control Docker per\n"
-            "        https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user",
+            "* Note: running miniwdl as root is usually avoidable (see docs)",
             file=sys.stderr,
         )
 
@@ -1341,6 +1569,7 @@ def localize(
     cfg=None,
     path=None,
     check_quant=True,
+    no_outside_imports=False,
     **kwargs,
 ):
     # set up logging
@@ -1358,7 +1587,7 @@ def localize(
     )
     logging.basicConfig(level=level)
     logger = logging.getLogger("miniwdl-localize")
-    with configure_logger(json=log_json) as set_status:
+    with configure_logger(json=log_json) as _set_status:
         from . import runtime
 
         cfg_arg = None
@@ -1387,7 +1616,12 @@ def localize(
 
         if infile:
             # load WDL document
-            doc = load(wdlfile, path or [], check_quant=check_quant, read_source=read_source)
+            doc = load(
+                wdlfile,
+                path or [],
+                check_quant=check_quant,
+                read_source=make_read_source(no_outside_imports),
+            )
 
             try:
                 target, input_env, input_json = runner_input(
@@ -1404,6 +1638,9 @@ def localize(
                 )
             except Error.InputError as exn:
                 die(exn.args[0])
+
+            for b in input_env:
+                runtime.task._warn_struct_extra(logger, b.name, b.value)
 
             # scan inputs for donwloadable URIs that appear to be downloadable URIs
             def scan(v):
@@ -1428,7 +1665,9 @@ def localize(
             )
             sys.exit(2)
 
-        if not path_really_within(cfg["download_cache"]["dir"], cfg["file_io"]["root"]):
+        if os.path.isabs(cfg["download_cache"]["dir"]) and not path_really_within(
+            cfg["download_cache"]["dir"], cfg["file_io"]["root"]
+        ):
             logger.error(
                 _(
                     "configuration error: `download_cache.dir' must be within the `file_io.root' directory",
@@ -1484,13 +1723,6 @@ def localize(
         )
         outputs = values_to_json(outputs)
 
-        logger.notice(
-            _(
-                "success",
-                files=[os.path.realpath(p) for p in outputs["downloaded_files"]],
-                directories=[os.path.realpath(p) for p in outputs["downloaded_directories"]],
-            )
-        )
         if not original_get:
             logger.warning(
                 """future runs won't use the cache unless configuration section "download_cache", key "get" """
@@ -1526,7 +1758,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         die("`miniwdl configure` is for interactive use")
 
     from datetime import datetime
-    import bullet
+    import bullet  # type: ignore
     from xdg import XDG_CONFIG_HOME
 
     miniwdl_version = pkg_version()
@@ -1536,7 +1768,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
     logging.raiseExceptions = False
     logging.basicConfig(level=VERBOSE_LEVEL)
     logger = logging.getLogger("miniwdl-configure")
-    with configure_logger() as set_status:
+    with configure_logger() as _set_status:
         if (show or not force) and configure_existing(logger, cfg, always=show):
             sys.exit(0)
 
@@ -1624,6 +1856,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         print(cfg_content)
         print()
         sys.stdout.flush()
+        os.makedirs(os.path.dirname(cfg), exist_ok=True)
         with open(cfg, "w") as outfile:
             print(
                 f"# miniwdl configure {miniwdl_version or '(version unknown)'} {datetime.utcnow()}Z",
@@ -1684,6 +1917,274 @@ def format_cfg(sections):
             value = value.replace("\n", "\n  ")
             ans.append(f"{key} = {value}")
     return "\n".join(ans)
+
+
+def fill_eval_subparser(subparsers):
+    eval_parser = subparsers.add_parser(
+        "eval",
+        help="Evaluate a WDL expression",
+        description="Evaluate an isolated WDL expression and print JSON value",
+    )
+    eval_parser.add_argument(
+        "decl",
+        metavar="DECL",
+        nargs="*",
+        help="Declaration in evaluator environment (e.g. 'Int n = 42')",
+    )
+    eval_parser.add_argument(
+        "expr",
+        metavar="EXPR",
+        type=str,
+        help="WDL expression to evaluate (e.g. '[n, n/2]')",
+    )
+    eval_parser.add_argument(
+        "--wdl-version",
+        "-v",
+        type=str,
+        default="development",
+        help="WDL version (default: development)",
+    )
+    eval_parser.add_argument(
+        "--type",
+        "-t",
+        action="store_true",
+        dest="report_type",
+        help="report type as well as JSON value",
+    )
+    return eval_parser
+
+
+def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_type=False, **kwargs):
+    from ._parser import parse_bound_decl, parse_expr
+    from . import StdLib
+
+    # setup
+    class _StdLib(StdLib.Base):
+        def _devirtualize_filename(self, filename: str) -> str:
+            return filename
+
+        def _virtualize_filename(self, filename: str) -> str:
+            return filename
+
+    stdlib = _StdLib(wdl_version, write_dir=os.environ.get("TMPDIR", "/tmp"))
+    type_env = Env.Bindings()
+    value_env = Env.Bindings()
+
+    # typecheck & evaluate each decl
+    for a_decl in decl:
+        try:
+            decl_ast = parse_bound_decl(a_decl, wdl_version)
+            decl_ast.typecheck(type_env, stdlib, Env.Bindings(), check_quant=check_quant)
+            type_env = decl_ast.add_to_type_env(Env.Bindings(), type_env)
+            value_env = value_env.bind(decl_ast.name, decl_ast.expr.eval(value_env, stdlib))
+        except Exception as exn:
+            setattr(exn, "source_text", a_decl)  # for print_error()
+            raise
+
+    # typecheck & evaluate expr, display result
+    try:
+        expr_ast = parse_expr(expr, wdl_version).infer_type(
+            type_env, stdlib, check_quant=check_quant
+        )
+        if report_type:
+            print(str(expr_ast.type))
+        v = expr_ast.eval(value_env, stdlib)
+        print(json.dumps(v.json, indent=2))
+    except Exception as exn:
+        setattr(exn, "source_text", expr)  # for print_error()
+        raise
+
+
+def fill_zip_subparser(subparsers):
+    zip_parser = subparsers.add_parser(
+        "zip", help="Zip WDL source", description="Zip WDL source file along with all imports"
+    )
+    zip_parser.add_argument("top_wdl", metavar="WDL_FILE", help="top-level WDL file")
+    zip_parser.add_argument(
+        "-o",
+        "--output",
+        metavar="ZIP_FILE",
+        help="destination filename [WDL_FILE.zip]",
+    )
+    zip_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="overwrite existing file",
+    )
+    zip_parser.add_argument(
+        "--input",
+        "--inputs",
+        "-i",
+        metavar="JSON_OR_FILE",
+        help="input JSON to include as defaults",
+    )
+    zip_parser.add_argument(
+        "-a",
+        "--additional",
+        metavar="FILE",
+        help="Additional files to include in the zip. Files will be included "
+        "in the zip root. Can be supplied multiple times.",
+        action="append",
+        dest="additional_files",
+    )
+    return zip_parser
+
+
+def zip_wdl(
+    top_wdl,
+    output=None,
+    force=False,
+    input=None,
+    check_quant=True,
+    path=None,
+    no_outside_imports=False,
+    additional_files=None,
+    debug=False,
+    **kwargs,
+):
+    # load WDL
+    doc = load(
+        top_wdl,
+        path or [],
+        check_quant=check_quant,
+        read_source=make_read_source(no_outside_imports),
+    )
+
+    logging.basicConfig(level=(logging.DEBUG if debug else logging.INFO))
+    logger = logging.getLogger("miniwdl-zip")
+    with configure_logger():
+        # load & validate input JSON, if any
+        input_dict = None
+        if input:
+            try:
+                _target, _input_env, input_dict = runner_input(
+                    doc,
+                    [],
+                    input,
+                    [],
+                    [],
+                    check_required=False,
+                    downloadable=lambda fn, is_dir: True,
+                )
+            except Error.InputError as exn:
+                die(exn.args[0])
+
+        # build archive
+        meta = None
+        miniwdl_version = pkg_version()
+        if miniwdl_version:
+            meta = {"miniwdl": {"version": "v" + miniwdl_version}}
+
+        if not output:
+            output = os.path.basename(top_wdl) + ".zip"
+        if os.path.exists(output) and not force:
+            die(output + " already exists; add --force to override")
+        fmt = "tar" if output.endswith(".tar") else "zip"
+
+        Zip.build(
+            doc,
+            output,
+            logger,
+            meta=meta,
+            inputs=input_dict,
+            archive_format=fmt,
+            additional_files=additional_files,
+        )
+
+
+def fill_input_template_subparser(subparsers):
+    input_template_parser = subparsers.add_parser(
+        "input_template",
+        aliases=["input-template"],
+        help="Generate JSON template for WDL inputs",
+        description="Generate a skeleton JSON for a task/workflow's required inputs,"
+        " suitable to pass into `miniwdl run -i INPUTS.json`."
+        " Writes to standard output.",
+    )
+    input_template_parser.add_argument(
+        "uri", metavar="WDL_URI", type=str, nargs="?", help="WDL document filename/URI"
+    )
+    input_template_parser.add_argument(
+        "--task",
+        metavar="TASK_NAME",
+        help="name of task (for WDL documents with multiple tasks & no workflow)",
+    )
+    input_template_parser.add_argument(
+        "--no-namespace",
+        action="store_true",
+        help="omit top-level workflow name prefix",
+    )
+    return input_template_parser
+
+
+def input_template(
+    uri=None,
+    task=None,
+    no_namespace=False,
+    path=None,
+    check_quant=True,
+    no_outside_imports=False,
+    **kwargs,
+):
+    doc = load(
+        uri=uri,
+        path=path,
+        check_quant=check_quant,
+        read_source=make_read_source(no_outside_imports),
+    )
+
+    try:
+        exe = runner_exe(doc, task)
+    except Error.InputError as exn:
+        die(exn.args[0])
+    namespace = (exe.name + ".") if isinstance(exe, Workflow) and not no_namespace else ""
+
+    # TODO: opt in to optional inputs (available_inputs). The tricky part is if the optional inputs
+    # have defaults, then we don't necessarily want the template to override those with dummy
+    # values. But nor is it simply copying defaults into the JSON, since a default could be some
+    # WDL expression to be evaluated...
+    input_decls = exe.required_inputs
+
+    input_template = {}
+    for b in input_decls:
+        input_template[namespace + b.name] = _type_to_input_template(b.value.type)
+
+    input_template = json.dumps(input_template, indent=2)
+    print(input_template)
+    return input_template
+
+
+def _type_to_input_template(ty: Type.Base):
+    """
+    Generate an input template value for the given type (with recursion into compound types)
+    """
+    if isinstance(ty, Type.StructInstance):
+        ans = {}
+        assert ty.members
+        for member_name, member_type in ty.members.items():
+            if not member_type.optional:  # TODO: opt in to these
+                ans[member_name] = _type_to_input_template(member_type)
+        return ans
+    elif isinstance(ty, Type.Array):
+        return [_type_to_input_template(ty.item_type)]
+    elif isinstance(ty, Type.Map):
+        (key, val) = ty.item_type
+        return {str(key): _type_to_input_template(val)}
+    elif isinstance(ty, Type.Pair):
+        return {
+            "left": _type_to_input_template(ty.left_type),
+            "right": _type_to_input_template(ty.right_type),
+        }
+    elif isinstance(ty, Type.Int):
+        return 42
+    elif isinstance(ty, Type.Float):
+        return 3.14
+    elif isinstance(ty, Type.Boolean):
+        return False
+    else:
+        assert isinstance(ty, Type.Base), type(ty)
+        return str(ty)
 
 
 def pkg_version(pkg="miniwdl"):

@@ -14,15 +14,16 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 Requirements:
 
 1. GNU/Linux or [macOS (specific steps required)](https://github.com/chanzuckerberg/miniwdl/issues/145)
-2. Python 3.6 or higher
-3. [Docker Engine](https://docs.docker.com/install/) 17 or higher
+2. Python 3.8 or higher
+3. [Docker Engine](https://docs.docker.com/install/) 17 or higher (if unable, see [alternate container runtimes](https://miniwdl.readthedocs.io/en/latest/runner_backends.html))
 4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
 
 
 Installation options:
 
 * via PyPI: `pip3 install miniwdl`
-* via conda: `conda install -c conda-forge miniwdl`
+* via conda: [setup conda-forge](https://conda-forge.org/docs/user/introduction/#how-can-i-install-packages-from-conda-forge) and run `conda install miniwdl`
+- Verify your miniwdl installation: `miniwdl run_self_test`
 * see the [GitHub repo README](https://github.com/chanzuckerberg/miniwdl/) to install from source
 
 Then open a command prompt and try,
@@ -139,8 +140,15 @@ The following pages document features and optimization for `miniwdl run`, includ
 
 To aid the workflow development cycle, miniwdl also includes a static code quality checker, `miniwdl check`. Lastly, installing miniwdl makes available a Python `WDL` package, providing programmatic access to miniwdl's WDL parser and runtime.
 
+The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory available on the local host; so a more-powerful host enables larger workloads. Separately-maintained extensions can distribute tasks to cloud & HPC backends:
+
+* [miniwdl-omics-run](https://github.com/miniwdl-ext/miniwdl-omics-run) tool for the [Amazon Omics](https://aws.amazon.com/omics/) workflow service
+* [AWS Batch](https://github.com/miniwdl-ext/miniwdl-aws)
+* [SLURM](https://github.com/miniwdl-ext/miniwdl-slurm)
+
 ### Links
 
 * [chanzuckerberg/miniwdl GitHub](https://github.com/chanzuckerberg/miniwdl/) where issues & contributions are welcome
-* [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec, proposals, and discussion
-* [CZI Science Technology](https://chanzuckerberg.com/technology/science/) sponsors this project
+* [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec & proposals
+* [OpenWDL Slack #miniwdl](https://openwdl.slack.com/archives/C02JCRJU79T) for discussions
+* [CZI Science Tech](https://tech.chanzuckerberg.com/scitech/) sponsors this project

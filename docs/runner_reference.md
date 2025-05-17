@@ -4,7 +4,9 @@
 
 By default `miniwdl run` creates a new subdirectory of the current working directory for each run, timestamp-named so that a series of them sorts in order of invocation. A different root directory can be specified with `--dir /my/runs`, while timestamp-named subdirectory creation can be prevented with `--dir myrun/.`; in the latter case, the given directory should be nonexistent or empty.
 
-Upon run success, the JSON outputs are written to `outputs.json` in the run directory and printed to standard output (including a key providing the run directory path). Upon failure, the process exits with a non-zero status code and JSON error information is written to `error.json` in the run directory; if `--error-json` is supplied, this information is also printed to standard output. The existence of `outputs.json` is a reliable indicator of success; `error.json` indicates failure, but may not appear if miniwdl is force-killed (by SIGKILL, such as the out-of-memory killer), or if writing the file fails for any reason.
+Upon run success, the JSON outputs are written to `outputs.json` in the run directory and printed to standard output (including a key providing the run directory path). Upon failure, the process exits with a non-zero status code and JSON error information is written to `error.json` in the run directory; if `--error-json` is supplied, this information is also printed to standard output.
+
+The existence of `outputs.json` is a reliable indicator of success; `error.json` indicates failure, but may not appear if miniwdl is force-killed (by SIGKILL, such as the out-of-memory killer), or if writing the file fails for any reason. Barring such extremes, an external process should assume a run directory is still in use if it contains neither `outputs.json` nor `error.json`.
 
 For tasks, the run directory also contains:
 
@@ -26,7 +28,6 @@ The top-level run directory also contains:
 
 * `wdl/` a copy of the original WDL that was run, including imported documents (except any referenced by URI or absolute path)
 * `rerun` can be "sourced" to run the WDL (as found in the original location, possibly updated) using the same inputs
-* The top-level run directory is "flocked" while `miniwdl run` is still in progress
 
 When miniwdl creates a new timestamp-named subdirectory for a run, it also creates a symbolic link `_LAST` to it in the same parent directory. (For convenience referring to the most recent run; should not be relied upon if multiple runs can start concurrently.)
 
@@ -44,17 +45,19 @@ The default local scheduler observes these task `runtime {}` attributes:
   * Automatically rounds down to all host memory, if less
   * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
 * `maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first)
+* `returnCodes` (Int/Array[Int]/`"*"`): consider the given non-zero exit code(s) to indicate command success
+* `docker_network` (String): name of a docker network to which to attach container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
+* `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
 ## File & Directory URI downloads
 
-Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. The following URI schemes have built-in support, which can be extended with plugins:
+Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. Directory URIs should be distinguished by affixing a trailing slash. The following URI schemes have built-in support, which can be extended with plugins:
 
 * `http:`, `https:`, and `ftp:` downloads for Files
 * Amazon S3 `s3:` URIs for both File and Directory inputs
   * On an EC2 instance, the downloader attempts to assume an [attached IAM role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) by contacting the [instance metadata service](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials)
-  * Outside EC2, to use AWS credentials from the invoking session (detected by [boto3](https://aws.amazon.com/sdk-for-python/)), set the configuration option `[download_awscli] host_credentials = true` (or environment `MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=true`)
-  * Affix a trailing slash for Directory inputs
-* Google Cloud Storage `gs:` URIs for Files
+  * Outside EC2, to use AWS credentials from the invoking session, set the configuration option `[download_awscli] host_credentials = true` or environment `MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=true` (requires [boto3](https://aws.amazon.com/sdk-for-python/) package installed if not already)
+* Google Cloud Storage `gs:` URIs for both File and Directory inputs
   * On a GCE instance, the downloader attempts to use the [associated service account](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances) by contacting the [instance metadata service](https://cloud.google.com/compute/docs/storing-retrieving-metadata)
 
 ## Configuration
@@ -63,7 +66,7 @@ The miniwdl runner's configuration loader sources from command-line options, env
 
 **default.cfg**
 
-The available configuration options are exemplified in [`WDL/runtime/config_templates/default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg), which follows the format of [Python's configparser module](https://docs.python.org/3/library/configparser.html#quick-start), organized into `[SECTION]` headings with `KEY = VALUE` entries in each section. Some values take the form of a JSON object or array, which may span multiple lines with indentation.
+The available configuration options are exemplified in [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg), which follows the format of [Python's configparser module](https://docs.python.org/3/library/configparser.html#quick-start), organized into `[SECTION]` headings with `KEY = VALUE` entries in each section. Some values take the form of a JSON object or array, which may span multiple lines with indentation.
 
 Miniwdl loads these defaults from the locally installed copy of that file.
 
@@ -143,14 +146,33 @@ Details:
 * If needed, the `miniwdl localize` subcommand can **"prime" the local cache** with URIs found in a given JSON input template (or a simple list of URIs) before actually running any workflow.
 * With the cache enabled in configuration, `--no-cache` disables it for one run.
 
+### Advanced options
+
+Please review [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) for numerous advanced configuration options, which can be set as described above.
+
+## Using NVIDIA GPU
+
+While `miniwdl` itself ignores GPU directives in a task’s `runtime` / `requirements` block, most scenarios with a local NVIDIA GPU will work with these steps:
+
+1. Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+2. Edit `/etc/docker/daemon.json` to add the top-level key `"default-runtime":"nvidia"`
+3. Restart Docker, e.g. `systemctl restart docker`
+
+**Limitations**
+
+* The host then uses the NVIDIA runtime for all containers, which could (but doesn't usually) cause a conflict for certain Docker images.
+* The GPU isn't considered for task scheduling, so intensive workloads may need GPU task parallelism constrained by *either*:
+  * Reserving most of the host’s `cpu` or `memory` in each GPU-using task’s `runtime`/`requirements`.
+  * Setting the configuration `[scheduler] task_concurrency = 1` (affecting all tasks, GPU-using or not).
+
 ## WDL interoperability
 
-The runner supports draft-2 and `version 1.0` of the [WDL specification](https://github.com/openwdl/wdl), with known errata:
+The runner supports versions 1.1, 1.0, and draft-2 of the [WDL specification](https://github.com/openwdl/wdl), with known errata:
 
-* `Object` type is unsupported except for initializing WDL 1.0 `struct` types, which should be used instead.
+* `Object` type is unsupported except for initializing WDL 1.0+ `struct` types, which should be used instead.
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
 * Task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
-* The following task runtime values are ignored: `gpu` `disks` `returnCodes`
+* The following task runtime values are ignored: `disks` `gpu`
 * Rejects certain name collisions that Cromwell admits (spec-ambiguous), such as between:
   * scatter variable and prior declaration
   * output declaration and prior non-output declaration
