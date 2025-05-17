@@ -61,3 +61,11 @@
 [submodule "test_corpi/broadinstitute/warp"]
 	path = test_corpi/broadinstitute/warp
 	url = https://github.com/broadinstitute/warp.git
+[submodule "wdl-1.2"]
+	path = spec/wdl-1.2
+	url = https://github.com/openwdl/wdl.git
+	branch = wdl-1.2
+[submodule "wdl-1.1"]
+	path = spec/wdl-1.1
+	url = https://github.com/openwdl/wdl.git
+	branch = wdl-1.1
