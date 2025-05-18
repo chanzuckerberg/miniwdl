@@ -1,0 +1,30 @@
+# Configuration for conformance test suite
+# Define lists of test names to xfail (expected failures) or skip entirely.
+# Example:
+# xfail:
+#   - hello_resource
+# skip:
+#   - some_other_example
+
+xfail:
+  # Object:
+  - test_object.wdl
+  - read_object_task.wdl
+  - read_objects_task.wdl
+  - write_object_task.wdl
+  - write_objects_task.wdl
+  # these are bugged in the WDL 1.1 spec (using the WDL 1.2 return_codes instead of the WDL 1.1 returnCodes)
+  - single_return_code_task.wdl
+  - all_return_codes_task.wdl
+  # FIXME burndown:
+  - test_struct.wdl
+  - map_to_struct.wdl
+  - relative_and_absolute_task.wdl
+  - optional_output_task.wdl
+  - test_round.wdl
+  - test_sub.wdl
+  - serde_pair.wdl
+skip:
+  # these have heavyweight dependencies
+  - hisat2_task.wdl
+  - gatk_haplotype_caller_task.wdl

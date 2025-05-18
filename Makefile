@@ -6,15 +6,18 @@ test: check_check check unit_tests integration_tests
 # fail fast
 qtest:
 	python3 tests/no_docker_services.py
-	pytest -vx --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
+	pytest -vx --tb=short -n auto --dist=loadscope tests
 	python3 -m unittest tests.test_cli_argcomplete
 	prove -v tests/{check,eval,runner,zip}.t
 	python3 tests/no_docker_services.py
 
 unit_tests:
-	pytest -v --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
+	pytest -v --tb=short -n auto --dist=loadscope --cov=WDL tests
 	python3 -m unittest tests.test_cli_argcomplete
 	python3 tests/no_docker_services.py
+
+spec_tests:
+	pytest -n auto --tb=short tests/spec_tests/spec_tests.py
 
 integration_tests:
 	prove -v tests/{check,eval,runner,zip,multi_line_strings}.t
@@ -38,7 +41,7 @@ singularity_tests:
 
 ci_housekeeping: check_check check doc
 
-ci_unit_tests: unit_tests
+ci_unit_tests: unit_tests spec_tests
 
 check:
 	ruff check --ignore E741 WDL

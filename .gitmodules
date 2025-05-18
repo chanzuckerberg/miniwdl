@@ -69,3 +69,6 @@
 	path = spec/wdl-1.1
 	url = https://github.com/openwdl/wdl.git
 	branch = wdl-1.1
+[submodule "spec/wdl-tests"]
+	path = spec/wdl-tests
+	url = https://github.com/openwdl/wdl-tests.git
