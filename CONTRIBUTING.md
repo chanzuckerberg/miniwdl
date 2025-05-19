@@ -21,7 +21,7 @@ Generally, `python3 -m WDL ...` invokes the equivalent of the `miniwdl ...` entr
 The Makefile has a few typical flows:
 
 - `make` or `make test` runs the full test suite with code coverage report (takes several minutes)
-- `make qtest` runs most of the tests more quickly (by omitting some slower cases, and not tracking coverage)
+- `make qtest` runs most of the tests more quickly (by omitting some slower cases, not tracking coverage, and failing fast)
 - `make pretty` reformats the code with `ruff format`
 - `make check` validates the code with `ruff check` and `mypy`
 
@@ -117,5 +117,6 @@ The miniwdl test suite is located in the `tests/` directory and is organized int
     - true unit tests of isolated components
     - artificial WDL sources exercising various aspects of the runtime
     - tests of the parser and linter on a collection of WDL from external sources found under `test_corpi/`
+*   **WDL Spec Examples (spec_tests/):** Tests all the examples embedded in the WDL SPEC.md (extracted following the [WDL Markdown Test Specification](https://github.com/openwdl/wdl-tests/blob/main/docs/MarkdownTests.md)). The `config.yaml` file marks several examples xfail or skip, for various reasons commented there.
 *   **Bash-TAP Tests (\*.t):**  These files are shell scripts that use the `bash-tap` framework to run commands and check their output.  They primarily exercise the `miniwdl` command-line interface (parsing arguments, executing workflows/tasks, etc.) and associated shell integration.
 *   **Applied Tests (applied/):** These are bash-tap that run `miniwdl run` on complete WDL workflows, drawn from various sources, with specific input JSON files.  These tests are used to ensure that miniwdl correctly executes realistic workflows.
