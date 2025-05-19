@@ -20,8 +20,9 @@ VERSIONS = ["wdl-1.1"]
 CONFIG_FILE = Path(__file__).parent / "config.yaml"
 yaml = YAML(typ="safe")
 cfg = yaml.load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
-XFAIL = set(cfg.get("xfail", []))
-SKIP = set(cfg.get("skip", []))
+# version-specific xfail and skip lists
+VERSION_XFAIL = {ver: set(data.get("xfail", [])) for ver, data in cfg.items()}
+VERSION_SKIP = {ver: set(data.get("skip", [])) for ver, data in cfg.items()}
 
 
 def parse_spec_for(version):
@@ -73,14 +74,22 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
 
     name = case["name"]
     assert name.endswith(".wdl")
-    if name in SKIP:
-        pytest.skip(f"Skipped by conformance_config.yaml: {name}")
+    # version-specific skips
+    skip_list = VERSION_SKIP.get(case["version"], set())
+    if name in skip_list:
+        pytest.skip(f"Skipped by conformance_config.yaml for {case['version']}: {name}")
     inputs = case["inputs"]
     outputs = case["outputs"]
     config = case["config"]
 
-    if name in XFAIL or name.endswith("_fail.wdl") or name.endswith("_fail_task.wdl"):
-        pytest.xfail(f"Marked xfail: {name}")
+    # version-specific expected failures
+    xfail_list = VERSION_XFAIL.get(case["version"], set())
+    if (
+        name in xfail_list
+        or name.endswith("_fail.wdl")
+        or name.endswith("_fail_task.wdl")
+    ):
+        pytest.xfail(f"Marked xfail for {case['version']}: {name}")
     # copy spec test-data directory for this test
     shutil.copytree(case["data_dir"], tmp_path, dirs_exist_ok=True)
 
@@ -134,9 +143,17 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
     for k, v in outputs.items():
         if k in exclude:
             continue
-        got_v = got.get(k)
-        if isinstance(got_v, str) and got_v.startswith("/"):
-            got_v = os.path.basename(got_v)
+        got_v = _basenameize(got.get(k))
         assert got_v == v, (
             f"Mismatch for '{k}' in {name}: expected {v}, got {got.get(k)}"
         )
+
+
+def _basenameize(obj):
+    if isinstance(obj, str) and obj.startswith("/"):
+        return os.path.basename(obj)
+    elif isinstance(obj, list):
+        return [_basenameize(x) for x in obj]
+    elif isinstance(obj, dict):
+        return {k: _basenameize(v) for k, v in obj.items()}
+    return obj
