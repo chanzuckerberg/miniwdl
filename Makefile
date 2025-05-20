@@ -6,15 +6,17 @@ test: check_check check unit_tests integration_tests
 # fail fast
 qtest:
 	python3 tests/no_docker_services.py
-	pytest -vx --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope tests
+	pytest -vx --tb=short -n auto --dist=loadscope tests
+	pytest -vx --tb=short -n auto tests/spec_tests/spec_tests.py
 	python3 -m unittest tests.test_cli_argcomplete
 	prove -v tests/{check,eval,runner,zip}.t
 	python3 tests/no_docker_services.py
 
 unit_tests:
-	pytest -v --tb=short -n `python3 -c 'import multiprocessing as mp; print(mp.cpu_count())'` --dist=loadscope --cov=WDL tests
+	pytest -v --tb=short -n auto --dist=loadscope --cov=WDL tests
+	pytest -v --tb=short -n auto tests/spec_tests/spec_tests.py
 	python3 -m unittest tests.test_cli_argcomplete
-	python3 tests/no_docker_services.py
+	python3 tests/no_docker_services.py	
 
 integration_tests:
 	prove -v tests/{check,eval,runner,zip,multi_line_strings}.t
@@ -79,4 +81,10 @@ doc:
 
 docs: doc
 
-.PHONY: check check_check pretty test qtest docker doc docs pypi_test pypi bdist ci_housekeeping unit_tests integration_tests skylab_bulk_rna DVGLx viral_assemble
+.PHONY: \
+  pretty check check_check \
+  test qtest unit_tests integration_tests \
+  skylab_bulk_rna DVGLx viral_assemble viral_refbased singularity_tests \
+  doc docs \
+  bdist pypi_test pypi \
+  ci_housekeeping ci_unit_tests
