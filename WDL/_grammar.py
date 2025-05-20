@@ -313,6 +313,7 @@ task: "task" CNAME "{" task_section* command task_section* "}"
              | output_decls
              | meta_section
              | runtime_section
+             | hints_section
              | task_env_decl -> noninput_decl
 
 tasks: task*
@@ -337,6 +338,7 @@ meta_kv: CNAME ":" meta_value
 // task runtime section (key-expression pairs)
 runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
 runtime_kv: CNAME ":" expr
+hints_section: "hints" meta_object
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // decl
@@ -493,7 +495,7 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 keywords["development"] = set(
     (
         "Array Directory File Float Int Map None Pair String"
-        " alias as call command else env false if import input left meta"
+        " alias as call command else env false hints if import input left meta"
         " object output parameter_meta right runtime scatter struct task then true workflow"
     ).split(" ")
 )

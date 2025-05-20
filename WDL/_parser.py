@@ -396,6 +396,9 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return {"runtime": d}
 
+    def hints_section(self, meta, items):
+        return {"hints": items[0]}
+
     def task(self, meta, items):
         d = {"noninput_decls": []}
         for item in items:
@@ -424,6 +427,7 @@ class _DocTransformer(_ExprTransformer):
             d.get("parameter_meta", {}),
             d.get("runtime", {}),
             d.get("meta", {}),
+            d.get("hints", {}),
         )
 
     def tasks(self, meta, items):

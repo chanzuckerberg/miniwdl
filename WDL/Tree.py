@@ -266,6 +266,10 @@ class Task(SourceNode):
     """:type: Dict[str,WDL.Expr.Base]
 
     ``runtime{}`` section, with keys and corresponding expressions to be evaluated"""
+    hints: Dict[str, Any]
+    """:type: Dict[str, Any]
+
+    ``hints{}`` section as a JSON-like dict"""
     meta: Dict[str, Any]
     """:type: Dict[str,Any]
 
@@ -288,6 +292,7 @@ class Task(SourceNode):
         parameter_meta: Dict[str, Any],
         runtime: Dict[str, Expr.Base],
         meta: Dict[str, Any],
+        hints: Dict[str, Any],
     ) -> None:
         super().__init__(pos)
         self.name = name
@@ -298,6 +303,7 @@ class Task(SourceNode):
         self.parameter_meta = parameter_meta
         self.runtime = runtime
         self.meta = meta
+        self.hints = hints
         self.effective_wdl_version = "1.0"  # overridden by Document.__init__
         # TODO: enforce validity constraints on parameter_meta and runtime
         # TODO: if the input section exists, then all postinputs decls must be
@@ -317,7 +323,7 @@ class Task(SourceNode):
         ans: Env.Bindings[Decl] = Env.Bindings()
 
         if self.effective_wdl_version not in ("draft-2", "1.0"):
-            # synthetic placeholder to expose runtime overrides
+            # synthetic placeholder to expose runtime & hints overrides
             ans = ans.bind("_runtime", Decl(self.pos, Type.Any(), "_runtime"))
 
         for decl in reversed(self.inputs if self.inputs is not None else self.postinputs):
