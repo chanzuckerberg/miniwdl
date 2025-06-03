@@ -1756,7 +1756,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         die("`miniwdl configure` is for interactive use")
 
     from datetime import datetime
-    import bullet  # type: ignore
+    import questionary  # type: ignore
     from xdg import XDG_CONFIG_HOME
 
     miniwdl_version = pkg_version()
@@ -1774,11 +1774,12 @@ def configure(cfg=None, show=False, force=False, **kwargs):
             cfg = os.path.join(XDG_CONFIG_HOME, "miniwdl.cfg")
 
         def yes(prompt):
-            return bullet.Bullet(prompt=prompt, choices=["No", "Yes"]).launch() == "Yes"
+            answer = questionary.confirm(prompt).ask()
+            return bool(answer)
 
         if os.path.exists(cfg):
             assert force
-            logger.warn("Proceeding will overwrite existing configuration file at " + cfg)
+            logger.warning("Proceeding will overwrite existing configuration file at " + cfg)
             sys.stderr.flush()
             if not yes("OVERWRITE?"):
                 sys.exit(0)
@@ -1803,9 +1804,9 @@ def configure(cfg=None, show=False, force=False, **kwargs):
                 print("\nCall cache JSON file storage directory: ~/.cache/miniwdl/")
 
                 if yes("OVERRIDE?"):
-                    options["call_cache"]["dir"] = bullet.Input(
-                        prompt="Call cache directory: ", strip=True
-                    ).launch()
+                    options["call_cache"]["dir"] = (
+                        questionary.text("Call cache directory: ").ask().strip()
+                    )
 
             print(
                 textwrap.dedent(
@@ -1822,9 +1823,10 @@ def configure(cfg=None, show=False, force=False, **kwargs):
                 print("\nDownload cache directory: /tmp/miniwdl_download_cache")
 
                 if yes("OVERRIDE?"):
-                    options["download_cache"]["dir"] = bullet.Input(
-                        prompt="Download cache directory: ", strip=True
-                    ).launch()
+                    # use questionary text prompt for directory input
+                    options["download_cache"]["dir"] = (
+                        questionary.text("Download cache directory: ").ask().strip()
+                    )
 
             print()
             if yes("Configure non-public Amazon s3:// access?"):
