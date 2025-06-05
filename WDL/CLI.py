@@ -1774,7 +1774,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
             cfg = os.path.join(XDG_CONFIG_HOME, "miniwdl.cfg")
 
         def yes(prompt):
-            answer = questionary.confirm(prompt).ask()
+            answer = questionary.confirm(prompt, qmark="").ask()
             return bool(answer)
 
         if os.path.exists(cfg):
