@@ -9,9 +9,9 @@
 # or append 'bash' to that to enter interactive shell
 
 # start with ubuntu:20.04 plus some apt packages
-FROM ubuntu:20.04 as deps
-ENV LC_ALL C.UTF-8
-ENV LANG C.UTF-8
+FROM ubuntu:20.04 AS deps
+ENV LC_ALL=C.UTF-8
+ENV LANG=C.UTF-8
 RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y \
     python3-pip python3-setuptools tzdata wget zip git-core default-jre jq shellcheck docker.io
 RUN pip3 install yq
@@ -25,10 +25,11 @@ RUN mkdir miniwdl
 # https://github.com/actions/checkout/issues/760
 RUN git config --global --add safe.directory /home/wdler/miniwdl
 
-ENV PATH $PATH:/home/wdler/.local/bin
+ENV PATH=$PATH:/home/wdler/.local/bin
+ENV PYTHONPATH=/home/wdler/miniwdl:$PYTHONPATH
 COPY pyproject.toml /home/wdler/miniwdl
 RUN tomlq -r '(.project.dependencies + .project["optional-dependencies"].dev)[]' miniwdl/pyproject.toml \
     | xargs pip3 install --user && rm miniwdl/pyproject.toml
 
 # expectation -- mount miniwdl source tree at /home/wdler/miniwdl
-CMD make -C miniwdl unit_tests
+CMD ["make","-C","miniwdl","unit_tests"]
