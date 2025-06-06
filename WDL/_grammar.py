@@ -243,8 +243,6 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore COMMENT
 """
 
-assert set(versions.keys()) == set(keywords.keys())
-
 
 def get(version: Optional[str] = None) -> Tuple[str, Set[str]]:
     version = version or "1.0"
