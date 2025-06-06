@@ -296,18 +296,15 @@ call_input: CNAME ["=" expr]
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 task: "task" CNAME "{" task_section* command task_section* "}"
-?task_section: task_input_decls
+?task_section: input_decls
              | output_decls
              | meta_section
              | runtime_section
-             | task_env_decl -> noninput_decl
+             | any_decl -> noninput_decl
 
 tasks: task*
 
 input_decls: "input" "{" any_decl* "}"
-task_input_decls: "input" "{" task_env_decl* "}" -> input_decls
-ENV.2: "env"
-task_env_decl: ENV? any_decl
 output_decls: "output" "{" bound_decl* "}"
 
 // WDL task commands: with {} and <<< >>> command and ${} and ~{} placeholder styles
