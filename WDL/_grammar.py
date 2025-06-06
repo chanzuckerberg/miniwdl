@@ -10,8 +10,8 @@ keywords["draft-2"] = set(
 )
 keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
 keywords["1.1"] = keywords["1.0"]
-keywords["1.2"] = keywords["1.1"] | set(["Directory"])
-keywords["development"] = keywords["1.2"] | set(["env"])
+keywords["1.2"] = keywords["1.1"] | set(["Directory", "env"])
+keywords["development"] = keywords["1.2"]
 
 # Grammar versions and their definitions. The productions for WDL 1.2 and development will be
 # defined in this file, while older versions are found in _grammar_old.py.
