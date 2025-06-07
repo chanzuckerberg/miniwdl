@@ -244,11 +244,6 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore NEWLINE
 %ignore COMMENT
 """
-<<<<<<< HEAD
-=======
-
-assert set(versions.keys()) == set(keywords.keys())
->>>>>>> origin/mlin-wdl2-runtime
 
 
 def get(version: Optional[str] = None) -> Tuple[str, Set[str]]:
