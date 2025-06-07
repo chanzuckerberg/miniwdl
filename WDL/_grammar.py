@@ -4,19 +4,14 @@ from ._grammar_old import productions_common1, productions_pre_1_0, productions_
 # Keywords for each version of the WDL grammar.
 keywords = {}
 keywords["draft-2"] = set(
-    "Array File Float Int Map None Pair String as call command else false if import input left meta object output parameter_meta right runtime scatter task then true workflow".split(
-        " "
-    )
+    "Array File Float Int Map None Pair String"
+    " as call command else false if import input left meta object output"
+    " parameter_meta right runtime scatter task then true workflow".split(" ")
 )
 keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
-keywords["development"] = set(
-    (
-        "Array Directory File Float Int Map None Pair String"
-        " alias as call command else env false if import input left meta"
-        " object output parameter_meta right runtime scatter struct task then true workflow"
-    ).split(" ")
-)
-keywords["1.1"] = keywords["development"]
+keywords["1.1"] = keywords["1.0"]
+keywords["1.2"] = keywords["1.1"] | set(["Directory", "env"])
+keywords["development"] = keywords["1.2"]
 
 # Grammar versions and their definitions. The productions for WDL 1.2 and development will be
 # defined in this file, while older versions are found in _grammar_old.py.
@@ -247,8 +242,6 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore NEWLINE
 %ignore COMMENT
 """
-
-assert set(versions.keys()) == set(keywords.keys())
 
 
 def get(version: Optional[str] = None) -> Tuple[str, Set[str]]:
