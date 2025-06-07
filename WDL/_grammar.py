@@ -5,12 +5,12 @@ from ._grammar_old import productions_common1, productions_pre_1_0, productions_
 keywords = {}
 keywords["draft-2"] = set(
     "Array File Float Int Map None Pair String"
-    " as call command else false hints if import input left meta object output"
+    " as call command else false if import input left meta object output"
     " parameter_meta right runtime scatter task then true workflow".split(" ")
 )
 keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
 keywords["1.1"] = keywords["1.0"]
-keywords["1.2"] = keywords["1.1"] | set(["Directory", "env"])
+keywords["1.2"] = keywords["1.1"] | set(["Directory", "env", "hints"])
 keywords["development"] = keywords["1.2"]
 
 # Grammar versions and their definitions. The productions for WDL 1.2 and development will be
@@ -244,6 +244,11 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore NEWLINE
 %ignore COMMENT
 """
+<<<<<<< HEAD
+=======
+
+assert set(versions.keys()) == set(keywords.keys())
+>>>>>>> origin/mlin-wdl2-runtime
 
 
 def get(version: Optional[str] = None) -> Tuple[str, Set[str]]:
