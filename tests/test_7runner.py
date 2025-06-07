@@ -862,6 +862,11 @@ class MiscRegressionTests(RunnerTestCase):
             runtime {
                 container: ["ubuntu:20.04"]
             }
+            hints {
+                foo: {
+                    bar: ["bas", 42]
+                }
+            }
         }
         """
 

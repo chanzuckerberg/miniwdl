@@ -10,7 +10,7 @@ keywords["draft-2"] = set(
 )
 keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
 keywords["1.1"] = keywords["1.0"]
-keywords["1.2"] = keywords["1.1"] | set(["Directory", "env"])
+keywords["1.2"] = keywords["1.1"] | set(["Directory", "env", "hints"])
 keywords["development"] = keywords["1.2"]
 
 # Grammar versions and their definitions. The productions for WDL 1.2 and development will be
@@ -65,6 +65,7 @@ task: "task" CNAME "{" task_section* command task_section* "}"
              | output_decls
              | meta_section
              | runtime_section
+             | hints_section
              | task_env_decl -> noninput_decl
 
 tasks: task*
@@ -89,6 +90,7 @@ meta_kv: CNAME ":" meta_value
 // task runtime section (key-expression pairs)
 runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
 runtime_kv: CNAME ":" expr
+hints_section: "hints" meta_object
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // decl
