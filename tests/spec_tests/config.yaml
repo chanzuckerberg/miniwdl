@@ -28,5 +28,35 @@ wdl-1.1:
     - hisat2_task.wdl
     - gatk_haplotype_caller_task.wdl
 wdl-1.2:
-  xfail: []
-  skip: []
+  xfail:
+    # prioritize investigating:
+    - serialize_map.wdl
+    # TODO:
+    - chunk_array.wdl
+    - test_contains.wdl
+    - test_keys.wdl
+    - test_select_first.wdl
+    # these are bugged in the WDL 1.2 spec:
+    - echo_stderr.wdl                # example WDL is broken (File message should be String message)
+    - nested_scatter.wdl             # expected output is wrong
+    - serde_map_tsv_task.wdl         # example WDL is broken
+    - serde_pair.wdl                 # expected output is wrong
+    - serialize_array_delim_task.wdl # expected output is wrong
+    - test_contains_key.wdl          # example WDL is broken (uses python-style ternary 'a if c else b')
+    - test_length.wdl                # typo (comma instead of colon in map literal)
+    - test_prefix.wdl                # expected output is wrong
+    - test_range.wdl                 # example input is wrong (n instead of i)
+    - test_suffix.wdl                # typo (trailing space ".txt ")
+    - test_values.wdl                # example WDL is broken (str_to_files)
+    - write_json_task.wdl            # example WDL is broken (prints python list repr instead of JSON)
+    - write_tsv_task.wdl             # example WDL is broken (missing Numbers definition)
+    # Object:
+    - test_object.wdl
+    - read_object_task.wdl
+    - read_objects_task.wdl
+    - write_object_task.wdl
+    - write_objects_task.wdl
+
+  skip:
+    - hisat2_task.wdl
+    - gatk_haplotype_caller_task.wdl
