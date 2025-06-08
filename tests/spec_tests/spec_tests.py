@@ -84,7 +84,7 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
     # version-specific skips
     skip_list = VERSION_SKIP.get(case["version"], set())
     if name in skip_list:
-        pytest.skip(f"Skipped by conformance_config.yaml for {case['version']}: {name}")
+        pytest.skip(f"Skipped by config.yaml for {case['version']}: {name}")
     inputs = case["inputs"]
     outputs = case["outputs"]
     config = case["config"]

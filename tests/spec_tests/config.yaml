@@ -23,40 +23,96 @@ wdl-1.1:
     - all_return_codes_task.wdl   # issue #729
     - test_sub.wdl                # issue #709
     - map_to_struct.wdl           # issue #712
+    # hardware assumptions:
+    - test_gpu_task.wdl
   skip:
     # these have heavyweight dependencies
     - hisat2_task.wdl
     - gatk_haplotype_caller_task.wdl
 wdl-1.2:
   xfail:
-    # prioritize investigating:
-    - serialize_map.wdl
     # TODO:
+    - allow_nested.wdl
     - chunk_array.wdl
+    - file_sizes_task.wdl
+    - multi_nested_inputs.wdl
+    - import_structs.wdl
+    - input_hint_task.wdl
+    - join_paths_task.wdl
+    - person_struct_task.wdl
+    - test_allow_nested_inputs.wdl
     - test_contains.wdl
+    - test_find_task.wdl
+    - test_hints_task.wdl
     - test_keys.wdl
+    - test_matches_task.wdl
+    - test_runtime_info_task.wdl
     - test_select_first.wdl
-    # these are bugged in the WDL 1.2 spec:
+    # spec bugs due to invalid bash syntax `for i in a..b; do` (a..b should be {a..b}):
+    - call_example.wdl
+    - gen_files_task.wdl
+    - glob_task.wdl
+    - serialize_map.wdl
+    - test_after.wdl
+    - test_input_keyword.wdl
+    # spec bugs due to `wc -l fn` (should be `wc -l < fn` so that fn isn't reprinted):
+    - ex_paramter_meta_task.wdl      # also: 1) missing read_string() in output, 2) name has typo "paramter"
+    - main.wdl
+    - other.wdl
+    - task_outputs.wdl
+    # other spec bugs:
+    - all_return_codes_task.wdl      # issue #729
+    - array_map_equality.wdl         # expected output is wrong
+    - dynamic_container_task.wdl     # output should be Boolean, not String
     - echo_stderr.wdl                # example WDL is broken (File message should be String message)
+    - echo_stdout.wdl                # "
+    - flags_task.wdl                 # output should be Int, not String
+    - hello_parallel.wdl             # example output is wrong ("hello." should be "hello_parallel.")
+    - map_to_struct.wdl              # issue #712
+    - multiline_string_placeholders.wdl # expected output is wrong (namespace)
+    - nested_access.wdl              # example input isn't compatible with defined struct
     - nested_scatter.wdl             # expected output is wrong
+    - non_empty_optional.wdl         # expected output is wrong
+    - optional_output_task.wdl       # example WDL is broken (command script has a 'do' instead of 'then')
+    - outputs_task.wdl               # example input is wrong
+    - placeholders.wdl               # example input is wrong
+    - placeholder_none.wdl           # questionable claim that interpolations should swallow errors
+    - primitive_literals.wdl         # example output is wrong
+    - python_strip_task.wdl          # whole python script is indented two spaces
+    - read_map_task.wdl              # example WDL is broken (writes to file but reads from stdout)
+    - relative_and_absolute_task.wdl # example WDL is broken (errant read_string() in outputs)
     - serde_map_tsv_task.wdl         # example WDL is broken
     - serde_pair.wdl                 # expected output is wrong
     - serialize_array_delim_task.wdl # expected output is wrong
+    - single_return_code_task.wdl    # issue #729
+    - struct_to_struct.wdl           # typo, capitalized Struct
+    - sum_task.wdl                   # use echo instead of printf, or quote interpolation
+    - test_ceil.wdl                  # expected output is wrong
     - test_contains_key.wdl          # example WDL is broken (uses python-style ternary 'a if c else b')
+    - test_floor.wdl                 # expected output is wrong
     - test_length.wdl                # typo (comma instead of colon in map literal)
+    - test_max.wdl                   # confuses max and min
+    - test_placeholders_task.wdl     # use echo instead of printf, or quote interpolation
     - test_prefix.wdl                # expected output is wrong
     - test_range.wdl                 # example input is wrong (n instead of i)
+    - test_round.wdl                 # expected output is wrong
+    - test_struct.wdl                # expected output is wrong (should be test_struct.john not test_struct.person)
+    - test_sub.wdl                   # issue #709
     - test_suffix.wdl                # typo (trailing space ".txt ")
     - test_values.wdl                # example WDL is broken (str_to_files)
+    - workflow_with_comments.wdl     # cat should be echo
     - write_json_task.wdl            # example WDL is broken (prints python list repr instead of JSON)
     - write_tsv_task.wdl             # example WDL is broken (missing Numbers definition)
+    # hardware assumptions:
+    - one_mount_point_task.wdl
+    - test_gpu_task.wdl
     # Object:
     - test_object.wdl
     - read_object_task.wdl
     - read_objects_task.wdl
+    - read_tsv_task.wdl
     - write_object_task.wdl
     - write_objects_task.wdl
-
   skip:
     - hisat2_task.wdl
     - gatk_haplotype_caller_task.wdl
