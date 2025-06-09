@@ -31,7 +31,7 @@ wdl-1.1:
     - gatk_haplotype_caller_task.wdl
 wdl-1.2:
   xfail:
-    # TODO:
+    # To be implemented:
     - allow_nested.wdl
     - chunk_array.wdl
     - file_sizes_task.wdl
