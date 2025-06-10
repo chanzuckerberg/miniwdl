@@ -1,7 +1,11 @@
 """
 Automatically generated pytest suite for WDL spec conformance tests. Parses examples from the WDL
-SPEC.md (submodules under miniwdl/spec/), runs them using miniwdl, and checks outputs against
-expected results. config.yaml lists cases that are skip or xfail for various reasons.
+SPEC.md, runs them using miniwdl, and checks outputs against expected results. config.yaml lists
+cases that are skip or xfail for various reasons.
+
+The SPEC.md for each supported WDL version is sourced from openwdl/wdl git submodules found under
+miniwidl/spec/. When a new patch version is released, the respective submodule revision should be
+updated appropriately; then this suite will use that revision at test time.
 """
 
 import re
