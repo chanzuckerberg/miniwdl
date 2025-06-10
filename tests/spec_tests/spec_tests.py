@@ -74,7 +74,9 @@ def parse_spec_for(version):
 CASES = [case for v in VERSIONS for case in parse_spec_for(v)]
 
 
-@pytest.mark.parametrize("case", CASES, ids=[c["name"] for c in CASES])
+@pytest.mark.parametrize(
+    "case", CASES, ids=[f"{c['version']}-{c['name']}" for c in CASES]
+)
 def test_spec_conformance(tmp_path, case, monkeypatch):
     # run everything in tmp_path
     monkeypatch.chdir(tmp_path)
@@ -91,12 +93,14 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
 
     # version-specific expected failures
     xfail_list = VERSION_XFAIL.get(case["version"], set())
+    is_xfail = False
     if (
         name in xfail_list
+        or config.get("fail", False)
         or name.endswith("_fail.wdl")
         or name.endswith("_fail_task.wdl")
     ):
-        pytest.xfail(f"Marked xfail for {case['version']}: {name}")
+        is_xfail = True
     # copy spec test-data directory for this test
     shutil.copytree(case["data_dir"], tmp_path, dirs_exist_ok=True)
 
@@ -110,6 +114,11 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
 
     # write WDL file and input JSON
     wdl_file = tmp_path / case["version"] / name
+    with open(wdl_file, "r") as f:
+        line = "#"
+        while line.startswith("#"):
+            line = next(f).strip()
+        assert line[8:] == case["version"][4:]
     inp_file = tmp_path / "input.json"
     inp_file.write_text(json.dumps(inputs), encoding="utf-8")
     out_file = tmp_path / "output.json"
@@ -136,27 +145,37 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
 
     # run
     cmd_env = os.environ.copy()
-    cmd_env["PYTHONPATH"] = SPEC_BASE.parent.as_posix() + ":" + cmd_env.get("PYTHONPATH", "")
-    result = subprocess.run(cmd, env=cmd_env, capture_output=True)
-    should_fail = config.get("fail", False)
-    if should_fail:
-        assert result.returncode != 0, f"Expected failure but got success for {name}"
-        return
-    if result.returncode != 0:
-        print(f"Command failed: {' '.join(cmd)}")
-        print(f"stdout:\n{result.stdout.decode('utf-8')}\n--")
-        print(f"stderr:\n{result.stderr.decode('utf-8')}")
-    assert result.returncode == 0
+    cmd_env["PYTHONPATH"] = (
+        SPEC_BASE.parent.as_posix() + ":" + cmd_env.get("PYTHONPATH", "")
+    )
 
-    # verify outputs
-    got = json.loads(out_file.read_text(encoding="utf-8"))["outputs"]
-    exclude = set(config.get("exclude_outputs", []))
-    for k, v in outputs.items():
-        if k in exclude:
-            continue
-        got_v = _basenameize(got.get(k))
-        assert got_v == v, (
-            f"Mismatch for '{k}' in {name}: expected {v}, got {got.get(k)}"
+    try:
+        result = subprocess.run(cmd, env=cmd_env, capture_output=True)
+        if result.returncode != 0:
+            print(f"Command failed: {' '.join(cmd)}")
+            print(f"stdout:\n{result.stdout.decode('utf-8')}\n--")
+            print(f"stderr:\n{result.stderr.decode('utf-8')}")
+            assert False, f"miniwdl exit code {result.returncode} dir={tmp_path}"
+
+        # verify outputs
+        got = json.loads(out_file.read_text(encoding="utf-8"))["outputs"]
+        exclude = set(config.get("exclude_outputs", []))
+        for k, v in outputs.items():
+            if k in exclude:
+                continue
+            got_v = _basenameize(got.get(k))
+            assert got_v == v, (
+                f"Mismatch for '{k}' in {name}: expected {v}, got {got.get(k)}; dir={tmp_path}"
+            )
+    except:
+        if is_xfail:
+            pytest.xfail(
+                f"Expected failure for {name} in {case['version']} (tests/spec_tests/config.yaml), dir={tmp_path}"
+            )
+        raise
+    if is_xfail:
+        pytest.fail(
+            f"case {name} in {case['version']} passed but was marked xfail, dir={tmp_path}"
         )
 
 
