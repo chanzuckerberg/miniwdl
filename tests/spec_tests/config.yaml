@@ -39,7 +39,7 @@ wdl-1.2:
     - file_sizes_task.wdl
     - multi_nested_inputs.wdl
     - import_structs.wdl
-    - input_hint_task.wdl
+    # - input_hint_task.wdl
     - join_paths_task.wdl
     - one_mount_point_task.wdl
     - person_struct_task.wdl
@@ -47,7 +47,7 @@ wdl-1.2:
     - test_allow_nested_inputs.wdl
     - test_contains.wdl
     - test_find_task.wdl
-    - test_hints_task.wdl
+    # - test_hints_task.wdl
     - test_keys.wdl
     - test_matches_task.wdl
     - test_runtime_info_task.wdl
