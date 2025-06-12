@@ -102,7 +102,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         assert parts[-1] in ['"', "'", ">>>"], parts[-1]
         if parts[0] == "<<<":
             wdl_version = getattr(self, "_version", None)
-            if wdl_version and wdl_version != "development":
+            if wdl_version and wdl_version in ("draft-2", "1.0", "1.1"):
                 raise Error.SyntaxError(
                     self._sp(meta),
                     "<<< multi-line strings >>> are not supported in this WDL version",

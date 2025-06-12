@@ -10,7 +10,7 @@ keywords["draft-2"] = set(
 )
 keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
 keywords["1.1"] = keywords["1.0"]
-keywords["1.2"] = keywords["1.1"] | set(["Directory", "env", "hints"])
+keywords["1.2"] = keywords["1.1"] | set(["Directory", "env", "hints", "requirements"])
 keywords["development"] = keywords["1.2"]
 
 # Grammar versions and their definitions. The productions for WDL 1.2 and development will be
@@ -88,7 +88,7 @@ meta_kv: CNAME ":" meta_value
 !meta_section: ("meta" | "parameter_meta") meta_object
 
 // task runtime section (key-expression pairs)
-runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
+runtime_section: ("runtime" | "requirements") "{" [runtime_kv (","? runtime_kv)*] "}"
 runtime_kv: CNAME ":" expr
 hints_section: "hints" meta_object
 
@@ -244,6 +244,7 @@ COMMENT: /[ \t]*/ "#" /[^\r\n]*/
 %ignore NEWLINE
 %ignore COMMENT
 """
+versions["1.2"] = versions["development"]
 
 
 def get(version: Optional[str] = None) -> Tuple[str, Set[str]]:
