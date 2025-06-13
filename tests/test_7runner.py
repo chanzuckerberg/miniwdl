@@ -863,8 +863,11 @@ class MiscRegressionTests(RunnerTestCase):
                 container: ["ubuntu:20.04"]
             }
             hints {
-                foo: {
-                    bar: ["bas", 42]
+                short_task: true
+                inputs: input {
+                    files: hints { 
+                        localization_optional: true
+                    }
                 }
             }
         }

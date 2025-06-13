@@ -39,7 +39,6 @@ wdl-1.2:
     - file_sizes_task.wdl
     - multi_nested_inputs.wdl
     - import_structs.wdl
-    # - input_hint_task.wdl
     - join_paths_task.wdl
     - one_mount_point_task.wdl
     - person_struct_task.wdl
@@ -47,7 +46,6 @@ wdl-1.2:
     - test_allow_nested_inputs.wdl
     - test_contains.wdl
     - test_find_task.wdl
-    # - test_hints_task.wdl
     - test_keys.wdl
     - test_matches_task.wdl
     - test_runtime_info_task.wdl
@@ -65,6 +63,7 @@ wdl-1.2:
     - single_return_code_task.wdl        # issue #729
     - struct_to_struct.wdl               # typo capitalized Struct
     - test_contains_key.wdl              # uses python-style `a if c else b` instead of `if c then a else b
+    - test_hints_task.wdl                # expected output is wrong (greetings.txt has no trailing newline, so wc -l returns 2 not 3)
     - test_length.wdl                    # typo in map literal
     - test_sub.wdl                       # issue #709
     - test_values.wdl                    # str_to_files should be str_to_ints

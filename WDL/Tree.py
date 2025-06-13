@@ -269,7 +269,7 @@ class Task(SourceNode):
     hints: Dict[str, Any]
     """:type: Dict[str, Any]
 
-    ``hints{}`` section as a JSON-like dict"""
+    ``hints{}`` section; dict values are currently undefined (FIXME)"""
     meta: Dict[str, Any]
     """:type: Dict[str,Any]
 
