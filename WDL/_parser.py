@@ -396,6 +396,9 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return {"runtime": d}
 
+    def hints_section(self, meta, items):
+        return {"hints": items[0]}
+
     def task(self, meta, items):
         d = {"noninput_decls": []}
         for item in items:
@@ -414,6 +417,7 @@ class _DocTransformer(_ExprTransformer):
                 assert "name" not in d
                 d["name"] = item.value
         self._check_keyword(self._sp(meta), d["name"])
+        # TODO: discarding d["hints"] for now (AST repr to be designed)
         return Tree.Task(
             self._sp(meta),
             d["name"],
@@ -519,6 +523,7 @@ class _DocTransformer(_ExprTransformer):
         output_idents_pos = None
         parameter_meta = None
         meta_section = None
+        hints_section = None
         for item in items[1:]:
             if isinstance(item, dict):
                 if "inputs" in item:
@@ -549,6 +554,12 @@ class _DocTransformer(_ExprTransformer):
                             self._sp(meta), "redundant workflow parameter_meta sections"
                         )
                     parameter_meta = item["parameter_meta"]
+                elif "hints" in item:
+                    if hints_section is not None:
+                        raise Error.MultipleDefinitions(
+                            self._sp(meta), "redundant workflow hints sections"
+                        )
+                    hints_section = item["hints"]
                 else:
                     assert False
             elif isinstance(item, (Tree.Call, Tree.Conditional, Tree.Decl, Tree.Scatter)):
@@ -556,6 +567,7 @@ class _DocTransformer(_ExprTransformer):
             else:
                 assert False
         self._check_keyword(self._sp(meta), items[0].value)
+        # TODO: discarding hints_section for now (AST repr to be designed)
         return Tree.Workflow(
             self._sp(meta),
             items[0].value,
