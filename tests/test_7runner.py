@@ -845,6 +845,9 @@ class MiscRegressionTests(RunnerTestCase):
             output {
                 Array[File] files_out = t.files_out
             }
+            hints {
+                allow_nested_inputs: true
+            }
         }
 
         task t {

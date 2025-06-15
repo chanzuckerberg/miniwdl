@@ -40,7 +40,7 @@ import_alias: "alias" CNAME "as" CNAME
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 workflow: "workflow" CNAME "{" workflow_element* "}"
-?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section
+?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section | hints_section
 
 scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"

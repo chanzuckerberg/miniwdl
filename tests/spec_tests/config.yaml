@@ -34,7 +34,6 @@ wdl-1.2:
     - relative_and_absolute_task.wdl  # issue #214
     - test_struct.wdl                 # issue #728
     # To be implemented:
-    - allow_nested.wdl
     - chunk_array.wdl
     - file_sizes_task.wdl
     - multi_nested_inputs.wdl
@@ -43,7 +42,6 @@ wdl-1.2:
     - one_mount_point_task.wdl
     - person_struct_task.wdl
     - string_to_file.wdl
-    - test_allow_nested_inputs.wdl
     - test_contains.wdl
     - test_find_task.wdl
     - test_keys.wdl
@@ -62,6 +60,7 @@ wdl-1.2:
     - serde_pair.wdl                     # expected output is wrong
     - single_return_code_task.wdl        # issue #729
     - struct_to_struct.wdl               # typo capitalized Struct
+    - test_allow_nested_inputs.wdl       # two definitions of `greeting` in `task nested`
     - test_contains_key.wdl              # uses python-style `a if c else b` instead of `if c then a else b
     - test_hints_task.wdl                # expected output is wrong (greetings.txt has no trailing newline, so wc -l returns 2 not 3)
     - test_length.wdl                    # typo in map literal
