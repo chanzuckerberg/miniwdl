@@ -865,7 +865,7 @@ class MiscRegressionTests(RunnerTestCase):
             hints {
                 short_task: true
                 inputs: input {
-                    files: hints { 
+                    files: hints {
                         localization_optional: true
                     }
                 }

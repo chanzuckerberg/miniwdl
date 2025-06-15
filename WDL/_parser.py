@@ -417,6 +417,7 @@ class _DocTransformer(_ExprTransformer):
                 assert "name" not in d
                 d["name"] = item.value
         self._check_keyword(self._sp(meta), d["name"])
+        # TODO: discarding d["hints"] for now (AST repr to be designed)
         return Tree.Task(
             self._sp(meta),
             d["name"],
@@ -427,7 +428,6 @@ class _DocTransformer(_ExprTransformer):
             d.get("parameter_meta", {}),
             d.get("runtime", {}),
             d.get("meta", {}),
-            d.get("hints", {}),
         )
 
     def tasks(self, meta, items):

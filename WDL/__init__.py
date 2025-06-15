@@ -245,14 +245,14 @@ def values_from_json(
                 key2parts = key2.split(".")
 
                 runtime_idx = next(
-                    (i for i, term in enumerate(key2parts) if term in ("runtime", "hints")), -1
+                    (i for i, term in enumerate(key2parts) if term in ("runtime",)), -1
                 )
                 if (
                     runtime_idx >= 0
                     and len(key2parts) > (runtime_idx + 1)
                     and ".".join(key2parts[:runtime_idx] + ["_runtime"]) in available
                 ):
-                    # allow arbitrary keys for runtime/hints
+                    # allow arbitrary keys for runtime
                     ty = Type.Any()
                 elif len(key2parts) == 3 and key2parts[0] and key2parts[1] and key2parts[2]:
                     # attempt to simplify <call>.<subworkflow>.<input> from old Cromwell JSON
