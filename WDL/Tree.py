@@ -1588,7 +1588,10 @@ def _load(
     import_max_depth: int = 10,
     importer: Optional[Document] = None,
 ) -> Document:
-    return asyncio.get_event_loop().run_until_complete(
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    doc = loop.run_until_complete(
         _load_async(
             uri,
             path=path,
@@ -1598,6 +1601,9 @@ def _load(
             import_max_depth=import_max_depth,
         )
     )
+    loop.run_until_complete(loop.shutdown_asyncgens())
+    loop.close()
+    return doc
 
 
 #
