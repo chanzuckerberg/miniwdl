@@ -74,10 +74,10 @@ class TaskNamingLinter(Linter):
 ### Step 2: Test Your Linter
 
 ```python
-from WDL.Lint import test_linter
+from WDL.Lint import validate_linter
 
 # Test with a bad task name
-test_linter(
+validate_linter(
     TaskNamingLinter,
     """
     task BadTaskName {
@@ -88,7 +88,7 @@ test_linter(
 )
 
 # Test with a good task name
-test_linter(
+validate_linter(
     TaskNamingLinter,
     """
     task good_task_name {
@@ -248,7 +248,7 @@ Use the built-in testing framework:
 ```python
 def test_my_linter():
     # Test positive case (should find issues)
-    test_linter(
+    validate_linter(
         MyLinter,
         """
         task bad_example {
@@ -259,7 +259,7 @@ def test_my_linter():
     )
     
     # Test negative case (should find no issues)
-    test_linter(
+    validate_linter(
         MyLinter,
         """
         task good_example {
@@ -276,12 +276,12 @@ Test with different scenarios:
 
 ```python
 import pytest
-from WDL.Lint import test_linter, assert_lint_count, assert_lint_severity
+from WDL.Lint import validate_linter, assert_lint_count, assert_lint_severity
 
 class TestMyLinter:
     def test_multiple_issues(self):
         """Test linter with multiple issues in one file"""
-        results = test_linter(
+        results = validate_linter(
             MyLinter,
             """
             task bad_task1 {
@@ -314,9 +314,9 @@ class TestMyLinter:
         """
         
         if should_warn:
-            test_linter(MyLinter, wdl_code, expected_count=1)
+            validate_linter(MyLinter, wdl_code, expected_count=1)
         else:
-            test_linter(MyLinter, wdl_code, expected_lint=[])
+            validate_linter(MyLinter, wdl_code, expected_lint=[])
 ```
 
 ## Deploying Custom Linters
@@ -421,13 +421,13 @@ def task(self, obj):
 ```python
 def test_edge_cases():
     # Test empty tasks
-    test_linter(MyLinter, "task empty { command { } }", expected_lint=[])
+    validate_linter(MyLinter, "task empty { command { } }", expected_lint=[])
     
     # Test complex commands
-    test_linter(MyLinter, complex_wdl, expected_count=3)
+    validate_linter(MyLinter, complex_wdl, expected_count=3)
     
     # Test with different WDL versions
-    test_linter(MyLinter, wdl_code, expected_lint=[], version="1.1")
+    validate_linter(MyLinter, wdl_code, expected_lint=[], version="1.1")
 ```
 
 ### 5. Documentation

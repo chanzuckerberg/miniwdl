@@ -23,7 +23,7 @@ class TestLinterTestingFramework(unittest.TestCase):
                     )
         
         # Test with a WDL fragment that should trigger a warning
-        results = Lint.test_linter(
+        results = Lint.validate_linter(
             TestLinter,
             """
             task foo {
@@ -42,7 +42,7 @@ class TestLinterTestingFramework(unittest.TestCase):
         self.assertFalse(suppressed)
         
         # Test with a WDL fragment that should not trigger any warnings
-        results = Lint.test_linter(
+        results = Lint.validate_linter(
             TestLinter,
             """
             task bar {
@@ -73,7 +73,7 @@ class TestLinterTestingFramework(unittest.TestCase):
                     )
         
         # Test with expected count
-        results = Lint.test_linter(
+        results = Lint.validate_linter(
             MultiLinter,
             """
             task bad_task1 {
@@ -98,7 +98,7 @@ class TestLinterTestingFramework(unittest.TestCase):
         
         # Test with invalid linter class
         with self.assertRaises(ValueError):
-            Lint.test_linter(
+            Lint.validate_linter(
                 "NotAClass",
                 "task foo { command { echo 'hello' } }"
             )
@@ -108,7 +108,7 @@ class TestLinterTestingFramework(unittest.TestCase):
             pass
         
         with self.assertRaises(ValueError):
-            Lint.test_linter(
+            Lint.validate_linter(
                 NotALinter,
                 "task foo { command { echo 'hello' } }"
             )
@@ -126,7 +126,7 @@ class TestLinterTestingFramework(unittest.TestCase):
         
         # Test expecting lint but getting none
         with self.assertRaises(AssertionError):
-            Lint.test_linter(
+            Lint.validate_linter(
                 TestLinter,
                 "task bar { command { echo 'hello' } }",
                 expected_lint=["Should find something"]
@@ -134,7 +134,7 @@ class TestLinterTestingFramework(unittest.TestCase):
         
         # Test expecting no lint but getting some
         with self.assertRaises(AssertionError):
-            Lint.test_linter(
+            Lint.validate_linter(
                 TestLinter,
                 "task foo { command { echo 'hello' } }",
                 expected_lint=[]
@@ -142,7 +142,7 @@ class TestLinterTestingFramework(unittest.TestCase):
         
         # Test wrong message content
         with self.assertRaises(AssertionError):
-            Lint.test_linter(
+            Lint.validate_linter(
                 TestLinter,
                 "task foo { command { echo 'hello' } }",
                 expected_lint=["Wrong message"]
@@ -246,7 +246,7 @@ class TestLinterTestingFramework(unittest.TestCase):
                         severity=Lint.LintSeverity.CRITICAL
                     )
         
-        results = Lint.test_linter(
+        results = Lint.validate_linter(
             SeverityTestLinter,
             """
             task dangerous_task {
@@ -280,7 +280,7 @@ class TestLinterTestingFramework(unittest.TestCase):
                     self.add(obj, "Potentially dangerous rm command", obj.pos)
         
         # Test style linter
-        results = Lint.test_linter(
+        results = Lint.validate_linter(
             StyleLinter,
             """
             task UPPERCASE_TASK {
@@ -293,7 +293,7 @@ class TestLinterTestingFramework(unittest.TestCase):
         self.assertEqual(len(results), 1)
         
         # Test security linter
-        results = Lint.test_linter(
+        results = Lint.validate_linter(
             SecurityLinter,
             """
             task cleanup {
@@ -316,7 +316,7 @@ class TestLinterTestingFramework(unittest.TestCase):
                 self.add(obj, "Version test", obj.pos)
         
         # Test with explicit version
-        results = Lint.test_linter(
+        results = Lint.validate_linter(
             VersionLinter,
             """
             version 1.1
@@ -330,7 +330,7 @@ class TestLinterTestingFramework(unittest.TestCase):
         self.assertEqual(len(results), 1)
         
         # Test with version parameter
-        results = Lint.test_linter(
+        results = Lint.validate_linter(
             VersionLinter,
             """
             task test {

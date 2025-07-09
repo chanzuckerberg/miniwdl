@@ -1382,18 +1382,18 @@ class Deprecated(Linter):
 # Testing Framework for Linters
 
 
-def test_linter(linter_class, wdl_code, expected_lint=None, expected_count=None, version="1.0"):
+def validate_linter(linter_class, wdl_code, expected_lint=None, expected_count=None, version="1.0"):
     """
-    Test a linter with a WDL code fragment.
+    Validate a linter with a WDL code fragment.
 
-    This function provides a convenient way to test custom linters by:
+    This function provides a convenient way to validate custom linters by:
     1. Creating a temporary WDL document from the provided code
     2. Running the specified linter on the document
     3. Collecting the lint results
     4. Verifying the results match expectations
 
     Args:
-        linter_class: The linter class to test (must be a subclass of Linter)
+        linter_class: The linter class to validate (must be a subclass of Linter)
         wdl_code: WDL code fragment as a string
         expected_lint: List of expected lint messages (partial matches)
         expected_count: Expected number of lint findings (if expected_lint not provided)
@@ -1408,7 +1408,7 @@ def test_linter(linter_class, wdl_code, expected_lint=None, expected_count=None,
 
     Example:
         # Test a linter that should find issues
-        test_linter(
+        validate_linter(
             MyLinter,
             '''
             task bad_task {
@@ -1419,7 +1419,7 @@ def test_linter(linter_class, wdl_code, expected_lint=None, expected_count=None,
         )
 
         # Test a linter that should find no issues
-        test_linter(
+        validate_linter(
             MyLinter,
             '''
             task good_task {

@@ -6,7 +6,7 @@ The miniwdl linter testing framework provides utilities to easily test custom li
 
 The testing framework consists of several key functions:
 
-- `test_linter()` - Main function for testing linters with WDL code
+- `validate_linter()` - Main function for testing linters with WDL code
 - `create_test_wdl()` - Utility to generate test WDL fragments
 - `assert_lint_*()` - Helper functions for making assertions about lint results
 
@@ -14,10 +14,10 @@ The testing framework consists of several key functions:
 
 ### Testing a Linter
 
-The primary function is `test_linter()`, which allows you to test a linter with a WDL code fragment:
+The primary function is `validate_linter()`, which allows you to test a linter with a WDL code fragment:
 
 ```python
-from WDL.Lint import test_linter, Linter, LintSeverity, LintCategory
+from WDL.Lint import validate_linter, Linter, LintSeverity, LintCategory
 
 # Define your custom linter
 class TaskNamingLinter(Linter):
@@ -36,7 +36,7 @@ class TaskNamingLinter(Linter):
             )
 
 # Test with code that should trigger the linter
-test_linter(
+validate_linter(
     TaskNamingLinter,
     """
     task BadTaskName {
@@ -47,7 +47,7 @@ test_linter(
 )
 
 # Test with code that should not trigger the linter
-test_linter(
+validate_linter(
     TaskNamingLinter,
     """
     task good_task_name {
@@ -63,7 +63,7 @@ test_linter(
 Instead of specifying exact messages, you can test for the number of findings:
 
 ```python
-test_linter(
+validate_linter(
     TaskNamingLinter,
     """
     task BadTask1 {
@@ -129,7 +129,7 @@ The framework provides several assertion helpers for more flexible testing:
 from WDL.Lint import assert_lint_contains, assert_lint_count, assert_lint_severity
 
 # Run a linter and get results
-results = test_linter(MyLinter, wdl_code)
+results = validate_linter(MyLinter, wdl_code)
 
 # Assert that results contain a specific message
 assert_lint_contains(results, "expected message substring")
@@ -162,7 +162,7 @@ class SecurityLinter(Linter):
                 severity=LintSeverity.CRITICAL
             )
 
-results = test_linter(
+results = validate_linter(
     SecurityLinter,
     """
     task cleanup {
@@ -189,7 +189,7 @@ class MultiIssueLinter(Linter):
         if len(obj.name) > 20:
             self.add(obj, f"Task name '{obj.name}' is too long", obj.pos)
 
-test_linter(
+validate_linter(
     MultiIssueLinter,
     """
     task bad_very_long_task_name_that_exceeds_limit {
@@ -203,7 +203,7 @@ test_linter(
 ### Testing with Different WDL Versions
 
 ```python
-test_linter(
+validate_linter(
     MyLinter,
     """
     task test_task {
@@ -221,12 +221,12 @@ The testing framework works seamlessly with pytest:
 
 ```python
 import pytest
-from WDL.Lint import test_linter, Linter, LintSeverity, LintCategory
+from WDL.Lint import validate_linter, Linter, LintSeverity, LintCategory
 
 class TestMyLinter:
     def test_valid_task_names(self):
         """Test that valid task names don't trigger warnings"""
-        test_linter(
+        validate_linter(
             MyLinter,
             """
             task valid_name {
@@ -238,7 +238,7 @@ class TestMyLinter:
     
     def test_invalid_task_names(self):
         """Test that invalid task names trigger warnings"""
-        test_linter(
+        validate_linter(
             MyLinter,
             """
             task InvalidName {
@@ -263,9 +263,9 @@ class TestMyLinter:
         """
         
         if should_warn:
-            test_linter(MyLinter, wdl_code, expected_count=1)
+            validate_linter(MyLinter, wdl_code, expected_count=1)
         else:
-            test_linter(MyLinter, wdl_code, expected_lint=[])
+            validate_linter(MyLinter, wdl_code, expected_lint=[])
 ```
 
 ## Error Handling
@@ -276,13 +276,13 @@ The testing framework includes comprehensive error handling:
 
 ```python
 # This will raise ValueError
-test_linter("NotAClass", "task foo { command { echo 'hello' } }")
+validate_linter("NotAClass", "task foo { command { echo 'hello' } }")
 
 # This will also raise ValueError
 class NotALinter:
     pass
 
-test_linter(NotALinter, "task foo { command { echo 'hello' } }")
+validate_linter(NotALinter, "task foo { command { echo 'hello' } }")
 ```
 
 ### Assertion Failures
@@ -309,10 +309,10 @@ Always test both cases where your linter should and shouldn't trigger:
 ```python
 def test_my_linter():
     # Test case that should trigger the linter
-    test_linter(MyLinter, bad_wdl_code, expected_lint=["error message"])
+    validate_linter(MyLinter, bad_wdl_code, expected_lint=["error message"])
     
     # Test case that should not trigger the linter
-    test_linter(MyLinter, good_wdl_code, expected_lint=[])
+    validate_linter(MyLinter, good_wdl_code, expected_lint=[])
 ```
 
 ### 2. Use Descriptive Test Names
@@ -332,7 +332,7 @@ def test_linter_allows_lowercase_task_names():
 ```python
 def test_linter_with_empty_task():
     """Test linter behavior with minimal task definition"""
-    test_linter(
+    validate_linter(
         MyLinter,
         """
         task empty {
@@ -352,12 +352,12 @@ def test_linter_with_empty_task():
     ("task WORSE { command { echo 'hi' } }", 1),
 ])
 def test_various_task_names(wdl_code, expected_count):
-    test_linter(MyLinter, wdl_code, expected_count=expected_count)
+    validate_linter(MyLinter, wdl_code, expected_count=expected_count)
 ```
 
 ## API Reference
 
-### test_linter(linter_class, wdl_code, expected_lint=None, expected_count=None, version="1.0")
+### validate_linter(linter_class, wdl_code, expected_lint=None, expected_count=None, version="1.0")
 
 Test a linter with a WDL code fragment.
 

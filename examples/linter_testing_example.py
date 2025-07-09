@@ -7,7 +7,7 @@ the built-in testing framework.
 """
 
 from WDL.Lint import (
-    test_linter, create_test_wdl, assert_lint_contains, assert_lint_count,
+    validate_linter, create_test_wdl, assert_lint_contains, assert_lint_count,
     Linter, LintSeverity, LintCategory
 )
 
@@ -116,7 +116,7 @@ def test_task_naming_linter():
     print("Testing TaskNamingLinter...")
     
     # Test 1: Valid task name (should pass)
-    test_linter(
+    validate_linter(
         TaskNamingLinter,
         """
         task good_task_name {
@@ -128,7 +128,7 @@ def test_task_naming_linter():
     print("✅ Valid task name test passed")
     
     # Test 2: Uppercase task name (should fail)
-    results = test_linter(
+    results = validate_linter(
         TaskNamingLinter,
         """
         task BadTaskName {
@@ -140,7 +140,7 @@ def test_task_naming_linter():
     print("✅ CamelCase task name test passed")
     
     # Test 3: All uppercase task name (should fail)
-    test_linter(
+    validate_linter(
         TaskNamingLinter,
         """
         task UPPERCASE_TASK {
@@ -152,7 +152,7 @@ def test_task_naming_linter():
     print("✅ All uppercase task name test passed")
     
     # Test 4: Task name with camelCase (should fail)
-    test_linter(
+    validate_linter(
         TaskNamingLinter,
         """
         task taskWithCamelCase {
@@ -167,7 +167,7 @@ def test_task_naming_linter():
     long_name = "very_long_task_name_that_exceeds_the_thirty_character_limit"
     wdl_code = create_test_wdl(task_name=long_name)
     
-    results = test_linter(
+    results = validate_linter(
         TaskNamingLinter,
         wdl_code,
         expected_count=1
@@ -178,7 +178,7 @@ def test_task_naming_linter():
     print("✅ Long task name test passed")
     
     # Test 6: Multiple issues
-    test_linter(
+    validate_linter(
         TaskNamingLinter,
         """
         task BadTaskNameThatIsWayTooLongAndHasMultipleIssues {
@@ -196,7 +196,7 @@ def test_security_linter():
     print("\nTesting SecurityLinter...")
     
     # Test 1: Safe command (should pass)
-    test_linter(
+    validate_linter(
         SecurityLinter,
         """
         task safe_task {
@@ -208,7 +208,7 @@ def test_security_linter():
     print("✅ Safe command test passed")
     
     # Test 2: Dangerous rm command (should fail)
-    test_linter(
+    validate_linter(
         SecurityLinter,
         """
         task cleanup {
@@ -220,7 +220,7 @@ def test_security_linter():
     print("✅ Dangerous rm command test passed")
     
     # Test 3: Sudo usage (should fail with CRITICAL)
-    results = test_linter(
+    results = validate_linter(
         SecurityLinter,
         """
         task install_package {
@@ -235,7 +235,7 @@ def test_security_linter():
     print("✅ Sudo usage test passed")
     
     # Test 4: Hardcoded credentials (should fail with CRITICAL)
-    results = test_linter(
+    results = validate_linter(
         SecurityLinter,
         """
         task connect_db {
@@ -255,7 +255,7 @@ def test_using_assertion_helpers():
     print("\nTesting assertion helpers...")
     
     # Run a linter and get results
-    results = test_linter(
+    results = validate_linter(
         TaskNamingLinter,
         """
         task BadTaskName {
@@ -294,7 +294,7 @@ def test_create_test_wdl_utility():
     print(wdl_code)
     
     # Test the generated WDL with a linter
-    test_linter(
+    validate_linter(
         TaskNamingLinter,
         wdl_code,
         expected_lint=[]  # Should be valid

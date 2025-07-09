@@ -48,13 +48,65 @@ task foo {
         
     def test_linter_categories(self):
         """Test the category filtering options"""
-        # Skip this test for now as it requires more setup
-        self.skipTest("Requires more setup to test category filtering")
+        # Test enabling specific categories
+        cmd = f"{self.miniwdl_path} check --enable-lint-categories STYLE,SECURITY {self.temp_wdl.name}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        
+        # Test disabling specific categories
+        cmd = f"{self.miniwdl_path} check --disable-lint-categories CORRECTNESS {self.temp_wdl.name}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        
+        # Test that the output changes when categories are filtered
+        # First get baseline output
+        cmd_baseline = f"{self.miniwdl_path} check {self.temp_wdl.name}"
+        result_baseline = subprocess.run(cmd_baseline, shell=True, capture_output=True, text=True)
+        
+        # Then get output with category filtering
+        cmd_filtered = f"{self.miniwdl_path} check --enable-lint-categories STYLE {self.temp_wdl.name}"
+        result_filtered = subprocess.run(cmd_filtered, shell=True, capture_output=True, text=True)
+        
+        # The filtered output should be different (likely shorter) than baseline
+        # This validates that category filtering is working
+        self.assertNotEqual(result_baseline.stdout, result_filtered.stdout)
         
     def test_exit_on_severity(self):
         """Test the --exit-on-lint-severity option"""
-        # Skip this test for now as it requires more setup
-        self.skipTest("Requires more setup to test exit on severity")
+        # Use the contrived.wdl file which is known to have lint issues
+        contrived_wdl = "test_corpi/contrived/contrived.wdl"
+        
+        # Test that exit code is 0 when no severity threshold is set
+        cmd = f"{self.miniwdl_path} check {contrived_wdl}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0)
+        
+        # Test that exit code is non-zero when severity threshold is set to MINOR
+        # (contrived.wdl has many MODERATE issues which are >= MINOR)
+        cmd = f"{self.miniwdl_path} check --exit-on-lint-severity MINOR {contrived_wdl}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        # Should exit with non-zero code due to lint findings
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Found lint issues with severity", result.stderr)
+        
+        # Test that exit code is non-zero when severity threshold is set to MODERATE
+        # (contrived.wdl has many MODERATE issues)
+        cmd = f"{self.miniwdl_path} check --exit-on-lint-severity MODERATE {contrived_wdl}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        # Should exit with non-zero code due to lint findings
+        self.assertNotEqual(result.returncode, 0)
+        
+        # Test that exit code is 0 when severity threshold is set very high
+        cmd = f"{self.miniwdl_path} check --exit-on-lint-severity CRITICAL {contrived_wdl}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        # Should exit with 0 code since there are likely no CRITICAL findings
+        self.assertEqual(result.returncode, 0)
+        
+        # Test invalid severity level - should handle gracefully
+        cmd = f"{self.miniwdl_path} check --exit-on-lint-severity INVALID {contrived_wdl}"
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        # Should handle invalid severity gracefully (exit 0 and show warning)
+        self.assertEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":

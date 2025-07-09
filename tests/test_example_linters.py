@@ -6,7 +6,7 @@ import os
 # Add the examples directory to the path so we can import the linters
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'examples'))
 
-from WDL.Lint import test_linter, create_test_wdl
+from WDL.Lint import validate_linter, create_test_wdl
 from example_linters.style_linters import (
     TaskNamingLinter, WorkflowNamingLinter, DocumentationLinter,
     IndentationLinter, VariableNamingLinter
@@ -31,7 +31,7 @@ class TestStyleLinters(unittest.TestCase):
         """Test TaskNamingLinter with various naming patterns"""
         
         # Test good naming (should pass)
-        test_linter(
+        validate_linter(
             TaskNamingLinter,
             """
             task good_task_name {
@@ -42,7 +42,7 @@ class TestStyleLinters(unittest.TestCase):
         )
         
         # Test bad naming (camelCase)
-        test_linter(
+        validate_linter(
             TaskNamingLinter,
             """
             task BadTaskName {
@@ -53,7 +53,7 @@ class TestStyleLinters(unittest.TestCase):
         )
         
         # Test too short name
-        test_linter(
+        validate_linter(
             TaskNamingLinter,
             """
             task ab {
@@ -64,7 +64,7 @@ class TestStyleLinters(unittest.TestCase):
         )
         
         # Test generic name
-        test_linter(
+        validate_linter(
             TaskNamingLinter,
             """
             task run {
@@ -78,7 +78,7 @@ class TestStyleLinters(unittest.TestCase):
         """Test DocumentationLinter"""
         
         # Test missing documentation
-        test_linter(
+        validate_linter(
             DocumentationLinter,
             """
             task undocumented_task {
@@ -89,7 +89,7 @@ class TestStyleLinters(unittest.TestCase):
         )
         
         # Test with good documentation
-        test_linter(
+        validate_linter(
             DocumentationLinter,
             """
             task documented_task {
@@ -108,7 +108,7 @@ class TestSecurityLinters(unittest.TestCase):
         """Test DangerousCommandLinter"""
         
         # Test safe command (should pass)
-        test_linter(
+        validate_linter(
             DangerousCommandLinter,
             """
             task safe_task {
@@ -119,7 +119,7 @@ class TestSecurityLinters(unittest.TestCase):
         )
         
         # Test dangerous rm command
-        test_linter(
+        validate_linter(
             DangerousCommandLinter,
             """
             task dangerous_task {
@@ -130,7 +130,7 @@ class TestSecurityLinters(unittest.TestCase):
         )
         
         # Test sudo usage
-        test_linter(
+        validate_linter(
             DangerousCommandLinter,
             """
             task sudo_task {
@@ -144,7 +144,7 @@ class TestSecurityLinters(unittest.TestCase):
         """Test CredentialScannerLinter"""
         
         # Test safe command (should pass)
-        test_linter(
+        validate_linter(
             CredentialScannerLinter,
             """
             task safe_task {
@@ -158,7 +158,7 @@ class TestSecurityLinters(unittest.TestCase):
         )
         
         # Test hardcoded password
-        test_linter(
+        validate_linter(
             CredentialScannerLinter,
             """
             task unsafe_task {
@@ -172,7 +172,7 @@ class TestSecurityLinters(unittest.TestCase):
         """Test NetworkAccessLinter"""
         
         # Test safe command (should pass)
-        test_linter(
+        validate_linter(
             NetworkAccessLinter,
             """
             task safe_task {
@@ -183,7 +183,7 @@ class TestSecurityLinters(unittest.TestCase):
         )
         
         # Test network command
-        test_linter(
+        validate_linter(
             NetworkAccessLinter,
             """
             task network_task {
@@ -194,7 +194,7 @@ class TestSecurityLinters(unittest.TestCase):
         )
         
         # Test insecure protocol
-        test_linter(
+        validate_linter(
             NetworkAccessLinter,
             """
             task insecure_task {
@@ -210,7 +210,7 @@ class TestPerformanceLinters(unittest.TestCase):
         """Test ResourceAllocationLinter"""
         
         # Test missing resources
-        test_linter(
+        validate_linter(
             ResourceAllocationLinter,
             """
             task no_resources {
@@ -221,7 +221,7 @@ class TestPerformanceLinters(unittest.TestCase):
         )
         
         # Test with good resources
-        test_linter(
+        validate_linter(
             ResourceAllocationLinter,
             """
             task good_resources {
@@ -240,7 +240,7 @@ class TestPerformanceLinters(unittest.TestCase):
         """Test InefficientCommandLinter"""
         
         # Test efficient command (should pass)
-        test_linter(
+        validate_linter(
             InefficientCommandLinter,
             """
             task efficient_task {
@@ -251,7 +251,7 @@ class TestPerformanceLinters(unittest.TestCase):
         )
         
         # Test inefficient command
-        test_linter(
+        validate_linter(
             InefficientCommandLinter,
             """
             task inefficient_task {
@@ -267,7 +267,7 @@ class TestBestPracticesLinters(unittest.TestCase):
         """Test WorkflowStructureLinter"""
         
         # Test simple workflow (should pass)
-        test_linter(
+        validate_linter(
             WorkflowStructureLinter,
             """
             workflow simple_workflow {
@@ -287,7 +287,7 @@ class TestBestPracticesLinters(unittest.TestCase):
         )
         
         # Test workflow without documentation
-        test_linter(
+        validate_linter(
             WorkflowStructureLinter,
             """
             workflow undocumented_workflow {
@@ -306,7 +306,7 @@ class TestBestPracticesLinters(unittest.TestCase):
         """Test ErrorHandlingLinter"""
         
         # Test good error handling
-        test_linter(
+        validate_linter(
             ErrorHandlingLinter,
             """
             task good_error_handling {
@@ -320,7 +320,7 @@ class TestBestPracticesLinters(unittest.TestCase):
         )
         
         # Test missing error handling
-        test_linter(
+        validate_linter(
             ErrorHandlingLinter,
             """
             task poor_error_handling {
@@ -337,7 +337,7 @@ class TestBestPracticesLinters(unittest.TestCase):
         """Test OutputOrganizationLinter"""
         
         # Test good outputs
-        test_linter(
+        validate_linter(
             OutputOrganizationLinter,
             """
             task good_outputs {
@@ -352,7 +352,7 @@ class TestBestPracticesLinters(unittest.TestCase):
         )
         
         # Test generic output names
-        test_linter(
+        validate_linter(
             OutputOrganizationLinter,
             """
             task poor_outputs {
@@ -388,19 +388,19 @@ class TestLinterIntegration(unittest.TestCase):
         """
         
         # Test style linter
-        style_results = test_linter(TaskNamingLinter, wdl_code, expected_count=1)
+        style_results = validate_linter(TaskNamingLinter, wdl_code, expected_count=1)
         self.assertTrue(any("snake_case" in result[2] for result in style_results))
         
         # Test security linter
-        security_results = test_linter(DangerousCommandLinter, wdl_code, expected_count=1)
+        security_results = validate_linter(DangerousCommandLinter, wdl_code, expected_count=1)
         self.assertTrue(any("dangerous" in result[2].lower() for result in security_results))
         
         # Test performance linter
-        perf_results = test_linter(InefficientCommandLinter, wdl_code, expected_count=1)
+        perf_results = validate_linter(InefficientCommandLinter, wdl_code, expected_count=1)
         self.assertTrue(any("head file" in result[2] for result in perf_results))
         
         # Test best practices linter
-        bp_results = test_linter(OutputOrganizationLinter, wdl_code, expected_count=1)
+        bp_results = validate_linter(OutputOrganizationLinter, wdl_code, expected_count=1)
         self.assertTrue(any("generic" in result[2] for result in bp_results))
     
     def test_linter_discovery_and_loading(self):
@@ -547,18 +547,18 @@ class TestLinterIntegration(unittest.TestCase):
         # Test a few key linters
         
         # Style linters should mostly pass
-        style_results = test_linter(TaskNamingLinter, wdl_code, expected_lint=[])
-        doc_results = test_linter(DocumentationLinter, wdl_code, expected_lint=[])
+        style_results = validate_linter(TaskNamingLinter, wdl_code, expected_lint=[])
+        doc_results = validate_linter(DocumentationLinter, wdl_code, expected_lint=[])
         
         # Security linters should pass (good practices used)
-        security_results = test_linter(DangerousCommandLinter, wdl_code, expected_lint=[])
+        security_results = validate_linter(DangerousCommandLinter, wdl_code, expected_lint=[])
         
         # Performance linters should pass (resources specified)
-        perf_results = test_linter(ResourceAllocationLinter, wdl_code, expected_lint=[])
+        perf_results = validate_linter(ResourceAllocationLinter, wdl_code, expected_lint=[])
         
         # Best practices should mostly pass
-        error_results = test_linter(ErrorHandlingLinter, wdl_code, expected_lint=[])
-        output_results = test_linter(OutputOrganizationLinter, wdl_code, expected_lint=[])
+        error_results = validate_linter(ErrorHandlingLinter, wdl_code, expected_lint=[])
+        output_results = validate_linter(OutputOrganizationLinter, wdl_code, expected_lint=[])
 
 
 if __name__ == "__main__":

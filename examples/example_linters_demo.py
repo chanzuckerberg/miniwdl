@@ -12,7 +12,7 @@ import os
 # Add the examples directory to the path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from WDL.Lint import test_linter
+from WDL.Lint import validate_linter
 from example_linters import (
     TaskNamingLinter, DangerousCommandLinter, ResourceAllocationLinter,
     WorkflowStructureLinter, ErrorHandlingLinter
@@ -32,7 +32,7 @@ def demo_style_linters():
     }
     """
     
-    results = test_linter(TaskNamingLinter, bad_naming_wdl, expected_count=1)
+    results = validate_linter(TaskNamingLinter, bad_naming_wdl, expected_count=1)
     print(f"   Issue found: {results[0][2]}")
     
     # Good task naming
@@ -46,7 +46,7 @@ def demo_style_linters():
     }
     """
     
-    results = test_linter(TaskNamingLinter, good_naming_wdl, expected_lint=[])
+    results = validate_linter(TaskNamingLinter, good_naming_wdl, expected_lint=[])
     print("   ✅ No issues found!")
 
 
@@ -63,7 +63,7 @@ def demo_security_linters():
     }
     """
     
-    results = test_linter(DangerousCommandLinter, dangerous_wdl, expected_count=1)
+    results = validate_linter(DangerousCommandLinter, dangerous_wdl, expected_count=1)
     print(f"   Issue found: {results[0][2]}")
     
     # Safe alternative
@@ -85,7 +85,7 @@ def demo_security_linters():
     }
     """
     
-    results = test_linter(DangerousCommandLinter, safe_wdl, expected_lint=[])
+    results = validate_linter(DangerousCommandLinter, safe_wdl, expected_lint=[])
     print("   ✅ No issues found!")
 
 
@@ -105,7 +105,7 @@ def demo_performance_linters():
     }
     """
     
-    results = test_linter(ResourceAllocationLinter, no_resources_wdl, expected_count=3)
+    results = validate_linter(ResourceAllocationLinter, no_resources_wdl, expected_count=3)
     for result in results:
         print(f"   Issue found: {result[2]}")
     
@@ -125,7 +125,7 @@ def demo_performance_linters():
     }
     """
     
-    results = test_linter(ResourceAllocationLinter, with_resources_wdl, expected_lint=[])
+    results = validate_linter(ResourceAllocationLinter, with_resources_wdl, expected_lint=[])
     print("   ✅ No issues found!")
 
 
@@ -146,7 +146,7 @@ def demo_best_practices_linters():
     }
     """
     
-    results = test_linter(ErrorHandlingLinter, poor_error_handling_wdl, expected_count=1)
+    results = validate_linter(ErrorHandlingLinter, poor_error_handling_wdl, expected_count=1)
     print(f"   Issue found: {results[0][2]}")
     
     # Good error handling
@@ -172,7 +172,7 @@ def demo_best_practices_linters():
     }
     """
     
-    results = test_linter(ErrorHandlingLinter, good_error_handling_wdl, expected_lint=[])
+    results = validate_linter(ErrorHandlingLinter, good_error_handling_wdl, expected_lint=[])
     print("   ✅ No issues found!")
     
     # Complex workflow structure
@@ -232,15 +232,15 @@ def demo_combined_analysis():
     print("\nAnalyzing problematic WDL code with multiple linters:")
     
     # Style issues
-    style_results = test_linter(TaskNamingLinter, problematic_wdl, expected_count=1)
+    style_results = validate_linter(TaskNamingLinter, problematic_wdl, expected_count=1)
     print(f"   Style: {style_results[0][2]}")
     
     # Security issues
-    security_results = test_linter(DangerousCommandLinter, problematic_wdl, expected_count=1)
+    security_results = validate_linter(DangerousCommandLinter, problematic_wdl, expected_count=1)
     print(f"   Security: {security_results[0][2]}")
     
     # Performance issues
-    perf_results = test_linter(ResourceAllocationLinter, problematic_wdl, expected_count=2)
+    perf_results = validate_linter(ResourceAllocationLinter, problematic_wdl, expected_count=2)
     print(f"   Performance: {perf_results[0][2]}")
     
     print("\n   This demonstrates how multiple linters can catch different types of issues!")
