@@ -93,16 +93,29 @@ class TestFileLinter(Lint.Linter):
             
             # Test discovering the linter from the file
             linters = discover_linters(additional_linters=[f"{temp_file}:TestFileLinter"])
-            self.assertIn(linter_class, linters)
+            
+            # Check that a linter with the expected name and properties was loaded
+            # (use functional comparison instead of identity comparison)
+            test_linters = [l for l in linters if l.__name__ == "TestFileLinter"]
+            self.assertEqual(len(test_linters), 1)
+            
+            loaded_linter = test_linters[0]
+            self.assertEqual(loaded_linter.category, Lint.LintCategory.STYLE)
+            self.assertEqual(loaded_linter.default_severity, Lint.LintSeverity.MINOR)
+            
         finally:
             # Clean up the temporary file
             os.unlink(temp_file)
     
     def test_invalid_linter_specs(self):
         """Test handling of invalid linter specifications"""
-        # Invalid format
-        with self.assertRaises(ValueError):
-            discover_linters(additional_linters=["invalid_format"])
+        # Invalid format should log warning and continue gracefully
+        with self.assertLogs('wdl.lint.plugins', level='WARNING') as log:
+            linters = discover_linters(additional_linters=["invalid_format"])
+            # Should still return built-in linters despite invalid spec
+            self.assertGreater(len(linters), 0)
+            # Should log a warning about the invalid specification
+            self.assertTrue(any("Invalid linter specification" in record.message for record in log.records))
         
         # Non-existent file
         linters = discover_linters(additional_linters=["/path/to/nonexistent/file.py:SomeLinter"])

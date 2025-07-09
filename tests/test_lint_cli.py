@@ -1,7 +1,7 @@
 import unittest
 import os
 import tempfile
-from WDL.Lint.config import (
+from WDL.LintPlugins.config import (
     get_additional_linters,
     get_disabled_linters,
     get_enabled_categories,
