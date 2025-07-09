@@ -198,7 +198,7 @@ def fill_check_subparser(subparsers):
         formatter_class=RawDescriptionHelpFormatter,
     )
     check_parser.add_argument(
-        "uri", metavar="WDL_URI", type=str, nargs="+", help="WDL document filename/URI"
+        "uri", metavar="WDL_URI", type=str, nargs="*", help="WDL document filename/URI"
     )
     check_parser.add_argument(
         "--strict",
@@ -216,6 +216,44 @@ def fill_check_subparser(subparsers):
         dest="show_all",
         action="store_true",
         help="show warnings even if they have inline suppression comments",
+    )
+    
+    # Linter plugin options
+    linter_group = check_parser.add_argument_group("linter plugins")
+    linter_group.add_argument(
+        "--additional-linters",
+        metavar="module:class,/path/to/file.py:class",
+        type=str,
+        help="comma-separated list of additional linters to load (can be module paths or file paths)",
+    )
+    linter_group.add_argument(
+        "--disable-linters",
+        metavar="Linter1,Linter2",
+        type=str,
+        help="comma-separated list of linter class names to disable",
+    )
+    linter_group.add_argument(
+        "--enable-lint-categories",
+        metavar="CATEGORY1,CATEGORY2",
+        type=str,
+        help="comma-separated list of linter categories to enable (STYLE, SECURITY, PERFORMANCE, CORRECTNESS, PORTABILITY, BEST_PRACTICE, OTHER)",
+    )
+    linter_group.add_argument(
+        "--disable-lint-categories",
+        metavar="CATEGORY1,CATEGORY2",
+        type=str,
+        help="comma-separated list of linter categories to disable",
+    )
+    linter_group.add_argument(
+        "--exit-on-lint-severity",
+        metavar="SEVERITY",
+        type=str,
+        help="exit with non-zero code if any findings at or above this severity level are found (MINOR, MODERATE, MAJOR, CRITICAL)",
+    )
+    linter_group.add_argument(
+        "--list-linters",
+        action="store_true",
+        help="list all available linters with their categories and severity levels",
     )
     check_parser.add_argument(
         # old option maintained for backwards-compatibility
@@ -236,19 +274,72 @@ def check(
     suppress=None,
     shellcheck=True,
     no_outside_imports=False,
+    additional_linters=None,
+    disable_linters=None,
+    enable_lint_categories=None,
+    disable_lint_categories=None,
+    exit_on_lint_severity=None,
+    list_linters=False,
     **kwargs,
 ):
     from . import Lint
 
+    # If --list-linters is specified, show all available linters and exit
+    if list_linters:
+        print_available_linters()
+        return
+
+    # Ensure a WDL URI is provided when not using --list-linters
+    if not uri:
+        die("No WDL document specified")
+
     suppress = set(suppress.split(",")) if suppress else set()
     if not shellcheck:
         suppress.add("CommandShellCheck")
+        
+    # Parse linting configuration
+    additional_linters_list = additional_linters.split(",") if additional_linters else None
+    disabled_linters_list = disable_linters.split(",") if disable_linters else None
+    enabled_categories_list = enable_lint_categories.split(",") if enable_lint_categories else None
+    disabled_categories_list = disable_lint_categories.split(",") if disable_lint_categories else None
+
+    # Get exit_on_severity from configuration if not provided via command line
+    effective_exit_on_severity = exit_on_lint_severity
+    if not effective_exit_on_severity:
+        try:
+            from WDL.runtime.config import Loader
+            import logging
+            cfg = Loader(logging.getLogger("wdl.lint"))
+            from .LintPlugins.config import get_exit_on_severity
+            effective_exit_on_severity = get_exit_on_severity(cfg)
+        except ImportError:
+            pass
+    
+    # Validate exit_on_severity early
+    if effective_exit_on_severity:
+        from . import Lint
+        try:
+            getattr(Lint.LintSeverity, effective_exit_on_severity.upper())
+        except AttributeError:
+            print(f"Warning: Invalid severity level '{effective_exit_on_severity}', ignoring", file=sys.stderr)
+            effective_exit_on_severity = None
+    
+    # Validate exit_on_severity early
+    if effective_exit_on_severity:
+        from . import Lint
+        try:
+            getattr(Lint.LintSeverity, effective_exit_on_severity.upper())
+        except AttributeError:
+            print(f"Warning: Invalid severity level '{effective_exit_on_severity}', ignoring", file=sys.stderr)
+            effective_exit_on_severity = None
 
     # Load the document (read, parse, and typecheck)
     if "CommandShellCheck" in suppress:
         Lint._shellcheck_available = False
 
     shown = [0]
+    exit_code_info = {"should_exit": False, "severity": None, "reason": None}
+    
     for uri1 in uri or []:
         try:
             doc = load(
@@ -267,7 +358,15 @@ def check(
                 )
             raise exn
 
-        Lint.lint(doc)
+        # Use the lint function directly from the module
+        from .Lint import lint
+        lint(
+            doc,
+            additional_linters=additional_linters_list,
+            disabled_linters=disabled_linters_list,
+            enabled_categories=enabled_categories_list,
+            disabled_categories=disabled_categories_list,
+        )
 
         # Print an outline
         print(os.path.basename(uri1))
@@ -278,6 +377,8 @@ def check(
             suppress=suppress,
             show_all=show_all,
             shown=shown,
+            exit_on_severity=effective_exit_on_severity,
+            exit_code_info=exit_code_info,
         )
 
     if "CommandShellCheck" not in suppress and Lint._shellcheck_available is False:
@@ -287,12 +388,41 @@ def check(
             file=sys.stderr,
         )
 
-    if strict and shown[0]:
-        sys.exit(2)
+    # Determine exit code based on findings and options
+    exit_code = _determine_exit_code(strict, shown[0], effective_exit_on_severity, exit_code_info)
+    if exit_code != 0:
+        sys.exit(exit_code)
+
+
+def _determine_exit_code(strict, lint_count, exit_on_severity, exit_code_info):
+    """
+    Determine the appropriate exit code based on linting results and options.
+    
+    Args:
+        strict: Whether --strict option was used
+        lint_count: Number of lint findings shown
+        exit_on_severity: Severity threshold for exit (if any)
+        exit_code_info: Dictionary with exit code information from linting
+        
+    Returns:
+        Exit code (0 for success, 2 for error)
+    """
+    # --strict option takes precedence: exit with error if any lint findings
+    if strict and lint_count > 0:
+        print("Error: Lint findings detected (--strict mode)", file=sys.stderr)
+        return 2
+    
+    # Check severity-based exit condition
+    if exit_code_info["should_exit"]:
+        severity_name = exit_code_info["severity"]
+        print(f"Error: Found lint issues with severity >= {severity_name}", file=sys.stderr)
+        return 2
+    
+    return 0
 
 
 def outline(
-    obj, level, file=sys.stdout, show_called=True, suppress=None, show_all=False, shown=None
+    obj, level, file=sys.stdout, show_called=True, suppress=None, show_all=False, shown=None, exit_on_severity=None, exit_code_info=None
 ):
     # recursively pretty-print a brief outline of the workflow
     s = "".join(" " for i in range(level * 4))
@@ -302,14 +432,33 @@ def outline(
     def descend(dobj=None, first_descent=first_descent):
         # show lint for the node just prior to first descent beneath it
         if not first_descent and hasattr(obj, "lint"):
-            for pos, cls, msg, suppressed in sorted(obj.lint, key=lambda t: t[0]):
+            from .Lint import LintSeverity
+            exit_severity_level = None
+            
+            if exit_on_severity:
+                try:
+                    exit_severity_level = getattr(LintSeverity, exit_on_severity.upper())
+                except AttributeError:
+                    print(f"Warning: Invalid severity level '{exit_on_severity}', ignoring", file=sys.stderr)
+            
+            for pos, cls, msg, suppressed, severity in sorted(obj.lint, key=lambda t: t[0]):
                 if not (suppress and str(cls) in suppress) and (show_all or not suppressed):
+                    severity_str = f" [{severity.name}]" if hasattr(severity, "name") else ""
                     print(
-                        f"{s}    (Ln {pos.line}, Col {pos.column}) {cls}{' (suppressed)' if suppressed else ''}, {msg}",
+                        f"{s}    (Ln {pos.line}, Col {pos.column}) {cls}{' (suppressed)' if suppressed else ''}{severity_str}, {msg}",
                         file=file,
                     )
                     if shown:
                         shown[0] += 1
+                    
+                    # Check if this lint finding should trigger a non-zero exit code
+                    if (exit_severity_level and severity and 
+                        severity.value >= exit_severity_level.value and 
+                        not suppressed and exit_code_info):
+                        exit_code_info["should_exit"] = True
+                        exit_code_info["severity"] = exit_on_severity.upper()
+                        exit_code_info["reason"] = f"Found {cls} with severity {severity.name}"
+                
         first_descent.append(False)
         if dobj:
             outline(
@@ -320,6 +469,8 @@ def outline(
                 suppress=suppress,
                 show_all=show_all,
                 shown=shown,
+                exit_on_severity=exit_on_severity,
+                exit_code_info=exit_code_info,
             )
 
     # document
@@ -2201,3 +2352,56 @@ def die(msg, status=2):
     else:
         print(f"\n{msg}\n", file=sys.stderr)
     sys.exit(status)
+
+
+def print_available_linters():
+    """
+    Print all available linters with their categories and severity levels
+    """
+    # Import directly from Lint.py to avoid circular imports
+    from . import Lint
+    
+    # Try to get additional linters from entry points
+    try:
+        from .LintPlugins.plugins import _discover_entry_point_linters
+        entry_point_linters = _discover_entry_point_linters()
+    except (ImportError, AttributeError):
+        entry_point_linters = []
+    
+    # Print header
+    print("Available linters:")
+    print(f"{'Name':<30} {'Category':<15} {'Default Severity':<20} {'Description'}")
+    print("-" * 80)
+    
+    # Print built-in linters
+    print("\nBuilt-in linters:")
+    try:
+        for linter_class in Lint._all_linters:
+            category = getattr(linter_class, "category", Lint.LintCategory.OTHER).name if hasattr(linter_class, "category") else "OTHER"
+            severity = getattr(linter_class, "default_severity", Lint.LintSeverity.MODERATE).name if hasattr(linter_class, "default_severity") else "MODERATE"
+            doc = linter_class.__doc__.strip().split("\n")[0] if linter_class.__doc__ else "No description"
+            print(f"{linter_class.__name__:<30} {category:<15} {severity:<20} {doc}")
+    except (AttributeError, TypeError) as e:
+        print(f"Error listing built-in linters: {str(e)}")
+    
+    # Print entry point linters
+    if entry_point_linters:
+        print("\nEntry point linters:")
+        for linter_class in entry_point_linters:
+            try:
+                category = getattr(linter_class, "category", Lint.LintCategory.OTHER).name if hasattr(linter_class, "category") else "OTHER"
+                severity = getattr(linter_class, "default_severity", Lint.LintSeverity.MODERATE).name if hasattr(linter_class, "default_severity") else "MODERATE"
+                doc = linter_class.__doc__.strip().split("\n")[0] if linter_class.__doc__ else "No description"
+                print(f"{linter_class.__name__:<30} {category:<15} {severity:<20} {doc}")
+            except (AttributeError, TypeError) as e:
+                print(f"Error listing entry point linter {linter_class.__name__}: {str(e)}")
+    
+    # Print usage information
+    print("\nUsage:")
+    print("  To disable specific linters: --disable-linters Linter1,Linter2")
+    print("  To enable only specific categories: --enable-lint-categories STYLE,SECURITY")
+    print("  To disable specific categories: --disable-lint-categories BEST_PRACTICE")
+    print("  To add custom linters: --additional-linters module:LinterClass,/path/to/file.py:LinterClass")
+    print("  To exit with error on severe issues: --exit-on-lint-severity MAJOR")
+    
+    sys.exit(0)

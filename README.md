@@ -34,6 +34,61 @@ The online documentation includes a user tutorial, reference manual, and Python 
 
 See the [Releases](https://github.com/chanzuckerberg/miniwdl/releases) for change logs. The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows the current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues).
 
+### Linting Configuration
+
+miniwdl includes a powerful linting system that can be extended with custom linters. The linting system can be configured through:
+
+1. Command-line arguments:
+   ```
+   miniwdl check --additional-linters module:LinterClass --disable-linters StringCoercion --exit-on-lint-severity MAJOR workflow.wdl
+   ```
+
+2. Configuration file:
+   ```ini
+   [linting]
+   additional_linters = ["module:LinterClass", "/path/to/linter.py:LinterClass"]
+   disabled_linters = ["StringCoercion", "FileCoercion"]
+   enabled_categories = ["STYLE", "SECURITY", "PERFORMANCE"]
+   disabled_categories = ["BEST_PRACTICE"]
+   exit_on_severity = "MAJOR"
+   ```
+
+3. Environment variables:
+   ```bash
+   export MINIWDL_ADDITIONAL_LINTERS="module:LinterClass,/path/to/linter.py:LinterClass"
+   export MINIWDL_DISABLED_LINTERS="StringCoercion,FileCoercion"
+   export MINIWDL_ENABLED_LINT_CATEGORIES="STYLE,SECURITY,PERFORMANCE"
+   export MINIWDL_DISABLED_LINT_CATEGORIES="BEST_PRACTICE"
+   export MINIWDL_EXIT_ON_LINT_SEVERITY="MAJOR"
+   ```
+
+### Command Line Options
+
+The following command line options are available for linting configuration:
+
+```
+miniwdl check [options] workflow.wdl
+
+Linter plugin options:
+  --additional-linters MODULE:CLASS,...
+                        comma-separated list of additional linters to load (can be module paths or file paths)
+  --disable-linters LINTER1,LINTER2
+                        comma-separated list of linter class names to disable
+  --enable-lint-categories CATEGORY1,CATEGORY2
+                        comma-separated list of linter categories to enable (STYLE, SECURITY, PERFORMANCE, CORRECTNESS, PORTABILITY, BEST_PRACTICE, OTHER)
+  --disable-lint-categories CATEGORY1,CATEGORY2
+                        comma-separated list of linter categories to disable
+  --exit-on-lint-severity {MINOR,MODERATE,MAJOR,CRITICAL}
+                        exit with non-zero code if any findings at or above this severity level are found
+  --list-linters        list all available linters with their categories and severity levels
+```
+
+To see all available linters and their categories:
+
+```bash
+miniwdl check --list-linters
+```
+
 ## Scaling up
 
 The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory available on the local host; so a more-powerful host enables larger workloads. Separately-maintained projects can distribute tasks to cloud & HPC backends with a shared filesystem:
