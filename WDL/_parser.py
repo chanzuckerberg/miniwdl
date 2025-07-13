@@ -398,7 +398,8 @@ class _DocTransformer(_ExprTransformer):
 
     def requirements_section(self, meta, items):
         d = dict()
-        for k, v in items[1:]:
+        assert all(isinstance(item, tuple) and len(item) == 2 for item in items)
+        for k, v in items:
             if k in d:
                 raise Error.MultipleDefinitions(
                     self._sp(meta), "duplicate keys in requirements section"

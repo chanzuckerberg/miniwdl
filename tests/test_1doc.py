@@ -412,6 +412,44 @@ class TestTasks(unittest.TestCase):
         self.assertEqual(task.requirements['requirements_key'].value, 123)
         self.assertEqual(task.requirements['meta_key'].value, 321)
 
+        txt = """
+        task hello {
+            input {}
+            command {
+                echo "Hello world"
+            }
+            output {
+                String greeting = read_string(stdout())
+            }
+            requirements {
+                cpu: 42
+                cpu: 24
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_tasks(txt, "1.2")
+
+        txt = """
+        task hello {
+            input {}
+            command {
+                echo "Hello world"
+            }
+            output {
+                String greeting = read_string(stdout())
+            }
+            requirements {
+                cpu: 42
+            }
+            runtime {
+                memory: "1 GB"
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_tasks(txt, "1.2")
+
     def test_compare_md5sums(self):
         txt = """
 task compare_md5sum {
