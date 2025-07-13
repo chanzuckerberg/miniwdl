@@ -396,8 +396,6 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return {"runtime": d}
 
-<<<<<<< Updated upstream
-=======
     def requirements_section(self, meta, items):
         d = dict()
         for k, v in items[1:]:
@@ -408,10 +406,6 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return {"runtime": d}
 
-    def hints_section(self, meta, items):
-        return {"hints": items[0]}
-
->>>>>>> Stashed changes
     def task(self, meta, items):
         d = {"noninput_decls": []}
         for item in items:
