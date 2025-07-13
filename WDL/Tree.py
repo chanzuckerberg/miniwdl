@@ -269,7 +269,7 @@ class Task(SourceNode):
     requirements: Dict[str, Expr.Base]
     """:type: Dict[str,WDL.Expr.Base]
 
-    ``requirements{}`` section (for WDL 1.2 tasks; refers to same dict as ``runtime``)"""
+    ``requirements{}`` section (for WDL 1.2+ tasks; refers to same dict as ``runtime``)"""
     meta: Dict[str, Any]
     """:type: Dict[str,Any]
 

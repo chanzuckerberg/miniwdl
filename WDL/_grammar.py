@@ -64,7 +64,7 @@ task: "task" CNAME "{" task_section* command task_section* "}"
 ?task_section: task_input_decls
              | output_decls
              | meta_section
-             | runtime_section
+             | requirements_section
              | task_env_decl -> noninput_decl
 
 tasks: task*
