@@ -2449,6 +2449,49 @@ class TestStruct(unittest.TestCase):
                 self.assertIsInstance(err.pos.line, int)
                 self.assertIsInstance(err.pos.column, int)
 
+    def test_workflow_hints(self):
+        doc = r"""version 1.2
+        workflow w {
+            input {
+                Array[String] names
+            }
+            scatter (name in names) {
+                String greeting = "Hello, " + name + "!"
+            }
+            output {
+                Array[String] greetings = greeting
+            }
+            hints {
+                allow_nested_inputs: true
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        # TODO: check hints AST once implemented
+
+        doc = r"""version 1.2
+        workflow w {
+            input {
+                Array[String] names
+            }
+            scatter (name in names) {
+                String greeting = "Hello, " + name + "!"
+            }
+            output {
+                Array[String] greetings = greeting
+            }
+            hints {
+                allow_nested_inputs: true
+            }
+            hints {
+                bogus: true
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_document(doc)
+
 class TestNoneLiteral(unittest.TestCase):
     def test_none_expr(self):
         doc = r"""
