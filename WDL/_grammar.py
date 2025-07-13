@@ -86,8 +86,8 @@ meta_kv: CNAME ":" meta_value
            | "[" [meta_value ("," meta_value)*] ","? "]" -> meta_array
 !meta_section: ("meta" | "parameter_meta") meta_object
 
-// task runtime section (key-expression pairs)
-runtime_section: ("runtime" | "requirements") "{" [runtime_kv (","? runtime_kv)*] "}"
+// task requirements section (key-expression pairs); some mixing with vestigial (pre-1.2) "runtime" terminology
+requirements_section: ("requirements" | "runtime") "{" [runtime_kv (","? runtime_kv)*] "}"
 runtime_kv: CNAME ":" expr
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

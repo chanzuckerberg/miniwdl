@@ -396,6 +396,22 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return {"runtime": d}
 
+<<<<<<< Updated upstream
+=======
+    def requirements_section(self, meta, items):
+        d = dict()
+        for k, v in items[1:]:
+            if k in d:
+                raise Error.MultipleDefinitions(
+                    self._sp(meta), "duplicate keys in requirements section"
+                )
+            d[k] = v
+        return {"runtime": d}
+
+    def hints_section(self, meta, items):
+        return {"hints": items[0]}
+
+>>>>>>> Stashed changes
     def task(self, meta, items):
         d = {"noninput_decls": []}
         for item in items:
@@ -404,8 +420,10 @@ class _DocTransformer(_ExprTransformer):
                     if k == "noninput_decl":
                         d["noninput_decls"].append(v)
                     elif k in d:
+                        if k == "runtime":
+                            k = "requirements/runtime"
                         raise Error.MultipleDefinitions(
-                            self._sp(meta), "redundant sections in task"
+                            self._sp(meta), f"redundant {k} sections in task"
                         )
                     else:
                         d[k] = v

@@ -266,6 +266,10 @@ class Task(SourceNode):
     """:type: Dict[str,WDL.Expr.Base]
 
     ``runtime{}`` section, with keys and corresponding expressions to be evaluated"""
+    requirements: Dict[str, Expr.Base]
+    """:type: Dict[str,WDL.Expr.Base]
+
+    ``requirements{}`` section (for WDL 1.2 tasks; refers to same dict as ``runtime``)"""
     meta: Dict[str, Any]
     """:type: Dict[str,Any]
 
@@ -297,6 +301,7 @@ class Task(SourceNode):
         self.outputs = outputs
         self.parameter_meta = parameter_meta
         self.runtime = runtime
+        self.requirements = self.runtime
         self.meta = meta
         self.effective_wdl_version = "1.0"  # overridden by Document.__init__
         # TODO: enforce validity constraints on parameter_meta and runtime
