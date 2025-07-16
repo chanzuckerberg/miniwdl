@@ -542,7 +542,7 @@ class BioWDLSmallRNA(unittest.TestCase):
     expected_lint={
         "UnusedImport": 22,
         "UnusedCall": 1,
-        "StringCoercion": 86,
+        "StringCoercion": 84,
         "UnusedDeclaration": 106,
         "NameCollision": 12,
         "ForwardReference": 5,

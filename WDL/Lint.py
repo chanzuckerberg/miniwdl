@@ -144,9 +144,28 @@ class Linter(Walker.Base):
             ):
                 suppress = True
 
+        # Create a new lint finding
+        new_finding = (pos, self.__class__.__name__, message, suppress, severity)
+
+        # Initialize lint attribute if it doesn't exist
         if not hasattr(obj, "lint"):
             setattr(obj, "lint", [])
-        getattr(obj, "lint").append((pos, self.__class__.__name__, message, suppress, severity))
+
+        # Check if this exact finding already exists to avoid duplicates
+        existing_findings = getattr(obj, "lint")
+        for existing in existing_findings:
+            existing_pos, existing_cls, existing_msg, _, _ = existing
+            if (
+                existing_pos.line == pos.line
+                and existing_pos.column == pos.column
+                and existing_cls == self.__class__.__name__
+                and existing_msg == message
+            ):
+                # This exact finding already exists, don't add it again
+                return True
+
+        # Add the new finding
+        existing_findings.append(new_finding)
         return True
 
 
@@ -275,18 +294,24 @@ class _Collector(Walker.Base):
 def collect(doc):
     """
     Recursively traverse the already-linted document and collect a flat list of
-    (SourcePosition, linter_class, message, suppressed, severity)
+    (SourcePosition, linter_class, message, suppressed)
 
     Each lint item contains:
     - SourcePosition: Location in the source code
     - linter_class: Name of the linter class that generated the warning
     - message: Warning message
     - suppressed: Boolean indicating if the warning was suppressed
-    - severity: LintSeverity enum value indicating the severity level
+
+    Note: Severity information is stored in the AST nodes but not included in the
+    returned tuples for backward compatibility.
     """
     collector = _Collector()
     collector(doc)
-    return collector.lint
+
+    # Return all findings without global deduplication to maintain backward compatibility
+    # The per-node deduplication in Linter.add() is sufficient to prevent duplicates
+    # on the same node while preserving distinct findings across different nodes
+    return [(pos, cls, msg, suppressed) for pos, cls, msg, suppressed, _ in collector.lint]
 
 
 def _find_input_decl(obj: Tree.Call, name: str) -> Tree.Decl:

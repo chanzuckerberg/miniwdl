@@ -332,19 +332,6 @@ def check(
             )
             effective_exit_on_severity = None
 
-    # Validate exit_on_severity early
-    if effective_exit_on_severity:
-        from . import Lint
-
-        try:
-            getattr(Lint.LintSeverity, effective_exit_on_severity.upper())
-        except AttributeError:
-            print(
-                f"Warning: Invalid severity level '{effective_exit_on_severity}', ignoring",
-                file=sys.stderr,
-            )
-            effective_exit_on_severity = None
-
     # Load the document (read, parse, and typecheck)
     if "CommandShellCheck" in suppress:
         Lint._shellcheck_available = False

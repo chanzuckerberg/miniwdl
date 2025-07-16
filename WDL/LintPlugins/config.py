@@ -112,6 +112,16 @@ def get_exit_on_severity(cfg) -> Optional[str]:
         # Handle the case where the value includes a comment
         if severity and "#" in severity:
             severity = severity.split("#")[0].strip()
+
+        # Remove quotes if present
+        if severity and (
+            severity.startswith('"')
+            and severity.endswith('"')
+            or severity.startswith("'")
+            and severity.endswith("'")
+        ):
+            severity = severity[1:-1]
+
         return severity if severity else None
     except Exception:
         return None

@@ -3,7 +3,7 @@ Safe walker for linter execution
 """
 
 import logging
-from typing import List, Any, Optional
+from typing import List, Any, Optional, Set, Tuple
 from .. import Walker
 
 _logger = logging.getLogger("wdl.lint.safe_walker")
@@ -25,6 +25,8 @@ class SafeLinterWalker(Walker.Base):
         super().__init__(auto_descend=True)
         self.linters = linters
         self.descend_imports = descend_imports
+        # Track lint findings to avoid duplicates
+        self.seen_findings: Set[Tuple[int, int, str, str]] = set()
 
     def __call__(self, obj: Any, descend: Optional[bool] = None):
         """
@@ -34,6 +36,7 @@ class SafeLinterWalker(Walker.Base):
             obj: The AST node to lint
             descend: Whether to descend into child nodes
         """
+        # Run each linter
         for linter in self.linters:
             try:
                 linter(obj, descend)
