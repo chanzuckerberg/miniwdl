@@ -573,8 +573,8 @@ class _DocTransformer(_ExprTransformer):
         name = items[0]
         self._check_keyword(self._sp(meta), name)
         members = {}
-        meta = None
-        parameter_meta = None
+        struct_meta = None
+        struct_parameter_meta = None
         for d in items[1:]:
             if isinstance(d, Tree.Decl):
                 assert not d.expr
@@ -585,23 +585,23 @@ class _DocTransformer(_ExprTransformer):
                 members[d.name] = d.type
             elif isinstance(d, dict):
                 if "meta" in d:
-                    if meta is not None:
+                    if struct_meta is not None:
                         raise Error.MultipleDefinitions(
                             self._sp(meta), "redundant struct meta sections"
                         )
-                    meta = d["meta"]
+                    struct_meta = d["meta"]
                 elif "parameter_meta" in d:
-                    if parameter_meta is not None:
+                    if struct_parameter_meta is not None:
                         raise Error.MultipleDefinitions(
                             self._sp(meta), "redundant struct parameter_meta sections"
                         )
-                    parameter_meta = d["parameter_meta"]
+                    struct_parameter_meta = d["parameter_meta"]
                 else:
                     assert False
             else:
                 assert False
         return Tree.StructTypeDef(
-            self._sp(meta), name, members, meta=meta, parameter_meta=parameter_meta
+            self._sp(meta), name, members, meta=struct_meta, parameter_meta=struct_parameter_meta
         )
 
     def import_alias(self, meta, items):
