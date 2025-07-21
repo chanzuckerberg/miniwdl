@@ -1588,7 +1588,7 @@ def _load(
     import_max_depth: int = 10,
     importer: Optional[Document] = None,
 ) -> Document:
-    return asyncio.get_event_loop().run_until_complete(
+    return asyncio.run(
         _load_async(
             uri,
             path=path,
