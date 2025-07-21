@@ -51,6 +51,15 @@ class StructTypeDef(SourceNode):
     Member names and types
     """
 
+    meta: Dict[str, Any]
+    """:type: Dict[str,Any]
+
+    ``meta{}`` section as a JSON-like dict"""
+    parameter_meta: Dict[str, Any]
+    """:type: Dict[str,Any]
+
+    ``parameter_meta{}`` section as a JSON-like dict"""
+
     imported: "Optional[Tuple[Document,StructTypeDef]]"
     """
     :type: Optional[Tuple[Document,StructTypeDef]]
@@ -65,11 +74,15 @@ class StructTypeDef(SourceNode):
         name: str,
         members: Dict[str, Type.Base],
         imported: "Optional[Tuple[Document,StructTypeDef]]" = None,
+        meta: Optional[Dict[str, Any]] = None,
+        parameter_meta: Optional[Dict[str, Any]] = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
         self.members = members
         self.imported = imported
+        self.meta = meta if meta is not None else {}
+        self.parameter_meta = parameter_meta if parameter_meta is not None else {}
 
     @property
     def type_id(self) -> str:
