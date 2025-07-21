@@ -561,11 +561,19 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return String(value)
     if isinstance(type, Type.Array) and isinstance(value, list):
         return Array(type.item_type, [from_json(type.item_type, item) for item in value])
-    if isinstance(type, Type.Pair) and isinstance(value, dict) and set(value) == {"left", "right"}:
+    if (
+        isinstance(type, Type.Pair)
+        and isinstance(value, dict)
+        and set(v.lower() for v in value.keys()) == {"left", "right"}
+    ):
+        lowercased_value = {k.lower(): v for k, v in value.items()}
         return Pair(
             type.left_type,
             type.right_type,
-            (from_json(type.left_type, value["left"]), from_json(type.right_type, value["right"])),
+            (
+                from_json(type.left_type, lowercased_value["left"]),
+                from_json(type.right_type, lowercased_value["right"]),
+            ),
         )
     if (
         isinstance(type, Type.Map)

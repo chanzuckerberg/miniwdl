@@ -1292,11 +1292,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         elif input_file == "-":
             input_json = sys.stdin.read()
         else:
-            input_json = (
-                asyncio.get_event_loop()
-                .run_until_complete(make_read_source(False)(input_file, [], None))
-                .source_text
-            )
+            input_json = asyncio.run(make_read_source(False)(input_file, [], None)).source_text
         input_json = YAML(typ="safe", pure=True).load(input_json)
         if not isinstance(input_json, dict):
             raise Error.InputError("check JSON input; expected top-level object")
