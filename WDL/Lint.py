@@ -8,9 +8,10 @@ Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
     import WDL.Lint
 
     lint = WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
-    for (pos, lint_class, message, suppressed) in lint:
+    for (pos, lint_class, message, suppressed, severity) in lint:
         assert isinstance(pos, WDL.SourcePosition)
         assert isinstance(lint_class, str) and isinstance(message, str)
+        assert isinstance(severity, WDL.Lint.LintSeverity)
         if not suppressed:
             print(json.dumps({
                 "uri"        : pos.uri,
@@ -21,6 +22,7 @@ Given a ``doc: WDL.Document``, the lint warnings can be retrieved like so::
                 "end_column" : pos.end_column,
                 "lint"       : lint_class,
                 "message"    : message,
+                "severity"   : severity.name,
             }))
 
 The ``descend_imports`` flag controls whether lint warnings are generated for imported documents
@@ -1498,7 +1500,12 @@ def validate_linter(linter_class, wdl_code, expected_lint=None, expected_count=N
                 unique_results = []
                 seen = set()
                 for result in filtered_results:
-                    pos, cls, msg, suppressed, severity = result
+                    # Handle both 4-tuple and 5-tuple results for backward compatibility
+                    if len(result) == 5:
+                        pos, cls, msg, suppressed, _ = result
+                    else:
+                        pos, cls, msg, suppressed = result
+
                     # Create a key based on line, column, and message
                     key = (pos.line if pos else 0, pos.column if pos else 0, msg)
                     if key not in seen:

@@ -110,7 +110,19 @@ def _discover_entry_point_linters():
             return linters
 
     try:
-        for entry_point in metadata.entry_points(group="miniwdl.linters"):
+        # Handle different versions of importlib.metadata
+        entry_points_data = metadata.entry_points()
+
+        # In newer versions, entry_points() returns an EntryPoints object with select() method
+        # In older versions, it returns a dict
+        if hasattr(entry_points_data, "select"):
+            # New API (Python 3.10+)
+            entry_points_list = entry_points_data.select(group="miniwdl.linters")
+        else:
+            # Old API (Python 3.9 and earlier) - returns dict
+            entry_points_list = entry_points_data.get("miniwdl.linters", [])
+
+        for entry_point in entry_points_list:
             try:
                 linter_class = entry_point.load()
                 if _is_valid_linter_class(linter_class):

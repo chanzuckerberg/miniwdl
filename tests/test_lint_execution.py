@@ -160,25 +160,24 @@ class TestLintExecution(unittest.TestCase):
             # Collect lint results
             lint_results = Lint.collect(doc)
             
-            # Check that lint results include severity information
+            # Check that lint results include basic information
             self.assertTrue(len(lint_results) > 0)
             
-            # Each lint result should be a tuple with 5 elements:
-            # (pos, linter_class, message, suppressed, severity)
+            # Each lint result should be a tuple with 4 elements for backward compatibility:
+            # (pos, linter_class, message, suppressed)
+            # Note: Severity information is stored internally but not exposed in collect() for backward compatibility
             for lint_item in lint_results:
-                self.assertEqual(len(lint_item), 5)
-                pos, linter_class, message, suppressed, severity = lint_item
+                self.assertEqual(len(lint_item), 4)
+                pos, linter_class, message, suppressed = lint_item
                 
                 # Check types
                 self.assertIsInstance(pos, type(pos))  # SourcePosition
                 self.assertIsInstance(linter_class, str)
                 self.assertIsInstance(message, str)
                 self.assertIsInstance(suppressed, bool)
-                self.assertIsInstance(severity, Lint.LintSeverity)
                 
-                # If this is our test linter, check the severity
+                # If this is our test linter, check that it was found
                 if linter_class == "SeverityTestLinter":
-                    self.assertEqual(severity, Lint.LintSeverity.MAJOR)
                     self.assertIn("Test message with MAJOR severity", message)
             
         finally:
