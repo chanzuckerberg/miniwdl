@@ -32,7 +32,7 @@ dependencies = [
     "coloredlogs>=15,<16",
     "python-json-logger>=2,<4",
     "lark~=1.2",
-    "bullet>=2,<3",
+    "questionary>=2,<3",
     "psutil>=5,<8"
 ]
 
