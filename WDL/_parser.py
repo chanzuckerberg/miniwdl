@@ -611,13 +611,7 @@ class _DocTransformer(_ExprTransformer):
                         self._sp(meta), f"duplicate struct member '{item.name}'"
                     )
                 members[item.name] = item.type
-        return Tree.StructTypeDef(
-            self._sp(meta),
-            name,
-            members,
-            parameter_meta,
-            meta_section
-        )
+        return Tree.StructTypeDef(self._sp(meta), name, members, parameter_meta, meta_section)
 
     def import_alias(self, meta, items):
         assert len(items) == 2

@@ -33,6 +33,7 @@ from abc import ABC, abstractmethod
 from .Error import SourcePosition, SourceNode
 from . import Type, Expr, Env, Error, StdLib, _parser, _util
 
+
 class StructTypeDef(SourceNode):
     """WDL struct type definition"""
 
