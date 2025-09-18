@@ -1868,6 +1868,69 @@ class TestStruct(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc = WDL.parse_document(doc)
 
+    def test_meta(self):
+        doc = r"""
+        version 1.2
+
+        struct Person {
+            meta {
+                description: "Something"
+                more_stuff: "Also here"
+                coolness: 7
+            }
+            String name
+            parameter_meta {
+                name: "A name"
+                age: "An age"
+            }
+            Int age
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        struct = doc.struct_typedefs.resolve("Person")
+        self.assertEqual(struct.meta["description"], "Something")
+        self.assertEqual(struct.meta["more_stuff"], "Also here")
+        self.assertEqual(struct.meta["coolness"].value, 7)
+        self.assertEqual(struct.parameter_meta["name"], "A name")
+        self.assertEqual(struct.parameter_meta["age"], "An age")
+
+        doc = r"""
+        version 1.2
+
+        struct Person {
+            meta {
+                description: "Something"
+            }
+            String name
+            meta {
+                description2: "Something else"
+            }
+            Int age
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.parse_document(doc)
+
+        doc = r"""
+        version 1.2
+
+        struct Person {
+            parameter_meta {
+                name: "A name"
+                age: "An age"
+            }
+            String name
+            Int age
+            parameter_meta {
+                name: "A name"
+                age: "An age"
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            doc = WDL.parse_document(doc)
+
     def test_decl(self):
         doc = r"""
         version 1.0
