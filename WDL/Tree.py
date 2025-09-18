@@ -33,7 +33,6 @@ from abc import ABC, abstractmethod
 from .Error import SourcePosition, SourceNode
 from . import Type, Expr, Env, Error, StdLib, _parser, _util
 
-
 class StructTypeDef(SourceNode):
     """WDL struct type definition"""
 
@@ -59,16 +58,30 @@ class StructTypeDef(SourceNode):
     there. The referenced definition might itself be imported from yet another document.
     """
 
+    parameter_meta: Dict[str, Any]
+    """:type: Dict[str,Any]
+
+    ``parameter_meta{}`` section as a JSON-like dict"""
+
+    meta: Dict[str, Any]
+    """:type: Dict[str,Any]
+
+    ``meta{}`` section as a JSON-like dict"""
+
     def __init__(
         self,
         pos: SourcePosition,
         name: str,
         members: Dict[str, Type.Base],
+        parameter_meta: Dict[str, Any],
+        meta: Dict[str, Any],
         imported: "Optional[Tuple[Document,StructTypeDef]]" = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
         self.members = members
+        self.parameter_meta = parameter_meta
+        self.meta = meta
         self.imported = imported
 
     @property

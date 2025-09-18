@@ -586,14 +586,38 @@ class _DocTransformer(_ExprTransformer):
         name = items[0]
         self._check_keyword(self._sp(meta), name)
         members = {}
-        for d in items[1:]:
-            assert not d.expr
-            if d.name in members:
-                raise Error.MultipleDefinitions(
-                    self._sp(meta), f"duplicate struct member '{d.name}'"
-                )
-            members[d.name] = d.type
-        return Tree.StructTypeDef(self._sp(meta), name, members)
+        parameter_meta = None
+        meta_section = None
+        for item in items[1:]:
+            if isinstance(item, dict):
+                if "meta" in item:
+                    if meta_section is not None:
+                        raise Error.MultipleDefinitions(
+                            self._sp(meta), "redundant struct meta sections"
+                        )
+                    meta_section = item["meta"]
+                elif "parameter_meta" in item:
+                    if parameter_meta is not None:
+                        raise Error.MultipleDefinitions(
+                            self._sp(meta), "redundant struct parameter_meta sections"
+                        )
+                    parameter_meta = item["parameter_meta"]
+                else:
+                    assert False
+            elif isinstance(item, Tree.Decl):
+                assert not item.expr
+                if item.name in members:
+                    raise Error.MultipleDefinitions(
+                        self._sp(meta), f"duplicate struct member '{item.name}'"
+                    )
+                members[item.name] = item.type
+        return Tree.StructTypeDef(
+            self._sp(meta),
+            name,
+            members,
+            parameter_meta,
+            meta_section
+        )
 
     def import_alias(self, meta, items):
         assert len(items) == 2
@@ -769,17 +793,17 @@ def _parse_doctransformer(
         raise exn2 from None
 
 
-def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
+def parse_tasks(txt: str, version: Optional[str] = None) -> List["Tree.Task"]:
     return _parse_doctransformer("tasks", txt, version or "draft-2")
 
 
-def parse_bound_decl(txt: str, version: Optional[str] = None) -> Tree.Decl:
+def parse_bound_decl(txt: str, version: Optional[str] = None) -> "Tree.Decl":
     return _parse_doctransformer("bound_decl", txt, version or "draft-2")
 
 
 def parse_document(
     txt: str, version: Optional[str] = None, uri: str = "", abspath: str = ""
-) -> Tree.Document:
+) -> "Tree.Document":
     npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
     if not txt.strip():
         return Tree.Document(txt, npos, [], {}, [], None, [], None)

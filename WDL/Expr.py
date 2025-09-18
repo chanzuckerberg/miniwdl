@@ -13,11 +13,11 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
+from typing import Any, List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
 import codecs
 import regex
 from .Error import SourcePosition, SourceNode
-from . import Type, Value, Env, Error, StdLib, Any
+from . import Type, Value, Env, Error, StdLib
 
 if TYPE_CHECKING:
     from . import Tree
