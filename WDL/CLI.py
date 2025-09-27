@@ -1850,7 +1850,8 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         print(cfg_content)
         print()
         sys.stdout.flush()
-        os.makedirs(os.path.dirname(cfg), exist_ok=True)
+        if dn := os.path.dirname(cfg):
+            os.makedirs(dn, exist_ok=True)
         with open(cfg, "w") as outfile:
             print(
                 f"# miniwdl configure {miniwdl_version or '(version unknown)'} {datetime.utcnow()}Z",
