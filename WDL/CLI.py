@@ -143,6 +143,7 @@ class PipVersionAction(Action):
             print("miniwdl version unknown")
 
         import importlib.metadata
+
         for group in runtime.config.default_plugins().keys():
             group = f"miniwdl.plugin.{group}"
             for plugin in importlib.metadata.entry_points().select(group=group):
