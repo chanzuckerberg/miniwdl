@@ -59,16 +59,30 @@ class StructTypeDef(SourceNode):
     there. The referenced definition might itself be imported from yet another document.
     """
 
+    parameter_meta: Dict[str, Any]
+    """:type: Dict[str,Any]
+
+    ``parameter_meta{}`` section as a JSON-like dict"""
+
+    meta: Dict[str, Any]
+    """:type: Dict[str,Any]
+
+    ``meta{}`` section as a JSON-like dict"""
+
     def __init__(
         self,
         pos: SourcePosition,
         name: str,
         members: Dict[str, Type.Base],
+        parameter_meta: Dict[str, Any],
+        meta: Dict[str, Any],
         imported: "Optional[Tuple[Document,StructTypeDef]]" = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
         self.members = members
+        self.parameter_meta = parameter_meta
+        self.meta = meta
         self.imported = imported
 
     @property
@@ -1963,7 +1977,9 @@ def _import_structs(doc: Document):
             except KeyError:
                 pass
             if not existing:
-                st2 = StructTypeDef(imp.pos, name, st.members, imported=(imp.doc, st))
+                st2 = StructTypeDef(
+                    imp.pos, name, st.members, st.parameter_meta, st.meta, imported=(imp.doc, st)
+                )
                 doc.struct_typedefs = doc.struct_typedefs.bind(name, st2)
 
 
