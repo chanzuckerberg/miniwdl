@@ -142,16 +142,13 @@ class PipVersionAction(Action):
         else:
             print("miniwdl version unknown")
 
-        # show plugin versions
-        # importlib_metadata doesn't seem to provide EntryPoint.dist to get from an entry point to
-        # the metadata of the package providing it; continuing to use pkg_resources for this. Risk
-        # that they give inconsistent results?
-        import pkg_resources  # type: ignore
+        import importlib_metadata
 
         for group in runtime.config.default_plugins().keys():
             group = f"miniwdl.plugin.{group}"
-            for plugin in pkg_resources.iter_entry_points(group=group):
-                print(f"{group}\t{plugin}\t{plugin.dist}")
+            for plugin in importlib_metadata.entry_points(group=group):
+                plugin_info = f"{plugin.dist.name} {plugin.dist.version}"
+                print(f"{group}\t{plugin.name} = {plugin.value}\t{plugin_info}")
         sys.exit(0)
 
 
