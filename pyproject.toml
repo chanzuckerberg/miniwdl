@@ -31,7 +31,7 @@ dependencies = [
     "pygtail~=0.14",
     "coloredlogs>=15,<16",
     "python-json-logger>=2,<4",
-    "lark~=1.2",
+    "lark~=1.3",
     "questionary>=2,<3",
     "psutil>=5,<8"
 ]
