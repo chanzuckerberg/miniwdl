@@ -786,7 +786,7 @@ class Struct(Base):
     """
     :type: Optional[str]
 
-    In WDL 2.0+ each struct literal may specify the intended struct type name.
+    In WDL 1.1+ each struct literal may specify the intended struct type name.
     """
 
     def __init__(
@@ -818,7 +818,7 @@ class Struct(Base):
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         object_type = Type.Object({k: v.type for k, v in self.members.items()})
         if not self.struct_type_name:
-            # pre-WDL 2.0: object literal with deferred typechecking
+            # pre-WDL 1.1: object literal with deferred typechecking
             return object_type
 
         # resolve struct type
@@ -838,6 +838,16 @@ class Struct(Base):
             raise Error.StaticTypeMismatch(
                 self, struct_type, object_type, exn.args[0] if exn.args else ""
             )
+
+        # but object_type.check() allows extra members in WDL 1.2
+        for member in self.members:
+            if member not in struct_type.members:
+                raise Error.StaticTypeMismatch(
+                    self,
+                    struct_type,
+                    object_type,
+                    f"no such member '{member}' in struct {self.struct_type_name}",
+                )
 
         return struct_type
 
