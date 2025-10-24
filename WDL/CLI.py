@@ -142,16 +142,13 @@ class PipVersionAction(Action):
         else:
             print("miniwdl version unknown")
 
-        # show plugin versions
-        # importlib_metadata doesn't seem to provide EntryPoint.dist to get from an entry point to
-        # the metadata of the package providing it; continuing to use pkg_resources for this. Risk
-        # that they give inconsistent results?
-        import pkg_resources  # type: ignore
+        import importlib_metadata
 
         for group in runtime.config.default_plugins().keys():
             group = f"miniwdl.plugin.{group}"
-            for plugin in pkg_resources.iter_entry_points(group=group):
-                print(f"{group}\t{plugin}\t{plugin.dist}")
+            for plugin in importlib_metadata.entry_points(group=group):
+                plugin_info = f"{plugin.dist.name} {plugin.dist.version}"
+                print(f"{group}\t{plugin.name} = {plugin.value}\t{plugin_info}")
         sys.exit(0)
 
 
@@ -1752,7 +1749,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         die("`miniwdl configure` is for interactive use")
 
     from datetime import datetime
-    import bullet  # type: ignore
+    import questionary  # type: ignore
     from xdg import XDG_CONFIG_HOME
 
     miniwdl_version = pkg_version()
@@ -1770,11 +1767,12 @@ def configure(cfg=None, show=False, force=False, **kwargs):
             cfg = os.path.join(XDG_CONFIG_HOME, "miniwdl.cfg")
 
         def yes(prompt):
-            return bullet.Bullet(prompt=prompt, choices=["No", "Yes"]).launch() == "Yes"
+            answer = questionary.confirm(prompt, qmark="").unsafe_ask()
+            return bool(answer)
 
         if os.path.exists(cfg):
             assert force
-            logger.warn("Proceeding will overwrite existing configuration file at " + cfg)
+            logger.warning("Proceeding will overwrite existing configuration file at " + cfg)
             sys.stderr.flush()
             if not yes("OVERWRITE?"):
                 sys.exit(0)
@@ -1799,9 +1797,9 @@ def configure(cfg=None, show=False, force=False, **kwargs):
                 print("\nCall cache JSON file storage directory: ~/.cache/miniwdl/")
 
                 if yes("OVERRIDE?"):
-                    options["call_cache"]["dir"] = bullet.Input(
-                        prompt="Call cache directory: ", strip=True
-                    ).launch()
+                    options["call_cache"]["dir"] = (
+                        questionary.text("Call cache directory: ").unsafe_ask().strip()
+                    )
 
             print(
                 textwrap.dedent(
@@ -1818,9 +1816,10 @@ def configure(cfg=None, show=False, force=False, **kwargs):
                 print("\nDownload cache directory: /tmp/miniwdl_download_cache")
 
                 if yes("OVERRIDE?"):
-                    options["download_cache"]["dir"] = bullet.Input(
-                        prompt="Download cache directory: ", strip=True
-                    ).launch()
+                    # use questionary text prompt for directory input
+                    options["download_cache"]["dir"] = (
+                        questionary.text("Download cache directory: ").unsafe_ask().strip()
+                    )
 
             print()
             if yes("Configure non-public Amazon s3:// access?"):
@@ -1850,7 +1849,8 @@ def configure(cfg=None, show=False, force=False, **kwargs):
         print(cfg_content)
         print()
         sys.stdout.flush()
-        os.makedirs(os.path.dirname(cfg), exist_ok=True)
+        if dn := os.path.dirname(cfg):
+            os.makedirs(dn, exist_ok=True)
         with open(cfg, "w") as outfile:
             print(
                 f"# miniwdl configure {miniwdl_version or '(version unknown)'} {datetime.utcnow()}Z",
