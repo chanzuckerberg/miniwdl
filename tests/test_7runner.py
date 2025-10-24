@@ -845,6 +845,9 @@ class MiscRegressionTests(RunnerTestCase):
             output {
                 Array[File] files_out = t.files_out
             }
+            hints {
+                allow_nested_inputs: true
+            }
         }
 
         task t {
@@ -861,6 +864,14 @@ class MiscRegressionTests(RunnerTestCase):
             }
             runtime {
                 container: ["ubuntu:20.04"]
+            }
+            hints {
+                short_task: true
+                inputs: input {
+                    files: hints {
+                        localization_optional: true
+                    }
+                }
             }
         }
         """
