@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 40
+plan tests 42
 
 if [[ -z $TMPDIR ]]; then
     TMPDIR=/tmp
@@ -121,5 +121,28 @@ is "$(grep UnusedDeclaration import_multi_error.no_quant_check.strict_all.out | 
 
 $miniwdl check --suppress CommandShellCheck $SOURCE_DIR/test_corpi/DataBiosphere/topmed-workflows/CRAM-no-header-md5sum/CRAM_md5sum_checker_wrapper.wdl > import_uri.out
 is "$?" "0" "URI import"
+
+# regression test #808
+cat << EOF > issue808.wdl
+version 1.1
+
+struct Struct {
+  String foo
+  Int bar
+}
+
+workflow test_struct {
+  output {
+    Struct s = Struct {
+        foo: "hello",
+        bar: 42,
+        extra: 100,
+    }
+  }
+}
+EOF
+$miniwdl check --suppress CommandShellCheck issue808.wdl > issue808.out 2> issue808.err
+is "$?" "2" "issue808.wdl exit code"
+is "$(grep 'no such member' issue808.err | wc -l | tr -d ' ')" "1" "issue808.wdl extra member error"
 
 rm -rf $DN

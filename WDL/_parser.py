@@ -396,6 +396,17 @@ class _DocTransformer(_ExprTransformer):
             d[k] = v
         return {"runtime": d}
 
+    def requirements_section(self, meta, items):
+        d = dict()
+        assert all(isinstance(item, tuple) and len(item) == 2 for item in items)
+        for k, v in items:
+            if k in d:
+                raise Error.MultipleDefinitions(
+                    self._sp(meta), "duplicate keys in requirements section"
+                )
+            d[k] = v
+        return {"runtime": d}
+
     def hints_section(self, meta, items):
         return {"hints": items[0]}
 
@@ -407,8 +418,10 @@ class _DocTransformer(_ExprTransformer):
                     if k == "noninput_decl":
                         d["noninput_decls"].append(v)
                     elif k in d:
+                        if k == "runtime":
+                            k = "requirements/runtime"
                         raise Error.MultipleDefinitions(
-                            self._sp(meta), "redundant sections in task"
+                            self._sp(meta), f"redundant {k} sections in task"
                         )
                     else:
                         d[k] = v
