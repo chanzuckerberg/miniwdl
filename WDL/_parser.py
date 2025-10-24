@@ -787,17 +787,17 @@ def _parse_doctransformer(
         raise exn2 from None
 
 
-def parse_tasks(txt: str, version: Optional[str] = None) -> List["Tree.Task"]:
+def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
     return _parse_doctransformer("tasks", txt, version or "draft-2")
 
 
-def parse_bound_decl(txt: str, version: Optional[str] = None) -> "Tree.Decl":
+def parse_bound_decl(txt: str, version: Optional[str] = None) -> Tree.Decl:
     return _parse_doctransformer("bound_decl", txt, version or "draft-2")
 
 
 def parse_document(
     txt: str, version: Optional[str] = None, uri: str = "", abspath: str = ""
-) -> "Tree.Document":
+) -> Tree.Document:
     npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
     if not txt.strip():
         return Tree.Document(txt, npos, [], {}, [], None, [], None)
