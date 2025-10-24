@@ -385,6 +385,71 @@ class TestTasks(unittest.TestCase):
         task.typecheck()
         self.assertEqual([e.value for e in task.parameter_meta['bar']['suggestions']], [1, 2, 3])
 
+    def test_requirements(self):
+        task = WDL.parse_tasks("""
+        task wc {
+            input {
+                Boolean? b
+                Array[Int]+ n
+            }
+            String dollar = "$"
+            String lbrace = "{"
+            String rbrace = "}"
+            command {
+                echo "~{true='yes' false='no' b}"
+            }
+            requirements {
+                memory: "1 GB"
+                cpu: 42
+                requirements_key: 123
+                meta_key: 321
+            }
+        }
+        """, "1.2")[0]
+        task.typecheck()
+        self.assertIsInstance(task.requirements['cpu'], WDL.Expr.Int)
+        self.assertEqual(task.requirements['cpu'].value, 42)
+        self.assertEqual(task.requirements['requirements_key'].value, 123)
+        self.assertEqual(task.requirements['meta_key'].value, 321)
+
+        txt = """
+        task hello {
+            input {}
+            command {
+                echo "Hello world"
+            }
+            output {
+                String greeting = read_string(stdout())
+            }
+            requirements {
+                cpu: 42
+                cpu: 24
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_tasks(txt, "1.2")
+
+        txt = """
+        task hello {
+            input {}
+            command {
+                echo "Hello world"
+            }
+            output {
+                String greeting = read_string(stdout())
+            }
+            requirements {
+                cpu: 42
+            }
+            runtime {
+                memory: "1 GB"
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_tasks(txt, "1.2")
+
     def test_compare_md5sums(self):
         txt = """
 task compare_md5sum {
