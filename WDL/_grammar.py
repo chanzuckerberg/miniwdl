@@ -98,7 +98,7 @@ unbound_decl: type CNAME -> decl
 bound_decl: type CNAME "=" expr -> decl
 ?any_decl: unbound_decl | bound_decl
 
-struct: "struct" CNAME "{" unbound_decl* "}"
+struct: "struct" CNAME "{" (unbound_decl | meta_section)* "}"
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // type
