@@ -551,6 +551,68 @@ task compare_md5sum {
         self.assertFalse(task.command.parts[0].strip().startswith("<<<"))
         self.assertFalse(task.command.parts[-1].strip().endswith(">>>"))
 
+    def test_hints(self):
+        txt = """
+        task t {
+            input {
+                Array[File] files
+            }
+            command <<<
+                set -euxo pipefail
+                mkdir files_out
+                find _miniwdl_inputs -type f -print0 | xargs -0 -iXXX cp XXX files_out/
+            >>>
+            output {
+                Array[File] files_out = glob("files_out/*")
+            }
+            runtime {
+                container: ["ubuntu:20.04"]
+            }
+            hints {
+                short_task: true
+                inputs: input {
+                    files: hints {
+                        localization_optional: true
+                    }
+                }
+            }
+        }
+        """
+        task = WDL.parse_tasks(txt, version="1.2")[0]
+        # TODO: test AST repr when implemented
+
+        txt = """
+        task t {
+            input {
+                Array[File] files
+            }
+            command <<<
+                set -euxo pipefail
+                mkdir files_out
+                find _miniwdl_inputs -type f -print0 | xargs -0 -iXXX cp XXX files_out/
+            >>>
+            output {
+                Array[File] files_out = glob("files_out/*")
+            }
+            runtime {
+                container: ["ubuntu:20.04"]
+            }
+            hints {
+                short_task: true
+                inputs: input {
+                    files: hints {
+                        localization_optional: true
+                    }
+                }
+            }
+            hints {
+                bogus: true
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_tasks(txt, version="1.2")[0].typecheck()
+
 
 class TestTypes(unittest.TestCase):
     def test_parser(self):
@@ -2514,6 +2576,49 @@ class TestStruct(unittest.TestCase):
             except WDL.Error.SyntaxError as err:
                 self.assertIsInstance(err.pos.line, int)
                 self.assertIsInstance(err.pos.column, int)
+
+    def test_workflow_hints(self):
+        doc = r"""version 1.2
+        workflow w {
+            input {
+                Array[String] names
+            }
+            scatter (name in names) {
+                String greeting = "Hello, " + name + "!"
+            }
+            output {
+                Array[String] greetings = greeting
+            }
+            hints {
+                allow_nested_inputs: true
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        # TODO: check hints AST once implemented
+
+        doc = r"""version 1.2
+        workflow w {
+            input {
+                Array[String] names
+            }
+            scatter (name in names) {
+                String greeting = "Hello, " + name + "!"
+            }
+            output {
+                Array[String] greetings = greeting
+            }
+            hints {
+                allow_nested_inputs: true
+            }
+            hints {
+                bogus: true
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_document(doc)
 
 class TestNoneLiteral(unittest.TestCase):
     def test_none_expr(self):
