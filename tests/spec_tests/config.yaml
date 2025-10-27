@@ -37,10 +37,8 @@ wdl-1.2:
     - chunk_array.wdl
     - file_sizes_task.wdl
     - multi_nested_inputs.wdl
-    - import_structs.wdl
     - join_paths_task.wdl
     - one_mount_point_task.wdl
-    - person_struct_task.wdl
     - string_to_file.wdl
     - test_contains.wdl
     - test_find_task.wdl
@@ -54,6 +52,7 @@ wdl-1.2:
     - map_to_struct.wdl                  # issue #712
     - multiline_string_placeholders.wdl  # wrong namespace in expected output
     - nested_scatter.wdl                 # expected output is wrong
+    - person_struct_task.wdl             # erroneous use of bash -gt to compare Float and Int
     - placeholders.wdl                   # wrong namespace in expected output
     - placeholder_none.wdl               # questionable claim that interpolations should swallow errors
     - primitive_literals.wdl             # expected output is wrong
