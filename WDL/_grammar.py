@@ -10,7 +10,7 @@ keywords["draft-2"] = set(
 )
 keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
 keywords["1.1"] = keywords["1.0"]
-keywords["1.2"] = keywords["1.1"] | set(["Directory", "env", "requirements"])
+keywords["1.2"] = keywords["1.1"] | set(["Directory", "env", "hints", "requirements"])
 keywords["development"] = keywords["1.2"]
 
 # Grammar versions and their definitions. The productions for WDL 1.2 and development will be
@@ -40,7 +40,7 @@ import_alias: "alias" CNAME "as" CNAME
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 workflow: "workflow" CNAME "{" workflow_element* "}"
-?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section
+?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section | hints_section
 
 scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
@@ -65,6 +65,7 @@ task: "task" CNAME "{" task_section* command task_section* "}"
              | output_decls
              | meta_section
              | requirements_section
+             | hints_section
              | task_env_decl -> noninput_decl
 
 tasks: task*
@@ -89,6 +90,14 @@ meta_kv: CNAME ":" meta_value
 // task requirements section (key-expression pairs); some mixing with vestigial (pre-1.2) "runtime" terminology
 requirements_section: ("requirements" | "runtime") "{" [runtime_kv (","? runtime_kv)*] "}"
 runtime_kv: CNAME ":" expr
+
+// hints section
+hints_section: hints_object
+hints_object: "hints" "{" [hint_kv (","? hint_kv)*] ","? "}"
+hint_kv: CNAME ":" hint_value
+?hint_value: expr | hints_object | io_hint
+io_hint: ("input" | "output") "{" [io_hint_kv ("," io_hint_kv)*] ","? "}"
+io_hint_kv: CNAME ("." CNAME)* ":" hint_value
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 // decl
