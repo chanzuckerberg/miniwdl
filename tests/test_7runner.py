@@ -751,7 +751,7 @@ class RuntimeOverride(RunnerTestCase):
             input {
                 String who
             }
-            call t {
+            call t as tc {
                 input:
                     who = who
             }
@@ -775,9 +775,46 @@ class RuntimeOverride(RunnerTestCase):
         """
         outp = self._run(wdl, {
             "who": "Alice",
-            "t.runtime.container": ["ubuntu:20.10"]
+            "tc.runtime.container": ["ubuntu:20.10"]
         })
-        assert "20.10" in outp["t.issue"]
+        assert "20.10" in outp["tc.issue"]
+
+        outp = self._run(wdl, {
+            "who": "Alice",
+            "tc.requirements.container": ["ubuntu:24.04"]
+        })
+        assert "24.04" in outp["tc.issue"]
+
+    def test_task_named_requirements(self):
+        # "requirements" became a keyword in WDL 1.2, so before that a task or one of its inputs
+        # could be named "requirements" -- ensure that still works as expected
+        wdl = """
+        version 1.1
+        workflow w {
+            call requirements
+        }
+        task requirements {
+            input {
+                Int requirements = 21
+            }
+            command {}
+            output {
+                Int result = requirements
+            }
+            runtime {
+                docker: "ubuntu:24.04"
+            }
+        }
+        """
+        outp = self._run(wdl, {
+            "requirements.requirements": 42
+        })
+        assert outp["requirements.result"] == 42
+
+        with self.assertRaises(WDL.Error.InputError):
+            outp = self._run(wdl, {
+                "requirements.requirements": "bogus"
+            })
 
 
 class MiscRegressionTests(RunnerTestCase):

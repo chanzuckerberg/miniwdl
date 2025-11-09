@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 97
+plan tests 99
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -372,6 +372,10 @@ is "$?" "0" "directory input"
 is `jq -r '.["w.dsz"]' _LAST/outputs.json` "10" "use of directory input"
 grep -q 20.10 _LAST/out/issue/issue
 is "$?" "0" "override t.runtime.docker"
+$miniwdl run dir_io.wdl d=indir t.requirements.docker=ubuntu:24.04
+is "$?" "0" "directory input 2"
+grep -q 24.04 _LAST/out/issue/issue
+is "$?" "0" "override t.requirements.docker"
 
 cat << 'EOF' > uri_inputs.json
 {

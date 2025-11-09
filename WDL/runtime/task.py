@@ -501,6 +501,8 @@ def _eval_task_runtime(
         runtime_values[key] = expr.eval(env, stdlib)
     for b in inputs.enter_namespace("runtime"):
         runtime_values[b.name] = b.value  # input overrides
+    for b in inputs.enter_namespace("requirements"):
+        runtime_values[b.name] = b.value
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
 
     # have container implementation validate & postprocess into container.runtime_values

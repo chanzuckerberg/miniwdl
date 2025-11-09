@@ -338,6 +338,8 @@ class Task(SourceNode):
         if self.effective_wdl_version not in ("draft-2", "1.0"):
             # synthetic placeholder to expose runtime overrides
             ans = ans.bind("_runtime", Decl(self.pos, Type.Any(), "_runtime"))
+            if self.effective_wdl_version not in ("1.1",):
+                ans = ans.bind("_requirements", Decl(self.pos, Type.Any(), "_requirements"))
 
         for decl in reversed(self.inputs if self.inputs is not None else self.postinputs):
             ans = ans.bind(decl.name, decl)
