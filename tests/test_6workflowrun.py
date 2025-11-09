@@ -4,6 +4,7 @@ import tempfile
 import os
 import time
 import sys
+import pytest
 from .context import WDL
 
 class TestWorkflowRunner(unittest.TestCase):
@@ -1134,3 +1135,117 @@ class TestWorkflowRunner(unittest.TestCase):
         outputs = self._test_workflow(txt, cfg=cfg)
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
         self.assertFalse(os.path.isdir(os.path.join(self._rundir, "call-finish", "work2")))
+
+    def test_struct_to_struct_coercion_positive(self):
+        """
+        Positive test: B -> D coercion where member names and types line up (A -> C also compatible).
+        This uses the corrected 'struct' lowercase keyword from the WDL 1.2 example.
+        """
+        wdl = """version 1.2
+
+        struct A {
+            String s
+        }
+
+        struct B {
+            A a_struct
+            Int i
+        }
+
+        struct C {
+            String s
+        }
+
+        struct D {
+            C a_struct
+            Int i
+        }
+
+        workflow struct_to_struct {
+            B my_b = B {
+                a_struct: A { s: "hello" },
+                i: 10
+            }
+
+            output {
+                D my_d = my_b
+            }
+        }
+        """
+        outputs = self._test_workflow(wdl)
+        self.assertEqual(outputs["my_d"], {"a_struct": {"s": "hello"}, "i": 10})
+
+
+    def test_struct_to_struct_coercion_negatives(self):
+        cases = []
+
+        # 1) mismatched member name (target uses x_struct)
+        cases.append("""
+        version 1.2
+
+        struct A { String s }
+
+        struct B { A a_struct Int i }
+
+        struct C { String s }
+
+        struct D { C x_struct Int i }
+
+        workflow mname {
+            B my_b = B { a_struct: A { s: "hello" }, i: 10 }
+            output { D my_d = my_b }
+        }
+        """)
+
+        # 2) missing non-optional member (source B_small lacks 'i' required by D)
+        cases.append("""
+        version 1.2
+
+        struct A { String s }
+
+        struct B_small { A a_struct }
+
+        struct C { String s }
+
+        struct D { C a_struct Int i }
+
+        workflow missing_member {
+            B_small my_b = B_small { a_struct: A { s: "hello" } }
+            output { D my_d = my_b }
+        }
+        """)
+
+        # 3) incompatible member type: A.s is Int but C.s is Array[Int]
+        cases.append("""
+        version 1.2
+
+        struct A { Int s }
+
+        struct B { A a_struct }
+
+        struct C { Array[Int] s }
+
+        struct D { C a_struct }
+
+        workflow type_mismatch {
+            B my_b = B { a_struct: A { s: 1 } }
+            output { D my_d = my_b }
+        }
+        """)
+
+        # 4) extra member in source
+        cases.append("""
+        version 1.2
+        struct A { String s }
+        struct B { A a_struct Int i String extra }
+        struct C { String s }
+        struct D { C a_struct Int i }
+        workflow extra_member {
+            B my_b = B { a_struct: A { s: "hello" }, i: 10, extra: "surprise!" }
+            output { D my_d = my_b }
+        }
+        """)
+
+        for wdl in cases:
+            with pytest.raises(WDL.Error.StaticTypeMismatch):
+                self._test_workflow(wdl)

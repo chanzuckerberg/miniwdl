@@ -485,8 +485,22 @@ class StructInstance(Base):
     def check(self, rhs: Base, check_quant: bool = True) -> None:
         """"""
         if isinstance(rhs, StructInstance):
-            if self.type_id != rhs.type_id:
-                raise TypeError()
+            # Formerly:
+            #
+            # if self.type_id != rhs.type_id:
+            #    raise TypeError()
+            #
+            # but WDL 1.2 relaxed to allow memberwise coercion as long as member name sets match
+            self_members = self.members
+            assert self_members is not None
+            _check_struct_members(self_members, rhs, check_quant)
+            rhs_members = rhs.members
+            assert rhs_members is not None
+            if set(rhs_members.keys()) != set(self_members.keys()):
+                raise TypeError(
+                    f"cannot initialize struct {self.type_name} from"
+                    " struct with a different set of members"
+                )
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
