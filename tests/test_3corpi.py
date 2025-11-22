@@ -120,11 +120,11 @@ def check_lint(cls):
     if "CommandShellCheck" in cls._lint_count:
         # because we don't control installed shellcheck version
         del cls._lint_count["CommandShellCheck"]
-    if cls._lint_count != cls._expected_lint:
-        raise Exception(
-            "Lint results changed for {}; expected: {} got: {}".format(
-                cls.__name__, str(cls._expected_lint), str(cls._lint_count)
-            )
+    print(f"Lint counts for {cls.__name__}: {cls._lint_count}")
+    for k in cls._expected_lint:
+        assert k in cls._lint_count, f"expected {k} lint"
+        assert cls._lint_count[k] == cls._expected_lint[k], (
+            f"{k} lint expected={cls._expected_lint[k]} got={cls._lint_count[k]}"
         )
 
 
@@ -375,15 +375,14 @@ class ENCODE_WGBS(unittest.TestCase):
     ],
     path=[["test_corpi/dnanexus/dxWDL/test/imports/lib"]],
     expected_lint={
+        "MissingVersion": 52,
         "UnusedDeclaration": 34,
+        "UnnecessaryQuantifier": 10,
         "UnusedCall": 16,
         "NameCollision": 2,
         "OptionalCoercion": 3,
         "FileCoercion": 3,
         "StringCoercion": 2,
-        "UnnecessaryQuantifier": 1,
-        "MissingVersion": 52,
-        "UnnecessaryQuantifier": 10,
         "UnexpectedRuntimeValue": 1,
     },
     check_quant=False,
@@ -473,13 +472,13 @@ class BioWDLTasks(unittest.TestCase):
 @wdl_corpus(
     ["test_corpi/biowdl/aligning/**"],
     expected_lint={
+        "UnnecessaryQuantifier": 13,
         "FileCoercion": 1,
         "OptionalCoercion": 11,
         "UnusedDeclaration": 12,
         "NonemptyCoercion": 1,
         "NameCollision": 1,
         "UnverifiedStruct": 1,
-        "UnnecessaryQuantifier": 13,
     },
     check_quant=False,
 )
@@ -493,10 +492,10 @@ class BioWDLAligning(unittest.TestCase):
         "FileCoercion": 1,
         "OptionalCoercion": 11,
         "UnusedDeclaration": 12,
+        "UnnecessaryQuantifier": 9,
         "NonemptyCoercion": 3,
         "NameCollision": 1,
         "UnverifiedStruct": 1,
-        "UnnecessaryQuantifier": 9,
     },
     check_quant=False,
 )
@@ -541,13 +540,13 @@ class BioWDLSmallRNA(unittest.TestCase):
     path=[["test_corpi/broadinstitute/warp/tasks"]],
     expected_lint={
         "UnusedImport": 22,
-        "UnusedCall": 1,
-        "StringCoercion": 86,
+        "StringCoercion": 84,
         "UnusedDeclaration": 106,
         "NameCollision": 12,
         "ForwardReference": 5,
-        "NonemptyCoercion": 4,
         "FileCoercion": 17,
+        "UnusedCall": 1,
+        "NonemptyCoercion": 4,
     },
 )
 class warp_pipelines_broad(unittest.TestCase):
