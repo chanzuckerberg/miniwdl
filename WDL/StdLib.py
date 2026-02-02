@@ -1179,14 +1179,30 @@ class _Contains(EagerFunction):
         # For empty arrays (Array[Any]), we can accept any element type
         # The runtime will handle empty arrays correctly (always returns false)
         if not isinstance(arr_ty.item_type, Type.Any):
-            # Non-empty array: check that element type is equatable with array item type
+            # Spec defines two signatures:
+            # - Boolean contains(Array[P], P)
+            # - Boolean contains(Array[P?], P?)
+            # The element type must match the array item type including optionality,
+            # with standard coercion allowed (T can coerce to T?)
             elem_ty = expr.arguments[1].type
+
+            # Check that element type is compatible with array item type
             if not elem_ty.equatable(arr_ty.item_type):
                 raise Error.StaticTypeMismatch(
                     expr.arguments[1],
                     arr_ty.item_type,
                     elem_ty,
                     "for contains() element argument",
+                )
+
+            # Additional check: if array item type is non-optional, element must not be optional
+            # (but T can coerce to T? is allowed, so T into Array[T?] is ok)
+            if not arr_ty.item_type.optional and elem_ty.optional:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1],
+                    arr_ty.item_type,
+                    elem_ty,
+                    "for contains() element argument - cannot check optional value in non-optional array",
                 )
 
         return Type.Boolean()

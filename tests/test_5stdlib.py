@@ -2097,3 +2097,41 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Optional element types: Array[T?] with T, T?, and None
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_optional_elements {
+            input {
+                Array[String?] samples = ["foo", "bar", None]
+                String name = "bar"
+                String? maybe_baz = "baz"
+            }
+            command {}
+            output {
+                # String in Array[String?] is allowed
+                Boolean has_bar = contains(samples, name)
+                # String? in Array[String?] is allowed
+                Boolean has_baz = contains(samples, maybe_baz)
+                # None in Array[String?] is allowed
+                Boolean has_null = contains(samples, None)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_bar"], True)
+        self.assertEqual(outputs["has_baz"], False)
+        self.assertEqual(outputs["has_null"], True)
+
+        # Error: optional value in non-optional array
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Int? maybe_num = 5
+            }
+            command {}
+            output {
+                Boolean x = contains([1, 2, 3], maybe_num)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
