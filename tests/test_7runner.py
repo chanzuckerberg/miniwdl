@@ -711,12 +711,13 @@ class TestDownload(RunnerTestCase):
         """
 
         # uncached
-        inp = {"dir": "gs://genomics-public-data/ftp-trace.ncbi.nih.gov/1000genomes/ftp/phase3/integrated_sv_map/supporting/breakpoints/"}
+        # Use a small public gs:// directory that remains available.
+        inp = {"dir": "gs://gcp-public-data--gnomad/papers/2019-flagship-lof/v1.1/misc_files"}
         outp = self._run(wdl6, inp, task="directory_files")
-        self.assertEqual(len(outp["files"]), 4)
+        self.assertEqual(len(outp["files"]), 3)
 
         outp = self._run(wdl6, inp)
-        self.assertEqual(outp["file_count"], 4)
+        self.assertEqual(outp["file_count"], 3)
         logs = [str(record.msg) for record in capture.records]
 
         # cached
@@ -738,7 +739,7 @@ class TestDownload(RunnerTestCase):
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
         outp = self._run(wdl6, inp, task="directory_files", cfg=cfg)
-        self.assertEqual(len(outp["files"]), 4)
+        self.assertEqual(len(outp["files"]), 3)
         new_logs = [str(record.msg) for record in capture.records][len(logs):]
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
