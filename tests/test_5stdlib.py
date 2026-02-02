@@ -1980,3 +1980,120 @@ class TestStdLib(unittest.TestCase):
                 }
             }
             """)
+
+    def test_contains(self):
+        """Test the contains() function from WDL 1.2"""
+
+        # Basic functionality
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains {
+            command {}
+            output {
+                Boolean has_2 = contains([1, 2, 3], 2)
+                Boolean has_5 = contains([1, 2, 3], 5)
+                Boolean has_foo = contains(["foo", "bar"], "foo")
+                Boolean has_baz = contains(["foo", "bar"], "baz")
+                Boolean empty = contains([], 42)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_2"], True)
+        self.assertEqual(outputs["has_5"], False)
+        self.assertEqual(outputs["has_foo"], True)
+        self.assertEqual(outputs["has_baz"], False)
+        self.assertEqual(outputs["empty"], False)
+
+        # Type coercion - Int in Float array
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_coercion {
+            command {}
+            output {
+                Boolean int_in_float_array = contains([1.0, 2.0], 1)
+                Boolean float_in_float_array = contains([1.5, 2.5], 1.5)
+            }
+        }
+        """)
+        self.assertEqual(outputs["int_in_float_array"], True)
+        self.assertEqual(outputs["float_in_float_array"], True)
+
+        # Pair and complex types
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_pairs {
+            command {}
+            output {
+                Boolean has_pair = contains([(1, "a"), (2, "b")], (2, "b"))
+                Boolean no_pair = contains([(1, "a"), (2, "b")], (3, "c"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_pair"], True)
+        self.assertEqual(outputs["no_pair"], False)
+
+        # Error: wrong arity (too few arguments)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2])
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: wrong arity (too many arguments)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2], 1, 2)
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2], 1)
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: not available in WDL 1.0
+        self._test_task(R"""
+        version 1.0
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2], 1)
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: type mismatch (String in Int array)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2], "string")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: first argument not an array
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains("not an array", "x")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)

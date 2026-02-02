@@ -40,7 +40,6 @@ wdl-1.2:
     - join_paths_task.wdl
     - one_mount_point_task.wdl
     - string_to_file.wdl
-    - test_contains.wdl
     - test_find_task.wdl
     - test_keys.wdl
     - test_matches_task.wdl

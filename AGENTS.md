@@ -2,7 +2,7 @@ You're working on the source code for `miniwdl`, the Workflow Description Langua
 
 Read `CONTRIBUTING.md` for an overview of the codebase and development workflow. In particular:
 - If you're not started in a suitable virtualenv, bootstrap one under `venv/`.
-- Python code should be linted with `mypy`, `ruff check --fix`, and `ruff format`.
+- Formatting and linting (apply routinely for Python diffs): `make pretty` and `make check`.
 - Testing guidelines:
     - The test suite assumes access to the Internet and dockerd (via unix socket), so make sure you have the necessary user permissions before proceeding.
     - While iterating on a task, it's usually best to run a targeted set of test cases that turns around quickly.
