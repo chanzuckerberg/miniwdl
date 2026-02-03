@@ -221,7 +221,7 @@ def write_values_json(
             values_to_json(values_env, namespace=namespace),
             indent=2,
             sort_keys=True,
-            extended_syntax=True,
+            extended_format=True,
         ),
         filename,
     )
