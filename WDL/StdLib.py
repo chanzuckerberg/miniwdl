@@ -151,6 +151,7 @@ class Base:
         if self.wdl_version not in ["draft-2", "1.0", "1.1"]:
             # WDL 1.2+ functions
             self.contains = _Contains()
+            self.values = _Values()
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -1071,6 +1072,31 @@ class _Keys(EagerFunction):
         assert isinstance(mapty, Type.Map)
         return Value.Array(
             mapty.item_type[0], [p[0].coerce(mapty.item_type[0]) for p in arguments[0].value], expr
+        )
+
+
+class _Values(EagerFunction):
+    # Array[Y] values(Map[P, Y])
+    # Returns an array of values from a Map
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+        if not isinstance(arg0ty, Type.Map) or (expr._check_quant and arg0ty.optional):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Map((Type.Any(), Type.Any())), arg0ty
+            )
+        # For Map[P, Y], return Array[Y]
+        return Type.Array(arg0ty.item_type[1].copy())
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert isinstance(arguments[0], Value.Map)
+        mapty = arguments[0].type
+        assert isinstance(mapty, Type.Map)
+        # Return the values (p[1]) from the map
+        return Value.Array(
+            mapty.item_type[1], [p[1].coerce(mapty.item_type[1]) for p in arguments[0].value], expr
         )
 
 

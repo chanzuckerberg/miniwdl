@@ -1907,6 +1907,108 @@ class TestStdLib(unittest.TestCase):
             }
             """)
 
+    def test_values(self):
+        """Test the values() function from WDL 1.2"""
+
+        # Basic functionality with different value types
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_values {
+            input {
+                Map[String, Int] m1 = {"a": 1, "b": 2, "c": 3}
+                Map[Int, String] m2 = {1: "one", 2: "two"}
+                Map[String, Pair[Int, Int]] m3 = {
+                    "a": (1, 2),
+                    "b": (3, 4)
+                }
+            }
+            command {}
+            output {
+                Array[Int] v1 = values(m1)
+                Array[String] v2 = values(m2)
+                Array[Pair[Int, Int]] v3 = values(m3)
+                Array[Boolean] v4 = values({})
+            }
+        }
+        """)
+        self.assertEqual(outputs["v1"], [1, 2, 3])
+        self.assertEqual(outputs["v2"], ["one", "two"])
+        self.assertEqual(outputs["v3"], [{"left": 1, "right": 2}, {"left": 3, "right": 4}])
+        self.assertEqual(outputs["v4"], [])
+
+        # Complex nested types
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_values_complex {
+            input {
+                Map[String, Array[Int]] nested = {
+                    "x": [1, 2],
+                    "y": [3, 4, 5]
+                }
+            }
+            command {}
+            output {
+                Array[Array[Int]] vals = values(nested)
+            }
+        }
+        """)
+        self.assertEqual(outputs["vals"], [[1, 2], [3, 4, 5]])
+
+        # Error: wrong arity (too few arguments)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values()
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: wrong arity (too many arguments)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values({"a": 1}, {"b": 2})
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values({"a": 1})
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: not available in WDL 1.0
+        self._test_task(R"""
+        version 1.0
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values({"a": 1})
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: first argument not a map
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values([1, 2, 3])
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
     def test_map_pairs(self):
         outputs = self._test_task(R"""
         version development
