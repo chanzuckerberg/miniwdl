@@ -41,7 +41,6 @@ wdl-1.2:
     - one_mount_point_task.wdl
     - string_to_file.wdl
     - test_find_task.wdl
-    - test_keys.wdl
     - test_matches_task.wdl
     - test_runtime_info_task.wdl
     - test_select_first.wdl

@@ -1907,6 +1907,55 @@ class TestStdLib(unittest.TestCase):
             }
             """)
 
+        # Test keys() with structs (WDL 1.2+)
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Person {
+            String first
+            String last
+            Int age
+        }
+        task test_keys_struct {
+            input {
+                Person p = Person {
+                    first: "John",
+                    last: "Doe",
+                    age: 30
+                }
+            }
+            command {}
+            output {
+                Array[String] person_keys = keys(p)
+            }
+        }
+        """)
+        # Keys should be in the order they appear in the struct definition
+        self.assertEqual(outputs["person_keys"], ["first", "last", "age"])
+
+        # Test keys() with struct including optional members
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Contact {
+            String name
+            String? email
+            String? phone
+        }
+        task test_keys_optional {
+            input {
+                Contact c = Contact {
+                    name: "Alice",
+                    email: "alice@example.com"
+                }
+            }
+            command {}
+            output {
+                Array[String] contact_keys = keys(c)
+            }
+        }
+        """)
+        # Should include all members, even optional ones that are None
+        self.assertEqual(outputs["contact_keys"], ["name", "email", "phone"])
+
     def test_map_pairs(self):
         outputs = self._test_task(R"""
         version development
