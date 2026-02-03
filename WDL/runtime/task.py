@@ -300,7 +300,7 @@ def _download_input_files(
     def rewriter(v: Union[Value.Directory, Value.File]) -> str:
         nonlocal downloads, download_bytes, cached_hits
         directory = isinstance(v, Value.Directory)
-        uri = v.value
+        uri = v.value["location"]
         if downloadable(cfg, uri, directory=directory):
             logger.info(_(f"download input {'directory' if directory else 'file'}", uri=uri))
             cached, filename = download(
@@ -391,7 +391,7 @@ def _eval_task_inputs(
 
     # copy posix_inputs with all File & Directory values mapped to their in-container paths
     def map_paths(fn: Union[Value.File, Value.Directory]) -> str:
-        p = fn.value.rstrip("/")
+        p = fn.value["location"].rstrip("/")
         if isinstance(fn, Value.Directory):
             p += "/"
         return container.input_path_map[p]
@@ -454,10 +454,10 @@ def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
 
     def collector(v: Value.Base) -> None:
         if isinstance(v, Value.File):
-            assert not v.value.endswith("/")
-            ans.add(v.value)
+            assert not v.value["location"].endswith("/")
+            ans.add(v.value["location"])
         elif isinstance(v, Value.Directory):
-            ans.add(v.value.rstrip("/") + "/")
+            ans.add(v.value["location"].rstrip("/") + "/")
         for ch in v.children:
             collector(ch)
 
@@ -688,7 +688,7 @@ def _eval_task_outputs(
     # Helpers to rewrite File/Directory from in-container paths to host paths
     # First pass -- convert nonexistent output paths to None/Null
     def rewriter1(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
-        container_path = v.value
+        container_path = v.value["location"]
         if isinstance(v, Value.Directory) and not container_path.endswith("/"):
             container_path += "/"
         if container.host_path(container_path) is None:
@@ -700,11 +700,11 @@ def _eval_task_outputs(
                 )
             )
             return None
-        return v.value
+        return v.value["location"]
 
     # Second pass -- convert in-container paths to host paths
     def rewriter2(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
-        container_path = v.value
+        container_path = v.value["location"]
         if isinstance(v, Value.Directory) and not container_path.endswith("/"):
             container_path += "/"
         host_path = container.host_path(container_path)
@@ -830,9 +830,9 @@ def link_outputs(
     def map_paths(v: Value.Base, dn: str) -> Value.Base:
         if isinstance(v, (Value.File, Value.Directory)):
             target = (
-                v.value
-                if os.path.exists(v.value)
-                else cache.get_download(v.value, isinstance(v, Value.Directory))
+                v.value["location"]
+                if os.path.exists(v.value["location"])
+                else cache.get_download(v.value["location"], isinstance(v, Value.Directory))
             )
             if target:
                 target = os.path.realpath(target)
@@ -840,7 +840,7 @@ def link_outputs(
                 if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
                     # make symlink relative
                     target = os.path.relpath(target, start=os.path.realpath(dn))
-                link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
+                link = os.path.join(dn, os.path.basename(v.value["location"].rstrip("/")))
                 os.makedirs(dn, exist_ok=False)
                 link1(target, link, isinstance(v, Value.Directory))
                 # Drop a dotfile alongside Directory outputs, to inform a program crawling the out/
@@ -850,7 +850,7 @@ def link_outputs(
                 if isinstance(v, Value.Directory):
                     with open(os.path.join(dn, ".WDL_Directory"), "w") as _dotfile:
                         pass
-                v.value = link
+                v.value["location"] = link
         # recurse into compound values
         elif isinstance(v, Value.Array) and v.value:
             d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
@@ -898,7 +898,7 @@ def link_outputs(
         lambda binding: Env.Binding(
             binding.name,
             map_paths(
-                Value.rewrite_paths(binding.value, lambda v: v.value),  # nop to deep copy
+                Value.rewrite_paths(binding.value, lambda v: v.value["location"]),  # nop to deep copy
                 os.path.join(run_dir, "out", binding.name),
             ),
         )
@@ -920,9 +920,9 @@ def link_outputs_relative(
 
     def map_path_relative(v: Union[Value.File, Value.Directory]) -> str:
         target = (
-            v.value
-            if os.path.exists(v.value)
-            else cache.get_download(v.value, isinstance(v, Value.Directory))
+            v.value["location"]
+            if os.path.exists(v.value["location"])
+            else cache.get_download(v.value["location"], isinstance(v, Value.Directory))
         )
         if target:
             real_target = os.path.realpath(target)
@@ -962,7 +962,7 @@ def link_outputs_relative(
             link1(real_target, abs_link, isinstance(v, Value.Directory))
             link_destinations[abs_link] = real_target
             return abs_link
-        return v.value
+        return v.value["location"]
 
     return Value.rewrite_env_paths(outputs, map_path_relative)
 
@@ -973,12 +973,12 @@ def _warn_output_basename_collisions(
     targets_by_basename: Dict[str, Set[str]] = {}
 
     def walker(v: Union[Value.File, Value.Directory]) -> str:
-        target = v.value
+        target = v.value["location"]
         if os.path.exists(target):
             target = os.path.realpath(target)
         basename = os.path.basename(target)
         targets_by_basename.setdefault(basename, set()).add(target)
-        return v.value
+        return v.value["location"]
 
     Value.rewrite_env_paths(outputs, walker)
 
