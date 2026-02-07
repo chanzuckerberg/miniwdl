@@ -209,8 +209,10 @@ def _compound_coercion(
         if predicates:
             return predicates(to_type, from_type)
         if not from_type_predicate:
-            from_type_predicate = lambda ty: not isinstance(  # noqa: E731
-                ty, (base_to_type, Type.Any)
+            from_type_predicate = lambda ty: (
+                not isinstance(  # noqa: E731
+                    ty, (base_to_type, Type.Any)
+                )
             )
         return from_type_predicate(from_type)
     return False
@@ -238,13 +240,15 @@ class StringCoercion(Linter):
             obj.type,
             obj.expr.type,
             (Type.String,),
-            lambda from_type: not isinstance(
-                from_type,
-                (
-                    (Type.Any, Type.String, Type.File, Type.Directory)
-                    if isinstance(_parent_executable(obj), Tree.Task)
-                    else (Type.Any, Type.String)
-                ),
+            lambda from_type: (
+                not isinstance(
+                    from_type,
+                    (
+                        (Type.Any, Type.String, Type.File, Type.Directory)
+                        if isinstance(_parent_executable(obj), Tree.Task)
+                        else (Type.Any, Type.String)
+                    ),
+                )
             ),
         ):
             self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
@@ -300,18 +304,20 @@ class StringCoercion(Linter):
                             F_i,
                             arg_i.type,
                             (Type.String,),
-                            lambda from_type: not isinstance(
-                                from_type,
-                                (
+                            lambda from_type: (
+                                not isinstance(
+                                    from_type,
                                     (
-                                        Type.Any,
-                                        Type.String,
-                                        Type.File,
-                                        Type.Directory,
-                                    )
-                                    if isinstance(_parent_executable(obj), Tree.Task)
-                                    else (Type.Any, Type.String)
-                                ),
+                                        (
+                                            Type.Any,
+                                            Type.String,
+                                            Type.File,
+                                            Type.Directory,
+                                        )
+                                        if isinstance(_parent_executable(obj), Tree.Task)
+                                        else (Type.Any, Type.String)
+                                    ),
+                                )
                             ),
                         ):
                             msg = "{} argument of {}() = :{}:".format(
@@ -465,8 +471,10 @@ class UnverifiedStruct(Linter):
             obj.type,
             obj.expr.type,
             (Type.StructInstance,),
-            lambda from_type: isinstance(from_type, Type.Any)
-            or (isinstance(from_type, Type.Map) and from_type.literal_keys is None),
+            lambda from_type: (
+                isinstance(from_type, Type.Any)
+                or (isinstance(from_type, Type.Map) and from_type.literal_keys is None)
+            ),
         ):
             self.add(
                 obj,
@@ -482,8 +490,10 @@ class UnverifiedStruct(Linter):
                 decl.type,
                 inp_expr.type,
                 (Type.StructInstance,),
-                lambda from_type: isinstance(from_type, Type.Any)
-                or (isinstance(from_type, Type.Map) and from_type.literal_keys is None),
+                lambda from_type: (
+                    isinstance(from_type, Type.Any)
+                    or (isinstance(from_type, Type.Map) and from_type.literal_keys is None)
+                ),
             ):
                 msg = "input {} {} = :{}: -- struct initializer isn't statically verified".format(
                     str(decl.type), decl.name, str(inp_expr.type)
