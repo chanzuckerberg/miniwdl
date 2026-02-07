@@ -72,4 +72,8 @@ write_to = "WDL/_version.py"
 mypy_path = "${MYPY_CONFIG_FILE_DIR}/stubs"
 
 [tool.ruff]
+line-length = 100
 exclude = ["WDL/_version.py"]
+
+[tool.ruff.lint]
+ignore = ["E741", "E731"]
