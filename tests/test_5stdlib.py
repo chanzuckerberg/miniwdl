@@ -1977,6 +1977,101 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.StaticTypeMismatch)
 
+        # Error: optional Map argument
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int]? m = {"a": 1}
+            }
+            command {}
+            output {
+                Array[String] k = keys(m)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: optional Struct argument
+        self._test_task(R"""
+        version 1.2
+        struct Person {
+            String first
+            String last
+        }
+        task bad {
+            input {
+                Person? p = Person {
+                    first: "John",
+                    last: "Doe"
+                }
+            }
+            command {}
+            output {
+                Array[String] k = keys(p)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Test keys() with read_json coerced to Map
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_keys_from_json_map {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Map[String, Int] data = read_json("data.json")
+                Array[String] json_keys = keys(data)
+            }
+        }
+        """)
+        # Map keys may not be in guaranteed order depending on implementation
+        self.assertEqual(sorted(outputs["json_keys"]), ["x", "y", "z"])
+
+        # Test keys() with read_json coerced to Struct
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Data {
+            Int x
+            Int y
+            Int z
+        }
+        task test_keys_from_json_struct {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Data data = read_json("data.json")
+                Array[String] json_keys = keys(data)
+            }
+        }
+        """)
+        # Struct keys are in definition order
+        self.assertEqual(outputs["json_keys"], ["x", "y", "z"])
+
+        # Error: keys(read_json()) without type coercion fails
+        # read_json() returns Any, which is not a concrete Map/Struct/Object type
+        self._test_task(R"""
+        version 1.2
+        struct Data {
+            Int x
+            Int y
+            Int z
+        }
+        task bad {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Note: The fallback path for Type.Object (line 1125-1126 in StdLib.py) is defensive code
+        # that may be hit during coercion from read_json, though it's hard to isolate in testing.
+        # The runtime error path (unexpected argument type) should be prevented by static type checking.
+
     def test_map_pairs(self):
         outputs = self._test_task(R"""
         version development
