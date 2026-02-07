@@ -143,7 +143,7 @@ class Base:
             self.max = _ArithmeticOperator("max", lambda l, r: max(l, r))
             self.quote = _Quote()
             self.squote = _Quote(squote=True)
-            self.keys = _Keys()
+            self.keys = _Keys(wdl_version=self.wdl_version)
             self.as_map = _AsMap()
             self.as_pairs = _AsPairs()
             self.collect_by_key = _CollectByKey()
@@ -1056,8 +1056,12 @@ class _Quote(EagerFunction):
 
 class _Keys(EagerFunction):
     # Array[P] keys(Map[P, Y])
-    # Array[String] keys(Struct|Object)
+    # Array[String] keys(Struct|Object)  [WDL 1.2+]
     # Returns an array of keys from a Map, Struct, or Object
+
+    def __init__(self, wdl_version: str):
+        super().__init__()
+        self.wdl_version = wdl_version
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
@@ -1073,6 +1077,16 @@ class _Keys(EagerFunction):
             # For Map[P, Y], return Array[P]
             return Type.Array(arg0ty.item_type[0].copy())
         elif isinstance(arg0ty, (Type.StructInstance, Type.Object)):
+            # Struct/Object support added in WDL 1.2
+            if self.wdl_version in ["draft-2", "1.0", "1.1"]:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[0],
+                    Type.Map((Type.Any(), Type.Any())),
+                    arg0ty,
+                    "keys() does not accept Struct or Object in WDL version {}".format(
+                        self.wdl_version
+                    ),
+                )
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), arg0ty)
             # For Struct or Object, return Array[String]

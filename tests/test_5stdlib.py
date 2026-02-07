@@ -1956,6 +1956,27 @@ class TestStdLib(unittest.TestCase):
         # Should include all members, even optional ones that are None
         self.assertEqual(outputs["contact_keys"], ["name", "email", "phone"])
 
+        # Error: keys(Struct) not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        struct Person {
+            String first
+            String last
+        }
+        task bad {
+            input {
+                Person p = Person {
+                    first: "John",
+                    last: "Doe"
+                }
+            }
+            command {}
+            output {
+                Array[String] k = keys(p)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
     def test_map_pairs(self):
         outputs = self._test_task(R"""
         version development
