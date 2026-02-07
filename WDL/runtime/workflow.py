@@ -179,11 +179,13 @@ class StateMachine:
         # allow the supplied None to override any default.
         input_decls = workflow.available_inputs
         self.inputs = self.inputs.filter(
-            lambda b: not (
-                isinstance(b.value, Value.Null)
-                and b.name in input_decls
-                and input_decls[b.name].expr
-                and not input_decls[b.name].type.optional
+            lambda b: (
+                not (
+                    isinstance(b.value, Value.Null)
+                    and b.name in input_decls
+                    and input_decls[b.name].expr
+                    and not input_decls[b.name].type.optional
+                )
             )
         )
 

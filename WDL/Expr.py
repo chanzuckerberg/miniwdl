@@ -79,8 +79,8 @@ class Base(SourceNode, ABC):
                 assert isinstance(child, Base)
                 errors.try1(
                     (
-                        lambda child: lambda: child.infer_type(
-                            type_env, stdlib, check_quant, struct_types
+                        lambda child: (
+                            lambda: child.infer_type(type_env, stdlib, check_quant, struct_types)
                         )
                     )(child)
                 )

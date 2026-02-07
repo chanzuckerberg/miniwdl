@@ -43,9 +43,9 @@ ci_housekeeping: check_check check doc
 ci_unit_tests: unit_tests
 
 check:
-	ruff check --ignore E741 WDL
+	ruff check WDL
 	mypy WDL
-	ruff format --check --line-length 100 WDL
+	ruff format --check WDL
 
 check_check:
 	# regression test against pyre/mypy doing nothing (issue #100)
@@ -54,7 +54,7 @@ check_check:
 	rm WDL/DELETEME_check_check.py
 
 pretty:
-	ruff format --line-length 100 WDL
+	ruff format WDL
 
 # build docker image with current source tree, poised to run tests e.g.:
 #   docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v /tmp:/tmp miniwdl

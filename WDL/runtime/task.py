@@ -377,11 +377,13 @@ def _eval_task_inputs(
     # supplied None to override any default.
     input_decls = task.available_inputs
     posix_inputs = posix_inputs.filter(
-        lambda b: not (
-            isinstance(b.value, Value.Null)
-            and b.name in input_decls
-            and input_decls[b.name].expr
-            and not input_decls[b.name].type.optional
+        lambda b: (
+            not (
+                isinstance(b.value, Value.Null)
+                and b.name in input_decls
+                and input_decls[b.name].expr
+                and not input_decls[b.name].type.optional
+            )
         )
     )
 
