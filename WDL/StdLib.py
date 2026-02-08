@@ -67,7 +67,8 @@ class Base:
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
         static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
-        static([Type.Array(Type.Any())], Type.Int(), "length")(lambda v: Value.Int(len(v.value)))
+        # length() is now defined as _Length class to support Map/Struct/Any from read_json()
+        self.length = _Length()
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
         def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
@@ -1069,7 +1070,7 @@ class _Keys(EagerFunction):
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
 
-        # Accept Map, StructInstance, or Object
+        # Accept Map, StructInstance, Object, or Any (for read_json() compatibility)
         if isinstance(arg0ty, Type.Map):
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(
@@ -1092,12 +1093,16 @@ class _Keys(EagerFunction):
                 raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), arg0ty)
             # For Struct or Object, return Array[String]
             return Type.Array(Type.String())
+        elif isinstance(arg0ty, Type.Any):
+            # Allow Any type (e.g., from read_json()) - will be checked at runtime
+            # Return Array[String] since we can't determine key type statically
+            return Type.Array(Type.String())
         else:
             raise Error.StaticTypeMismatch(
                 expr.arguments[0],
                 Type.Map((Type.Any(), Type.Any())),
                 arg0ty,
-                "keys() requires Map, Struct, or Object",
+                "keys() requires Map, Struct, Object, or the result of read_json()",
             )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
@@ -1127,7 +1132,11 @@ class _Keys(EagerFunction):
                 keys = list(arg.value.keys())
             return Value.Array(Type.String(), [Value.String(k) for k in keys], expr)
         else:
-            raise Error.EvalError(expr, f"keys() received unexpected argument type: {type(arg)}")
+            raise Error.EvalError(
+                expr,
+                f"keys() requires a Map, Struct, or Object; got {arg.type} instead"
+                + " (if this came from read_json(), the JSON value is not an object/map)",
+            )
 
 
 class _Values(EagerFunction):
@@ -1153,6 +1162,47 @@ class _Values(EagerFunction):
         return Value.Array(
             mapty.item_type[1], [p[1].coerce(mapty.item_type[1]) for p in arguments[0].value], expr
         )
+
+
+class _Length(EagerFunction):
+    # Int length(Array[X]|Map[X,Y]|Struct)
+    # Returns the length of an Array, Map, or Struct (number of members)
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+
+        # Accept Array, Map, Struct, or Any (for read_json() compatibility)
+        if isinstance(arg0ty, (Type.Array, Type.Map, Type.StructInstance)):
+            if expr._check_quant and arg0ty.optional:
+                raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
+            return Type.Int()
+        elif isinstance(arg0ty, Type.Any):
+            # Allow Any type (e.g., from read_json()) - will be checked at runtime
+            return Type.Int()
+        else:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Array(Type.Any()),
+                arg0ty,
+                "length() requires Array, Map, Struct, or the result of read_json()",
+            )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        arg = arguments[0]
+
+        if isinstance(arg, (Value.Array, Value.Map)):
+            return Value.Int(len(arg.value))
+        elif isinstance(arg, Value.Struct):
+            # For structs, return the number of members
+            return Value.Int(len(arg.value))
+        else:
+            raise Error.EvalError(
+                expr,
+                f"length() requires an Array, Map, or Struct; got {arg.type} instead"
+                + " (if this came from read_json(), the JSON value is not an array/object/map)",
+            )
 
 
 class _AsPairs(EagerFunction):

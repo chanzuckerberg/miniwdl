@@ -153,6 +153,86 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+        # Test length() with Maps
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_map {
+            input {
+                Map[String, Int] m = {"a": 1, "b": 2, "c": 3}
+            }
+            command {}
+            output {
+                Int map_len = length(m)
+            }
+        }
+        """)
+        self.assertEqual(outputs["map_len"], 3)
+
+        # Test length() with Structs
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Person {
+            String first
+            String last
+            Int age
+        }
+        task test_length_struct {
+            input {
+                Person p = Person {
+                    first: "John",
+                    last: "Doe",
+                    age: 30
+                }
+            }
+            command {}
+            output {
+                Int struct_len = length(p)
+            }
+        }
+        """)
+        self.assertEqual(outputs["struct_len"], 3)
+
+        # Test length(read_json()) on array
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_json_array {
+            command <<<
+                echo '[1, 2, 3, 4, 5]' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["len"], 5)
+
+        # Test length(read_json()) on object
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_json_object {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["len"], 3)
+
+        # Error: length(read_json()) with non-collection JSON
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '"hello"' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
     def test_floor_ceil_round(self):
         outputs = self._test_task(R"""
         version 1.0
@@ -2049,16 +2129,10 @@ class TestStdLib(unittest.TestCase):
         # Struct keys are in definition order
         self.assertEqual(outputs["json_keys"], ["x", "y", "z"])
 
-        # Error: keys(read_json()) without type coercion fails
-        # read_json() returns Any, which is not a concrete Map/Struct/Object type
-        self._test_task(R"""
+        # Test keys(read_json()) directly without type coercion - now works!
+        outputs = self._test_task(R"""
         version 1.2
-        struct Data {
-            Int x
-            Int y
-            Int z
-        }
-        task bad {
+        task test_keys_direct_json {
             command <<<
                 echo '{"x": 1, "y": 2, "z": 3}' > data.json
             >>>
@@ -2066,7 +2140,21 @@ class TestStdLib(unittest.TestCase):
                 Array[String] json_keys = keys(read_json("data.json"))
             }
         }
-        """, expected_exception=WDL.Error.StaticTypeMismatch)
+        """)
+        self.assertEqual(sorted(outputs["json_keys"]), ["x", "y", "z"])
+
+        # Error: keys(read_json()) with non-object JSON raises EvalError
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '42' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
         # Note: The fallback path for Type.Object (line 1125-1126 in StdLib.py) is defensive code
         # that may be hit during coercion from read_json, though it's hard to isolate in testing.
