@@ -153,6 +153,7 @@ class Base:
             # WDL 1.2+ functions
             self.contains = _Contains()
             self.values = _Values()
+            self.contains_key = _ContainsKey()
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -1348,3 +1349,175 @@ class _Contains(EagerFunction):
             if elem == item:
                 return Value.Boolean(True)
         return Value.Boolean(False)
+
+
+class _ContainsKey(EagerFunction):
+    # Boolean contains_key(Map[P, Y], P)
+    # Boolean contains_key(Object, String)
+    # Boolean contains_key(Map[String, Y]|Struct|Object, Array[String])
+    # Tests whether a collection contains a given key (or nested key path)
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+
+        coll_ty = expr.arguments[0].type
+        key_ty = expr.arguments[1].type
+
+        # Accept Map, Struct, Object, or Any (from read_json())
+        if isinstance(coll_ty, Type.Map):
+            if expr._check_quant and coll_ty.optional:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[0], Type.Map((Type.Any(), Type.Any())), coll_ty
+                )
+            # Variant 1: Map[P, Y], P - key must match map key type
+            # Variant 3: Map[String, Y], Array[String] - for nested lookup
+            if isinstance(key_ty, Type.Array):
+                # Nested lookup variant - map must have String keys
+                if not isinstance(key_ty.item_type, Type.String):
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[1],
+                        Type.Array(Type.String()),
+                        key_ty,
+                        "for contains_key() nested key path",
+                    )
+                if not isinstance(coll_ty.item_type[0], Type.String):
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[0],
+                        Type.Map((Type.String(), Type.Any())),
+                        coll_ty,
+                        "for contains_key() with nested keys, Map must have String keys",
+                    )
+            else:
+                # Simple key lookup - key type must be equatable with map key type
+                if not key_ty.equatable(coll_ty.item_type[0]):
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[1],
+                        coll_ty.item_type[0],
+                        key_ty,
+                        "for contains_key() key argument",
+                    )
+            return Type.Boolean()
+
+        elif isinstance(coll_ty, (Type.StructInstance, Type.Object)):
+            if expr._check_quant and coll_ty.optional:
+                raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), coll_ty)
+            # Variant 2 or 3: Struct/Object with String or Array[String]
+            if isinstance(key_ty, Type.Array):
+                # Array[String] for nested lookup
+                if not isinstance(key_ty.item_type, Type.String):
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[1],
+                        Type.Array(Type.String()),
+                        key_ty,
+                        "for contains_key() nested key path",
+                    )
+            elif not isinstance(key_ty, Type.String):
+                # Single key must be String
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1], Type.String(), key_ty, "for contains_key() key argument"
+                )
+            return Type.Boolean()
+
+        elif isinstance(coll_ty, Type.Any):
+            # Allow Any (from read_json()) - will be checked at runtime
+            # Accept both String and Array[String] keys
+            if not isinstance(key_ty, (Type.String, Type.Array)):
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1],
+                    Type.String(),
+                    key_ty,
+                    "for contains_key() key must be String or Array[String]",
+                )
+            if isinstance(key_ty, Type.Array) and not isinstance(key_ty.item_type, Type.String):
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1],
+                    Type.Array(Type.String()),
+                    key_ty,
+                    "for contains_key() nested key path",
+                )
+            return Type.Boolean()
+
+        else:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Map((Type.Any(), Type.Any())),
+                coll_ty,
+                "contains_key() requires Map, Struct, Object, or the result of read_json()",
+            )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        coll = arguments[0]
+        key = arguments[1]
+
+        # Handle nested key path (Array[String])
+        if isinstance(key, Value.Array):
+            return self._contains_nested_key(expr, coll, key)
+
+        # Simple key lookup
+        if isinstance(coll, Value.Map):
+            # Check if key exists in map
+            for k, v in coll.value:
+                if key == k:
+                    return Value.Boolean(True)
+            return Value.Boolean(False)
+
+        elif isinstance(coll, Value.Struct):
+            # Check if key exists in struct
+            key_str = key.coerce(Type.String()).value
+            return Value.Boolean(key_str in coll.value)
+
+        else:
+            raise Error.EvalError(
+                expr,
+                f"contains_key() requires a Map, Struct, or Object; got {coll.type} instead"
+                + " (if this came from read_json(), the JSON value is not an object/map)",
+            )
+
+    def _contains_nested_key(
+        self, expr: "Expr.Apply", coll: Value.Base, keys: Value.Array
+    ) -> Value.Boolean:
+        """Handle nested key path lookup: contains_key(collection, ["key1", "key2", ...])"""
+        if not keys.value:
+            # Empty key array
+            return Value.Boolean(False)
+
+        current = coll
+        for key_val in keys.value:
+            key_str = key_val.coerce(Type.String()).value
+
+            # Try to get the value for this key
+            if isinstance(current, Value.Map):
+                # Look for key in map
+                found = False
+                next_val = None
+                for k, v in current.value:
+                    k_str = k.coerce(Type.String()).value
+                    if k_str == key_str:
+                        found = True
+                        next_val = v
+                        break
+                if not found:
+                    return Value.Boolean(False)
+                # Check if value is None
+                assert next_val is not None  # mypy: we returned False if not found
+                if isinstance(next_val, Value.Null):
+                    return Value.Boolean(False)
+                current = next_val
+
+            elif isinstance(current, Value.Struct):
+                # Look for key in struct
+                if key_str not in current.value:
+                    return Value.Boolean(False)
+                next_val = current.value[key_str]
+                # Check if value is None
+                if isinstance(next_val, Value.Null):
+                    return Value.Boolean(False)
+                current = next_val
+
+            else:
+                # Current value is not a collection
+                return Value.Boolean(False)
+
+        # Successfully navigated the entire key path
+        return Value.Boolean(True)

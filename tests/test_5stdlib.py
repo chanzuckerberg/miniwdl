@@ -2490,3 +2490,218 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+    def test_contains_key(self):
+        """Test the contains_key() function from WDL 1.2"""
+
+        # Basic Map key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_map {
+            input {
+                Map[String, Int] m = {"a": 1, "b": 2, "c": 3}
+            }
+            command {}
+            output {
+                Boolean has_a = contains_key(m, "a")
+                Boolean has_d = contains_key(m, "d")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a"], True)
+        self.assertEqual(outputs["has_d"], False)
+
+        # Map with Int keys
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_int_map {
+            input {
+                Map[Int, String] m = {1: "one", 2: "two"}
+            }
+            command {}
+            output {
+                Boolean has_1 = contains_key(m, 1)
+                Boolean has_3 = contains_key(m, 3)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_1"], True)
+        self.assertEqual(outputs["has_3"], False)
+
+        # Struct key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Person {
+            String name
+            Int age
+            String? email
+        }
+        task test_contains_key_struct {
+            input {
+                Person p = Person {
+                    name: "Alice",
+                    age: 30
+                }
+            }
+            command {}
+            output {
+                Boolean has_name = contains_key(p, "name")
+                Boolean has_email = contains_key(p, "email")
+                Boolean has_phone = contains_key(p, "phone")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_name"], True)
+        self.assertEqual(outputs["has_email"], True)  # Optional members are present
+        self.assertEqual(outputs["has_phone"], False)
+
+        # Nested key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested {
+            input {
+                Map[String, Map[String, Int]] nested = {
+                    "a": {"x": 1, "y": 2},
+                    "b": {"z": 3}
+                }
+            }
+            command {}
+            output {
+                Boolean has_a_x = contains_key(nested, ["a", "x"])
+                Boolean has_a_z = contains_key(nested, ["a", "z"])
+                Boolean has_b_z = contains_key(nested, ["b", "z"])
+                Boolean has_c_x = contains_key(nested, ["c", "x"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_x"], True)
+        self.assertEqual(outputs["has_a_z"], False)
+        self.assertEqual(outputs["has_b_z"], True)
+        self.assertEqual(outputs["has_c_x"], False)
+
+        # Nested key lookup with Struct
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Details {
+            String? phone
+            String? email
+        }
+        struct Person {
+            String name
+            Details? details
+        }
+        task test_contains_key_nested_struct {
+            input {
+                Person p1 = Person {
+                    name: "John",
+                    details: Details {
+                        phone: "123-456-7890"
+                    }
+                }
+                Person p2 = Person {
+                    name: "Jane"
+                }
+            }
+            command {}
+            output {
+                Boolean p1_has_details_phone = contains_key(p1, ["details", "phone"])
+                Boolean p1_has_details_email = contains_key(p1, ["details", "email"])
+                Boolean p2_has_details_phone = contains_key(p2, ["details", "phone"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["p1_has_details_phone"], True)
+        self.assertEqual(outputs["p1_has_details_email"], False)  # details.email is None
+        self.assertEqual(outputs["p2_has_details_phone"], False)  # p2.details is None
+
+        # contains_key(read_json()) direct usage
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_json {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Boolean has_x = contains_key(read_json("data.json"), "x")
+                Boolean has_w = contains_key(read_json("data.json"), "w")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_x"], True)
+        self.assertEqual(outputs["has_w"], False)
+
+        # contains_key(read_json()) with nested keys
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_json_nested {
+            command <<<
+                echo '{"a": {"x": 1, "y": 2}, "b": {"z": 3}}' > data.json
+            >>>
+            output {
+                Boolean has_a_x = contains_key(read_json("data.json"), ["a", "x"])
+                Boolean has_a_z = contains_key(read_json("data.json"), ["a", "z"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_x"], True)
+        self.assertEqual(outputs["has_a_z"], False)
+
+        # Error: wrong arity
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key({"a": 1})
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key({"a": 1}, "a")
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: key type mismatch
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[Int, String] m = {1: "one"}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, "one")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: first argument not a collection
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key("not a map", "key")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: contains_key(read_json()) with non-collection JSON
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '42' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(read_json("data.json"), "key")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
