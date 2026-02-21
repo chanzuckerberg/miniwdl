@@ -67,7 +67,7 @@ class Base:
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
         static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
-        # length() is now defined as _Length class to support Map/Struct/Any from read_json()
+        # length() is now defined as _Length class to support Map/Struct/Any
         self.length = _Length()
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
@@ -1071,7 +1071,7 @@ class _Keys(EagerFunction):
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
 
-        # Accept Map, StructInstance, Object, or Any (for read_json() compatibility)
+        # Accept Map, StructInstance, Object, or Any
         if isinstance(arg0ty, Type.Map):
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(
@@ -1095,15 +1095,14 @@ class _Keys(EagerFunction):
             # For Struct or Object, return Array[String]
             return Type.Array(Type.String())
         elif isinstance(arg0ty, Type.Any):
-            # Allow Any type (e.g., from read_json()) - will be checked at runtime
-            # Return Array[String] since we can't determine key type statically
+            # Allow Any type - will be checked at runtime
             return Type.Array(Type.String())
         else:
             raise Error.StaticTypeMismatch(
                 expr.arguments[0],
                 Type.Map((Type.Any(), Type.Any())),
                 arg0ty,
-                "keys() requires Map, Struct, Object, or the result of read_json()",
+                "keys() requires Map, Struct, or Object",
             )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
@@ -1135,8 +1134,7 @@ class _Keys(EagerFunction):
         else:
             raise Error.EvalError(
                 expr,
-                f"keys() requires a Map, Struct, or Object; got {arg.type} instead"
-                + " (if this came from read_json(), the JSON value is not an object/map)",
+                f"keys() requires a Map, Struct, or Object; got {arg.type} instead",
             )
 
 
@@ -1174,20 +1172,20 @@ class _Length(EagerFunction):
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
 
-        # Accept Array, Map, Struct, or Any (for read_json() compatibility)
+        # Accept Array, Map, Struct, or Any
         if isinstance(arg0ty, (Type.Array, Type.Map, Type.StructInstance)):
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
             return Type.Int()
         elif isinstance(arg0ty, Type.Any):
-            # Allow Any type (e.g., from read_json()) - will be checked at runtime
+            # Allow Any type - will be checked at runtime
             return Type.Int()
         else:
             raise Error.StaticTypeMismatch(
                 expr.arguments[0],
                 Type.Array(Type.Any()),
                 arg0ty,
-                "length() requires Array, Map, Struct, or the result of read_json()",
+                "length() requires Array, Map, or Struct",
             )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
@@ -1201,8 +1199,7 @@ class _Length(EagerFunction):
         else:
             raise Error.EvalError(
                 expr,
-                f"length() requires an Array, Map, or Struct; got {arg.type} instead"
-                + " (if this came from read_json(), the JSON value is not an array/object/map)",
+                f"length() requires an Array, Map, or Struct; got {arg.type} instead",
             )
 
 
@@ -1364,7 +1361,7 @@ class _ContainsKey(EagerFunction):
         coll_ty = expr.arguments[0].type
         key_ty = expr.arguments[1].type
 
-        # Accept Map, Struct, Object, or Any (from read_json())
+        # Accept Map, Struct, Object, or Any
         if isinstance(coll_ty, Type.Map):
             if expr._check_quant and coll_ty.optional:
                 raise Error.StaticTypeMismatch(
@@ -1420,7 +1417,7 @@ class _ContainsKey(EagerFunction):
             return Type.Boolean()
 
         elif isinstance(coll_ty, Type.Any):
-            # Allow Any (from read_json()) - will be checked at runtime
+            # Allow Any - will be checked at runtime
             # Accept both String and Array[String] keys
             if not isinstance(key_ty, (Type.String, Type.Array)):
                 raise Error.StaticTypeMismatch(
@@ -1443,7 +1440,7 @@ class _ContainsKey(EagerFunction):
                 expr.arguments[0],
                 Type.Map((Type.Any(), Type.Any())),
                 coll_ty,
-                "contains_key() requires Map, Struct, Object, or the result of read_json()",
+                "contains_key() requires Map, Struct, or Object",
             )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
@@ -1470,8 +1467,7 @@ class _ContainsKey(EagerFunction):
         else:
             raise Error.EvalError(
                 expr,
-                f"contains_key() requires a Map, Struct, or Object; got {coll.type} instead"
-                + " (if this came from read_json(), the JSON value is not an object/map)",
+                f"contains_key() requires a Map, Struct, or Object; got {coll.type} instead",
             )
 
     def _contains_nested_key(
