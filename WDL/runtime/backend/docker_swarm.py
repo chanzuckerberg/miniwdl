@@ -448,19 +448,34 @@ class SwarmContainer(TaskContainer):
             resources = docker.types.Resources(**resources)
         user = None
         if self.cfg["task_runtime"].get_bool("as_user"):
-            user = f"{os.geteuid()}:{os.getegid()}"
+            euid = os.geteuid()
+            egid = os.getegid()
+            if euid > 2147483647 or egid > 2147483647:
+                raise Error.RuntimeError(
+                    f"cannot use --as-me with uid:gid {euid}:{egid}"
+                    " (Docker requires values in range 0-2147483647)"
+                )
+            user = f"{euid}:{egid}"
             logger.info(_("docker user", uid_gid=user))
-            if os.geteuid() == 0:
+            if euid == 0:
                 logger.warning(
                     "container command will run explicitly as root, since you are root and set --as-me"
                 )
         # add invoking user's group to ensure that command can access the mounted working
         # directory even if the docker image assumes some arbitrary uid
-        groups = [str(os.getegid())]
-        if groups == ["0"]:
+        egid = os.getegid()
+        if egid > 2147483647:
+            logger.warning(
+                f"not adding supplementary group {egid} to container (exceeds Docker's 32-bit limit)"
+            )
+            groups = []
+        elif egid == 0:
+            groups = ["0"]
             logger.warning(
                 "container command will run as a root/wheel group member, since this is your primary group (gid=0)"
             )
+        else:
+            groups = [str(egid)]
         if self.runtime_values.get("gpu", False):
             logger.warning(
                 "ignoring runtime.gpu, but see https://miniwdl.readthedocs.io/en/latest/runner_reference.html#using-nvidia-gpu"
