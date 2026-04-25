@@ -29,7 +29,7 @@ ENV PATH=$PATH:/home/wdler/.local/bin
 ENV PYTHONPATH=/home/wdler/miniwdl:$PYTHONPATH
 COPY pyproject.toml /home/wdler/miniwdl
 RUN tomlq -r '(.project.dependencies + .project["optional-dependencies"].dev)[]' miniwdl/pyproject.toml \
-    | xargs pip3 install --user && rm miniwdl/pyproject.toml
+    | xargs -d '\n' pip3 install --user && rm miniwdl/pyproject.toml
 
 # expectation -- mount miniwdl source tree at /home/wdler/miniwdl
 CMD ["make","-C","miniwdl","unit_tests"]
