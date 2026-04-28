@@ -1652,11 +1652,14 @@ class TestTaskRuntimeInfo(RunnerTestCase):
         infile = os.path.join(self._dir, "infile.txt")
         with open(infile, "w") as outfile:
             outfile.write("hello\n")
-        outp = self._run(wdl, {"infile": infile})
+        # task.cpu should report the effective runtime value after container postprocessing.
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"cpu_max": 1}})
+        outp = self._run(wdl, {"infile": infile}, cfg=cfg)
         assert outp["name"] == "t"
         assert outp["desc"] == "Task description"
         assert outp["pdesc"] == "Input file"
         assert outp["container"] == "ubuntu:20.04"
-        assert outp["cpu"] == 2 or outp["cpu"] == 2.0
+        assert outp["cpu"] == 1 or outp["cpu"] == 1.0
         assert outp["mem"] == 1073741824
         assert outp["rc"] == 0

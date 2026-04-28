@@ -28,7 +28,6 @@ from .._util import (
     pathsize,
     link_force,
     symlink_force,
-    parse_byte_size,
     rmtree_atomic,
 )
 from .._util import StructuredLogMessage as _
@@ -180,7 +179,7 @@ def run_local_task(  # type: ignore[return]
 
                 # evaluate runtime fields
                 stdlib = InputStdLib(task.effective_wdl_version, logger, container)
-                runtime_eval = _eval_task_runtime(
+                _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
                 if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
@@ -190,7 +189,6 @@ def run_local_task(  # type: ignore[return]
                         run_id,
                         task,
                         container,
-                        runtime_eval,
                         return_code=None,
                     )
                     container_env = container_env.bind("task", task_env)
@@ -230,7 +228,6 @@ def run_local_task(  # type: ignore[return]
                         run_id,
                         task,
                         container,
-                        runtime_eval,
                         return_code=container.last_exit_code,
                     )
                     container_env = container_env.bind("task", task_env)
@@ -516,7 +513,7 @@ def _eval_task_runtime(
     container: "TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
-) -> Dict[str, Value.Base]:
+) -> None:
     # evaluate runtime{} expressions (merged with any configured defaults)
     runtime_defaults = cfg.get_dict("task_runtime", "defaults")
     if run_id.startswith("download-"):
@@ -597,8 +594,6 @@ def _eval_task_runtime(
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
 
-    return runtime_values
-
 
 def _task_runtime_info_struct_value(
     cfg: config.Loader,
@@ -606,41 +601,25 @@ def _task_runtime_info_struct_value(
     run_id: str,
     task: Tree.Task,
     container: "TaskContainer",
-    runtime_eval: Dict[str, Value.Base],
     return_code: Optional[int],
 ) -> Value.Struct:
     task_type = task.task_runtime_info_struct_type()
-    container_overrides = container.task_runtime_info(logger, runtime_eval)
+    container_overrides = container.task_runtime_info(logger)
     host_limits = container.detect_resource_limits(cfg, logger)
-
-    def _runtime_string(value: Value.Base) -> str:
-        if isinstance(value, Value.Array) and value.value:
-            # TODO: spec allows multiple container URIs; we currently select the first.
-            value = value.value[0]
-        return value.coerce(Type.String()).value
 
     if "cpu" in container.runtime_values:
         cpu_value = float(container.runtime_values["cpu"])
-    elif "cpu" in runtime_eval:
-        cpu_value = runtime_eval["cpu"].coerce(Type.Float()).value
     else:
         cpu_value = float(max(1, host_limits.get("cpu", 1)))
 
     if "memory_reservation" in container.runtime_values:
         memory_value = int(container.runtime_values["memory_reservation"])
-    elif "memory" in runtime_eval:
-        memory_str = runtime_eval["memory"].coerce(Type.String()).value
-        memory_value = parse_byte_size(memory_str)
     else:
         memory_value = int(max(1, host_limits.get("mem_bytes", 1)))
 
     container_value = None
     if "docker" in container.runtime_values:
         container_value = container.runtime_values["docker"]
-    elif "container" in runtime_eval:
-        container_value = _runtime_string(runtime_eval["container"])
-    elif "docker" in runtime_eval:
-        container_value = _runtime_string(runtime_eval["docker"])
     # NOTE: spec says to fall back to requested/default if actual not available; we're using
     # host limits for cpu/memory and None for container when missing.
 

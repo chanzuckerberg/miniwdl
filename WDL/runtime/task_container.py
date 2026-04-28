@@ -298,9 +298,7 @@ class TaskContainer(ABC):
                 raise Error.RuntimeError("invalid setting of runtime.gpu")
             ans["gpu"] = runtime_eval["gpu"].value
 
-    def task_runtime_info(
-        self, logger: logging.Logger, runtime_eval: Dict[str, Value.Base]
-    ) -> Dict[str, Value.Base]:
+    def task_runtime_info(self, logger: logging.Logger) -> Dict[str, Value.Base]:
         """
         Return task-scoped runtime info if available, to populate the WDL 1.2 ``task`` variable.
 
