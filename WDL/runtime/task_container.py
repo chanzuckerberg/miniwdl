@@ -300,11 +300,11 @@ class TaskContainer(ABC):
 
     def task_runtime_info(
         self, logger: logging.Logger, runtime_eval: Dict[str, Value.Base]
-    ) -> Dict[str, Any]:
+    ) -> Dict[str, Value.Base]:
         """
         Return task-scoped runtime info if available, to populate the WDL 1.2 ``task`` variable.
 
-        Returned values should be JSON-serializable and use the task scoped member names
+        Returned values should be WDL values using the task scoped member names
         (e.g. ``cpu``, ``memory``, ``container``, ``gpu``, ``fpga``, ``disks``, ``end_time``).
         Base implementation provides no additional info.
         """

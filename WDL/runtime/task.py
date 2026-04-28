@@ -600,13 +600,6 @@ def _eval_task_runtime(
     return runtime_values
 
 
-def _normalize_task_runtime_info(info: Dict[str, Any]) -> Dict[str, Any]:
-    normalized = {}
-    for key, value in info.items():
-        normalized[key] = value.json if isinstance(value, Value.Base) else value
-    return normalized
-
-
 def _task_runtime_info_struct_value(
     cfg: config.Loader,
     logger: logging.Logger,
@@ -617,9 +610,7 @@ def _task_runtime_info_struct_value(
     return_code: Optional[int],
 ) -> Value.Struct:
     task_type = task.task_runtime_info_struct_type()
-    container_overrides = _normalize_task_runtime_info(
-        container.task_runtime_info(logger, runtime_eval)
-    )
+    container_overrides = container.task_runtime_info(logger, runtime_eval)
     host_limits = container.detect_resource_limits(cfg, logger)
 
     def _runtime_string(value: Value.Base) -> str:
@@ -672,8 +663,16 @@ def _task_runtime_info_struct_value(
         "meta": Expr._meta_value_to_json(task.meta),
         "parameter_meta": Expr._meta_value_to_json(task.parameter_meta),
     }
-    task_info.update(container_overrides)
     task_value = Value.from_json(task_type, task_info)
+    assert isinstance(task_value, Value.Struct)
+    assert task_type.members is not None
+    for key, override in container_overrides.items():
+        task_value.value[key] = (
+            override.coerce(task_type.members[key]) if key in task_type.members else override
+        )
+        if key not in task_type.members:
+            task_value.extra.add(key)
+
     try:
         task_value.coerce(task_type)
     except Error.InputError as ex:
