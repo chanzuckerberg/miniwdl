@@ -2773,6 +2773,19 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["has_a_x"], True)
         self.assertEqual(outputs["has_a_z"], False)
 
+        # Error: arbitrary Any expressions aren't accepted; only direct read_json()
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1}' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(if true then read_json("data.json") else read_json("data.json"), "x")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
         # Error: wrong arity
         self._test_task(R"""
         version 1.2
@@ -2808,6 +2821,35 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: None key only allowed when the map key type is optional
+        optional_key_wdl = R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int] m = {"a": 1}
+                String? k = None
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, k)
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(optional_key_wdl).typecheck()
+        WDL.parse_document(optional_key_wdl).typecheck(check_quant=False)
+
+        # OK: optional map key type permits an optional lookup key
+        type_env = (
+            WDL.Env.Bindings()
+            .bind("m", WDL.Type.Map((WDL.Type.String(optional=True), WDL.Type.Int())))
+            .bind("k", WDL.Type.String(optional=True))
+        )
+        expr = WDL.parse_expr("contains_key(m, k)", version="1.2").infer_type(
+            type_env, WDL.StdLib.Base("1.2")
+        )
+        self.assertIsInstance(expr.type, WDL.Type.Boolean)
 
         # Error: first argument not a collection
         self._test_task(R"""
