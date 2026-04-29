@@ -2244,6 +2244,32 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(sorted(outputs["json_keys"]), ["x", "y", "z"])
 
+        # Error: direct keys(read_json()) is WDL 1.2+ behavior
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: arbitrary Any expressions aren't accepted; only direct read_json()
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(if true then read_json("data.json") else read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
         # Error: keys(read_json()) with non-object JSON raises EvalError
         self._test_task(R"""
         version 1.2

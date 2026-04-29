@@ -1090,7 +1090,7 @@ class _Keys(EagerFunction):
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
 
-        # Accept Map, StructInstance, Object, or Any
+        # Accept Map, StructInstance, Object, or direct read_json() (Any).
         if isinstance(arg0ty, Type.Map):
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(
@@ -1113,8 +1113,14 @@ class _Keys(EagerFunction):
                 raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), arg0ty)
             # For Struct or Object, return Array[String]
             return Type.Array(Type.String())
-        elif isinstance(arg0ty, Type.Any):
-            # Allow Any type - will be checked at runtime
+        elif (
+            isinstance(arg0ty, Type.Any)
+            and not arg0ty.optional
+            and isinstance(expr.arguments[0], Expr.Apply)
+            and expr.arguments[0].function_name == "read_json"
+            and self.wdl_version not in ["draft-2", "1.0", "1.1"]
+        ):
+            # read_json() result type is unknown until runtime.
             return Type.Array(Type.String())
         else:
             raise Error.StaticTypeMismatch(
