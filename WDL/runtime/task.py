@@ -223,6 +223,7 @@ def run_local_task(  # type: ignore[return]
                             else Value.Null()
                         ),
                     )
+                    assert container.task_runtime_info_struct is not None
                     container_env = container_env.bind("task", container.task_runtime_info_struct)
 
                 # evaluate output declarations
