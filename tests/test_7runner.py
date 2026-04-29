@@ -1640,12 +1640,14 @@ class TestTaskRuntimeInfo(RunnerTestCase):
                 String? container = task.container
                 Float cpu = task.cpu
                 Int mem = task.memory
+                Int attempt = task.attempt
                 Int? rc = task.return_code
             }
             requirements {
                 container: "ubuntu:20.04"
                 cpu: 2
                 memory: "1 GiB"
+                preemptible: 1
             }
         }
         """
@@ -1654,7 +1656,7 @@ class TestTaskRuntimeInfo(RunnerTestCase):
             outfile.write("hello\n")
         # task.cpu should report the effective runtime value after container postprocessing.
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override({"task_runtime": {"cpu_max": 1}})
+        cfg.override({"task_runtime": {"cpu_max": 1, "_mock_interruptions": 1}})
         outp = self._run(wdl, {"infile": infile}, cfg=cfg)
         assert outp["name"] == "t"
         assert outp["desc"] == "Task description"
@@ -1662,4 +1664,5 @@ class TestTaskRuntimeInfo(RunnerTestCase):
         assert outp["container"] == "ubuntu:20.04"
         assert outp["cpu"] == 1 or outp["cpu"] == 1.0
         assert outp["mem"] == 1073741824
+        assert outp["attempt"] == 1
         assert outp["rc"] == 0

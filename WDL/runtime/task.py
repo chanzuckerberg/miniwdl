@@ -11,7 +11,7 @@ import glob
 import threading
 import shutil
 import regex
-from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union, TYPE_CHECKING, cast
+from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union, TYPE_CHECKING
 from contextlib import ExitStack, suppress
 from collections import Counter
 
@@ -183,15 +183,9 @@ def run_local_task(  # type: ignore[return]
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
                 if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
-                    task_env = _task_runtime_info_struct_value(
-                        cfg,
-                        logger,
-                        run_id,
-                        task,
-                        container,
-                        return_code=None,
-                    )
-                    container_env = container_env.bind("task", task_env)
+                    container.build_task_runtime_info(logger, run_id, task)
+                    assert container.task_runtime_info_struct is not None
+                    container_env = container_env.bind("task", container.task_runtime_info_struct)
 
                 # interpolate command
                 old_command_dedent = cfg["task_runtime"].get_bool("old_command_dedent")
@@ -220,17 +214,16 @@ def run_local_task(  # type: ignore[return]
                 # start container & run command (and retry if needed)
                 _try_task(cfg, task, logger, container, command, terminating)
 
-                # update task return code for output declarations
+                # bind output declarations to task runtime info with the final return code
                 if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
-                    task_env = _task_runtime_info_struct_value(
-                        cfg,
-                        logger,
-                        run_id,
-                        task,
-                        container,
-                        return_code=container.last_exit_code,
+                    container.update_task_runtime_info_struct(
+                        return_code=(
+                            Value.Int(container.last_exit_code)
+                            if container.last_exit_code is not None
+                            else Value.Null()
+                        ),
                     )
-                    container_env = container_env.bind("task", task_env)
+                    container_env = container_env.bind("task", container.task_runtime_info_struct)
 
                 # evaluate output declarations
                 outputs = _eval_task_outputs(logger, run_id, task, container_env, container)
@@ -595,70 +588,6 @@ def _eval_task_runtime(
         logger.warning(_("ignored runtime settings", keys=unused_keys))
 
 
-def _task_runtime_info_struct_value(
-    cfg: config.Loader,
-    logger: logging.Logger,
-    run_id: str,
-    task: Tree.Task,
-    container: "TaskContainer",
-    return_code: Optional[int],
-) -> Value.Struct:
-    task_type = task.task_runtime_info_struct_type()
-    container_overrides = container.task_runtime_info(logger)
-    host_limits = container.detect_resource_limits(cfg, logger)
-
-    if "cpu" in container.runtime_values:
-        cpu_value = float(container.runtime_values["cpu"])
-    else:
-        cpu_value = float(max(1, host_limits.get("cpu", 1)))
-
-    if "memory_reservation" in container.runtime_values:
-        memory_value = int(container.runtime_values["memory_reservation"])
-    else:
-        memory_value = int(max(1, host_limits.get("mem_bytes", 1)))
-
-    container_value = None
-    if "docker" in container.runtime_values:
-        container_value = container.runtime_values["docker"]
-    # NOTE: spec says to fall back to requested/default if actual not available; we're using
-    # host limits for cpu/memory and None for container when missing.
-
-    task_info = {
-        "name": task.name,
-        "id": run_id,
-        "container": container_value,
-        "cpu": cpu_value,
-        "memory": memory_value,
-        "gpu": [],
-        "fpga": [],
-        "disks": {},
-        # TODO: populate gpu/fpga/disks from actual/requested runtime info when available.
-        # FIXME: attempt is currently not updated for retries, since the command isn't
-        # re-interpolated per attempt.
-        "attempt": max(0, container.try_counter - 1),
-        # NOTE: end_time is always None; spec distinguishes None vs 0 vs positive deadline.
-        "end_time": None,
-        "return_code": return_code,
-        "meta": Expr._meta_value_to_json(task.meta),
-        "parameter_meta": Expr._meta_value_to_json(task.parameter_meta),
-    }
-    task_value = Value.from_json(task_type, task_info)
-    assert isinstance(task_value, Value.Struct)
-    assert task_type.members is not None
-    for key, override in container_overrides.items():
-        task_value.value[key] = (
-            override.coerce(task_type.members[key]) if key in task_type.members else override
-        )
-        if key not in task_type.members:
-            task_value.extra.add(key)
-
-    try:
-        task_value.coerce(task_type)
-    except Error.InputError as ex:
-        raise AssertionError("task-scoped runtime info failed typecheck") from ex
-    return cast(Value.Struct, task_value)
-
-
 def _try_task(
     cfg: config.Loader,
     task: Tree.Task,
@@ -699,6 +628,13 @@ def _try_task(
                 logger.debug(_("creating task temp directory", TMPDIR=host_tmpdir))
                 os.mkdir(host_tmpdir, mode=0o770)
             try:
+                if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
+                    container.update_task_runtime_info_struct(
+                        attempt=Value.Int(max(0, container.try_counter - 1)),
+                        return_code=Value.Null(),
+                    )
+                    # FIXME: The command has already been interpolated, so retry attempts won't see
+                    # the updated task.attempt value; output declarations will.
                 return container.run(logger, command)
             finally:
                 if host_tmpdir:
