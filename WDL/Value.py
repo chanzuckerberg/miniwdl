@@ -261,8 +261,10 @@ class Map(Base):
             raise (Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg))
         for k, v in self.value:
             kstr = k.coerce(Type.String()).value
-            if kstr not in ans:
-                ans[kstr] = v.json
+            if kstr in ans:
+                msg = f"cannot write {str(self.type)} to JSON; colliding string key {json.dumps(kstr)}"
+                raise (Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg))
+            ans[kstr] = v.json
         return ans
 
     def __str__(self) -> Any:

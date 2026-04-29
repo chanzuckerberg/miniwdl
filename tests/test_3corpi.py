@@ -476,7 +476,7 @@ class BioWDLTasks(unittest.TestCase):
         "FileCoercion": 1,
         "OptionalCoercion": 11,
         "UnusedDeclaration": 12,
-        "NonemptyCoercion": 1,
+        "NonemptyCoercion": 2,
         "NameCollision": 1,
         "UnverifiedStruct": 1,
         "UnnecessaryQuantifier": 13,

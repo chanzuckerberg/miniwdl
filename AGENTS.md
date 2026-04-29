@@ -16,3 +16,6 @@ These development tutorials under `docs/` introduce a few common ways the codeba
 - `wdlviz.md` -- generating graphviz diagrams from WDL source code
 - `add_functions.md `-- adding new functions to the standard library
 - `assert.md` -- adding a new WDL language feature, with parsing, type-checking, and runtime execution
+
+Test placement note:
+- StdLib-focused tests belong in `tests/test_5stdlib.py` (even when they only exercise expression-level stdlib behavior); keep `tests/test_0eval.py` for general expression/value evaluation coverage.

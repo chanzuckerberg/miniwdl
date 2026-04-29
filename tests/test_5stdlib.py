@@ -42,6 +42,64 @@ class TestStdLib(unittest.TestCase):
             self.assertFalse(str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
 
+    def test_parse_tsv_preserves_blank_lines(self):
+        parsed = WDL.StdLib._parse_tsv("a\tb\n\nc\td\n")
+        self.assertEqual(parsed.json, [["a", "b"], [""], ["c", "d"]])
+
+    def _eval_expr(self, expr: str, env=None, version: str = "development"):
+        env = env or WDL.Env.Bindings()
+        type_env = WDL.Env.Bindings()
+        for binding in env:
+            type_env = type_env.bind(binding.name, binding.value.type)
+        stdlib = WDL.StdLib.Base(version)
+        ex = WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib)
+        return ex.eval(env, stdlib)
+
+    def test_collect_by_key_float_keys(self):
+        self.assertEqual(
+            str(self._eval_expr('length(keys(collect_by_key([(1.0000001,"a"),(1.0000002,"b")])))')),
+            "2",
+        )
+        self.assertEqual(
+            str(self._eval_expr('as_map([(1.0000001,"a"),(1.0000002,"b")])[1.0000002]')),
+            '"b"',
+        )
+        self.assertEqual(
+            str(self._eval_expr('length(collect_by_key([(1.0,"a"),(1.0,"b")])[1.0])')),
+            "2",
+        )
+
+    def test_zip_cross_nonempty_inference(self):
+        stdlib = WDL.StdLib.Base("development")
+        self.assertEqual(
+            str(
+                WDL.parse_expr("cross([1], range(0))", version="development")
+                .infer_type([], stdlib)
+                .type
+            ),
+            "Array[Pair[Int,Int]]",
+        )
+        self.assertEqual(
+            str(
+                WDL.parse_expr("zip([1], [2])", version="development")
+                .infer_type([], stdlib)
+                .type
+            ),
+            "Array[Pair[Int,Int]]+",
+        )
+
+    def test_basename_empty_suffix(self):
+        env = WDL.Env.Bindings().bind("sfx", WDL.Value.Null())
+        self.assertEqual(str(self._eval_expr('basename("/path/to/file.txt","")')), '"file.txt"')
+        self.assertEqual(str(self._eval_expr('basename("file.txt","")')), '"file.txt"')
+        self.assertEqual(str(self._eval_expr('basename("/path/to/file.txt",sfx)', env=env)), '"file.txt"')
+
+    def test_parse_tsv_row_type(self):
+        rows = WDL.StdLib._parse_tsv("alpha\tbeta\n")
+        self.assertEqual(rows.json, [["alpha", "beta"]])
+        self.assertEqual(str(rows.type), "Array[Array[String]]+")
+        self.assertEqual(str(rows.value[0].type), "Array[String]+")
+
     def test_eq_opt(self):
         # regression test issue #634
         wdl = """
@@ -528,6 +586,8 @@ class TestStdLib(unittest.TestCase):
                 echo -e "key1\tvalue1" > map.txt
                 echo -e "key2\tvalue2" >> map.txt
                 echo -e "..\ttricky" >> map.txt
+                printf 'line1\r\n\r\nline3\r\n' > crlf_lines.txt
+                printf 'k1\tv1\r\nk2\tv2\r\n' > crlf_map.txt
             }
             output {
                 String i_strings_string = i1
@@ -536,6 +596,9 @@ class TestStdLib(unittest.TestCase):
                 Array[String] i_strings_lines = i2
                 Array[String] o_strings_lines = read_lines(strings2)
                 Array[String] o_names_lines = read_lines(stdout())
+                Array[String] o_crlf_lines = read_lines("crlf_lines.txt")
+                Array[Array[String]] o_crlf_tsv = read_tsv("crlf_map.txt")
+                Map[String,String] o_crlf_map = read_map("crlf_map.txt")
                 Int o_fortytwo = read_int("fortytwo.txt")
                 Float o_mole = read_float("mole.txt")
                 Array[Boolean] o_boolean = [read_boolean("true.txt"), read_boolean("false.txt")]
@@ -549,6 +612,9 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["i_strings_lines"], ["foo", "bar", "bas"])
         self.assertEqual(outputs["o_strings_lines"], ["foo", "bar", "bas"])
         self.assertEqual(outputs["o_names_lines"], ["Alyssa", "Ben"])
+        self.assertEqual(outputs["o_crlf_lines"], ["line1", "", "line3"])
+        self.assertEqual(outputs["o_crlf_tsv"], [["k1", "v1"], ["k2", "v2"]])
+        self.assertEqual(outputs["o_crlf_map"], {"k1": "v1", "k2": "v2"})
         self.assertEqual(outputs["o_fortytwo"], 42)
         self.assertEqual(outputs["o_boolean"], [True, False])
         self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2", "..": "tricky"})

@@ -1335,3 +1335,67 @@ class TestConfigLoader(unittest.TestCase):
         cfg.plugin_defaults({"file_io": {"copy_input_files": True}, "x": {"y":"z"}})
         self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
         self.assertEqual(cfg.get("x","y"), "z")
+
+
+class TestSwarmMiscConfigUidGid(unittest.TestCase):
+    """Test that SwarmContainer.misc_config handles out-of-range uid/gid values."""
+
+    def _make_container(self, as_user: bool = False) -> "WDL.runtime.backend.docker_swarm.SwarmContainer":
+        from WDL.runtime.backend.docker_swarm import SwarmContainer
+        cfg = WDL.runtime.config.Loader(
+            logging.getLogger(self.id()),
+            overrides={"task_runtime": {"as_user": as_user}},
+        )
+        container = SwarmContainer.__new__(SwarmContainer)
+        container.cfg = cfg
+        container.runtime_values = {}
+        # misc_config only needs cfg and runtime_values, so we skip full __init__
+        yield container
+
+    def test_normal_gid(self):
+        """Normal gid should be passed as supplementary group."""
+        from unittest.mock import patch
+        for container in self._make_container():
+            with patch("os.geteuid", return_value=1000), patch("os.getegid", return_value=1000):
+                logger = logging.getLogger(self.id())
+                _resources, user, groups = container.misc_config(logger)
+                self.assertIsNone(user)
+                self.assertEqual(groups, ["1000"])
+
+    def test_large_gid_no_as_user(self):
+        """Large gid (> 2^31-1) should be skipped when as_user is false."""
+        from unittest.mock import patch
+        for container in self._make_container():
+            with patch("os.geteuid", return_value=1000), patch("os.getegid", return_value=3721906406):
+                logger = logging.getLogger(self.id())
+                _resources, user, groups = container.misc_config(logger)
+                self.assertIsNone(user)
+                self.assertEqual(groups, [])
+
+    def test_large_gid_with_as_user(self):
+        """Large gid with --as-me should raise a clear error."""
+        from unittest.mock import patch
+        for container in self._make_container(as_user=True):
+            with patch("os.geteuid", return_value=1000), patch("os.getegid", return_value=3721906406):
+                logger = logging.getLogger(self.id())
+                with self.assertRaises(WDL.Error.RuntimeError):
+                    container.misc_config(logger)
+
+    def test_large_uid_with_as_user(self):
+        """Large uid with --as-me should raise a clear error."""
+        from unittest.mock import patch
+        for container in self._make_container(as_user=True):
+            with patch("os.geteuid", return_value=3721906406), patch("os.getegid", return_value=1000):
+                logger = logging.getLogger(self.id())
+                with self.assertRaises(WDL.Error.RuntimeError):
+                    container.misc_config(logger)
+
+    def test_root_gid(self):
+        """gid=0 should still produce the root/wheel warning."""
+        from unittest.mock import patch
+        for container in self._make_container():
+            with patch("os.geteuid", return_value=0), patch("os.getegid", return_value=0):
+                logger = logging.getLogger(self.id())
+                _resources, user, groups = container.misc_config(logger)
+                self.assertIsNone(user)
+                self.assertEqual(groups, ["0"])

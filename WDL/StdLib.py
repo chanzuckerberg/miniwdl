@@ -40,7 +40,7 @@ class Base:
         self._interpolation_add = _InterpolationAddOperator()
         self._sub = _ArithmeticOperator("-", lambda l, r: l - r)
         self._mul = _ArithmeticOperator("*", lambda l, r: l * r)
-        self._div = _ArithmeticOperator("/", lambda l, r: l // r)
+        self._div = _DivisionOperator()
         self._rem = StaticFunction(
             "_rem", [Type.Int(), Type.Int()], Type.Int(), lambda l, r: Value.Int(l.value % r.value)
         )
@@ -307,10 +307,10 @@ def basename(*args) -> Value.String:
     assert len(args) in (1, 2)
     assert isinstance(args[0], Value.String)
     path = args[0].value
-    if len(args) > 1:
+    if len(args) > 1 and not isinstance(args[1], Value.Null):
         assert isinstance(args[1], Value.String)
         suffix = args[1].value
-        if path.endswith(suffix):
+        if suffix and path.endswith(suffix):
             path = path[: -len(suffix)]
     return Value.String(os.path.basename(path))
 
@@ -318,7 +318,10 @@ def basename(*args) -> Value.String:
 def _parse_lines(s: str) -> Value.Array:
     ans: List[Value.Base] = []
     if s:
-        ans = [Value.String(line) for line in (s[:-1] if s.endswith("\n") else s).split("\n")]
+        ans = [
+            Value.String(line.rstrip("\r"))
+            for line in (s[:-1] if s.endswith("\n") else s).split("\n")
+        ]
     return Value.Array(Type.String(), ans)
 
 
@@ -333,11 +336,8 @@ def _parse_boolean(s: str) -> Value.Boolean:
 
 def _parse_tsv(s: str) -> Value.Array:
     ans: List[Value.Base] = [
-        Value.Array(
-            Type.Array(Type.String()), [Value.String(field) for field in line.value.split("\t")]
-        )
+        Value.Array(Type.String(), [Value.String(field) for field in line.value.split("\t")])
         for line in _parse_lines(s).value
-        if line
     ]
     return Value.Array(Type.Array(Type.String()), ans)
 
@@ -560,11 +560,30 @@ class _ArithmeticOperator(EagerFunction):
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         ans_type = self.infer_type(expr)
         ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
-        if ans_type == Type.Int():
+        if isinstance(ans_type, Type.Int):
             assert isinstance(ans, int)
             return Value.Int(ans)
         assert isinstance(ans, float)
         return Value.Float(ans)
+
+
+class _DivisionOperator(_ArithmeticOperator):
+    # / operator performs integer division for Int operands, and true division for Float operands
+
+    def __init__(self) -> None:
+        super().__init__("/", lambda l, r: l // r)
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        ans_type = self.infer_type(expr)
+        lhs = arguments[0].coerce(ans_type).value
+        rhs = arguments[1].coerce(ans_type).value
+        if isinstance(ans_type, Type.Float):
+            ans = lhs / rhs
+            assert isinstance(ans, float)
+            return Value.Float(ans)
+        ans = lhs // rhs
+        assert isinstance(ans, int)
+        return Value.Int(ans)
 
 
 class _AddOperator(_ArithmeticOperator):
@@ -797,7 +816,7 @@ class _ZipOrCross(EagerFunction):
             raise Error.IndeterminateType(expr.arguments[1], "can't infer item type of empty array")
         return Type.Array(
             Type.Pair(arg0ty.item_type, arg1ty.item_type),
-            nonempty=(arg0ty.nonempty or arg1ty.nonempty),
+            nonempty=(arg0ty.nonempty and arg1ty.nonempty),
         )
 
     def _coerce_args(
@@ -1115,20 +1134,27 @@ class _CollectByKey(EagerFunction):
         pairty = arg0ty.item_type
         assert isinstance(pairty, Type.Pair)
 
-        items: Dict[str, Tuple[Value.Base, List[Value.Base]]] = {}
+        items: List[Tuple[Value.Base, List[Value.Base]]] = []
+        buckets: Dict[str, List[int]] = {}
         for p in arguments[0].value:
             assert isinstance(p, Value.Pair)
             ek = p.value[0].coerce(pairty.left_type)
             ev = p.value[1].coerce(pairty.right_type)
-            sk = str(ek)
-            if sk in items:
-                items[sk][1].append(ev)
-            else:
-                items[sk] = (ek, [ev])
+            bucket_key = f"{str(ek.type)}::{json.dumps(ek.json, sort_keys=True)}"
+            found = False
+            for i in buckets.get(bucket_key, []):
+                prior_k, prior_vs = items[i]
+                if ek == prior_k:
+                    prior_vs.append(ev)
+                    found = True
+                    break
+            if not found:
+                items.append((ek, [ev]))
+                buckets.setdefault(bucket_key, []).append(len(items) - 1)
 
         return Value.Map(
             (pairty.left_type, Type.Array(pairty.right_type)),
-            [(ek, Value.Array(pairty.right_type, evs)) for ek, evs in items.values()],
+            [(ek, Value.Array(pairty.right_type, evs)) for ek, evs in items],
             expr,
         )
 
