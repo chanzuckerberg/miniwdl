@@ -183,7 +183,7 @@ def run_local_task(  # type: ignore[return]
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
                 if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
-                    container.build_task_runtime_info(logger, run_id, task)
+                    container.build_task_runtime_info_struct(logger, run_id, task)
                     assert container.task_runtime_info_struct is not None
                     container_env = container_env.bind("task", container.task_runtime_info_struct)
 

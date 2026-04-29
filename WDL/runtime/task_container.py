@@ -105,8 +105,8 @@ class TaskContainer(ABC):
     task_runtime_info_struct: Optional[Value.Struct]
     """
     WDL 1.2 task-scoped runtime info struct (task.*), to be populated before command evaluation.
-    The core task runner invokes build_task_runtime_info() to initialize it from task metadata
-    and effective runtime_values.
+    The core task runner invokes build_task_runtime_info_struct() to initialize it from task
+    metadata and effective runtime_values.
     The core task runner replaces it with checked copies when attempt/return_code become known.
     """
 
@@ -310,7 +310,7 @@ class TaskContainer(ABC):
                 raise Error.RuntimeError("invalid setting of runtime.gpu")
             ans["gpu"] = runtime_eval["gpu"].value
 
-    def build_task_runtime_info(
+    def build_task_runtime_info_struct(
         self, logger: logging.Logger, run_id: str, task: "Tree.Task"
     ) -> None:
         """

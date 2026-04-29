@@ -469,19 +469,22 @@ class Task(SourceNode):
                 )  # .typecheck()
                 # (At this stage we don't care about the overall expression type, just that it
                 #  typechecks internally.)
-            type_env_task = type_env
+            # Use a separate environment for command/output typechecking, where WDL 1.2+
+            # exposes the task runtime info struct. Keep type_env unchanged so it documents
+            # that inputs, postinputs, and runtime expressions can't depend on task.*.
+            body_env = type_env
             if self.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
                 # Add task-scoped runtime info for typechecking task command & outputs (WDL 1.2+)
                 # NOTE: spec doesn't explicitly limit scope; we currently expose task runtime info
                 # only in command/output to avoid circularity with requirements and declarations.
                 task_ctx = Decl(self.pos, Type.Any(), "task", id_prefix="task")
-                type_env_task = _add_struct_instance_to_type_env(
+                body_env = _add_struct_instance_to_type_env(
                     "task", self.task_runtime_info_struct_type(), type_env, ctx=task_ctx
                 )
             # Typecheck the command (string)
             errors.try1(
                 lambda: self.command.infer_type(
-                    type_env_task, stdlib, check_quant=check_quant, struct_types=struct_types
+                    body_env, stdlib, check_quant=check_quant, struct_types=struct_types
                 ).typecheck(Type.String())
             )
             for b in self.available_inputs:
@@ -489,18 +492,16 @@ class Task(SourceNode):
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(
-                    (lambda decl: lambda: decl.add_to_type_env(struct_types, type_env_task))(decl)
+                    (lambda decl: lambda: decl.add_to_type_env(struct_types, body_env))(decl)
                 )
                 if type_env2:
-                    type_env_task = type_env2
+                    body_env = type_env2
             errors.maybe_raise()
             # Typecheck the output expressions
             stdlib = StdLib.TaskOutputs(self.effective_wdl_version)
             for decl in self.outputs:
                 errors.try1(
-                    lambda: decl.typecheck(
-                        type_env_task, stdlib, struct_types, check_quant=check_quant
-                    )
+                    lambda: decl.typecheck(body_env, stdlib, struct_types, check_quant=check_quant)
                 )
                 errors.try1(lambda: _check_serializable_map_keys(decl.type, decl.name, decl))
 
