@@ -182,6 +182,10 @@ def run_local_task(  # type: ignore[return]
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
+                if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
+                    container.build_task_runtime_info_struct(logger, run_id, task)
+                    assert container.task_runtime_info_struct is not None
+                    container_env = container_env.bind("task", container.task_runtime_info_struct)
 
                 # interpolate command
                 old_command_dedent = cfg["task_runtime"].get_bool("old_command_dedent")
@@ -209,6 +213,18 @@ def run_local_task(  # type: ignore[return]
 
                 # start container & run command (and retry if needed)
                 _try_task(cfg, task, logger, container, command, terminating)
+
+                # bind output declarations to task runtime info with the final return code
+                if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
+                    container.update_task_runtime_info_struct(
+                        return_code=(
+                            Value.Int(container.last_exit_code)
+                            if container.last_exit_code is not None
+                            else Value.Null()
+                        ),
+                    )
+                    assert container.task_runtime_info_struct is not None
+                    container_env = container_env.bind("task", container.task_runtime_info_struct)
 
                 # evaluate output declarations
                 outputs = _eval_task_outputs(logger, run_id, task, container_env, container)
@@ -613,6 +629,13 @@ def _try_task(
                 logger.debug(_("creating task temp directory", TMPDIR=host_tmpdir))
                 os.mkdir(host_tmpdir, mode=0o770)
             try:
+                if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
+                    container.update_task_runtime_info_struct(
+                        attempt=Value.Int(max(0, container.try_counter - 1)),
+                        return_code=Value.Null(),
+                    )
+                    # FIXME: The command has already been interpolated, so retry attempts won't see
+                    # the updated task.attempt value; output declarations will.
                 return container.run(logger, command)
             finally:
                 if host_tmpdir:

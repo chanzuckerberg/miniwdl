@@ -155,9 +155,15 @@ class TestEval(unittest.TestCase):
             ("1+6/3*4","9"),
             ("1-4/3","0"),
             ("1--4/3","3"), # -4/3 == -2, is this right?
+            ("1/2.0","0.500000"),
+            ("5.0/2","2.500000"),
+            ("5.0/2.0","2.500000"),
+            ("-1/2.0","-0.500000"),
             ("4%2","0"),
             ("4%3","1"),
             ("min(0,1)","0"),
+            ("min(1,3.14)","1.000000"),
+            ("max(1.0,0)","1.000000"),
             ("max(1,3.14)*2","6.280000"),
             ("1 + false", "(Ln 1, Col 1) Non-numeric operand to + operator", WDL.Error.IncompatibleOperand),
             ("min(max(0,1),true)", "(Ln 1, Col 1) Non-numeric operand to min operator", WDL.Error.IncompatibleOperand),
@@ -583,6 +589,15 @@ class TestValue(unittest.TestCase):
                     WDL.Value.from_json(t[0],t[1])
             else:
                 self.assertEqual(t[1], WDL.Value.from_json(t[0],t[1]).json)
+
+        with self.assertRaises(WDL.Error.RuntimeError):
+            WDL.Value.Map(
+                (WDL.Type.Float(), WDL.Type.String()),
+                [
+                    (WDL.Value.Float(1.0000001), WDL.Value.String("a")),
+                    (WDL.Value.Float(1.0000002), WDL.Value.String("b")),
+                ],
+            ).json
 
         stdlib = WDL.StdLib.Base("1.0")
         self.assertEqual(

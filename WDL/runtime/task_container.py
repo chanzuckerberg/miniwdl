@@ -8,10 +8,10 @@ import shutil
 import threading
 import typing
 import math
-from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set
+from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set, TYPE_CHECKING
 from abc import ABC, abstractmethod
 from contextlib import suppress
-from .. import Error, Value, Type
+from .. import Error, Value, Type, Expr
 from .._util import (
     TerminationSignalFlag,
     path_really_within,
@@ -22,6 +22,9 @@ from .._util import (
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .error import OutputError, Terminated, CommandFailed
+
+if TYPE_CHECKING:
+    from .. import Tree
 
 
 class TaskContainer(ABC):
@@ -83,6 +86,11 @@ class TaskContainer(ABC):
     Inverse of ``input_path_map`` (also maintained by ``add_paths``)
     """
 
+    last_exit_code: Optional[int]
+    """
+    Exit code from the most recent task command attempt, once known.
+    """
+
     try_counter: int
     """
     :type: int
@@ -97,6 +105,14 @@ class TaskContainer(ABC):
     Evaluted task runtime{} section, to be populated by process_runtime(). Typically the
     TaskContainer backend needs to honor cpu, memory_limit, memory_reservation, docker, env.
     Retry logic (maxRetries, preemptible) is handled externally.
+    """
+
+    task_runtime_info_struct: Optional[Value.Struct]
+    """
+    WDL 1.2 task-scoped runtime info struct (task.*), to be populated before command evaluation.
+    The core task runner invokes build_task_runtime_info_struct() to initialize it from task
+    metadata and effective runtime_values.
+    The core task runner replaces it with checked copies when attempt/return_code become known.
     """
 
     stderr_callback: Optional[Callable[[str], None]]
@@ -125,7 +141,9 @@ class TaskContainer(ABC):
         self.try_counter = 1
         self._running = False
         self.runtime_values = {}
+        self.task_runtime_info_struct = None
         self.failure_info = None
+        self.last_exit_code = None
         os.makedirs(self.host_work_dir())
 
     def add_paths(self, host_paths: Iterable[str]) -> None:
@@ -293,6 +311,91 @@ class TaskContainer(ABC):
                 raise Error.RuntimeError("invalid setting of runtime.gpu")
             ans["gpu"] = runtime_eval["gpu"].value
 
+    def build_task_runtime_info_struct(
+        self, logger: logging.Logger, run_id: str, task: "Tree.Task"
+    ) -> None:
+        """
+        Populate self.task_runtime_info_struct from task metadata, resource limits, and
+        runtime_values. Subclasses may override this to add/override backend-specific task runtime
+        information after invoking this base version. Must leave self.task_runtime_info_struct
+        matching task.task_runtime_info_struct_type().
+
+        The core task runner updates ``attempt`` before each attempt and ``return_code`` after the
+        successful command attempt.
+        """
+        task_type = task.task_runtime_info_struct_type()
+        host_limits = self.detect_resource_limits(self.cfg, logger)
+
+        if "cpu" in self.runtime_values:
+            cpu_value = float(self.runtime_values["cpu"])
+        else:
+            cpu_value = float(max(1, host_limits.get("cpu", 1)))
+
+        if "memory_reservation" in self.runtime_values:
+            memory_value = int(self.runtime_values["memory_reservation"])
+        else:
+            memory_value = int(max(1, host_limits.get("mem_bytes", 1)))
+
+        container_value = None
+        if "docker" in self.runtime_values:
+            container_value = self.runtime_values["docker"]
+        # NOTE: spec says to fall back to requested/default if actual not available; we're using
+        # host limits for cpu/memory and None for container when missing.
+
+        task_info = {
+            "name": task.name,
+            "id": run_id,
+            "container": container_value,
+            "cpu": cpu_value,
+            "memory": memory_value,
+            "gpu": [],
+            "fpga": [],
+            "disks": {},
+            # TODO: populate gpu/fpga/disks from actual/requested runtime info when available.
+            "attempt": max(0, self.try_counter - 1),
+            # NOTE: end_time is always None; spec distinguishes None vs 0 vs positive deadline.
+            "end_time": None,
+            "return_code": None,
+            "meta": Expr._meta_value_to_json(task.meta),
+            "parameter_meta": Expr._meta_value_to_json(task.parameter_meta),
+        }
+        task_value = Value.from_json(task_type, task_info)
+        assert isinstance(task_value, Value.Struct)
+        self.task_runtime_info_struct = task_value
+        self.check_task_runtime_info_struct()
+
+    def check_task_runtime_info_struct(self) -> None:
+        """
+        Assert task_runtime_info_struct member values match its struct type.
+        """
+        assert self.task_runtime_info_struct is not None
+        task_value = self.task_runtime_info_struct
+        assert isinstance(task_value.type, Type.StructInstance)
+        task_type = task_value.type
+        assert task_type.members is not None
+        assert not task_value.extra
+        assert set(task_value.value) == set(task_type.members)
+        for key, value in task_value.value.items():
+            member_type = task_type.members[key]
+            assert isinstance(value, Value.Null) or value.type == member_type.copy(optional=False)
+            assert not isinstance(value, Value.Null) or member_type.optional
+
+    def update_task_runtime_info_struct(self, **updates: Value.Base) -> None:
+        """
+        Replace the task-scoped runtime info struct with a checked copy containing updates.
+        """
+        assert self.task_runtime_info_struct is not None
+        task_value = self.task_runtime_info_struct
+        assert isinstance(task_value.type, Type.StructInstance)
+        values = dict(task_value.value)
+        values.update(updates)
+        self.task_runtime_info_struct = Value.Struct(
+            task_value.type,
+            values,
+            extra=set(task_value.extra),
+        )
+        self.check_task_runtime_info_struct()
+
     def run(self, logger: logging.Logger, command: str) -> None:
         """
         1. Container is instantiated with the configured mounts and resources
@@ -311,6 +414,7 @@ class TaskContainer(ABC):
         # container-specific logic should be in _run(). this wrapper traps signals
 
         assert not self._running
+        self.last_exit_code = None
         if command.strip():  # if the command is empty then don't bother with any of this
             preamble = self.cfg.get("task_runtime", "command_preamble")
             if preamble.strip():
@@ -321,6 +425,7 @@ class TaskContainer(ABC):
                 self._running = True
                 try:
                     exit_code = self._run(logger, terminating, command)
+                    self.last_exit_code = exit_code
                 finally:
                     self._running = False
 
@@ -335,6 +440,8 @@ class TaskContainer(ABC):
                         if not terminating()
                         else Terminated()
                     )
+        else:
+            self.last_exit_code = 0
 
     @abstractmethod
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:

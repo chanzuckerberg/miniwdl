@@ -1612,3 +1612,57 @@ class TestNestedInterpolations(RunnerTestCase):
             outp = self._run(f"version {version}\n" + self.wdl, {})
             assert outp["message"] == "Hello Alice !"
             assert outp["task_out"].strip() == "Hello Alice Bob Carol!"
+
+
+class TestTaskRuntimeInfo(RunnerTestCase):
+    def test_task_scoped_info(self):
+        wdl = r"""
+        version 1.2
+
+        task t {
+            input {
+                File infile
+            }
+            meta {
+                description: "Task description"
+            }
+            parameter_meta {
+                infile: { description: "Input file" }
+            }
+            command <<<
+            echo "name=~{task.name}"
+            echo "desc=~{task.meta.description}"
+            >>>
+            output {
+                String name = task.name
+                String desc = task.meta.description
+                String pdesc = task.parameter_meta.infile.description
+                String? container = task.container
+                Float cpu = task.cpu
+                Int mem = task.memory
+                Int attempt = task.attempt
+                Int? rc = task.return_code
+            }
+            requirements {
+                container: "ubuntu:20.04"
+                cpu: 2
+                memory: "1 GiB"
+                preemptible: 1
+            }
+        }
+        """
+        infile = os.path.join(self._dir, "infile.txt")
+        with open(infile, "w") as outfile:
+            outfile.write("hello\n")
+        # task.cpu should report the effective runtime value after container postprocessing.
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"cpu_max": 1, "_mock_interruptions": 1}})
+        outp = self._run(wdl, {"infile": infile}, cfg=cfg)
+        assert outp["name"] == "t"
+        assert outp["desc"] == "Task description"
+        assert outp["pdesc"] == "Input file"
+        assert outp["container"] == "ubuntu:20.04"
+        assert outp["cpu"] == 1 or outp["cpu"] == 1.0
+        assert outp["mem"] == 1073741824
+        assert outp["attempt"] == 1
+        assert outp["rc"] == 0

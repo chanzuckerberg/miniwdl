@@ -530,7 +530,7 @@ def _struct_type_id(members: Dict[str, Base]) -> str:
     ans = []
     for name, ty in sorted(members.items()):
         if isinstance(ty, StructInstance):
-            assert ty.members
+            assert ty.members is not None
             sty = _struct_type_id(ty.members) + ("?" if ty.optional else "")
         else:
             sty = str(ty)

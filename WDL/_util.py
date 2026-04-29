@@ -29,7 +29,14 @@ from typing import (
     TYPE_CHECKING,
 )
 from types import FrameType
-from pythonjsonlogger import jsonlogger
+from importlib.util import find_spec
+
+# Prefer the non-deprecated import path, but keep compatibility with python-json-logger
+# 2.0.7 while conda-forge catches up: https://github.com/conda-forge/python-json-logger-feedstock/issues/19
+if find_spec("pythonjsonlogger.json") is not None:
+    from pythonjsonlogger import json as jsonlogger
+else:
+    from pythonjsonlogger import jsonlogger  # type: ignore[no-redef]
 
 if TYPE_CHECKING:
     from . import Env, Value

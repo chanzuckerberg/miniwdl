@@ -385,6 +385,42 @@ class TestTasks(unittest.TestCase):
         task.typecheck()
         self.assertEqual([e.value for e in task.parameter_meta['bar']['suggestions']], [1, 2, 3])
 
+    def test_meta_value_to_json(self):
+        task = WDL.parse_tasks(r"""
+        task meta_values {
+            meta {
+                truthy: true
+                nothing: None
+                integer: 42
+                floaty: 3.25
+                plain: "hello\nworld"
+                nested: {
+                    array: [1, false, None, { label: "x" }]
+                }
+            }
+            command <<< >>>
+        }
+        """, "1.2")[0]
+
+        self.assertEqual(
+            WDL.Expr._meta_value_to_json(task.meta),
+            {
+                "truthy": True,
+                "nothing": None,
+                "integer": 42,
+                "floaty": 3.25,
+                "plain": "hello\nworld",
+                "nested": {"array": [1, False, None, {"label": "x"}]},
+            },
+        )
+        self.assertEqual(
+            WDL.Expr._meta_value_to_json(WDL.parse_expr(r'"hello\nworld"')), "hello\nworld"
+        )
+        self.assertEqual(
+            WDL.Expr._meta_value_to_json(WDL.parse_expr('"hello ~{name}"')),
+            '"hello ~{name}"',
+        )
+
     def test_requirements(self):
         task = WDL.parse_tasks("""
         task wc {
@@ -612,6 +648,63 @@ task compare_md5sum {
         """
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             WDL.parse_tasks(txt, version="1.2")[0].typecheck()
+
+    def test_task_scoped_info(self):
+        doc = r"""
+        version 1.2
+        task t {
+            input {
+                String s
+            }
+            command {
+                echo "~{task.name}"
+            }
+            output {
+                String o = task.name
+            }
+            requirements {
+                cpu: 1
+            }
+        }
+        """
+        WDL.parse_document(doc).typecheck()
+
+        doc = r"""
+        version 1.2
+        task t {
+            input {
+                String s = task.name
+            }
+            command {
+                echo "x"
+            }
+            output {
+                String o = "x"
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            WDL.parse_document(doc).typecheck()
+
+        doc = r"""
+        version 1.2
+        task t {
+            input {
+                String s
+            }
+            command {
+                echo "x"
+            }
+            output {
+                String o = "x"
+            }
+            requirements {
+                cpu: task.cpu
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.UnknownIdentifier):
+            WDL.parse_document(doc).typecheck()
 
 
 class TestTypes(unittest.TestCase):
