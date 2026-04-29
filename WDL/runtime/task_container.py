@@ -86,6 +86,11 @@ class TaskContainer(ABC):
     Inverse of ``input_path_map`` (also maintained by ``add_paths``)
     """
 
+    last_exit_code: Optional[int]
+    """
+    Exit code from the most recent task command attempt, once known.
+    """
+
     try_counter: int
     """
     :type: int
@@ -124,10 +129,6 @@ class TaskContainer(ABC):
     """
 
     _running: bool
-    last_exit_code: Optional[int]
-    """
-    Exit code from the most recent task command attempt, if known.
-    """
 
     def __init__(self, cfg: config.Loader, run_id: str, host_dir: str) -> None:
         self.cfg = cfg
