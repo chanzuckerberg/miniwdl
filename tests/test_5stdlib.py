@@ -168,8 +168,32 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs["map_len"], 3)
 
-        # Test length() with Structs
+        # Test length() with String
         outputs = self._test_task(R"""
+        version 1.2
+        task test_length_string {
+            command {}
+            output {
+                Int string_len = length("ABCDE")
+            }
+        }
+        """)
+        self.assertEqual(outputs["string_len"], 5)
+
+        # Test length() with Object literals
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_object {
+            command {}
+            output {
+                Int object_len = length(object {a: 1, b: 2})
+            }
+        }
+        """)
+        self.assertEqual(outputs["object_len"], 2)
+
+        # Error: Structs aren't in the WDL 1.2 length() signature
+        self._test_task(R"""
         version 1.2
         struct Person {
             String first
@@ -189,8 +213,7 @@ class TestStdLib(unittest.TestCase):
                 Int struct_len = length(p)
             }
         }
-        """)
-        self.assertEqual(outputs["struct_len"], 3)
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
 
         # Test length(read_json()) on array
         outputs = self._test_task(R"""
@@ -206,6 +229,17 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs["len"], 5)
 
+        # Error: None isn't a valid dynamic length() argument
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Int len = length(None)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
         # Test length(read_json()) on object
         outputs = self._test_task(R"""
         version 1.2
@@ -220,10 +254,10 @@ class TestStdLib(unittest.TestCase):
         """)
         self.assertEqual(outputs["len"], 3)
 
-        # Error: length(read_json()) with non-collection JSON
-        self._test_task(R"""
+        # Test length(read_json()) on string
+        outputs = self._test_task(R"""
         version 1.2
-        task bad {
+        task test_length_json_string {
             command <<<
                 echo '"hello"' > data.json
             >>>
@@ -231,7 +265,8 @@ class TestStdLib(unittest.TestCase):
                 Int len = length(read_json("data.json"))
             }
         }
-        """, expected_exception=WDL.Error.EvalError)
+        """)
+        self.assertEqual(outputs["len"], 5)
 
     def test_floor_ceil_round(self):
         outputs = self._test_task(R"""

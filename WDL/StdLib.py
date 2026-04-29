@@ -1164,42 +1164,47 @@ class _Values(EagerFunction):
 
 
 class _Length(EagerFunction):
-    # Int length(Array[X]|Map[X,Y]|Struct)
-    # Returns the length of an Array, Map, or Struct (number of members)
+    # Int length(Array[X]|Map[X,Y]|Object|String)
+    # Returns the length of an Array, Map, Object, or String
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
 
-        # Accept Array, Map, Struct, or Any
-        if isinstance(arg0ty, (Type.Array, Type.Map, Type.StructInstance)):
+        # Accept Array, Map, Object, String, or direct read_json() (Any).
+        if isinstance(arg0ty, (Type.Array, Type.Map, Type.Object, Type.String)):
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
             return Type.Int()
-        elif isinstance(arg0ty, Type.Any):
-            # Allow Any type - will be checked at runtime
+        elif (
+            isinstance(arg0ty, Type.Any)
+            and not arg0ty.optional
+            and isinstance(expr.arguments[0], Expr.Apply)
+            and expr.arguments[0].function_name == "read_json"
+        ):
+            # read_json() result type is unknown until runtime.
             return Type.Int()
         else:
             raise Error.StaticTypeMismatch(
                 expr.arguments[0],
                 Type.Array(Type.Any()),
                 arg0ty,
-                "length() requires Array, Map, or Struct",
+                "length() requires Array, Map, Object, or String",
             )
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         arg = arguments[0]
 
-        if isinstance(arg, (Value.Array, Value.Map)):
+        if isinstance(arg, (Value.Array, Value.Map, Value.String)):
             return Value.Int(len(arg.value))
-        elif isinstance(arg, Value.Struct):
-            # For structs, return the number of members
+        elif isinstance(arg, Value.Struct) and isinstance(arg.type, Type.Object):
+            # Object literals and read_json() objects are represented as Value.Struct.
             return Value.Int(len(arg.value))
         else:
             raise Error.EvalError(
                 expr,
-                f"length() requires an Array, Map, or Struct; got {arg.type} instead",
+                f"length() requires an Array, Map, Object, or String; got {arg.type} instead",
             )
 
 
