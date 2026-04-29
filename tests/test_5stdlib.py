@@ -2611,7 +2611,7 @@ class TestStdLib(unittest.TestCase):
         }
         """)
         self.assertEqual(outputs["p1_has_details_phone"], True)
-        self.assertEqual(outputs["p1_has_details_email"], False)  # details.email is None
+        self.assertEqual(outputs["p1_has_details_email"], True)  # contains_key tests presence
         self.assertEqual(outputs["p2_has_details_phone"], False)  # p2.details is None
 
         # contains_key(read_json()) direct usage

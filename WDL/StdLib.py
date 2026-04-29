@@ -1479,8 +1479,9 @@ class _ContainsKey(EagerFunction):
             return Value.Boolean(False)
 
         current = coll
-        for key_val in keys.value:
+        for i, key_val in enumerate(keys.value):
             key_str = key_val.coerce(Type.String()).value
+            final_key = i == len(keys.value) - 1
 
             # Try to get the value for this key
             if isinstance(current, Value.Map):
@@ -1495,9 +1496,9 @@ class _ContainsKey(EagerFunction):
                         break
                 if not found:
                     return Value.Boolean(False)
-                # Check if value is None
+                # None only blocks traversal through intermediate keys.
                 assert next_val is not None  # mypy: we returned False if not found
-                if isinstance(next_val, Value.Null):
+                if isinstance(next_val, Value.Null) and not final_key:
                     return Value.Boolean(False)
                 current = next_val
 
@@ -1506,8 +1507,8 @@ class _ContainsKey(EagerFunction):
                 if key_str not in current.value:
                     return Value.Boolean(False)
                 next_val = current.value[key_str]
-                # Check if value is None
-                if isinstance(next_val, Value.Null):
+                # None only blocks traversal through intermediate keys.
+                if isinstance(next_val, Value.Null) and not final_key:
                     return Value.Boolean(False)
                 current = next_val
 
