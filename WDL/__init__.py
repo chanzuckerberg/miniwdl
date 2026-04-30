@@ -300,23 +300,31 @@ def values_from_json(
 
 def values_to_json(
     values_env: Union[Env.Bindings[Value.Base], Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]],
-    namespace: str = "",
+    namespace: str = "", extended_format: bool | None = None
 ) -> Dict[str, Any]:
     """
     Convert a ``WDL.Env.Bindings[WDL.Value.Base]`` to a dict which ``json.dumps`` to
     Cromwell-style JSON.
 
     :param namespace: prefix this namespace to each key (e.g. workflow name)
+    :param extended_format: If set to True, outputs File and Directory values in WDL 1.2+ extended syntax.
     """
     # also can be used on Env.Bindings[Tree.Decl] or Env.Types, then the right-hand side of
     # each entry will be the type string.
     if namespace and not namespace.endswith("."):
         namespace += "."
+    if extended_format is None:
+        extended_format = False
     ans = {}
     for item in values_env:
         v = item.value
         if isinstance(v, Value.Base):
-            j = v.json
+            if not extended_format and isinstance(v, (Value.File, Value.Directory)):
+                # The JSON property spits out extended syntax. We need
+                # location-only syntax, which comes from string coercion.
+                j = v.coerce(Type.String()).json
+            else:
+                j = v.json
         elif isinstance(item.value, Tree.Decl):
             j = str(item.value.type)
         else:

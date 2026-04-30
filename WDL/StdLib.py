@@ -152,7 +152,7 @@ class Base:
         "generate read_* function implementation based on parse"
 
         def f(file: Value.File) -> Value.Base:
-            with open(self._devirtualize_filename(file.value), "r") as infile:
+            with open(self._devirtualize_filename(file.value["location"]), "r") as infile:
                 return parse(infile.read())
 
         return f
@@ -735,7 +735,7 @@ class _Size(EagerFunction):
         ans = []
         for file in files.value:
             if isinstance(file, Value.File):
-                ans.append(os.path.getsize(self.stdlib._devirtualize_filename(file.value)))
+                ans.append(os.path.getsize(self.stdlib._devirtualize_filename(file.value["location"])))
             elif isinstance(file, Value.Null):
                 ans.append(0)
             else:

@@ -860,7 +860,8 @@ def runner(
             cfg.log_unused_options()
 
     # report
-    outputs_json = {"outputs": values_to_json(output_env, namespace=target.name), "dir": rundir}
+    # TODO: For WDL 1.2, should we output Files and Directories in the "extended" format?
+    outputs_json = {"outputs": values_to_json(output_env, namespace=target.name, extended_format=False), "dir": rundir}
     runner_standard_output(outputs_json, stdout_file, error_json, log_json)
     return outputs_json
 
@@ -1080,11 +1081,13 @@ def runner_input(
                 f"missing required inputs for {target.name}: {', '.join(missing_inputs.keys())}"
             )
 
+    # TODO: Is this where we should fill in the listing fields for Directory inputs that don't come with them?
+
     # make a pass over the Env to create a dict for Cromwell-style input JSON
     return (
         target,
         input_env,
-        values_to_json(input_env, namespace=(target.name if isinstance(target, Workflow) else "")),
+        values_to_json(input_env, namespace=(target.name if isinstance(target, Workflow) else ""), extended_format=True),
     )
 
 
@@ -1144,7 +1147,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         ans = Value.rewrite_env_paths(
             ans,
             lambda v: validate_input_path(
-                v.value, isinstance(v, Value.Directory), downloadable, root
+                v.value["location"], isinstance(v, Value.Directory), downloadable, root
             ),
         )
 
@@ -1299,6 +1302,9 @@ def validate_input_path(path, directory, downloadable, root):
     2. resides within root
     3. contains no symlinks pointing outside or to absolute paths
     """
+
+    print(f"Checking {path}")
+
     if downloadable and downloadable(path, directory):
         return path
 

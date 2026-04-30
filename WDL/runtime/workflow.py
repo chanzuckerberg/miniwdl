@@ -735,9 +735,9 @@ def _check_path_allowed(
     cfg: config.Loader, allowlist: Set[str], desc: str, v: Union[Value.File, Value.Directory]
 ) -> str:
     isdir = isinstance(v, Value.Directory)
-    fspath = v.value.rstrip("/") + ("/" if isdir else "")
+    fspath = v.value["location"].rstrip("/") + ("/" if isdir else "")
     if fspath in allowlist or downloadable(cfg, fspath, directory=isdir):
-        return v.value
+        return v.value["location"]
     if not cfg.get_bool("file_io", "allow_any_input"):
         raise Error.InputError(
             desc + " uses file/directory not expressly supplied with workflow inputs"
@@ -749,7 +749,7 @@ def _check_path_allowed(
     fspath = os.path.abspath(fspath).rstrip("/")
     if not path_really_within(fspath, cfg["file_io"]["root"]):
         raise Error.InputError(
-            f"{desc} {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
+            f"{desc} {v.value['location']} must reside within [file_io] root " + cfg["file_io"]["root"]
         )
     return fspath
 
@@ -1139,7 +1139,7 @@ def _download_input_files(
     def scan_uri(v: Union[Value.File, Value.Directory]) -> str:
         nonlocal uris
         directory = isinstance(v, Value.Directory)
-        uri = v.value
+        uri = v.value["location"]
         if uri not in uris and downloadable(cfg, uri, directory=directory):
             uris.add((uri, directory))
         return uri

@@ -8,6 +8,7 @@ Each value is represented by an instance of a Python class inheriting from
    :top-classes: WDL.Value.Base
 """
 
+import os
 import json
 import copy
 import base64
@@ -15,7 +16,7 @@ import hashlib
 import itertools
 import threading
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set, TYPE_CHECKING
+from typing import cast, Any, List, Literal, Mapping, Optional, Tuple, Dict, Iterable, Union, Callable, Set, TypedDict, TYPE_CHECKING
 from contextlib import suppress
 from . import Error, Type, Env
 
@@ -175,21 +176,176 @@ class String(Base):
             raise Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg)
         return super().coerce(desired_type)
 
+# File values are recommended to support additional attributes by the spec, so
+# we allow passing through unrecognized attributes.
+#
+# So we use a TypedDict to describe the attributes we know about.
+class ExtendedFile(TypedDict, total=False):
+    type: Literal["File"]
+    location: str
+    basename: str
 
-class File(String):
-    """``value`` has Python type ``str``"""
+def _parse_extended_file(value: Mapping[str, Any], parent_location: str | None = None) -> ExtendedFile:
+    """
+    Make a ExtendedFile-typed clone of the given dict, with infer-abel fields
+    filled in, or raise Error.InputError if the input is not the right format.
+    """
+    # We're going to possibly modify the input object, so copy it.
+    value = dict(value)
+    if "type" in value:
+        if value["type"] != "File":
+             raise Error.InputError("WDL.Value.File invalid type: " + str(value["type"]))
+    else:
+        value["type"] = "File"
+    if "basename" in value:
+        if not isinstance(value["basename"], str):
+            raise Error.InputError(f"WDL.Value.File invalid basename type: {type(value['basename'])}")
+        if "/" in value["basename"]:
+            raise Error.InputError(f"WDL.Value.File invalid basename: " + value["basename"])
+    if "location" not in value:
+        if parent_location is None:
+            raise Error.InputError("WDL.Value.File invalid JSON object: missing location without enclosing Directory available")
+        elif "basename" not in value:
+            raise Error.InputError("WDL.Value.File invalid JSON object: missing location and basename")
+        else:
+            value["location"] = os.path.join(parent_location, value["basename"])
+    if not isinstance(value["location"], str):
+        raise Error.InputError(f"WDL.Value.File invalid location type: {type(value['location'])}")
+    if value["location"] != value["location"].rstrip("/"):
+        raise Error.InputError("WDL.Value.File invalid path: " + value["location"])
+    if "basename" not in value:
+        # Remember the basename if it wasn't provided.
+        # TODO: Is this worth doing? Should this be reflected in our value TypedDict?
+        value["basename"] = os.path.basename(value["location"])
 
-    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
-        super().__init__(value, expr=expr, subtype=Type.File())
-        if value != value.rstrip("/"):
-            raise Error.InputError("WDL.Value.File invalid path: " + value)
+    # Now we know it's a valid ExtendedFile
+    return cast(ExtendedFile, value)
 
+class File(Base):
+    """``value`` has Python type ``ExtendedFile``, which is a TypedDict representing the WDL 1.2 "extended" file syntax."""
+    value: ExtendedFile
 
-class Directory(String):
-    """``value`` has Python type ``str``"""
+    def __init__(self, value: str | Mapping[str, Any], expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Make a File from an input string or parsed JSON object.
+        """
 
-    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
-        super().__init__(value, expr=expr, subtype=Type.Directory())
+        if isinstance(value, str):
+            # Always interpret strings as actual filenames at this level.
+            if value != value.rstrip("/"):
+                raise Error.InputError("WDL.Value.File invalid path: " + value)
+            file_value: ExtendedFile = {"type": "File", "location": value, "basename": os.path.basename(value)}
+        else:
+            file_value = _parse_extended_file(value)
+
+        super().__init__(Type.File(), file_value, expr=expr)
+
+    def __str__(self) -> str:
+        return str(self.coerce(Type.String()))
+
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+        if isinstance(desired_type, Type.File):
+            return File(self.value, self.expr)
+        if isinstance(desired_type, Type.String):
+            # TODO: Do we need to think about localizing to a name ending in basename here?
+            return String(self.value["location"], self.expr)
+        return super().coerce(desired_type)
+        
+class ExtendedDirectory(TypedDict, total=False):
+    type: Literal["Directory"]
+    location: str
+    basename: str
+    # TODO: Should we let full File or Directory objects in the listing?
+    listing: List[Union[ExtendedFile, "ExtendedDirectory"]]
+
+def _parse_extended_directory(value: Mapping[str, Any], parent_location: str | None = None) -> ExtendedDirectory:
+    """
+    Make a ExtendedDirectory-typed clone of the given dict, with infer-abel fields
+    filled in, or raise Error.InputError if the input is not the right format.
+    """
+
+    # We don't want to just clone the whole object immediately, so we go key by
+    # key through the keys we care about and then update with the rest.
+    dir_value = {}
+
+    if "type" in value:
+        if value["type"] != "Directory":
+            raise Error.InputError("WDL.Value.Directory invalid type: " + str(value["type"]))
+        dir_value["type"] = value["type"]
+    else:
+        dir_value["type"] = "Directory"
+    if "basename" in value:
+        if not isinstance(value["basename"], str):
+            raise Error.InputError(f"WDL.Value.Directory invalid basename type: {type(value['basename'])}")
+        if "/" in value["basename"]:
+            raise Error.InputError(f"WDL.Value.Directory invalid basename: " + value["basename"])
+        dir_value["basename"] = value["basename"]
+    if "location" in value:
+        if not isinstance(value["location"], str):
+            raise Error.InputError(f"WDL.Value.Directory invalid location type: {type(value['location'])}")
+        dir_value["location"] = value["location"]
+    else:
+        if parent_location is None:
+            raise Error.InputError("WDL.Value.Directory invalid JSON object: missing location without enclosing Directory available")
+        elif "basename" not in value:
+            raise Error.InputError("WDL.Value.Directory invalid JSON object: missing location and basename")
+        else:
+            dir_value["location"] = os.path.join(parent_location, value["basename"])
+    if "basename" not in value:
+        # Remember the basename if it wasn't provided.
+        # TODO: Is this worth doing? Should this be reflected in our value TypedDict?
+        dir_value["basename"] = os.path.basename(dir_value["location"].rstrip("/"))
+
+    if "listing" in value:
+        if not isinstance(value["listing"], list):
+            raise Error.InputError(f"WDL.Value.Directory invalid listing type: {type(value['listing'])}")
+        dir_value["listing"] = []
+        for item in value["listing"]:
+            if not isinstance(item, dict):
+                raise Error.InputError(f"WDL.Value.Directory invalid listing entry type: {type(item)}")
+            if "type" not in item:
+                raise Error.InputError(f"WDL.Value.Directory invalid listing entry has no type")
+            if item["type"] == "File":
+                dir_value["listing"].append(_parse_extended_file(item, dir_value["location"]))
+            elif item["type"] == "Directory":
+                dir_value["listing"].append(_parse_extended_directory(item, dir_value["location"]))
+            else:
+                 raise Error.InputError(f"WDL.Value.Directory invalid listing entry type value: " + str(item["type"]))
+    else:
+        raise Error.InputError("WDL.Value.Directory has no listing")
+
+    # Now we know this is a ExtendedDirectory
+    return cast(ExtendedDirectory, dir_value)
+        
+class Directory(Base):
+    """``value`` has Python type ``ExtendedDirectory``"""
+    value: ExtendedDirectory
+
+    def __init__(self, value: str | Mapping[str, Any], expr: "Optional[Expr.Base]" = None) -> None:
+        """
+        Make a Directory from an input string or parsed JSON object.
+        """
+
+        if isinstance(value, str):
+            # Always interpret strings as actual filenames at this level.
+            dir_value: ExtendedDirectory = {"type": "Directory", "location": value, "basename": os.path.basename(value)}
+            # TODO: fill the listing recursively somewhere where we have access to the config/plugins
+        else:
+            dir_value = _parse_extended_directory(value)
+
+        super().__init__(Type.Directory(), dir_value, expr=expr)
+
+    def __str__(self) -> str:
+        return str(self.coerce(Type.String()))
+
+    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+        if isinstance(desired_type, Type.Directory):
+            return Directory(self.value, self.expr)
+        if isinstance(desired_type, Type.String):
+            # TODO: Do we need to think about localizing to a name ending in basename here?
+            return String(self.value["location"], self.expr)
+        return super().coerce(desired_type)
+
 
 
 class Array(Base):
@@ -565,7 +721,21 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return Int(value)
     if isinstance(type, (Type.Float, Type.Any)) and isinstance(value, (float, int)):
         return Float(float(value))
-    if isinstance(type, Type.File) and isinstance(value, str):
+    if isinstance(type, Type.File) and isinstance(value, (str, dict)):
+        if isinstance(value, str):
+            try:
+                # The spec says an extended-syntax File value can come as a
+                # string encoding a JSON object.
+                parsed_value = json.loads(value)
+                if isinstance(parsed_value, dict):
+                    return File(parsed_value)
+            except Error.InputError as e:
+                # A filename might look like a JSON dict but not describe a
+                # File value.
+                pass
+            except json.JSONDecodeError as e:
+                # A filename probably isn't actually a serialized JSON object.
+                pass
         return File(value)
     if isinstance(type, Type.Directory) and isinstance(value, str):
         return Directory(value)
@@ -699,7 +869,7 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]])
             fw = f(w)
             if fw is None:
                 return Null(expr=w.expr)
-            w.value = fw
+            w.value["location"] = fw
         # recursive descent into compound Values
         elif isinstance(w.value, list):
             value2: List[Any] = []
@@ -745,7 +915,7 @@ def rewrite_files(v: Base, f: Callable[[str], Optional[str]]) -> Base:
     (deprecated: use ``rewrite_paths`` to handle Directory values as well)
     """
 
-    return rewrite_paths(v, lambda fd: f(fd.value) if isinstance(fd, File) else fd.value)
+    return rewrite_paths(v, lambda fd: f(fd.value["location"]) if isinstance(fd, File) else fd.value["location"])
 
 
 def rewrite_env_files(

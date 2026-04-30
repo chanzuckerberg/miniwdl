@@ -27,6 +27,9 @@ from .._util import (
 
 
 class CallCache(AbstractContextManager):
+
+    CALL_CACHE_VERSION = 2
+
     _cfg: config.Loader
     _download_cache_dir: str
     _call_cache_dir: str
@@ -94,6 +97,12 @@ class CallCache(AbstractContextManager):
                 outputs = json.loads(file_reader.read())
                 if "miniwdlCallCacheVersion" in outputs:
                     # envelope: previously, there was none and file contained exactly the outputs.
+                    if outputs["miniwdlCallCacheVersion"] > self.CALL_CACHE_VERSION:
+                        # This cache entry is too new to understand
+                        raise ValueError(
+                            f"Call cache version {outputs['miniwdlCallCacheVersion']} "
+                            f"is newer than our maximum understood version of {self.CALL_CACHE_VERSION}"
+                        )
                     run_dir = outputs.get("dir", None)
                     outputs = outputs["outputs"]
                 cache = values_from_json(outputs, output_types)
@@ -141,8 +150,8 @@ class CallCache(AbstractContextManager):
 
         if self._cfg["call_cache"].get_bool("put"):
             envelope = {
-                "miniwdlCallCacheVersion": 1,
-                "outputs": values_to_json(outputs),
+                "miniwdlCallCacheVersion": self.CALL_CACHE_VERSION,
+                "outputs": values_to_json(outputs, extended_format=True),
             }
             if run_dir:
                 envelope["dir"] = run_dir
@@ -358,14 +367,14 @@ def _check_files_coherence(
 
     def check_one(v: Union[Value.File, Value.Directory]):
         assert isinstance(v, (Value.File, Value.Directory))
-        if not downloadable(cfg, v.value):
+        if not downloadable(cfg, v.value["location"]):
             try:
-                if mtime(v.value) > cache_file_mtime:
+                if mtime(v.value["location"]) > cache_file_mtime:
                     raise StopIteration
                 if isinstance(v, Value.Directory):
                     # check everything in directory
                     for root, subdirs, subfiles in os.walk(
-                        v.value, onerror=raiser, followlinks=False
+                        v.value["location"], onerror=raiser, followlinks=False
                     ):
                         for subdir in subdirs:
                             if mtime(os.path.join(root, subdir)) > cache_file_mtime:
@@ -378,7 +387,7 @@ def _check_files_coherence(
                     _(
                         "cache entry invalid due to deleted or modified file/directory",
                         cache_file=cache_file,
-                        changed=v.value,
+                        changed=v.value["location"],
                     )
                 )
                 raise StopIteration
