@@ -1190,6 +1190,7 @@ def _add_parentheses(arguments, parent_operator):
     """
     arguments_out = []
     precedence = {
+        "_pow": 8,
         "_mul": 7,
         "_div": 7,
         "_rem": 7,
@@ -1241,6 +1242,7 @@ class Apply(Base):
     def __str__(self):
         arguments = _add_parentheses(self.arguments, self.function_name)
         infix = {
+            "_pow": "**",
             "_mul": "*",
             "_div": "/",
             "_rem": "%",
