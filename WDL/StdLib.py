@@ -67,7 +67,8 @@ class Base:
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
         static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
-        static([Type.Array(Type.Any())], Type.Int(), "length")(lambda v: Value.Int(len(v.value)))
+        # length() is now defined as _Length class to support Map/Struct/Any
+        self.length = _Length()
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
         def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
@@ -152,6 +153,7 @@ class Base:
             # WDL 1.2+ functions
             self.contains = _Contains()
             self.values = _Values()
+            self.contains_key = _ContainsKey()
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -1088,7 +1090,7 @@ class _Keys(EagerFunction):
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
 
-        # Accept Map, StructInstance, or Object
+        # Accept Map, StructInstance, Object, or direct read_json() (Any).
         if isinstance(arg0ty, Type.Map):
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(
@@ -1110,6 +1112,15 @@ class _Keys(EagerFunction):
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), arg0ty)
             # For Struct or Object, return Array[String]
+            return Type.Array(Type.String())
+        elif (
+            isinstance(arg0ty, Type.Any)
+            and not arg0ty.optional
+            and isinstance(expr.arguments[0], Expr.Apply)
+            and expr.arguments[0].function_name == "read_json"
+            and self.wdl_version not in ["draft-2", "1.0", "1.1"]
+        ):
+            # read_json() result type is unknown until runtime.
             return Type.Array(Type.String())
         else:
             raise Error.StaticTypeMismatch(
@@ -1146,7 +1157,10 @@ class _Keys(EagerFunction):
                 keys = list(arg.value.keys())
             return Value.Array(Type.String(), [Value.String(k) for k in keys], expr)
         else:
-            raise Error.EvalError(expr, f"keys() received unexpected argument type: {type(arg)}")
+            raise Error.EvalError(
+                expr,
+                f"keys() requires a Map, Struct, or Object; got {arg.type} instead",
+            )
 
 
 class _Values(EagerFunction):
@@ -1172,6 +1186,51 @@ class _Values(EagerFunction):
         return Value.Array(
             mapty.item_type[1], [p[1].coerce(mapty.item_type[1]) for p in arguments[0].value], expr
         )
+
+
+class _Length(EagerFunction):
+    # Int length(Array[X]|Map[X,Y]|Object|String)
+    # Returns the length of an Array, Map, Object, or String
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+
+        # Accept Array, Map, Object, String, or direct read_json() (Any).
+        if isinstance(arg0ty, (Type.Array, Type.Map, Type.Object, Type.String)):
+            if expr._check_quant and arg0ty.optional:
+                raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
+            return Type.Int()
+        elif (
+            isinstance(arg0ty, Type.Any)
+            and not arg0ty.optional
+            and isinstance(expr.arguments[0], Expr.Apply)
+            and expr.arguments[0].function_name == "read_json"
+        ):
+            # read_json() result type is unknown until runtime.
+            return Type.Int()
+        else:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Array(Type.Any()),
+                arg0ty,
+                "length() requires Array, Map, Object, or String",
+            )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        arg = arguments[0]
+
+        if isinstance(arg, (Value.Array, Value.Map, Value.String)):
+            return Value.Int(len(arg.value))
+        elif isinstance(arg, Value.Struct) and isinstance(arg.type, Type.Object):
+            # Object literals and read_json() objects are represented as Value.Struct.
+            return Value.Int(len(arg.value))
+        else:
+            raise Error.EvalError(
+                expr,
+                f"length() requires an Array, Map, Object, or String; got {arg.type} instead",
+            )
 
 
 class _AsPairs(EagerFunction):
@@ -1324,3 +1383,188 @@ class _Contains(EagerFunction):
             if elem == item:
                 return Value.Boolean(True)
         return Value.Boolean(False)
+
+
+class _ContainsKey(EagerFunction):
+    # Boolean contains_key(Map[P, Y], P)
+    # Boolean contains_key(Object, String)
+    # Boolean contains_key(Map[String, Y]|Struct|Object, Array[String])
+    # Tests whether a collection contains a given key (or nested key path)
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+
+        coll_ty = expr.arguments[0].type
+        key_ty = expr.arguments[1].type
+
+        if isinstance(coll_ty, Type.Map):
+            return self._infer_type_map(expr, coll_ty, key_ty)
+
+        elif isinstance(coll_ty, (Type.StructInstance, Type.Object)):
+            return self._infer_type_struct(expr, coll_ty, key_ty)
+
+        elif (
+            isinstance(coll_ty, Type.Any)
+            and not coll_ty.optional
+            and isinstance(expr.arguments[0], Expr.Apply)
+            and expr.arguments[0].function_name == "read_json"
+        ):
+            return self._infer_type_read_json(expr, key_ty)
+
+        else:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Map((Type.Any(), Type.Any())),
+                coll_ty,
+                "contains_key() requires Map, Struct, or Object",
+            )
+
+    def _infer_type_map(
+        self, expr: "Expr.Apply", coll_ty: Type.Map, key_ty: Type.Base
+    ) -> Type.Boolean:
+        """Typecheck contains_key(Map[P,Y], P) and nested Map[String,Y] lookups."""
+        if expr._check_quant and coll_ty.optional:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Map((Type.Any(), Type.Any())), coll_ty
+            )
+
+        if isinstance(key_ty, Type.Array):
+            # Nested lookup variant: Map[String, Y], Array[String]
+            self._typecheck_string_key_path(expr, key_ty)
+            if not isinstance(coll_ty.item_type[0], Type.String):
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[0],
+                    Type.Map((Type.String(), Type.Any())),
+                    coll_ty,
+                    "for contains_key() with nested keys, Map must have String keys",
+                )
+        elif not key_ty.equatable(coll_ty.item_type[0]):
+            # Simple lookup variant: Map[P, Y], P
+            self._raise_map_key_type_mismatch(expr, coll_ty, key_ty)
+        elif expr._check_quant and key_ty.optional and not coll_ty.item_type[0].optional:
+            # The spec allows None only when the map key type is optional.
+            self._raise_map_key_type_mismatch(expr, coll_ty, key_ty)
+
+        return Type.Boolean()
+
+    def _raise_map_key_type_mismatch(
+        self, expr: "Expr.Apply", coll_ty: Type.Map, key_ty: Type.Base
+    ) -> None:
+        """Raise the standard type mismatch for a simple Map key argument."""
+        raise Error.StaticTypeMismatch(
+            expr.arguments[1],
+            coll_ty.item_type[0],
+            key_ty,
+            "for contains_key() key argument",
+        )
+
+    def _infer_type_struct(
+        self, expr: "Expr.Apply", coll_ty: Type.Base, key_ty: Type.Base
+    ) -> Type.Boolean:
+        """Typecheck Struct/Object lookup with a string key or string key path."""
+        if expr._check_quant and coll_ty.optional:
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), coll_ty)
+
+        if isinstance(key_ty, Type.Array):
+            self._typecheck_string_key_path(expr, key_ty)
+        elif not isinstance(key_ty, Type.String):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1], Type.String(), key_ty, "for contains_key() key argument"
+            )
+
+        return Type.Boolean()
+
+    def _infer_type_read_json(self, expr: "Expr.Apply", key_ty: Type.Base) -> Type.Boolean:
+        """Typecheck direct read_json() lookup, deferring collection validation to runtime."""
+        if isinstance(key_ty, Type.Array):
+            self._typecheck_string_key_path(expr, key_ty)
+        elif not isinstance(key_ty, Type.String):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1],
+                Type.String(),
+                key_ty,
+                "for contains_key() key must be String or Array[String]",
+            )
+
+        return Type.Boolean()
+
+    def _typecheck_string_key_path(self, expr: "Expr.Apply", key_ty: Type.Array) -> None:
+        """Require the nested-key argument to have type Array[String]."""
+        if not isinstance(key_ty.item_type, Type.String):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1],
+                Type.Array(Type.String()),
+                key_ty,
+                "for contains_key() nested key path",
+            )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        coll = arguments[0]
+        key = arguments[1]
+
+        # Handle nested key path (Array[String])
+        if isinstance(key, Value.Array):
+            return self._contains_nested_key(expr, coll, key)
+
+        # Simple key lookup
+        if isinstance(coll, Value.Map):
+            # Check if key exists in map
+            for k, v in coll.value:
+                if key == k:
+                    return Value.Boolean(True)
+            return Value.Boolean(False)
+
+        elif isinstance(coll, Value.Struct):
+            # Check if key exists in struct
+            key_str = key.coerce(Type.String()).value
+            return Value.Boolean(key_str in coll.value)
+
+        else:
+            raise Error.EvalError(
+                expr,
+                f"contains_key() requires a Map, Struct, or Object; got {coll.type} instead",
+            )
+
+    def _lookup_string_key(
+        self, current: Value.Base, key_str: str
+    ) -> Tuple[bool, Optional[Value.Base]]:
+        """Look up a string key in a Map or Struct while preserving Null as a value."""
+        if isinstance(current, Value.Map):
+            for k, v in current.value:
+                if k.coerce(Type.String()).value == key_str:
+                    return True, v
+            return False, None
+        elif isinstance(current, Value.Struct):
+            if key_str in current.value:
+                return True, current.value[key_str]
+            return False, None
+        else:
+            return False, None
+
+    def _contains_nested_key(
+        self, expr: "Expr.Apply", coll: Value.Base, keys: Value.Array
+    ) -> Value.Boolean:
+        """Traverse a string key path, treating final-key Null as present."""
+        if not keys.value:
+            # Empty key array
+            return Value.Boolean(False)
+
+        current = coll
+        for i, key_val in enumerate(keys.value):
+            key_str = key_val.coerce(Type.String()).value
+            final_key = i == len(keys.value) - 1
+
+            found, next_val = self._lookup_string_key(current, key_str)
+            if not found:
+                return Value.Boolean(False)
+
+            assert next_val is not None  # mypy: found key always returns its value
+            # None only blocks traversal through intermediate keys; final-key None still counts
+            # as key presence.
+            if isinstance(next_val, Value.Null) and not final_key:
+                return Value.Boolean(False)
+            current = next_val
+
+        # Successfully navigated the entire key path
+        return Value.Boolean(True)

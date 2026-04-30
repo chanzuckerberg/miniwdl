@@ -211,6 +211,121 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+        # Test length() with Maps
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_map {
+            input {
+                Map[String, Int] m = {"a": 1, "b": 2, "c": 3}
+            }
+            command {}
+            output {
+                Int map_len = length(m)
+            }
+        }
+        """)
+        self.assertEqual(outputs["map_len"], 3)
+
+        # Test length() with String
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_string {
+            command {}
+            output {
+                Int string_len = length("ABCDE")
+            }
+        }
+        """)
+        self.assertEqual(outputs["string_len"], 5)
+
+        # Test length() with Object literals
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_object {
+            command {}
+            output {
+                Int object_len = length(object {a: 1, b: 2})
+            }
+        }
+        """)
+        self.assertEqual(outputs["object_len"], 2)
+
+        # Error: Structs aren't in the WDL 1.2 length() signature
+        self._test_task(R"""
+        version 1.2
+        struct Person {
+            String first
+            String last
+            Int age
+        }
+        task test_length_struct {
+            input {
+                Person p = Person {
+                    first: "John",
+                    last: "Doe",
+                    age: 30
+                }
+            }
+            command {}
+            output {
+                Int struct_len = length(p)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Test length(read_json()) on array
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_json_array {
+            command <<<
+                echo '[1, 2, 3, 4, 5]' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["len"], 5)
+
+        # Error: None isn't a valid dynamic length() argument
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Int len = length(None)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Test length(read_json()) on object
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_json_object {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["len"], 3)
+
+        # Test length(read_json()) on string
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_json_string {
+            command <<<
+                echo '"hello"' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["len"], 5)
+
     def test_floor_ceil_round(self):
         outputs = self._test_task(R"""
         version 1.0
@@ -2115,15 +2230,23 @@ class TestStdLib(unittest.TestCase):
         # Struct keys are in definition order
         self.assertEqual(outputs["json_keys"], ["x", "y", "z"])
 
-        # Error: keys(read_json()) without type coercion fails
-        # read_json() returns Any, which is not a concrete Map/Struct/Object type
-        self._test_task(R"""
+        # Test keys(read_json()) directly without type coercion - now works!
+        outputs = self._test_task(R"""
         version 1.2
-        struct Data {
-            Int x
-            Int y
-            Int z
+        task test_keys_direct_json {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(read_json("data.json"))
+            }
         }
+        """)
+        self.assertEqual(sorted(outputs["json_keys"]), ["x", "y", "z"])
+
+        # Error: direct keys(read_json()) is WDL 1.2+ behavior
+        self._test_task(R"""
+        version 1.1
         task bad {
             command <<<
                 echo '{"x": 1, "y": 2, "z": 3}' > data.json
@@ -2133,6 +2256,32 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: arbitrary Any expressions aren't accepted; only direct read_json()
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(if true then read_json("data.json") else read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: keys(read_json()) with non-object JSON raises EvalError
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '42' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
         # Note: The fallback path for Type.Object (line 1125-1126 in StdLib.py) is defensive code
         # that may be hit during coercion from read_json, though it's hard to isolate in testing.
@@ -2468,3 +2617,260 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+    def test_contains_key(self):
+        """Test the contains_key() function from WDL 1.2"""
+
+        # Basic Map key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_map {
+            input {
+                Map[String, Int] m = {"a": 1, "b": 2, "c": 3}
+            }
+            command {}
+            output {
+                Boolean has_a = contains_key(m, "a")
+                Boolean has_d = contains_key(m, "d")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a"], True)
+        self.assertEqual(outputs["has_d"], False)
+
+        # Map with Int keys
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_int_map {
+            input {
+                Map[Int, String] m = {1: "one", 2: "two"}
+            }
+            command {}
+            output {
+                Boolean has_1 = contains_key(m, 1)
+                Boolean has_3 = contains_key(m, 3)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_1"], True)
+        self.assertEqual(outputs["has_3"], False)
+
+        # Struct key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Person {
+            String name
+            Int age
+            String? email
+        }
+        task test_contains_key_struct {
+            input {
+                Person p = Person {
+                    name: "Alice",
+                    age: 30
+                }
+            }
+            command {}
+            output {
+                Boolean has_name = contains_key(p, "name")
+                Boolean has_email = contains_key(p, "email")
+                Boolean has_phone = contains_key(p, "phone")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_name"], True)
+        self.assertEqual(outputs["has_email"], True)  # Optional members are present
+        self.assertEqual(outputs["has_phone"], False)
+
+        # Nested key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested {
+            input {
+                Map[String, Map[String, Int]] nested = {
+                    "a": {"x": 1, "y": 2},
+                    "b": {"z": 3}
+                }
+            }
+            command {}
+            output {
+                Boolean has_a_x = contains_key(nested, ["a", "x"])
+                Boolean has_a_z = contains_key(nested, ["a", "z"])
+                Boolean has_b_z = contains_key(nested, ["b", "z"])
+                Boolean has_c_x = contains_key(nested, ["c", "x"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_x"], True)
+        self.assertEqual(outputs["has_a_z"], False)
+        self.assertEqual(outputs["has_b_z"], True)
+        self.assertEqual(outputs["has_c_x"], False)
+
+        # Nested key lookup with Struct
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Details {
+            String? phone
+            String? email
+        }
+        struct Person {
+            String name
+            Details? details
+        }
+        task test_contains_key_nested_struct {
+            input {
+                Person p1 = Person {
+                    name: "John",
+                    details: Details {
+                        phone: "123-456-7890"
+                    }
+                }
+                Person p2 = Person {
+                    name: "Jane"
+                }
+            }
+            command {}
+            output {
+                Boolean p1_has_details_phone = contains_key(p1, ["details", "phone"])
+                Boolean p1_has_details_email = contains_key(p1, ["details", "email"])
+                Boolean p2_has_details_phone = contains_key(p2, ["details", "phone"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["p1_has_details_phone"], True)
+        self.assertEqual(outputs["p1_has_details_email"], True)  # contains_key tests presence
+        self.assertEqual(outputs["p2_has_details_phone"], False)  # p2.details is None
+
+        # contains_key(read_json()) direct usage
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_json {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Boolean has_x = contains_key(read_json("data.json"), "x")
+                Boolean has_w = contains_key(read_json("data.json"), "w")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_x"], True)
+        self.assertEqual(outputs["has_w"], False)
+
+        # contains_key(read_json()) with nested keys
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_json_nested {
+            command <<<
+                echo '{"a": {"x": 1, "y": 2}, "b": {"z": 3}}' > data.json
+            >>>
+            output {
+                Boolean has_a_x = contains_key(read_json("data.json"), ["a", "x"])
+                Boolean has_a_z = contains_key(read_json("data.json"), ["a", "z"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_x"], True)
+        self.assertEqual(outputs["has_a_z"], False)
+
+        # Error: arbitrary Any expressions aren't accepted; only direct read_json()
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1}' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(if true then read_json("data.json") else read_json("data.json"), "x")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: wrong arity
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key({"a": 1})
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key({"a": 1}, "a")
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: key type mismatch
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[Int, String] m = {1: "one"}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, "one")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: None key only allowed when the map key type is optional
+        optional_key_wdl = R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int] m = {"a": 1}
+                String? k = None
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, k)
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(optional_key_wdl).typecheck()
+        WDL.parse_document(optional_key_wdl).typecheck(check_quant=False)
+
+        # OK: optional map key type permits an optional lookup key
+        type_env = (
+            WDL.Env.Bindings()
+            .bind("m", WDL.Type.Map((WDL.Type.String(optional=True), WDL.Type.Int())))
+            .bind("k", WDL.Type.String(optional=True))
+        )
+        expr = WDL.parse_expr("contains_key(m, k)", version="1.2").infer_type(
+            type_env, WDL.StdLib.Base("1.2")
+        )
+        self.assertIsInstance(expr.type, WDL.Type.Boolean)
+
+        # Error: first argument not a collection
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key("not a map", "key")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: contains_key(read_json()) with non-collection JSON
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '42' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(read_json("data.json"), "key")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
