@@ -503,6 +503,42 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+    def test_find_matches(self):
+        self.assertEqual(
+            self._eval_expr('find("hello world", "e..o")', version="1.2").json, "ello"
+        )
+        self.assertIsNone(
+            self._eval_expr('find("hello world", "goodbye")', version="1.2").json
+        )
+        self.assertEqual(
+            self._eval_expr(R"""find("hello\tBob", "\\t")""", version="1.2").json, "\t"
+        )
+        self.assertEqual(self._eval_expr('find("aaab", "a+")', version="1.2").json, "aaa")
+        self.assertEqual(
+            self._eval_expr('find("abc123", "[[:digit:]]+")', version="1.2").json,
+            "123",
+        )
+
+        self.assertTrue(self._eval_expr('matches("sample_R1.fastq", "_R1")', version="1.2").json)
+        self.assertFalse(
+            self._eval_expr(
+                'matches("sample_R1.fastq", "\\\\.(gz|zip|zstd)")', version="1.2"
+            ).json
+        )
+        self.assertTrue(self._eval_expr('matches("abc123", "^a.+3$")', version="1.2").json)
+        self.assertFalse(self._eval_expr('matches("abc123", "^a.+2$")', version="1.2").json)
+
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('find("foo", "(()")', version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('matches("foo", "(()")', version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._eval_expr('find("foo", {"a": 1})', version="1.2")
+        with self.assertRaises(WDL.Error.NoSuchFunction):
+            self._eval_expr('find("hello world", "e..o")', version="1.1")
+        with self.assertRaises(WDL.Error.NoSuchFunction):
+            self._eval_expr('matches("sample_R1.fastq", "_R1")', version="1.1")
+
     def test_flatten(self):
         outputs = self._test_task(R"""
         version 1.0
