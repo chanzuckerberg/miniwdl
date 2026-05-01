@@ -191,6 +191,7 @@ for op in [
     "lor",
     "add",
     "sub",
+    "pow",
     "mul",
     "div",
     "rem",

@@ -151,6 +151,7 @@ class Base:
 
         if self.wdl_version not in ["draft-2", "1.0", "1.1"]:
             # WDL 1.2+ functions
+            self._pow = _ExponentiationOperator()
             self.contains = _Contains()
             self.values = _Values()
             self.contains_key = _ContainsKey()
@@ -591,6 +592,27 @@ class _DivisionOperator(_ArithmeticOperator):
         ans = lhs // rhs
         assert isinstance(ans, int)
         return Value.Int(ans)
+
+
+class _ExponentiationOperator(_ArithmeticOperator):
+    # ** operator, introduced in WDL 1.2.
+
+    def __init__(self) -> None:
+        super().__init__("**", lambda l, r: l**r)
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        ans_type = self.infer_type(expr)
+        lhs = arguments[0].coerce(ans_type).value
+        rhs = arguments[1].coerce(ans_type).value
+        if isinstance(ans_type, Type.Int) and rhs < 0:
+            raise Error.EvalError(expr, "integer exponentiation with negative exponent")
+        ans = lhs**rhs
+        if isinstance(ans_type, Type.Int):
+            assert isinstance(ans, int)
+            return Value.Int(ans)
+        if not isinstance(ans, float):
+            raise Error.EvalError(expr, "exponentiation result is not a real Float")
+        return Value.Float(ans)
 
 
 class _AddOperator(_ArithmeticOperator):

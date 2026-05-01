@@ -36,6 +36,7 @@ class TestEval(unittest.TestCase):
         self.assertEqual(str(WDL.parse_expr("1/1")), "1 / 1")
         self.assertEqual(str(WDL.parse_expr("1*1")), "1 * 1")
         self.assertEqual(str(WDL.parse_expr("1%1")), "1 % 1")
+        self.assertEqual(str(WDL.parse_expr("2**3", version="1.2")), "2 ** 3")
         self.assertEqual(str(WDL.parse_expr("1*1")), "1 * 1")
 
         # functions
@@ -161,6 +162,29 @@ class TestEval(unittest.TestCase):
             ("-1/2.0","-0.500000"),
             ("4%2","0"),
             ("4%3","1"),
+            ("2**3", "8", "1.2"),
+            ("2**3**2", "64", "1.2"),
+            ("2*3**2", "18", "1.2"),
+            ("2**3*2", "16", "1.2"),
+            ("1+2**3", "9", "1.2"),
+            ("2**3+1", "9", "1.2"),
+            ("10-2**3", "2", "1.2"),
+            ("2**3%3", "2", "1.2"),
+            ("17%2**3", "1", "1.2"),
+            ("2**3/3", "2", "1.2"),
+            ("16/2**3", "2", "1.2"),
+            ("(2*3)**2", "36", "1.2"),
+            ("2**(3*2)", "64", "1.2"),
+            ("2**3>7", "true", "1.2"),
+            ("2+2**2 == 6", "true", "1.2"),
+            ("false || 2**3 == 8", "true", "1.2"),
+            ("true && 2**3 == 8", "true", "1.2"),
+            ("2**3.0", "8.000000", WDL.Type.Float(), "1.2"),
+            ("2.0**3", "8.000000", WDL.Type.Float(), "1.2"),
+            ("2**-1", "", WDL.Error.EvalError, "1.2"),
+            ("(-2.0)**0.5", "", WDL.Error.EvalError, "1.2"),
+            ("2**true", "(Ln 1, Col 1) Non-numeric operand to ** operator", WDL.Error.IncompatibleOperand, "1.2"),
+            ("2**3", None, WDL.Error.SyntaxError, "1.1"),
             ("min(0,1)","0"),
             ("min(1,3.14)","1.000000"),
             ("max(1.0,0)","1.000000"),
@@ -168,6 +192,9 @@ class TestEval(unittest.TestCase):
             ("1 + false", "(Ln 1, Col 1) Non-numeric operand to + operator", WDL.Error.IncompatibleOperand),
             ("min(max(0,1),true)", "(Ln 1, Col 1) Non-numeric operand to min operator", WDL.Error.IncompatibleOperand),
         )
+        stdlib = WDL.StdLib.Base("1.2")
+        expr = WDL.parse_expr("2**3", version="1.2").infer_type(WDL.Env.Bindings(), stdlib)
+        self.assertEqual(str(expr.eval(WDL.Env.Bindings(), stdlib)), "8")
 
     def test_cmp(self):
         self._test_tuples(
