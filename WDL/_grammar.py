@@ -153,7 +153,10 @@ optional_nonempty: "+?"
             | expr_infix4 "%" expr_infix5 -> rem
             | expr_infix5
 
-?expr_infix5: expr_core
+?expr_infix5: expr_infix5 "**" expr_infix6 -> pow
+            | expr_infix6
+
+?expr_infix6: expr_core
 
 // expression core (everything but infix)
 ?expr_core: "(" expr ")"
