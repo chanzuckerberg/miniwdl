@@ -611,7 +611,7 @@ class _ExponentiationOperator(_ArithmeticOperator):
             assert isinstance(ans, int)
             return Value.Int(ans)
         if not isinstance(ans, float):
-            raise Error.EvalError(expr, "exponentiation result is not a Float")
+            raise Error.EvalError(expr, "exponentiation result is not a real Float")
         return Value.Float(ans)
 
 

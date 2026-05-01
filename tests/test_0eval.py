@@ -182,6 +182,7 @@ class TestEval(unittest.TestCase):
             ("2**3.0", "8.000000", WDL.Type.Float(), "1.2"),
             ("2.0**3", "8.000000", WDL.Type.Float(), "1.2"),
             ("2**-1", "", WDL.Error.EvalError, "1.2"),
+            ("(-2.0)**0.5", "", WDL.Error.EvalError, "1.2"),
             ("2**true", "(Ln 1, Col 1) Non-numeric operand to ** operator", WDL.Error.IncompatibleOperand, "1.2"),
             ("2**3", None, WDL.Error.SyntaxError, "1.1"),
             ("min(0,1)","0"),
