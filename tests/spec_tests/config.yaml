@@ -40,8 +40,6 @@ wdl-1.2:
     - join_paths_task.wdl
     - one_mount_point_task.wdl
     - string_to_file.wdl
-    - test_find_task.wdl
-    - test_matches_task.wdl
     - test_select_first.wdl
     # other spec bugs:
     - all_return_codes_task.wdl          # issue #729
@@ -58,8 +56,10 @@ wdl-1.2:
     - struct_to_struct.wdl               # typo capitalized Struct
     - test_allow_nested_inputs.wdl       # two definitions of `greeting` in `task nested`
     - test_contains_key.wdl              # uses python-style `a if c else b` instead of `if c then a else b
+    - test_find_task.wdl                 # expected output has wrong workflow name & output names
     - test_hints_task.wdl                # expected output is wrong (greetings.txt has no trailing newline, so wc -l returns 2 not 3)
     - test_length.wdl                    # typo in map literal
+    - test_matches_task.wdl              # input File is nonexistent
     - test_runtime_info_task.wdl         # spec example assigns Int? return_code to Int; also, issue #729
     - test_sub.wdl                       # issue #709
     - test_values.wdl                    # str_to_files should be str_to_ints

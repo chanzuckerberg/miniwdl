@@ -75,6 +75,15 @@ class Base:
             pattern_re = regex.compile(pattern.value, flags=regex.POSIX)  # pylint: disable=E1101
             return Value.String(pattern_re.sub(replace.value, input.value))
 
+        def find(input: Value.String, pattern: Value.String) -> Value.Base:
+            pattern_re = regex.compile(pattern.value, flags=regex.POSIX)  # pylint: disable=E1101
+            match = pattern_re.search(input.value)
+            return Value.String(match.group(0)) if match else Value.Null()
+
+        def matches(input: Value.String, pattern: Value.String) -> Value.Boolean:
+            pattern_re = regex.compile(pattern.value, flags=regex.POSIX)  # pylint: disable=E1101
+            return Value.Boolean(pattern_re.search(input.value) is not None)
+
         static([Type.String(), Type.String(optional=True)], Type.String())(basename)
 
         @static([Type.Any(optional=True)], Type.Boolean())
@@ -151,6 +160,8 @@ class Base:
 
         if self.wdl_version not in ["draft-2", "1.0", "1.1"]:
             # WDL 1.2+ functions
+            static([Type.String(), Type.String()], Type.String(optional=True))(find)
+            static([Type.String(), Type.String()], Type.Boolean())(matches)
             self.contains = _Contains()
             self.values = _Values()
             self.contains_key = _ContainsKey()
