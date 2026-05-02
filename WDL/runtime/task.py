@@ -1070,6 +1070,9 @@ class _StdLib(StdLib.Base):
         self.logger.info(_("wrote", file=self.container.input_path_map[filename]))
         return self.container.input_path_map[filename]
 
+    def _join_paths_default_dir(self) -> str:
+        return os.path.join(self.container.container_dir, "work")
+
 
 class InputStdLib(_StdLib):
     # StdLib for evaluation of task inputs and command

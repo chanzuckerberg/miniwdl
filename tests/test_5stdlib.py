@@ -2703,6 +2703,41 @@ class TestStdLib(unittest.TestCase):
         with self.assertRaises(WDL.Error.NoSuchFunction):
             self._eval_expr("chunk([1, 2], 1)", version="1.1")
 
+    def test_join_paths(self):
+        """Test the join_paths() function from WDL 1.2"""
+
+        self.assertEqual(
+            self._eval_expr('join_paths("/usr", "bin/echo")', version="1.2").json,
+            "/usr/bin/echo",
+        )
+        self.assertEqual(
+            self._eval_expr('join_paths("/usr", ["bin", "echo"])', version="1.2").json,
+            "/usr/bin/echo",
+        )
+        self.assertEqual(
+            self._eval_expr('join_paths(["/usr", "bin", "echo"])', version="1.2").json,
+            "/usr/bin/echo",
+        )
+        self.assertEqual(
+            self._eval_expr('join_paths("mydir", "mydata.txt")', version="1.2").json,
+            os.path.join(os.getcwd(), "mydir", "mydata.txt"),
+        )
+
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('join_paths("/usr", "/bin/echo")', version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('join_paths(["/usr", "/bin", "echo"])', version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr("join_paths([])", version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('join_paths("/usr", [])', version="1.2")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr('join_paths("/usr", "bin", "echo")', version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._eval_expr('join_paths("/usr", {"bin": "echo"})', version="1.2")
+        with self.assertRaises(WDL.Error.NoSuchFunction):
+            self._eval_expr('join_paths("/usr", "bin")', version="1.1")
+
     def test_contains_key(self):
         """Test the contains_key() function from WDL 1.2"""
 
