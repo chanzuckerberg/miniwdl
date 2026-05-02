@@ -117,6 +117,13 @@ class Base(ABC):
     def children(self) -> "Iterable[Base]":
         return []
 
+    def paths(self) -> "Iterable[Union[File, Directory]]":
+        """
+        Recursively yield File/Directory values contained in this value.
+        """
+        if isinstance(self, (File, Directory)):
+            yield self
+
 
 class Boolean(Base):
     """``value`` has Python type ``bool``"""
@@ -218,6 +225,10 @@ class Array(Base):
     def children(self) -> Iterable[Base]:
         return self.value
 
+    def paths(self) -> "Iterable[Union[File, Directory]]":
+        for item in self.value:
+            yield from item.paths()
+
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
         if isinstance(desired_type, Type.Array):
@@ -278,6 +289,11 @@ class Map(Base):
         for k, v in self.value:
             yield k
             yield v
+
+    def paths(self) -> "Iterable[Union[File, Directory]]":
+        for key, value in self.value:
+            yield from key.paths()
+            yield from value.paths()
 
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
@@ -366,6 +382,10 @@ class Pair(Base):
         yield self.value[0]
         yield self.value[1]
 
+    def paths(self) -> "Iterable[Union[File, Directory]]":
+        yield from self.value[0].paths()
+        yield from self.value[1].paths()
+
     def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
         """"""
         if isinstance(desired_type, Type.Pair) and desired_type != self.type:
@@ -413,6 +433,9 @@ class Null(Base):
     def json(self) -> Any:
         """"""
         return None
+
+    def paths(self) -> "Iterable[Union[File, Directory]]":
+        return []
 
 
 class Struct(Base):
@@ -544,6 +567,10 @@ class Struct(Base):
     @property
     def children(self) -> Iterable[Base]:
         return self.value.values()
+
+    def paths(self) -> "Iterable[Union[File, Directory]]":
+        for value in self.value.values():
+            yield from value.paths()
 
 
 def from_json(type: Type.Base, value: Any) -> Base:

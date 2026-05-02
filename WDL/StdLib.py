@@ -740,30 +740,65 @@ class _ComparisonOperator(EagerFunction):
 
 
 class _Size(EagerFunction):
-    # size(): first argument can be File?/Directory? or Array[File?/Directory?]
+    # size(): first argument can be a path, or any compound value containing paths
     stdlib: Base
 
     def __init__(self, stdlib: Base) -> None:
         self.stdlib = stdlib
 
+    @staticmethod
+    def _type_contains_paths(ty: Type.Base) -> bool:
+        if isinstance(ty, Type.Any):
+            return False
+        if isinstance(ty, (Type.File, Type.Directory)):
+            return True
+        return any(_Size._type_contains_paths(parameter) for parameter in ty.parameters)
+
+    @staticmethod
+    def _accepts_type(ty: Type.Base) -> bool:
+        if isinstance(ty, Type.Any):
+            return False
+        if _Size._type_contains_paths(ty):
+            return True
+        if ty.coerces(Type.File(optional=True)) or ty.coerces(Type.Directory(optional=True)):
+            return True
+        if isinstance(ty, Type.Array) and not ty.optional:
+            return not isinstance(ty.item_type, Type.Any) and (
+                ty.item_type.coerces(Type.File(optional=True))
+                or ty.item_type.coerces(Type.Directory(optional=True))
+            )
+        return False
+
+    @staticmethod
+    def _coerce_paths_argument(value: Value.Base, ty: Type.Base) -> Value.Base:
+        """
+        Coerce legacy String path forms before Value.paths() traversal.
+
+        Generalized WDL 1.2 path-containing compounds should traverse their own runtime types, so
+        only actual File/Directory positions contribute. But older size() signatures accepted
+        String and Array[String] through WDL's String-to-File coercion. Apply that compatibility
+        coercion only to accepted top-level argument forms, preserving size("x") and size(["x"])
+        without treating arbitrary String members or Map keys inside compounds as paths.
+        """
+        if _Size._type_contains_paths(ty):
+            return value
+        if ty.coerces(Type.File(optional=True)):
+            return value.coerce(Type.File(optional=True))
+        if ty.coerces(Type.Directory(optional=True)):
+            return value.coerce(Type.Directory(optional=True))
+        if isinstance(ty, Type.Array):
+            if ty.item_type.coerces(Type.File(optional=True)):
+                return value.coerce(Type.Array(Type.File(optional=True), nonempty=ty.nonempty))
+            if ty.item_type.coerces(Type.Directory(optional=True)):
+                return value.coerce(Type.Array(Type.Directory(optional=True), nonempty=ty.nonempty))
+        return value
+
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if not expr.arguments:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
-        if not (
-            arg0ty.coerces(Type.File(optional=True))
-            or arg0ty.coerces(Type.Directory(optional=True))
-        ):
-            if isinstance(arg0ty, Type.Array):
-                if arg0ty.optional or not (
-                    arg0ty.item_type.coerces(Type.File(optional=True))
-                    or arg0ty.item_type.coerces(Type.Directory(optional=True))
-                ):
-                    raise Error.StaticTypeMismatch(
-                        expr.arguments[0], Type.Array(Type.File(optional=True)), arg0ty
-                    )
-            else:
-                raise Error.StaticTypeMismatch(expr.arguments[0], Type.File(optional=True), arg0ty)
+        if not self._accepts_type(arg0ty):
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.File(optional=True), arg0ty)
         if len(expr.arguments) == 2:
             if expr.arguments[1].type != Type.String():
                 raise Error.StaticTypeMismatch(
@@ -775,26 +810,13 @@ class _Size(EagerFunction):
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         # this default implementation attempts pathsize() on the argument(s)
-        path_type: Type.Base = (
-            Type.Directory(optional=True)
-            if isinstance(arguments[0], Value.Directory)
-            or (
-                isinstance(arguments[0], Value.Array)
-                and isinstance(arguments[0].type.item_type, Type.Directory)
-            )
-            else Type.File(optional=True)
-        )
-        files = arguments[0].coerce(Type.Array(path_type))
         unit = arguments[1].coerce(Type.String()) if len(arguments) > 1 else None
 
         ans = []
-        for file in files.value:
-            if isinstance(file, (Value.File, Value.Directory)):
-                ans.append(pathsize(self.stdlib._devirtualize_filename(file.value)))
-            elif isinstance(file, Value.Null):
-                ans.append(0)
-            else:
-                assert False
+        paths_argument = self._coerce_paths_argument(arguments[0], expr.arguments[0].type)
+        for file in paths_argument.paths():
+            assert isinstance(file, (Value.File, Value.Directory))
+            ans.append(pathsize(self.stdlib._devirtualize_filename(file.value)))
         fans = float(sum(ans))
 
         if unit:

@@ -181,10 +181,25 @@ class TestStdLib(unittest.TestCase):
 
         tmpl = """
         version 1.2
+        struct PathStruct {{
+            File file
+            Directory dir
+            String name
+        }}
         task test_size {{
             input {{
+                File file1
+                File file2
+                File? nullfile
                 Directory dir1
                 Directory dir2
+                Array[File]? maybe_files
+                Map[String, Pair[Int, File?]] nested_files
+                Array[Pair[String, Directory?]] nested_dirs
+                Map[File, Int] file_keys
+                PathStruct path_struct
+                Array[Int] ints
+                Map[String, Int] string_to_int
             }}
             {}
             command <<<
@@ -197,12 +212,23 @@ class TestStdLib(unittest.TestCase):
             "Float sz = size(dir1)",
             "Float sz = size(dir1, 'GB')",
             "Float sz = size([dir1,dir2], 'KB')",
+            "Float sz = size(maybe_files)",
+            "Float sz = size(nested_files)",
+            "Float sz = size(nested_dirs)",
+            "Float sz = size(file_keys)",
+            "Float sz = size(path_struct)",
         ]:
             doc = WDL.parse_document(tmpl.format(case))
             doc.typecheck()
 
         for case in [
             ("Float sz = size([42])", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size([])", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size({})", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(None)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(read_json(\"x.json\"))", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(ints)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(string_to_int)", WDL.Error.StaticTypeMismatch),
             ("Float sz = size(dir1,dir2)", WDL.Error.StaticTypeMismatch),
             ("Float sz = size(dir1,[dir2])", WDL.Error.StaticTypeMismatch),
         ]:
@@ -612,12 +638,29 @@ class TestStdLib(unittest.TestCase):
             outfile.write("Bob\n")
         outputs = self._test_task(R"""
         version 1.2
+        struct PathStruct {
+            File file
+            Directory dir
+            String name
+        }
         task hello {
             Array[File] files
             File? nullfile
             Directory dir1
             Directory dir2
             Directory? nulldir
+            Array[File]? maybe_files = None
+            Map[String, Pair[Int, File?]] nested_files = {
+                "a": (10, files[0]),
+                "b": (50, nullfile)
+            }
+            Array[Pair[String, Directory?]] nested_dirs = [("a", dir1), ("b", nulldir)]
+            Map[File, Int] file_keys = {files[0]: 1, files[1]: 2}
+            PathStruct path_struct = PathStruct {
+                file: files[0],
+                dir: dir2,
+                name: "paths"
+            }
             Array[Float] sizes_ = [
                 size(files[0]),
                 size(files),
@@ -635,6 +678,13 @@ class TestStdLib(unittest.TestCase):
                 Float dirsize1 = size(dir1, "B")
                 Float dirsizes = size([dir1, dir2], "B")
                 Float nodirsize = size(nulldir)
+                Float nested_files_size = size(nested_files, "B")
+                Float nested_dirs_size = size(nested_dirs, "B")
+                Float file_keys_size = size(file_keys, "B")
+                Float maybe_files_size = size(maybe_files)
+                Float path_struct_size = size(path_struct, "B")
+                Float duplicate_file_size = size([files[0], files[0]], "B")
+                Float duplicate_dir_size = size([dir1, dir1], "B")
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
@@ -654,6 +704,14 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["dirsize1"], 14)
         self.assertEqual(outputs["dirsizes"], 18)
         self.assertEqual(outputs["nodirsize"], 0)
+        self.assertEqual(outputs["nested_files_size"], 7)
+        self.assertEqual(outputs["nested_dirs_size"], 14)
+        self.assertEqual(outputs["file_keys_size"], 11)
+        self.assertEqual(outputs["maybe_files_size"], 0)
+        self.assertEqual(outputs["path_struct_size"], 11)
+        # size() sums path occurrences in the WDL value; it doesn't deduplicate equal paths.
+        self.assertEqual(outputs["duplicate_file_size"], 14)
+        self.assertEqual(outputs["duplicate_dir_size"], 28)
 
         self._test_task(R"""
         version 1.0
