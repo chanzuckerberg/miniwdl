@@ -1,7 +1,6 @@
 # pylint: disable=protected-access,exec-used
 import math
 import os
-import posixpath
 import json
 import tempfile
 from typing import List, Tuple, Dict, Callable, IO, Optional
@@ -166,7 +165,6 @@ class Base:
             self._pow = _ExponentiationOperator()
             self.contains = _Contains()
             self.chunk = _Chunk()
-            self.join_paths = _JoinPaths()
             self.values = _Values()
             self.contains_key = _ContainsKey()
 
@@ -213,12 +211,6 @@ class Base:
         """
         # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()
-
-    def _join_paths_default_dir(self) -> str:
-        """
-        Default parent directory for join_paths() when its first path is relative.
-        """
-        return os.getcwd()
 
     def _override_static(self, name: str, f: Callable) -> None:
         # replace the implementation lambda of a StaticFunction (keeping its
@@ -1458,62 +1450,6 @@ class _Chunk(EagerFunction):
         if not chunks:
             chunks.append(Value.Array(ty.item_type.item_type, []))
         return Value.Array(ty.item_type, chunks)
-
-
-class _JoinPaths(Function):
-    # File join_paths(File, String)
-    # File join_paths(File, Array[String]+)
-    # File join_paths(Array[String]+)
-
-    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
-        if len(expr.arguments) not in (1, 2):
-            raise Error.WrongArity(expr, 2)
-
-        if len(expr.arguments) == 1:
-            expr.arguments[0].typecheck(Type.Array(Type.String(), nonempty=True))
-        else:
-            expr.arguments[0].typecheck(Type.File())
-            arg1ty = expr.arguments[1].type
-            if isinstance(arg1ty, Type.Array):
-                expr.arguments[1].typecheck(Type.Array(Type.String(), nonempty=True))
-            else:
-                expr.arguments[1].typecheck(Type.String())
-
-        return Type.File()
-
-    def __call__(
-        self, expr: "Expr.Apply", env: Env.Bindings[Value.Base], stdlib: Base
-    ) -> Value.Base:
-        arguments = [arg.eval(env, stdlib=stdlib) for arg in expr.arguments]
-        self.infer_type(expr)
-
-        paths: List[str] = []
-        if len(arguments) == 1:
-            arg0 = arguments[0].coerce(Type.Array(Type.String()))
-            assert isinstance(arg0, Value.Array)
-            if not arg0.value:
-                raise Error.EvalError(expr, "join_paths() requires at least one path")
-            paths = [path.coerce(Type.String()).value for path in arg0.value]
-        else:
-            paths.append(arguments[0].coerce(Type.File()).value)
-            if isinstance(arguments[1], Value.Array):
-                if not arguments[1].value:
-                    raise Error.EvalError(expr, "join_paths() requires at least one relative path")
-                paths.extend(path.coerce(Type.String()).value for path in arguments[1].value)
-            else:
-                paths.append(arguments[1].coerce(Type.String()).value)
-
-        for path in paths:
-            if not path:
-                raise Error.EvalError(expr, "join_paths() path components must be non-empty")
-        for path in paths[1:]:
-            if posixpath.isabs(path):
-                raise Error.EvalError(expr, "join_paths() only permits an absolute first path")
-
-        joined = posixpath.join(*paths)
-        if not posixpath.isabs(joined):
-            joined = posixpath.join(stdlib._join_paths_default_dir(), joined)
-        return Value.File(posixpath.normpath(joined))
 
 
 class _ContainsKey(EagerFunction):
