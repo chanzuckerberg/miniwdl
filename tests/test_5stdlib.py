@@ -2678,6 +2678,18 @@ class TestStdLib(unittest.TestCase):
             [1, 2, 3, 4, 5],
         )
 
+        for length in range(11):
+            array = list(range(length))
+            array_literal = "[" + ", ".join(str(i) for i in array) + "]"
+            for chunk_size in range(1, length + 2):
+                expected = [
+                    array[i : i + chunk_size] for i in range(0, length, chunk_size)
+                ] or [[]]
+                self.assertEqual(
+                    self._eval_expr(f"chunk({array_literal}, {chunk_size})", version="1.2").json,
+                    expected,
+                )
+
         env = WDL.Env.Bindings().bind(
             "xs",
             WDL.Value.Array(
