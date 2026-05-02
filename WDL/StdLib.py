@@ -164,6 +164,7 @@ class Base:
             static([Type.String(), Type.String()], Type.Boolean())(matches)
             self._pow = _ExponentiationOperator()
             self.contains = _Contains()
+            self.chunk = _Chunk()
             self.values = _Values()
             self.contains_key = _ContainsKey()
 
@@ -1416,6 +1417,39 @@ class _Contains(EagerFunction):
             if elem == item:
                 return Value.Boolean(True)
         return Value.Boolean(False)
+
+
+class _Chunk(EagerFunction):
+    # Array[Array[X]] chunk(Array[X], Int)
+    # Split an array into consecutive sub-arrays of the requested size.
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+
+        arr_ty = expr.arguments[0].type
+        if not isinstance(arr_ty, Type.Array) or (expr._check_quant and arr_ty.optional):
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arr_ty)
+        expr.arguments[1].typecheck(Type.Int())
+
+        return Type.Array(Type.Array(arr_ty.item_type), nonempty=True)
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        ty = self.infer_type(expr)
+        assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Array)
+        n = arguments[1].coerce(Type.Int()).value
+        if n <= 0:
+            raise Error.EvalError(expr, "chunk() size must be greater than zero")
+
+        arr = arguments[0].coerce(Type.Array(ty.item_type.item_type))
+        assert isinstance(arr, Value.Array)
+        chunks: List[Value.Base] = [
+            Value.Array(ty.item_type.item_type, arr.value[i : i + n])
+            for i in range(0, len(arr.value), n)
+        ]
+        if not chunks:
+            chunks.append(Value.Array(ty.item_type.item_type, []))
+        return Value.Array(ty.item_type, chunks)
 
 
 class _ContainsKey(EagerFunction):
