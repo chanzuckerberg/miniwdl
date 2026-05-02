@@ -179,6 +179,37 @@ class TestStdLib(unittest.TestCase):
             with self.assertRaises(case[1]):
                 doc.typecheck()
 
+        tmpl = """
+        version 1.2
+        task test_size {{
+            input {{
+                Directory dir1
+                Directory dir2
+            }}
+            {}
+            command <<<
+                echo "nop"
+            >>>
+        }}
+        """
+
+        for case in [
+            "Float sz = size(dir1)",
+            "Float sz = size(dir1, 'GB')",
+            "Float sz = size([dir1,dir2], 'KB')",
+        ]:
+            doc = WDL.parse_document(tmpl.format(case))
+            doc.typecheck()
+
+        for case in [
+            ("Float sz = size([42])", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(dir1,dir2)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(dir1,[dir2])", WDL.Error.StaticTypeMismatch),
+        ]:
+            doc = WDL.parse_document(tmpl.format(case[0]))
+            with self.assertRaises(case[1]):
+                doc.typecheck()
+
     def test_length_defined_range(self):
         outputs = self._test_task(R"""
         version 1.0
@@ -567,11 +598,26 @@ class TestStdLib(unittest.TestCase):
             outfile.write("Alyssa\n")
         with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
             outfile.write("Ben\n")
+        os.makedirs(os.path.join(self._dir, "dir1"))
+        os.makedirs(os.path.join(self._dir, "dir2", "sub"))
+        with open(os.path.join(self._dir, "dir1", "alice.txt"), "w") as outfile:
+            outfile.write("Alice\n")
+        with open(os.path.join(self._dir, "dir1", "ignored_link"), "w") as outfile:
+            outfile.write("ignored\n")
+        os.symlink(
+            os.path.join(self._dir, "dir1", "ignored_link"),
+            os.path.join(self._dir, "dir1", "link"),
+        )
+        with open(os.path.join(self._dir, "dir2", "sub", "bob.txt"), "w") as outfile:
+            outfile.write("Bob\n")
         outputs = self._test_task(R"""
-        version 1.0
+        version 1.2
         task hello {
             Array[File] files
             File? nullfile
+            Directory dir1
+            Directory dir2
+            Directory? nulldir
             Array[Float] sizes_ = [
                 size(files[0]),
                 size(files),
@@ -586,10 +632,15 @@ class TestStdLib(unittest.TestCase):
                 Float size2 = size("alyssa_ben.txt", "KiB")
                 Float nosize1 = size(nullfile)
                 Float nosize2 = size([files[0], nullfile])
+                Float dirsize1 = size(dir1, "B")
+                Float dirsizes = size([dir1, dir2], "B")
+                Float nodirsize = size(nulldir)
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
-                         os.path.join(self._dir, "ben.txt") ]})
+                         os.path.join(self._dir, "ben.txt") ],
+              "dir1": os.path.join(self._dir, "dir1"),
+              "dir2": os.path.join(self._dir, "dir2")})
         self.assertEqual(len(outputs["sizes"]), 6)
         self.assertEqual(outputs["sizes"][0], 7)
         self.assertEqual(outputs["sizes"][1], 11)
@@ -600,6 +651,9 @@ class TestStdLib(unittest.TestCase):
         self.assertAlmostEqual(outputs["size2"], 11/1024)
         self.assertEqual(outputs["nosize1"], 0)
         self.assertEqual(outputs["nosize2"], 7)
+        self.assertEqual(outputs["dirsize1"], 14)
+        self.assertEqual(outputs["dirsizes"], 18)
+        self.assertEqual(outputs["nodirsize"], 0)
 
         self._test_task(R"""
         version 1.0

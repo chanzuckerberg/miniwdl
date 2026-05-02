@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from contextlib import suppress
 import regex
 from . import Type, Value, Expr, Env, Error
-from ._util import byte_size_units, chmod_R_plus, round_half_up
+from ._util import byte_size_units, chmod_R_plus, pathsize, round_half_up
 
 
 class Base:
@@ -740,7 +740,7 @@ class _ComparisonOperator(EagerFunction):
 
 
 class _Size(EagerFunction):
-    # size(): first argument can be File? or Array[File?]
+    # size(): first argument can be File?/Directory? or Array[File?/Directory?]
     stdlib: Base
 
     def __init__(self, stdlib: Base) -> None:
@@ -750,9 +750,15 @@ class _Size(EagerFunction):
         if not expr.arguments:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
-        if not arg0ty.coerces(Type.File(optional=True)):
+        if not (
+            arg0ty.coerces(Type.File(optional=True))
+            or arg0ty.coerces(Type.Directory(optional=True))
+        ):
             if isinstance(arg0ty, Type.Array):
-                if arg0ty.optional or not arg0ty.item_type.coerces(Type.File(optional=True)):
+                if arg0ty.optional or not (
+                    arg0ty.item_type.coerces(Type.File(optional=True))
+                    or arg0ty.item_type.coerces(Type.Directory(optional=True))
+                ):
                     raise Error.StaticTypeMismatch(
                         expr.arguments[0], Type.Array(Type.File(optional=True)), arg0ty
                     )
@@ -768,14 +774,23 @@ class _Size(EagerFunction):
         return Type.Float()
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
-        # this default implementation attempts os.path.getsize() on the argument(s)
-        files = arguments[0].coerce(Type.Array(Type.File(optional=True)))
+        # this default implementation attempts pathsize() on the argument(s)
+        path_type: Type.Base = (
+            Type.Directory(optional=True)
+            if isinstance(arguments[0], Value.Directory)
+            or (
+                isinstance(arguments[0], Value.Array)
+                and isinstance(arguments[0].type.item_type, Type.Directory)
+            )
+            else Type.File(optional=True)
+        )
+        files = arguments[0].coerce(Type.Array(path_type))
         unit = arguments[1].coerce(Type.String()) if len(arguments) > 1 else None
 
         ans = []
         for file in files.value:
-            if isinstance(file, Value.File):
-                ans.append(os.path.getsize(self.stdlib._devirtualize_filename(file.value)))
+            if isinstance(file, (Value.File, Value.Directory)):
+                ans.append(pathsize(self.stdlib._devirtualize_filename(file.value)))
             elif isinstance(file, Value.Null):
                 ans.append(0)
             else:
