@@ -813,6 +813,8 @@ class _Size(EagerFunction):
 
         def collect(file: Union[Value.File, Value.Directory]) -> str:
             assert isinstance(file, (Value.File, Value.Directory))
+            # pathsize() defines Directory sizing for size(): recursively sum regular files under
+            # the directory, excluding symlink entries encountered inside it.
             ans.append(pathsize(self.stdlib._devirtualize_filename(file.value)))
             return file.value
 

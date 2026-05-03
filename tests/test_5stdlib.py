@@ -162,7 +162,7 @@ class TestStdLib(unittest.TestCase):
             "Float sz = size(file1)",
             "Float sz = size(file1, 'GB')",
             "Float sz = size([file1,file2], 'KB')",
-            "Float sz = size([file1,file2], 'KB')",
+            "Float sz = size(['file1','file2'], 'KB')",
         ]:
             doc = WDL.parse_document(tmpl.format(case))
             doc.typecheck()
@@ -630,6 +630,8 @@ class TestStdLib(unittest.TestCase):
             outfile.write("Alice\n")
         with open(os.path.join(self._dir, "dir1", "ignored_link"), "w") as outfile:
             outfile.write("ignored\n")
+        # Directory size excludes symlink entries inside the directory, even when the symlink
+        # target is a regular file that would otherwise be countable.
         os.symlink(
             os.path.join(self._dir, "dir1", "ignored_link"),
             os.path.join(self._dir, "dir1", "link"),
@@ -673,6 +675,7 @@ class TestStdLib(unittest.TestCase):
             output {
                 Array[Float] sizes = flatten([sizes_, [size(files, "GB"), size(files, "Gi")]])
                 Float size2 = size("alyssa_ben.txt", "KiB")
+                Float legacy_array_string_size = size(["alyssa_ben.txt"], "B")
                 Float nosize1 = size(nullfile)
                 Float nosize2 = size([files[0], nullfile])
                 Float dirsize1 = size(dir1, "B")
@@ -699,8 +702,10 @@ class TestStdLib(unittest.TestCase):
         self.assertAlmostEqual(outputs["sizes"][4], 11/1000000000)
         self.assertAlmostEqual(outputs["sizes"][5], 11/1073741824)
         self.assertAlmostEqual(outputs["size2"], 11/1024)
+        self.assertEqual(outputs["legacy_array_string_size"], 11)
         self.assertEqual(outputs["nosize1"], 0)
         self.assertEqual(outputs["nosize2"], 7)
+        # 6 bytes from alice.txt + 8 bytes from ignored_link; dir1/link itself contributes 0.
         self.assertEqual(outputs["dirsize1"], 14)
         self.assertEqual(outputs["dirsizes"], 18)
         self.assertEqual(outputs["nodirsize"], 0)
