@@ -35,7 +35,6 @@ wdl-1.2:
     - test_struct.wdl                 # issue #728
     - file_sizes_task.wdl             # spec bug: Map[String, Pair[Int, File]] includes File? value
     # To be implemented:
-    - chunk_array.wdl
     - multi_nested_inputs.wdl
     - join_paths_task.wdl
     - one_mount_point_task.wdl

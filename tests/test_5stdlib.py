@@ -2766,6 +2766,67 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.StaticTypeMismatch)
 
+    def test_chunk(self):
+        """Test the chunk() function from WDL 1.2"""
+
+        self.assertEqual(
+            self._eval_expr('chunk(["a", "b", "c", "d", "e", "f"], 3)', version="1.2").json,
+            [["a", "b", "c"], ["d", "e", "f"]],
+        )
+        self.assertEqual(
+            self._eval_expr('chunk(["a", "b", "c", "d", "e"], 3)', version="1.2").json,
+            [["a", "b", "c"], ["d", "e"]],
+        )
+        self.assertEqual(
+            self._eval_expr('chunk(["a", "b"], 3)', version="1.2").json,
+            [["a", "b"]],
+        )
+        self.assertEqual(
+            self._eval_expr("chunk([], 3)", version="1.2").json,
+            [[]],
+        )
+        self.assertEqual(
+            self._eval_expr("flatten(chunk([1, 2, 3, 4, 5], 2))", version="1.2").json,
+            [1, 2, 3, 4, 5],
+        )
+
+        for length in range(11):
+            array = list(range(length))
+            array_literal = "[" + ", ".join(str(i) for i in array) + "]"
+            for chunk_size in range(1, length + 2):
+                expected = [
+                    array[i : i + chunk_size] for i in range(0, length, chunk_size)
+                ] or [[]]
+                self.assertEqual(
+                    self._eval_expr(f"chunk({array_literal}, {chunk_size})", version="1.2").json,
+                    expected,
+                )
+
+        env = WDL.Env.Bindings().bind(
+            "xs",
+            WDL.Value.Array(
+                WDL.Type.String(optional=True),
+                [WDL.Value.String("foo"), WDL.Value.Null(), WDL.Value.String("bar")],
+            ),
+        )
+        self.assertEqual(
+            self._eval_expr("chunk(xs, 2)", env=env, version="1.2").json,
+            [["foo", None], ["bar"]],
+        )
+
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr("chunk([1, 2], 0)", version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr("chunk([1, 2], -1)", version="1.2")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("chunk([1, 2])", version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._eval_expr('chunk("not an array", 2)', version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('chunk([1, 2], "two")', version="1.2")
+        with self.assertRaises(WDL.Error.NoSuchFunction):
+            self._eval_expr("chunk([1, 2], 1)", version="1.1")
+
     def test_contains_key(self):
         """Test the contains_key() function from WDL 1.2"""
 
