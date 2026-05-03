@@ -140,7 +140,7 @@ class Base:
         self.prefix = _Prefix()
         self.suffix = _Suffix()
         self.size = _Size(self)
-        self.select_first = _SelectFirst()
+        self.select_first = _SelectFirst(wdl_version=self.wdl_version)
         self.select_all = _SelectAll()
         self.zip = _Zip()
         self.unzip = _Unzip()
@@ -828,24 +828,65 @@ class _Size(EagerFunction):
 
 
 class _SelectFirst(EagerFunction):
+    wdl_version: str
+
+    def __init__(self, wdl_version: str) -> None:
+        self.wdl_version = wdl_version
+
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
-        if len(expr.arguments) != 1:
-            raise Error.WrongArity(expr, 1)
+        max_args = 1 if self.wdl_version in ["draft-2", "1.0", "1.1"] else 2
+        if len(expr.arguments) < 1 or len(expr.arguments) > max_args:
+            raise Error.WrongArity(expr, max_args)
         arg0ty = expr.arguments[0].type
         if not isinstance(arg0ty, Type.Array) or (
             expr.arguments[0]._check_quant and arg0ty.optional
         ):
             raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
+
+        if len(expr.arguments) == 1:
+            if isinstance(arg0ty.item_type, Type.Any):
+                raise Error.IndeterminateType(
+                    expr.arguments[0], "can't infer item type of empty array"
+                )
+            return arg0ty.item_type.copy(optional=False)
+
+        default_type = expr.arguments[1].type
+        if expr._check_quant and default_type.optional:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1],
+                default_type.copy(optional=False),
+                default_type,
+                "for select_first default argument",
+            )
+
         if isinstance(arg0ty.item_type, Type.Any):
+            if isinstance(default_type, Type.Any):
+                raise Error.IndeterminateType(
+                    expr.arguments[1], "can't infer type of select_first default value"
+                )
+            return default_type.copy(optional=False)
+
+        return_type = Type.unify(
+            [arg0ty.item_type.copy(optional=False), default_type],
+            check_quant=expr._check_quant,
+            force_string=True,
+        )
+        if isinstance(return_type, Type.Any):
             raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
-        return arg0ty.item_type.copy(optional=False)
+        return_type = return_type.copy(optional=False)
+        expr.arguments[0].typecheck(Type.Array(return_type.copy(optional=True)))
+        expr.arguments[1].typecheck(return_type)
+        return return_type
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        return_type = self.infer_type(expr)
         arr = arguments[0].coerce(Type.Array(Type.Any()))
         assert isinstance(arr, Value.Array)
         for arg in arr.value:
             if not isinstance(arg, Value.Null):
-                return arg
+                return arg.coerce(return_type)
+        if len(arguments) > 1:
+            return arguments[1].coerce(return_type)
         raise Error.EvalError(
             expr,
             "select_first() given empty or all-null array; prevent this or append a default value",
