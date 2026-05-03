@@ -55,11 +55,14 @@ class TestStdLib(unittest.TestCase):
         ex = WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib)
         return ex.eval(env, stdlib)
 
-    def _infer_expr_type(self, expr: str, env=None, version: str = "development"):
+    def _infer_expr_type(
+        self, expr: str, env=None, type_env=None, version: str = "development"
+    ):
         env = env or WDL.Env.Bindings()
-        type_env = WDL.Env.Bindings()
-        for binding in env:
-            type_env = type_env.bind(binding.name, binding.value.type)
+        if type_env is None:
+            type_env = WDL.Env.Bindings()
+            for binding in env:
+                type_env = type_env.bind(binding.name, binding.value.type)
         stdlib = WDL.StdLib.Base(version)
         return WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib).type
 
@@ -537,8 +540,27 @@ class TestStdLib(unittest.TestCase):
             self._eval_expr("select_first([], 5)", version="1.1")
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             self._eval_expr("select_first([], None)", version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr("select_first([if false then 1 else None])", version="1.2")
 
     def test_select_first_default_unify(self):
+        self.assertEqual(str(self._infer_expr_type("select_first([1])", version="1.2")), "Int")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._infer_expr_type("select_first()", version="1.2")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._infer_expr_type("select_first([1], 2, 3)", version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type("select_first(1)", version="1.2")
+        optional_array_env = WDL.Env.Bindings().bind(
+            "xs", WDL.Type.Array(WDL.Type.Int(), optional=True)
+        )
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type("select_first(xs)", type_env=optional_array_env, version="1.2")
+        with self.assertRaises(WDL.Error.IndeterminateType):
+            self._infer_expr_type("select_first([])", version="1.2")
+        with self.assertRaises(WDL.Error.IndeterminateType):
+            self._infer_expr_type('select_first([], read_json("x.json"))', version="1.2")
+
         self.assertEqual(
             str(self._infer_expr_type("select_first([1], 2.0)", version="1.2")), "Float"
         )
