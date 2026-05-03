@@ -359,6 +359,25 @@ class TestEval(unittest.TestCase):
             ("[1, 2, 3][4]", "(Ln 1, Col 11) Array index out of bounds", WDL.Error.OutOfBounds)
         )
 
+    def test_value_coerce_array_promotion(self):
+        promoted_int = WDL.Value.Int(7).coerce(WDL.Type.Array(WDL.Type.Int()))
+        self.assertIsInstance(promoted_int, WDL.Value.Array)
+        self.assertEqual(str(promoted_int.type), "Array[Int]+")
+        self.assertEqual(str(promoted_int), "[7]")
+
+        promoted_float = WDL.Value.Int(7).coerce(WDL.Type.Array(WDL.Type.Float()))
+        self.assertIsInstance(promoted_float, WDL.Value.Array)
+        self.assertEqual(str(promoted_float.type), "Array[Float]+")
+        self.assertEqual(str(promoted_float), "[7.000000]")
+
+        promoted_null = WDL.Value.Null().coerce(WDL.Type.Array(WDL.Type.File(optional=True)))
+        self.assertIsInstance(promoted_null, WDL.Value.Array)
+        self.assertEqual(str(promoted_null.type), "Array[File?]+")
+        self.assertEqual(str(promoted_null), "[None]")
+
+        with self.assertRaises(WDL.Error.InputError):
+            WDL.Value.Null().coerce(WDL.Type.Array(WDL.Type.File()))
+
     def test_float_coercion(self):
         self._test_tuples(
             ("1 + 1.0", "2.000000", WDL.Type.Float()),
