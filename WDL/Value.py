@@ -97,7 +97,7 @@ class Base(ABC):
         ):
             # coercion of T to Array[T] (x to [x])
             # if self is an Array, then Array.coerce precludes this path
-            return Array(desired_type, [self.coerce(desired_type.item_type)], self.expr)
+            return Array(desired_type.item_type, [self.coerce(desired_type.item_type)], self.expr)
         if desired_type and not self.type.coerces(desired_type):
             # owing to static type-checking, this path should arise only rarely e.g. read_json()
             raise Error.InputError(f"cannot coerce {str(self.type)} to {str(desired_type)}")
@@ -400,7 +400,9 @@ class Null(Base):
             if isinstance(desired_type, Type.String):
                 return String("", self.expr)
             if isinstance(desired_type, Type.Array) and desired_type.item_type.optional:
-                return Array(desired_type, [self.coerce(desired_type.item_type)], self.expr)
+                return Array(
+                    desired_type.item_type, [self.coerce(desired_type.item_type)], self.expr
+                )
             if self.expr:
                 raise Error.NullValue(self.expr)
             raise Error.InputError("'None' for non-optional input/declaration")

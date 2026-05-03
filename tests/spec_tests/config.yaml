@@ -33,8 +33,8 @@ wdl-1.2:
   xfail:
     - relative_and_absolute_task.wdl  # issue #214
     - test_struct.wdl                 # issue #728
+    - file_sizes_task.wdl             # spec bug: Map[String, Pair[Int, File]] includes File? value
     # To be implemented:
-    - file_sizes_task.wdl
     - multi_nested_inputs.wdl
     - join_paths_task.wdl
     - one_mount_point_task.wdl
