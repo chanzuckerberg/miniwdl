@@ -3,7 +3,7 @@ import math
 import os
 import json
 import tempfile
-from typing import List, Tuple, Dict, Callable, IO, Optional
+from typing import List, Tuple, Dict, Callable, IO, Optional, Union
 from abc import ABC, abstractmethod
 from contextlib import suppress
 import regex
@@ -761,19 +761,18 @@ class _Size(EagerFunction):
             return False
         if _Size._type_contains_paths(ty):
             return True
-        if ty.coerces(Type.File(optional=True)) or ty.coerces(Type.Directory(optional=True)):
+        if ty.coerces(Type.File(optional=True)):
             return True
         if isinstance(ty, Type.Array) and not ty.optional:
-            return not isinstance(ty.item_type, Type.Any) and (
-                ty.item_type.coerces(Type.File(optional=True))
-                or ty.item_type.coerces(Type.Directory(optional=True))
+            return not isinstance(ty.item_type, Type.Any) and ty.item_type.coerces(
+                Type.File(optional=True)
             )
         return False
 
     @staticmethod
     def _coerce_paths_argument(value: Value.Base, ty: Type.Base) -> Value.Base:
         """
-        Coerce legacy String path forms before Value.paths() traversal.
+        Coerce legacy String path forms before rewrite_paths() traversal.
 
         Generalized WDL 1.2 path-containing compounds should traverse their own runtime types, so
         only actual File/Directory positions contribute. But older size() signatures accepted
@@ -785,13 +784,9 @@ class _Size(EagerFunction):
             return value
         if ty.coerces(Type.File(optional=True)):
             return value.coerce(Type.File(optional=True))
-        if ty.coerces(Type.Directory(optional=True)):
-            return value.coerce(Type.Directory(optional=True))
         if isinstance(ty, Type.Array):
             if ty.item_type.coerces(Type.File(optional=True)):
                 return value.coerce(Type.Array(Type.File(optional=True), nonempty=ty.nonempty))
-            if ty.item_type.coerces(Type.Directory(optional=True)):
-                return value.coerce(Type.Array(Type.Directory(optional=True), nonempty=ty.nonempty))
         return value
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
@@ -815,9 +810,13 @@ class _Size(EagerFunction):
 
         ans = []
         paths_argument = self._coerce_paths_argument(arguments[0], expr.arguments[0].type)
-        for file in paths_argument.paths():
+
+        def collect(file: Union[Value.File, Value.Directory]) -> str:
             assert isinstance(file, (Value.File, Value.Directory))
             ans.append(pathsize(self.stdlib._devirtualize_filename(file.value)))
+            return file.value
+
+        Value.rewrite_paths(paths_argument, collect)
         fans = float(sum(ans))
 
         if unit:
