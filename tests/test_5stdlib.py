@@ -236,8 +236,8 @@ class TestStdLib(unittest.TestCase):
             with self.assertRaises(case[1]):
                 doc.typecheck()
 
-        value = WDL.Value.Int(42)
-        self.assertIs(WDL.StdLib._Size._coerce_paths_argument(value, WDL.Type.Int()), value)
+        with self.assertRaises(WDL.Error.InputError):
+            WDL.StdLib._Size._coerce_paths_argument(WDL.Value.Int(42), WDL.Type.Int())
 
     def test_length_defined_range(self):
         outputs = self._test_task(R"""

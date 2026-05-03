@@ -782,12 +782,10 @@ class _Size(EagerFunction):
         """
         if _Size._type_contains_paths(ty):
             return value
-        if ty.coerces(Type.File(optional=True)):
-            return value.coerce(Type.File(optional=True))
         if isinstance(ty, Type.Array):
             if ty.item_type.coerces(Type.File(optional=True)):
                 return value.coerce(Type.Array(Type.File(optional=True), nonempty=ty.nonempty))
-        return value
+        return value.coerce(Type.File(optional=True))
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if not expr.arguments:
