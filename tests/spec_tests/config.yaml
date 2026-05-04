@@ -39,7 +39,6 @@ wdl-1.2:
     - join_paths_task.wdl
     - one_mount_point_task.wdl
     - string_to_file.wdl
-    - test_select_first.wdl
     # other spec bugs:
     - all_return_codes_task.wdl          # issue #729
     - hello_parallel.wdl                 # expected output is wrong
