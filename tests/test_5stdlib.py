@@ -58,6 +58,14 @@ class TestStdLib(unittest.TestCase):
         )
         self.assertEqual(parsed.json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
 
+        parsed = WDL.StdLib._parse_tsv_objects(
+            "",
+            header=False,
+            keys=[],
+            function_name="read_tsv",
+        )
+        self.assertEqual(parsed.json, [])
+
     def test_read_tsv_unit_branches(self):
         class LocalStdLib(WDL.StdLib.Base):
             def _devirtualize_filename(self, filename: str) -> str:
