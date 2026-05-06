@@ -46,6 +46,110 @@ class TestStdLib(unittest.TestCase):
         parsed = WDL.StdLib._parse_tsv("a\tb\n\nc\td\n")
         self.assertEqual(parsed.json, [["a", "b"], [""], ["c", "d"]])
 
+    def test_parse_tsv_objects(self):
+        parsed = WDL.StdLib._parse_tsv_objects("name\tlane\nAlice\t3\nBob\t4\n")
+        self.assertEqual(parsed.json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        parsed = WDL.StdLib._parse_tsv_objects(
+            "Alice\t3\nBob\t4\n",
+            header=False,
+            keys=[WDL.Value.String("name"), WDL.Value.String("lane")],
+            function_name="read_tsv",
+        )
+        self.assertEqual(parsed.json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        parsed = WDL.StdLib._parse_tsv_objects(
+            "",
+            header=False,
+            keys=[],
+            function_name="read_tsv",
+        )
+        self.assertEqual(parsed.json, [])
+
+    def test_read_tsv_unit_branches(self):
+        class LocalStdLib(WDL.StdLib.Base):
+            def _devirtualize_filename(self, filename: str) -> str:
+                return filename
+
+            def _virtualize_filename(self, filename: str) -> str:
+                return filename
+
+        def infer(expr: str, version: str = "1.2", type_env=None):
+            stdlib = LocalStdLib(version)
+            parsed = WDL.parse_expr(expr, version=version).infer_type(
+                type_env or WDL.Env.Bindings(), stdlib
+            )
+            return parsed, stdlib
+
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer("read_tsv()")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer("read_tsv([1])")
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('read_tsv("x", true, ["a"], "extra")')
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('read_tsv("x", true)', version="1.1")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", "true")')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", false)')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer(
+                'read_tsv("x", header)',
+                type_env=WDL.Env.Bindings().bind("header", WDL.Type.Boolean()),
+            )
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", true, 1)')
+
+        table = os.path.join(self._dir, "table.tsv")
+        with open(table, "w") as outfile:
+            outfile.write("name\tlane\nAlice\t3\nBob\t4\n")
+        no_header = os.path.join(self._dir, "no_header.tsv")
+        with open(no_header, "w") as outfile:
+            outfile.write("Alice\t3\nBob\t4\n")
+
+        expr, stdlib = infer("read_tsv({})".format(json.dumps(table)))
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Array(WDL.Type.String())))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [["name", "lane"], ["Alice", "3"], ["Bob", "4"]])
+
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(table)))
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        expr, stdlib = infer(
+            "read_tsv({}, false, [\"name\", \"lane\"])".format(json.dumps(no_header))
+        )
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        expr, stdlib = infer(
+            "read_tsv({}, true, [\"sample\", \"value\"])".format(json.dumps(table))
+        )
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"sample": "Alice", "value": "3"}, {"sample": "Bob", "value": "4"}])
+
+        expr, stdlib = infer('read_tsv("/no/such/file.tsv")')
+        with self.assertRaises(WDL.Error.EvalError):
+            expr.eval(WDL.Env.Bindings(), stdlib)
+
+        duplicate = os.path.join(self._dir, "duplicate.tsv")
+        with open(duplicate, "w") as outfile:
+            outfile.write("name\tname\nAlice\t3\n")
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(duplicate)))
+        with self.assertRaises(WDL.Error.EvalError):
+            expr.eval(WDL.Env.Bindings(), stdlib)
+
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(table)))
+        parse_tsv_objects = WDL.StdLib._parse_tsv_objects
+        try:
+            def raise_eval_error(*args, **kwargs):
+                raise WDL.Error.EvalError(expr, "sentinel")
+
+            WDL.StdLib._parse_tsv_objects = raise_eval_error
+            with self.assertRaisesRegex(WDL.Error.EvalError, "sentinel"):
+                expr.eval(WDL.Env.Bindings(), stdlib)
+        finally:
+            WDL.StdLib._parse_tsv_objects = parse_tsv_objects
+
     def _eval_expr(self, expr: str, env=None, version: str = "development"):
         env = env or WDL.Env.Bindings()
         type_env = WDL.Env.Bindings()
@@ -957,6 +1061,92 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["o_fortytwo"], 42)
         self.assertEqual(outputs["o_boolean"], [True, False])
         self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2", "..": "tricky"})
+
+    def test_read_tsv_headers(self):
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo -e "name\tlane\tbarcode" >> samples.tsv
+                echo -e "Alice\t3\tGATTACA" >> samples.tsv
+                echo -e "Bob\t4\tTGTAATC" >> samples.tsv
+                echo -e "Alice\t3\tGATTACA" >> no_header.tsv
+                echo -e "Bob\t4\tTGTAATC" >> no_header.tsv
+                touch empty.tsv
+            >>>
+            output {
+                Array[Array[String]] table1 = read_tsv("samples.tsv")
+                Array[Sample] samples1 = read_tsv("samples.tsv", true)
+                Array[Sample] samples2 = read_tsv("no_header.tsv", false, ["name", "lane", "barcode"])
+                Array[Sample] samples3 = read_tsv("samples.tsv", true, ["name", "lane", "barcode"])
+                Map[String, String] first = read_tsv("samples.tsv", true)[0]
+                Array[Sample] empty = read_tsv("empty.tsv", true)
+            }
+        }
+        """)
+        samples = [
+            {"name": "Alice", "lane": 3, "barcode": "GATTACA"},
+            {"name": "Bob", "lane": 4, "barcode": "TGTAATC"},
+        ]
+        self.assertEqual(
+            outputs["table1"],
+            [["name", "lane", "barcode"], ["Alice", "3", "GATTACA"], ["Bob", "4", "TGTAATC"]],
+        )
+        self.assertEqual(outputs["samples1"], samples)
+        self.assertEqual(outputs["samples2"], samples)
+        self.assertEqual(outputs["samples3"], samples)
+        self.assertEqual(outputs["first"], {"name": "Alice", "lane": "3", "barcode": "GATTACA"})
+        self.assertEqual(outputs["empty"], [])
+
+        self._test_task(R"""
+        version 1.1
+        task test {
+            command {}
+            output {
+                Array[Array[String]] table = read_tsv("samples.tsv", false)
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        self._test_task(R"""
+        version 1.2
+        task test {
+            command {}
+            output {
+                Array[Array[String]] table = read_tsv("samples.tsv", false)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        self._test_task(R"""
+        version 1.2
+        task test {
+            input {
+                Boolean header
+            }
+            command {}
+            output {
+                Array[Array[String]] table = read_tsv("samples.tsv", header)
+            }
+        }
+        """, {"header": False}, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        self._test_task(R"""
+        version 1.2
+        task test {
+            command <<<
+                echo -e "Alice\t3" > samples.tsv
+            >>>
+            output {
+                Array[Map[String, String]] samples = read_tsv("samples.tsv", false, ["name", "name"])
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_read_json(self):
         outputs = self._test_task(R"""

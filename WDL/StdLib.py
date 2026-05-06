@@ -123,15 +123,13 @@ class Base:
             self._read(_parse_map)
         )
         static([Type.File()], Type.Array(Type.String()), "read_lines")(self._read(_parse_lines))
-        static([Type.File()], Type.Array(Type.Array(Type.String())), "read_tsv")(
-            self._read(_parse_tsv)
-        )
+        self.read_tsv = _ReadTsv(self)
         static([Type.File()], Type.Any(), "read_json")(self._read(_parse_json))
         static([Type.File()], Type.Map((Type.String(), Type.String())), "read_object")(
             self._read(_parse_object)
         )
         static([Type.File()], Type.Array(Type.Map((Type.String(), Type.String()))), "read_objects")(
-            self._read(_parse_objects)
+            self._read(_parse_tsv_objects)
         )
 
         # polymorphically typed stdlib functions which require specialized
@@ -362,24 +360,37 @@ def _parse_tsv(s: str) -> Value.Array:
     return Value.Array(Type.Array(Type.String()), ans)
 
 
-def _parse_objects(s: str) -> Value.Array:
+def _parse_tsv_objects(
+    s: str,
+    *,
+    header: bool = True,
+    keys: Optional[List[Value.Base]] = None,
+    function_name: str = "read_objects",
+) -> Value.Array:
     strmat = _parse_tsv(s)
-    if len(strmat.value) < 1 or len(strmat.value[0].value) < 1:
+    if keys is None:
+        if len(strmat.value) < 1 or len(strmat.value[0].value) < 1:
+            return Value.Array(Type.Map((Type.String(), Type.String())), [])
+        keys = strmat.value[0].value
+        rows = strmat.value[1:]
+    else:
+        rows = strmat.value[1:] if header else strmat.value
+    assert all(isinstance(key, Value.String) for key in keys)
+    if not keys and not rows:
         return Value.Array(Type.Map((Type.String(), Type.String())), [])
-    keys = strmat.value[0].value
-    literal_keys = set(key.value for key in strmat.value[0].value if key.value)
+    literal_keys = set(key.value for key in keys if key.value)
     if len(literal_keys) < len(keys):
-        raise Error.InputError("read_objects(): file has empty or duplicate column names")
+        raise Error.InputError(f"{function_name}(): file has empty or duplicate column names")
     maps: List[Value.Base] = []
-    for row in strmat.value[1:]:
+    for row in rows:
         if len(row.value) != len(keys):
-            raise Error.InputError("read_objects(): file's tab-separated lines are ragged")
+            raise Error.InputError(f"{function_name}(): file's tab-separated lines are ragged")
         maps.append(Value.Map((Type.String(), Type.String()), list(zip(keys, row.value))))
     return Value.Array(Type.Map((Type.String(), Type.String())), maps)
 
 
 def _parse_object(s: str) -> Value.Map:
-    maps = _parse_objects(s)
+    maps = _parse_tsv_objects(s)
     if len(maps.value) != 1:
         raise Error.InputError("read_object(): file must have exactly one object")
     map0 = maps.value[0]
@@ -825,6 +836,96 @@ class _Size(EagerFunction):
             except KeyError:
                 raise Error.EvalError(expr, "size(): invalid unit " + unit.value)
         return Value.Float(fans)
+
+
+class _ReadTsv(EagerFunction):
+    # This is intentionally not a StaticFunction: WDL 1.2 read_tsv() returns
+    # Array[Array[String]] for table mode and Array[Map[String,String]] for
+    # header/object mode, and preserving that inferred type is useful for
+    # downstream coercions while keeping Object support limited.
+    stdlib: Base
+
+    def __init__(self, stdlib: Base) -> None:
+        self.stdlib = stdlib
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) < 1:
+            raise Error.WrongArity(expr, 1)
+        try:
+            expr.arguments[0].typecheck(Type.File())
+        except Error.StaticTypeMismatch:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.File(),
+                expr.arguments[0].type,
+                "for read_tsv argument #1",
+            ) from None
+        if len(expr.arguments) == 1:
+            return Type.Array(Type.Array(Type.String()))
+        return self._infer_type_1_2(expr)
+
+    def _infer_type_1_2(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) > 3:
+            raise Error.WrongArity(expr, 3)
+        if self.stdlib.wdl_version in ["draft-2", "1.0", "1.1"]:
+            raise Error.WrongArity(expr, 1)
+        try:
+            expr.arguments[1].typecheck(Type.Boolean())
+        except Error.StaticTypeMismatch:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1],
+                Type.Boolean(),
+                expr.arguments[1].type,
+                "for read_tsv argument #2",
+            ) from None
+        if len(expr.arguments) == 2:
+            header = expr.arguments[1].literal
+            if not (isinstance(header, Value.Boolean) and header.value):
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1],
+                    Type.Boolean(),
+                    expr.arguments[1].type,
+                    "read_tsv(File, Boolean) requires literal true",
+                )
+            return Type.Array(Type.Map((Type.String(), Type.String())))
+        try:
+            expr.arguments[2].typecheck(Type.Array(Type.String()))
+        except Error.StaticTypeMismatch:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[2],
+                Type.Array(Type.String()),
+                expr.arguments[2].type,
+                "for read_tsv argument #3",
+            ) from None
+        return Type.Array(Type.Map((Type.String(), Type.String())))
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        try:
+            file = arguments[0].coerce(Type.File())
+            assert isinstance(file, Value.File)
+            with open(self.stdlib._devirtualize_filename(file.value), "r") as infile:
+                contents = infile.read()
+            if len(arguments) == 1:
+                return _parse_tsv(contents)
+            header = arguments[1].coerce(Type.Boolean())
+            assert isinstance(header, Value.Boolean)
+            if len(arguments) == 2:
+                return _parse_tsv_objects(contents, function_name="read_tsv")
+            keys = arguments[2].coerce(Type.Array(Type.String()))
+            assert isinstance(keys, Value.Array)
+            return _parse_tsv_objects(
+                contents,
+                header=header.value,
+                keys=[key.coerce(Type.String()) for key in keys.value],
+                function_name="read_tsv",
+            )
+        except Error.EvalError:
+            raise
+        except Exception as exn:
+            msg = "function evaluation failed"
+            if str(exn):
+                msg += ", " + str(exn)
+            raise Error.EvalError(expr, msg) from exn
 
 
 class _SelectFirst(EagerFunction):
