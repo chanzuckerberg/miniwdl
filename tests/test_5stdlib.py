@@ -58,6 +58,90 @@ class TestStdLib(unittest.TestCase):
         )
         self.assertEqual(parsed.json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
 
+    def test_read_tsv_unit_branches(self):
+        class LocalStdLib(WDL.StdLib.Base):
+            def _devirtualize_filename(self, filename: str) -> str:
+                return filename
+
+            def _virtualize_filename(self, filename: str) -> str:
+                return filename
+
+        def infer(expr: str, version: str = "1.2", type_env=None):
+            stdlib = LocalStdLib(version)
+            parsed = WDL.parse_expr(expr, version=version).infer_type(
+                type_env or WDL.Env.Bindings(), stdlib
+            )
+            return parsed, stdlib
+
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer("read_tsv()")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer("read_tsv([1])")
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('read_tsv("x", true, ["a"], "extra")')
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('read_tsv("x", true)', version="1.1")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", "true")')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", false)')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer(
+                'read_tsv("x", header)',
+                type_env=WDL.Env.Bindings().bind("header", WDL.Type.Boolean()),
+            )
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", true, 1)')
+
+        table = os.path.join(self._dir, "table.tsv")
+        with open(table, "w") as outfile:
+            outfile.write("name\tlane\nAlice\t3\nBob\t4\n")
+        no_header = os.path.join(self._dir, "no_header.tsv")
+        with open(no_header, "w") as outfile:
+            outfile.write("Alice\t3\nBob\t4\n")
+
+        expr, stdlib = infer("read_tsv({})".format(json.dumps(table)))
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Array(WDL.Type.String())))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [["name", "lane"], ["Alice", "3"], ["Bob", "4"]])
+
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(table)))
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        expr, stdlib = infer(
+            "read_tsv({}, false, [\"name\", \"lane\"])".format(json.dumps(no_header))
+        )
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        expr, stdlib = infer(
+            "read_tsv({}, true, [\"sample\", \"value\"])".format(json.dumps(table))
+        )
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"sample": "Alice", "value": "3"}, {"sample": "Bob", "value": "4"}])
+
+        expr, stdlib = infer('read_tsv("/no/such/file.tsv")')
+        with self.assertRaises(WDL.Error.EvalError):
+            expr.eval(WDL.Env.Bindings(), stdlib)
+
+        duplicate = os.path.join(self._dir, "duplicate.tsv")
+        with open(duplicate, "w") as outfile:
+            outfile.write("name\tname\nAlice\t3\n")
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(duplicate)))
+        with self.assertRaises(WDL.Error.EvalError):
+            expr.eval(WDL.Env.Bindings(), stdlib)
+
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(table)))
+        parse_tsv_objects = WDL.StdLib._parse_tsv_objects
+        try:
+            def raise_eval_error(*args, **kwargs):
+                raise WDL.Error.EvalError(expr, "sentinel")
+
+            WDL.StdLib._parse_tsv_objects = raise_eval_error
+            with self.assertRaisesRegex(WDL.Error.EvalError, "sentinel"):
+                expr.eval(WDL.Env.Bindings(), stdlib)
+        finally:
+            WDL.StdLib._parse_tsv_objects = parse_tsv_objects
+
     def _eval_expr(self, expr: str, env=None, version: str = "development"):
         env = env or WDL.Env.Bindings()
         type_env = WDL.Env.Bindings()
