@@ -5,6 +5,7 @@ from typing import List, Optional, Set, Tuple, Any, Union
 import lark
 from .Error import SourcePosition
 from . import Error, Tree, Type, Expr, _grammar
+from ._util import WDLVersion, wdl_version_geq
 
 # memoize Lark parsers constructed for version & start symbol
 _lark_cache = {}
@@ -102,7 +103,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         assert parts[-1] in ['"', "'", ">>>"], parts[-1]
         if parts[0] == "<<<":
             wdl_version = getattr(self, "_version", None)
-            if wdl_version and wdl_version in ("draft-2", "1.0", "1.1"):
+            if wdl_version and not wdl_version_geq(wdl_version, WDLVersion.V1_2):
                 raise Error.SyntaxError(
                     self._sp(meta),
                     "<<< multi-line strings >>> are not supported in this WDL version",
@@ -255,14 +256,16 @@ class _DocTransformer(_ExprTransformer):
 
     def left_name(self, meta, items) -> Expr.Base:
         ans = super().left_name(meta, items)
-        allow_task = self._version not in ("draft-2", "1.0", "1.1") and items[0] == "task"
+        assert self._version is not None
+        allow_task = wdl_version_geq(self._version, WDLVersion.V1_2) and items[0] == "task"
         self._check_keyword(ans.pos, items[0], allow_task=allow_task)
         return ans
 
     def get_name(self, meta, items) -> Expr.Base:
         ans = super().get_name(meta, items)
         if items[1] not in ("left", "right"):
-            allow_member = self._version not in ("draft-2", "1.0", "1.1") and items[1] in (
+            assert self._version is not None
+            allow_member = wdl_version_geq(self._version, WDLVersion.V1_2) and items[1] in (
                 "meta",
                 "parameter_meta",
             )
@@ -306,7 +309,8 @@ class _DocTransformer(_ExprTransformer):
             "String": Type.String,
             "File": Type.File,
         }
-        if self._version not in ("draft-2", "1.0", "1.1"):
+        assert self._version is not None
+        if wdl_version_geq(self._version, WDLVersion.V1_2):
             atomic_types["Directory"] = Type.Directory
         if items[0].value in atomic_types:
             if param or param2:

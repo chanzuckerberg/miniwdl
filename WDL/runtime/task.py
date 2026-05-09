@@ -17,6 +17,7 @@ from collections import Counter
 
 from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
 from .._util import (
+    WDLVersion,
     write_atomic,
     write_values_json,
     provision_run_dir,
@@ -29,6 +30,7 @@ from .._util import (
     link_force,
     symlink_force,
     rmtree_atomic,
+    wdl_version_geq,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -182,7 +184,7 @@ def run_local_task(  # type: ignore[return]
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
-                if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
+                if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
                     container.build_task_runtime_info_struct(logger, run_id, task)
                     assert container.task_runtime_info_struct is not None
                     container_env = container_env.bind("task", container.task_runtime_info_struct)
@@ -215,7 +217,7 @@ def run_local_task(  # type: ignore[return]
                 _try_task(cfg, task, logger, container, command, terminating)
 
                 # bind output declarations to task runtime info with the final return code
-                if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
+                if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
                     container.update_task_runtime_info_struct(
                         return_code=(
                             Value.Int(container.last_exit_code)
@@ -629,7 +631,7 @@ def _try_task(
                 logger.debug(_("creating task temp directory", TMPDIR=host_tmpdir))
                 os.mkdir(host_tmpdir, mode=0o770)
             try:
-                if task.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
+                if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
                     container.update_task_runtime_info_struct(
                         attempt=Value.Int(max(0, container.try_counter - 1)),
                         return_code=Value.Null(),
