@@ -32,6 +32,7 @@ from typing import (
 from abc import ABC, abstractmethod
 from .Error import SourcePosition, SourceNode
 from . import Type, Expr, Env, Error, StdLib, Value, _parser, _util
+from ._util import WDLVersion, wdl_version_geq
 
 
 class StructTypeDef(SourceNode):
@@ -369,10 +370,10 @@ class Task(SourceNode):
         """
         ans: Env.Bindings[Decl] = Env.Bindings()
 
-        if self.effective_wdl_version not in ("draft-2", "1.0"):
+        if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_1):
             # synthetic placeholder to expose runtime overrides
             ans = ans.bind("_runtime", Decl(self.pos, Type.Any(), "_runtime"))
-            if self.effective_wdl_version not in ("1.1",):
+            if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_2):
                 ans = ans.bind("_requirements", Decl(self.pos, Type.Any(), "_requirements"))
 
         for decl in reversed(self.inputs if self.inputs is not None else self.postinputs):
@@ -473,7 +474,7 @@ class Task(SourceNode):
             # exposes the task runtime info struct. Keep type_env unchanged so it documents
             # that inputs, postinputs, and runtime expressions can't depend on task.*.
             body_env = type_env
-            if self.effective_wdl_version not in ("draft-2", "1.0", "1.1"):
+            if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_2):
                 # Add task-scoped runtime info for typechecking task command & outputs (WDL 1.2+)
                 # NOTE: spec doesn't explicitly limit scope; we currently expose task runtime info
                 # only in command/output to avoid circularity with requirements and declarations.

@@ -36,6 +36,7 @@ import shutil
 from typing import Any, Optional, Union
 import regex
 from . import Error, Type, Env, Expr, Tree, StdLib, Walker, _util
+from ._util import WDLVersion, wdl_version_geq, wdl_version_ord
 
 
 def _find_doc(obj: Error.SourceNode):
@@ -270,7 +271,9 @@ class StringCoercion(Linter):
                     elif not isinstance(arg.type, (Type.File, Type.Directory)):
                         non_string = arg.type
                 if any_string and non_string:
-                    allowed = _find_doc(obj).effective_wdl_version in ("draft-2", "1.0")
+                    allowed = not wdl_version_geq(
+                        _find_doc(obj).effective_wdl_version, WDLVersion.V1_1
+                    )
                     if not allowed:
                         self.add(
                             obj,
@@ -762,22 +765,15 @@ class UnusedImport(Linter):
 class ImportNewerWDL(Linter):
     # Document imports a document with a newer WDL version
     def document(self, obj: Tree.Document) -> Any:
-        doc_version = self._version_order(obj.effective_wdl_version)
+        doc_version = wdl_version_ord(obj.effective_wdl_version)
         for imp in obj.imports:
             assert imp.doc
-            if self._version_order(imp.doc.effective_wdl_version) > doc_version:
+            if wdl_version_ord(imp.doc.effective_wdl_version) > doc_version:
                 self.add(
                     obj,
                     "imported document has newer WDL version",
                     pos=imp.pos,
                 )
-
-    def _version_order(self, wdl_version: str) -> int:
-        if wdl_version == "draft-2":
-            return 2
-        elif wdl_version == "development":
-            return 99
-        return int(wdl_version.replace(".", ""))
 
 
 @a_linter
@@ -1237,7 +1233,7 @@ class Deprecated(Linter):
         if (
             isinstance(obj, Expr.Placeholder)
             and obj.options
-            and _find_doc(obj).effective_wdl_version not in ("draft-2", "1.0")
+            and wdl_version_geq(_find_doc(obj).effective_wdl_version, WDLVersion.V1_1)
         ):
             self.add(
                 obj,
@@ -1248,6 +1244,6 @@ class Deprecated(Linter):
         elif (
             isinstance(obj, Expr.Struct)
             and not obj.struct_type_name
-            and _find_doc(obj).effective_wdl_version not in ("draft-2", "1.0")
+            and wdl_version_geq(_find_doc(obj).effective_wdl_version, WDLVersion.V1_1)
         ):
             self.add(obj, "replace 'object' with specific struct type [WDL >= 1.1]", obj.pos)

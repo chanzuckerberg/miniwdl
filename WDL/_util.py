@@ -13,6 +13,7 @@ import uuid
 import decimal
 from time import sleep
 from datetime import datetime
+from enum import IntEnum
 from contextlib import contextmanager, AbstractContextManager
 from typing import (
     Tuple,
@@ -49,6 +50,35 @@ __all__: List[str] = []
 def export(obj: T) -> T:
     __all__.append(obj.__name__)  # type: ignore
     return obj
+
+
+@export
+class WDLVersion(IntEnum):
+    DRAFT_2 = 0
+    V1_0 = 1
+    V1_1 = 2
+    V1_2 = 3
+    DEVELOPMENT = 9999
+
+
+_WDL_VERSIONS = {
+    "draft-2": WDLVersion.DRAFT_2,
+    "1.0": WDLVersion.V1_0,
+    "1.1": WDLVersion.V1_1,
+    "1.2": WDLVersion.V1_2,
+    "development": WDLVersion.DEVELOPMENT,
+}
+
+
+@export
+def wdl_version_ord(version: str) -> WDLVersion:
+    assert version in _WDL_VERSIONS, f"unknown WDL version: {version}"
+    return _WDL_VERSIONS[version]
+
+
+@export
+def wdl_version_geq(version: str, minimum: WDLVersion) -> bool:
+    return wdl_version_ord(version) >= minimum
 
 
 @export

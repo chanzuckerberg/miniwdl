@@ -8,7 +8,14 @@ from abc import ABC, abstractmethod
 from contextlib import suppress
 import regex
 from . import Type, Value, Expr, Env, Error
-from ._util import byte_size_units, chmod_R_plus, pathsize, round_half_up
+from ._util import (
+    WDLVersion,
+    byte_size_units,
+    chmod_R_plus,
+    pathsize,
+    round_half_up,
+    wdl_version_geq,
+)
 
 
 class Base:
@@ -145,7 +152,7 @@ class Base:
         self.flatten = _Flatten()
         self.transpose = _Transpose()
 
-        if self.wdl_version not in ["draft-2", "1.0"]:
+        if wdl_version_geq(self.wdl_version, WDLVersion.V1_1):
             self.min = _ArithmeticOperator("min", lambda l, r: min(l, r))
             self.max = _ArithmeticOperator("max", lambda l, r: max(l, r))
             self.quote = _Quote()
@@ -155,7 +162,7 @@ class Base:
             self.as_pairs = _AsPairs()
             self.collect_by_key = _CollectByKey()
 
-        if self.wdl_version not in ["draft-2", "1.0", "1.1"]:
+        if wdl_version_geq(self.wdl_version, WDLVersion.V1_2):
             # WDL 1.2+ functions
             static([Type.String(), Type.String()], Type.String(optional=True))(find)
             static([Type.String(), Type.String()], Type.Boolean())(matches)
@@ -864,7 +871,7 @@ class _ReadTsv(EagerFunction):
         # WDL 1.2 features
         if len(expr.arguments) > 3:
             raise Error.WrongArity(expr, 3)
-        if self.stdlib.wdl_version in ["draft-2", "1.0", "1.1"]:
+        if not wdl_version_geq(self.stdlib.wdl_version, WDLVersion.V1_2):
             raise Error.WrongArity(expr, 1)
         try:
             expr.arguments[1].typecheck(Type.Boolean())
@@ -932,7 +939,7 @@ class _SelectFirst(EagerFunction):
         self.wdl_version = wdl_version
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
-        max_args = 1 if self.wdl_version in ["draft-2", "1.0", "1.1"] else 2
+        max_args = 2 if wdl_version_geq(self.wdl_version, WDLVersion.V1_2) else 1
         if len(expr.arguments) < 1 or len(expr.arguments) > max_args:
             raise Error.WrongArity(expr, max_args)
         arg0ty = expr.arguments[0].type
@@ -1309,7 +1316,7 @@ class _Keys(EagerFunction):
             return Type.Array(arg0ty.item_type[0].copy())
         elif isinstance(arg0ty, (Type.StructInstance, Type.Object)):
             # Struct/Object support added in WDL 1.2
-            if self.wdl_version in ["draft-2", "1.0", "1.1"]:
+            if not wdl_version_geq(self.wdl_version, WDLVersion.V1_2):
                 raise Error.StaticTypeMismatch(
                     expr.arguments[0],
                     Type.Map((Type.Any(), Type.Any())),
@@ -1327,7 +1334,7 @@ class _Keys(EagerFunction):
             and not arg0ty.optional
             and isinstance(expr.arguments[0], Expr.Apply)
             and expr.arguments[0].function_name == "read_json"
-            and self.wdl_version not in ["draft-2", "1.0", "1.1"]
+            and wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
         ):
             # read_json() result type is unknown until runtime.
             return Type.Array(Type.String())
