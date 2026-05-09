@@ -46,6 +46,110 @@ class TestStdLib(unittest.TestCase):
         parsed = WDL.StdLib._parse_tsv("a\tb\n\nc\td\n")
         self.assertEqual(parsed.json, [["a", "b"], [""], ["c", "d"]])
 
+    def test_parse_tsv_objects(self):
+        parsed = WDL.StdLib._parse_tsv_objects("name\tlane\nAlice\t3\nBob\t4\n")
+        self.assertEqual(parsed.json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        parsed = WDL.StdLib._parse_tsv_objects(
+            "Alice\t3\nBob\t4\n",
+            header=False,
+            keys=[WDL.Value.String("name"), WDL.Value.String("lane")],
+            function_name="read_tsv",
+        )
+        self.assertEqual(parsed.json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        parsed = WDL.StdLib._parse_tsv_objects(
+            "",
+            header=False,
+            keys=[],
+            function_name="read_tsv",
+        )
+        self.assertEqual(parsed.json, [])
+
+    def test_read_tsv_unit_branches(self):
+        class LocalStdLib(WDL.StdLib.Base):
+            def _devirtualize_filename(self, filename: str) -> str:
+                return filename
+
+            def _virtualize_filename(self, filename: str) -> str:
+                return filename
+
+        def infer(expr: str, version: str = "1.2", type_env=None):
+            stdlib = LocalStdLib(version)
+            parsed = WDL.parse_expr(expr, version=version).infer_type(
+                type_env or WDL.Env.Bindings(), stdlib
+            )
+            return parsed, stdlib
+
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer("read_tsv()")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer("read_tsv([1])")
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('read_tsv("x", true, ["a"], "extra")')
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('read_tsv("x", true)', version="1.1")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", "true")')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", false)')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer(
+                'read_tsv("x", header)',
+                type_env=WDL.Env.Bindings().bind("header", WDL.Type.Boolean()),
+            )
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('read_tsv("x", true, 1)')
+
+        table = os.path.join(self._dir, "table.tsv")
+        with open(table, "w") as outfile:
+            outfile.write("name\tlane\nAlice\t3\nBob\t4\n")
+        no_header = os.path.join(self._dir, "no_header.tsv")
+        with open(no_header, "w") as outfile:
+            outfile.write("Alice\t3\nBob\t4\n")
+
+        expr, stdlib = infer("read_tsv({})".format(json.dumps(table)))
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Array(WDL.Type.String())))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [["name", "lane"], ["Alice", "3"], ["Bob", "4"]])
+
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(table)))
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        expr, stdlib = infer(
+            "read_tsv({}, false, [\"name\", \"lane\"])".format(json.dumps(no_header))
+        )
+        self.assertEqual(expr.type, WDL.Type.Array(WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))))
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"name": "Alice", "lane": "3"}, {"name": "Bob", "lane": "4"}])
+
+        expr, stdlib = infer(
+            "read_tsv({}, true, [\"sample\", \"value\"])".format(json.dumps(table))
+        )
+        self.assertEqual(expr.eval(WDL.Env.Bindings(), stdlib).json, [{"sample": "Alice", "value": "3"}, {"sample": "Bob", "value": "4"}])
+
+        expr, stdlib = infer('read_tsv("/no/such/file.tsv")')
+        with self.assertRaises(WDL.Error.EvalError):
+            expr.eval(WDL.Env.Bindings(), stdlib)
+
+        duplicate = os.path.join(self._dir, "duplicate.tsv")
+        with open(duplicate, "w") as outfile:
+            outfile.write("name\tname\nAlice\t3\n")
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(duplicate)))
+        with self.assertRaises(WDL.Error.EvalError):
+            expr.eval(WDL.Env.Bindings(), stdlib)
+
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(table)))
+        parse_tsv_objects = WDL.StdLib._parse_tsv_objects
+        try:
+            def raise_eval_error(*args, **kwargs):
+                raise WDL.Error.EvalError(expr, "sentinel")
+
+            WDL.StdLib._parse_tsv_objects = raise_eval_error
+            with self.assertRaisesRegex(WDL.Error.EvalError, "sentinel"):
+                expr.eval(WDL.Env.Bindings(), stdlib)
+        finally:
+            WDL.StdLib._parse_tsv_objects = parse_tsv_objects
+
     def _eval_expr(self, expr: str, env=None, version: str = "development"):
         env = env or WDL.Env.Bindings()
         type_env = WDL.Env.Bindings()
@@ -54,6 +158,64 @@ class TestStdLib(unittest.TestCase):
         stdlib = WDL.StdLib.Base(version)
         ex = WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib)
         return ex.eval(env, stdlib)
+
+    def _infer_expr_type(
+        self, expr: str, env=None, type_env=None, version: str = "development"
+    ):
+        env = env or WDL.Env.Bindings()
+        if type_env is None:
+            type_env = WDL.Env.Bindings()
+            for binding in env:
+                type_env = type_env.bind(binding.name, binding.value.type)
+        stdlib = WDL.StdLib.Base(version)
+        return WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib).type
+
+
+    def test_stdlib_branch_coverage_length_contains_key(self):
+        # length(): wrong arity and optional argument rejection during quantifier checks
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("length([1], [2])", version="1.2")
+
+        tenv = WDL.Env.Bindings().bind("a", WDL.Type.Array(WDL.Type.Int(), optional=True))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr("length(a)", version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        # length(): runtime EvalError on unsupported dynamic Any payload
+        fn = os.path.join(self._dir, "scalar.json")
+        with open(fn, "w") as outfile:
+            json.dump(1, outfile)
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr(f'length(read_json("{fn}"))', version="1.2")
+
+        # collect_by_key(): wrong arity
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("collect_by_key([],[1])", version="1.2")
+
+        # contains_key() map variant: optional map & nested keys require String-keyed map
+        tenv = WDL.Env.Bindings().bind("m", WDL.Type.Map((WDL.Type.String(), WDL.Type.Int()), optional=True))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr('contains_key(m, "a")', version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        tenv = WDL.Env.Bindings().bind("m", WDL.Type.Map((WDL.Type.Int(), WDL.Type.Int())))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr('contains_key(m, ["a"])', version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        # contains_key() struct/read_json key type checks
+        tenv = WDL.Env.Bindings().bind("s", WDL.Type.StructInstance("S", optional=True))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr("contains_key(s, 1)", version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        tenv = WDL.Env.Bindings().bind("j", WDL.Type.Any())
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr("contains_key(read_json('x.json'), 1)", version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._eval_expr('contains_key({"a": 1}, [1])', version="1.2")
+
+        # runtime nested-key traversal edges
+        self.assertEqual(str(self._eval_expr('contains_key({"a": 1}, ["a", "b"])', version="1.2")), "false")
+        env = WDL.Env.Bindings().bind("path", WDL.Value.Array(WDL.Type.String(), []))
+        self.assertEqual(str(self._eval_expr('contains_key({"a": 1}, path)', env=env, version="1.2")), "false")
 
     def test_collect_by_key_float_keys(self):
         self.assertEqual(
@@ -162,7 +324,7 @@ class TestStdLib(unittest.TestCase):
             "Float sz = size(file1)",
             "Float sz = size(file1, 'GB')",
             "Float sz = size([file1,file2], 'KB')",
-            "Float sz = size([file1,file2], 'KB')",
+            "Float sz = size(['file1','file2'], 'KB')",
         ]:
             doc = WDL.parse_document(tmpl.format(case))
             doc.typecheck()
@@ -178,6 +340,66 @@ class TestStdLib(unittest.TestCase):
             doc = WDL.parse_document(tmpl.format(case[0]))
             with self.assertRaises(case[1]):
                 doc.typecheck()
+
+        tmpl = """
+        version 1.2
+        struct PathStruct {{
+            File file
+            Directory dir
+            String name
+        }}
+        task test_size {{
+            input {{
+                File file1
+                File file2
+                File? nullfile
+                Directory dir1
+                Directory dir2
+                Array[File]? maybe_files
+                Map[String, Pair[Int, File?]] nested_files
+                Array[Pair[String, Directory?]] nested_dirs
+                Map[File, Int] file_keys
+                PathStruct path_struct
+                Array[Int] ints
+                Map[String, Int] string_to_int
+            }}
+            {}
+            command <<<
+                echo "nop"
+            >>>
+        }}
+        """
+
+        for case in [
+            "Float sz = size(dir1)",
+            "Float sz = size(dir1, 'GB')",
+            "Float sz = size([dir1,dir2], 'KB')",
+            "Float sz = size(maybe_files)",
+            "Float sz = size(nested_files)",
+            "Float sz = size(nested_dirs)",
+            "Float sz = size(file_keys)",
+            "Float sz = size(path_struct)",
+        ]:
+            doc = WDL.parse_document(tmpl.format(case))
+            doc.typecheck()
+
+        for case in [
+            ("Float sz = size([42])", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size([])", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size({})", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(None)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(read_json(\"x.json\"))", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(ints)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(string_to_int)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(dir1,dir2)", WDL.Error.StaticTypeMismatch),
+            ("Float sz = size(dir1,[dir2])", WDL.Error.StaticTypeMismatch),
+        ]:
+            doc = WDL.parse_document(tmpl.format(case[0]))
+            with self.assertRaises(case[1]):
+                doc.typecheck()
+
+        with self.assertRaises(WDL.Error.InputError):
+            WDL.StdLib._Size._coerce_paths_argument(WDL.Value.Int(42), WDL.Type.Int())
 
     def test_length_defined_range(self):
         outputs = self._test_task(R"""
@@ -210,6 +432,125 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
+
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("length([1], [2])", version="1.2")
+
+        # Test length() with Maps
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_map {
+            input {
+                Map[String, Int] m = {"a": 1, "b": 2, "c": 3}
+            }
+            command {}
+            output {
+                Int map_len = length(m)
+            }
+        }
+        """)
+        self.assertEqual(outputs["map_len"], 3)
+
+        # Test length() with String
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_string {
+            command {}
+            output {
+                Int string_len = length("ABCDE")
+            }
+        }
+        """)
+        self.assertEqual(outputs["string_len"], 5)
+
+        # Test length() with Object literals
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_object {
+            command {}
+            output {
+                Int object_len = length(object {a: 1, b: 2})
+            }
+        }
+        """)
+        self.assertEqual(outputs["object_len"], 2)
+
+        # Error: Structs aren't in the WDL 1.2 length() signature
+        self._test_task(R"""
+        version 1.2
+        struct Person {
+            String first
+            String last
+            Int age
+        }
+        task test_length_struct {
+            input {
+                Person p = Person {
+                    first: "John",
+                    last: "Doe",
+                    age: 30
+                }
+            }
+            command {}
+            output {
+                Int struct_len = length(p)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Test length(read_json()) on array
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_json_array {
+            command <<<
+                echo '[1, 2, 3, 4, 5]' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["len"], 5)
+
+        # Error: None isn't a valid dynamic length() argument
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Int len = length(None)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Test length(read_json()) on object
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_json_object {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["len"], 3)
+
+        # Test length(read_json()) on string
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_length_json_string {
+            command <<<
+                echo '"hello"' > data.json
+            >>>
+            output {
+                Int len = length(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["len"], 5)
 
     def test_floor_ceil_round(self):
         outputs = self._test_task(R"""
@@ -341,6 +682,63 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.IndeterminateType)
 
+    def test_select_first_default(self):
+        self.assertEqual(str(self._eval_expr("select_first([], 5)", version="1.2")), "5")
+        self.assertEqual(str(self._eval_expr("select_first([None], 5)", version="1.2")), "5")
+        self.assertEqual(str(self._eval_expr("select_first([3], 5)", version="1.2")), "3")
+        self.assertEqual(str(self._eval_expr("select_first([3], 5.0)", version="1.2")), "3.000000")
+        self.assertEqual(
+            str(self._eval_expr('select_first([None], "fallback")', version="1.2")),
+            '"fallback"',
+        )
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("select_first([], 5)", version="1.1")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._eval_expr("select_first([], None)", version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr("select_first([if false then 1 else None])", version="1.2")
+
+    def test_select_first_default_unify(self):
+        self.assertEqual(str(self._infer_expr_type("select_first([1])", version="1.2")), "Int")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._infer_expr_type("select_first()", version="1.2")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._infer_expr_type("select_first([1], 2, 3)", version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type("select_first(1)", version="1.2")
+        optional_array_env = WDL.Env.Bindings().bind(
+            "xs", WDL.Type.Array(WDL.Type.Int(), optional=True)
+        )
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type("select_first(xs)", type_env=optional_array_env, version="1.2")
+        with self.assertRaises(WDL.Error.IndeterminateType):
+            self._infer_expr_type("select_first([])", version="1.2")
+        with self.assertRaises(WDL.Error.IndeterminateType):
+            self._infer_expr_type('select_first([], read_json("x.json"))', version="1.2")
+
+        self.assertEqual(
+            str(self._infer_expr_type("select_first([1], 2.0)", version="1.2")), "Float"
+        )
+        self.assertEqual(
+            str(self._infer_expr_type("select_first([1.0], 2)", version="1.2")), "Float"
+        )
+        self.assertEqual(
+            str(self._infer_expr_type('select_first([], "fallback")', version="1.2")), "String"
+        )
+        self.assertEqual(
+            str(self._infer_expr_type('select_first(["x"], 2)', version="1.2")), "String"
+        )
+        self.assertEqual(
+            str(self._infer_expr_type("select_first([[1]], [2.0])", version="1.2")),
+            "Array[Float]+",
+        )
+        self.assertEqual(
+            str(self._eval_expr("select_first([], [2.0])", version="1.2")),
+            "[2.000000]",
+        )
+        with self.assertRaises(WDL.Error.IndeterminateType):
+            self._infer_expr_type('select_first([[1]], {"a": 1})', version="1.2")
+
     def test_sub(self):
         outputs = self._test_task(R"""
         version 1.0
@@ -388,6 +786,42 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+    def test_find_matches(self):
+        self.assertEqual(
+            self._eval_expr('find("hello world", "e..o")', version="1.2").json, "ello"
+        )
+        self.assertIsNone(
+            self._eval_expr('find("hello world", "goodbye")', version="1.2").json
+        )
+        self.assertEqual(
+            self._eval_expr(R"""find("hello\tBob", "\\t")""", version="1.2").json, "\t"
+        )
+        self.assertEqual(self._eval_expr('find("aaab", "a+")', version="1.2").json, "aaa")
+        self.assertEqual(
+            self._eval_expr('find("abc123", "[[:digit:]]+")', version="1.2").json,
+            "123",
+        )
+
+        self.assertTrue(self._eval_expr('matches("sample_R1.fastq", "_R1")', version="1.2").json)
+        self.assertFalse(
+            self._eval_expr(
+                'matches("sample_R1.fastq", "\\\\.(gz|zip|zstd)")', version="1.2"
+            ).json
+        )
+        self.assertTrue(self._eval_expr('matches("abc123", "^a.+3$")', version="1.2").json)
+        self.assertFalse(self._eval_expr('matches("abc123", "^a.+2$")', version="1.2").json)
+
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('find("foo", "(()")', version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('matches("foo", "(()")', version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._eval_expr('find("foo", {"a": 1})', version="1.2")
+        with self.assertRaises(WDL.Error.NoSuchFunction):
+            self._eval_expr('find("hello world", "e..o")', version="1.1")
+        with self.assertRaises(WDL.Error.NoSuchFunction):
+            self._eval_expr('matches("sample_R1.fastq", "_R1")', version="1.1")
+
     def test_flatten(self):
         outputs = self._test_task(R"""
         version 1.0
@@ -416,11 +850,45 @@ class TestStdLib(unittest.TestCase):
             outfile.write("Alyssa\n")
         with open(os.path.join(self._dir, "ben.txt"), "w") as outfile:
             outfile.write("Ben\n")
+        os.makedirs(os.path.join(self._dir, "dir1"))
+        os.makedirs(os.path.join(self._dir, "dir2", "sub"))
+        with open(os.path.join(self._dir, "dir1", "alice.txt"), "w") as outfile:
+            outfile.write("Alice\n")
+        with open(os.path.join(self._dir, "dir1", "ignored_link"), "w") as outfile:
+            outfile.write("ignored\n")
+        # Directory size excludes symlink entries inside the directory, even when the symlink
+        # target is a regular file that would otherwise be countable.
+        os.symlink(
+            os.path.join(self._dir, "dir1", "ignored_link"),
+            os.path.join(self._dir, "dir1", "link"),
+        )
+        with open(os.path.join(self._dir, "dir2", "sub", "bob.txt"), "w") as outfile:
+            outfile.write("Bob\n")
         outputs = self._test_task(R"""
-        version 1.0
+        version 1.2
+        struct PathStruct {
+            File file
+            Directory dir
+            String name
+        }
         task hello {
             Array[File] files
             File? nullfile
+            Directory dir1
+            Directory dir2
+            Directory? nulldir
+            Array[File]? maybe_files = None
+            Map[String, Pair[Int, File?]] nested_files = {
+                "a": (10, files[0]),
+                "b": (50, nullfile)
+            }
+            Array[Pair[String, Directory?]] nested_dirs = [("a", dir1), ("b", nulldir)]
+            Map[File, Int] file_keys = {files[0]: 1, files[1]: 2}
+            PathStruct path_struct = PathStruct {
+                file: files[0],
+                dir: dir2,
+                name: "paths"
+            }
             Array[Float] sizes_ = [
                 size(files[0]),
                 size(files),
@@ -433,12 +901,25 @@ class TestStdLib(unittest.TestCase):
             output {
                 Array[Float] sizes = flatten([sizes_, [size(files, "GB"), size(files, "Gi")]])
                 Float size2 = size("alyssa_ben.txt", "KiB")
+                Float legacy_array_string_size = size(["alyssa_ben.txt"], "B")
                 Float nosize1 = size(nullfile)
                 Float nosize2 = size([files[0], nullfile])
+                Float dirsize1 = size(dir1, "B")
+                Float dirsizes = size([dir1, dir2], "B")
+                Float nodirsize = size(nulldir)
+                Float nested_files_size = size(nested_files, "B")
+                Float nested_dirs_size = size(nested_dirs, "B")
+                Float file_keys_size = size(file_keys, "B")
+                Float maybe_files_size = size(maybe_files)
+                Float path_struct_size = size(path_struct, "B")
+                Float duplicate_file_size = size([files[0], files[0]], "B")
+                Float duplicate_dir_size = size([dir1, dir1], "B")
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
-                         os.path.join(self._dir, "ben.txt") ]})
+                         os.path.join(self._dir, "ben.txt") ],
+              "dir1": os.path.join(self._dir, "dir1"),
+              "dir2": os.path.join(self._dir, "dir2")})
         self.assertEqual(len(outputs["sizes"]), 6)
         self.assertEqual(outputs["sizes"][0], 7)
         self.assertEqual(outputs["sizes"][1], 11)
@@ -447,8 +928,21 @@ class TestStdLib(unittest.TestCase):
         self.assertAlmostEqual(outputs["sizes"][4], 11/1000000000)
         self.assertAlmostEqual(outputs["sizes"][5], 11/1073741824)
         self.assertAlmostEqual(outputs["size2"], 11/1024)
+        self.assertEqual(outputs["legacy_array_string_size"], 11)
         self.assertEqual(outputs["nosize1"], 0)
         self.assertEqual(outputs["nosize2"], 7)
+        # 6 bytes from alice.txt + 8 bytes from ignored_link; dir1/link itself contributes 0.
+        self.assertEqual(outputs["dirsize1"], 14)
+        self.assertEqual(outputs["dirsizes"], 18)
+        self.assertEqual(outputs["nodirsize"], 0)
+        self.assertEqual(outputs["nested_files_size"], 7)
+        self.assertEqual(outputs["nested_dirs_size"], 14)
+        self.assertEqual(outputs["file_keys_size"], 11)
+        self.assertEqual(outputs["maybe_files_size"], 0)
+        self.assertEqual(outputs["path_struct_size"], 11)
+        # size() sums path occurrences in the WDL value; it doesn't deduplicate equal paths.
+        self.assertEqual(outputs["duplicate_file_size"], 14)
+        self.assertEqual(outputs["duplicate_dir_size"], 28)
 
         self._test_task(R"""
         version 1.0
@@ -618,6 +1112,92 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["o_fortytwo"], 42)
         self.assertEqual(outputs["o_boolean"], [True, False])
         self.assertEqual(outputs["o_map"], {"key1": "value1", "key2": "value2", "..": "tricky"})
+
+    def test_read_tsv_headers(self):
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Sample {
+            String name
+            Int lane
+            String barcode
+        }
+        task test {
+            command <<<
+                echo -e "name\tlane\tbarcode" >> samples.tsv
+                echo -e "Alice\t3\tGATTACA" >> samples.tsv
+                echo -e "Bob\t4\tTGTAATC" >> samples.tsv
+                echo -e "Alice\t3\tGATTACA" >> no_header.tsv
+                echo -e "Bob\t4\tTGTAATC" >> no_header.tsv
+                touch empty.tsv
+            >>>
+            output {
+                Array[Array[String]] table1 = read_tsv("samples.tsv")
+                Array[Sample] samples1 = read_tsv("samples.tsv", true)
+                Array[Sample] samples2 = read_tsv("no_header.tsv", false, ["name", "lane", "barcode"])
+                Array[Sample] samples3 = read_tsv("samples.tsv", true, ["name", "lane", "barcode"])
+                Map[String, String] first = read_tsv("samples.tsv", true)[0]
+                Array[Sample] empty = read_tsv("empty.tsv", true)
+            }
+        }
+        """)
+        samples = [
+            {"name": "Alice", "lane": 3, "barcode": "GATTACA"},
+            {"name": "Bob", "lane": 4, "barcode": "TGTAATC"},
+        ]
+        self.assertEqual(
+            outputs["table1"],
+            [["name", "lane", "barcode"], ["Alice", "3", "GATTACA"], ["Bob", "4", "TGTAATC"]],
+        )
+        self.assertEqual(outputs["samples1"], samples)
+        self.assertEqual(outputs["samples2"], samples)
+        self.assertEqual(outputs["samples3"], samples)
+        self.assertEqual(outputs["first"], {"name": "Alice", "lane": "3", "barcode": "GATTACA"})
+        self.assertEqual(outputs["empty"], [])
+
+        self._test_task(R"""
+        version 1.1
+        task test {
+            command {}
+            output {
+                Array[Array[String]] table = read_tsv("samples.tsv", false)
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        self._test_task(R"""
+        version 1.2
+        task test {
+            command {}
+            output {
+                Array[Array[String]] table = read_tsv("samples.tsv", false)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        self._test_task(R"""
+        version 1.2
+        task test {
+            input {
+                Boolean header
+            }
+            command {}
+            output {
+                Array[Array[String]] table = read_tsv("samples.tsv", header)
+            }
+        }
+        """, {"header": False}, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        self._test_task(R"""
+        version 1.2
+        task test {
+            command <<<
+                echo -e "Alice\t3" > samples.tsv
+            >>>
+            output {
+                Array[Map[String, String]] samples = read_tsv("samples.tsv", false, ["name", "name"])
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
 
     def test_read_json(self):
         outputs = self._test_task(R"""
@@ -1973,6 +2553,307 @@ class TestStdLib(unittest.TestCase):
             }
             """)
 
+        # Test keys() with structs (WDL 1.2+)
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Person {
+            String first
+            String last
+            Int age
+        }
+        task test_keys_struct {
+            input {
+                Person p = Person {
+                    first: "John",
+                    last: "Doe",
+                    age: 30
+                }
+            }
+            command {}
+            output {
+                Array[String] person_keys = keys(p)
+            }
+        }
+        """)
+        # Keys should be in the order they appear in the struct definition
+        self.assertEqual(outputs["person_keys"], ["first", "last", "age"])
+
+        # Test keys() with struct including optional members
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Contact {
+            String name
+            String? email
+            String? phone
+        }
+        task test_keys_optional {
+            input {
+                Contact c = Contact {
+                    name: "Alice",
+                    email: "alice@example.com"
+                }
+            }
+            command {}
+            output {
+                Array[String] contact_keys = keys(c)
+            }
+        }
+        """)
+        # Should include all members, even optional ones that are None
+        self.assertEqual(outputs["contact_keys"], ["name", "email", "phone"])
+
+        # Error: keys(Struct) not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        struct Person {
+            String first
+            String last
+        }
+        task bad {
+            input {
+                Person p = Person {
+                    first: "John",
+                    last: "Doe"
+                }
+            }
+            command {}
+            output {
+                Array[String] k = keys(p)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: optional Map argument
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int]? m = {"a": 1}
+            }
+            command {}
+            output {
+                Array[String] k = keys(m)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: optional Struct argument
+        self._test_task(R"""
+        version 1.2
+        struct Person {
+            String first
+            String last
+        }
+        task bad {
+            input {
+                Person? p = Person {
+                    first: "John",
+                    last: "Doe"
+                }
+            }
+            command {}
+            output {
+                Array[String] k = keys(p)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Test keys() with read_json coerced to Map
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_keys_from_json_map {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Map[String, Int] data = read_json("data.json")
+                Array[String] json_keys = keys(data)
+            }
+        }
+        """)
+        # Map keys may not be in guaranteed order depending on implementation
+        self.assertEqual(sorted(outputs["json_keys"]), ["x", "y", "z"])
+
+        # Test keys() with read_json coerced to Struct
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Data {
+            Int x
+            Int y
+            Int z
+        }
+        task test_keys_from_json_struct {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Data data = read_json("data.json")
+                Array[String] json_keys = keys(data)
+            }
+        }
+        """)
+        # Struct keys are in definition order
+        self.assertEqual(outputs["json_keys"], ["x", "y", "z"])
+
+        # Test keys(read_json()) directly without type coercion - now works!
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_keys_direct_json {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(read_json("data.json"))
+            }
+        }
+        """)
+        self.assertEqual(sorted(outputs["json_keys"]), ["x", "y", "z"])
+
+        # Error: direct keys(read_json()) is WDL 1.2+ behavior
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: arbitrary Any expressions aren't accepted; only direct read_json()
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(if true then read_json("data.json") else read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: keys(read_json()) with non-object JSON raises EvalError
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '42' > data.json
+            >>>
+            output {
+                Array[String] json_keys = keys(read_json("data.json"))
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+        # Note: The fallback path for Type.Object (line 1125-1126 in StdLib.py) is defensive code
+        # that may be hit during coercion from read_json, though it's hard to isolate in testing.
+        # The runtime error path (unexpected argument type) should be prevented by static type checking.
+
+    def test_values(self):
+        """Test the values() function from WDL 1.2"""
+
+        # Basic functionality with different value types
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_values {
+            input {
+                Map[String, Int] m1 = {"a": 1, "b": 2, "c": 3}
+                Map[Int, String] m2 = {1: "one", 2: "two"}
+                Map[String, Pair[Int, Int]] m3 = {
+                    "a": (1, 2),
+                    "b": (3, 4)
+                }
+            }
+            command {}
+            output {
+                Array[Int] v1 = values(m1)
+                Array[String] v2 = values(m2)
+                Array[Pair[Int, Int]] v3 = values(m3)
+                Array[Boolean] v4 = values({})
+            }
+        }
+        """)
+        self.assertEqual(outputs["v1"], [1, 2, 3])
+        self.assertEqual(outputs["v2"], ["one", "two"])
+        self.assertEqual(outputs["v3"], [{"left": 1, "right": 2}, {"left": 3, "right": 4}])
+        self.assertEqual(outputs["v4"], [])
+
+        # Complex nested types
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_values_complex {
+            input {
+                Map[String, Array[Int]] nested = {
+                    "x": [1, 2],
+                    "y": [3, 4, 5]
+                }
+            }
+            command {}
+            output {
+                Array[Array[Int]] vals = values(nested)
+            }
+        }
+        """)
+        self.assertEqual(outputs["vals"], [[1, 2], [3, 4, 5]])
+
+        # Error: wrong arity (too few arguments)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values()
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: wrong arity (too many arguments)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values({"a": 1}, {"b": 2})
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values({"a": 1})
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: not available in WDL 1.0
+        self._test_task(R"""
+        version 1.0
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values({"a": 1})
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: first argument not a map
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Array[Int] x = values([1, 2, 3])
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
     def test_map_pairs(self):
         outputs = self._test_task(R"""
         version development
@@ -2046,3 +2927,579 @@ class TestStdLib(unittest.TestCase):
                 }
             }
             """)
+
+    def test_contains(self):
+        """Test the contains() function from WDL 1.2"""
+
+        # Basic functionality
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains {
+            command {}
+            output {
+                Boolean has_2 = contains([1, 2, 3], 2)
+                Boolean has_5 = contains([1, 2, 3], 5)
+                Boolean has_foo = contains(["foo", "bar"], "foo")
+                Boolean has_baz = contains(["foo", "bar"], "baz")
+                Boolean empty = contains([], 42)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_2"], True)
+        self.assertEqual(outputs["has_5"], False)
+        self.assertEqual(outputs["has_foo"], True)
+        self.assertEqual(outputs["has_baz"], False)
+        self.assertEqual(outputs["empty"], False)
+
+        # Type coercion - Int in Float array
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_coercion {
+            command {}
+            output {
+                Boolean int_in_float_array = contains([1.0, 2.0], 1)
+                Boolean float_in_float_array = contains([1.5, 2.5], 1.5)
+            }
+        }
+        """)
+        self.assertEqual(outputs["int_in_float_array"], True)
+        self.assertEqual(outputs["float_in_float_array"], True)
+
+        # Pair and complex types
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_pairs {
+            command {}
+            output {
+                Boolean has_pair = contains([(1, "a"), (2, "b")], (2, "b"))
+                Boolean no_pair = contains([(1, "a"), (2, "b")], (3, "c"))
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_pair"], True)
+        self.assertEqual(outputs["no_pair"], False)
+
+        # Error: wrong arity (too few arguments)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2])
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: wrong arity (too many arguments)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2], 1, 2)
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2], 1)
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: not available in WDL 1.0
+        self._test_task(R"""
+        version 1.0
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2], 1)
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: type mismatch (String in Int array)
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains([1, 2], "string")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: first argument not an array
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains("not an array", "x")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Optional element types: Array[T?] with T, T?, and None
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_optional_elements {
+            input {
+                Array[String?] samples = ["foo", "bar", None]
+                String name = "bar"
+                String? maybe_baz = "baz"
+            }
+            command {}
+            output {
+                # String in Array[String?] is allowed
+                Boolean has_bar = contains(samples, name)
+                # String? in Array[String?] is allowed
+                Boolean has_baz = contains(samples, maybe_baz)
+                # None in Array[String?] is allowed
+                Boolean has_null = contains(samples, None)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_bar"], True)
+        self.assertEqual(outputs["has_baz"], False)
+        self.assertEqual(outputs["has_null"], True)
+
+        # Error: optional value in non-optional array
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Int? maybe_num = 5
+            }
+            command {}
+            output {
+                Boolean x = contains([1, 2, 3], maybe_num)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+    def test_chunk(self):
+        """Test the chunk() function from WDL 1.2"""
+
+        self.assertEqual(
+            self._eval_expr('chunk(["a", "b", "c", "d", "e", "f"], 3)', version="1.2").json,
+            [["a", "b", "c"], ["d", "e", "f"]],
+        )
+        self.assertEqual(
+            self._eval_expr('chunk(["a", "b", "c", "d", "e"], 3)', version="1.2").json,
+            [["a", "b", "c"], ["d", "e"]],
+        )
+        self.assertEqual(
+            self._eval_expr('chunk(["a", "b"], 3)', version="1.2").json,
+            [["a", "b"]],
+        )
+        self.assertEqual(
+            self._eval_expr("chunk([], 3)", version="1.2").json,
+            [[]],
+        )
+        self.assertEqual(
+            self._eval_expr("flatten(chunk([1, 2, 3, 4, 5], 2))", version="1.2").json,
+            [1, 2, 3, 4, 5],
+        )
+
+        for length in range(11):
+            array = list(range(length))
+            array_literal = "[" + ", ".join(str(i) for i in array) + "]"
+            for chunk_size in range(1, length + 2):
+                expected = [
+                    array[i : i + chunk_size] for i in range(0, length, chunk_size)
+                ] or [[]]
+                self.assertEqual(
+                    self._eval_expr(f"chunk({array_literal}, {chunk_size})", version="1.2").json,
+                    expected,
+                )
+
+        env = WDL.Env.Bindings().bind(
+            "xs",
+            WDL.Value.Array(
+                WDL.Type.String(optional=True),
+                [WDL.Value.String("foo"), WDL.Value.Null(), WDL.Value.String("bar")],
+            ),
+        )
+        self.assertEqual(
+            self._eval_expr("chunk(xs, 2)", env=env, version="1.2").json,
+            [["foo", None], ["bar"]],
+        )
+
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr("chunk([1, 2], 0)", version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr("chunk([1, 2], -1)", version="1.2")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("chunk([1, 2])", version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._eval_expr('chunk("not an array", 2)', version="1.2")
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr('chunk([1, 2], "two")', version="1.2")
+        with self.assertRaises(WDL.Error.NoSuchFunction):
+            self._eval_expr("chunk([1, 2], 1)", version="1.1")
+
+    def test_contains_key(self):
+        """Test the contains_key() function from WDL 1.2"""
+
+        # Basic Map key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_map {
+            input {
+                Map[String, Int] m = {"a": 1, "b": 2, "c": 3}
+            }
+            command {}
+            output {
+                Boolean has_a = contains_key(m, "a")
+                Boolean has_d = contains_key(m, "d")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a"], True)
+        self.assertEqual(outputs["has_d"], False)
+
+        # Map with Int keys
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_int_map {
+            input {
+                Map[Int, String] m = {1: "one", 2: "two"}
+            }
+            command {}
+            output {
+                Boolean has_1 = contains_key(m, 1)
+                Boolean has_3 = contains_key(m, 3)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_1"], True)
+        self.assertEqual(outputs["has_3"], False)
+
+        # Struct key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Person {
+            String name
+            Int age
+            String? email
+        }
+        task test_contains_key_struct {
+            input {
+                Person p = Person {
+                    name: "Alice",
+                    age: 30
+                }
+            }
+            command {}
+            output {
+                Boolean has_name = contains_key(p, "name")
+                Boolean has_email = contains_key(p, "email")
+                Boolean has_phone = contains_key(p, "phone")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_name"], True)
+        self.assertEqual(outputs["has_email"], True)  # Optional members are present
+        self.assertEqual(outputs["has_phone"], False)
+
+        # Nested key lookup
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested {
+            input {
+                Map[String, Map[String, Int]] nested = {
+                    "a": {"x": 1, "y": 2},
+                    "b": {"z": 3}
+                }
+            }
+            command {}
+            output {
+                Boolean has_a_x = contains_key(nested, ["a", "x"])
+                Boolean has_a_z = contains_key(nested, ["a", "z"])
+                Boolean has_b_z = contains_key(nested, ["b", "z"])
+                Boolean has_c_x = contains_key(nested, ["c", "x"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_x"], True)
+        self.assertEqual(outputs["has_a_z"], False)
+        self.assertEqual(outputs["has_b_z"], True)
+        self.assertEqual(outputs["has_c_x"], False)
+
+        # Nested key lookup with Struct
+        outputs = self._test_task(R"""
+        version 1.2
+        struct Details {
+            String? phone
+            String? email
+        }
+        struct Person {
+            String name
+            Details? details
+        }
+        task test_contains_key_nested_struct {
+            input {
+                Person p1 = Person {
+                    name: "John",
+                    details: Details {
+                        phone: "123-456-7890"
+                    }
+                }
+                Person p2 = Person {
+                    name: "Jane"
+                }
+            }
+            command {}
+            output {
+                Boolean p1_has_details_phone = contains_key(p1, ["details", "phone"])
+                Boolean p1_has_details_email = contains_key(p1, ["details", "email"])
+                Boolean p2_has_details_phone = contains_key(p2, ["details", "phone"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["p1_has_details_phone"], True)
+        self.assertEqual(outputs["p1_has_details_email"], True)  # contains_key tests presence
+        self.assertEqual(outputs["p2_has_details_phone"], False)  # p2.details is None
+
+        # contains_key(read_json()) direct usage
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_json {
+            command <<<
+                echo '{"x": 1, "y": 2, "z": 3}' > data.json
+            >>>
+            output {
+                Boolean has_x = contains_key(read_json("data.json"), "x")
+                Boolean has_w = contains_key(read_json("data.json"), "w")
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_x"], True)
+        self.assertEqual(outputs["has_w"], False)
+
+        # contains_key(read_json()) with nested keys
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_json_nested {
+            command <<<
+                echo '{"a": {"x": 1, "y": 2}, "b": {"z": 3}}' > data.json
+            >>>
+            output {
+                Boolean has_a_x = contains_key(read_json("data.json"), ["a", "x"])
+                Boolean has_a_z = contains_key(read_json("data.json"), ["a", "z"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_x"], True)
+        self.assertEqual(outputs["has_a_z"], False)
+
+        # Error: arbitrary Any expressions aren't accepted; only direct read_json()
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1}' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(if true then read_json("data.json") else read_json("data.json"), "x")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: wrong arity
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key({"a": 1})
+            }
+        }
+        """, expected_exception=WDL.Error.WrongArity)
+
+        # Error: not available in WDL 1.1
+        self._test_task(R"""
+        version 1.1
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key({"a": 1}, "a")
+            }
+        }
+        """, expected_exception=WDL.Error.NoSuchFunction)
+
+        # Error: key type mismatch
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[Int, String] m = {1: "one"}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, "one")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: None key only allowed when the map key type is optional
+        optional_key_wdl = R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int] m = {"a": 1}
+                String? k = None
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, k)
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(optional_key_wdl).typecheck()
+        WDL.parse_document(optional_key_wdl).typecheck(check_quant=False)
+
+        # OK: optional map key type permits an optional lookup key
+        type_env = (
+            WDL.Env.Bindings()
+            .bind("m", WDL.Type.Map((WDL.Type.String(optional=True), WDL.Type.Int())))
+            .bind("k", WDL.Type.String(optional=True))
+        )
+        expr = WDL.parse_expr("contains_key(m, k)", version="1.2").infer_type(
+            type_env, WDL.StdLib.Base("1.2")
+        )
+        self.assertIsInstance(expr.type, WDL.Type.Boolean)
+
+
+        # Error: optional map not allowed when check_quant=True
+        optional_map_wdl = R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int]? m = {"a": 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, "a")
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(optional_map_wdl).typecheck()
+
+        # Error: nested key paths on maps require String keys
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[Int, Int] m = {1: 10}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, ["1"])
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: struct/object lookup key must be String or Array[String]
+        self._test_task(R"""
+        version 1.2
+        struct Box {
+            Int v
+        }
+        task bad {
+            input {
+                Box b = Box {v: 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(b, 1)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: contains_key(read_json()) key must be String or Array[String]
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1}' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(read_json("data.json"), 1)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: nested key array must be Array[String]
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int] m = {"a": 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, [1])
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Runtime: nested lookup falls through non-collection intermediates
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested_scalar {
+            command {}
+            output {
+                Boolean has_a_b = contains_key({"a": 1}, ["a", "b"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_b"], False)
+
+        # Runtime: empty nested key path always returns false
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested_empty {
+            input {
+                Map[String, Int] m = {"a": 1}
+                Array[String] path = []
+            }
+            command {}
+            output {
+                Boolean has_empty = contains_key(m, path)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_empty"], False)
+
+        # Error: first argument not a collection
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command {}
+            output {
+                Boolean x = contains_key("not a map", "key")
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: contains_key(read_json()) with non-collection JSON
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '42' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(read_json("data.json"), "key")
+            }
+        }
+        """, expected_exception=WDL.Error.EvalError)

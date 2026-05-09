@@ -3,12 +3,12 @@ import math
 import os
 import json
 import tempfile
-from typing import List, Tuple, Dict, Callable, IO, Optional
+from typing import List, Tuple, Dict, Callable, IO, Optional, Union
 from abc import ABC, abstractmethod
 from contextlib import suppress
 import regex
 from . import Type, Value, Expr, Env, Error
-from ._util import byte_size_units, chmod_R_plus, round_half_up
+from ._util import byte_size_units, chmod_R_plus, pathsize, round_half_up
 
 
 class Base:
@@ -67,12 +67,21 @@ class Base:
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
         static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
-        static([Type.Array(Type.Any())], Type.Int(), "length")(lambda v: Value.Int(len(v.value)))
+        self.length = _Length()
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
         def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
             pattern_re = regex.compile(pattern.value, flags=regex.POSIX)  # pylint: disable=E1101
             return Value.String(pattern_re.sub(replace.value, input.value))
+
+        def find(input: Value.String, pattern: Value.String) -> Value.Base:
+            pattern_re = regex.compile(pattern.value, flags=regex.POSIX)  # pylint: disable=E1101
+            match = pattern_re.search(input.value)
+            return Value.String(match.group(0)) if match else Value.Null()
+
+        def matches(input: Value.String, pattern: Value.String) -> Value.Boolean:
+            pattern_re = regex.compile(pattern.value, flags=regex.POSIX)  # pylint: disable=E1101
+            return Value.Boolean(pattern_re.search(input.value) is not None)
 
         static([Type.String(), Type.String(optional=True)], Type.String())(basename)
 
@@ -113,15 +122,13 @@ class Base:
             self._read(_parse_map)
         )
         static([Type.File()], Type.Array(Type.String()), "read_lines")(self._read(_parse_lines))
-        static([Type.File()], Type.Array(Type.Array(Type.String())), "read_tsv")(
-            self._read(_parse_tsv)
-        )
+        self.read_tsv = _ReadTsv(self)
         static([Type.File()], Type.Any(), "read_json")(self._read(_parse_json))
         static([Type.File()], Type.Map((Type.String(), Type.String())), "read_object")(
             self._read(_parse_object)
         )
         static([Type.File()], Type.Array(Type.Map((Type.String(), Type.String()))), "read_objects")(
-            self._read(_parse_objects)
+            self._read(_parse_tsv_objects)
         )
 
         # polymorphically typed stdlib functions which require specialized
@@ -130,7 +137,7 @@ class Base:
         self.prefix = _Prefix()
         self.suffix = _Suffix()
         self.size = _Size(self)
-        self.select_first = _SelectFirst()
+        self.select_first = _SelectFirst(wdl_version=self.wdl_version)
         self.select_all = _SelectAll()
         self.zip = _Zip()
         self.unzip = _Unzip()
@@ -143,10 +150,20 @@ class Base:
             self.max = _ArithmeticOperator("max", lambda l, r: max(l, r))
             self.quote = _Quote()
             self.squote = _Quote(squote=True)
-            self.keys = _Keys()
+            self.keys = _Keys(wdl_version=self.wdl_version)
             self.as_map = _AsMap()
             self.as_pairs = _AsPairs()
             self.collect_by_key = _CollectByKey()
+
+        if self.wdl_version not in ["draft-2", "1.0", "1.1"]:
+            # WDL 1.2+ functions
+            static([Type.String(), Type.String()], Type.String(optional=True))(find)
+            static([Type.String(), Type.String()], Type.Boolean())(matches)
+            self._pow = _ExponentiationOperator()
+            self.contains = _Contains()
+            self.chunk = _Chunk()
+            self.values = _Values()
+            self.contains_key = _ContainsKey()
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -342,24 +359,37 @@ def _parse_tsv(s: str) -> Value.Array:
     return Value.Array(Type.Array(Type.String()), ans)
 
 
-def _parse_objects(s: str) -> Value.Array:
+def _parse_tsv_objects(
+    s: str,
+    *,
+    header: bool = True,
+    keys: Optional[List[Value.Base]] = None,
+    function_name: str = "read_objects",
+) -> Value.Array:
     strmat = _parse_tsv(s)
-    if len(strmat.value) < 1 or len(strmat.value[0].value) < 1:
+    if keys is None:
+        if len(strmat.value) < 1 or len(strmat.value[0].value) < 1:
+            return Value.Array(Type.Map((Type.String(), Type.String())), [])
+        keys = strmat.value[0].value
+        rows = strmat.value[1:]
+    else:
+        rows = strmat.value[1:] if header else strmat.value
+    assert all(isinstance(key, Value.String) for key in keys)
+    if not keys and not rows:
         return Value.Array(Type.Map((Type.String(), Type.String())), [])
-    keys = strmat.value[0].value
-    literal_keys = set(key.value for key in strmat.value[0].value if key.value)
+    literal_keys = set(key.value for key in keys if key.value)
     if len(literal_keys) < len(keys):
-        raise Error.InputError("read_objects(): file has empty or duplicate column names")
+        raise Error.InputError(f"{function_name}(): file has empty or duplicate column names")
     maps: List[Value.Base] = []
-    for row in strmat.value[1:]:
+    for row in rows:
         if len(row.value) != len(keys):
-            raise Error.InputError("read_objects(): file's tab-separated lines are ragged")
+            raise Error.InputError(f"{function_name}(): file's tab-separated lines are ragged")
         maps.append(Value.Map((Type.String(), Type.String()), list(zip(keys, row.value))))
     return Value.Array(Type.Map((Type.String(), Type.String())), maps)
 
 
 def _parse_object(s: str) -> Value.Map:
-    maps = _parse_objects(s)
+    maps = _parse_tsv_objects(s)
     if len(maps.value) != 1:
         raise Error.InputError("read_object(): file must have exactly one object")
     map0 = maps.value[0]
@@ -586,6 +616,27 @@ class _DivisionOperator(_ArithmeticOperator):
         return Value.Int(ans)
 
 
+class _ExponentiationOperator(_ArithmeticOperator):
+    # ** operator, introduced in WDL 1.2.
+
+    def __init__(self) -> None:
+        super().__init__("**", lambda l, r: l**r)
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        ans_type = self.infer_type(expr)
+        lhs = arguments[0].coerce(ans_type).value
+        rhs = arguments[1].coerce(ans_type).value
+        if isinstance(ans_type, Type.Int) and rhs < 0:
+            raise Error.EvalError(expr, "integer exponentiation with negative exponent")
+        ans = lhs**rhs
+        if isinstance(ans_type, Type.Int):
+            assert isinstance(ans, int)
+            return Value.Int(ans)
+        if not isinstance(ans, float):
+            raise Error.EvalError(expr, "exponentiation result is not a real Float")
+        return Value.Float(ans)
+
+
 class _AddOperator(_ArithmeticOperator):
     # + operator can also serve as concatenation for String.
     def __init__(self) -> None:
@@ -700,24 +751,58 @@ class _ComparisonOperator(EagerFunction):
 
 
 class _Size(EagerFunction):
-    # size(): first argument can be File? or Array[File?]
+    # size(): first argument can be a path, or any compound value containing paths
     stdlib: Base
 
     def __init__(self, stdlib: Base) -> None:
         self.stdlib = stdlib
 
+    @staticmethod
+    def _type_contains_paths(ty: Type.Base) -> bool:
+        if isinstance(ty, Type.Any):
+            return False
+        if isinstance(ty, (Type.File, Type.Directory)):
+            return True
+        return any(_Size._type_contains_paths(parameter) for parameter in ty.parameters)
+
+    @staticmethod
+    def _accepts_type(ty: Type.Base) -> bool:
+        if isinstance(ty, Type.Any):
+            return False
+        if _Size._type_contains_paths(ty):
+            return True
+        if ty.coerces(Type.File(optional=True)):
+            return True
+        if isinstance(ty, Type.Array) and not ty.optional:
+            return not isinstance(ty.item_type, Type.Any) and ty.item_type.coerces(
+                Type.File(optional=True)
+            )
+        return False
+
+    @staticmethod
+    def _coerce_paths_argument(value: Value.Base, ty: Type.Base) -> Value.Base:
+        """
+        Coerce legacy String path forms before rewrite_paths() traversal.
+
+        Generalized WDL 1.2 path-containing compounds should traverse their own runtime types, so
+        only actual File/Directory positions contribute. But older size() signatures accepted
+        String and Array[String] through WDL's String-to-File coercion. Apply that compatibility
+        coercion only to accepted top-level argument forms, preserving size("x") and size(["x"])
+        without treating arbitrary String members or Map keys inside compounds as paths.
+        """
+        if _Size._type_contains_paths(ty):
+            return value
+        if isinstance(ty, Type.Array):
+            if ty.item_type.coerces(Type.File(optional=True)):
+                return value.coerce(Type.Array(Type.File(optional=True), nonempty=ty.nonempty))
+        return value.coerce(Type.File(optional=True))
+
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if not expr.arguments:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
-        if not arg0ty.coerces(Type.File(optional=True)):
-            if isinstance(arg0ty, Type.Array):
-                if arg0ty.optional or not arg0ty.item_type.coerces(Type.File(optional=True)):
-                    raise Error.StaticTypeMismatch(
-                        expr.arguments[0], Type.Array(Type.File(optional=True)), arg0ty
-                    )
-            else:
-                raise Error.StaticTypeMismatch(expr.arguments[0], Type.File(optional=True), arg0ty)
+        if not self._accepts_type(arg0ty):
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.File(optional=True), arg0ty)
         if len(expr.arguments) == 2:
             if expr.arguments[1].type != Type.String():
                 raise Error.StaticTypeMismatch(
@@ -728,18 +813,20 @@ class _Size(EagerFunction):
         return Type.Float()
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
-        # this default implementation attempts os.path.getsize() on the argument(s)
-        files = arguments[0].coerce(Type.Array(Type.File(optional=True)))
+        # this default implementation attempts pathsize() on the argument(s)
         unit = arguments[1].coerce(Type.String()) if len(arguments) > 1 else None
 
         ans = []
-        for file in files.value:
-            if isinstance(file, Value.File):
-                ans.append(os.path.getsize(self.stdlib._devirtualize_filename(file.value)))
-            elif isinstance(file, Value.Null):
-                ans.append(0)
-            else:
-                assert False
+        paths_argument = self._coerce_paths_argument(arguments[0], expr.arguments[0].type)
+
+        def collect(file: Union[Value.File, Value.Directory]) -> str:
+            assert isinstance(file, (Value.File, Value.Directory))
+            # pathsize() defines Directory sizing for size(): recursively sum regular files under
+            # the directory, excluding symlink entries encountered inside it.
+            ans.append(pathsize(self.stdlib._devirtualize_filename(file.value)))
+            return file.value
+
+        Value.rewrite_paths(paths_argument, collect)
         fans = float(sum(ans))
 
         if unit:
@@ -750,25 +837,154 @@ class _Size(EagerFunction):
         return Value.Float(fans)
 
 
-class _SelectFirst(EagerFunction):
+class _ReadTsv(EagerFunction):
+    # not StaticFunction due to polymorphic return type (WDL 1.2)
+    stdlib: Base
+
+    def __init__(self, stdlib: Base) -> None:
+        self.stdlib = stdlib
+
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
-        if len(expr.arguments) != 1:
+        if len(expr.arguments) < 1:
             raise Error.WrongArity(expr, 1)
+        try:
+            expr.arguments[0].typecheck(Type.File())
+        except Error.StaticTypeMismatch:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.File(),
+                expr.arguments[0].type,
+                "for read_tsv argument #1",
+            ) from None
+        if len(expr.arguments) == 1:
+            return Type.Array(Type.Array(Type.String()))
+        return self._infer_type_1_2(expr)
+
+    def _infer_type_1_2(self, expr: "Expr.Apply") -> Type.Base:
+        # WDL 1.2 features
+        if len(expr.arguments) > 3:
+            raise Error.WrongArity(expr, 3)
+        if self.stdlib.wdl_version in ["draft-2", "1.0", "1.1"]:
+            raise Error.WrongArity(expr, 1)
+        try:
+            expr.arguments[1].typecheck(Type.Boolean())
+        except Error.StaticTypeMismatch:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1],
+                Type.Boolean(),
+                expr.arguments[1].type,
+                "for read_tsv argument #2",
+            ) from None
+        if len(expr.arguments) == 2:
+            header = expr.arguments[1].literal
+            if not (isinstance(header, Value.Boolean) and header.value):
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1],
+                    Type.Boolean(),
+                    expr.arguments[1].type,
+                    "read_tsv(File, Boolean) requires literal true",
+                )
+            return Type.Array(Type.Map((Type.String(), Type.String())))
+        try:
+            expr.arguments[2].typecheck(Type.Array(Type.String()))
+        except Error.StaticTypeMismatch:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[2],
+                Type.Array(Type.String()),
+                expr.arguments[2].type,
+                "for read_tsv argument #3",
+            ) from None
+        return Type.Array(Type.Map((Type.String(), Type.String())))
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        try:
+            file = arguments[0].coerce(Type.File())
+            assert isinstance(file, Value.File)
+            with open(self.stdlib._devirtualize_filename(file.value), "r") as infile:
+                contents = infile.read()
+            if len(arguments) == 1:
+                return _parse_tsv(contents)
+            header = arguments[1].coerce(Type.Boolean())
+            assert isinstance(header, Value.Boolean)
+            if len(arguments) == 2:
+                return _parse_tsv_objects(contents, function_name="read_tsv")
+            keys = arguments[2].coerce(Type.Array(Type.String()))
+            assert isinstance(keys, Value.Array)
+            return _parse_tsv_objects(
+                contents,
+                header=header.value,
+                keys=[key.coerce(Type.String()) for key in keys.value],
+                function_name="read_tsv",
+            )
+        except Error.EvalError:
+            raise
+        except Exception as exn:
+            msg = "function evaluation failed"
+            if str(exn):
+                msg += ", " + str(exn)
+            raise Error.EvalError(expr, msg) from exn
+
+
+class _SelectFirst(EagerFunction):
+    wdl_version: str
+
+    def __init__(self, wdl_version: str) -> None:
+        self.wdl_version = wdl_version
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        max_args = 1 if self.wdl_version in ["draft-2", "1.0", "1.1"] else 2
+        if len(expr.arguments) < 1 or len(expr.arguments) > max_args:
+            raise Error.WrongArity(expr, max_args)
         arg0ty = expr.arguments[0].type
         if not isinstance(arg0ty, Type.Array) or (
             expr.arguments[0]._check_quant and arg0ty.optional
         ):
             raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
+
+        if len(expr.arguments) == 1:
+            if isinstance(arg0ty.item_type, Type.Any):
+                raise Error.IndeterminateType(
+                    expr.arguments[0], "can't infer item type of empty array"
+                )
+            return arg0ty.item_type.copy(optional=False)
+
+        default_type = expr.arguments[1].type
+        if expr._check_quant and default_type.optional:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1],
+                default_type.copy(optional=False),
+                default_type,
+                "for select_first default argument",
+            )
+
         if isinstance(arg0ty.item_type, Type.Any):
+            if isinstance(default_type, Type.Any):
+                raise Error.IndeterminateType(
+                    expr.arguments[1], "can't infer type of select_first default value"
+                )
+            return default_type.copy(optional=False)
+
+        return_type = Type.unify(
+            [arg0ty.item_type.copy(optional=False), default_type],
+            check_quant=expr._check_quant,
+            force_string=True,
+        )
+        if isinstance(return_type, Type.Any):
             raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
-        return arg0ty.item_type.copy(optional=False)
+        return_type = return_type.copy(optional=False)
+        expr.arguments[0].typecheck(Type.Array(return_type.copy(optional=True)))
+        expr.arguments[1].typecheck(return_type)
+        return return_type
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        return_type = self.infer_type(expr)
         arr = arguments[0].coerce(Type.Array(Type.Any()))
         assert isinstance(arr, Value.Array)
         for arg in arr.value:
             if not isinstance(arg, Value.Null):
-                return arg
+                return arg.coerce(return_type)
+        if len(arguments) > 1:
+            return arguments[1].coerce(return_type)
         raise Error.EvalError(
             expr,
             "select_first() given empty or all-null array; prevent this or append a default value",
@@ -1070,6 +1286,96 @@ class _Quote(EagerFunction):
 
 
 class _Keys(EagerFunction):
+    # Array[P] keys(Map[P, Y])
+    # Array[String] keys(Struct|Object)  [WDL 1.2+]
+    # Returns an array of keys from a Map, Struct, or Object
+
+    def __init__(self, wdl_version: str):
+        super().__init__()
+        self.wdl_version = wdl_version
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+
+        # Accept Map, StructInstance, Object, or direct read_json() (Any).
+        if isinstance(arg0ty, Type.Map):
+            if expr._check_quant and arg0ty.optional:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[0], Type.Map((Type.Any(), Type.Any())), arg0ty
+                )
+            # For Map[P, Y], return Array[P]
+            return Type.Array(arg0ty.item_type[0].copy())
+        elif isinstance(arg0ty, (Type.StructInstance, Type.Object)):
+            # Struct/Object support added in WDL 1.2
+            if self.wdl_version in ["draft-2", "1.0", "1.1"]:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[0],
+                    Type.Map((Type.Any(), Type.Any())),
+                    arg0ty,
+                    "keys() does not accept Struct or Object in WDL version {}".format(
+                        self.wdl_version
+                    ),
+                )
+            if expr._check_quant and arg0ty.optional:
+                raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), arg0ty)
+            # For Struct or Object, return Array[String]
+            return Type.Array(Type.String())
+        elif (
+            isinstance(arg0ty, Type.Any)
+            and not arg0ty.optional
+            and isinstance(expr.arguments[0], Expr.Apply)
+            and expr.arguments[0].function_name == "read_json"
+            and self.wdl_version not in ["draft-2", "1.0", "1.1"]
+        ):
+            # read_json() result type is unknown until runtime.
+            return Type.Array(Type.String())
+        else:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Map((Type.Any(), Type.Any())),
+                arg0ty,
+                "keys() requires Map, Struct, or Object",
+            )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        arg = arguments[0]
+
+        if isinstance(arg, Value.Map):
+            mapty = arg.type
+            assert isinstance(mapty, Type.Map)
+            return Value.Array(
+                mapty.item_type[0], [p[0].coerce(mapty.item_type[0]) for p in arg.value], expr
+            )
+        elif isinstance(arg, Value.Struct):
+            # For structs, return keys in the order they appear in the struct definition.
+            # The struct type's members dict maintains insertion order (Python 3.7+).
+            #
+            # Note: We return ALL keys including optional members, even if they are set to None.
+            # This is consistent with the spec's distinction (for contains_key) between "presence"
+            # and "defined": optional members are present in the struct but may not be defined.
+            # The Value.Struct constructor ensures all optional members exist in the value dict
+            # (populated with Null() if omitted in the literal), so all members are always present.
+            struct_ty = arg.type
+            if isinstance(struct_ty, Type.StructInstance) and struct_ty.members:
+                # Use the order from the type definition
+                keys = list(struct_ty.members.keys())
+            else:
+                # Fallback to value dict order (for Object type)
+                keys = list(arg.value.keys())
+            return Value.Array(Type.String(), [Value.String(k) for k in keys], expr)
+        else:
+            raise Error.EvalError(
+                expr,
+                f"keys() requires a Map, Struct, or Object; got {arg.type} instead",
+            )
+
+
+class _Values(EagerFunction):
+    # Array[Y] values(Map[P, Y])
+    # Returns an array of values from a Map
+
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
@@ -1078,15 +1384,62 @@ class _Keys(EagerFunction):
             raise Error.StaticTypeMismatch(
                 expr.arguments[0], Type.Map((Type.Any(), Type.Any())), arg0ty
             )
-        return Type.Array(arg0ty.item_type[0].copy())
+        # For Map[P, Y], return Array[Y]
+        return Type.Array(arg0ty.item_type[1].copy())
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         assert isinstance(arguments[0], Value.Map)
         mapty = arguments[0].type
         assert isinstance(mapty, Type.Map)
+        # Return the values (p[1]) from the map
         return Value.Array(
-            mapty.item_type[0], [p[0].coerce(mapty.item_type[0]) for p in arguments[0].value], expr
+            mapty.item_type[1], [p[1].coerce(mapty.item_type[1]) for p in arguments[0].value], expr
         )
+
+
+class _Length(EagerFunction):
+    # Int length(Array[X]|Map[X,Y]|Object|String)
+    # Returns the length of an Array, Map, Object, or String
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 1:
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+
+        # Accept Array, Map, Object, String, or direct read_json() (Any).
+        if isinstance(arg0ty, (Type.Array, Type.Map, Type.Object, Type.String)):
+            if expr._check_quant and arg0ty.optional:
+                raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arg0ty)
+            return Type.Int()
+        elif (
+            isinstance(arg0ty, Type.Any)
+            and not arg0ty.optional
+            and isinstance(expr.arguments[0], Expr.Apply)
+            and expr.arguments[0].function_name == "read_json"
+        ):
+            # read_json() result type is unknown until runtime.
+            return Type.Int()
+        else:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Array(Type.Any()),
+                arg0ty,
+                "length() requires Array, Map, Object, or String",
+            )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        arg = arguments[0]
+
+        if isinstance(arg, (Value.Array, Value.Map, Value.String)):
+            return Value.Int(len(arg.value))
+        elif isinstance(arg, Value.Struct) and isinstance(arg.type, Type.Object):
+            # Object literals and read_json() objects are represented as Value.Struct.
+            return Value.Int(len(arg.value))
+        else:
+            raise Error.EvalError(
+                expr,
+                f"length() requires an Array, Map, Object, or String; got {arg.type} instead",
+            )
 
 
 class _AsPairs(EagerFunction):
@@ -1184,3 +1537,276 @@ class _AsMap(_CollectByKey):
                 raise Error.EvalError(expr, "duplicate keys supplied to as_map(): " + str(k))
             singletons.append((k, vs.value[0]))
         return Value.Map((collectedty.item_type[0], arrayty.item_type), singletons, expr)
+
+
+class _Contains(EagerFunction):
+    # Boolean contains(Array[X], X)
+    # Determine whether an array contains a specified value
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+
+        arr_ty = expr.arguments[0].type
+        if not isinstance(arr_ty, Type.Array) or (expr._check_quant and arr_ty.optional):
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arr_ty)
+
+        # For empty arrays (Array[Any]), we can accept any element type
+        # The runtime will handle empty arrays correctly (always returns false)
+        if not isinstance(arr_ty.item_type, Type.Any):
+            # Spec defines two signatures:
+            # - Boolean contains(Array[P], P)
+            # - Boolean contains(Array[P?], P?)
+            # The element type must match the array item type including optionality,
+            # with standard coercion allowed (T can coerce to T?)
+            elem_ty = expr.arguments[1].type
+
+            # Check that element type is compatible with array item type
+            if not elem_ty.equatable(arr_ty.item_type):
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1],
+                    arr_ty.item_type,
+                    elem_ty,
+                    "for contains() element argument",
+                )
+
+            # Additional check: if array item type is non-optional, element must not be optional
+            # (but T can coerce to T? is allowed, so T into Array[T?] is ok)
+            if not arr_ty.item_type.optional and elem_ty.optional:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1],
+                    arr_ty.item_type,
+                    elem_ty,
+                    "for contains() element argument - cannot check optional value in non-optional array",
+                )
+
+        return Type.Boolean()
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        arr = arguments[0]
+        assert isinstance(arr, Value.Array)
+        elem = arguments[1]
+
+        # Use Value.__eq__ for proper equality comparison
+        for item in arr.value:
+            if elem == item:
+                return Value.Boolean(True)
+        return Value.Boolean(False)
+
+
+class _Chunk(EagerFunction):
+    # Array[Array[X]] chunk(Array[X], Int)
+    # Split an array into consecutive sub-arrays of the requested size.
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+
+        arr_ty = expr.arguments[0].type
+        if not isinstance(arr_ty, Type.Array) or (expr._check_quant and arr_ty.optional):
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arr_ty)
+        expr.arguments[1].typecheck(Type.Int())
+
+        return Type.Array(Type.Array(arr_ty.item_type), nonempty=True)
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        ty = self.infer_type(expr)
+        assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Array)
+        n = arguments[1].coerce(Type.Int()).value
+        if n <= 0:
+            raise Error.EvalError(expr, "chunk() size must be greater than zero")
+
+        arr = arguments[0].coerce(Type.Array(ty.item_type.item_type))
+        assert isinstance(arr, Value.Array)
+        chunks: List[Value.Base] = [
+            Value.Array(ty.item_type.item_type, arr.value[i : i + n])
+            for i in range(0, len(arr.value), n)
+        ]
+        if not chunks:
+            chunks.append(Value.Array(ty.item_type.item_type, []))
+        return Value.Array(ty.item_type, chunks)
+
+
+class _ContainsKey(EagerFunction):
+    # Boolean contains_key(Map[P, Y], P)
+    # Boolean contains_key(Object, String)
+    # Boolean contains_key(Map[String, Y]|Struct|Object, Array[String])
+    # Tests whether a collection contains a given key (or nested key path)
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) != 2:
+            raise Error.WrongArity(expr, 2)
+
+        coll_ty = expr.arguments[0].type
+        key_ty = expr.arguments[1].type
+
+        if isinstance(coll_ty, Type.Map):
+            return self._infer_type_map(expr, coll_ty, key_ty)
+
+        elif isinstance(coll_ty, (Type.StructInstance, Type.Object)):
+            return self._infer_type_struct(expr, coll_ty, key_ty)
+
+        elif (
+            isinstance(coll_ty, Type.Any)
+            and not coll_ty.optional
+            and isinstance(expr.arguments[0], Expr.Apply)
+            and expr.arguments[0].function_name == "read_json"
+        ):
+            return self._infer_type_read_json(expr, key_ty)
+
+        else:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Map((Type.Any(), Type.Any())),
+                coll_ty,
+                "contains_key() requires Map, Struct, or Object",
+            )
+
+    def _infer_type_map(
+        self, expr: "Expr.Apply", coll_ty: Type.Map, key_ty: Type.Base
+    ) -> Type.Boolean:
+        """Typecheck contains_key(Map[P,Y], P) and nested Map[String,Y] lookups."""
+        if expr._check_quant and coll_ty.optional:
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.Map((Type.Any(), Type.Any())), coll_ty
+            )
+
+        if isinstance(key_ty, Type.Array):
+            # Nested lookup variant: Map[String, Y], Array[String]
+            self._typecheck_string_key_path(expr, key_ty)
+            if not isinstance(coll_ty.item_type[0], Type.String):
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[0],
+                    Type.Map((Type.String(), Type.Any())),
+                    coll_ty,
+                    "for contains_key() with nested keys, Map must have String keys",
+                )
+        elif not key_ty.equatable(coll_ty.item_type[0]):
+            # Simple lookup variant: Map[P, Y], P
+            self._raise_map_key_type_mismatch(expr, coll_ty, key_ty)
+        elif expr._check_quant and key_ty.optional and not coll_ty.item_type[0].optional:
+            # The spec allows None only when the map key type is optional.
+            self._raise_map_key_type_mismatch(expr, coll_ty, key_ty)
+
+        return Type.Boolean()
+
+    def _raise_map_key_type_mismatch(
+        self, expr: "Expr.Apply", coll_ty: Type.Map, key_ty: Type.Base
+    ) -> None:
+        """Raise the standard type mismatch for a simple Map key argument."""
+        raise Error.StaticTypeMismatch(
+            expr.arguments[1],
+            coll_ty.item_type[0],
+            key_ty,
+            "for contains_key() key argument",
+        )
+
+    def _infer_type_struct(
+        self, expr: "Expr.Apply", coll_ty: Type.Base, key_ty: Type.Base
+    ) -> Type.Boolean:
+        """Typecheck Struct/Object lookup with a string key or string key path."""
+        if expr._check_quant and coll_ty.optional:
+            raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), coll_ty)
+
+        if isinstance(key_ty, Type.Array):
+            self._typecheck_string_key_path(expr, key_ty)
+        elif not isinstance(key_ty, Type.String):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1], Type.String(), key_ty, "for contains_key() key argument"
+            )
+
+        return Type.Boolean()
+
+    def _infer_type_read_json(self, expr: "Expr.Apply", key_ty: Type.Base) -> Type.Boolean:
+        """Typecheck direct read_json() lookup, deferring collection validation to runtime."""
+        if isinstance(key_ty, Type.Array):
+            self._typecheck_string_key_path(expr, key_ty)
+        elif not isinstance(key_ty, Type.String):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1],
+                Type.String(),
+                key_ty,
+                "for contains_key() key must be String or Array[String]",
+            )
+
+        return Type.Boolean()
+
+    def _typecheck_string_key_path(self, expr: "Expr.Apply", key_ty: Type.Array) -> None:
+        """Require the nested-key argument to have type Array[String]."""
+        if not isinstance(key_ty.item_type, Type.String):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[1],
+                Type.Array(Type.String()),
+                key_ty,
+                "for contains_key() nested key path",
+            )
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        coll = arguments[0]
+        key = arguments[1]
+
+        # Handle nested key path (Array[String])
+        if isinstance(key, Value.Array):
+            return self._contains_nested_key(expr, coll, key)
+
+        # Simple key lookup
+        if isinstance(coll, Value.Map):
+            # Check if key exists in map
+            for k, v in coll.value:
+                if key == k:
+                    return Value.Boolean(True)
+            return Value.Boolean(False)
+
+        elif isinstance(coll, Value.Struct):
+            # Check if key exists in struct
+            key_str = key.coerce(Type.String()).value
+            return Value.Boolean(key_str in coll.value)
+
+        else:
+            raise Error.EvalError(
+                expr,
+                f"contains_key() requires a Map, Struct, or Object; got {coll.type} instead",
+            )
+
+    def _lookup_string_key(
+        self, current: Value.Base, key_str: str
+    ) -> Tuple[bool, Optional[Value.Base]]:
+        """Look up a string key in a Map or Struct while preserving Null as a value."""
+        if isinstance(current, Value.Map):
+            for k, v in current.value:
+                if k.coerce(Type.String()).value == key_str:
+                    return True, v
+            return False, None
+        elif isinstance(current, Value.Struct):
+            if key_str in current.value:
+                return True, current.value[key_str]
+            return False, None
+        else:
+            return False, None
+
+    def _contains_nested_key(
+        self, expr: "Expr.Apply", coll: Value.Base, keys: Value.Array
+    ) -> Value.Boolean:
+        """Traverse a string key path, treating final-key Null as present."""
+        if not keys.value:
+            # Empty key array
+            return Value.Boolean(False)
+
+        current = coll
+        for i, key_val in enumerate(keys.value):
+            key_str = key_val.coerce(Type.String()).value
+            final_key = i == len(keys.value) - 1
+
+            found, next_val = self._lookup_string_key(current, key_str)
+            if not found:
+                return Value.Boolean(False)
+
+            assert next_val is not None  # mypy: found key always returns its value
+            # None only blocks traversal through intermediate keys; final-key None still counts
+            # as key presence.
+            if isinstance(next_val, Value.Null) and not final_key:
+                return Value.Boolean(False)
+            current = next_val
+
+        # Successfully navigated the entire key path
+        return Value.Boolean(True)
