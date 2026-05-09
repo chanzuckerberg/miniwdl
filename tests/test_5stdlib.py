@@ -434,6 +434,9 @@ class TestStdLib(unittest.TestCase):
         """, expected_exception=WDL.Error.EvalError)
 
 
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("length([1], [2])", version="1.2")
+
         # Test length() with Maps
         outputs = self._test_task(R"""
         version 1.2
