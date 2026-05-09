@@ -170,6 +170,53 @@ class TestStdLib(unittest.TestCase):
         stdlib = WDL.StdLib.Base(version)
         return WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib).type
 
+
+    def test_stdlib_branch_coverage_length_contains_key(self):
+        # length(): wrong arity and optional argument rejection during quantifier checks
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("length([1], [2])", version="1.2")
+
+        tenv = WDL.Env.Bindings().bind("a", WDL.Type.Array(WDL.Type.Int(), optional=True))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr("length(a)", version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        # length(): runtime EvalError on unsupported dynamic Any payload
+        fn = os.path.join(self._dir, "scalar.json")
+        with open(fn, "w") as outfile:
+            json.dump(1, outfile)
+        with self.assertRaises(WDL.Error.EvalError):
+            self._eval_expr(f'length(read_json("{fn}"))', version="1.2")
+
+        # collect_by_key(): wrong arity
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("collect_by_key([],[1])", version="1.2")
+
+        # contains_key() map variant: optional map & nested keys require String-keyed map
+        tenv = WDL.Env.Bindings().bind("m", WDL.Type.Map((WDL.Type.String(), WDL.Type.Int()), optional=True))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr('contains_key(m, "a")', version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        tenv = WDL.Env.Bindings().bind("m", WDL.Type.Map((WDL.Type.Int(), WDL.Type.Int())))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr('contains_key(m, ["a"])', version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        # contains_key() struct/read_json key type checks
+        tenv = WDL.Env.Bindings().bind("s", WDL.Type.StructInstance("S", optional=True))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr("contains_key(s, 1)", version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        tenv = WDL.Env.Bindings().bind("j", WDL.Type.Any())
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_expr("contains_key(read_json('x.json'), 1)", version="1.2").infer_type(tenv, WDL.StdLib.Base("1.2"))
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._eval_expr('contains_key({"a": 1}, [1])', version="1.2")
+
+        # runtime nested-key traversal edges
+        self.assertEqual(str(self._eval_expr('contains_key({"a": 1}, ["a", "b"])', version="1.2")), "false")
+        env = WDL.Env.Bindings().bind("path", WDL.Value.Array(WDL.Type.String(), []))
+        self.assertEqual(str(self._eval_expr('contains_key({"a": 1}, path)', env=env, version="1.2")), "false")
+
     def test_collect_by_key_float_keys(self):
         self.assertEqual(
             str(self._eval_expr('length(keys(collect_by_key([(1.0000001,"a"),(1.0000002,"b")])))')),
@@ -385,6 +432,7 @@ class TestStdLib(unittest.TestCase):
             }
         }
         """, expected_exception=WDL.Error.EvalError)
+
 
         # Test length() with Maps
         outputs = self._test_task(R"""
@@ -3325,6 +3373,109 @@ class TestStdLib(unittest.TestCase):
             type_env, WDL.StdLib.Base("1.2")
         )
         self.assertIsInstance(expr.type, WDL.Type.Boolean)
+
+
+        # Error: optional map not allowed when check_quant=True
+        optional_map_wdl = R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int]? m = {"a": 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, "a")
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(optional_map_wdl).typecheck()
+
+        # Error: nested key paths on maps require String keys
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[Int, Int] m = {1: 10}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, ["1"])
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: struct/object lookup key must be String or Array[String]
+        self._test_task(R"""
+        version 1.2
+        struct Box {
+            Int v
+        }
+        task bad {
+            input {
+                Box b = Box {v: 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(b, 1)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: contains_key(read_json()) key must be String or Array[String]
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1}' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(read_json("data.json"), 1)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: nested key array must be Array[String]
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int] m = {"a": 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, [1])
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Runtime: nested lookup falls through non-collection intermediates
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested_scalar {
+            command {}
+            output {
+                Boolean has_a_b = contains_key({"a": 1}, ["a", "b"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_b"], False)
+
+        # Runtime: empty nested key path always returns false
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested_empty {
+            input {
+                Map[String, Int] m = {"a": 1}
+                Array[String] path = []
+            }
+            command {}
+            output {
+                Boolean has_empty = contains_key(m, path)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_empty"], False)
 
         # Error: first argument not a collection
         self._test_task(R"""
