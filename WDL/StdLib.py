@@ -67,7 +67,6 @@ class Base:
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
         static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
-        # length() is now defined as _Length class to support Map/Struct/Any
         self.length = _Length()
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
@@ -839,10 +838,7 @@ class _Size(EagerFunction):
 
 
 class _ReadTsv(EagerFunction):
-    # This is intentionally not a StaticFunction: WDL 1.2 read_tsv() returns
-    # Array[Array[String]] for table mode and Array[Map[String,String]] for
-    # header/object mode, and preserving that inferred type is useful for
-    # downstream coercions while keeping Object support limited.
+    # not StaticFunction due to polymorphic return type (WDL 1.2)
     stdlib: Base
 
     def __init__(self, stdlib: Base) -> None:
@@ -865,6 +861,7 @@ class _ReadTsv(EagerFunction):
         return self._infer_type_1_2(expr)
 
     def _infer_type_1_2(self, expr: "Expr.Apply") -> Type.Base:
+        # WDL 1.2 features
         if len(expr.arguments) > 3:
             raise Error.WrongArity(expr, 3)
         if self.stdlib.wdl_version in ["draft-2", "1.0", "1.1"]:
