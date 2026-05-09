@@ -386,6 +386,10 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._eval_expr("length([1], [2])", version="1.2")
+
         # Test length() with Maps
         outputs = self._test_task(R"""
         version 1.2
@@ -3325,6 +3329,109 @@ class TestStdLib(unittest.TestCase):
             type_env, WDL.StdLib.Base("1.2")
         )
         self.assertIsInstance(expr.type, WDL.Type.Boolean)
+
+
+        # Error: optional map not allowed when check_quant=True
+        optional_map_wdl = R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int]? m = {"a": 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, "a")
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(optional_map_wdl).typecheck()
+
+        # Error: nested key paths on maps require String keys
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[Int, Int] m = {1: 10}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, ["1"])
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: struct/object lookup key must be String or Array[String]
+        self._test_task(R"""
+        version 1.2
+        struct Box {
+            Int v
+        }
+        task bad {
+            input {
+                Box b = Box {v: 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(b, 1)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: contains_key(read_json()) key must be String or Array[String]
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            command <<<
+                echo '{"x": 1}' > data.json
+            >>>
+            output {
+                Boolean x = contains_key(read_json("data.json"), 1)
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Error: nested key array must be Array[String]
+        self._test_task(R"""
+        version 1.2
+        task bad {
+            input {
+                Map[String, Int] m = {"a": 1}
+            }
+            command {}
+            output {
+                Boolean x = contains_key(m, [1])
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        # Runtime: nested lookup falls through non-collection intermediates
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested_scalar {
+            command {}
+            output {
+                Boolean has_a_b = contains_key({"a": 1}, ["a", "b"])
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_a_b"], False)
+
+        # Runtime: empty nested key path always returns false
+        outputs = self._test_task(R"""
+        version 1.2
+        task test_contains_key_nested_empty {
+            input {
+                Map[String, Int] m = {"a": 1}
+                Array[String] path = []
+            }
+            command {}
+            output {
+                Boolean has_empty = contains_key(m, path)
+            }
+        }
+        """)
+        self.assertEqual(outputs["has_empty"], False)
 
         # Error: first argument not a collection
         self._test_task(R"""
