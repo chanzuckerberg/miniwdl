@@ -518,6 +518,9 @@ class _DocTransformer(_ExprTransformer):
     def conditional(self, meta, items):
         return Tree.Conditional(self._sp(meta), items[0], items[1:])
 
+    def try_section(self, meta, items):
+        return Tree.Try(self._sp(meta), items)
+
     def workflow_wildcard_output(self, meta, items):
         return items[0] + ["*"]
         # return Expr.Ident(items[0].pos, items[0].namespace + [items[0].name, "*"])
@@ -575,7 +578,7 @@ class _DocTransformer(_ExprTransformer):
                     hints_section = item["hints"]
                 else:
                     assert False
-            elif isinstance(item, (Tree.Call, Tree.Conditional, Tree.Decl, Tree.Scatter)):
+            elif isinstance(item, (Tree.Call, Tree.Conditional, Tree.Decl, Tree.Scatter, Tree.Try)):
                 elements.append(item)
             else:
                 assert False

@@ -7,19 +7,21 @@ import sys
 import pytest
 from .context import WDL
 
-class TestWorkflowRunner(unittest.TestCase):
 
+class TestWorkflowRunner(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+        logging.basicConfig(level=logging.DEBUG, format="%(name)s %(levelname)s %(message)s")
         logger = logging.getLogger(cls.__name__)
-        cfg = WDL.runtime.config.Loader(logger, [])
+        WDL.runtime.config.Loader(logger, [])
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
 
-    def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
-        sys.setrecursionlimit(200)  # set artificially low in unit tests to detect excessive recursion (issue #239)
+    def _test_workflow(self, wdl: str, inputs=None, expected_exception: Exception = None, cfg=None):
+        sys.setrecursionlimit(
+            200
+        )  # set artificially low in unit tests to detect excessive recursion (issue #239)
         logger = logging.getLogger(self.id())
         cfg = cfg or WDL.runtime.config.Loader(logger, [])
         try:
@@ -29,8 +31,16 @@ class TestWorkflowRunner(unittest.TestCase):
             doc = WDL.load(wdlfn)
             assert len(doc.workflow.required_inputs.subtract(doc.workflow.available_inputs)) == 0
             if isinstance(inputs, dict):
-                inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
+                inputs = WDL.values_from_json(
+                    inputs, doc.workflow.available_inputs, doc.workflow.required_inputs
+                )
+            rundir, outputs = WDL.runtime.run(
+                cfg,
+                doc.workflow,
+                (inputs or WDL.Env.Bindings()),
+                run_dir=self._dir,
+                _test_pickle=True,
+            )
             self._rundir = rundir
         except WDL.runtime.RunFailed as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
@@ -53,14 +63,18 @@ class TestWorkflowRunner(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
     def test_hello(self):
-        self.assertEqual(self._test_workflow("""
+        self.assertEqual(
+            self._test_workflow("""
         version 1.0
 
         workflow nop {
         }
-        """), {})
+        """),
+            {},
+        )
 
-        self.assertEqual(self._test_workflow("""
+        self.assertEqual(
+            self._test_workflow("""
         version 1.0
 
         workflow nop {
@@ -68,9 +82,12 @@ class TestWorkflowRunner(unittest.TestCase):
                 String msg = "hello"
             }
         }
-        """), {"msg": "hello"})
+        """),
+            {"msg": "hello"},
+        )
 
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
         version 1.0
 
         workflow hellowf {
@@ -106,12 +123,17 @@ class TestWorkflowRunner(unittest.TestCase):
                 Int meaning_of_life = x+1
             }
         }
-        """, {"x": 41})
-        self.assertEqual(outputs["messages"], ["Hello Alice", "Hello Bob", "Hello Alyssa", "Hello Ben"])
+        """,
+            {"x": 41},
+        )
+        self.assertEqual(
+            outputs["messages"], ["Hello Alice", "Hello Bob", "Hello Alyssa", "Hello Ben"]
+        )
         self.assertEqual(outputs["meanings"], [42, 42])
 
     def test_scatters(self):
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
         version 1.0
 
         workflow hellowf {
@@ -125,10 +147,13 @@ class TestWorkflowRunner(unittest.TestCase):
                 Array[Int] sqs = sq
             }
         }
-        """, {"n": 10})
+        """,
+            {"n": 10},
+        )
         self.assertEqual(outputs["sqs"], [0, 1, 4, 9, 16, 25, 36, 49, 64, 81])
 
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
         version 1.0
 
         workflow hellowf {
@@ -155,10 +180,13 @@ class TestWorkflowRunner(unittest.TestCase):
                 Int k_sq = k*k
             }
         }
-        """, {"n": 10})
+        """,
+            {"n": 10},
+        )
         self.assertEqual(outputs["sqs"], [0, 1, 4, 9, 16, 25, 36, 49, 64, 81])
 
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
         version 1.0
 
         workflow crossrange {
@@ -175,19 +203,25 @@ class TestWorkflowRunner(unittest.TestCase):
                 Array[Pair[Int,Int]] pairs = flatten(p)
             }
         }
-        """, {"m": 4, "n": 2})
-        self.assertEqual(outputs["pairs"], [
-            {"left": 0, "right": 0},
-            {"left": 0, "right": 1},
-            {"left": 1, "right": 0},
-            {"left": 1, "right": 1},
-            {"left": 2, "right": 0},
-            {"left": 2, "right": 1},
-            {"left": 3, "right": 0},
-            {"left": 3, "right": 1}
-        ])
+        """,
+            {"m": 4, "n": 2},
+        )
+        self.assertEqual(
+            outputs["pairs"],
+            [
+                {"left": 0, "right": 0},
+                {"left": 0, "right": 1},
+                {"left": 1, "right": 0},
+                {"left": 1, "right": 1},
+                {"left": 2, "right": 0},
+                {"left": 2, "right": 1},
+                {"left": 3, "right": 0},
+                {"left": 3, "right": 1},
+            ],
+        )
 
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
         version 1.0
 
         workflow crossrange {
@@ -221,17 +255,22 @@ class TestWorkflowRunner(unittest.TestCase):
                 Pair[Int,Int] pair = (lhs,rhs)
             }
         }
-        """, {"m": 4, "n": 2})
-        self.assertEqual(outputs["pairs"], [
-            {"left": 0, "right": 0},
-            {"left": 0, "right": 1},
-            {"left": 1, "right": 0},
-            {"left": 1, "right": 1},
-            {"left": 2, "right": 0},
-            {"left": 2, "right": 1},
-            {"left": 3, "right": 0},
-            {"left": 3, "right": 1}
-        ])
+        """,
+            {"m": 4, "n": 2},
+        )
+        self.assertEqual(
+            outputs["pairs"],
+            [
+                {"left": 0, "right": 0},
+                {"left": 0, "right": 1},
+                {"left": 1, "right": 0},
+                {"left": 1, "right": 1},
+                {"left": 2, "right": 0},
+                {"left": 2, "right": 1},
+                {"left": 3, "right": 0},
+                {"left": 3, "right": 1},
+            ],
+        )
 
     def test_scatter_tags(self):
         outputs = self._test_workflow("""
@@ -267,8 +306,14 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """)
-        for tag in ("-0-AlyssaP-0-Hacker/", "-0-AlyssaP-1-Bit_diddle012345/", "-0-AlyssaP-2-it_diddle0123456/",
-                    "-1-Ben-0-Hacker/", "-1-Ben-1-Bit_diddle012345/", "-1-Ben-2-it_diddle0123456/"):
+        for tag in (
+            "-0-AlyssaP-0-Hacker/",
+            "-0-AlyssaP-1-Bit_diddle012345/",
+            "-0-AlyssaP-2-it_diddle0123456/",
+            "-1-Ben-0-Hacker/",
+            "-1-Ben-1-Bit_diddle012345/",
+            "-1-Ben-2-it_diddle0123456/",
+        ):
             self.assertTrue(next(True for fn in outputs["messages"] if tag in os.path.realpath(fn)))
 
     def test_ifs(self):
@@ -389,6 +434,236 @@ class TestWorkflowRunner(unittest.TestCase):
         """)
         self.assertEqual(outputs, {"out": [[0, 1], None, [4, 5]]})
 
+    def test_try(self):
+        outputs = self._test_workflow("""
+        version 1.2
+
+        workflow trywf {
+            try {
+                call fail
+                Int plus = fail.x + 1
+                call sum {
+                    input:
+                        lhs = plus,
+                        rhs = 1
+                }
+            }
+            output {
+                Array[Int] failed = select_all([fail.x, plus, sum.ans])
+            }
+        }
+
+        task fail {
+            command <<<
+                exit 42
+            >>>
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+            output {
+                Int x = 1
+            }
+        }
+
+        task sum {
+            input {
+                Int lhs
+                Int rhs
+            }
+            command <<<
+                echo ok
+            >>>
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+            output {
+                Int ans = lhs + rhs
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"failed": []})
+
+    def test_try_subworkflow_task_failure(self):
+        with open(os.path.join(self._dir, "inner.wdl"), "w") as outfile:
+            outfile.write(
+                """
+        version 1.2
+
+        workflow inner {
+            call fail
+            output {
+                Int x = fail.x
+            }
+        }
+
+        task fail {
+            command <<<
+                exit 42
+            >>>
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+            output {
+                Int x = 1
+            }
+        }
+        """
+            )
+        outputs = self._test_workflow("""
+        version 1.2
+        import "inner.wdl" as lib
+
+        workflow outer {
+            try {
+                call lib.inner
+            }
+            output {
+                Array[Int] failed = select_all([inner.x])
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"failed": []})
+
+    def test_try_eval_errors_propagate(self):
+        exn = self._test_workflow(
+            """
+        version 1.2
+
+        workflow trywf {
+            try {
+                Int bad = 1 / 0
+            }
+            output {
+                Int? out = bad
+            }
+        }
+        """,
+            expected_exception=WDL.Error.EvalError,
+        )
+        self.assertEqual(exn.job_id, "decl-bad")
+
+        exn = self._test_workflow(
+            """
+        version 1.2
+
+        workflow trywf {
+            try {
+                call sum {
+                    input:
+                        lhs = 1 / 0,
+                        rhs = 1
+                }
+            }
+            output {
+                Int? out = sum.ans
+            }
+        }
+
+        task sum {
+            input {
+                Int lhs
+                Int rhs
+            }
+            command {}
+            output {
+                Int ans = lhs + rhs
+            }
+        }
+        """,
+            expected_exception=WDL.Error.EvalError,
+        )
+        self.assertEqual(exn.job_id, "call-sum")
+
+        exn = self._test_workflow(
+            """
+        version 1.2
+
+        workflow trywf {
+            try {
+                call bad_output
+            }
+            output {
+                Int? out = bad_output.x
+            }
+        }
+
+        task bad_output {
+            command <<<
+                echo ok
+            >>>
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+            output {
+                Int x = 1 / 0
+            }
+        }
+        """,
+            expected_exception=WDL.Error.EvalError,
+        )
+        self.assertEqual(exn.job_id, "decl-x")
+
+    def test_try_output_errors_propagate(self):
+        exn = self._test_workflow(
+            """
+        version 1.2
+
+        workflow trywf {
+            try {
+                call bad_output
+            }
+            output {
+                File? out = bad_output.missing
+            }
+        }
+
+        task bad_output {
+            command <<<
+                echo ok
+            >>>
+            runtime {
+                docker: "ubuntu:20.04"
+            }
+            output {
+                File missing = "missing.txt"
+            }
+        }
+        """,
+            expected_exception=WDL.runtime.OutputError,
+        )
+        self.assertEqual(exn.job_id, "decl-missing")
+
+    def test_try_failure_classification(self):
+        with tempfile.NamedTemporaryFile(dir=self._dir, suffix=".wdl", delete=False) as outfile:
+            outfile.write(
+                """
+        version 1.2
+        workflow w {}
+        """.encode("utf-8")
+            )
+            wdlfn = outfile.name
+        doc = WDL.load(wdlfn)
+        suppresses = WDL.runtime.workflow._try_suppresses_exception
+
+        self.assertTrue(
+            suppresses(WDL.runtime.CommandFailed(42, "/tmp/stderr.txt", "/tmp/stdout.txt"))
+        )
+        self.assertTrue(suppresses(WDL.runtime.DownloadFailed("s3://example/file.txt")))
+        self.assertFalse(suppresses(WDL.Error.EvalError(doc.workflow, "bad expression")))
+        self.assertFalse(suppresses(WDL.Error.InputError("bad input")))
+        self.assertFalse(suppresses(WDL.runtime.OutputError("bad output")))
+
+        try:
+            try:
+                raise WDL.runtime.CommandFailed(42, "/tmp/stderr.txt", "/tmp/stdout.txt")
+            except WDL.runtime.CommandFailed as exn:
+                raise WDL.runtime.RunFailed(doc.workflow, "inner", self._dir) from exn
+        except WDL.runtime.RunFailed as exn:
+            try:
+                raise WDL.runtime.RunFailed(doc.workflow, "outer", self._dir) from exn
+            except WDL.runtime.RunFailed as wrapped:
+                self.assertTrue(suppresses(wrapped))
+
     def test_io(self):
         txt = """
         version 1.0
@@ -407,7 +682,8 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(self._test_workflow(txt, {"x": 1}), {"out": [1, 2, 3]})
         self.assertEqual(self._test_workflow(txt, {"x": 1, "z": 42}), {"out": [1, 2, 42]})
 
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
         version 1.0
 
         workflow inputs {
@@ -439,8 +715,10 @@ class TestWorkflowRunner(unittest.TestCase):
                 Int ans = lhs + rhs
             }
         }
-        """, {"x": 3})
-        self.assertEqual(outputs, { "y.ans": 4, "sum.ans": [ 5, 6, 7 ] })
+        """,
+            {"x": 3},
+        )
+        self.assertEqual(outputs, {"y.ans": 4, "sum.ans": [5, 6, 7]})
 
         # setting optional input of call inside scatter
         txt = """
@@ -474,8 +752,8 @@ class TestWorkflowRunner(unittest.TestCase):
             }
         }
         """
-        self.assertEqual(self._test_workflow(txt, {"x":3}), { "ans": [ 0, 2, 4] })
-        self.assertEqual(self._test_workflow(txt, {"x":3, "sum.more": 1}), { "ans": [ 1, 3, 5] })
+        self.assertEqual(self._test_workflow(txt, {"x": 3}), {"ans": [0, 2, 4]})
+        self.assertEqual(self._test_workflow(txt, {"x": 3, "sum.more": 1}), {"ans": [1, 3, 5]})
 
         txt = """
         version 1.0
@@ -529,16 +807,20 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(outputs["null2"], [None, None, None])
 
     def test_errors(self):
-        exn = self._test_workflow("""
+        exn = self._test_workflow(
+            """
         version 1.0
 
         workflow bogus {
             Int y = range(4)[99]
         }
-        """, expected_exception=WDL.Error.EvalError)
+        """,
+            expected_exception=WDL.Error.EvalError,
+        )
         self.assertEqual(exn.job_id, "decl-y")
 
-        exn = self._test_workflow("""
+        exn = self._test_workflow(
+            """
         version 1.0
 
         workflow inputs {
@@ -560,7 +842,9 @@ class TestWorkflowRunner(unittest.TestCase):
                 Int y = range(4)[99]
             }
         }
-        """, expected_exception=WDL.Error.EvalError)
+        """,
+            expected_exception=WDL.Error.EvalError,
+        )
         self.assertEqual(exn.job_id, "decl-y")
 
     def test_order(self):
@@ -623,7 +907,8 @@ class TestWorkflowRunner(unittest.TestCase):
         with open(os.path.join(self._dir, "sum_sq.wdl"), "w") as outfile:
             outfile.write(subwf)
 
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
         version 1.0
         import "sum_sq.wdl" as lib
 
@@ -646,7 +931,9 @@ class TestWorkflowRunner(unittest.TestCase):
                 Int sum = sum_all.ans
             }
         }
-        """, {"n": 3})
+        """,
+            {"n": 3},
+        )
         self.assertEqual(outputs["sums"], [1, 5, 14])
         self.assertEqual(outputs["sum"], 20)
 
@@ -665,7 +952,8 @@ class TestWorkflowRunner(unittest.TestCase):
         self._test_workflow(subwf_input, {"summer.sum_sq.n": 3})
 
     def test_host_file_access(self):
-        exn = self._test_workflow("""
+        exn = self._test_workflow(
+            """
         version 1.0
         workflow hacker9000 {
             input {
@@ -676,10 +964,13 @@ class TestWorkflowRunner(unittest.TestCase):
                 File your_passwords = half1 + half2
             }
         }
-        """, expected_exception=WDL.Error.InputError)
+        """,
+            expected_exception=WDL.Error.InputError,
+        )
         self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
 
-        exn = self._test_workflow("""
+        exn = self._test_workflow(
+            """
         version 1.0
         workflow hacker9000 {
             input {
@@ -695,10 +986,13 @@ class TestWorkflowRunner(unittest.TestCase):
                 cat ~{file}
             }
         }
-        """, expected_exception=WDL.Error.InputError)
+        """,
+            expected_exception=WDL.Error.InputError,
+        )
         self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
 
-        exn = self._test_workflow("""
+        exn = self._test_workflow(
+            """
         version 1.0
         struct Box {
             Array[String] str
@@ -729,13 +1023,16 @@ class TestWorkflowRunner(unittest.TestCase):
                 cat ~{file}
             }
         }
-        """, expected_exception=WDL.Error.InputError)
+        """,
+            expected_exception=WDL.Error.InputError,
+        )
         self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
 
         # positive control
         with open(os.path.join(self._dir, "allowed.txt"), "w") as outfile:
             outfile.write("yo")
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
         version 1.0
         struct Box {
             Array[File] str
@@ -776,7 +1073,9 @@ class TestWorkflowRunner(unittest.TestCase):
                 String tweet = read_string(stdout())
             }
         }
-        """, inputs={"box": { "str": [os.path.join(self._dir, "allowed.txt")] }})
+        """,
+            inputs={"box": {"str": [os.path.join(self._dir, "allowed.txt")]}},
+        )
         self.assertEqual(outputs["tweets"], ["yo", "Hello, world!"])
 
         with tempfile.NamedTemporaryFile("w") as tmp:
@@ -812,22 +1111,28 @@ class TestWorkflowRunner(unittest.TestCase):
             outp = self._test_workflow(hacker9000.replace("XXX", tmp.name), cfg=cfg)
             self.assertEqual("foobar", outp["tweet"].strip())
 
-            exn = self._test_workflow(hacker9000.replace("XXX", "/nonexistentPath999"),
-                                      cfg=cfg, expected_exception=WDL.Error.InputError)
+            exn = self._test_workflow(
+                hacker9000.replace("XXX", "/nonexistentPath999"),
+                cfg=cfg,
+                expected_exception=WDL.Error.InputError,
+            )
             self.assertTrue("uses nonexistent" in str(exn))
 
             cfg.override({"file_io": {"root": "/home"}})
-            exn = self._test_workflow(hacker9000.replace("XXX", tmp.name),
-                                      cfg=cfg, expected_exception=WDL.Error.InputError)
+            exn = self._test_workflow(
+                hacker9000.replace("XXX", tmp.name),
+                cfg=cfg,
+                expected_exception=WDL.Error.InputError,
+            )
             self.assertTrue("must reside within" in str(exn))
-
 
     def test_stdlib_io(self):
         with open(os.path.join(self._dir, "who.txt"), "w") as outfile:
             outfile.write("Alyssa\n")
             outfile.write("Ben\n")
 
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
             version 1.0
             workflow hello {
                 input {
@@ -841,20 +1146,26 @@ class TestWorkflowRunner(unittest.TestCase):
                     Array[String] messages = message
                 }
             }
-            """, {"who": os.path.join(self._dir, "who.txt")})
+            """,
+            {"who": os.path.join(self._dir, "who.txt")},
+        )
         self.assertEqual(outputs["messages"], ["Hello, Alyssa!", "Hello, Ben!"])
 
-        exn = self._test_workflow("""
+        exn = self._test_workflow(
+            """
         version 1.0
         workflow hacker9000 {
             input {
             }
             Array[String] your_passwords = read_lines("/etc/passwd")
         }
-        """, expected_exception=WDL.Error.EvalError)
+        """,
+            expected_exception=WDL.Error.EvalError,
+        )
         self.assertTrue("not expressly supplied with workflow inputs" in str(exn))
 
-        outputs = self._test_workflow("""
+        outputs = self._test_workflow(
+            """
             version 1.0
             workflow hello {
                 input {
@@ -883,7 +1194,9 @@ class TestWorkflowRunner(unittest.TestCase):
                     String message = read_string(stdout())
                 }
             }
-        """, {"who": ["Alyssa", "Ben"]})
+        """,
+            {"who": ["Alyssa", "Ben"]},
+        )
         self.assertEqual(outputs["messages"], ["Hello, Alyssa!", "Hello, Ben!"])
         self.assertEqual(outputs["who2"], ["Alyssa", "Ben"])
 
@@ -997,11 +1310,12 @@ class TestWorkflowRunner(unittest.TestCase):
                                    File message = glob("message.*")[0]
                                }
                            }
-                           """, {"who": os.path.join(self._dir, "who.txt"), "sleepTime": sleep_time}
+                           """,
+            {"who": os.path.join(self._dir, "who.txt"), "sleepTime": sleep_time},
         )
 
         end = time.time()
-        test_time = round(end-start)
+        test_time = round(end - start)
 
         assert len(outputs["messages"]) == 9
         with open(outputs["messages"][0], "r") as infile:
@@ -1066,8 +1380,9 @@ class TestWorkflowRunner(unittest.TestCase):
                                    File message = glob("message.*")[0]
                                }
                            }
-                           """, {"who": os.path.join(self._dir, "who.txt")},
-            expected_exception=WDL.Error.EvalError
+                           """,
+            {"who": os.path.join(self._dir, "who.txt")},
+            expected_exception=WDL.Error.EvalError,
         )
 
         end = time.time()
@@ -1123,7 +1438,9 @@ class TestWorkflowRunner(unittest.TestCase):
         """
         outputs = self._test_workflow(txt)
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
-        self.assertTrue(os.path.isfile(os.path.join(self._rundir, "call-finish", "work2", "iwuzhere")))
+        self.assertTrue(
+            os.path.isfile(os.path.join(self._rundir, "call-finish", "work2", "iwuzhere"))
+        )
         self.assertTrue(os.path.isfile(outputs["stdout_txt"]))
         self.assertTrue(outputs["stdout_txt"].endswith(".txt"))
         self.assertFalse(outputs["stdout_txt"].endswith("stdout.txt"))
@@ -1131,7 +1448,9 @@ class TestWorkflowRunner(unittest.TestCase):
             stdout_lines = stdout_txt.read().strip().split("\n")
             self.assertEqual(len(stdout_lines), 1)
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override({"file_io": {"delete_work": "failure"}, "task_runtime": {"_mock_interruptions": 2}})
+        cfg.override(
+            {"file_io": {"delete_work": "failure"}, "task_runtime": {"_mock_interruptions": 2}}
+        )
         outputs = self._test_workflow(txt, cfg=cfg)
         self.assertGreaterEqual(outputs["finish_time"], outputs["start_time"] + 20)
         self.assertFalse(os.path.isdir(os.path.join(self._rundir, "call-finish", "work2")))
@@ -1174,7 +1493,6 @@ class TestWorkflowRunner(unittest.TestCase):
         """
         outputs = self._test_workflow(wdl)
         self.assertEqual(outputs["my_d"], {"a_struct": {"s": "hello"}, "i": 10})
-
 
     def test_struct_to_struct_coercion_negatives(self):
         cases = []

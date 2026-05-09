@@ -6,8 +6,8 @@ Overview
 --------
 
 Workflow execution proceeds according to the AST's ``WorkflowNode`` graph, in which each Decl,
-Call, Scatter, Conditional, and (implicit) Gather operation has its own node which advertises its
-dependencies on the other nodes.
+Call, Scatter, Conditional, Try, and (implicit) Gather operation has its own node which advertises
+its dependencies on the other nodes.
 
 Abstractly, we plan to "visit" each node after visiting all of its dependencies. The node's type
 prescribes some job to do upon visitation, such as evaluating a Decl's WDL expression, running a
@@ -23,9 +23,9 @@ jobs can be scheduled as well, with their dependencies multiplexed to the corres
 jobs. Nodes outside of the scatter section depend on the Gather nodes rather than reaching into the
 body subgraph directly.
 
-Conditional sections are treated similarly, but only zero or one instance of its body subgraph will
-be launched. Scatter and Conditional sections may be nested, inducing a multi-level tree of Gather
-operations.
+Conditional and experimental Try sections are treated similarly, but only zero or one instance of
+the body subgraph will be launched. Scatter, Conditional, and Try sections may be nested, inducing a
+multi-level tree of Gather operations.
 """
 
 import logging
@@ -65,7 +65,14 @@ from .._util import (
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .cache import CallCache, new as new_call_cache
-from .error import RunFailed, Terminated, error_json
+from .error import (
+    RunFailed,
+    Terminated,
+    CommandFailed,
+    DownloadFailed,
+    Interrupted,
+    error_json,
+)
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -139,6 +146,7 @@ class StateMachine:
     jobs: Dict[str, _Job]
     job_outputs: Dict[str, Env.Bindings[Value.Base]]
     finished: Set[str]
+    failed: Set[str]
     running: Set[str]
     waiting: Set[str]
 
@@ -165,6 +173,7 @@ class StateMachine:
         self.jobs = {}
         self.job_outputs = {}
         self.finished = set()
+        self.failed = set()
         self.running = set()
         self.waiting = set()
         self.fspath_allowlist = _fspaths(inputs)
@@ -240,6 +249,7 @@ class StateMachine:
             ("id", str),
             ("callee", Union[Tree.Task, Tree.Workflow]),
             ("inputs", Env.Bindings[Value.Base]),
+            ("allow_failure", bool),
         ],
     )
     """
@@ -309,6 +319,8 @@ class StateMachine:
             self.job_outputs[job.id] = res
             self.running.remove(job.id)
             self.finished.add(job.id)
+            if job.dependencies & self.failed:
+                self.failed.add(job.id)
 
     def call_finished(self, job_id: str, outputs: Env.Bindings[Value.Base]) -> None:
         """
@@ -330,6 +342,23 @@ class StateMachine:
         self.fspath_allowlist |= _fspaths(outputs)
         self.finished.add(job_id)
         self.running.remove(job_id)
+
+    def call_failed(self, job_id: str, exn: BaseException) -> None:
+        """
+        Deliver notice that a call in a try section failed, suppressing the failure with null
+        outputs.
+        """
+        assert job_id in self.running
+        call_node = self.jobs[job_id].node
+        assert isinstance(call_node, Tree.Call)
+        self.logger.warning(_("call failure suppressed by try", job=job_id, message=str(exn)))
+        self.job_outputs[job_id] = _null_outputs(call_node)
+        self.failed.add(job_id)
+        self.finished.add(job_id)
+        self.running.remove(job_id)
+
+    def call_can_fail(self, job_id: str) -> bool:
+        return self._job_in_try(self.jobs[job_id])
 
     def _schedule(self, job: _Job) -> None:
         self.logger.debug(_("schedule", node=job.id, dependencies=list(job.dependencies)))
@@ -360,7 +389,14 @@ class StateMachine:
             )
         )
 
-        if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
+        if self._job_in_try(job) and job.dependencies & self.failed:
+            if isinstance(job.node, Tree.WorkflowSection):
+                for newjob in _section_gathers(job.node, job.scatter_stack):
+                    self._schedule(newjob)
+                return Env.Bindings()
+            return _null_outputs(job.node)
+
+        if isinstance(job.node, (Tree.Scatter, Tree.Conditional, Tree.Try)):
             for newjob in _scatter(
                 self.workflow,
                 job.node,
@@ -442,10 +478,21 @@ class StateMachine:
             )
 
             return StateMachine.CallInstructions(
-                id=job.id, callee=job.node.callee, inputs=call_inputs
+                id=job.id,
+                callee=job.node.callee,
+                inputs=call_inputs,
+                allow_failure=self._job_in_try(job),
             )
 
         raise NotImplementedError()
+
+    def _job_in_try(self, job: _Job) -> bool:
+        node: Optional[Tree.SourceNode] = job.node
+        while node is not None:
+            if isinstance(node, Tree.Try):
+                return True
+            node = getattr(node, "parent", None)
+        return False
 
     @property
     def logger(self) -> logging.Logger:
@@ -463,7 +510,7 @@ class StateMachine:
 
 def _scatter(
     workflow: Tree.Workflow,
-    section: Union[Tree.Scatter, Tree.Conditional],
+    section: Union[Tree.Scatter, Tree.Conditional, Tree.Try],
     env: Env.Bindings[Value.Base],
     scatter_stack: List[Tuple[str, Env.Binding[Value.Base]]],
     stdlib: StdLib.Base,
@@ -479,17 +526,21 @@ def _scatter(
                 multiplex[subgather.workflow_node_id] = set()
 
     # evaluate scatter array or boolean condition
-    v = section.expr.eval(env, stdlib=stdlib)
     array: List[Optional[Value.Base]] = []
     if isinstance(section, Tree.Scatter):
+        v = section.expr.eval(env, stdlib=stdlib)
         assert isinstance(v, Value.Array)
         for v_i in v.value:
             array.append(v_i)
-    else:
+    elif isinstance(section, Tree.Conditional):
+        v = section.expr.eval(env, stdlib=stdlib)
         assert isinstance(v, Value.Boolean)
         if v.value:
             # condition is satisfied, so we'll "scatter" over a length-1 array
             array = [None]
+    else:
+        assert isinstance(section, Tree.Try)
+        array = [None]
     digits = math.ceil(math.log10(len(array))) if len(array) > 1 else 1
 
     # for each array element, schedule an instance of the body subgraph
@@ -554,6 +605,18 @@ def _scatter(
             id=_append_scatter_indices(gather.workflow_node_id, [p[0] for p in scatter_stack]),
             node=gather,
             dependencies=multiplex[body_node_id],
+            scatter_stack=scatter_stack,
+        )
+
+
+def _section_gathers(
+    section: Tree.WorkflowSection, scatter_stack: List[Tuple[str, Env.Binding[Value.Base]]]
+) -> Iterable[_Job]:
+    for gather in section.gathers.values():
+        yield _Job(
+            id=_append_scatter_indices(gather.workflow_node_id, [p[0] for p in scatter_stack]),
+            node=gather,
+            dependencies=set(),
             scatter_stack=scatter_stack,
         )
 
@@ -666,12 +729,34 @@ def _gather(
         if isinstance(gather.section, Tree.Scatter):
             rhs: Value.Base = Value.Array((v0.type if v0 else Type.Any()), values)
         else:
-            assert isinstance(gather.section, Tree.Conditional)
+            assert isinstance(gather.section, (Tree.Conditional, Tree.Try))
             assert len(values) <= 1
             rhs = v0 if v0 is not None else Value.Null()
         ans = ans.bind(".".join(ns + [name]), rhs)
 
     return ans
+
+
+def _null_outputs(node: Tree.WorkflowNode) -> Env.Bindings[Value.Base]:
+    if isinstance(node, Tree.Decl):
+        return Env.Bindings(Env.Binding(node.name, Value.Null()))
+    if isinstance(node, Tree.Call):
+        ans: Env.Bindings[Value.Base] = Env.Bindings()
+        for b in node.effective_outputs.enter_namespace(node.name):
+            ans = ans.bind(b.name, Value.Null())
+        return ans.wrap_namespace(node.name)
+    if isinstance(node, Tree.WorkflowSection):
+        return Env.Bindings()
+    if isinstance(node, Tree.Gather):
+        leaf = node.final_referee
+        if isinstance(leaf, Tree.Decl):
+            return Env.Bindings(Env.Binding(leaf.name, Value.Null()))
+        if isinstance(leaf, Tree.Call):
+            ans = Env.Bindings()
+            for b in leaf.effective_outputs.enter_namespace(leaf.name):
+                ans = ans.bind(leaf.name + "." + b.name, Value.Null())
+            return ans
+    raise NotImplementedError()
 
 
 class _StdLib(StdLib.Base):
@@ -1045,9 +1130,15 @@ def _workflow_main_loop(
                 # no more calls to launch right now; wait for an outstanding call to finish
                 future = next(futures.as_completed(call_futures), None)
                 if future:
-                    __, outputs = future.result()
                     call_id = call_futures[future]
-                    state.call_finished(call_id, outputs)
+                    try:
+                        __, outputs = future.result()
+                        state.call_finished(call_id, outputs)
+                    except Exception as exn:
+                        if state.call_can_fail(call_id) and _try_suppresses_exception(exn):
+                            state.call_failed(call_id, exn)
+                        else:
+                            raise
                     call_futures.pop(future)
                 else:
                     assert state.outputs is not None
@@ -1113,6 +1204,30 @@ def _workflow_main_loop(
         for key in call_futures:
             key.cancel()
         raise wrapper from exn
+
+
+def _try_suppresses_exception(exn: BaseException) -> bool:
+    """
+    Decide whether an exception from a call in a try section is execution-side failure that should
+    be suppressed. WDL expression/input evaluation errors should continue to propagate.
+    """
+    cause = exn
+    seen: Set[int] = set()
+    while isinstance(cause, RunFailed) and cause.__cause__ and id(cause) not in seen:
+        seen.add(id(cause))
+        cause = cause.__cause__
+
+    if isinstance(cause, Terminated):
+        return False
+    if isinstance(cause, (Error.EvalError, Error.InputError)):
+        return False
+    if isinstance(cause, (CommandFailed, DownloadFailed, Interrupted)):
+        return True
+
+    # Some backend/container failures use the base WDL runtime error directly, for example a
+    # missing Docker image or rejected Docker service. Keep this exact-type check narrow so EvalError
+    # and InputError subclasses don't get swept up.
+    return type(cause) is Error.RuntimeError
 
 
 def _download_input_files(

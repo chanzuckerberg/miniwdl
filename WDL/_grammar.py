@@ -11,7 +11,7 @@ keywords["draft-2"] = set(
 keywords["1.0"] = keywords["draft-2"] | set(["alias", "struct"])
 keywords["1.1"] = keywords["1.0"]
 keywords["1.2"] = keywords["1.1"] | set(["Directory", "env", "hints", "requirements"])
-keywords["development"] = keywords["1.2"]
+keywords["development"] = keywords["1.2"] | set(["try"])
 
 # Grammar versions and their definitions. The productions for WDL 1.2 and development will be
 # defined in this file, while older versions are found in _grammar_old.py.
@@ -40,11 +40,12 @@ import_alias: "alias" CNAME "as" CNAME
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 workflow: "workflow" CNAME "{" workflow_element* "}"
-?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section | hints_section
+?workflow_element: input_decls | any_decl | call | scatter | conditional | try_section | workflow_outputs | meta_section | hints_section
 
 scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
-?inner_workflow_element: any_decl | call | scatter | conditional
+try_section: "try" "{" inner_workflow_element* "}"
+?inner_workflow_element: any_decl | call | scatter | conditional | try_section
 
 call: "call" namespaced_ident ("after" CNAME)* _call_body? -> call
     | "call" namespaced_ident "as" CNAME ("after" CNAME)* _call_body? -> call_as
