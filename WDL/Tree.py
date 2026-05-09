@@ -713,6 +713,23 @@ class Call(WorkflowNode):
             yield from _expr_workflow_node_dependencies(expr)
 
 
+class CallTry(Call):
+    """A call whose tolerated runtime failures produce null optional outputs"""
+
+    @property
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
+
+        Yields the effective outputs of the callee Task or Workflow, optionalized in a namespace
+        according to the call name.
+        """
+        ans: Env.Bindings[Type.Base] = Env.Bindings()
+        assert self.callee
+        for outp in reversed(list(self.callee.effective_outputs)):
+            ans = ans.bind(self.name + "." + outp.name, outp.value.copy(optional=True), self)
+        return ans
+
+
 class Gather(WorkflowNode):
     """
     A ``Gather`` node symbolizes the operation to gather an array of declared values or call

@@ -13,7 +13,7 @@ class TestWorkflowRunner(unittest.TestCase):
     def setUpClass(cls):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
-        cfg = WDL.runtime.config.Loader(logger, [])
+        WDL.runtime.config.Loader(logger, [])
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
@@ -1249,3 +1249,185 @@ class TestWorkflowRunner(unittest.TestCase):
         for wdl in cases:
             with pytest.raises(WDL.Error.StaticTypeMismatch):
                 self._test_workflow(wdl)
+
+    def test_call_try_development_only(self):
+        self._test_workflow("""
+        version 1.2
+
+        workflow test_call_try_version {
+            call? ok
+        }
+
+        task ok {
+            command <<< true >>>
+        }
+        """, expected_exception=WDL.Error.SyntaxError)
+
+    def test_call_try_command_failure_outputs_null(self):
+        outputs = self._test_workflow("""
+        version development
+
+        workflow test_call_try {
+            call? fail
+
+            output {
+                String msg = select_first([fail.out, "fallback"])
+                Boolean absent = fail.out == None
+            }
+        }
+
+        task fail {
+            command <<<
+                exit 42
+            >>>
+            output {
+                String out = "unreached"
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"msg": "fallback", "absent": True})
+
+    def test_call_try_outputs_are_optional(self):
+        self._test_workflow("""
+        version development
+
+        workflow test_call_try_type {
+            call? ok
+            output {
+                Int x = ok.x
+            }
+        }
+
+        task ok {
+            command <<< true >>>
+            output {
+                Int x = 1
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+    def test_call_try_eval_error_not_suppressed(self):
+        self._test_workflow("""
+        version development
+
+        workflow test_call_try_eval_error {
+            call? ok {
+                input:
+                    x = 1/0
+            }
+        }
+
+        task ok {
+            input {
+                Int x
+            }
+            command <<< true >>>
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+    def test_call_try_output_error_not_suppressed(self):
+        self._test_workflow("""
+        version development
+
+        workflow test_call_try_output_error {
+            call? bad_output
+        }
+
+        task bad_output {
+            command <<< true >>>
+            output {
+                File x = "missing.txt"
+            }
+        }
+        """, expected_exception=WDL.runtime.OutputError)
+
+    def test_call_try_subworkflow_failure_outputs_null(self):
+        sub_wdl = os.path.join(self._dir, "call_try_subworkflow.wdl")
+        with open(sub_wdl, "w") as outfile:
+            outfile.write("""
+            version development
+
+            workflow sub {
+                call fail
+                output {
+                    String out = fail.out
+                }
+            }
+
+            task fail {
+                command <<<
+                    exit 42
+                >>>
+                output {
+                    String out = "unreached"
+                }
+            }
+            """)
+
+        outputs = self._test_workflow(f"""
+        version development
+
+        import "{sub_wdl}" as subdoc
+
+        workflow test_call_try_subworkflow {{
+            call? subdoc.sub
+
+            output {{
+                String msg = select_first([sub.out, "fallback"])
+            }}
+        }}
+        """)
+        self.assertEqual(outputs, {"msg": "fallback"})
+
+    def test_call_try_nested_subworkflow_failure_outputs_null(self):
+        leaf_wdl = os.path.join(self._dir, "call_try_leaf_subworkflow.wdl")
+        with open(leaf_wdl, "w") as outfile:
+            outfile.write("""
+            version development
+
+            workflow leaf {
+                call fail
+                output {
+                    String out = fail.out
+                }
+            }
+
+            task fail {
+                command <<<
+                    exit 42
+                >>>
+                output {
+                    String out = "unreached"
+                }
+            }
+            """)
+
+        middle_wdl = os.path.join(self._dir, "call_try_middle_subworkflow.wdl")
+        with open(middle_wdl, "w") as outfile:
+            outfile.write(f"""
+            version development
+
+            import "{leaf_wdl}" as leafdoc
+
+            workflow middle {{
+                call leafdoc.leaf
+                output {{
+                    String out = leaf.out
+                }}
+            }}
+            """)
+
+        outputs = self._test_workflow(f"""
+        version development
+
+        import "{middle_wdl}" as middoc
+
+        workflow test_call_try_nested_subworkflow {{
+            call? middoc.middle
+
+            output {{
+                String msg = select_first([middle.out, "fallback"])
+            }}
+        }}
+        """)
+        self.assertEqual(outputs, {"msg": "fallback"})

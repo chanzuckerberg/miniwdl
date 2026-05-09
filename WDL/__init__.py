@@ -17,6 +17,7 @@ from .Tree import (  # noqa: F401
     StructTypeDef,
     Task,
     Call,
+    CallTry,
     Scatter,
     Conditional,
     Gather,

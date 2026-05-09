@@ -511,6 +511,53 @@ class _DocTransformer(_ExprTransformer):
             after=after,
         )
 
+    def call_try(self, meta, items):
+        if self._version != "development":
+            raise Error.SyntaxError(
+                self._sp(meta),
+                "call? is only supported with version development",
+                self._version,
+                self._declared_version,
+            )
+        after = []
+        i = 1
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
+        return Tree.CallTry(
+            self._sp(meta), items[0], None, items[i] if i < len(items) else dict(), after=after
+        )
+
+    def call_try_as(self, meta, items):
+        if self._version != "development":
+            raise Error.SyntaxError(
+                self._sp(meta),
+                "call? is only supported with version development",
+                self._version,
+                self._declared_version,
+            )
+        self._check_keyword(self._sp(meta), items[1].value)
+        after = list()
+        i = 2
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
+        return Tree.CallTry(
+            self._sp(meta),
+            items[0],
+            items[1].value,
+            items[i] if i < len(items) else dict(),
+            after=after,
+        )
+
     def scatter(self, meta, items):
         self._check_keyword(self._sp(meta), items[0].value)
         return Tree.Scatter(self._sp(meta), items[0].value, items[1], items[2:])
