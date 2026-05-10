@@ -353,7 +353,7 @@ class Placeholder(Base):
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         ans = self._eval_impl(env, stdlib)
-        placeholder_regex: Optional[regex.Pattern] = getattr(stdlib, "_placeholder_regex", None)
+        placeholder_regex = stdlib.eval_context.placeholder_regex
         if placeholder_regex and not placeholder_regex.fullmatch(ans.value):
             raise Error.InputError(
                 "Task command placeholder value forbidden by configuration [task_runtime] placeholder_regex"

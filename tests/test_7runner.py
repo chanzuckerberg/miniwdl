@@ -944,6 +944,27 @@ class MiscRegressionTests(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override({"task_runtime": {"placeholder_regex": "[^']*"}})
         self._run(wdl, {"s": malicious}, cfg=cfg, expected_exception=WDL.Error.InputError)
+
+        wdl_non_command_interpolation = """
+        version 1.1
+        task ordinary_interpolation {
+            input {
+                String s
+                String t = "~{s}"
+            }
+            command <<<
+                echo ok
+            >>>
+            output {
+                String out = "~{t}"
+            }
+        }
+        """
+        self.assertEqual(
+            self._run(wdl_non_command_interpolation, {"s": malicious}, cfg=cfg)["out"],
+            malicious,
+        )
+
         cfg.override({"task_runtime": {"placeholder_regex": "[0-9A-Za-z:/._-]*"}})
         self._run(wdl, {"s": malicious}, cfg=cfg, expected_exception=WDL.Error.InputError)
 
