@@ -802,7 +802,12 @@ class _Size(EagerFunction):
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
         if not self._accepts_type(arg0ty):
-            raise Error.StaticTypeMismatch(expr.arguments[0], Type.File(optional=True), arg0ty)
+            message = ""
+            if arg0ty.parameters:
+                message = "size() argument is a compound type lacking any File/Directory"
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0], Type.File(optional=True), arg0ty, message
+            )
         if len(expr.arguments) == 2:
             if expr.arguments[1].type != Type.String():
                 raise Error.StaticTypeMismatch(
