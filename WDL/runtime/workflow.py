@@ -682,9 +682,18 @@ class _StdLib(StdLib.Base):
     cache: CallCache
 
     def __init__(
-        self, wdl_version: str, cfg: config.Loader, state: StateMachine, cache: CallCache
+        self,
+        wdl_version: str,
+        cfg: config.Loader,
+        state: StateMachine,
+        cache: CallCache,
+        eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
-        super().__init__(wdl_version, write_dir=os.path.join(state.run_dir, "write_"))
+        super().__init__(
+            wdl_version,
+            write_dir=os.path.join(state.run_dir, "write_"),
+            eval_context=eval_context,
+        )
         self.cfg = cfg
         self.state = state
         self.cache = cache

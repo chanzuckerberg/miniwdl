@@ -195,16 +195,16 @@ def run_local_task(  # type: ignore[return]
                 placeholder_re = regex.compile(
                     cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX
                 )
-                setattr(
-                    stdlib,
-                    "_placeholder_regex",
-                    placeholder_re,
-                )  # hack to pass regex to WDL.Expr.Placeholder._eval
+                command_stdlib = InputStdLib(
+                    task.effective_wdl_version,
+                    logger,
+                    container,
+                    eval_context=stdlib.eval_context.replace(placeholder_regex=placeholder_re),
+                )
                 assert isinstance(task.command, Expr.TaskCommand)
                 command = task.command.eval(
-                    container_env, stdlib, dedent=not old_command_dedent
+                    container_env, command_stdlib, dedent=not old_command_dedent
                 ).value
-                delattr(stdlib, "_placeholder_regex")
                 if old_command_dedent:  # see issue #674
                     command = _util.strip_leading_whitespace(command)[1]
                 logger.debug(_("command", command=command.strip()))
@@ -1049,8 +1049,13 @@ class _StdLib(StdLib.Base):
         logger: logging.Logger,
         container: "TaskContainer",
         inputs_only: bool,
+        eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
-        super().__init__(wdl_version, write_dir=os.path.join(container.host_dir, "write_"))
+        super().__init__(
+            wdl_version,
+            write_dir=os.path.join(container.host_dir, "write_"),
+            eval_context=eval_context,
+        )
         self.logger = logger
         self.container = container
         self.inputs_only = inputs_only
@@ -1080,8 +1085,9 @@ class InputStdLib(_StdLib):
         wdl_version: str,
         logger: logging.Logger,
         container: "TaskContainer",
+        eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
-        super().__init__(wdl_version, logger, container, True)
+        super().__init__(wdl_version, logger, container, True, eval_context=eval_context)
 
 
 class OutputStdLib(_StdLib):
@@ -1091,8 +1097,9 @@ class OutputStdLib(_StdLib):
         wdl_version: str,
         logger: logging.Logger,
         container: "TaskContainer",
+        eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
-        super().__init__(wdl_version, logger, container, False)
+        super().__init__(wdl_version, logger, container, False, eval_context=eval_context)
 
         setattr(
             self,

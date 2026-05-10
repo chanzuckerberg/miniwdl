@@ -1,9 +1,10 @@
 # pylint: disable=protected-access,exec-used
+from dataclasses import dataclass, replace
 import math
 import os
 import json
 import tempfile
-from typing import List, Tuple, Dict, Callable, IO, Optional, Union
+from typing import List, Tuple, Dict, Callable, IO, Optional, Union, Any
 from abc import ABC, abstractmethod
 from contextlib import suppress
 import regex
@@ -16,6 +17,31 @@ from ._util import (
     round_half_up,
     wdl_version_geq,
 )
+
+
+@dataclass(frozen=True)
+class EvalContext:
+    """
+    Evaluation-scoped policy that isn't part of the WDL standard library function namespace.
+
+    For historical reasons this hangs off StdLib.Base: the stdlib object was already threaded
+    through all Expr.eval() calls. In a clean-sheet design we might invert this (StdLib as a
+    member of EvalContext to be passed throughout the eval() tree).
+
+    The context is immutable and composable. Callers that need to add or replace one contextual
+    value should use replace(), preserving any other values already layered into the context.
+    """
+
+    placeholder_regex: Optional[regex.Pattern] = None
+
+    def replace(self, **overrides: Any) -> "EvalContext":
+        """
+        Return a copy of this context with selected fields replaced.
+
+        Unknown field names are rejected by dataclasses.replace(), which keeps future additions
+        explicit while allowing callers to layer one setting without discarding the rest.
+        """
+        return replace(self, **overrides)
 
 
 class Base:
@@ -31,10 +57,14 @@ class Base:
 
     wdl_version: str
     _write_dir: str  # directory in which write_* functions create files
+    eval_context: EvalContext
 
-    def __init__(self, wdl_version: str, write_dir: str = ""):
+    def __init__(
+        self, wdl_version: str, write_dir: str = "", eval_context: Optional[EvalContext] = None
+    ):
         self.wdl_version = wdl_version
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()
+        self.eval_context = eval_context or EvalContext()
 
         # language built-ins
         self._at = _At()
