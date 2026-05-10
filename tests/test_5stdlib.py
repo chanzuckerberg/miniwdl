@@ -389,13 +389,18 @@ class TestStdLib(unittest.TestCase):
             ("Float sz = size({})", WDL.Error.StaticTypeMismatch),
             ("Float sz = size(None)", WDL.Error.StaticTypeMismatch),
             ("Float sz = size(read_json(\"x.json\"))", WDL.Error.StaticTypeMismatch),
-            ("Float sz = size(ints)", WDL.Error.StaticTypeMismatch),
-            ("Float sz = size(string_to_int)", WDL.Error.StaticTypeMismatch),
             ("Float sz = size(dir1,dir2)", WDL.Error.StaticTypeMismatch),
             ("Float sz = size(dir1,[dir2])", WDL.Error.StaticTypeMismatch),
         ]:
             doc = WDL.parse_document(tmpl.format(case[0]))
             with self.assertRaises(case[1]):
+                doc.typecheck()
+
+        for case in ["Float sz = size(ints)", "Float sz = size(string_to_int)"]:
+            doc = WDL.parse_document(tmpl.format(case))
+            with self.assertRaisesRegex(
+                WDL.Error.StaticTypeMismatch, "compound type lacking any File/Directory"
+            ):
                 doc.typecheck()
 
         with self.assertRaises(WDL.Error.InputError):
