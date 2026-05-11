@@ -1230,6 +1230,31 @@ class TestTaskRunner(unittest.TestCase):
         except WDL.runtime.error.CommandFailed as exn:
             self.assertEqual(exn.exit_status, 42)
 
+    def test_plugin_changed_task_attempt_retry(self):
+        def my_plugin(cfg, logger, task, run_id, run_dir, **recv):
+            recv = yield recv
+            recv["command"] += "\n# changed by plugin"
+            yield recv
+
+        txt = R"""
+        version 1.2
+        task t {
+            command <<<
+                echo "~{task.attempt}"
+                exit 1
+            >>>
+            output {
+            }
+            requirements {
+                maxRetries: 1
+            }
+        }
+        """
+        exn = self._test_task(
+            txt, expected_exception=WDL.Error.RuntimeError, _plugins=[my_plugin]
+        )
+        self.assertIn("task.attempt", str(exn))
+
     def test_runtime_privileged(self):
         txt = R"""
         version 1.0

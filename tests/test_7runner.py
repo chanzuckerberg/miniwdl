@@ -1687,3 +1687,27 @@ class TestTaskRuntimeInfo(RunnerTestCase):
         assert outp["mem"] == 1073741824
         assert outp["attempt"] == 1
         assert outp["rc"] == 0
+
+    def test_task_attempt_in_retry_command(self):
+        wdl = r"""
+        version 1.2
+
+        task t {
+            command <<<
+            echo "~{task.attempt}" > attempt.txt
+            if [ "~{task.attempt}" = "0" ]; then
+                exit 1
+            fi
+            >>>
+            output {
+                Int command_attempt = read_int("attempt.txt")
+                Int output_attempt = task.attempt
+            }
+            requirements {
+                maxRetries: 1
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        assert outp["command_attempt"] == 1
+        assert outp["output_attempt"] == 1
