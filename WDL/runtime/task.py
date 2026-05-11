@@ -622,7 +622,8 @@ def _try_task(
                 if plugin_command != command:
                     plugin_changed_command = True
                     command = plugin_command
-            logger.debug(_("command", command=command.strip()))
+        assert isinstance(command, str)
+        logger.debug(_("command", command=command.strip()))
 
         if cfg.get_bool("file_io", "copy_input_files") or task.name in cfg.get_list(
             "file_io", "copy_input_files_for"
