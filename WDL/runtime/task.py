@@ -204,7 +204,9 @@ def run_local_task(  # type: ignore[return]
 
                 # bind output declarations to task runtime info with the final return code
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
+                    assert container.try_counter >= 1
                     container.update_task_runtime_info_struct(
+                        attempt=Value.Int(container.try_counter - 1),
                         return_code=(
                             Value.Int(container.last_exit_code)
                             if container.last_exit_code is not None
@@ -606,14 +608,15 @@ def _try_task(
         if terminating():
             raise Terminated()
 
-        # evaluate command (with current `task.attempt` in WDL 1.2)
-        if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
-            container.update_task_runtime_info_struct(
-                attempt=Value.Int(max(0, container.try_counter - 1)),
-                return_code=Value.Null(),
-            )
         if command is None or command_uses_task_attempt:
-            command = _eval_task_command(cfg, task, logger, container, container_env)
+            command = _eval_task_command(
+                cfg,
+                task,
+                logger,
+                container,
+                container_env,
+                attempt=container.try_counter - 1,
+            )
             if container.try_counter == 1:
                 assert retries == 0 and interruptions == 0 and not plugin_changed_command
                 # let plugin(s) process command & container
@@ -702,13 +705,19 @@ def _eval_task_command(
     logger: logging.Logger,
     container: "TaskContainer",
     container_env: Env.Bindings[Value.Base],
+    attempt: int,
 ) -> str:
     """
     Evaluate the task command expression. In WDL 1.2, this may occur multiple times if retrying and
     the command uses `task.attempt`.
     """
+    assert attempt >= 0
     command_env = container_env
     if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
+        container.update_task_runtime_info_struct(
+            attempt=Value.Int(attempt),
+            return_code=Value.Null(),
+        )
         assert container.task_runtime_info_struct is not None
         command_env = command_env.bind("task", container.task_runtime_info_struct)
     old_command_dedent = cfg["task_runtime"].get_bool("old_command_dedent")
