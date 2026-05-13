@@ -1547,7 +1547,7 @@ class TestRelativeOutputPaths(RunnerTestCase):
 class TestEnvDecl(RunnerTestCase):
     def test_basic(self):
         outp = self._run("""
-            version development
+            version 1.2
             workflow w {
                 scatter (who in ["Alyssa", "Ben"]) {
                     call t { input: who }
@@ -1577,7 +1577,7 @@ class TestEnvDecl(RunnerTestCase):
         with open(os.path.join(self._dir, "alyssa.txt"), mode="w") as outfile:
             print("Alyssa", file=outfile)
         outp = self._run("""
-            version development
+            version 1.2
             struct Person {
                 File name
                 Int age
