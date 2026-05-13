@@ -511,6 +511,10 @@ def _eval_task_runtime(
         runtime_values[b.name] = b.value  # input overrides
     for b in inputs.enter_namespace("requirements"):
         runtime_values[b.name] = b.value
+    if "return_codes" in runtime_values and wdl_version_geq(
+        task.effective_wdl_version, WDLVersion.V1_2
+    ):
+        runtime_values["returnCodes"] = runtime_values.pop("return_codes")
     logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
 
     # have container implementation validate & postprocess into container.runtime_values

@@ -40,7 +40,6 @@ wdl-1.2:
     - one_mount_point_task.wdl
     - string_to_file.wdl
     # other spec bugs:
-    - all_return_codes_task.wdl          # issue #729
     - hello_parallel.wdl                 # expected output is wrong
     - map_to_struct.wdl                  # issue #712
     - multiline_string_placeholders.wdl  # wrong namespace in expected output
@@ -50,7 +49,6 @@ wdl-1.2:
     - placeholder_none.wdl               # questionable claim that interpolations should swallow errors
     - primitive_literals.wdl             # expected output is wrong
     - serde_pair.wdl                     # expected output is wrong
-    - single_return_code_task.wdl        # issue #729
     - struct_to_struct.wdl               # typo capitalized Struct
     - test_allow_nested_inputs.wdl       # two definitions of `greeting` in `task nested`
     - test_contains_key.wdl              # uses python-style `a if c else b` instead of `if c then a else b
@@ -58,7 +56,7 @@ wdl-1.2:
     - test_hints_task.wdl                # expected output is wrong (greetings.txt has no trailing newline, so wc -l returns 2 not 3)
     - test_length.wdl                    # typo in map literal
     - test_matches_task.wdl              # input File is nonexistent
-    - test_runtime_info_task.wdl         # spec example assigns Int? return_code to Int; also, issue #729
+    - test_runtime_info_task.wdl         # spec example assigns Int? return_code to Int
     - test_sub.wdl                       # issue #709
     - test_values.wdl                    # str_to_files should be str_to_ints
     - write_tsv_task.wdl                 # missing Numbers struct definition
