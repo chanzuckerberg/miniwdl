@@ -11,7 +11,7 @@ import glob
 import threading
 import shutil
 import regex
-from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union, TYPE_CHECKING
+from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union, TYPE_CHECKING, Generator
 from contextlib import ExitStack, suppress
 from collections import Counter
 
@@ -40,6 +40,8 @@ from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
 
 if TYPE_CHECKING:  # otherwise-delayed heavy imports
     from .task_container import TaskContainer
+
+TaskPluginCoroutine = Generator[Dict[str, Any], Dict[str, Any], None]
 
 
 def run_local_task(  # type: ignore[return]
@@ -189,36 +191,22 @@ def run_local_task(  # type: ignore[return]
                     assert container.task_runtime_info_struct is not None
                     container_env = container_env.bind("task", container.task_runtime_info_struct)
 
-                # interpolate command
-                old_command_dedent = cfg["task_runtime"].get_bool("old_command_dedent")
-                # pylint: disable=E1101
-                placeholder_re = regex.compile(
-                    cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX
-                )
-                command_stdlib = InputStdLib(
-                    task.effective_wdl_version,
-                    logger,
-                    container,
-                    eval_context=stdlib.eval_context.replace(placeholder_regex=placeholder_re),
-                )
-                assert isinstance(task.command, Expr.TaskCommand)
-                command = task.command.eval(
-                    container_env, command_stdlib, dedent=not old_command_dedent
-                ).value
-                if old_command_dedent:  # see issue #674
-                    command = _util.strip_leading_whitespace(command)[1]
-                logger.debug(_("command", command=command.strip()))
-
-                # process command & container through plugins
-                recv = plugins.send({"command": command, "container": container})
-                command, container = (recv[k] for k in ("command", "container"))
-
                 # start container & run command (and retry if needed)
-                _try_task(cfg, task, logger, container, command, terminating)
+                container = _try_task(
+                    cfg,
+                    task,
+                    logger,
+                    plugins,
+                    container,
+                    container_env,
+                    terminating,
+                )
 
                 # bind output declarations to task runtime info with the final return code
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
+                    assert container.try_counter >= 1
                     container.update_task_runtime_info_struct(
+                        attempt=Value.Int(container.try_counter - 1),
                         return_code=(
                             Value.Int(container.last_exit_code)
                             if container.last_exit_code is not None
@@ -595,10 +583,11 @@ def _try_task(
     cfg: config.Loader,
     task: Tree.Task,
     logger: logging.Logger,
+    plugins: TaskPluginCoroutine,
     container: "TaskContainer",
-    command: str,
+    container_env: Env.Bindings[Value.Base],
     terminating: Callable[[], bool],
-) -> None:
+) -> "TaskContainer":
     """
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
     Interrupted errors, plus up to runtime.maxRetries occurrences of any error.
@@ -610,13 +599,39 @@ def _try_task(
     retries = 0
     interruptions = 0
 
+    command = None
+    plugin_changed_command = False
+    assert isinstance(task.command, Expr.TaskCommand)
+    command_uses_task_attempt = _task_command_uses_task_attempt(task.command)
+
     while True:
         if terminating():
             raise Terminated()
-        # copy input files, if needed
+
+        if command is None or command_uses_task_attempt:
+            command = _eval_task_command(
+                cfg,
+                task,
+                logger,
+                container,
+                container_env,
+                attempt=container.try_counter - 1,
+            )
+            if container.try_counter == 1:
+                assert retries == 0 and interruptions == 0 and not plugin_changed_command
+                # let plugin(s) process command & container
+                recv = plugins.send({"command": command, "container": container})
+                plugin_command, container = (recv[k] for k in ("command", "container"))
+                if plugin_command != command:
+                    plugin_changed_command = True
+                    command = plugin_command
+        assert isinstance(command, str)
+        logger.debug(_("command", command=command.strip()))
+
         if cfg.get_bool("file_io", "copy_input_files") or task.name in cfg.get_list(
             "file_io", "copy_input_files_for"
         ):
+            # must follow command interpolation, which can add new input files via write_*
             container.copy_input_files(logger)
         host_tmpdir = (
             os.path.join(container.host_work_dir(), "_miniwdl_tmpdir")
@@ -631,14 +646,8 @@ def _try_task(
                 logger.debug(_("creating task temp directory", TMPDIR=host_tmpdir))
                 os.mkdir(host_tmpdir, mode=0o770)
             try:
-                if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
-                    container.update_task_runtime_info_struct(
-                        attempt=Value.Int(max(0, container.try_counter - 1)),
-                        return_code=Value.Null(),
-                    )
-                    # FIXME: The command has already been interpolated, so retry attempts won't see
-                    # the updated task.attempt value; output declarations will.
-                return container.run(logger, command)
+                container.run(logger, command)
+                return container
             finally:
                 if host_tmpdir:
                     logger.info(_("deleting task temp directory", TMPDIR=host_tmpdir))
@@ -678,8 +687,74 @@ def _try_task(
                 retries += 1
             else:
                 raise
+            if command_uses_task_attempt and plugin_changed_command:
+                # Our plugin API, designed well before the addition of `task.attempt` in WDL 1.2,
+                # doesn't allow for reprocessing the command after a retry; to be safe, we fail if
+                # the command uses `task.attempt` and the plugin changed the (first-try) command.
+                raise Error.RuntimeError(
+                    "task command uses task.attempt, but a task plugin changed the command; "
+                    "cannot retry with an updated task.attempt value"
+                ) from exn
             _delete_work(cfg, logger, container, False)
             container.reset(logger)
+
+
+def _eval_task_command(
+    cfg: config.Loader,
+    task: Tree.Task,
+    logger: logging.Logger,
+    container: "TaskContainer",
+    container_env: Env.Bindings[Value.Base],
+    attempt: int,
+) -> str:
+    """
+    Evaluate the task command expression. In WDL 1.2, this may occur multiple times if retrying and
+    the command uses `task.attempt`.
+    """
+    assert attempt >= 0
+    command_env = container_env
+    if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
+        container.update_task_runtime_info_struct(
+            attempt=Value.Int(attempt),
+            return_code=Value.Null(),
+        )
+        assert container.task_runtime_info_struct is not None
+        command_env = command_env.bind("task", container.task_runtime_info_struct)
+    old_command_dedent = cfg["task_runtime"].get_bool("old_command_dedent")
+    # pylint: disable=E1101
+    placeholder_re = regex.compile(cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX)
+    command_stdlib = InputStdLib(
+        task.effective_wdl_version,
+        logger,
+        container,
+        eval_context=StdLib.EvalContext(placeholder_regex=placeholder_re),
+    )
+    assert isinstance(task.command, Expr.TaskCommand)
+    ans = task.command.eval(command_env, command_stdlib, dedent=not old_command_dedent).value
+    if old_command_dedent:  # see issue #674
+        ans = _util.strip_leading_whitespace(ans)[1]
+    return ans
+
+
+def _task_command_uses_task_attempt(command: Expr.TaskCommand) -> bool:
+    """
+    Test whether the command uses WDL 1.2's `task.attempt` (which necessitates re-evaluating the
+    command on retry).
+    """
+    exprs = [part.expr for part in command.parts if isinstance(part, Expr.Placeholder)]
+    while exprs:
+        expr = exprs.pop()
+        if (
+            isinstance(expr, Expr.Get)
+            and expr.member == "attempt"
+            and isinstance(expr.expr, Expr.Get)
+            and expr.expr.member is None
+            and isinstance(expr.expr.expr, Expr.Ident)
+            and expr.expr.expr.name == "task"
+        ) or (isinstance(expr, Expr.Ident) and expr.name == "task.attempt"):
+            return True
+        exprs.extend(child for child in expr.children if isinstance(child, Expr.Base))
+    return False
 
 
 def _eval_task_outputs(
