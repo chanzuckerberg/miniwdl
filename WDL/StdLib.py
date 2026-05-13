@@ -104,7 +104,7 @@ class Base:
         static([Type.Float()], Type.Int(), "floor")(lambda v: Value.Int(math.floor(v.value)))
         static([Type.Float()], Type.Int(), "ceil")(lambda v: Value.Int(math.ceil(v.value)))
         static([Type.Float()], Type.Int(), "round")(lambda v: Value.Int(round_half_up(v.value)))
-        self.length = _Length()
+        self.length = _Length(wdl_version=self.wdl_version)
 
         @static([Type.String(), Type.String(), Type.String()], Type.String())
         def sub(input: Value.String, pattern: Value.String, replace: Value.String) -> Value.String:
@@ -802,9 +802,16 @@ class _Size(EagerFunction):
             return True
         return any(_Size._type_contains_paths(parameter) for parameter in ty.parameters)
 
-    @staticmethod
-    def _accepts_type(ty: Type.Base) -> bool:
+    def _accepts_type(self, ty: Type.Base) -> bool:
         if isinstance(ty, Type.Any):
+            return False
+        if not wdl_version_geq(self.stdlib.wdl_version, WDLVersion.V1_2):
+            if ty.coerces(Type.File(optional=True)):
+                return True
+            if isinstance(ty, Type.Array) and not ty.optional:
+                return not isinstance(ty.item_type, Type.Any) and ty.item_type.coerces(
+                    Type.File(optional=True)
+                )
             return False
         if _Size._type_contains_paths(ty):
             return True
@@ -1443,10 +1450,28 @@ class _Length(EagerFunction):
     # Int length(Array[X]|Map[X,Y]|Object|String)
     # Returns the length of an Array, Map, Object, or String
 
+    def __init__(self, wdl_version: str):
+        super().__init__()
+        self.wdl_version = wdl_version
+
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 1:
             raise Error.WrongArity(expr, 1)
         arg0ty = expr.arguments[0].type
+
+        if not wdl_version_geq(self.wdl_version, WDLVersion.V1_2):
+            if isinstance(arg0ty, Type.Array):
+                if expr._check_quant and arg0ty.optional:
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[0], Type.Array(Type.Any()), arg0ty
+                    )
+                return Type.Int()
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Array(Type.Any()),
+                arg0ty,
+                "length() requires Array, Map, Object, or String",
+            )
 
         # Accept Array, Map, Object, String, or direct read_json() (Any).
         if isinstance(arg0ty, (Type.Array, Type.Map, Type.Object, Type.String)):
@@ -1458,6 +1483,7 @@ class _Length(EagerFunction):
             and not arg0ty.optional
             and isinstance(expr.arguments[0], Expr.Apply)
             and expr.arguments[0].function_name == "read_json"
+            and wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
         ):
             # read_json() result type is unknown until runtime.
             return Type.Int()
