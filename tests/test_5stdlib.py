@@ -172,6 +172,11 @@ class TestStdLib(unittest.TestCase):
 
     def test_length_version_gating(self):
         self.assertEqual(str(self._infer_expr_type("length([1])", version="1.1")), "Int")
+        optional_array_env = WDL.Env.Bindings().bind(
+            "xs", WDL.Type.Array(WDL.Type.Int(), optional=True)
+        )
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type("length(xs)", type_env=optional_array_env, version="1.1")
 
         for version in ("1.0", "1.1"):
             for expr in ('length("abc")', 'length({"a": 1})', 'length(object {a: 1})'):
