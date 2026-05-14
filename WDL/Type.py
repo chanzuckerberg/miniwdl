@@ -233,6 +233,11 @@ class File(Base):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
+    def equatable(self, rhs, *, compound: bool = False):
+        return super().equatable(rhs, compound=compound) or (
+            not compound and isinstance(rhs, String)
+        )
+
 
 class Directory(Base):
     def __init__(self, optional: bool = False) -> None:
@@ -244,6 +249,11 @@ class Directory(Base):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
+    def equatable(self, rhs, *, compound: bool = False):
+        return super().equatable(rhs, compound=compound) or (
+            not compound and isinstance(rhs, String)
+        )
+
 
 class String(Base):
     def __init__(self, optional: bool = False) -> None:
@@ -254,6 +264,11 @@ class String(Base):
         if isinstance(rhs, (File, Directory, Int, Float)):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
+
+    def equatable(self, rhs, *, compound: bool = False):
+        return super().equatable(rhs, compound=compound) or (
+            not compound and isinstance(rhs, (File, Directory))
+        )
 
 
 class Array(Base):
