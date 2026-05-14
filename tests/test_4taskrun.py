@@ -972,6 +972,45 @@ class TestTaskRunner(unittest.TestCase):
         """
         self._test_task(txt, {"status": 0}, cfg=cfg)
         self._test_task(txt, {"status": 42}, cfg=cfg)
+        txt = R"""
+        version 1.2
+        task limit {
+            input {
+                Int status
+            }
+            command <<<
+                echo Hi
+                exit ~{status}
+            >>>
+            output {
+                File out = stdout()
+            }
+            requirements {
+                return_codes: 42
+            }
+        }
+        """
+        self._test_task(txt, {"status": 0}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
+        self._test_task(txt, {"status": 42}, cfg=cfg)
+        txt = R"""
+        version 1.1
+        task limit {
+            input {
+                Int status
+            }
+            command <<<
+                echo Hi
+                exit ~{status}
+            >>>
+            output {
+                File out = stdout()
+            }
+            runtime {
+                return_codes: 42
+            }
+        }
+        """
+        self._test_task(txt, {"status": 42}, cfg=cfg, expected_exception=WDL.runtime.CommandFailed)
 
     def test_input_files_rw(self):
         txt = R"""
