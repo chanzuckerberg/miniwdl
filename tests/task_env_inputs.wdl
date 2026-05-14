@@ -1,4 +1,4 @@
-version development
+version 1.2
 
 # This WDL exercises proper escaping of environment variables passed to task commands, especially
 # for different container runtimes (docker, podman, singularity, udocker).

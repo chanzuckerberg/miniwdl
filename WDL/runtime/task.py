@@ -554,14 +554,10 @@ def _eval_task_runtime(
         )
         container.runtime_values["env"].update(env_vars_override)
 
-    # process decls with "env" decorator (EXPERIMENTAL)
+    # process decls with "env" decorator
     env_decls: Dict[str, Value.Base] = {}
     for decl in (task.inputs or []) + task.postinputs:
         if decl.decor.get("env", False) is True:
-            if not env_decls:
-                logger.warning(
-                    "task env declarations are an experimental feature, subject to change"
-                )
             v = env[decl.name]
             if isinstance(v, (Value.String, Value.File, Value.Directory)):
                 v = v.value
