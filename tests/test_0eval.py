@@ -315,6 +315,42 @@ class TestEval(unittest.TestCase):
             ("a2 != a3", "(Ln 1, Col 1) Cannot compare Array[Int]+ and Array[Float]+", WDL.Error.IncompatibleOperand, env),
         )
 
+        env = cons_env(
+            ("s", WDL.Value.String("hello.txt")),
+            ("f", WDL.Value.File("hello.txt")),
+            ("g", WDL.Value.File("goodbye.txt")),
+            ("d", WDL.Value.Directory("hello.txt")),
+            ("e", WDL.Value.Directory("goodbye.txt")),
+            (
+                "strings",
+                WDL.Value.Array(
+                    WDL.Type.String(), [WDL.Value.String("hello.txt")]
+                ),
+            ),
+            (
+                "files",
+                WDL.Value.Array(
+                    WDL.Type.File(), [WDL.Value.File("hello.txt")]
+                ),
+            ),
+            (
+                "directories",
+                WDL.Value.Array(
+                    WDL.Type.Directory(), [WDL.Value.Directory("hello.txt")]
+                ),
+            ),
+        )
+        self._test_tuples(
+            ("s == f", "true", env),
+            ("f == s", "true", env),
+            ("s != g", "true", env),
+            ("s == d", "true", env),
+            ("d == s", "true", env),
+            ("s != e", "true", env),
+            ("strings == files", "(Ln 1, Col 1) Cannot compare Array[String]+ and Array[File]+", WDL.Error.IncompatibleOperand, env),
+            ("strings == directories", "(Ln 1, Col 1) Cannot compare Array[String]+ and Array[Directory]+", WDL.Error.IncompatibleOperand, env),
+        )
+
     def test_if(self):
         self._test_tuples(
             ("if false then 0 else 1","1", WDL.Type.Int()),
