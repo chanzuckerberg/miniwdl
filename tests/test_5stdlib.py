@@ -170,6 +170,77 @@ class TestStdLib(unittest.TestCase):
         stdlib = WDL.StdLib.Base(version)
         return WDL.parse_expr(expr, version=version).infer_type(type_env, stdlib).type
 
+    def test_length_version_gating(self):
+        self.assertEqual(str(self._infer_expr_type("length([1])", version="1.1")), "Int")
+        optional_array_env = WDL.Env.Bindings().bind(
+            "xs", WDL.Type.Array(WDL.Type.Int(), optional=True)
+        )
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type("length(xs)", type_env=optional_array_env, version="1.1")
+
+        for version in ("1.0", "1.1"):
+            for expr in ('length("abc")', 'length({"a": 1})', 'length(object {a: 1})'):
+                with self.subTest(version=version, expr=expr):
+                    with self.assertRaises(WDL.Error.StaticTypeMismatch):
+                        self._infer_expr_type(expr, version=version)
+
+        self.assertEqual(str(self._infer_expr_type('length("abc")', version="1.2")), "Int")
+        self.assertEqual(str(self._infer_expr_type('length({"a": 1})', version="1.2")), "Int")
+        self.assertEqual(str(self._infer_expr_type('length(object {a: 1})', version="1.2")), "Int")
+
+    def test_size_version_gating(self):
+        for version in ("1.0", "1.1"):
+            for wdl in (
+                f"""version {version}
+                task t {{
+                    input {{
+                        Map[String, File] xs
+                    }}
+                    command {{}}
+                    output {{
+                        Float x = size(xs)
+                    }}
+                }}
+                """,
+                f"""version {version}
+                struct S {{
+                    File f
+                }}
+                task t {{
+                    input {{
+                        S s
+                    }}
+                    command {{}}
+                    output {{
+                        Float x = size(s)
+                    }}
+                }}
+                """,
+            ):
+                with self.subTest(version=version, wdl=wdl):
+                    self._test_task(wdl, expected_exception=WDL.Error.StaticTypeMismatch)
+
+        doc = WDL.parse_document(
+            R"""
+            version 1.2
+            struct S {
+                File f
+            }
+            task t {
+                input {
+                    Map[String, File] xs
+                    S s
+                }
+                command {}
+                output {
+                    Float x = size(xs)
+                    Float y = size(s)
+                }
+            }
+            """
+        )
+        doc.typecheck()
+
 
     def test_stdlib_branch_coverage_length_contains_key(self):
         # length(): wrong arity and optional argument rejection during quantifier checks
