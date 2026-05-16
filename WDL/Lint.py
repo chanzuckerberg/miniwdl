@@ -509,7 +509,9 @@ class NonStringKeyMapJSON(Linter):
     # Map values with non-String key types aren't portable through standard WDL JSON
     # serialization. miniwdl may support some of these cases; keep this lint-only.
 
-    _MESSAGE = "Maps with non-String keys are not JSON-serializable per WDL spec (miniwdl may allow)"
+    _MESSAGE = (
+        "Maps with non-String keys are not JSON-serializable per WDL spec (miniwdl may allow)"
+    )
 
     def _map_with_non_string_key(self, ty: Type.Base) -> Optional[Type.Map]:
         if isinstance(ty, Type.Map):
