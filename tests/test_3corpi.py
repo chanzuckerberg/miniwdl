@@ -411,6 +411,7 @@ class dxWDL(unittest.TestCase):
         "Deprecated": 2,
         "UnexpectedRuntimeValue": 1,
         "ImportNewerWDL": 1,
+        "NonStringKeyMapJSON": 7,
     },
     blocklist=["check_quant", "incomplete_call", "issue596"],
 )
@@ -439,6 +440,7 @@ class Contrived(unittest.TestCase):
         "Deprecated": 3,
         "UnexpectedRuntimeValue": 1,
         "ImportNewerWDL": 2,
+        "NonStringKeyMapJSON": 7,
     },
     check_quant=False,
     blocklist=["incomplete_call"],
