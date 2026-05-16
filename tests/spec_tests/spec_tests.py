@@ -11,6 +11,7 @@ updated appropriately; then this suite will use that revision at test time.
 import re
 import json
 import subprocess
+import sys
 import pytest
 from pathlib import Path
 import shutil
@@ -30,6 +31,20 @@ VERSION_XFAIL = {ver: set(data.get("xfail", [])) for ver, data in cfg.items()}
 VERSION_SKIP = {ver: set(data.get("skip", [])) for ver, data in cfg.items()}
 
 
+def parse_spec_resources(text):
+    """
+    Parse Example Data appendix resources embedded in newer SPEC.md revisions.
+    """
+    resources = {}
+    for name, _, body in re.findall(
+        r"<summary>\s*Resource:\s*(.+?)\s*```(\w+)\n(.*?)\n```\s*</summary>",
+        text,
+        re.DOTALL,
+    ):
+        resources[name.strip()] = body
+    return resources
+
+
 def parse_spec_for(version):
     """
     Parse SPEC.md and data for a given spec version, yield test cases.
@@ -40,11 +55,10 @@ def parse_spec_for(version):
     data_dir = spec_dir / "tests" / "data"
     text = spec_md.read_text(encoding="utf-8")
     yaml = YAML(typ="safe")
+    resources = parse_spec_resources(text)
     blocks = re.findall(r"<details>(.*?)</details>", text, re.DOTALL)
     for block in blocks:
-        m = re.search(
-            r"<summary>\s*Example:\s*(.+?)\s*```wdl(.*?)```", block, re.DOTALL
-        )
+        m = re.search(r"<summary>\s*Example:\s*(.+?)\s*```wdl(.*?)```", block, re.DOTALL)
         if not m:
             continue
         name = m.group(1).strip()
@@ -74,15 +88,14 @@ def parse_spec_for(version):
             "outputs": outputs,
             "config": config,
             "data_dir": data_dir,
+            "resources": resources,
         }
 
 
 CASES = [case for v in VERSIONS for case in parse_spec_for(v)]
 
 
-@pytest.mark.parametrize(
-    "case", CASES, ids=[f"{c['version']}-{c['name']}" for c in CASES]
-)
+@pytest.mark.parametrize("case", CASES, ids=[f"{c['version']}-{c['name']}" for c in CASES])
 def test_spec_conformance(tmp_path, case, monkeypatch):
     # run everything in tmp_path
     monkeypatch.chdir(tmp_path)
@@ -107,8 +120,13 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
         or name.endswith("_fail_task.wdl")
     ):
         is_xfail = True
-    # copy spec test-data directory for this test
-    shutil.copytree(case["data_dir"], tmp_path, dirs_exist_ok=True)
+    # copy/extract spec test-data directory for this test
+    if case["data_dir"].exists():
+        shutil.copytree(case["data_dir"], tmp_path, dirs_exist_ok=True)
+    for path, contents in case["resources"].items():
+        resource_path = tmp_path / "data" / path
+        resource_path.parent.mkdir(parents=True, exist_ok=True)
+        resource_path.write_text(contents, encoding="utf-8")
 
     # dump all WDL example files into version-specific subdirectories so imports resolve
     for other in CASES:
@@ -131,7 +149,7 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
 
     # construct command
     cmd = [
-        "python3",
+        sys.executable,
         "-m",
         "WDL",
         "run",
@@ -151,9 +169,7 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
 
     # run
     cmd_env = os.environ.copy()
-    cmd_env["PYTHONPATH"] = (
-        SPEC_BASE.parent.as_posix() + ":" + cmd_env.get("PYTHONPATH", "")
-    )
+    cmd_env["PYTHONPATH"] = SPEC_BASE.parent.as_posix() + ":" + cmd_env.get("PYTHONPATH", "")
 
     try:
         result = subprocess.run(cmd, env=cmd_env, capture_output=True)
@@ -180,9 +196,7 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
             )
         raise
     if is_xfail:
-        pytest.fail(
-            f"case {name} in {case['version']} passed but was marked xfail, dir={tmp_path}"
-        )
+        pytest.fail(f"case {name} in {case['version']} passed but was marked xfail, dir={tmp_path}")
 
 
 def _basenameize(obj):

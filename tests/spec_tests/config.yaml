@@ -8,21 +8,12 @@
 
 wdl-1.1:
   xfail:
-    - relative_and_absolute_task.wdl  # issue #214
-    - test_struct.wdl                 # issue #728
     # Object:
     - test_object.wdl
     - read_object_task.wdl
     - read_objects_task.wdl
     - write_object_task.wdl
     - write_objects_task.wdl
-    # these are bugged in the WDL 1.1 spec:
-    - serde_pair.wdl              # expected output is wrong
-    - test_round.wdl              # expected output is wrong
-    - single_return_code_task.wdl # issue #729
-    - all_return_codes_task.wdl   # issue #729
-    - test_sub.wdl                # issue #709
-    - map_to_struct.wdl           # issue #712
   skip:
     - write_json_fail.wdl # FIXME: refuse to string-coerce map keys
     - test_gpu_task.wdl   # hardware-dependent
