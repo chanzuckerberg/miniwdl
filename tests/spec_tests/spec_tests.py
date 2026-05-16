@@ -14,7 +14,6 @@ import subprocess
 import sys
 import pytest
 from pathlib import Path
-import shutil
 import os
 from ruamel.yaml import YAML
 
@@ -41,7 +40,7 @@ def parse_spec_resources(text):
         text,
         re.DOTALL,
     ):
-        resources[name.strip()] = body
+        resources[name.strip()] = body + "\n"
     return resources
 
 
@@ -52,7 +51,6 @@ def parse_spec_for(version):
     """
     spec_dir = SPEC_BASE / version
     spec_md = spec_dir / "SPEC.md"
-    data_dir = spec_dir / "tests" / "data"
     text = spec_md.read_text(encoding="utf-8")
     yaml = YAML(typ="safe")
     resources = parse_spec_resources(text)
@@ -62,14 +60,17 @@ def parse_spec_for(version):
         if not m:
             continue
         name = m.group(1).strip()
-        if name in ("multiline_strings2.wdl", "multiline_strings3.wdl"):
-            continue  # JSON syntax errors in WDL 1.2 spec
         try:
             wdl_code = m.group(2).strip()
             m_in = re.search(r"Example input:\s*```json(.*?)```", block, re.DOTALL)
             inputs = yaml.load(m_in.group(1)) if m_in else {}
             m_out = re.search(r"Example output:\s*```json(.*?)```", block, re.DOTALL)
-            outputs = yaml.load(m_out.group(1)) if m_out else {}
+            output_parse_error = None
+            try:
+                outputs = yaml.load(m_out.group(1)) if m_out else {}
+            except Exception as e:
+                output_parse_error = str(e)
+                outputs = {}
             m_conf = re.search(r"Test config:\s*```json(.*?)```", block, re.DOTALL)
             config = yaml.load(m_conf.group(1)) if m_conf else {}
             if "type" not in config:
@@ -86,8 +87,8 @@ def parse_spec_for(version):
             "wdl": wdl_code,
             "inputs": inputs,
             "outputs": outputs,
+            "output_parse_error": output_parse_error,
             "config": config,
-            "data_dir": data_dir,
             "resources": resources,
         }
 
@@ -145,9 +146,7 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
         or name.endswith("_fail_task.wdl")
     ):
         is_xfail = True
-    # copy/extract spec test-data directory for this test
-    if case["data_dir"].exists():
-        shutil.copytree(case["data_dir"], tmp_path, dirs_exist_ok=True)
+    # extract spec test-data resources for this test
     for path, contents in case["resources"].items():
         resource_path = tmp_path / "data" / path
         resource_path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,6 +204,10 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
             assert False, f"miniwdl exit code {result.returncode} dir={tmp_path}"
 
         # verify outputs
+        if case["output_parse_error"]:
+            raise ValueError(
+                f"Error parsing expected output for {name}: {case['output_parse_error']}"
+            )
         got = json.loads(out_file.read_text(encoding="utf-8"))["outputs"]
         exclude = set(config.get("exclude_outputs", []))
         for k, v in outputs.items():
