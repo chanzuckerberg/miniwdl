@@ -93,6 +93,31 @@ def parse_spec_for(version):
 
 
 CASES = [case for v in VERSIONS for case in parse_spec_for(v)]
+CASE_NAMES_BY_VERSION = {version: set() for version in VERSIONS}
+for case in CASES:
+    CASE_NAMES_BY_VERSION[case["version"]].add(case["name"])
+
+
+def validate_config_cases():
+    """
+    Check config.yaml doesn't silently reference nonexistent spec examples.
+    """
+    errors = []
+    for version in cfg:
+        if version not in CASE_NAMES_BY_VERSION:
+            errors.append(f"{version}: unknown spec version")
+            continue
+        for section, names in (("xfail", VERSION_XFAIL[version]), ("skip", VERSION_SKIP[version])):
+            missing = sorted(names - CASE_NAMES_BY_VERSION[version])
+            if missing:
+                errors.append(f"{version} {section}: {', '.join(missing)}")
+    if errors:
+        raise ValueError(
+            "tests/spec_tests/config.yaml references nonexistent spec tests:\n" + "\n".join(errors)
+        )
+
+
+validate_config_cases()
 
 
 @pytest.mark.parametrize("case", CASES, ids=[f"{c['version']}-{c['name']}" for c in CASES])
