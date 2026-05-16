@@ -3163,6 +3163,15 @@ class TestStdLib(unittest.TestCase):
         """Test the chunk() function from WDL 1.2"""
 
         self.assertEqual(
+            str(self._infer_expr_type("chunk([1, 2, 3], 2)", version="1.2")),
+            "Array[Array[Int]+]",
+        )
+        self.assertEqual(
+            str(self._infer_expr_type("chunk([], 2)", version="1.2")),
+            "Array[Array[Any]+]",
+        )
+
+        self.assertEqual(
             self._eval_expr('chunk(["a", "b", "c", "d", "e", "f"], 3)', version="1.2").json,
             [["a", "b", "c"], ["d", "e", "f"]],
         )
@@ -3176,8 +3185,13 @@ class TestStdLib(unittest.TestCase):
         )
         self.assertEqual(
             self._eval_expr("chunk([], 3)", version="1.2").json,
-            [[]],
+            [],
         )
+        nonempty_chunks = self._eval_expr("chunk([1, 2, 3], 2)", version="1.2")
+        self.assertEqual(str(nonempty_chunks.type), "Array[Array[Int]+]+")
+        self.assertEqual(str(nonempty_chunks.value[0].type), "Array[Int]+")
+        empty_chunks = self._eval_expr("chunk([], 2)", version="1.2")
+        self.assertEqual(str(empty_chunks.type), "Array[Array[Any]+]")
         self.assertEqual(
             self._eval_expr("flatten(chunk([1, 2, 3, 4, 5], 2))", version="1.2").json,
             [1, 2, 3, 4, 5],
@@ -3189,11 +3203,14 @@ class TestStdLib(unittest.TestCase):
             for chunk_size in range(1, length + 2):
                 expected = [
                     array[i : i + chunk_size] for i in range(0, length, chunk_size)
-                ] or [[]]
-                self.assertEqual(
-                    self._eval_expr(f"chunk({array_literal}, {chunk_size})", version="1.2").json,
-                    expected,
-                )
+                ]
+                chunks = self._eval_expr(f"chunk({array_literal}, {chunk_size})", version="1.2")
+                self.assertEqual(chunks.json, expected)
+                self.assertEqual(chunks.type.nonempty, bool(expected))
+                for chunk in chunks.value:
+                    self.assertIsInstance(chunk, WDL.Value.Array)
+                    self.assertTrue(chunk.type.nonempty)
+                    self.assertGreater(len(chunk.value), 0)
 
         env = WDL.Env.Bindings().bind(
             "xs",

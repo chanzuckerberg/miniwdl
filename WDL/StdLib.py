@@ -1675,7 +1675,7 @@ class _Chunk(EagerFunction):
             raise Error.StaticTypeMismatch(expr.arguments[0], Type.Array(Type.Any()), arr_ty)
         expr.arguments[1].typecheck(Type.Int())
 
-        return Type.Array(Type.Array(arr_ty.item_type), nonempty=True)
+        return Type.Array(Type.Array(arr_ty.item_type, nonempty=True))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         ty = self.infer_type(expr)
@@ -1690,8 +1690,6 @@ class _Chunk(EagerFunction):
             Value.Array(ty.item_type.item_type, arr.value[i : i + n])
             for i in range(0, len(arr.value), n)
         ]
-        if not chunks:
-            chunks.append(Value.Array(ty.item_type.item_type, []))
         return Value.Array(ty.item_type, chunks)
 
 
