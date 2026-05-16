@@ -19,15 +19,15 @@ wdl-1.1:
     - test_gpu_task.wdl   # hardware-dependent
 wdl-1.2:
   xfail:
-    - relative_and_absolute_task.wdl  # issue #214
     - test_struct.wdl                 # issue #728
-    - file_sizes_task.wdl             # spec bug: Map[String, Pair[Int, File]] includes File? value
     # To be implemented:
     - join_paths_task.wdl
     # Juice not worth the squeeze:
     - multi_nested_inputs.wdl          # workflow hints ignored; dependency also has duplicate `greeting` decls
     - one_mount_point_task.wdl         # `disks` would need backend-specific provisioning/mount semantics
+    - relative_and_absolute_task.wdl   # issue #214
     # other spec bugs:
+    - file_sizes_task.wdl                # Map[String, Pair[Int, File]] includes File? value
     - hello_parallel.wdl                 # expected output is wrong
     - map_to_struct.wdl                  # issue #712
     - multiline_string_placeholders.wdl  # wrong namespace in expected output

@@ -505,6 +505,63 @@ class UnverifiedStruct(Linter):
 
 
 @a_linter
+class NonStringKeyMapJSON(Linter):
+    # Map values with non-String key types aren't portable through standard WDL JSON
+    # serialization. miniwdl may support some of these cases; keep this lint-only.
+
+    _MESSAGE = (
+        "Maps with non-String keys are not JSON-serializable per WDL spec (miniwdl may allow)"
+    )
+
+    def _map_with_non_string_key(self, ty: Type.Base) -> Optional[Type.Map]:
+        if isinstance(ty, Type.Map):
+            if ty.item_type[0] != Type.String():
+                return ty
+        for p in ty.parameters:
+            ans = self._map_with_non_string_key(p)
+            if ans:
+                return ans
+        return None
+
+    def decl(self, obj: Tree.Decl) -> Any:
+        parent = getattr(obj, "parent", None)
+        if isinstance(parent, (Tree.Task, Tree.Workflow)):
+            section = None
+            if getattr(parent, "inputs", None) and obj in getattr(parent, "inputs"):
+                section = "input"
+            elif getattr(parent, "outputs", None) and obj in getattr(parent, "outputs"):
+                section = "output"
+            if section:
+                bad_map = self._map_with_non_string_key(obj.type)
+                if bad_map:
+                    self.add(
+                        obj,
+                        f"{section} {obj.type} {obj.name} contains {bad_map}; " + self._MESSAGE,
+                    )
+
+    def call(self, obj: Tree.Call) -> Any:
+        for name, inp_expr in obj.inputs.items():
+            decl = _find_input_decl(obj, name)
+            bad_map = self._map_with_non_string_key(decl.type)
+            if bad_map:
+                self.add(
+                    obj,
+                    f"input {decl.type} {decl.name} contains {bad_map}; " + self._MESSAGE,
+                    inp_expr.pos,
+                )
+
+    def expr(self, obj: Expr.Base) -> Any:
+        if isinstance(obj, Expr.Apply) and obj.function_name == "write_json" and obj.arguments:
+            bad_map = self._map_with_non_string_key(obj.arguments[0].type)
+            if bad_map:
+                self.add(
+                    obj,
+                    f"write_json() argument contains {bad_map}; " + self._MESSAGE,
+                    obj.arguments[0].pos,
+                )
+
+
+@a_linter
 class OptionalCoercion(Linter):
     # Expression of optional type where a non-optional value is expected
     # Normally these fail typechecking, but the enforcement isn't stringent in
