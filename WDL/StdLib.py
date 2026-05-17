@@ -457,17 +457,6 @@ def _serialize_lines(array: Value.Base, outfile: IO[bytes]) -> None:
         outfile.write(b"\n")
 
 
-def _serialize_tsv(v: Value.Base, outfile: IO[bytes]) -> None:
-    assert isinstance(v, Value.Array)
-    lines: List[Value.Base] = []
-    for parts in v.value:
-        assert isinstance(parts, Value.Array)
-        lines.append(
-            Value.String("\t".join([part.coerce(Type.String()).value for part in parts.value]))
-        )
-    _serialize_lines(Value.Array(Type.String(), lines), outfile)
-
-
 class _WriteTsv(EagerFunction):
     # not StaticFunction due to polymorphic argument types (WDL 1.2)
     stdlib: Base
