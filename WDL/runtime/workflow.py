@@ -753,6 +753,9 @@ def _check_path_allowed(
     fspath = v.value.rstrip("/") + ("/" if isdir else "")
     if fspath in allowlist or downloadable(cfg, fspath, directory=isdir):
         return v.value
+    allowlisted_child = _check_path_allowed_child(cfg, allowlist, fspath, isdir)
+    if allowlisted_child:
+        return allowlisted_child
     if not cfg.get_bool("file_io", "allow_any_input"):
         raise Error.InputError(
             desc + " uses file/directory not expressly supplied with workflow inputs"
@@ -767,6 +770,28 @@ def _check_path_allowed(
             f"{desc} {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
         )
     return fspath
+
+
+def _check_path_allowed_child(
+    cfg: config.Loader, allowlist: Set[str], fspath: str, isdir: bool
+) -> Optional[str]:
+    """
+    Permit paths nested within an allowlisted Directory. Local paths are checked to exist with the
+    expected kind, and to resolve within the allowlisted Directory; for downloadable URI paths,
+    rely on lexical path containment because we can't inspect them here.
+    """
+    for parent in allowlist:
+        if not parent.endswith("/"):
+            continue
+        if downloadable(cfg, parent, directory=True):
+            if fspath.startswith(parent):
+                return fspath.rstrip("/") if isdir else fspath
+            continue
+        if not (os.path.isdir(fspath) if isdir else os.path.isfile(fspath)):
+            continue
+        if path_really_within(fspath, parent):
+            return os.path.abspath(fspath).rstrip("/")
+    return None
 
 
 class _ThreadPools:

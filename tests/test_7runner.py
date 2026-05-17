@@ -68,10 +68,9 @@ class TestDirectoryIO(RunnerTestCase):
         assert isinstance(d, WDL.Value.Directory)
         assert d.value == "foo"
 
-    @unittest.expectedFailure
     def test_workflow_join_paths_child_of_input_directory(self):
-        # TODO: permit workflow-level File/Directory paths derived from an allowlisted Directory
-        # input, provided the derived path is really within that Directory.
+        # Testing workflow-level use of File residing within a Directory input
+        # (the File is not itself an explicit input)
         wdl = R"""
         version 1.2
         workflow w {
