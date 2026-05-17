@@ -1113,6 +1113,7 @@ class TestStdLib(unittest.TestCase):
             Directory dir1
             Directory dir2
             Directory? nulldir
+            Float dir_child_size = size(join_paths(dir1, "alice.txt"), "B")
             Array[File]? maybe_files = None
             Map[String, Pair[Int, File?]] nested_files = {
                 "a": (10, files[0]),
@@ -1150,6 +1151,7 @@ class TestStdLib(unittest.TestCase):
                 Float path_struct_size = size(path_struct, "B")
                 Float duplicate_file_size = size([files[0], files[0]], "B")
                 Float duplicate_dir_size = size([dir1, dir1], "B")
+                Float dir_child_size_out = dir_child_size
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
@@ -1179,6 +1181,7 @@ class TestStdLib(unittest.TestCase):
         # size() sums path occurrences in the WDL value; it doesn't deduplicate equal paths.
         self.assertEqual(outputs["duplicate_file_size"], 14)
         self.assertEqual(outputs["duplicate_dir_size"], 28)
+        self.assertEqual(outputs["dir_child_size_out"], 6)
 
         self._test_task(R"""
         version 1.0
