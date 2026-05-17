@@ -1373,6 +1373,7 @@ class _JoinPaths(EagerFunction):
                 parts = [directory.value, path.value]
             relative_from = 1
         for path in parts[relative_from:]:
+            assert isinstance(path, str)
             if self._is_absolute(path):
                 raise Error.EvalError(expr, "join_paths(): only the first path may be absolute")
         return Value.String(self._absolute_path(parts))
