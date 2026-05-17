@@ -327,6 +327,64 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(str(self._eval_expr('basename("file.txt","")')), '"file.txt"')
         self.assertEqual(str(self._eval_expr('basename("/path/to/file.txt",sfx)', env=env)), '"file.txt"')
 
+    def test_join_paths(self):
+        class LocalStdLib(WDL.StdLib.Base):
+            def _join_paths_default_directory(self) -> str:
+                return "/work"
+
+        def eval_join(expr: str, env=None, type_env=None):
+            env = env or WDL.Env.Bindings()
+            if type_env is None:
+                type_env = WDL.Env.Bindings()
+                for binding in env:
+                    type_env = type_env.bind(binding.name, binding.value.type)
+            stdlib = LocalStdLib("1.2")
+            ex = WDL.parse_expr(expr, version="1.2").infer_type(type_env, stdlib)
+            self.assertEqual(str(ex.type), "String")
+            return ex.eval(env, stdlib)
+
+        self.assertEqual(str(eval_join('join_paths("/usr", "bin")')), '"/usr/bin"')
+        self.assertEqual(str(eval_join('join_paths("/usr", ["bin", "echo"])')), '"/usr/bin/echo"')
+        self.assertEqual(str(eval_join('join_paths(["/usr", "bin", "echo"])')), '"/usr/bin/echo"')
+        self.assertEqual(str(eval_join('join_paths("usr", "bin")')), '"/work/usr/bin"')
+        self.assertEqual(str(eval_join('join_paths(["usr", "bin", "echo"])')), '"/work/usr/bin/echo"')
+        self.assertEqual(str(eval_join('join_paths("/usr/", "./bin/../bin")')), '"/usr/bin"')
+
+        env = WDL.Env.Bindings().bind("paths", WDL.Value.Array(WDL.Type.String(), []))
+        type_env = WDL.Env.Bindings().bind(
+            "paths", WDL.Type.Array(WDL.Type.String(), nonempty=True)
+        )
+        with self.assertRaises(WDL.Error.EmptyArray):
+            eval_join("join_paths(paths)", env=env, type_env=type_env)
+
+        for expr in (
+            'join_paths("/usr", "/bin")',
+            'join_paths("/usr", ["bin", "/echo"])',
+            'join_paths(["/usr", "/bin"])',
+        ):
+            with self.subTest(expr=expr):
+                with self.assertRaisesRegex(
+                    WDL.Error.EvalError, "only the first path may be absolute"
+                ):
+                    eval_join(expr)
+
+    def test_join_paths_typecheck(self):
+        with self.assertRaises(WDL.Error.NoSuchFunction):
+            self._infer_expr_type('join_paths("/usr", "bin")', version="1.1")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._infer_expr_type("join_paths()", version="1.2")
+        with self.assertRaises(WDL.Error.WrongArity):
+            self._infer_expr_type('join_paths("/usr", "bin", "echo")', version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type("join_paths(1)", version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type('join_paths("/usr", {"x": 1})', version="1.2")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type("join_paths(None)", version="1.2")
+        optional_dir = WDL.Env.Bindings().bind("d", WDL.Type.Directory(optional=True))
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            self._infer_expr_type('join_paths(d, "x")', type_env=optional_dir, version="1.2")
+
     def test_parse_tsv_row_type(self):
         rows = WDL.StdLib._parse_tsv("alpha\tbeta\n")
         self.assertEqual(rows.json, [["alpha", "beta"]])

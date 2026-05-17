@@ -20,7 +20,6 @@ wdl-1.1:
 wdl-1.2:
   xfail:
     # FIXME:
-    - join_paths_task.wdl
     - relative_paths_context.wdl  # issue #869
     - write_tsv_task.wdl
     # Known spec deviations:
