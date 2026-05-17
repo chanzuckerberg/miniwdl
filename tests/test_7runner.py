@@ -89,6 +89,18 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
         assert outp["contents"] == "Alice"
 
+    def test_workflow_join_paths_relative_to_source_directory(self):
+        wdl = R"""
+        version 1.2
+        workflow w {
+            output {
+                String path = join_paths(["subdir", "alice.txt"])
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["path"] == os.path.join(self._dir, "subdir", "alice.txt")
+
     def test_basic_directory(self):
         wdl = R"""
         version development

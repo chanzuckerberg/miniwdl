@@ -385,6 +385,37 @@ class TestStdLib(unittest.TestCase):
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             self._infer_expr_type('join_paths(d, "x")', type_env=optional_dir, version="1.2")
 
+    def test_join_paths_runtime_context_required(self):
+        stdlib = WDL.StdLib.Base("1.2")
+        expr = WDL.parse_expr('join_paths(["relative", "path"])', version="1.2").infer_type(
+            WDL.Env.Bindings(), stdlib
+        )
+        with self.assertRaisesRegex(
+            WDL.Error.EvalError, "relative path resolution requires runtime context"
+        ):
+            expr.eval(WDL.Env.Bindings(), stdlib)
+
+        doc = WDL.parse_document(
+            R"""
+            version 1.2
+            workflow w {
+                output {
+                    String path = join_paths(["relative", "path"])
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        state = WDL.runtime.workflow.StateMachine(
+            self.id(), self._dir, doc.workflow, WDL.Env.Bindings()
+        )
+        stdlib = WDL.runtime.workflow._StdLib("1.2", cfg, state, None)
+        with self.assertRaisesRegex(
+            NotImplementedError, "relative path resolution requires WDL source"
+        ):
+            stdlib._join_paths_default_directory()
+
     def test_parse_tsv_row_type(self):
         rows = WDL.StdLib._parse_tsv("alpha\tbeta\n")
         self.assertEqual(rows.json, [["alpha", "beta"]])

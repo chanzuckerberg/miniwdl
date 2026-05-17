@@ -707,6 +707,12 @@ class _StdLib(StdLib.Base):
             self.cfg, self.state.fspath_allowlist, "read_*() argument", Value.File(filename)
         )
 
+    def _join_paths_default_directory(self) -> str:
+        source = self.state.workflow.pos.abspath
+        if not source or source == "(buffer)":
+            raise NotImplementedError("join_paths() relative path resolution requires WDL source")
+        return os.path.dirname(source)
+
     def _virtualize_filename(self, filename: str) -> str:
         # After write_* generates a file at the workflow level, query CallCache for an existing
         # identical file; if available, then return that copy. This improves cacheability of

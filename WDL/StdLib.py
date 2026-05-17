@@ -250,12 +250,13 @@ class Base:
 
     def _join_paths_default_directory(self) -> str:
         """
-        Directory against which join_paths() resolves relative results.
+        Directory against which join_paths() resolves relative results. Runtime stdlib subclasses
+        should override this with the appropriate context-specific base directory.
 
-        Runtime stdlib subclasses override this to use the task working directory in the execution
-        environment.
+        For task evaluation, this is the task working directory. For workflow evaluation, this is
+        the WDL source directory. The abstract stdlib has no such context.
         """
-        return os.getcwd()
+        raise NotImplementedError("join_paths() relative path resolution requires runtime context")
 
     def _override_static(self, name: str, f: Callable) -> None:
         # replace the implementation lambda of a StaticFunction (keeping its
