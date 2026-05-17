@@ -479,9 +479,7 @@ class _WriteTsv(EagerFunction):
         if len(expr.arguments) < 1:
             raise Error.WrongArity(expr, 1)
         if len(expr.arguments) == 1:
-            try:
-                expr.arguments[0].typecheck(Type.Array(Type.Array(Type.String())))
-            except Error.StaticTypeMismatch:
+            if not self._is_array_array_string(expr.arguments[0].type):
                 if wdl_version_geq(self.stdlib.wdl_version, WDLVersion.V1_2):
                     self._typecheck_struct_array(expr)
                 else:
@@ -499,11 +497,7 @@ class _WriteTsv(EagerFunction):
             raise Error.WrongArity(expr, 3)
         if not wdl_version_geq(self.stdlib.wdl_version, WDLVersion.V1_2):
             raise Error.WrongArity(expr, 1)
-        arg0ty = expr.arguments[0].type
-        is_array_of_arrays = isinstance(arg0ty, Type.Array) and arg0ty.item_type.coerces(
-            Type.Array(Type.String())
-        )
-        if is_array_of_arrays:
+        if self._is_array_array_string(expr.arguments[0].type):
             if len(expr.arguments) != 3:
                 raise Error.WrongArity(expr, 3)
             expr.arguments[1].typecheck(Type.Boolean())
@@ -522,6 +516,10 @@ class _WriteTsv(EagerFunction):
             if len(expr.arguments) == 3:
                 expr.arguments[2].typecheck(Type.Array(Type.String()))
         return Type.File()
+
+    @staticmethod
+    def _is_array_array_string(ty: Type.Base) -> bool:
+        return isinstance(ty, Type.Array) and ty.item_type.coerces(Type.Array(Type.String()))
 
     @staticmethod
     def _typecheck_struct_array(expr: "Expr.Apply") -> None:
@@ -1063,34 +1061,14 @@ class _ReadTsv(EagerFunction):
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) < 1:
             raise Error.WrongArity(expr, 1)
-        try:
-            expr.arguments[0].typecheck(Type.File())
-        except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(
-                expr.arguments[0],
-                Type.File(),
-                expr.arguments[0].type,
-                "for read_tsv argument #1",
-            ) from None
+        expr.arguments[0].typecheck(Type.File())
         if len(expr.arguments) == 1:
             return Type.Array(Type.Array(Type.String()))
-        return self._infer_type_1_2(expr)
-
-    def _infer_type_1_2(self, expr: "Expr.Apply") -> Type.Base:
-        # WDL 1.2 features
         if len(expr.arguments) > 3:
             raise Error.WrongArity(expr, 3)
         if not wdl_version_geq(self.stdlib.wdl_version, WDLVersion.V1_2):
             raise Error.WrongArity(expr, 1)
-        try:
-            expr.arguments[1].typecheck(Type.Boolean())
-        except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(
-                expr.arguments[1],
-                Type.Boolean(),
-                expr.arguments[1].type,
-                "for read_tsv argument #2",
-            ) from None
+        expr.arguments[1].typecheck(Type.Boolean())
         if len(expr.arguments) == 2:
             header = expr.arguments[1].literal
             if not (isinstance(header, Value.Boolean) and header.value):
@@ -1100,45 +1078,29 @@ class _ReadTsv(EagerFunction):
                     expr.arguments[1].type,
                     "read_tsv(File, Boolean) requires literal true",
                 )
-            return Type.Array(Type.Map((Type.String(), Type.String())))
-        try:
+        else:
             expr.arguments[2].typecheck(Type.Array(Type.String()))
-        except Error.StaticTypeMismatch:
-            raise Error.StaticTypeMismatch(
-                expr.arguments[2],
-                Type.Array(Type.String()),
-                expr.arguments[2].type,
-                "for read_tsv argument #3",
-            ) from None
         return Type.Array(Type.Map((Type.String(), Type.String())))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
-        try:
-            file = arguments[0].coerce(Type.File())
-            assert isinstance(file, Value.File)
-            with open(self.stdlib._devirtualize_filename(file.value), "r") as infile:
-                contents = infile.read()
-            if len(arguments) == 1:
-                return _parse_tsv(contents)
-            header = arguments[1].coerce(Type.Boolean())
-            assert isinstance(header, Value.Boolean)
-            if len(arguments) == 2:
-                return _parse_tsv_objects(contents, function_name="read_tsv")
-            keys = arguments[2].coerce(Type.Array(Type.String()))
-            assert isinstance(keys, Value.Array)
-            return _parse_tsv_objects(
-                contents,
-                header=header.value,
-                keys=[key.coerce(Type.String()) for key in keys.value],
-                function_name="read_tsv",
-            )
-        except Error.EvalError:
-            raise
-        except Exception as exn:
-            msg = "function evaluation failed"
-            if str(exn):
-                msg += ", " + str(exn)
-            raise Error.EvalError(expr, msg) from exn
+        file = arguments[0].coerce(Type.File())
+        assert isinstance(file, Value.File)
+        with open(self.stdlib._devirtualize_filename(file.value), "r") as infile:
+            contents = infile.read()
+        if len(arguments) == 1:
+            return _parse_tsv(contents)
+        header = arguments[1].coerce(Type.Boolean())
+        assert isinstance(header, Value.Boolean)
+        if len(arguments) == 2:
+            return _parse_tsv_objects(contents, function_name="read_tsv")
+        keys = arguments[2].coerce(Type.Array(Type.String()))
+        assert isinstance(keys, Value.Array)
+        return _parse_tsv_objects(
+            contents,
+            header=header.value,
+            keys=[key.coerce(Type.String()) for key in keys.value],
+            function_name="read_tsv",
+        )
 
 
 class _SelectFirst(EagerFunction):

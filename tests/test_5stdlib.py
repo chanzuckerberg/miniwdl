@@ -135,7 +135,7 @@ class TestStdLib(unittest.TestCase):
         with open(duplicate, "w") as outfile:
             outfile.write("name\tname\nAlice\t3\n")
         expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(duplicate)))
-        with self.assertRaises(WDL.Error.EvalError):
+        with self.assertRaises(WDL.Error.InputError):
             expr.eval(WDL.Env.Bindings(), stdlib)
 
         expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(table)))
@@ -1273,7 +1273,7 @@ class TestStdLib(unittest.TestCase):
                 Array[Map[String, String]] samples = read_tsv("samples.tsv", false, ["name", "name"])
             }
         }
-        """, expected_exception=WDL.Error.EvalError)
+        """, expected_exception=WDL.Error.InputError)
 
     def test_write_tsv_unit_branches(self):
         class LocalStdLib(WDL.StdLib.Base):
