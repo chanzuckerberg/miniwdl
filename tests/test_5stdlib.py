@@ -1275,6 +1275,197 @@ class TestStdLib(unittest.TestCase):
         }
         """, expected_exception=WDL.Error.EvalError)
 
+    def test_write_tsv_unit_branches(self):
+        class LocalStdLib(WDL.StdLib.Base):
+            def _devirtualize_filename(self, filename: str) -> str:
+                return filename
+
+            def _virtualize_filename(self, filename: str) -> str:
+                return filename
+
+        def infer(expr: str, version: str = "1.2"):
+            stdlib = LocalStdLib(version, write_dir=self._dir)
+            parsed = WDL.parse_expr(expr, version=version).infer_type(
+                WDL.Env.Bindings(), stdlib
+            )
+            return parsed, stdlib
+
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer("write_tsv()")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer("write_tsv([1])")
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('write_tsv([["x"]], true)')
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('write_tsv([["x"]], true, ["h"])', version="1.1")
+        with self.assertRaises(WDL.Error.WrongArity):
+            infer('write_tsv([["x"]], true, ["h"], "extra")')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('write_tsv([["x"]], false, ["h"])')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('write_tsv([["x"]], "true", ["h"])')
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('write_tsv([["x"]], true, [object {x: "y"}])')
+
+        expr, stdlib = infer(
+            'write_tsv([["one", "two"], ["un", "deux"]], true, ["first", "second"])'
+        )
+        out = expr.eval(WDL.Env.Bindings(), stdlib)
+        with open(out.value) as infile:
+            self.assertEqual(infile.read(), "first\tsecond\none\ttwo\nun\tdeux\n")
+
+        expr, stdlib = infer('write_tsv([["one"], ["un", "deux"]], true, ["first"])')
+        with self.assertRaises(WDL.Error.EvalError):
+            expr.eval(WDL.Env.Bindings(), stdlib)
+
+    def test_write_tsv_headers(self):
+        class LocalStdLib(WDL.StdLib.Base):
+            def _devirtualize_filename(self, filename: str) -> str:
+                return filename
+
+            def _virtualize_filename(self, filename: str) -> str:
+                return filename
+
+        def eval_task_outputs(wdl: str, inputs: dict):
+            doc = WDL.parse_document(wdl)
+            doc.typecheck()
+            task = doc.tasks[0]
+            env = WDL.values_from_json(inputs, task.available_inputs, task.required_inputs)
+            stdlib = LocalStdLib(doc.effective_wdl_version, write_dir=self._dir)
+            ans = {}
+            for decl in task.outputs:
+                ans[decl.name] = decl.expr.eval(env, stdlib).coerce(decl.type)
+            outputs = WDL.Env.Bindings()
+            for name, value in ans.items():
+                outputs = outputs.bind(name, value)
+            return WDL.values_to_json(outputs)
+
+        outputs = eval_task_outputs(R"""
+        version 1.2
+        struct Sample {
+            String name
+            Int lane
+            Boolean pass
+        }
+        task test {
+            input {
+                Array[Sample] samples
+            }
+            command {}
+            output {
+                Array[Array[String]] structs_default = read_tsv(write_tsv(samples))
+                Array[Array[String]] structs_no_header = read_tsv(write_tsv(samples, false))
+                Array[Array[String]] structs_header = read_tsv(write_tsv(samples, true))
+                Array[Array[String]] structs_user_header = read_tsv(
+                    write_tsv(samples, true, ["sample_name", "lane_no", "qc"])
+                )
+                Array[Array[String]] structs_ignored_header = read_tsv(
+                    write_tsv(samples, false, ["ignored"])
+                )
+            }
+        }
+        """, {
+            "samples": [
+                {"name": "Alice", "lane": 3, "pass": True},
+                {"name": "Bob", "lane": 4, "pass": False},
+            ]
+        })
+        rows = [["Alice", "3", "true"], ["Bob", "4", "false"]]
+        self.assertEqual(outputs["structs_default"], rows)
+        self.assertEqual(outputs["structs_no_header"], rows)
+        self.assertEqual(outputs["structs_header"], [["name", "lane", "pass"]] + rows)
+        self.assertEqual(
+            outputs["structs_user_header"],
+            [["sample_name", "lane_no", "qc"]] + rows,
+        )
+        self.assertEqual(outputs["structs_ignored_header"], rows)
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(R"""
+        version 1.1
+        struct Sample {
+            String name
+        }
+        task test {
+            input {
+                Array[Sample] samples
+            }
+            command {}
+            output {
+                File table = write_tsv(samples)
+            }
+        }
+        """).typecheck()
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(R"""
+        version 1.2
+        struct Sample {
+            String name
+        }
+        task test {
+            input {
+                Array[Sample] samples
+            }
+            command {}
+            output {
+                File table = write_tsv(samples, "true")
+            }
+        }
+        """).typecheck()
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(R"""
+        version 1.2
+        struct Sample {
+            String name
+        }
+        task test {
+            input {
+                Array[Sample] samples
+            }
+            command {}
+            output {
+                File table = write_tsv(samples, true, [object {x: "y"}])
+            }
+        }
+        """).typecheck()
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(R"""
+        version 1.2
+        struct Bad {
+            Map[String, String] xs
+        }
+        task test {
+            input {
+                Array[Bad] rows
+            }
+            command {}
+            output {
+                File table = write_tsv(rows)
+            }
+        }
+        """).typecheck()
+
+        with self.assertRaises(WDL.Error.EvalError):
+            eval_task_outputs(R"""
+        version 1.2
+        struct Sample {
+            String name
+            Int lane
+        }
+        task test {
+            input {
+                Array[Sample] samples
+            }
+            command {}
+            output {
+                Array[Array[String]] table = read_tsv(write_tsv(samples, true, ["name"]))
+            }
+        }
+        """, {"samples": [{"name": "Alice", "lane": 3}]})
+
     def test_read_json(self):
         outputs = self._test_task(R"""
         version 1.0

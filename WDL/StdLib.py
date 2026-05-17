@@ -134,9 +134,7 @@ class Base:
         static([Type.Array(Type.String())], Type.File(), "write_lines")(
             self._write(_serialize_lines)
         )
-        static([Type.Array(Type.Array(Type.String()))], Type.File(), "write_tsv")(
-            self._write(_serialize_tsv)
-        )
+        self.write_tsv = _WriteTsv(self)
         static([Type.Map((Type.Any(), Type.Any()))], Type.File(), "write_map")(
             self._write(_serialize_map)
         )
@@ -461,16 +459,185 @@ def _serialize_lines(array: Value.Base, outfile: IO[bytes]) -> None:
 
 def _serialize_tsv(v: Value.Base, outfile: IO[bytes]) -> None:
     assert isinstance(v, Value.Array)
-    return _serialize_lines(
-        Value.Array(
-            Type.String(),
-            [
-                Value.String("\t".join([part.coerce(Type.String()).value for part in parts.value]))
-                for parts in v.value
-            ],
-        ),
-        outfile,
-    )
+    lines: List[Value.Base] = []
+    for parts in v.value:
+        assert isinstance(parts, Value.Array)
+        lines.append(
+            Value.String("\t".join([part.coerce(Type.String()).value for part in parts.value]))
+        )
+    _serialize_lines(Value.Array(Type.String(), lines), outfile)
+
+
+class _WriteTsv(EagerFunction):
+    # not StaticFunction due to polymorphic argument types (WDL 1.2)
+    stdlib: Base
+
+    def __init__(self, stdlib: Base) -> None:
+        self.stdlib = stdlib
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) < 1:
+            raise Error.WrongArity(expr, 1)
+        if len(expr.arguments) == 1:
+            try:
+                expr.arguments[0].typecheck(Type.Array(Type.Array(Type.String())))
+            except Error.StaticTypeMismatch:
+                if wdl_version_geq(self.stdlib.wdl_version, WDLVersion.V1_2):
+                    self._typecheck_struct_array(expr)
+                else:
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[0],
+                        Type.Array(Type.Array(Type.String())),
+                        expr.arguments[0].type,
+                        "for write_tsv argument #1",
+                    ) from None
+            return Type.File()
+        return self._infer_type_1_2(expr)
+
+    def _infer_type_1_2(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) > 3:
+            raise Error.WrongArity(expr, 3)
+        if not wdl_version_geq(self.stdlib.wdl_version, WDLVersion.V1_2):
+            raise Error.WrongArity(expr, 1)
+        arg0ty = expr.arguments[0].type
+        is_array_of_arrays = isinstance(arg0ty, Type.Array) and arg0ty.item_type.coerces(
+            Type.Array(Type.String())
+        )
+        if is_array_of_arrays:
+            if len(expr.arguments) != 3:
+                raise Error.WrongArity(expr, 3)
+            expr.arguments[1].typecheck(Type.Boolean())
+            header = expr.arguments[1].literal
+            if not (isinstance(header, Value.Boolean) and header.value):
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[1],
+                    Type.Boolean(),
+                    expr.arguments[1].type,
+                    "write_tsv(Array[Array[String]], Boolean, Array[String]) requires literal true",
+                )
+            expr.arguments[2].typecheck(Type.Array(Type.String()))
+        else:
+            self._typecheck_struct_array(expr)
+            expr.arguments[1].typecheck(Type.Boolean())
+            if len(expr.arguments) == 3:
+                expr.arguments[2].typecheck(Type.Array(Type.String()))
+        return Type.File()
+
+    @staticmethod
+    def _typecheck_struct_array(expr: "Expr.Apply") -> None:
+        arg0ty = expr.arguments[0].type
+        if not (
+            isinstance(arg0ty, Type.Array)
+            and isinstance(arg0ty.item_type, Type.StructInstance)
+            and arg0ty.item_type.members is not None
+        ):
+            raise Error.StaticTypeMismatch(
+                expr.arguments[0],
+                Type.Array(Type.Array(Type.String())),
+                arg0ty,
+                "write_tsv requires Array[Array[String]] or Array[Struct]",
+            )
+        for member_type in arg0ty.item_type.members.values():
+            try:
+                member_type.check(Type.String())
+            except TypeError:
+                raise Error.StaticTypeMismatch(
+                    expr.arguments[0],
+                    Type.Array(Type.Array(Type.String())),
+                    arg0ty,
+                    "write_tsv requires struct members coercible to String",
+                ) from None
+
+    @staticmethod
+    def _tsv_line(row: List[Value.Base]) -> Value.String:
+        return Value.String("\t".join([part.coerce(Type.String()).value for part in row]))
+
+    @classmethod
+    def _serialize_tsv(cls, v: Value.Base, outfile: IO[bytes]) -> None:
+        assert isinstance(v, Value.Array)
+        lines: List[Value.Base] = []
+        for parts in v.value:
+            assert isinstance(parts, Value.Array)
+            lines.append(cls._tsv_line(parts.value))
+        _serialize_lines(Value.Array(Type.String(), lines), outfile)
+
+    @classmethod
+    def _serialize_tsv_with_header(
+        cls,
+        expr: "Expr.Apply",
+        v: Value.Base,
+        header: List[Value.Base],
+        outfile: IO[bytes],
+        function_name: str = "write_tsv",
+    ) -> None:
+        assert isinstance(v, Value.Array)
+        lines: List[Value.Base] = [cls._tsv_line(header)]
+        for parts in v.value:
+            assert isinstance(parts, Value.Array)
+            if len(parts.value) != len(header):
+                raise Error.EvalError(
+                    expr, f"{function_name}(): row length differs from header length"
+                )
+            lines.append(cls._tsv_line(parts.value))
+        _serialize_lines(Value.Array(Type.String(), lines), outfile)
+
+    @classmethod
+    def _serialize_structs_tsv(
+        cls,
+        expr: "Expr.Apply",
+        v: Value.Base,
+        outfile: IO[bytes],
+        *,
+        header: bool = False,
+        keys: Optional[List[Value.Base]] = None,
+        function_name: str = "write_tsv",
+    ) -> None:
+        assert isinstance(v, Value.Array)
+        item_type = v.type.item_type
+        assert isinstance(item_type, Type.StructInstance) and item_type.members is not None
+        member_names = list(item_type.members.keys())
+        lines: List[Value.Base] = []
+        if header:
+            header_values: List[Value.Base] = (
+                keys if keys is not None else [Value.String(key) for key in member_names]
+            )
+            if len(header_values) != len(member_names):
+                raise Error.EvalError(
+                    expr, f"{function_name}(): header length differs from struct field count"
+                )
+            lines.append(cls._tsv_line(header_values))
+        for struct in v.value:
+            assert isinstance(struct, Value.Struct)
+            lines.append(cls._tsv_line([struct.value[key] for key in member_names]))
+        _serialize_lines(Value.Array(Type.String(), lines), outfile)
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        assert isinstance(arguments[0], Value.Array)
+        arg0_type = expr.arguments[0].type
+        assert isinstance(arg0_type, Type.Array)
+        is_struct = isinstance(arg0_type.item_type, Type.StructInstance)
+
+        def serialize(v: Value.Base, outfile: IO[bytes]) -> None:
+            if len(arguments) == 1:
+                if is_struct:
+                    self._serialize_structs_tsv(expr, v, outfile)
+                else:
+                    self._serialize_tsv(v, outfile)
+                return
+            header = arguments[1].coerce(Type.Boolean())
+            assert isinstance(header, Value.Boolean)
+            keys = None
+            if len(arguments) == 3:
+                keys_array = arguments[2].coerce(Type.Array(Type.String()))
+                assert isinstance(keys_array, Value.Array)
+                keys = [key.coerce(Type.String()) for key in keys_array.value]
+            if is_struct:
+                self._serialize_structs_tsv(expr, v, outfile, header=header.value, keys=keys)
+            else:
+                assert keys is not None
+                self._serialize_tsv_with_header(expr, v, keys, outfile)
+
+        return self.stdlib._write(serialize)(arguments[0])
 
 
 def _serialize_map(map: Value.Base, outfile: IO[bytes]) -> None:

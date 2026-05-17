@@ -22,7 +22,6 @@ wdl-1.2:
     # FIXME:
     - join_paths_task.wdl
     - relative_paths_context.wdl  # issue #869
-    - write_tsv_task.wdl
     # Known spec deviations:
     - file_sizes_task.wdl       # expected output is malformed
     - one_mount_point_task.wdl  # issue #868
