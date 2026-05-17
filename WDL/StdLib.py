@@ -2,6 +2,7 @@
 from dataclasses import dataclass, replace
 import math
 import os
+import posixpath
 import json
 import tempfile
 from typing import List, Tuple, Dict, Callable, IO, Optional, Union, Any
@@ -195,6 +196,7 @@ class Base:
             static([Type.String(), Type.String()], Type.String(optional=True))(find)
             static([Type.String(), Type.String()], Type.Boolean())(matches)
             self._pow = _ExponentiationOperator()
+            self.join_paths = _JoinPaths(self)
             self.contains = _Contains()
             self.chunk = _Chunk()
             self.values = _Values()
@@ -243,6 +245,16 @@ class Base:
         """
         # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()
+
+    def _join_paths_default_directory(self) -> str:
+        """
+        Directory against which join_paths() resolves relative results. Runtime stdlib subclasses
+        should override this with the appropriate context-specific base directory.
+
+        For task evaluation, this is the task working directory. For workflow evaluation, this is
+        the WDL source directory. The abstract stdlib has no such context.
+        """
+        raise NotImplementedError("join_paths() relative path resolution requires runtime context")
 
     def _override_static(self, name: str, f: Callable) -> None:
         # replace the implementation lambda of a StaticFunction (keeping its
@@ -1425,6 +1437,73 @@ class _Suffix(EagerFunction):
             Type.String(),
             [Value.String(s.coerce(Type.String()).value + sfx) for s in arguments[1].value],
         )
+
+
+class _JoinPaths(EagerFunction):
+    # String join_paths(Directory, String)
+    # String join_paths(Directory, Array[String]+)
+    # String join_paths(Array[String]+)
+
+    stdlib: Base
+
+    def __init__(self, stdlib: Base) -> None:
+        self.stdlib = stdlib
+
+    def infer_type(self, expr: "Expr.Apply") -> Type.Base:
+        if len(expr.arguments) not in (1, 2):
+            raise Error.WrongArity(expr, 2)
+        if len(expr.arguments) == 1:
+            expr.arguments[0].typecheck(Type.Array(Type.String(), nonempty=True))
+        else:
+            expr.arguments[0].typecheck(Type.Directory())
+            try:
+                expr.arguments[1].typecheck(Type.String())
+            except Error.StaticTypeMismatch:
+                try:
+                    expr.arguments[1].typecheck(Type.Array(Type.String(), nonempty=True))
+                except Error.StaticTypeMismatch:
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[1],
+                        Type.Any(),
+                        expr.arguments[1].type,
+                        "join_paths() argument #2 expects String or Array[String]+",
+                    ) from None
+        return Type.String()
+
+    def _absolute_path(self, parts: List[str]) -> str:
+        assert parts
+        ans = posixpath.normpath(posixpath.join(*parts))
+        if not ans.startswith("/"):
+            ans = posixpath.normpath(
+                posixpath.join(self.stdlib._join_paths_default_directory(), ans)
+            )
+        return ans
+
+    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        if len(arguments) == 1:
+            paths = arguments[0].coerce(Type.Array(Type.String(), nonempty=True))
+            assert isinstance(paths, Value.Array)
+            parts = [path.coerce(Type.String()).value for path in paths.value]
+            relative_from = 1
+        else:
+            directory = arguments[0].coerce(Type.Directory())
+            assert isinstance(directory, Value.Directory)
+            if isinstance(arguments[1], Value.Array):
+                paths = arguments[1].coerce(Type.Array(Type.String(), nonempty=True))
+                assert isinstance(paths, Value.Array)
+                parts = [directory.value] + [
+                    path.coerce(Type.String()).value for path in paths.value
+                ]
+            else:
+                path = arguments[1].coerce(Type.String())
+                assert isinstance(path, Value.String)
+                parts = [directory.value, path.value]
+            relative_from = 1
+        for path in parts[relative_from:]:
+            assert isinstance(path, str)
+            if path.startswith("/"):
+                raise Error.EvalError(expr, "join_paths(): only the first path may be absolute")
+        return Value.String(self._absolute_path(parts))
 
 
 class _Quote(EagerFunction):

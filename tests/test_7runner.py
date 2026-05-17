@@ -68,6 +68,39 @@ class TestDirectoryIO(RunnerTestCase):
         assert isinstance(d, WDL.Value.Directory)
         assert d.value == "foo"
 
+    @unittest.expectedFailure
+    def test_workflow_join_paths_child_of_input_directory(self):
+        # TODO: permit workflow-level File/Directory paths derived from an allowlisted Directory
+        # input, provided the derived path is really within that Directory.
+        wdl = R"""
+        version 1.2
+        workflow w {
+            input {
+                Directory d
+            }
+            output {
+                String contents = read_string(join_paths(d, "alice.txt"))
+            }
+        }
+        """
+        os.makedirs(os.path.join(self._dir, "d"))
+        with open(os.path.join(self._dir, "d/alice.txt"), mode="w") as outfile:
+            print("Alice", file=outfile)
+        outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
+        assert outp["contents"] == "Alice"
+
+    def test_workflow_join_paths_relative_to_source_directory(self):
+        wdl = R"""
+        version 1.2
+        workflow w {
+            output {
+                String path = join_paths(["subdir", "alice.txt"])
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["path"] == os.path.join(self._dir, "subdir", "alice.txt")
+
     def test_basic_directory(self):
         wdl = R"""
         version development

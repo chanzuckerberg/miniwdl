@@ -20,7 +20,6 @@ wdl-1.1:
 wdl-1.2:
   xfail:
     # FIXME:
-    - join_paths_task.wdl
     - relative_paths_context.wdl  # issue #869
     # Known spec deviations:
     - file_sizes_task.wdl       # expected output is malformed
