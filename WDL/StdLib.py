@@ -508,7 +508,11 @@ class _WriteTsv(EagerFunction):
 
     @staticmethod
     def _is_array_array_string(ty: Type.Base) -> bool:
-        return isinstance(ty, Type.Array) and ty.item_type.coerces(Type.Array(Type.String()))
+        return (
+            isinstance(ty, Type.Array)
+            and isinstance(ty.item_type, Type.Array)
+            and ty.item_type.item_type.coerces(Type.String())
+        )
 
     @staticmethod
     def _typecheck_struct_array(expr: "Expr.Apply") -> None:

@@ -1294,6 +1294,8 @@ class TestStdLib(unittest.TestCase):
             infer("write_tsv()")
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             infer("write_tsv([1])")
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            infer('write_tsv(["x"], true, ["h"])')
         with self.assertRaises(WDL.Error.WrongArity):
             infer('write_tsv([["x"]], true)')
         with self.assertRaises(WDL.Error.WrongArity):
