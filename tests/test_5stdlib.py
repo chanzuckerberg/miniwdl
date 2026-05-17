@@ -377,7 +377,9 @@ class TestStdLib(unittest.TestCase):
             self._infer_expr_type('join_paths("/usr", "bin", "echo")', version="1.2")
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             self._infer_expr_type("join_paths(1)", version="1.2")
-        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+        with self.assertRaisesRegex(
+            WDL.Error.StaticTypeMismatch, "expects String or Array\\[String\\]\\+"
+        ):
             self._infer_expr_type('join_paths("/usr", {"x": 1})', version="1.2")
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             self._infer_expr_type("join_paths(None)", version="1.2")

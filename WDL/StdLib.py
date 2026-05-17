@@ -1337,17 +1337,21 @@ class _JoinPaths(EagerFunction):
             try:
                 expr.arguments[1].typecheck(Type.String())
             except Error.StaticTypeMismatch:
-                expr.arguments[1].typecheck(Type.Array(Type.String(), nonempty=True))
+                try:
+                    expr.arguments[1].typecheck(Type.Array(Type.String(), nonempty=True))
+                except Error.StaticTypeMismatch:
+                    raise Error.StaticTypeMismatch(
+                        expr.arguments[1],
+                        Type.Any(),
+                        expr.arguments[1].type,
+                        "join_paths() argument #2 expects String or Array[String]+",
+                    ) from None
         return Type.String()
-
-    @staticmethod
-    def _is_absolute(path: str) -> bool:
-        return path.startswith("/")
 
     def _absolute_path(self, parts: List[str]) -> str:
         assert parts
         ans = posixpath.normpath(posixpath.join(*parts))
-        if not self._is_absolute(ans):
+        if not ans.startswith("/"):
             ans = posixpath.normpath(
                 posixpath.join(self.stdlib._join_paths_default_directory(), ans)
             )
@@ -1375,7 +1379,7 @@ class _JoinPaths(EagerFunction):
             relative_from = 1
         for path in parts[relative_from:]:
             assert isinstance(path, str)
-            if self._is_absolute(path):
+            if path.startswith("/"):
                 raise Error.EvalError(expr, "join_paths(): only the first path may be absolute")
         return Value.String(self._absolute_path(parts))
 
