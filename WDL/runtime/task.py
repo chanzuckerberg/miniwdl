@@ -437,6 +437,7 @@ def _eval_task_inputs(
         if decl.expr:
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
+                v = _resolve_source_relative_paths(v, decl.type, task, container)
             except Error.RuntimeError as exn:
                 setattr(exn, "job_id", decl.workflow_node_id)
                 raise exn
@@ -451,6 +452,98 @@ def _eval_task_inputs(
         container_env = container_env.bind(decl.name, v)
 
     return container_env
+
+
+def _resolve_source_relative_paths(
+    v: Value.Base, decl_type: Type.Base, task: Tree.Task, container: "TaskContainer"
+) -> Value.Base:
+    """
+    Apply WDL 1.2 source-relative File/Directory semantics to one task input/private declaration.
+
+    Relative paths are resolved against the WDL source directory, mounted into the task container,
+    and rewritten to their container paths. Absolute paths, including already-localized inputs, are
+    left unchanged. Missing optional File?/Directory? values become None.
+    """
+    mount_paths: Set[str] = set()
+
+    try:
+        v = Value.rewrite_paths(
+            v, lambda path: _resolve_source_relative_path(path, task, mount_paths)
+        ).coerce(decl_type)
+    except FileNotFoundError:
+        # Missing relative paths are rewritten to Null first. The coerce() call preserves that for
+        # optional declarations and raises FileNotFoundError for non-optional declarations.
+        raise Error.InputError("Task declaration's source-relative path not found") from None
+
+    # Register the source-relative files for mounting in the container, then rewrite the value to
+    # in-container paths.
+    container.add_paths(mount_paths)
+
+    def map_paths(path: Union[Value.File, Value.Directory]) -> str:
+        p = path.value.rstrip("/")
+        if isinstance(path, Value.Directory):
+            p += "/"
+        if p in container.input_path_map:
+            return container.input_path_map[p]
+        return path.value
+
+    return Value.rewrite_paths(v, map_paths).coerce(decl_type)
+
+
+def _resolve_source_relative_path(
+    path: Union[Value.File, Value.Directory], task: Tree.Task, mount_paths: Set[str]
+) -> Optional[str]:
+    """
+    Resolve one task input/private File or Directory path.
+
+    Absolute paths are returned unchanged because they were either supplied externally or already
+    localized. Relative paths require a local WDL source file, resolve under that file's directory,
+    and are added to mount_paths using TaskContainer.add_paths()'s file/directory convention. A
+    missing relative path returns None so optional File?/Directory? declarations can become Null.
+    """
+    ans = path.value
+
+    if os.path.isabs(ans):
+        return ans
+
+    # Source-relative paths need an actual local WDL file. A parsed buffer or non-local source
+    # doesn't provide a meaningful parent directory.
+    source = task.pos.abspath
+    if not source or source == "(buffer)" or not os.path.isabs(source):
+        raise Error.InputError(
+            "relative File/Directory path in task declaration requires a local WDL source file: "
+            + path.value
+        )
+    source_dir = os.path.realpath(os.path.dirname(source))
+
+    # Normalize symlinks and .. components before validating both type and containment. Missing
+    # paths deliberately return None so optional declarations can become Null.
+    ans = os.path.join(source_dir, ans)
+    if isinstance(path, Value.Directory):
+        ans = os.path.realpath(ans.rstrip("/"))
+        within = path_really_within(ans, source_dir)
+        if within and not os.path.exists(ans):
+            return None
+        if within and not os.path.isdir(ans):
+            raise Error.InputError("Directory path is not a directory: " + path.value)
+        # Preserve TaskContainer's trailing slash convention for Directory mount paths.
+        fspath = ans + "/"
+    else:
+        ans = os.path.realpath(ans)
+        within = path_really_within(ans, source_dir)
+        if within and not os.path.exists(ans):
+            return None
+        if within and not os.path.isfile(ans):
+            raise Error.InputError("File path is not a file: " + path.value)
+        fspath = ans
+    if not within:
+        raise Error.InputError(
+            "File/Directory path in task declaration must reside within WDL source directory"
+            f" {source_dir}: {path.value}"
+        )
+
+    mount_paths.add(fspath)
+    return ans
 
 
 def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
