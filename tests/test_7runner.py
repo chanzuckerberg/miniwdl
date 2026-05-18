@@ -135,6 +135,74 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl)
         assert outp["out"] == "input\nprivate\ndirectory"
 
+    def test_workflow_relative_paths_relative_to_source_directory(self):
+        os.makedirs(os.path.join(self._dir, "data/subdir"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("input", file=outfile)
+        with open(os.path.join(self._dir, "data/private.txt"), mode="w") as outfile:
+            print("private", file=outfile)
+        with open(os.path.join(self._dir, "data/subdir/inside.txt"), mode="w") as outfile:
+            print("directory", file=outfile)
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            input {
+                File input_file = "data/input.txt"
+            }
+            File private_file = "data/private.txt"
+            Directory input_dir = "data/subdir"
+            File? missing_optional = "data/missing.txt"
+            call t {
+                input:
+                    input_file = input_file,
+                    private_file = private_file,
+                    input_dir = input_dir,
+                    missing_optional = missing_optional
+            }
+            output {
+                String out = t.out
+            }
+        }
+        task t {
+            input {
+                File input_file
+                File private_file
+                Directory input_dir
+                File? missing_optional
+            }
+            command <<<
+                set -e
+                cat "~{input_file}" > out.txt
+                cat "~{private_file}" >> out.txt
+                cat "~{input_dir}/inside.txt" >> out.txt
+                if [ -n "~{missing_optional}" ]; then exit 64; fi
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["out"] == "input\nprivate\ndirectory"
+
+    def test_workflow_output_relative_paths_relative_to_source_directory(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/output.txt"), mode="w") as outfile:
+            print("output", file=outfile)
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            output {
+                File out = "data/output.txt"
+                String contents = read_string(out)
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["contents"] == "output"
+
     def test_task_relative_paths_must_stay_within_source_directory(self):
         exn = self._run(
             R"""
@@ -148,6 +216,40 @@ class TestDirectoryIO(RunnerTestCase):
         )
         assert "must reside within WDL source directory" in str(exn)
         assert "../outside.txt" in str(exn)
+
+    def test_workflow_relative_paths_must_stay_within_source_directory(self):
+        exn = self._run(
+            R"""
+            version 1.2
+            workflow w {
+                File f = "../outside.txt"
+                output {
+                    String s = "x"
+                }
+            }
+            """,
+            expected_exception=WDL.Error.InputError,
+        )
+        assert "must reside within WDL source directory" in str(exn)
+        assert "../outside.txt" in str(exn)
+
+    def test_workflow_supplied_input_paths_not_source_relative(self):
+        with open(os.path.join(self._dir, "data.txt"), mode="w") as outfile:
+            print("source directory", file=outfile)
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            input {
+                File f
+            }
+            output {
+                String s = f
+            }
+        }
+        """
+        outp = self._run(wdl, {"f": "data.txt"})
+        assert outp["s"] == "data.txt"
 
     def test_source_relative_path_resolution_branches(self):
         class FakeContainer:
@@ -177,42 +279,42 @@ class TestDirectoryIO(RunnerTestCase):
             print("file", file=outfile)
 
         container = FakeContainer()
-        v = runtime_task._resolve_source_relative_paths(
+        v = runtime_task._resolve_task_source_relative_paths(
             WDL.Value.File("data/file.txt"), WDL.Type.File(), task, container
         )
         assert v.value == "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/file.txt"
 
-        v = runtime_task._resolve_source_relative_paths(
+        v = runtime_task._resolve_task_source_relative_paths(
             WDL.Value.Directory("data/dir"), WDL.Type.Directory(), task, container
         )
         assert v.value == "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/dir/"
 
         abs_file = os.path.join(self._dir, "data/file.txt")
-        v = runtime_task._resolve_source_relative_paths(
+        v = runtime_task._resolve_task_source_relative_paths(
             WDL.Value.File(abs_file), WDL.Type.File(), task, FakeContainer()
         )
         assert v.value == abs_file
 
-        v = runtime_task._resolve_source_relative_paths(
+        v = runtime_task._resolve_task_source_relative_paths(
             WDL.Value.File("data/missing.txt"), WDL.Type.File(optional=True), task, FakeContainer()
         )
         assert isinstance(v, WDL.Value.Null)
 
         with self.assertRaisesRegex(WDL.Error.InputError, "path not found"):
-            runtime_task._resolve_source_relative_paths(
+            runtime_task._resolve_task_source_relative_paths(
                 WDL.Value.File("data/missing.txt"), WDL.Type.File(), task, FakeContainer()
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "File path is not a file"):
-            runtime_task._resolve_source_relative_paths(
+            runtime_task._resolve_task_source_relative_paths(
                 WDL.Value.File("data/dir"), WDL.Type.File(), task, FakeContainer()
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "Directory path is not a directory"):
-            runtime_task._resolve_source_relative_paths(
+            runtime_task._resolve_task_source_relative_paths(
                 WDL.Value.Directory("data/file.txt"), WDL.Type.Directory(), task, FakeContainer()
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "requires a local WDL source file"):
             doc = WDL.parse_document("version 1.2\ntask t { command {} }")
-            runtime_task._resolve_source_relative_paths(
+            runtime_task._resolve_task_source_relative_paths(
                 WDL.Value.File("data/file.txt"), WDL.Type.File(), doc.tasks[0], FakeContainer()
             )
 

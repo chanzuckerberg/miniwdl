@@ -47,6 +47,7 @@ from .. import Env, Type, Value, Tree, StdLib, Error
 from .task import (
     run_local_task,
     _fspaths,
+    _resolve_decl_source_relative_paths,
     link_outputs,
     _add_downloadable_defaults,
     _warn_output_basename_collisions,
@@ -384,6 +385,10 @@ class StateMachine:
             if v is None:
                 if job.node.expr:
                     v = job.node.expr.eval(env, stdlib=stdlib).coerce(job.node.type)
+                    v, source_paths = _resolve_decl_source_relative_paths(
+                        v, job.node.type, job.node, "Workflow declaration"
+                    )
+                    self.fspath_allowlist |= source_paths
                 else:
                     assert job.node.type.optional
                     v = Value.Null()

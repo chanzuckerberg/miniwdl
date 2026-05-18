@@ -437,7 +437,7 @@ def _eval_task_inputs(
         if decl.expr:
             try:
                 v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
-                v = _resolve_source_relative_paths(v, decl.type, task, container)
+                v = _resolve_task_source_relative_paths(v, decl.type, task, container)
             except Error.RuntimeError as exn:
                 setattr(exn, "job_id", decl.workflow_node_id)
                 raise exn
@@ -454,7 +454,7 @@ def _eval_task_inputs(
     return container_env
 
 
-def _resolve_source_relative_paths(
+def _resolve_task_source_relative_paths(
     v: Value.Base, decl_type: Type.Base, task: Tree.Task, container: "TaskContainer"
 ) -> Value.Base:
     """
@@ -464,16 +464,7 @@ def _resolve_source_relative_paths(
     and rewritten to their container paths. Absolute paths, including already-localized inputs, are
     left unchanged. Missing optional File?/Directory? values become None.
     """
-    mount_paths: Set[str] = set()
-
-    try:
-        v = Value.rewrite_paths(
-            v, lambda path: _resolve_source_relative_path(path, task, mount_paths)
-        ).coerce(decl_type)
-    except FileNotFoundError:
-        # Missing relative paths are rewritten to Null first. The coerce() call preserves that for
-        # optional declarations and raises FileNotFoundError for non-optional declarations.
-        raise Error.InputError("Task declaration's source-relative path not found") from None
+    v, mount_paths = _resolve_decl_source_relative_paths(v, decl_type, task, "Task declaration")
 
     # Register the source-relative files for mounting in the container, then rewrite the value to
     # in-container paths.
@@ -490,16 +481,40 @@ def _resolve_source_relative_paths(
     return Value.rewrite_paths(v, map_paths).coerce(decl_type)
 
 
-def _resolve_source_relative_path(
-    path: Union[Value.File, Value.Directory], task: Tree.Task, mount_paths: Set[str]
+def _resolve_decl_source_relative_paths(
+    v: Value.Base, decl_type: Type.Base, source_node: Tree.SourceNode, desc: str
+) -> Tuple[Value.Base, Set[str]]:
+    """
+    Apply WDL 1.2 source-relative File/Directory semantics to one declaration value.
+
+    Relative paths are resolved against the WDL source directory and returned as canonical host
+    paths. Absolute paths are left unchanged. Missing relative paths are rewritten to Null first;
+    the coerce() call preserves that for optional declarations and raises FileNotFoundError for
+    non-optional declarations.
+    """
+    source_paths: Set[str] = set()
+    try:
+        v = Value.rewrite_paths(
+            v, lambda path: _resolve_one_source_relative_path(path, source_node, desc, source_paths)
+        ).coerce(decl_type)
+    except FileNotFoundError:
+        raise Error.InputError(desc + "'s source-relative path not found") from None
+    return v, source_paths
+
+
+def _resolve_one_source_relative_path(
+    path: Union[Value.File, Value.Directory],
+    source_node: Tree.SourceNode,
+    desc: str,
+    source_paths: Set[str],
 ) -> Optional[str]:
     """
-    Resolve one task input/private File or Directory path.
+    Resolve one File or Directory path from a WDL declaration.
 
     Absolute paths are returned unchanged because they were either supplied externally or already
     localized. Relative paths require a local WDL source file, resolve under that file's directory,
-    and are added to mount_paths using TaskContainer.add_paths()'s file/directory convention. A
-    missing relative path returns None so optional File?/Directory? declarations can become Null.
+    and are added to source_paths using the runtime's file/directory path convention. A missing
+    relative path returns None so optional File?/Directory? declarations can become Null.
     """
     ans = path.value
 
@@ -508,10 +523,12 @@ def _resolve_source_relative_path(
 
     # Source-relative paths need an actual local WDL file. A parsed buffer or non-local source
     # doesn't provide a meaningful parent directory.
-    source = task.pos.abspath
+    source = source_node.pos.abspath
     if not source or source == "(buffer)" or not os.path.isabs(source):
         raise Error.InputError(
-            "relative File/Directory path in task declaration requires a local WDL source file: "
+            "relative File/Directory path in "
+            + desc.lower()
+            + " requires a local WDL source file: "
             + path.value
         )
     source_dir = os.path.realpath(os.path.dirname(source))
@@ -538,11 +555,11 @@ def _resolve_source_relative_path(
         fspath = ans
     if not within:
         raise Error.InputError(
-            "File/Directory path in task declaration must reside within WDL source directory"
+            "File/Directory path in " + desc.lower() + " must reside within WDL source directory"
             f" {source_dir}: {path.value}"
         )
 
-    mount_paths.add(fspath)
+    source_paths.add(fspath)
     return ans
 
 
