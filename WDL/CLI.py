@@ -32,6 +32,7 @@ from . import (
     Call,
     Scatter,
     Conditional,
+    Try,
     parse_document,
     copy_source,
     values_from_json,
@@ -365,6 +366,11 @@ def outline(
     # if
     elif isinstance(obj, Conditional):
         print("{}if".format(s), file=file)
+        for elt in obj.body:
+            descend(elt)
+    # try
+    elif isinstance(obj, Try):
+        print("{}try".format(s), file=file)
         for elt in obj.body:
             descend(elt)
     # decl

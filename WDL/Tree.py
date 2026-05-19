@@ -950,7 +950,7 @@ class Scatter(WorkflowSection):
         inner_outputs: Env.Bindings[Type.Base] = Env.Bindings()
         for elt in self.body:
             if not isinstance(elt, Decl):
-                assert isinstance(elt, (Call, Scatter, Conditional))
+                assert isinstance(elt, (Call, WorkflowSection))
                 inner_outputs = Env.merge(elt.effective_outputs, inner_outputs)
 
         def arrayize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
@@ -1030,6 +1030,48 @@ class Conditional(WorkflowSection):
         yield from _expr_workflow_node_dependencies(self.expr)
 
 
+class Try(WorkflowSection):
+    """Experimental workflow try section"""
+
+    def __init__(self, pos: SourcePosition, body: List[WorkflowNode]) -> None:
+        super().__init__(body, "try-L{}C{}".format(pos.line, pos.column), pos)
+
+    def add_to_type_env(
+        self, struct_types: Env.Bindings[Dict[str, Type.Base]], type_env: Env.Bindings[Type.Base]
+    ) -> Env.Bindings[Type.Base]:
+        inner_type_env: Env.Bindings[Type.Base] = Env.Bindings()
+        for elt in self.body:
+            inner_type_env = elt.add_to_type_env(struct_types, inner_type_env)
+
+        def optionalize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            return Env.Binding(
+                binding.name,
+                binding.value.copy(optional=True),
+                self.gathers[binding.info.workflow_node_id],
+            )
+
+        return Env.merge(inner_type_env.map(optionalize), type_env)
+
+    @property
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        inner_outputs: Env.Bindings[Type.Base] = Env.Bindings()
+        for elt in self.body:
+            if isinstance(elt, (Call, WorkflowSection)):
+                inner_outputs = Env.merge(elt.effective_outputs, inner_outputs)
+
+        def optionalize(binding: Env.Binding[Type.Base]) -> Env.Binding[Type.Base]:
+            return Env.Binding(
+                binding.name,
+                binding.value.copy(optional=True),
+                self.gathers[binding.info.workflow_node_id],
+            )
+
+        return inner_outputs.map(optionalize)
+
+    def _workflow_node_dependencies(self) -> Iterable[str]:
+        return []
+
+
 class Workflow(SourceNode):
     name: str
     ":type: str"
@@ -1038,7 +1080,7 @@ class Workflow(SourceNode):
 
     Declarations in the ``input{}`` workflow section, if it's present"""
     body: List[WorkflowNode]
-    """:type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional]]
+    """:type: List[Union[WDL.Tree.Decl,WDL.Tree.Call,WDL.Tree.Scatter,WDL.Tree.Conditional,WDL.Tree.Try]]
 
     Workflow body in between ``input{}`` and ``output{}`` sections, if any
     """
@@ -1769,6 +1811,8 @@ def _build_workflow_type_env(
         )
         if not self.expr.type.coerces(Type.Boolean()):
             raise Error.StaticTypeMismatch(self.expr, Type.Boolean(), self.expr.type)
+    elif isinstance(self, Try):
+        pass
     else:
         assert False
 
