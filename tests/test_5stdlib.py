@@ -454,10 +454,36 @@ class TestStdLib(unittest.TestCase):
             ),
             os.path.join(input_dir, "alice.txt"),
         )
+        self.assertIsNone(
+            check(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.File(os.path.join(input_dir, "missing.txt")),
+                null_if_missing=True,
+            )
+        )
+        self.assertIsNone(
+            check(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.Directory(os.path.join(input_dir, "missing_dir")),
+                null_if_missing=True,
+            )
+        )
         with self.assertRaises(WDL.Error.InputError):
             check(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "missing.txt")))
         with self.assertRaises(WDL.Error.InputError):
             check(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "subdir")))
+        with self.assertRaises(WDL.Error.InputError):
+            check(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.File(os.path.join(input_dir, "subdir")),
+                null_if_missing=True,
+            )
         with self.assertRaises(WDL.Error.InputError):
             check(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "owned.txt")))
         with self.assertRaises(WDL.Error.InputError):
@@ -469,6 +495,8 @@ class TestStdLib(unittest.TestCase):
             )
         with self.assertRaises(WDL.Error.InputError):
             check(cfg, allowlist, "test", WDL.Value.File(outside))
+        with self.assertRaises(WDL.Error.InputError):
+            check(cfg, allowlist, "test", WDL.Value.File(outside), null_if_missing=True)
 
     def test_workflow_allowlisted_input_directory_url_children(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
@@ -1114,6 +1142,8 @@ class TestStdLib(unittest.TestCase):
             Directory dir2
             Directory? nulldir
             Float dir_child_size = size(join_paths(dir1, "alice.txt"), "B")
+            Directory input_subdir = join_paths(dir2, "sub")
+            Float input_subdir_size = size(input_subdir, "B")
             Array[File]? maybe_files = None
             Map[String, Pair[Int, File?]] nested_files = {
                 "a": (10, files[0]),
@@ -1152,6 +1182,7 @@ class TestStdLib(unittest.TestCase):
                 Float duplicate_file_size = size([files[0], files[0]], "B")
                 Float duplicate_dir_size = size([dir1, dir1], "B")
                 Float dir_child_size_out = dir_child_size
+                Float input_subdir_size_out = input_subdir_size
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
@@ -1182,6 +1213,7 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["duplicate_file_size"], 14)
         self.assertEqual(outputs["duplicate_dir_size"], 28)
         self.assertEqual(outputs["dir_child_size_out"], 6)
+        self.assertEqual(outputs["input_subdir_size_out"], 4)
 
         self._test_task(R"""
         version 1.0

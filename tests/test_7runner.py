@@ -70,7 +70,7 @@ class TestDirectoryIO(RunnerTestCase):
 
     def test_workflow_join_paths_child_of_input_directory(self):
         # Testing workflow-level use of File residing within a Directory input
-        # (the File is not itself an explicit input)
+        # (the File is not itself an explicit input); regression test for issue #869.
         wdl = R"""
         version 1.2
         workflow w {
@@ -79,14 +79,98 @@ class TestDirectoryIO(RunnerTestCase):
             }
             output {
                 String contents = read_string(join_paths(d, "alice.txt"))
+                Directory subdir = join_paths(d, "sub")
+                String subdir_contents = read_string(join_paths(subdir, "carol.txt"))
+                File? missing_file = join_paths(d, "missing.txt")
+                Directory? missing_dir = join_paths(d, "missing_dir")
             }
         }
         """
-        os.makedirs(os.path.join(self._dir, "d"))
+        os.makedirs(os.path.join(self._dir, "d/sub"))
         with open(os.path.join(self._dir, "d/alice.txt"), mode="w") as outfile:
             print("Alice", file=outfile)
+        with open(os.path.join(self._dir, "d/sub/carol.txt"), mode="w") as outfile:
+            print("Carol", file=outfile)
         outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
         assert outp["contents"] == "Alice"
+        assert os.path.realpath(outp["subdir"]) == os.path.realpath(os.path.join(self._dir, "d/sub"))
+        assert outp["subdir_contents"] == "Carol"
+        assert outp["missing_file"] is None
+        assert outp["missing_dir"] is None
+
+        outp = self._run(R"""
+        version 1.2
+        task t {
+            input {
+                File f
+                Directory sub
+                File? missing_file
+                Directory? missing_dir
+            }
+            command {}
+            output {
+                String contents = read_string(f)
+                String subdir_contents = read_string(join_paths(sub, "carol.txt"))
+                File? missing_file_out = missing_file
+                Directory? missing_dir_out = missing_dir
+            }
+        }
+        workflow w {
+            input {
+                Directory d
+            }
+            call t {
+                input:
+                    f = join_paths(d, "alice.txt"),
+                    sub = join_paths(d, "sub"),
+                    missing_file = join_paths(d, "missing.txt"),
+                    missing_dir = join_paths(d, "missing_dir")
+            }
+            output {
+                String contents = t.contents
+                String subdir_contents = t.subdir_contents
+                File? missing_file = t.missing_file_out
+                Directory? missing_dir = t.missing_dir_out
+            }
+        }
+        """, {"d": os.path.join(self._dir, "d")})
+        assert outp["contents"] == "Alice"
+        assert outp["subdir_contents"] == "Carol"
+        assert outp["missing_file"] is None
+        assert outp["missing_dir"] is None
+
+        exn = self._run(R"""
+        version 1.2
+        workflow w {
+            input {
+                Directory d
+            }
+            output {
+                File missing = join_paths(d, "missing.txt")
+            }
+        }
+        """, {"d": os.path.join(self._dir, "d")}, expected_exception=WDL.Error.InputError)
+        assert getattr(exn, "job_id", None) == "output-missing"
+
+        exn = self._run(R"""
+        version 1.2
+        task t {
+            input {
+                File missing
+            }
+            command {}
+        }
+        workflow w {
+            input {
+                Directory d
+            }
+            call t {
+                input:
+                    missing = join_paths(d, "missing.txt")
+            }
+        }
+        """, {"d": os.path.join(self._dir, "d")}, expected_exception=WDL.Error.InputError)
+        assert getattr(exn, "job_id", None) == "call-t"
 
     def test_workflow_join_paths_relative_to_source_directory(self):
         wdl = R"""
