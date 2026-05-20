@@ -836,7 +836,14 @@ def _eval_task_outputs(
 
     stdlib = OutputStdLib(task.effective_wdl_version, logger, container)
     outputs: Env.Bindings[Value.Base] = Env.Bindings()
-    for decl in task.outputs:
+
+    # Evaluate outputs in dependency order. Static validation already checked for cycles; this
+    # handles forward references among task outputs.
+    output_decls_by_id, output_decls_adj = Tree._decl_dependency_matrix(task.outputs)
+    output_decls = [output_decls_by_id[did] for did in _util.topsort(output_decls_adj)]
+    assert len(output_decls_by_id) == len(output_decls)
+
+    for decl in output_decls:
         assert decl.expr
         try:
             v = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
