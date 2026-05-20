@@ -435,18 +435,19 @@ class TestStdLib(unittest.TestCase):
         os.symlink(outside_dir, os.path.join(input_dir, "owned_dir"))
 
         allowlist = {input_dir + "/"}
-        check = WDL.runtime.workflow._check_path_allowed
+        normalize = WDL.runtime.workflow._normalize_allowed_path
+        validate = WDL.runtime.workflow._validate_allowed_path
 
         self.assertEqual(
-            check(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "alice.txt"))),
+            normalize(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "alice.txt"))),
             os.path.join(input_dir, "alice.txt"),
         )
         self.assertEqual(
-            check(cfg, allowlist, "test", WDL.Value.Directory(os.path.join(input_dir, "subdir"))),
+            normalize(cfg, allowlist, "test", WDL.Value.Directory(os.path.join(input_dir, "subdir"))),
             os.path.join(input_dir, "subdir"),
         )
         self.assertEqual(
-            check(
+            normalize(
                 cfg,
                 allowlist,
                 "test",
@@ -454,8 +455,17 @@ class TestStdLib(unittest.TestCase):
             ),
             os.path.join(input_dir, "alice.txt"),
         )
+        self.assertEqual(
+            validate(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.File(os.path.join(input_dir, "subdir", "..", "alice.txt")),
+            ),
+            os.path.join(input_dir, "subdir", "..", "alice.txt"),
+        )
         self.assertIsNone(
-            check(
+            normalize(
                 cfg,
                 allowlist,
                 "test",
@@ -464,7 +474,7 @@ class TestStdLib(unittest.TestCase):
             )
         )
         self.assertIsNone(
-            check(
+            validate(
                 cfg,
                 allowlist,
                 "test",
@@ -473,11 +483,11 @@ class TestStdLib(unittest.TestCase):
             )
         )
         with self.assertRaises(WDL.Error.InputError):
-            check(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "missing.txt")))
+            normalize(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "missing.txt")))
         with self.assertRaises(WDL.Error.InputError):
-            check(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "subdir")))
+            normalize(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "subdir")))
         with self.assertRaises(WDL.Error.InputError):
-            check(
+            normalize(
                 cfg,
                 allowlist,
                 "test",
@@ -485,35 +495,35 @@ class TestStdLib(unittest.TestCase):
                 null_if_missing=True,
             )
         with self.assertRaises(WDL.Error.InputError):
-            check(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "owned.txt")))
+            normalize(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "owned.txt")))
         with self.assertRaises(WDL.Error.InputError):
-            check(
+            normalize(
                 cfg,
                 allowlist,
                 "test",
                 WDL.Value.Directory(os.path.join(input_dir, "owned_dir")),
             )
         with self.assertRaises(WDL.Error.InputError):
-            check(cfg, allowlist, "test", WDL.Value.File(outside))
+            normalize(cfg, allowlist, "test", WDL.Value.File(outside))
         with self.assertRaises(WDL.Error.InputError):
-            check(cfg, allowlist, "test", WDL.Value.File(outside), null_if_missing=True)
+            normalize(cfg, allowlist, "test", WDL.Value.File(outside), null_if_missing=True)
 
     def test_workflow_allowlisted_input_directory_url_children(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         setattr(cfg, "_downloaders", ({}, {"foo": object()}))
         allowlist = {"foo://bucket/input/"}
-        check = WDL.runtime.workflow._check_path_allowed
+        normalize = WDL.runtime.workflow._normalize_allowed_path
 
         self.assertEqual(
-            check(cfg, allowlist, "test", WDL.Value.File("foo://bucket/input/alice.txt")),
+            normalize(cfg, allowlist, "test", WDL.Value.File("foo://bucket/input/alice.txt")),
             "foo://bucket/input/alice.txt",
         )
         self.assertEqual(
-            check(cfg, allowlist, "test", WDL.Value.Directory("foo://bucket/input/subdir/")),
+            normalize(cfg, allowlist, "test", WDL.Value.Directory("foo://bucket/input/subdir/")),
             "foo://bucket/input/subdir/",
         )
         with self.assertRaises(WDL.Error.InputError):
-            check(cfg, allowlist, "test", WDL.Value.File("foo://bucket/input2/alice.txt"))
+            normalize(cfg, allowlist, "test", WDL.Value.File("foo://bucket/input2/alice.txt"))
 
     def test_parse_tsv_row_type(self):
         rows = WDL.StdLib._parse_tsv("alpha\tbeta\n")
