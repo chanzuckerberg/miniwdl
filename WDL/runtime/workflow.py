@@ -381,7 +381,8 @@ class StateMachine:
 
         if isinstance(job.node, WorkflowOutputs):
             return Value.rewrite_env_paths(
-                env, lambda v: _check_path_allowed(cfg, self.fspath_allowlist, "workflow output", v)
+                env,
+                lambda v: _normalize_allowed_path(cfg, self.fspath_allowlist, "workflow output", v),
             )
 
         if isinstance(job.node, Tree.Call):
@@ -669,8 +670,12 @@ def _eval_decl(
 
     value = Value.rewrite_paths(
         value,
-        lambda v: _check_path_allowed(
-            cfg, allowlist, f"workflow declaration {decl.name}", v, null_if_missing=True
+        lambda v: _validate_allowed_path(
+            cfg,
+            allowlist,
+            f"workflow declaration {decl.name}",
+            v,
+            null_if_missing=True,
         ),
     )
     try:
@@ -695,7 +700,7 @@ def _postprocess_call_inputs(
     call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
     call_inputs = Value.rewrite_env_paths(
         call_inputs,
-        lambda v: _check_path_allowed(
+        lambda v: _normalize_allowed_path(
             cfg,
             allowlist,
             f"call {call_name} input",
@@ -758,7 +763,7 @@ class _StdLib(StdLib.Base):
             cached = self.cache.get_download(filename)
             if cached:
                 return cached
-        ans = _check_path_allowed(
+        ans = _normalize_allowed_path(
             self.cfg, self.state.fspath_allowlist, "read_*() argument", Value.File(filename)
         )
         assert ans is not None
@@ -803,7 +808,7 @@ class _StdLib(StdLib.Base):
         return filename
 
 
-def _check_path_allowed(
+def _validate_allowed_path(
     cfg: config.Loader,
     allowlist: Set[str],
     desc: str,
@@ -811,16 +816,43 @@ def _check_path_allowed(
     null_if_missing: bool = False,
 ) -> Optional[str]:
     """
-    Check whether a workflow-level File/Directory path may be used.
+    Validate a workflow-level File/Directory path without changing its spelling.
 
-    Exact allowlist entries, downloadable URIs, and children of allowlisted input Directories are
-    accepted. Missing local children return None only when ``null_if_missing`` is set.
+    This is for workflow declarations, where path values may still participate in ordinary WDL
+    equality/key operations before reaching an I/O boundary.
+    """
+    return _normalize_allowed_path(
+        cfg, allowlist, desc, v, null_if_missing=null_if_missing, normalize=False
+    )
+
+
+def _normalize_allowed_path(
+    cfg: config.Loader,
+    allowlist: Set[str],
+    desc: str,
+    v: Union[Value.File, Value.Directory],
+    null_if_missing: bool = False,
+    normalize: bool = True,
+) -> Optional[str]:
+    """
+    Return the path an I/O boundary should use for a workflow File/Directory value.
+
+    The path is permitted when it is already in the workflow allowlist, is a downloadable URI, is
+    nested under an allowlisted input Directory, or is accepted by ``allow_any_input``. Local paths
+    accepted through the latter two cases are checked for existence, expected File/Directory kind,
+    and containment under the input Directory or configured root.
+
+    When ``normalize`` is true, local paths discovered through child-directory or ``allow_any_input``
+    checks are returned as absolute host paths. When false, the same checks run but the original WDL
+    spelling is returned; declaration evaluation uses that mode so path values can still compare
+    equal to later literals before being sent to an I/O boundary. If an otherwise-allowed child path
+    is missing, return None only for optional-path processing via ``null_if_missing``.
     """
     isdir = isinstance(v, Value.Directory)
     fspath = v.value.rstrip("/") + ("/" if isdir else "")
     if fspath in allowlist or downloadable(cfg, fspath, directory=isdir):
         return v.value
-    allowlisted_child, allowlisted_child_path = _check_path_allowed_child(
+    allowlisted_child, allowlisted_child_path = _resolve_allowlisted_directory_child(
         cfg, allowlist, fspath, isdir
     )
     if allowlisted_child:
@@ -830,7 +862,7 @@ def _check_path_allowed(
             raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
         if not allowlisted_child_path:
             raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
-        return allowlisted_child_path
+        return allowlisted_child_path if normalize else v.value
     if not cfg.get_bool("file_io", "allow_any_input"):
         raise Error.InputError(
             desc + " uses file/directory not expressly supplied with workflow inputs"
@@ -844,17 +876,17 @@ def _check_path_allowed(
         raise Error.InputError(
             f"{desc} {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
         )
-    return fspath
+    return fspath if normalize else v.value
 
 
-def _check_path_allowed_child(
+def _resolve_allowlisted_directory_child(
     cfg: config.Loader,
     allowlist: Set[str],
     fspath: str,
     isdir: bool,
 ) -> Tuple[bool, Optional[str]]:
     """
-    Check whether a path is a child of an allowlisted Directory.
+    Resolve a File/Directory path nested beneath an allowlisted input Directory.
 
     Local children must exist with the expected File/Directory kind and resolve inside the parent.
     Remote URI children are checked lexically.
