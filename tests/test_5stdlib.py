@@ -1144,6 +1144,8 @@ class TestStdLib(unittest.TestCase):
             Float dir_child_size = size(join_paths(dir1, "alice.txt"), "B")
             Directory input_subdir = join_paths(dir2, "sub")
             Float input_subdir_size = size(input_subdir, "B")
+            File? missing_input_child = join_paths(dir1, "missing.txt")
+            Directory? missing_input_subdir = join_paths(dir2, "missing_subdir")
             Array[File]? maybe_files = None
             Map[String, Pair[Int, File?]] nested_files = {
                 "a": (10, files[0]),
@@ -1183,6 +1185,8 @@ class TestStdLib(unittest.TestCase):
                 Float duplicate_dir_size = size([dir1, dir1], "B")
                 Float dir_child_size_out = dir_child_size
                 Float input_subdir_size_out = input_subdir_size
+                File? missing_input_child_out = missing_input_child
+                Directory? missing_input_subdir_out = missing_input_subdir
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
@@ -1214,6 +1218,58 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(outputs["duplicate_dir_size"], 28)
         self.assertEqual(outputs["dir_child_size_out"], 6)
         self.assertEqual(outputs["input_subdir_size_out"], 4)
+        self.assertIsNone(outputs["missing_input_child_out"])
+        self.assertIsNone(outputs["missing_input_subdir_out"])
+
+        outputs = self._test_task(R"""
+        version 1.2
+        task hello {
+            input {
+                Directory dir1
+                Directory dir2
+                File? missing_input_child = join_paths(dir1, "missing.txt")
+                Directory? missing_input_subdir = join_paths(dir2, "missing_subdir")
+            }
+            File? missing_private_child = join_paths(dir1, "missing_private.txt")
+            Directory? missing_private_subdir = join_paths(dir2, "missing_private_subdir")
+            command {}
+            output {
+                File? missing_input_child_out = missing_input_child
+                Directory? missing_input_subdir_out = missing_input_subdir
+                File? missing_private_child_out = missing_private_child
+                Directory? missing_private_subdir_out = missing_private_subdir
+            }
+        }
+        """, {
+            "dir1": os.path.join(self._dir, "dir1"),
+            "dir2": os.path.join(self._dir, "dir2"),
+        })
+        self.assertIsNone(outputs["missing_input_child_out"])
+        self.assertIsNone(outputs["missing_input_subdir_out"])
+        self.assertIsNone(outputs["missing_private_child_out"])
+        self.assertIsNone(outputs["missing_private_subdir_out"])
+
+        exn = self._test_task(R"""
+        version 1.2
+        task hello {
+            input {
+                Directory dir1
+                File missing_input_child = join_paths(dir1, "missing.txt")
+            }
+            command {}
+        }
+        """, {"dir1": os.path.join(self._dir, "dir1")}, expected_exception=WDL.Error.InputError)
+        self.assertEqual(getattr(exn, "job_id", None), "decl-missing_input_child")
+
+        exn = self._test_task(R"""
+        version 1.2
+        task hello {
+            Directory dir1
+            File missing_input_child = join_paths(dir1, "missing.txt")
+            command {}
+        }
+        """, {"dir1": os.path.join(self._dir, "dir1")}, expected_exception=WDL.Error.InputError)
+        self.assertEqual(getattr(exn, "job_id", None), "decl-missing_input_child")
 
         self._test_task(R"""
         version 1.0

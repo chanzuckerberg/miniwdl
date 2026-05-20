@@ -8,7 +8,17 @@ import shutil
 import threading
 import typing
 import math
-from typing import Callable, Iterable, Any, Dict, Optional, ContextManager, Set, TYPE_CHECKING
+from typing import (
+    Callable,
+    Iterable,
+    Any,
+    Dict,
+    Optional,
+    ContextManager,
+    Set,
+    Tuple,
+    TYPE_CHECKING,
+)
 from abc import ABC, abstractmethod
 from contextlib import suppress
 from .. import Error, Value, Type, Expr
@@ -510,20 +520,16 @@ class TaskContainer(ABC):
             if container_path == os.path.join(self.container_dir, "stderr.txt"):
                 return self.host_stderr_txt()
             # handle output of an input File or Directory
-            if container_path in self.input_path_map_rev:
-                return self.input_path_map_rev[container_path]
-            # handle output of a File or subDirectory found within an input Directory
-            container_path_components = container_path.strip("/").split("/")
-            for i in range(len(container_path_components) - 1, 5, -1):
-                # 5 == len(['mnt', 'miniwdl_task_container', 'work', '_miniwdl_inputs', '0'])
-                container_path_prefix = "/" + "/".join(container_path_components[:i]) + "/"
-                if container_path_prefix in self.input_path_map_rev:
-                    ans = self.input_path_map_rev[container_path_prefix]
-                    ans += "/".join(container_path_components[i:])
-                    if container_path.endswith("/"):
-                        ans += "/"
-                    assert path_really_within(ans, self.input_path_map_rev[container_path_prefix])
-                    return ans
+            # or a File/subDirectory found within an input Directory
+            found_input, input_host_path = self._input_host_path(container_path)
+            if found_input:
+                isdir = container_path.endswith("/")
+                if input_host_path is None or not (
+                    (isdir and os.path.isdir(input_host_path))
+                    or (not isdir and os.path.isfile(input_host_path))
+                ):
+                    return None
+                return input_host_path
             if inputs_only:
                 raise Error.InputError(
                     "task inputs attempted to use a non-input or non-existent path "
@@ -570,6 +576,38 @@ class TaskContainer(ABC):
             # prevent output of an input mount point
             raise OutputError("unusable output directory: " + container_path)
         return ans
+
+    def _input_host_path(self, container_path: str) -> Tuple[bool, Optional[str]]:
+        """
+        Map an in-container path to its host input path, if it is an input or input Directory child.
+
+        Return ``(False, None)`` when the path is outside input mounts. The mapped host path may be
+        missing; callers decide whether that is allowed.
+        """
+        if not os.path.isabs(container_path):
+            return False, None
+
+        if container_path in self.input_path_map_rev:
+            return True, self.input_path_map_rev[container_path]
+
+        container_path_components = container_path.strip("/").split("/")
+        for i in range(len(container_path_components) - 1, 5, -1):
+            # 5 == len(['mnt', 'miniwdl_task_container', 'work', '_miniwdl_inputs', '0'])
+            container_path_prefix = "/" + "/".join(container_path_components[:i]) + "/"
+            if container_path_prefix not in self.input_path_map_rev:
+                continue
+            host_parent = self.input_path_map_rev[container_path_prefix]
+            host_path = os.path.join(host_parent.rstrip("/"), *container_path_components[i:])
+            if container_path.endswith("/"):
+                host_path += "/"
+            if not path_really_within(host_path, host_parent):
+                raise Error.InputError(
+                    "task inputs attempted to use a non-input or non-existent path "
+                    + container_path
+                )
+            return True, host_path
+
+        return False, None
 
     def host_work_dir(self):
         return os.path.join(

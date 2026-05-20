@@ -266,7 +266,7 @@ class Task(SourceNode):
     postinputs: List[Decl]
     """:type: List[WDL.Tree.Decl]
 
-    Declarations outside of the ``input{}`` task section"""
+    Private declarations outside of the ``input{}`` task section"""
     command: Expr.String
     ":type: WDL.Expr.String"
     outputs: List[Decl]

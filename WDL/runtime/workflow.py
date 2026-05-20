@@ -654,12 +654,10 @@ def _eval_decl(
     stdlib: StdLib.Base,
 ) -> Value.Base:
     """
-    Evaluate a workflow declaration and then validate any File/Directory paths it produced.
+    Evaluate one workflow declaration and check its File/Directory paths.
 
-    Workflow-level declarations run outside a task container, so their File/Directory values must
-    either be explicit workflow inputs, workflow-generated files, remote URI paths, or children of
-    an allowlisted input Directory. Missing child paths are rewritten to Null here so the final
-    type coercion can apply the usual File?/Directory? convention.
+    Missing children of allowlisted input Directories are rewritten to Null before final type
+    coercion, so only File?/Directory? declarations accept them.
     """
     if decl.name in inputs:
         value = inputs[decl.name]
@@ -689,16 +687,10 @@ def _postprocess_call_inputs(
     call_inputs: Env.Bindings[Value.Base],
 ) -> Env.Bindings[Value.Base]:
     """
-    Coerce, validate, and normalize File/Directory paths being passed into a call.
+    Coerce call inputs, then check and normalize their File/Directory paths.
 
-    This mirrors workflow declaration postprocessing for child paths of input Directories, while
-    preserving the historical rule that callee inputs with defaults are treated as optional during
-    call-input assembly. Any File/Directory path normalized to Null is then accepted only when the
-    callee input type permits it.
-
-    The two coercions are intentional: the first converts String paths to File/Directory values so
-    path validation can see them, while the second runs after validation may have rewritten a
-    missing allowlisted child path to Null and enforces that only optional types accept it.
+    The first coercion exposes String paths as File/Directory values. After path checks may rewrite
+    missing input Directory children to Null, the second coercion enforces optionality.
     """
     call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
     call_inputs = Value.rewrite_env_paths(
@@ -721,10 +713,10 @@ def _coerce_call_inputs(
     callee_inputs: Env.Bindings[Tree.Decl], call_inputs: Env.Bindings[Value.Base]
 ) -> Env.Bindings[Value.Base]:
     """
-    Coerce supplied call inputs to their callee declaration types.
+    Coerce call input values to their callee declaration types.
 
-    Inputs with defaults are coerced as optional during workflow scheduling so an explicit Null can
-    still mean "use the default" later in task/subworkflow input processing.
+    Declarations with defaults are treated as optional here so Null can still select the default
+    during task/subworkflow input evaluation.
     """
 
     def coerce_binding(binding: Env.Binding[Value.Base]) -> Env.Binding[Value.Base]:
@@ -819,17 +811,10 @@ def _check_path_allowed(
     null_if_missing: bool = False,
 ) -> Optional[str]:
     """
-    Validate a workflow-level File/Directory path against the runner's file access rules.
+    Check whether a workflow-level File/Directory path may be used.
 
-    Paths are accepted when they are already on the exact allowlist, are downloadable URIs, or are
-    local/remote children of an allowlisted Directory input. Directory values are normalized with a
-    trailing slash for exact allowlist matching. For local child paths, the filesystem entry must
-    exist with the expected kind and its realpath must remain within the parent Directory realpath.
-    Remote child paths are accepted lexically because they can't be inspected here.
-
-    If ``null_if_missing`` is set, a missing local child of an allowlisted Directory returns
-    ``None`` so a later type coercion can apply the optional File?/Directory? convention. Other
-    disallowed paths still raise ``InputError``.
+    Exact allowlist entries, downloadable URIs, and children of allowlisted input Directories are
+    accepted. Missing local children return None only when ``null_if_missing`` is set.
     """
     isdir = isinstance(v, Value.Directory)
     fspath = v.value.rstrip("/") + ("/" if isdir else "")
@@ -869,9 +854,10 @@ def _check_path_allowed_child(
     isdir: bool,
 ) -> Tuple[bool, Optional[str]]:
     """
-    Permit paths nested within an allowlisted Directory. Local paths are checked to exist with the
-    expected kind, and to resolve within the allowlisted Directory; for downloadable URI paths,
-    rely on lexical path containment because we can't inspect them here.
+    Check whether a path is a child of an allowlisted Directory.
+
+    Local children must exist with the expected File/Directory kind and resolve inside the parent.
+    Remote URI children are checked lexically.
     """
     for parent in allowlist:
         if not parent.endswith("/"):
