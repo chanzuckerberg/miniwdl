@@ -218,6 +218,26 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl)
         assert outp["out"] == "input\nprivate\ndirectory"
 
+    def test_task_relative_paths_not_source_relative_before_wdl_1_2(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("source directory", file=outfile)
+
+        wdl = R"""
+        version 1.1
+        task t {
+            File input_file = "data/input.txt"
+            command <<<
+                printf "~{input_file}" > out.txt
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["out"] == "data/input.txt"
+
     def test_workflow_relative_paths_relative_to_source_directory(self):
         os.makedirs(os.path.join(self._dir, "data/subdir"))
         with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
@@ -268,6 +288,25 @@ class TestDirectoryIO(RunnerTestCase):
         """
         outp = self._run(wdl)
         assert outp["out"] == "input\nprivate\ndirectory"
+
+    def test_workflow_relative_paths_not_source_relative_before_wdl_1_2(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("source directory", file=outfile)
+
+        exn = self._run(
+            R"""
+            version 1.1
+            workflow w {
+                File input_file = "data/input.txt"
+                output {
+                    String s = input_file
+                }
+            }
+            """,
+            expected_exception=WDL.Error.InputError,
+        )
+        assert "not expressly supplied" in str(exn)
 
     def test_workflow_output_relative_paths_relative_to_source_directory(self):
         os.makedirs(os.path.join(self._dir, "data"))
@@ -397,6 +436,54 @@ class TestDirectoryIO(RunnerTestCase):
                 WDL.Value.File("data/file.txt"),
                 "Task declaration",
             )
+
+    def test_task_decl_path_source_relative_version_gate(self):
+        class FakeContainer:
+            container_dir = "/mnt/miniwdl_task_container"
+
+            def __init__(self):
+                self.input_path_map = {}
+                self.added_paths = set()
+
+            def _input_host_path(self, _container_path):
+                return False, None
+
+            def add_paths(self, paths):
+                self.added_paths |= paths
+                for path in paths:
+                    self.input_path_map[path] = os.path.join(
+                        self.container_dir,
+                        "work/_miniwdl_inputs/0",
+                        os.path.basename(path.rstrip("/")),
+                    )
+
+        with open(os.path.join(self._dir, "task.wdl"), mode="w") as outfile:
+            outfile.write(
+                R"""
+                version 1.2
+                task t {
+                    File f
+                    command {}
+                }
+                """
+            )
+        task = WDL.load(os.path.join(self._dir, "task.wdl")).tasks[0]
+        with open(os.path.join(self._dir, "data.txt"), mode="w") as outfile:
+            print("file", file=outfile)
+
+        container = FakeContainer()
+        task.effective_wdl_version = "1.1"
+        assert (
+            runtime_task._task_decl_path(task, "f", WDL.Value.File("data.txt"), container)
+            == "data.txt"
+        )
+        assert container.added_paths == set()
+
+        task.effective_wdl_version = "1.2"
+        assert runtime_task._task_decl_path(task, "f", WDL.Value.File("data.txt"), container) == (
+            "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
+        )
+        assert container.added_paths == {os.path.join(self._dir, "data.txt")}
 
     def test_basic_directory(self):
         wdl = R"""

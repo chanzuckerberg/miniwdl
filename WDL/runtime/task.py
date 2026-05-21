@@ -533,6 +533,9 @@ def _task_decl_path(
     if ans is None or ans != v.value:
         return ans
 
+    if not wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
+        return v.value
+
     source_paths: Set[str] = set()
     ans = _resolve_source_relative_decl_path(task, f"task declaration {decl_name}", v, source_paths)
     if ans is None or not source_paths:

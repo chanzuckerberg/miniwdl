@@ -54,6 +54,7 @@ from .task import (
 )
 from .download import able as downloadable, run_cached as download
 from .._util import (
+    WDLVersion,
     write_atomic,
     write_values_json,
     provision_run_dir,
@@ -62,6 +63,7 @@ from .._util import (
     compose_coroutines,
     pathsize,
     path_really_within,
+    wdl_version_geq,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -665,10 +667,11 @@ def _eval_decl(
         value = inputs[decl.name]
     elif decl.expr:
         value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
-        value, source_paths = _resolve_source_relative_decl_paths(
-            decl, value, f"workflow declaration {decl.name}"
-        )
-        allowlist |= source_paths
+        if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
+            value, source_paths = _resolve_source_relative_decl_paths(
+                decl, value, f"workflow declaration {decl.name}"
+            )
+            allowlist |= source_paths
     else:
         assert decl.type.optional
         value = Value.Null()
