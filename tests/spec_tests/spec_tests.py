@@ -44,6 +44,22 @@ def parse_spec_resources(text):
     return resources
 
 
+def parse_spec_outputs(yaml, output_text):
+    """
+    Parse an example output block from the spec, tolerating a missing comma between entries.
+    """
+    try:
+        return yaml.load(output_text), None
+    except Exception as original:
+        repaired = re.sub(r'(["}\]])\n(\s*")', r"\1,\n\2", output_text)
+        if repaired != output_text:
+            try:
+                return yaml.load(repaired), None
+            except Exception:
+                pass
+        return {}, str(original)
+
+
 def parse_spec_for(version):
     """
     Parse SPEC.md and data for a given spec version, yield test cases.
@@ -65,12 +81,9 @@ def parse_spec_for(version):
             m_in = re.search(r"Example input:\s*```json(.*?)```", block, re.DOTALL)
             inputs = yaml.load(m_in.group(1)) if m_in else {}
             m_out = re.search(r"Example output:\s*```json(.*?)```", block, re.DOTALL)
-            output_parse_error = None
-            try:
-                outputs = yaml.load(m_out.group(1)) if m_out else {}
-            except Exception as e:
-                output_parse_error = str(e)
-                outputs = {}
+            outputs, output_parse_error = (
+                parse_spec_outputs(yaml, m_out.group(1)) if m_out else ({}, None)
+            )
             m_conf = re.search(r"Test config:\s*```json(.*?)```", block, re.DOTALL)
             config = yaml.load(m_conf.group(1)) if m_conf else {}
             if "type" not in config:
@@ -148,9 +161,12 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
         is_xfail = True
     # extract spec test-data resources for this test
     for path, contents in case["resources"].items():
-        resource_path = tmp_path / "data" / path
-        resource_path.parent.mkdir(parents=True, exist_ok=True)
-        resource_path.write_text(contents, encoding="utf-8")
+        for resource_path in (
+            tmp_path / "data" / path,
+            tmp_path / case["version"] / "data" / path,
+        ):
+            resource_path.parent.mkdir(parents=True, exist_ok=True)
+            resource_path.write_text(contents, encoding="utf-8")
 
     # dump all WDL example files into version-specific subdirectories so imports resolve
     for other in CASES:
@@ -211,7 +227,7 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
         got = json.loads(out_file.read_text(encoding="utf-8"))["outputs"]
         exclude = set(config.get("exclude_outputs", []))
         for k, v in outputs.items():
-            if k in exclude:
+            if k in exclude or k.rsplit(".", 1)[-1] in exclude:
                 continue
             got_v = _basenameize(got.get(k))
             assert got_v == v, (

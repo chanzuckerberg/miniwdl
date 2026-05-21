@@ -392,8 +392,9 @@ class Null(Base):
         """"""
         if desired_type and not desired_type.optional and not isinstance(desired_type, Type.Any):
             if isinstance(desired_type, (Type.File, Type.Directory)):
-                # This case arises processing task outputs; we convert nonexistent paths to Null
-                # before coercing to the declared output type (+ checking whether it's optional).
+                # This case arises processing task File/Directory declarations; we convert
+                # nonexistent paths to Null before coercing to the declared type, which may fail
+                # if the File/Directory is declared non-optional.
                 raise FileNotFoundError()
             # normally the typechecker should prevent the following cases, but it might have had
             # check_quant=False
