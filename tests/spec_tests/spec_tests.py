@@ -210,6 +210,8 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
     # run
     cmd_env = os.environ.copy()
     cmd_env["PYTHONPATH"] = SPEC_BASE.parent.as_posix() + ":" + cmd_env.get("PYTHONPATH", "")
+    if case["version"] < "wdl-1.2":
+        cmd_env["MINIWDL__FILE_IO__ALLOW_ANY_INPUT"] = "true"
 
     try:
         result = subprocess.run(cmd, env=cmd_env, capture_output=True)

@@ -550,7 +550,7 @@ def _task_decl_path(
 
 
 def _resolve_source_relative_decl_paths(
-    decl: Tree.Decl, value: Value.Base, desc: str, cfg: config.Loader
+    decl: Tree.Decl, value: Value.Base, desc: str, cfg: config.Loader, as_host_path: bool = True
 ) -> Tuple[Value.Base, Set[str]]:
     """
     Resolve relative File/Directory paths in one WDL declaration value.
@@ -558,10 +558,19 @@ def _resolve_source_relative_decl_paths(
     Relative paths require a local WDL source file and are interpreted relative to its parent
     directory. Missing paths are rewritten to Null before final type coercion so optional
     File?/Directory? declarations can become None.
+
+    When ``as_host_path`` is true, relative values are replaced by their resolved host paths. When
+    false, relative paths are still validated and recorded in the returned source-path set, but the
+    WDL values keep their original relative spelling. Workflow declarations use ``as_host_path=False``
+    so File/Directory values can still participate in ordinary WDL operations, such as equality and
+    map lookups, before an I/O boundary needs a host path.
     """
     source_paths: Set[str] = set()
     value = Value.rewrite_paths(
-        value, lambda v: _resolve_source_relative_decl_path(decl, desc, v, source_paths, cfg)
+        value,
+        lambda v: _resolve_source_relative_decl_path(
+            decl, desc, v, source_paths, cfg, as_host_path
+        ),
     )
     try:
         return value.coerce(decl.type), source_paths
@@ -575,12 +584,15 @@ def _resolve_source_relative_decl_path(
     v: Union[Value.File, Value.Directory],
     source_paths: Set[str],
     cfg: config.Loader,
+    as_host_path: bool = True,
 ) -> Optional[str]:
     """
     Resolve one source-relative File/Directory path to a canonical host path.
 
-    Absolute paths are returned unchanged. Relative paths are realpath-normalized, must remain
+    Absolute paths are returned unchanged. Relative paths are resolved with realpath, must remain
     within the WDL source directory, and are recorded using the runtime's file/directory convention.
+    When ``as_host_path`` is true, return the resolved host path for immediate localization. When
+    false, return the original relative value after recording the resolved source path.
     """
     isdir = isinstance(v, Value.Directory)
     if os.path.isabs(v.value) or downloadable(cfg, v.value, directory=isdir):
@@ -613,7 +625,7 @@ def _resolve_source_relative_decl_path(
         )
 
     source_paths.add(ans + ("/" if isdir else ""))
-    return ans
+    return ans if as_host_path else v.value
 
 
 def _task_decl_input_directory_child_path(
@@ -1018,7 +1030,7 @@ def _postprocess_task_output_decl_paths(
     container: "TaskContainer",
 ) -> Value.Base:
     """
-    Log a task output value, then normalize missing File/Directory paths.
+    Log a task output value, then resolve missing File/Directory paths.
     """
     vj = json.dumps(value.json)
     logger.info(

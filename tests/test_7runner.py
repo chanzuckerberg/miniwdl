@@ -10,6 +10,7 @@ import platform
 from testfixtures import log_capture
 from .context import WDL
 from WDL.runtime import task as runtime_task
+from WDL.runtime import workflow as runtime_workflow
 from unittest.mock import patch
 
 class RunnerTestCase(unittest.TestCase):
@@ -325,6 +326,33 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl)
         assert outp["contents"] == "output"
 
+    def test_workflow_source_relative_values_preserved_until_io(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("input", file=outfile)
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            File f = "data/input.txt"
+            File same = "data/input.txt"
+            Map[File, String] labels = { "data/input.txt": "label" }
+            output {
+                String file_value = f
+                String map_key = keys(labels)[0]
+                String lookup = labels[f]
+                Boolean equal = f == same
+                String contents = read_string(f)
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["file_value"] == "data/input.txt"
+        assert outp["map_key"] == "data/input.txt"
+        assert outp["lookup"] == "label"
+        assert outp["equal"]
+        assert outp["contents"] == "input"
+
     def test_task_relative_paths_must_stay_within_source_directory(self):
         exn = self._run(
             R"""
@@ -522,6 +550,64 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl)
         assert outp["downloaded_files"] == ["https://example.com/data/file.txt"]
         assert outp["downloaded_directories"] == ["s3://example-bucket/data/dir/"]
+
+    def test_workflow_source_relative_validate_vs_host_path(self):
+        os.makedirs(os.path.join(self._dir, "data/subdir"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("input", file=outfile)
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        file_host_path = os.path.join(self._dir, "data/input.txt")
+        dir_host_path = os.path.join(self._dir, "data/subdir/")
+        source_directory = os.path.realpath(self._dir)
+        allowlist = {file_host_path, dir_host_path}
+
+        assert (
+            runtime_workflow._validate_allowed_path(
+                cfg,
+                allowlist,
+                "workflow declaration f",
+                WDL.Value.File("data/input.txt"),
+                source_directory=source_directory,
+            )
+            == "data/input.txt"
+        )
+        assert (
+            runtime_workflow._check_allowed_path(
+                cfg,
+                allowlist,
+                "read_*() argument",
+                WDL.Value.File("data/input.txt"),
+                source_directory=source_directory,
+            )
+            == file_host_path
+        )
+        assert (
+            runtime_workflow._check_allowed_path(
+                cfg,
+                allowlist,
+                "call input",
+                WDL.Value.Directory("data/subdir"),
+                source_directory=source_directory,
+            )
+            == os.path.join(self._dir, "data/subdir")
+        )
+
+        with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
+            runtime_workflow._check_allowed_path(
+                cfg,
+                set(),
+                "read_*() argument",
+                WDL.Value.File("data/input.txt"),
+                source_directory=source_directory,
+            )
+        with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
+            runtime_workflow._check_allowed_path(
+                cfg,
+                allowlist,
+                "read_*() argument",
+                WDL.Value.File("data/input.txt"),
+            )
 
     def test_basic_directory(self):
         wdl = R"""
