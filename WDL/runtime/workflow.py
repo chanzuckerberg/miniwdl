@@ -669,7 +669,7 @@ def _eval_decl(
         value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
             value, source_paths = _resolve_source_relative_decl_paths(
-                decl, value, f"workflow declaration {decl.name}"
+                decl, value, f"workflow declaration {decl.name}", cfg
             )
             allowlist |= source_paths
     else:

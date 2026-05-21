@@ -537,7 +537,9 @@ def _task_decl_path(
         return v.value
 
     source_paths: Set[str] = set()
-    ans = _resolve_source_relative_decl_path(task, f"task declaration {decl_name}", v, source_paths)
+    ans = _resolve_source_relative_decl_path(
+        task, f"task declaration {decl_name}", v, source_paths, container.cfg
+    )
     if ans is None or not source_paths:
         return ans
 
@@ -548,7 +550,7 @@ def _task_decl_path(
 
 
 def _resolve_source_relative_decl_paths(
-    decl: Tree.Decl, value: Value.Base, desc: str
+    decl: Tree.Decl, value: Value.Base, desc: str, cfg: config.Loader
 ) -> Tuple[Value.Base, Set[str]]:
     """
     Resolve relative File/Directory paths in one WDL declaration value.
@@ -559,7 +561,7 @@ def _resolve_source_relative_decl_paths(
     """
     source_paths: Set[str] = set()
     value = Value.rewrite_paths(
-        value, lambda v: _resolve_source_relative_decl_path(decl, desc, v, source_paths)
+        value, lambda v: _resolve_source_relative_decl_path(decl, desc, v, source_paths, cfg)
     )
     try:
         return value.coerce(decl.type), source_paths
@@ -572,6 +574,7 @@ def _resolve_source_relative_decl_path(
     desc: str,
     v: Union[Value.File, Value.Directory],
     source_paths: Set[str],
+    cfg: config.Loader,
 ) -> Optional[str]:
     """
     Resolve one source-relative File/Directory path to a canonical host path.
@@ -579,7 +582,8 @@ def _resolve_source_relative_decl_path(
     Absolute paths are returned unchanged. Relative paths are realpath-normalized, must remain
     within the WDL source directory, and are recorded using the runtime's file/directory convention.
     """
-    if os.path.isabs(v.value):
+    isdir = isinstance(v, Value.Directory)
+    if os.path.isabs(v.value) or downloadable(cfg, v.value, directory=isdir):
         return v.value
 
     source = source_node.pos.abspath
@@ -592,7 +596,6 @@ def _resolve_source_relative_decl_path(
         )
     source_dir = os.path.realpath(os.path.dirname(source))
 
-    isdir = isinstance(v, Value.Directory)
     ans = os.path.realpath(os.path.join(source_dir, v.value.rstrip("/") if isdir else v.value))
     within = path_really_within(ans, source_dir)
     if within and not os.path.exists(ans):

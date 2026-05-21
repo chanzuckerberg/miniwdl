@@ -391,43 +391,56 @@ class TestDirectoryIO(RunnerTestCase):
         os.makedirs(os.path.join(self._dir, "data/dir"))
         with open(os.path.join(self._dir, "data/file.txt"), mode="w") as outfile:
             print("file", file=outfile)
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["f"], WDL.Value.File("data/file.txt"), "Task declaration"
+            decls["f"], WDL.Value.File("data/file.txt"), "Task declaration", cfg
         )
         assert v.value == os.path.join(self._dir, "data/file.txt")
         assert paths == {os.path.join(self._dir, "data/file.txt")}
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["d"], WDL.Value.Directory("data/dir"), "Task declaration"
+            decls["d"], WDL.Value.Directory("data/dir"), "Task declaration", cfg
         )
         assert v.value == os.path.join(self._dir, "data/dir")
         assert paths == {os.path.join(self._dir, "data/dir/")}
 
         abs_file = os.path.join(self._dir, "data/file.txt")
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["f"], WDL.Value.File(abs_file), "Task declaration"
+            decls["f"], WDL.Value.File(abs_file), "Task declaration", cfg
         )
         assert v.value == abs_file
         assert paths == set()
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["opt"], WDL.Value.File("data/missing.txt"), "Task declaration"
+            decls["f"], WDL.Value.File("https://example.com/data/file.txt"), "Task declaration", cfg
+        )
+        assert v.value == "https://example.com/data/file.txt"
+        assert paths == set()
+
+        v, paths = runtime_task._resolve_source_relative_decl_paths(
+            decls["d"], WDL.Value.Directory("s3://example-bucket/data/dir/"), "Task declaration", cfg
+        )
+        assert v.value == "s3://example-bucket/data/dir/"
+        assert paths == set()
+
+        v, paths = runtime_task._resolve_source_relative_decl_paths(
+            decls["opt"], WDL.Value.File("data/missing.txt"), "Task declaration", cfg
         )
         assert isinstance(v, WDL.Value.Null)
         assert paths == set()
 
         with self.assertRaisesRegex(WDL.Error.InputError, "path not found"):
             runtime_task._resolve_source_relative_decl_paths(
-                decls["f"], WDL.Value.File("data/missing.txt"), "Task declaration"
+                decls["f"], WDL.Value.File("data/missing.txt"), "Task declaration", cfg
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "File path is not a file"):
             runtime_task._resolve_source_relative_decl_paths(
-                decls["f"], WDL.Value.File("data/dir"), "Task declaration"
+                decls["f"], WDL.Value.File("data/dir"), "Task declaration", cfg
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "Directory path is not a directory"):
             runtime_task._resolve_source_relative_decl_paths(
-                decls["d"], WDL.Value.Directory("data/file.txt"), "Task declaration"
+                decls["d"], WDL.Value.Directory("data/file.txt"), "Task declaration", cfg
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "requires a local WDL source file"):
             doc = WDL.parse_document("version 1.2\ntask t { File f command {} }")
@@ -435,13 +448,24 @@ class TestDirectoryIO(RunnerTestCase):
                 doc.tasks[0].available_inputs["f"],
                 WDL.Value.File("data/file.txt"),
                 "Task declaration",
+                cfg,
             )
+        doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
+        v, paths = runtime_task._resolve_source_relative_decl_paths(
+            doc.tasks[0].available_inputs["d"],
+            WDL.Value.Directory("s3://example-bucket/data/dir/"),
+            "Task declaration",
+            cfg,
+        )
+        assert v.value == "s3://example-bucket/data/dir/"
+        assert paths == set()
 
     def test_task_decl_path_source_relative_version_gate(self):
         class FakeContainer:
             container_dir = "/mnt/miniwdl_task_container"
 
-            def __init__(self):
+            def __init__(self, cfg):
+                self.cfg = cfg
                 self.input_path_map = {}
                 self.added_paths = set()
 
@@ -471,7 +495,7 @@ class TestDirectoryIO(RunnerTestCase):
         with open(os.path.join(self._dir, "data.txt"), mode="w") as outfile:
             print("file", file=outfile)
 
-        container = FakeContainer()
+        container = FakeContainer(WDL.runtime.config.Loader(logging.getLogger(self.id())))
         task.effective_wdl_version = "1.1"
         assert (
             runtime_task._task_decl_path(task, "f", WDL.Value.File("data.txt"), container)
@@ -484,6 +508,20 @@ class TestDirectoryIO(RunnerTestCase):
             "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
         )
         assert container.added_paths == {os.path.join(self._dir, "data.txt")}
+
+    def test_workflow_uri_declarations_not_source_relative(self):
+        wdl = R"""
+        version 1.2
+        workflow w {
+            output {
+                Array[File] downloaded_files = ["https://example.com/data/file.txt"]
+                Array[Directory] downloaded_directories = ["s3://example-bucket/data/dir/"]
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["downloaded_files"] == ["https://example.com/data/file.txt"]
+        assert outp["downloaded_directories"] == ["s3://example-bucket/data/dir/"]
 
     def test_basic_directory(self):
         wdl = R"""
