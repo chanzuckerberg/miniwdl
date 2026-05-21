@@ -422,68 +422,74 @@ class TestDirectoryIO(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["f"], WDL.Value.File("data/file.txt"), "Task declaration", cfg
+            cfg, decls["f"], WDL.Value.File("data/file.txt"), "Task declaration"
         )
         assert v.value == os.path.join(self._dir, "data/file.txt")
         assert paths == {os.path.join(self._dir, "data/file.txt")}
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["d"], WDL.Value.Directory("data/dir"), "Task declaration", cfg
+            cfg, decls["d"], WDL.Value.Directory("data/dir"), "Task declaration"
         )
         assert v.value == os.path.join(self._dir, "data/dir")
         assert paths == {os.path.join(self._dir, "data/dir/")}
 
         abs_file = os.path.join(self._dir, "data/file.txt")
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["f"], WDL.Value.File(abs_file), "Task declaration", cfg
+            cfg, decls["f"], WDL.Value.File(abs_file), "Task declaration"
         )
         assert v.value == abs_file
         assert paths == set()
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["f"], WDL.Value.File("https://example.com/data/file.txt"), "Task declaration", cfg
+            cfg,
+            decls["f"],
+            WDL.Value.File("https://example.com/data/file.txt"),
+            "Task declaration",
         )
         assert v.value == "https://example.com/data/file.txt"
         assert paths == set()
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["d"], WDL.Value.Directory("s3://example-bucket/data/dir/"), "Task declaration", cfg
+            cfg,
+            decls["d"],
+            WDL.Value.Directory("s3://example-bucket/data/dir/"),
+            "Task declaration",
         )
         assert v.value == "s3://example-bucket/data/dir/"
         assert paths == set()
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
-            decls["opt"], WDL.Value.File("data/missing.txt"), "Task declaration", cfg
+            cfg, decls["opt"], WDL.Value.File("data/missing.txt"), "Task declaration"
         )
         assert isinstance(v, WDL.Value.Null)
         assert paths == set()
 
         with self.assertRaisesRegex(WDL.Error.InputError, "path not found"):
             runtime_task._resolve_source_relative_decl_paths(
-                decls["f"], WDL.Value.File("data/missing.txt"), "Task declaration", cfg
+                cfg, decls["f"], WDL.Value.File("data/missing.txt"), "Task declaration"
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "File path is not a file"):
             runtime_task._resolve_source_relative_decl_paths(
-                decls["f"], WDL.Value.File("data/dir"), "Task declaration", cfg
+                cfg, decls["f"], WDL.Value.File("data/dir"), "Task declaration"
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "Directory path is not a directory"):
             runtime_task._resolve_source_relative_decl_paths(
-                decls["d"], WDL.Value.Directory("data/file.txt"), "Task declaration", cfg
+                cfg, decls["d"], WDL.Value.Directory("data/file.txt"), "Task declaration"
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "requires a local WDL source file"):
             doc = WDL.parse_document("version 1.2\ntask t { File f command {} }")
             runtime_task._resolve_source_relative_decl_paths(
+                cfg,
                 doc.tasks[0].available_inputs["f"],
                 WDL.Value.File("data/file.txt"),
                 "Task declaration",
-                cfg,
             )
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
         v, paths = runtime_task._resolve_source_relative_decl_paths(
+            cfg,
             doc.tasks[0].available_inputs["d"],
             WDL.Value.Directory("s3://example-bucket/data/dir/"),
             "Task declaration",
-            cfg,
         )
         assert v.value == "s3://example-bucket/data/dir/"
         assert paths == set()

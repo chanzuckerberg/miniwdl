@@ -538,7 +538,7 @@ def _task_decl_path(
 
     source_paths: Set[str] = set()
     ans = _resolve_source_relative_decl_path(
-        task, f"task declaration {decl_name}", v, source_paths, container.cfg
+        container.cfg, _source_directory(task), f"task declaration {decl_name}", v, source_paths
     )
     if ans is None or not source_paths:
         return ans
@@ -550,7 +550,7 @@ def _task_decl_path(
 
 
 def _resolve_source_relative_decl_paths(
-    decl: Tree.Decl, value: Value.Base, desc: str, cfg: config.Loader, as_host_path: bool = True
+    cfg: config.Loader, decl: Tree.Decl, value: Value.Base, desc: str, as_host_path: bool = True
 ) -> Tuple[Value.Base, Set[str]]:
     """
     Resolve relative File/Directory paths in one WDL declaration value.
@@ -565,11 +565,12 @@ def _resolve_source_relative_decl_paths(
     so File/Directory values can still participate in ordinary WDL operations, such as equality and
     map lookups, before an I/O boundary needs a host path.
     """
+    source_directory = _source_directory(decl)
     source_paths: Set[str] = set()
     value = Value.rewrite_paths(
         value,
         lambda v: _resolve_source_relative_decl_path(
-            decl, desc, v, source_paths, cfg, as_host_path
+            cfg, source_directory, desc, v, source_paths, as_host_path
         ),
     )
     try:
@@ -579,11 +580,11 @@ def _resolve_source_relative_decl_paths(
 
 
 def _resolve_source_relative_decl_path(
-    source_node: Tree.SourceNode,
+    cfg: config.Loader,
+    source_directory: str,
     desc: str,
     v: Union[Value.File, Value.Directory],
     source_paths: Set[str],
-    cfg: config.Loader,
     as_host_path: bool = True,
 ) -> Optional[str]:
     """
@@ -598,18 +599,18 @@ def _resolve_source_relative_decl_path(
     if os.path.isabs(v.value) or downloadable(cfg, v.value, directory=isdir):
         return v.value
 
-    source = source_node.pos.abspath
-    if not source or source == "(buffer)" or not os.path.isabs(source):
+    if not source_directory:
         raise Error.InputError(
             "relative File/Directory path in "
             + desc
             + " requires a local WDL source file: "
             + v.value
         )
-    source_dir = os.path.realpath(os.path.dirname(source))
 
-    ans = os.path.realpath(os.path.join(source_dir, v.value.rstrip("/") if isdir else v.value))
-    within = path_really_within(ans, source_dir)
+    ans = os.path.realpath(
+        os.path.join(source_directory, v.value.rstrip("/") if isdir else v.value)
+    )
+    within = path_really_within(ans, source_directory)
     if within and not os.path.exists(ans):
         return None
     if within and not (os.path.isdir(ans) if isdir else os.path.isfile(ans)):
@@ -620,12 +621,26 @@ def _resolve_source_relative_decl_path(
         raise Error.InputError(
             "File/Directory path in "
             + desc
-            + f" must reside within WDL source directory {source_dir}: "
+            + f" must reside within WDL source directory {source_directory}: "
             + v.value
         )
 
     source_paths.add(ans + ("/" if isdir else ""))
     return ans if as_host_path else v.value
+
+
+def _source_directory(node: Tree.SourceNode) -> str:
+    """
+    Return the local directory that contains a WDL source node, or an empty string.
+
+    Source-relative File/Directory declarations need an explicit local source directory. Parsed
+    buffers and other non-local source locations are represented as an empty string so callers can
+    produce a declaration-specific error only when a relative path actually needs resolution.
+    """
+    source = node.pos.abspath
+    if not source or source == "(buffer)" or not os.path.isabs(source):
+        return ""
+    return os.path.realpath(os.path.dirname(source))
 
 
 def _task_decl_input_directory_child_path(

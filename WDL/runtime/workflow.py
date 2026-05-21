@@ -679,7 +679,7 @@ def _eval_decl(
         value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
             value, source_paths = _resolve_source_relative_decl_paths(
-                decl, value, f"workflow declaration {decl.name}", cfg, as_host_path=False
+                cfg, decl, value, f"workflow declaration {decl.name}", as_host_path=False
             )
             allowlist |= source_paths
     else:
@@ -770,8 +770,8 @@ class _StdLib(StdLib.Base):
 
     def __init__(
         self,
-        wdl_version: str,
         cfg: config.Loader,
+        wdl_version: str,
         state: StateMachine,
         cache: CallCache,
         eval_context: Optional[StdLib.EvalContext] = None,
@@ -1247,7 +1247,7 @@ def _workflow_main_loop(
                 if terminating():
                     raise Terminated()
                 # schedule all runnable calls
-                stdlib = _StdLib(workflow.effective_wdl_version, cfg, state, cache)
+                stdlib = _StdLib(cfg, workflow.effective_wdl_version, state, cache)
                 next_call = state.step(cfg, stdlib)
                 while next_call:
                     call_dir = os.path.join(run_dir, next_call.id)
