@@ -11,7 +11,19 @@ import glob
 import threading
 import shutil
 import regex
-from typing import Tuple, List, Dict, Optional, Callable, Set, Any, Union, TYPE_CHECKING, Generator
+from typing import (
+    Tuple,
+    List,
+    Dict,
+    Optional,
+    Callable,
+    Set,
+    Any,
+    Union,
+    TYPE_CHECKING,
+    Generator,
+    Iterable,
+)
 from contextlib import ExitStack, suppress
 from collections import Counter
 
@@ -417,40 +429,122 @@ def _eval_task_inputs(
         logger.info(_("input", name=b.name, value=(v.json if len(vj) < 4096 else "(((large)))")))
 
     # collect remaining declarations requiring evaluation.
-    decls_to_eval = []
-    for decl in (task.inputs or []) + (task.postinputs or []):
-        if not container_env.has_binding(decl.name):
-            decls_to_eval.append(decl)
-
-    # topsort them according to internal dependencies. prior static validation
-    # should have ensured they're acyclic.
-    decls_by_id, decls_adj = Tree._decl_dependency_matrix(decls_to_eval)
-    decls_to_eval = [decls_by_id[did] for did in _util.topsort(decls_adj)]
-    assert len(decls_by_id) == len(decls_to_eval)
+    decls_to_eval = _task_decl_eval_order(
+        decl
+        for decl in (task.inputs or []) + task.postinputs
+        if not container_env.has_binding(decl.name)
+    )
 
     # evaluate each declaration in that order
     # note: the write_* functions call container.add_paths as a side-effect
     stdlib = InputStdLib(task.effective_wdl_version, logger, container)
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
-        v = Value.Null()
-        if decl.expr:
-            try:
-                v = decl.expr.eval(container_env, stdlib=stdlib).coerce(decl.type)
-            except Error.RuntimeError as exn:
-                setattr(exn, "job_id", decl.workflow_node_id)
-                raise exn
-            except Exception as exn:
-                exn2 = Error.EvalError(decl, str(exn))
-                setattr(exn2, "job_id", decl.workflow_node_id)
-                raise exn2 from exn
-        else:
-            assert decl.type.optional
+        v = _eval_task_decl(
+            logger,
+            decl,
+            container_env,
+            stdlib,
+            lambda value: _postprocess_task_decl_paths(
+                decl,
+                value,
+                lambda w: _task_decl_input_directory_child_path(decl.name, w, container),
+                lambda name: Error.InputError(
+                    f"File/Directory path not found in task declaration {name}"
+                ),
+            ),
+        )
         vj = json.dumps(v.json)
         logger.info(_("eval", name=decl.name, value=(v.json if len(vj) < 4096 else "(((large)))")))
         container_env = container_env.bind(decl.name, v)
 
     return container_env
+
+
+def _task_decl_eval_order(decls: Iterable[Tree.Decl]) -> List[Tree.Decl]:
+    """
+    Topologically sort task declarations for evaluation.
+    """
+    decls_by_id, decls_adj = Tree._decl_dependency_matrix(list(decls))
+    ans = [decls_by_id[did] for did in _util.topsort(decls_adj)]
+    # NOTE: _util.topsort() throws on cycles, but those should have been rejected in static
+    # typechecking prior to this.
+    assert len(decls_by_id) == len(ans)
+    return ans
+
+
+def _eval_task_decl(
+    logger: logging.Logger,
+    decl: Tree.Decl,
+    env: Env.Bindings[Value.Base],
+    stdlib: StdLib.Base,
+    postprocess_paths: Callable[[Value.Base], Value.Base],
+) -> Value.Base:
+    """
+    Evaluate one task declaration and apply File/Directory path rewriting logic (which differs
+    between input/private and output declarations).
+    """
+    try:
+        value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type) if decl.expr else Value.Null()
+        _warn_struct_extra(logger, decl.name, value)
+        return postprocess_paths(value)
+    except Error.RuntimeError as exn:
+        setattr(exn, "job_id", decl.workflow_node_id)
+        raise exn
+    except Exception as exn:
+        exn2 = Error.EvalError(decl, str(exn))
+        setattr(exn2, "job_id", decl.workflow_node_id)
+        raise exn2 from exn
+
+
+def _postprocess_task_decl_paths(
+    decl: Tree.Decl,
+    value: Value.Base,
+    missing_path: Callable[[Union[Value.File, Value.Directory]], Optional[str]],
+    missing_error: Callable[[str], Error.RuntimeError],
+) -> Value.Base:
+    """
+    Replace non-existent File/Directory paths with None (Value.Null), then coerce to the
+    declaration type (which may raise if the declaration is non-optional).
+    """
+    value = Value.rewrite_paths(value, missing_path)
+    try:
+        return value.coerce(decl.type)
+    except FileNotFoundError:  # from Value.Null.coerce(File|Directory)
+        err = missing_error(decl.name)
+        setattr(err, "job_id", decl.workflow_node_id)
+        raise err
+
+
+def _task_decl_input_directory_child_path(
+    decl_name: str, v: Union[Value.File, Value.Directory], container: "TaskContainer"
+) -> Optional[str]:
+    """
+    Check a task File/Directory path formulated by path logic from another input Directory.
+
+    input {
+        Directory d
+    }
+    File f = join_paths(d, "file.txt")
+    Directory? maybe = join_paths(d, "maybe/")
+
+    Existing children must match the declared File/Directory kind. Directory children are returned
+    with the trailing slash expected by TaskContainer. Missing children return None so optional
+    declarations can become Null.
+    """
+    isdir = isinstance(v, Value.Directory)
+    container_path = v.value.rstrip("/") + ("/" if isdir else "")
+    found_input, host_path = container._input_host_path(container_path)
+    if not found_input:
+        return v.value
+    assert host_path is not None
+    if not os.path.exists(host_path.rstrip("/")):
+        return None  # induces to Value.Null()
+    if os.path.isdir(host_path) if isdir else os.path.isfile(host_path):
+        return container_path if isdir else v.value
+    raise Error.InputError(
+        f"task declaration {decl_name} uses file/directory with the wrong type: " + v.value
+    )
 
 
 def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
@@ -787,79 +881,94 @@ def _eval_task_outputs(
                     )
                 )
 
-    # Helpers to rewrite File/Directory from in-container paths to host paths
-    # First pass -- convert nonexistent output paths to None/Null
-    def rewriter1(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
-        container_path = v.value
-        if isinstance(v, Value.Directory) and not container_path.endswith("/"):
-            container_path += "/"
-        if container.host_path(container_path) is None:
-            logger.warning(
-                _(
-                    "output path not found in container (error unless declared type is optional)",
-                    output=output_name,
-                    path=container_path,
-                )
-            )
-            return None
-        return v.value
-
-    # Second pass -- convert in-container paths to host paths
-    def rewriter2(v: Union[Value.File, Value.Directory], output_name: str) -> Optional[str]:
-        container_path = v.value
-        if isinstance(v, Value.Directory) and not container_path.endswith("/"):
-            container_path += "/"
-        host_path = container.host_path(container_path)
-        assert host_path is not None
-        if isinstance(v, Value.Directory):
-            if host_path.endswith("/"):
-                host_path = host_path[:-1]
-            _check_directory(host_path, output_name)
-            logger.debug(_("output dir", container=container_path, host=host_path))
-        else:
-            logger.debug(_("output file", container=container_path, host=host_path))
-        return host_path
-
     stdlib = OutputStdLib(task.effective_wdl_version, logger, container)
     outputs: Env.Bindings[Value.Base] = Env.Bindings()
-    for decl in task.outputs:
+
+    # evaluate output declarations in dependency order
+    for decl in _task_decl_eval_order(task.outputs):
         assert decl.expr
+        # evaluate and check existence of in-container File/Directory output paths (tolerating
+        # non-existence for optional outputs); bind to env for subsequent decls
+        v = _eval_task_decl(
+            logger,
+            decl,
+            env,
+            stdlib,
+            lambda value: _postprocess_task_output_decl_paths(logger, decl, value, container),
+        )
+        env = env.bind(decl.name, v)
+
+        # rewrite in-container File/Directory paths to host paths, bind in outputs env
         try:
-            v = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
+            v = Value.rewrite_paths(
+                v, lambda w: _task_output_host_path(logger, decl.name, w, container)
+            )
         except Error.RuntimeError as exn:
             setattr(exn, "job_id", decl.workflow_node_id)
             raise exn
-        except Exception as exn:
-            exn2 = Error.EvalError(decl, str(exn))
-            setattr(exn2, "job_id", decl.workflow_node_id)
-            raise exn2 from exn
-        _warn_struct_extra(logger, decl.name, v)
-        vj = json.dumps(v.json)
-        logger.info(
-            _("output", name=decl.name, value=(v.json if len(vj) < 4096 else "(((large)))"))
-        )
-
-        # Now, a delicate sequence for postprocessing File outputs (including Files nested within
-        # compound values)
-
-        # First convert nonexistent paths to None/Null, and bind this in the environment for
-        # evaluating subsequent output expressions.
-        v = Value.rewrite_paths(v, lambda w: rewriter1(w, decl.name))
-        env = env.bind(decl.name, v)
-        # check if any nonexistent paths were provided for (non-optional) File/Directory types
-        # Value.Null.coerce has a special behavior for us to raise FileNotFoundError for a
-        # non-optional File/Directory type.
-        try:
-            v = v.coerce(decl.type)
-        except FileNotFoundError:
-            err = OutputError("File/Directory path not found in task output " + decl.name)
-            setattr(err, "job_id", decl.workflow_node_id)
-            raise err
-        # Rewrite in-container paths to host paths
-        v = Value.rewrite_paths(v, lambda w: rewriter2(w, decl.name))
         outputs = outputs.bind(decl.name, v)
 
     return outputs
+
+
+def _postprocess_task_output_decl_paths(
+    logger: logging.Logger,
+    decl: Tree.Decl,
+    value: Value.Base,
+    container: "TaskContainer",
+) -> Value.Base:
+    """
+    Log a task output value, then normalize missing File/Directory paths.
+    """
+    vj = json.dumps(value.json)
+    logger.info(
+        _("output", name=decl.name, value=(value.json if len(vj) < 4096 else "(((large)))"))
+    )
+    return _postprocess_task_decl_paths(
+        decl,
+        value,
+        lambda v: _task_output_missing_path(v, container),
+        lambda name: OutputError("File/Directory path not found in task output " + name),
+    )
+
+
+def _task_output_missing_path(
+    v: Union[Value.File, Value.Directory],
+    container: "TaskContainer",
+) -> Optional[str]:
+    """
+    Return None for a task output File/Directory path missing from the container.
+    """
+    container_path = v.value
+    if isinstance(v, Value.Directory) and not container_path.endswith("/"):
+        container_path += "/"
+    if container.host_path(container_path) is None:
+        return None
+    return v.value
+
+
+def _task_output_host_path(
+    logger: logging.Logger,
+    output_name: str,
+    v: Union[Value.File, Value.Directory],
+    container: "TaskContainer",
+) -> Optional[str]:
+    """
+    Rewrite an existing task output File/Directory path from container path to host path.
+    """
+    container_path = v.value
+    if isinstance(v, Value.Directory) and not container_path.endswith("/"):
+        container_path += "/"
+    host_path = container.host_path(container_path)
+    assert host_path is not None
+    if isinstance(v, Value.Directory):
+        if host_path.endswith("/"):
+            host_path = host_path[:-1]
+        _check_directory(host_path, output_name)
+        logger.debug(_("output dir", container=container_path, host=host_path))
+    else:
+        logger.debug(_("output file", container=container_path, host=host_path))
+    return host_path
 
 
 def _check_directory(host_path: str, output_name: str) -> None:

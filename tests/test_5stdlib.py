@@ -418,6 +418,113 @@ class TestStdLib(unittest.TestCase):
         ):
             stdlib._join_paths_default_directory()
 
+    def test_workflow_allowlisted_input_directory_children(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        input_dir = os.path.join(self._dir, "input")
+        os.makedirs(os.path.join(input_dir, "subdir"))
+        with open(os.path.join(input_dir, "alice.txt"), "w") as outfile:
+            print("Alice", file=outfile)
+        with open(os.path.join(input_dir, "subdir", "bob.txt"), "w") as outfile:
+            print("Bob", file=outfile)
+        outside = os.path.join(self._dir, "outside.txt")
+        with open(outside, "w") as outfile:
+            print("outside", file=outfile)
+        outside_dir = os.path.join(self._dir, "outside")
+        os.makedirs(outside_dir)
+        os.symlink(outside, os.path.join(input_dir, "owned.txt"))
+        os.symlink(outside_dir, os.path.join(input_dir, "owned_dir"))
+
+        allowlist = {input_dir + "/"}
+        normalize = WDL.runtime.workflow._normalize_allowed_path
+        validate = WDL.runtime.workflow._validate_allowed_path
+
+        self.assertEqual(
+            normalize(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "alice.txt"))),
+            os.path.join(input_dir, "alice.txt"),
+        )
+        self.assertEqual(
+            normalize(cfg, allowlist, "test", WDL.Value.Directory(os.path.join(input_dir, "subdir"))),
+            os.path.join(input_dir, "subdir"),
+        )
+        self.assertEqual(
+            normalize(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.File(os.path.join(input_dir, "subdir", "..", "alice.txt")),
+            ),
+            os.path.join(input_dir, "alice.txt"),
+        )
+        self.assertEqual(
+            validate(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.File(os.path.join(input_dir, "subdir", "..", "alice.txt")),
+            ),
+            os.path.join(input_dir, "subdir", "..", "alice.txt"),
+        )
+        self.assertIsNone(
+            normalize(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.File(os.path.join(input_dir, "missing.txt")),
+                null_if_missing=True,
+            )
+        )
+        self.assertIsNone(
+            validate(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.Directory(os.path.join(input_dir, "missing_dir")),
+                null_if_missing=True,
+            )
+        )
+        with self.assertRaises(WDL.Error.InputError):
+            normalize(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "missing.txt")))
+        with self.assertRaises(WDL.Error.InputError):
+            normalize(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "subdir")))
+        with self.assertRaises(WDL.Error.InputError):
+            normalize(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.File(os.path.join(input_dir, "subdir")),
+                null_if_missing=True,
+            )
+        with self.assertRaises(WDL.Error.InputError):
+            normalize(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "owned.txt")))
+        with self.assertRaises(WDL.Error.InputError):
+            normalize(
+                cfg,
+                allowlist,
+                "test",
+                WDL.Value.Directory(os.path.join(input_dir, "owned_dir")),
+            )
+        with self.assertRaises(WDL.Error.InputError):
+            normalize(cfg, allowlist, "test", WDL.Value.File(outside))
+        with self.assertRaises(WDL.Error.InputError):
+            normalize(cfg, allowlist, "test", WDL.Value.File(outside), null_if_missing=True)
+
+    def test_workflow_allowlisted_input_directory_url_children(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        setattr(cfg, "_downloaders", ({}, {"foo": object()}))
+        allowlist = {"foo://bucket/input/"}
+        normalize = WDL.runtime.workflow._normalize_allowed_path
+
+        self.assertEqual(
+            normalize(cfg, allowlist, "test", WDL.Value.File("foo://bucket/input/alice.txt")),
+            "foo://bucket/input/alice.txt",
+        )
+        self.assertEqual(
+            normalize(cfg, allowlist, "test", WDL.Value.Directory("foo://bucket/input/subdir/")),
+            "foo://bucket/input/subdir/",
+        )
+        with self.assertRaises(WDL.Error.InputError):
+            normalize(cfg, allowlist, "test", WDL.Value.File("foo://bucket/input2/alice.txt"))
+
     def test_parse_tsv_row_type(self):
         rows = WDL.StdLib._parse_tsv("alpha\tbeta\n")
         self.assertEqual(rows.json, [["alpha", "beta"]])
@@ -1044,6 +1151,11 @@ class TestStdLib(unittest.TestCase):
             Directory dir1
             Directory dir2
             Directory? nulldir
+            Float dir_child_size = size(join_paths(dir1, "alice.txt"), "B")
+            Directory input_subdir = join_paths(dir2, "sub")
+            Float input_subdir_size = size(input_subdir, "B")
+            File? missing_input_child = join_paths(dir1, "missing.txt")
+            Directory? missing_input_subdir = join_paths(dir2, "missing_subdir")
             Array[File]? maybe_files = None
             Map[String, Pair[Int, File?]] nested_files = {
                 "a": (10, files[0]),
@@ -1081,6 +1193,10 @@ class TestStdLib(unittest.TestCase):
                 Float path_struct_size = size(path_struct, "B")
                 Float duplicate_file_size = size([files[0], files[0]], "B")
                 Float duplicate_dir_size = size([dir1, dir1], "B")
+                Float dir_child_size_out = dir_child_size
+                Float input_subdir_size_out = input_subdir_size
+                File? missing_input_child_out = missing_input_child
+                Directory? missing_input_subdir_out = missing_input_subdir
             }
         }
         """, {"files": [ os.path.join(self._dir, "alyssa.txt"),
@@ -1110,6 +1226,60 @@ class TestStdLib(unittest.TestCase):
         # size() sums path occurrences in the WDL value; it doesn't deduplicate equal paths.
         self.assertEqual(outputs["duplicate_file_size"], 14)
         self.assertEqual(outputs["duplicate_dir_size"], 28)
+        self.assertEqual(outputs["dir_child_size_out"], 6)
+        self.assertEqual(outputs["input_subdir_size_out"], 4)
+        self.assertIsNone(outputs["missing_input_child_out"])
+        self.assertIsNone(outputs["missing_input_subdir_out"])
+
+        outputs = self._test_task(R"""
+        version 1.2
+        task hello {
+            input {
+                Directory dir1
+                Directory dir2
+                File? missing_input_child = join_paths(dir1, "missing.txt")
+                Directory? missing_input_subdir = join_paths(dir2, "missing_subdir")
+            }
+            File? missing_private_child = join_paths(dir1, "missing_private.txt")
+            Directory? missing_private_subdir = join_paths(dir2, "missing_private_subdir")
+            command {}
+            output {
+                File? missing_input_child_out = missing_input_child
+                Directory? missing_input_subdir_out = missing_input_subdir
+                File? missing_private_child_out = missing_private_child
+                Directory? missing_private_subdir_out = missing_private_subdir
+            }
+        }
+        """, {
+            "dir1": os.path.join(self._dir, "dir1"),
+            "dir2": os.path.join(self._dir, "dir2"),
+        })
+        self.assertIsNone(outputs["missing_input_child_out"])
+        self.assertIsNone(outputs["missing_input_subdir_out"])
+        self.assertIsNone(outputs["missing_private_child_out"])
+        self.assertIsNone(outputs["missing_private_subdir_out"])
+
+        exn = self._test_task(R"""
+        version 1.2
+        task hello {
+            input {
+                Directory dir1
+                File missing_input_child = join_paths(dir1, "missing.txt")
+            }
+            command {}
+        }
+        """, {"dir1": os.path.join(self._dir, "dir1")}, expected_exception=WDL.Error.InputError)
+        self.assertEqual(getattr(exn, "job_id", None), "decl-missing_input_child")
+
+        exn = self._test_task(R"""
+        version 1.2
+        task hello {
+            Directory dir1
+            File missing_input_child = join_paths(dir1, "missing.txt")
+            command {}
+        }
+        """, {"dir1": os.path.join(self._dir, "dir1")}, expected_exception=WDL.Error.InputError)
+        self.assertEqual(getattr(exn, "job_id", None), "decl-missing_input_child")
 
         self._test_task(R"""
         version 1.0

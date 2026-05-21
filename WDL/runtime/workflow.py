@@ -376,22 +376,13 @@ class StateMachine:
         if isinstance(job.node, Tree.Decl):
             # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
             # the expr
-            v = None
-            try:
-                v = self.inputs.resolve(job.node.name)
-            except KeyError:
-                pass
-            if v is None:
-                if job.node.expr:
-                    v = job.node.expr.eval(env, stdlib=stdlib).coerce(job.node.type)
-                else:
-                    assert job.node.type.optional
-                    v = Value.Null()
+            v = _eval_decl(cfg, self.inputs, self.fspath_allowlist, job.node, env, stdlib)
             return Env.Bindings(Env.Binding(job.node.name, v))
 
         if isinstance(job.node, WorkflowOutputs):
             return Value.rewrite_env_paths(
-                env, lambda v: _check_path_allowed(cfg, self.fspath_allowlist, "workflow output", v)
+                env,
+                lambda v: _normalize_allowed_path(cfg, self.fspath_allowlist, "workflow output", v),
             )
 
         if isinstance(job.node, Tree.Call):
@@ -408,27 +399,8 @@ class StateMachine:
             # they don't have the ? type quantifier)
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
             callee_inputs = job.node.callee.available_inputs
-            call_inputs = call_inputs.map(
-                lambda b: Env.Binding(
-                    b.name,
-                    (
-                        b.value.coerce(
-                            (
-                                callee_inputs[b.name].type.copy(optional=True)
-                                if callee_inputs[b.name].expr
-                                else callee_inputs[b.name].type
-                            )
-                        )
-                        if b.name in callee_inputs
-                        else b.value
-                    ),
-                )
-            )
-            call_inputs = Value.rewrite_env_paths(
-                call_inputs,
-                lambda v: _check_path_allowed(
-                    cfg, self.fspath_allowlist, f"call {call_name} input", v
-                ),
+            call_inputs = _postprocess_call_inputs(
+                cfg, self.fspath_allowlist, call_name, callee_inputs, call_inputs
             )
             # issue CallInstructions
             self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))
@@ -674,6 +646,94 @@ def _gather(
     return ans
 
 
+def _eval_decl(
+    cfg: config.Loader,
+    inputs: Env.Bindings[Value.Base],
+    allowlist: Set[str],
+    decl: Tree.Decl,
+    env: Env.Bindings[Value.Base],
+    stdlib: StdLib.Base,
+) -> Value.Base:
+    """
+    Evaluate one workflow declaration and check its File/Directory paths.
+
+    Missing children of allowlisted input Directories are rewritten to Null before final type
+    coercion, so only File?/Directory? declarations accept them.
+    """
+    if decl.name in inputs:
+        value = inputs[decl.name]
+    elif decl.expr:
+        value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
+    else:
+        assert decl.type.optional
+        value = Value.Null()
+
+    value = Value.rewrite_paths(
+        value,
+        lambda v: _validate_allowed_path(
+            cfg,
+            allowlist,
+            f"workflow declaration {decl.name}",
+            v,
+            null_if_missing=True,
+        ),
+    )
+    try:
+        return value.coerce(decl.type)
+    except FileNotFoundError:
+        raise Error.InputError(f"File/Directory path not found in workflow declaration {decl.name}")
+
+
+def _postprocess_call_inputs(
+    cfg: config.Loader,
+    allowlist: Set[str],
+    call_name: str,
+    callee_inputs: Env.Bindings[Tree.Decl],
+    call_inputs: Env.Bindings[Value.Base],
+) -> Env.Bindings[Value.Base]:
+    """
+    Coerce call inputs, then check and normalize their File/Directory paths.
+
+    The first coercion exposes String paths as File/Directory values. After path checks may rewrite
+    missing input Directory children to Null, the second coercion enforces optionality.
+    """
+    call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
+    call_inputs = Value.rewrite_env_paths(
+        call_inputs,
+        lambda v: _normalize_allowed_path(
+            cfg,
+            allowlist,
+            f"call {call_name} input",
+            v,
+            null_if_missing=True,
+        ),
+    )
+    try:
+        return _coerce_call_inputs(callee_inputs, call_inputs)
+    except FileNotFoundError:
+        raise Error.InputError(f"File/Directory path not found in call {call_name} input")
+
+
+def _coerce_call_inputs(
+    callee_inputs: Env.Bindings[Tree.Decl], call_inputs: Env.Bindings[Value.Base]
+) -> Env.Bindings[Value.Base]:
+    """
+    Coerce call input values to their callee declaration types.
+
+    Declarations with defaults are treated as optional here so Null can still select the default
+    during task/subworkflow input evaluation.
+    """
+
+    def coerce_binding(binding: Env.Binding[Value.Base]) -> Env.Binding[Value.Base]:
+        if binding.name not in callee_inputs:
+            return binding
+        callee_decl = callee_inputs[binding.name]
+        callee_type = callee_decl.type.copy(optional=True) if callee_decl.expr else callee_decl.type
+        return Env.Binding(binding.name, binding.value.coerce(callee_type))
+
+    return call_inputs.map(coerce_binding)
+
+
 class _StdLib(StdLib.Base):
     "checks against & updates the file/directory allowlist for the read_* and write_* functions"
 
@@ -703,9 +763,11 @@ class _StdLib(StdLib.Base):
             cached = self.cache.get_download(filename)
             if cached:
                 return cached
-        return _check_path_allowed(
+        ans = _normalize_allowed_path(
             self.cfg, self.state.fspath_allowlist, "read_*() argument", Value.File(filename)
         )
+        assert ans is not None
+        return ans
 
     def _join_paths_default_directory(self) -> str:
         source = self.state.workflow.pos.abspath
@@ -746,13 +808,61 @@ class _StdLib(StdLib.Base):
         return filename
 
 
-def _check_path_allowed(
-    cfg: config.Loader, allowlist: Set[str], desc: str, v: Union[Value.File, Value.Directory]
-) -> str:
+def _validate_allowed_path(
+    cfg: config.Loader,
+    allowlist: Set[str],
+    desc: str,
+    v: Union[Value.File, Value.Directory],
+    null_if_missing: bool = False,
+) -> Optional[str]:
+    """
+    Validate a workflow-level File/Directory path without changing its spelling.
+
+    This is for workflow declarations, where path values may still participate in ordinary WDL
+    equality/key operations before reaching an I/O boundary.
+    """
+    return _normalize_allowed_path(
+        cfg, allowlist, desc, v, null_if_missing=null_if_missing, normalize=False
+    )
+
+
+def _normalize_allowed_path(
+    cfg: config.Loader,
+    allowlist: Set[str],
+    desc: str,
+    v: Union[Value.File, Value.Directory],
+    null_if_missing: bool = False,
+    normalize: bool = True,
+) -> Optional[str]:
+    """
+    Return the path an I/O boundary should use for a workflow File/Directory value.
+
+    The path is permitted when it is already in the workflow allowlist, is a downloadable URI, is
+    nested under an allowlisted input Directory, or is accepted by ``allow_any_input``. Local paths
+    accepted through the latter two cases are checked for existence, expected File/Directory kind,
+    and containment under the input Directory or configured root.
+
+    When ``normalize`` is true, local paths discovered through child-directory or ``allow_any_input``
+    checks are returned as absolute host paths. When false, the same checks run but the original WDL
+    spelling is returned; declaration evaluation uses that mode so path values can still compare
+    equal to later literals before being sent to an I/O boundary. If an otherwise-allowed child path
+    is missing, return None only for optional-path processing via ``null_if_missing``.
+    """
     isdir = isinstance(v, Value.Directory)
     fspath = v.value.rstrip("/") + ("/" if isdir else "")
     if fspath in allowlist or downloadable(cfg, fspath, directory=isdir):
         return v.value
+    allowlisted_child, allowlisted_child_path = _resolve_allowlisted_directory_child(
+        cfg, allowlist, fspath, isdir
+    )
+    if allowlisted_child:
+        if allowlisted_child_path is None:
+            if null_if_missing:
+                return None
+            raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
+        if not allowlisted_child_path:
+            raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
+        return allowlisted_child_path if normalize else v.value
     if not cfg.get_bool("file_io", "allow_any_input"):
         raise Error.InputError(
             desc + " uses file/directory not expressly supplied with workflow inputs"
@@ -766,7 +876,36 @@ def _check_path_allowed(
         raise Error.InputError(
             f"{desc} {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
         )
-    return fspath
+    return fspath if normalize else v.value
+
+
+def _resolve_allowlisted_directory_child(
+    cfg: config.Loader,
+    allowlist: Set[str],
+    fspath: str,
+    isdir: bool,
+) -> Tuple[bool, Optional[str]]:
+    """
+    Resolve a File/Directory path nested beneath an allowlisted input Directory.
+
+    Local children must exist with the expected File/Directory kind and resolve inside the parent.
+    Remote URI children are checked lexically.
+    """
+    for parent in allowlist:
+        if not parent.endswith("/"):
+            continue
+        if downloadable(cfg, parent, directory=True):
+            if fspath.startswith(parent):
+                return True, fspath.rstrip("/") if isdir else fspath
+            continue
+        if not path_really_within(fspath, parent):
+            continue
+        if not os.path.exists(fspath):
+            return True, None
+        if os.path.isdir(fspath) if isdir else os.path.isfile(fspath):
+            return True, os.path.abspath(fspath).rstrip("/")
+        return True, ""
+    return False, None
 
 
 class _ThreadPools:

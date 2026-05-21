@@ -768,6 +768,18 @@ class TestTaskRunner(unittest.TestCase):
         self.assertEqual(self._test_task(txt, {"x": 22})["yy"], 42)
         self.assertEqual(self._test_task(txt, {"x": 22, "y": 99})["yy"], 99)
 
+        txt = R"""
+        version 1.0
+        task t {
+            command {}
+            output {
+                Int b = a + 1
+                Int a = 1
+            }
+        }
+        """
+        self.assertEqual(self._test_task(txt)["b"], 2)
+
     def test_signal(self):
         # also just covering codepaths for stderr status bar logging:
         with WDL._util.configure_logger(force_tty=True) as set_status, WDL.runtime._statusbar.enable(set_status):
