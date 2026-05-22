@@ -435,19 +435,23 @@ class TestStdLib(unittest.TestCase):
         os.symlink(outside_dir, os.path.join(input_dir, "owned_dir"))
 
         allowlist = {input_dir + "/"}
-        as_host_path = WDL.runtime.workflow._check_allowed_path
+        allowed_path_as_host_path = WDL.runtime.workflow._allowed_path_as_host_path
         validate = WDL.runtime.workflow._validate_allowed_path
 
         self.assertEqual(
-            as_host_path(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "alice.txt"))),
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "alice.txt"))
+            ),
             os.path.join(input_dir, "alice.txt"),
         )
         self.assertEqual(
-            as_host_path(cfg, allowlist, "test", WDL.Value.Directory(os.path.join(input_dir, "subdir"))),
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.Directory(os.path.join(input_dir, "subdir"))
+            ),
             os.path.join(input_dir, "subdir"),
         )
         self.assertEqual(
-            as_host_path(
+            allowed_path_as_host_path(
                 cfg,
                 allowlist,
                 "test",
@@ -465,7 +469,7 @@ class TestStdLib(unittest.TestCase):
             os.path.join(input_dir, "subdir", "..", "alice.txt"),
         )
         self.assertIsNone(
-            as_host_path(
+            allowed_path_as_host_path(
                 cfg,
                 allowlist,
                 "test",
@@ -483,11 +487,15 @@ class TestStdLib(unittest.TestCase):
             )
         )
         with self.assertRaises(WDL.Error.InputError):
-            as_host_path(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "missing.txt")))
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "missing.txt"))
+            )
         with self.assertRaises(WDL.Error.InputError):
-            as_host_path(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "subdir")))
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "subdir"))
+            )
         with self.assertRaises(WDL.Error.InputError):
-            as_host_path(
+            allowed_path_as_host_path(
                 cfg,
                 allowlist,
                 "test",
@@ -495,35 +503,45 @@ class TestStdLib(unittest.TestCase):
                 null_if_missing=True,
             )
         with self.assertRaises(WDL.Error.InputError):
-            as_host_path(cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "owned.txt")))
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.File(os.path.join(input_dir, "owned.txt"))
+            )
         with self.assertRaises(WDL.Error.InputError):
-            as_host_path(
+            allowed_path_as_host_path(
                 cfg,
                 allowlist,
                 "test",
                 WDL.Value.Directory(os.path.join(input_dir, "owned_dir")),
             )
         with self.assertRaises(WDL.Error.InputError):
-            as_host_path(cfg, allowlist, "test", WDL.Value.File(outside))
+            allowed_path_as_host_path(cfg, allowlist, "test", WDL.Value.File(outside))
         with self.assertRaises(WDL.Error.InputError):
-            as_host_path(cfg, allowlist, "test", WDL.Value.File(outside), null_if_missing=True)
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.File(outside), null_if_missing=True
+            )
 
     def test_workflow_allowlisted_input_directory_url_children(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         setattr(cfg, "_downloaders", ({}, {"foo": object()}))
         allowlist = {"foo://bucket/input/"}
-        as_host_path = WDL.runtime.workflow._check_allowed_path
+        allowed_path_as_host_path = WDL.runtime.workflow._allowed_path_as_host_path
 
         self.assertEqual(
-            as_host_path(cfg, allowlist, "test", WDL.Value.File("foo://bucket/input/alice.txt")),
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.File("foo://bucket/input/alice.txt")
+            ),
             "foo://bucket/input/alice.txt",
         )
         self.assertEqual(
-            as_host_path(cfg, allowlist, "test", WDL.Value.Directory("foo://bucket/input/subdir/")),
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.Directory("foo://bucket/input/subdir/")
+            ),
             "foo://bucket/input/subdir/",
         )
         with self.assertRaises(WDL.Error.InputError):
-            as_host_path(cfg, allowlist, "test", WDL.Value.File("foo://bucket/input2/alice.txt"))
+            allowed_path_as_host_path(
+                cfg, allowlist, "test", WDL.Value.File("foo://bucket/input2/alice.txt")
+            )
 
     def test_parse_tsv_row_type(self):
         rows = WDL.StdLib._parse_tsv("alpha\tbeta\n")

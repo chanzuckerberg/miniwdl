@@ -47,7 +47,7 @@ from .. import Env, Type, Value, Tree, StdLib, Error
 from .task import (
     run_local_task,
     _fspaths,
-    _resolve_source_relative_decl_paths,
+    _validate_source_relative_decl_paths,
     link_outputs,
     _add_downloadable_defaults,
     _warn_output_basename_collisions,
@@ -386,7 +386,7 @@ class StateMachine:
             source_directory = _source_directory(self.workflow)
             return Value.rewrite_env_paths(
                 env,
-                lambda v: _check_allowed_path(
+                lambda v: _allowed_path_as_host_path(
                     cfg, self.fspath_allowlist, "workflow output", v, source_directory
                 ),
             )
@@ -672,14 +672,16 @@ def _eval_decl(
     relative spelling is preserved so ordinary WDL value operations keep seeing the original value.
     Missing children of allowlisted input Directories are rewritten to Null before final type
     coercion, so only File?/Directory? declarations accept them.
+
+    ``allowlist`` is intentionally mutated only to add resolved source-relative declaration paths.
     """
     if decl.name in inputs:
         value = inputs[decl.name]
     elif decl.expr:
         value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
-            value, source_paths = _resolve_source_relative_decl_paths(
-                cfg, decl, value, f"workflow declaration {decl.name}", as_host_path=False
+            value, source_paths = _validate_source_relative_decl_paths(
+                cfg, decl, value, f"workflow declaration {decl.name}"
             )
             allowlist |= source_paths
     else:
@@ -726,7 +728,7 @@ def _postprocess_call_inputs(
     call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
     call_inputs = Value.rewrite_env_paths(
         call_inputs,
-        lambda v: _check_allowed_path(
+        lambda v: _allowed_path_as_host_path(
             cfg,
             allowlist,
             f"call {call_name} input",
@@ -790,7 +792,7 @@ class _StdLib(StdLib.Base):
             cached = self.cache.get_download(filename)
             if cached:
                 return cached
-        ans = _check_allowed_path(
+        ans = _allowed_path_as_host_path(
             self.cfg,
             self.state.fspath_allowlist,
             "read_*() argument",
@@ -844,28 +846,55 @@ def _validate_allowed_path(
     allowlist: Set[str],
     desc: str,
     v: Union[Value.File, Value.Directory],
-    null_if_missing: bool = False,
     source_directory: str = "",
+    null_if_missing: bool = False,
 ) -> Optional[str]:
     """
     Validate a workflow-level File/Directory path without changing its spelling.
 
-    This is for workflow declarations, where path values may still participate in ordinary WDL
-    equality/key operations before reaching an I/O boundary.
+    This is the preserve-spelling variant of ``_allowed_path_as_host_path``. Both helpers perform
+    the same allowlist, source-relative, directory-child, and ``allow_any_input`` checks. This
+    variant is for workflow declarations, where path values may still participate in ordinary WDL
+    equality/key operations before reaching an I/O boundary. Even while preserving existing
+    File/Directory spellings, it may still return None so nonexistent optional File?/Directory?
+    declarations can become Null before final type coercion.
 
     ``source_directory`` should be the local directory containing the declaration's WDL source file,
     or "" when unavailable. It identifies the directory used to allowlist any preserved
     source-relative declaration path.
+
+    ``allowlist`` is read-only here; any allowlist mutation for source-relative declaration paths is
+    done earlier by ``_validate_source_relative_decl_paths``.
     """
-    return _check_allowed_path(
-        cfg,
-        allowlist,
-        desc,
-        v,
-        null_if_missing=null_if_missing,
-        as_host_path=False,
-        source_directory=source_directory,
-    )
+    ans = _check_allowed_path(cfg, allowlist, desc, v, source_directory, null_if_missing)
+    return None if ans is None else v.value
+
+
+def _allowed_path_as_host_path(
+    cfg: config.Loader,
+    allowlist: Set[str],
+    desc: str,
+    v: Union[Value.File, Value.Directory],
+    source_directory: str = "",
+    null_if_missing: bool = False,
+) -> Optional[str]:
+    """
+    Check a workflow-level File/Directory path and return the host path needed for I/O.
+
+    This is the host-path variant of ``_validate_allowed_path``. Both helpers perform the same
+    allowlist, source-relative, directory-child, and ``allow_any_input`` checks. This variant is used
+    at I/O boundaries -- workflow outputs, call inputs, and read_* arguments -- where the runtime
+    needs a local host path instead of the original WDL spelling. It may return None for nonexistent
+    optional File?/Directory? values when ``null_if_missing`` is true.
+
+    ``source_directory`` should be the local directory containing the workflow/declaration source
+    file, or "" when unavailable. It anchors source-relative declaration paths already recorded in
+    ``allowlist``.
+
+    ``allowlist`` is read-only here; callers that discover new source-relative paths mutate it before
+    using this helper.
+    """
+    return _check_allowed_path(cfg, allowlist, desc, v, source_directory, null_if_missing)
 
 
 def _check_allowed_path(
@@ -875,10 +904,9 @@ def _check_allowed_path(
     v: Union[Value.File, Value.Directory],
     source_directory: str = "",
     null_if_missing: bool = False,
-    as_host_path: bool = True,
 ) -> Optional[str]:
     """
-    Check a workflow File/Directory path and return either its host path or original spelling.
+    Shared implementation for workflow-level File/Directory allowlist checks.
 
     The path is permitted when it is already in the workflow allowlist, is a downloadable URI, is
     a preserved source-relative declaration path whose resolved host path is allowlisted, is nested
@@ -886,16 +914,16 @@ def _check_allowed_path(
     through the latter two cases are checked for existence, expected File/Directory kind, and
     containment under the input Directory or configured root.
 
-    When ``as_host_path`` is true, local paths discovered through source-relative declaration,
-    child-directory, or ``allow_any_input`` checks are returned as absolute host paths. When false,
-    the same checks run but the original WDL spelling is returned; declaration evaluation uses that
-    mode so path values can still compare equal to later literals before being sent to an I/O
-    boundary. If an otherwise-allowed child path is missing, return None only for optional-path
-    processing via ``null_if_missing``.
+    This helper always returns the host path form needed for I/O. Its named wrappers decide whether
+    callers receive that host path or keep the original WDL spelling. If an otherwise-allowed child
+    path is missing, return None only for optional-path processing via ``null_if_missing``.
 
     ``source_directory`` should be the local directory containing the workflow/declaration source
     file, or "" when unavailable. It anchors source-relative declaration paths already recorded in
     ``allowlist``.
+
+    ``allowlist`` is read-only. Source-relative declaration evaluation mutates the shared allowlist
+    before this helper is called.
     """
     isdir = isinstance(v, Value.Directory)
     fspath = v.value.rstrip("/") + ("/" if isdir else "")
@@ -905,7 +933,7 @@ def _check_allowed_path(
         source_directory, allowlist, fspath, isdir
     )
     if source_path:
-        return source_path.rstrip("/") if as_host_path else v.value
+        return source_path.rstrip("/")
     allowlisted_child, allowlisted_child_path = _resolve_allowlisted_directory_child(
         cfg, allowlist, fspath, isdir
     )
@@ -916,7 +944,7 @@ def _check_allowed_path(
             raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
         if not allowlisted_child_path:
             raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
-        return allowlisted_child_path if as_host_path else v.value
+        return allowlisted_child_path
     if not cfg.get_bool("file_io", "allow_any_input"):
         raise Error.InputError(
             desc + " uses file/directory not expressly supplied with workflow inputs"
@@ -930,7 +958,7 @@ def _check_allowed_path(
         raise Error.InputError(
             f"{desc} {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
         )
-    return fspath if as_host_path else v.value
+    return fspath
 
 
 def _resolve_allowlisted_directory_child(

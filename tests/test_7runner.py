@@ -427,6 +427,12 @@ class TestDirectoryIO(RunnerTestCase):
         assert v.value == os.path.join(self._dir, "data/file.txt")
         assert paths == {os.path.join(self._dir, "data/file.txt")}
 
+        v, paths = runtime_task._validate_source_relative_decl_paths(
+            cfg, decls["f"], WDL.Value.File("data/file.txt"), "Workflow declaration"
+        )
+        assert v.value == "data/file.txt"
+        assert paths == {os.path.join(self._dir, "data/file.txt")}
+
         v, paths = runtime_task._resolve_source_relative_decl_paths(
             cfg, decls["d"], WDL.Value.Directory("data/dir"), "Task declaration"
         )
@@ -460,6 +466,12 @@ class TestDirectoryIO(RunnerTestCase):
 
         v, paths = runtime_task._resolve_source_relative_decl_paths(
             cfg, decls["opt"], WDL.Value.File("data/missing.txt"), "Task declaration"
+        )
+        assert isinstance(v, WDL.Value.Null)
+        assert paths == set()
+
+        v, paths = runtime_task._validate_source_relative_decl_paths(
+            cfg, decls["opt"], WDL.Value.File("data/missing.txt"), "Workflow declaration"
         )
         assert isinstance(v, WDL.Value.Null)
         assert paths == set()
@@ -579,7 +591,7 @@ class TestDirectoryIO(RunnerTestCase):
             == "data/input.txt"
         )
         assert (
-            runtime_workflow._check_allowed_path(
+            runtime_workflow._allowed_path_as_host_path(
                 cfg,
                 allowlist,
                 "read_*() argument",
@@ -589,7 +601,7 @@ class TestDirectoryIO(RunnerTestCase):
             == file_host_path
         )
         assert (
-            runtime_workflow._check_allowed_path(
+            runtime_workflow._allowed_path_as_host_path(
                 cfg,
                 allowlist,
                 "call input",
@@ -600,7 +612,7 @@ class TestDirectoryIO(RunnerTestCase):
         )
 
         with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
-            runtime_workflow._check_allowed_path(
+            runtime_workflow._allowed_path_as_host_path(
                 cfg,
                 set(),
                 "read_*() argument",
@@ -608,7 +620,7 @@ class TestDirectoryIO(RunnerTestCase):
                 source_directory=source_directory,
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
-            runtime_workflow._check_allowed_path(
+            runtime_workflow._allowed_path_as_host_path(
                 cfg,
                 allowlist,
                 "read_*() argument",

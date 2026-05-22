@@ -528,6 +528,9 @@ def _task_decl_path(
     Paths built from already-localized input Directories are checked against their host backing
     directories. Other relative paths are WDL 1.2 source-relative paths: resolve them under the WDL
     source directory, mount them into the task container, and return the container path.
+
+    ``container`` is intentionally mutated when a source-relative path needs to be mounted; no other
+    arguments are mutated.
     """
     ans = _task_decl_input_directory_child_path(decl_name, v, container)
     if ans is None or ans != v.value:
@@ -538,11 +541,12 @@ def _task_decl_path(
 
     source_paths: Set[str] = set()
     ans = _resolve_source_relative_decl_path(
-        container.cfg, _source_directory(task), f"task declaration {decl_name}", v, source_paths
+        container.cfg, _source_directory(task), f"task declaration {decl_name}", v
     )
-    if ans is None or not source_paths:
+    if ans is None or ans == v.value:
         return ans
 
+    source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
     assert len(source_paths) == 1
     source_path = next(iter(source_paths))
     container.add_paths(source_paths)
@@ -550,28 +554,77 @@ def _task_decl_path(
 
 
 def _resolve_source_relative_decl_paths(
-    cfg: config.Loader, decl: Tree.Decl, value: Value.Base, desc: str, as_host_path: bool = True
+    cfg: config.Loader, decl: Tree.Decl, value: Value.Base, desc: str
 ) -> Tuple[Value.Base, Set[str]]:
     """
-    Resolve relative File/Directory paths in one WDL declaration value.
+    Resolve relative File/Directory paths in one declaration value to host paths.
 
     Relative paths require a local WDL source file and are interpreted relative to its parent
     directory. Missing paths are rewritten to Null before final type coercion so optional
     File?/Directory? declarations can become None.
 
-    When ``as_host_path`` is true, relative values are replaced by their resolved host paths. When
-    false, relative paths are still validated and recorded in the returned source-path set, but the
-    WDL values keep their original relative spelling. Workflow declarations use ``as_host_path=False``
-    so File/Directory values can still participate in ordinary WDL operations, such as equality and
-    map lookups, before an I/O boundary needs a host path.
+    This variant rewrites the returned WDL values to resolved host paths, which is appropriate for
+    task declaration localization. See ``_validate_source_relative_decl_paths`` for the closely
+    related workflow-declaration variant, which performs the same validation and side effects while
+    preserving original WDL spellings until an I/O boundary.
+
+    The returned source-path set is accumulated while walking ``value``; callers use it to allowlist
+    or mount the resolved local files/directories. No arguments are mutated.
+    """
+    return _rewrite_source_relative_decl_paths(cfg, decl, value, desc, preserve_value=False)
+
+
+def _validate_source_relative_decl_paths(
+    cfg: config.Loader, decl: Tree.Decl, value: Value.Base, desc: str
+) -> Tuple[Value.Base, Set[str]]:
+    """
+    Validate relative File/Directory paths in one declaration while preserving WDL spelling.
+
+    This is the workflow-declaration counterpart of ``_resolve_source_relative_decl_paths``. Both
+    variants require relative paths to resolve within the WDL source directory, both record resolved
+    host paths in the returned source-path set, and both may rewrite nonexistent paths to Null so
+    optional File?/Directory? declarations can become None. This variant differs only in leaving
+    existing File/Directory values in their original spelling so ordinary workflow expression
+    operations, such as equality and map lookups, continue to see the values the WDL wrote.
+
+    The returned source-path set is accumulated while walking ``value``; workflow callers add it to
+    the path allowlist. No arguments are mutated.
+    """
+    return _rewrite_source_relative_decl_paths(cfg, decl, value, desc, preserve_value=True)
+
+
+def _rewrite_source_relative_decl_paths(
+    cfg: config.Loader,
+    decl: Tree.Decl,
+    value: Value.Base,
+    desc: str,
+    preserve_value: bool,
+) -> Tuple[Value.Base, Set[str]]:
+    """
+    Shared implementation for the source-relative declaration path variants.
+
+    ``preserve_value`` selects between the named variants above: preserving original WDL spellings
+    for workflow declaration evaluation, or returning host paths for task localization.
+    The returned source-path set is mutated while traversing ``value`` so callers can apply the
+    allowlist/mount side effect after validation succeeds. The mutation is local to this helper; no
+    arguments are mutated.
     """
     source_directory = _source_directory(decl)
     source_paths: Set[str] = set()
+
+    def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
+        ans = _resolve_source_relative_decl_path(cfg, source_directory, desc, v)
+        if ans is None:
+            return None
+        if ans != v.value:
+            source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
+            if preserve_value:
+                return v.value
+        return ans
+
     value = Value.rewrite_paths(
         value,
-        lambda v: _resolve_source_relative_decl_path(
-            cfg, source_directory, desc, v, source_paths, as_host_path
-        ),
+        rewrite_path,
     )
     try:
         return value.coerce(decl.type), source_paths
@@ -584,16 +637,16 @@ def _resolve_source_relative_decl_path(
     source_directory: str,
     desc: str,
     v: Union[Value.File, Value.Directory],
-    source_paths: Set[str],
-    as_host_path: bool = True,
 ) -> Optional[str]:
     """
     Resolve one source-relative File/Directory path to a canonical host path.
 
     Absolute paths are returned unchanged. Relative paths are resolved with realpath, must remain
-    within the WDL source directory, and are recorded using the runtime's file/directory convention.
-    When ``as_host_path`` is true, return the resolved host path for immediate localization. When
-    false, return the original relative value after recording the resolved source path.
+    within the WDL source directory, and are returned as canonical host paths. Missing paths return
+    None so the declaration-level helpers can Null optional values before final type coercion.
+
+    This scalar helper has no side effects. The declaration-level helpers decide whether to preserve
+    the original WDL spelling in the returned value and mutate their returned source-path set.
     """
     isdir = isinstance(v, Value.Directory)
     if os.path.isabs(v.value) or downloadable(cfg, v.value, directory=isdir):
@@ -625,8 +678,7 @@ def _resolve_source_relative_decl_path(
             + v.value
         )
 
-    source_paths.add(ans + ("/" if isdir else ""))
-    return ans if as_host_path else v.value
+    return ans
 
 
 def _source_directory(node: Tree.SourceNode) -> str:
