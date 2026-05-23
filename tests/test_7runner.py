@@ -13,6 +13,7 @@ from WDL.runtime import task as runtime_task
 from WDL.runtime import workflow as runtime_workflow
 from unittest.mock import patch
 
+
 class RunnerTestCase(unittest.TestCase):
     """
     Base class for new runner test cases
@@ -20,7 +21,7 @@ class RunnerTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+        logging.basicConfig(level=logging.DEBUG, format="%(name)s %(levelname)s %(message)s")
         logger = logging.getLogger(cls.__name__)
         cfg = WDL.runtime.config.Loader(logger, [])
 
@@ -34,7 +35,9 @@ class RunnerTestCase(unittest.TestCase):
         if not getattr(self, "_keep_dir", False):
             shutil.rmtree(self._dir)
 
-    def _run(self, wdl:str, inputs = None, task = None, expected_exception: Exception = None, cfg = None):
+    def _run(
+        self, wdl: str, inputs=None, task=None, expected_exception: Exception = None, cfg=None
+    ):
         """
         run workflow/task & return outputs dict
         """
@@ -50,8 +53,12 @@ class RunnerTestCase(unittest.TestCase):
                 target = next((t for t in doc.tasks if t.name == task), None)
             assert target
             if isinstance(inputs, dict):
-                inputs = WDL.values_from_json(inputs, target.available_inputs, target.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir)
+                inputs = WDL.values_from_json(
+                    inputs, target.available_inputs, target.required_inputs
+                )
+            rundir, outputs = WDL.runtime.run(
+                cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir
+            )
             self._rundir = rundir
         except Exception as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
@@ -62,6 +69,7 @@ class RunnerTestCase(unittest.TestCase):
             raise
         self.assertIsNone(expected_exception, str(expected_exception) + " not raised")
         return WDL.values_to_json(outputs)
+
 
 class TestDirectoryIO(RunnerTestCase):
     def test_coercion(self):
@@ -95,12 +103,15 @@ class TestDirectoryIO(RunnerTestCase):
             print("Carol", file=outfile)
         outp = self._run(wdl, {"d": os.path.join(self._dir, "d")})
         assert outp["contents"] == "Alice"
-        assert os.path.realpath(outp["subdir"]) == os.path.realpath(os.path.join(self._dir, "d/sub"))
+        assert os.path.realpath(outp["subdir"]) == os.path.realpath(
+            os.path.join(self._dir, "d/sub")
+        )
         assert outp["subdir_contents"] == "Carol"
         assert outp["missing_file"] is None
         assert outp["missing_dir"] is None
 
-        outp = self._run(R"""
+        outp = self._run(
+            R"""
         version 1.2
         task t {
             input {
@@ -135,13 +146,16 @@ class TestDirectoryIO(RunnerTestCase):
                 Directory? missing_dir = t.missing_dir_out
             }
         }
-        """, {"d": os.path.join(self._dir, "d")})
+        """,
+            {"d": os.path.join(self._dir, "d")},
+        )
         assert outp["contents"] == "Alice"
         assert outp["subdir_contents"] == "Carol"
         assert outp["missing_file"] is None
         assert outp["missing_dir"] is None
 
-        exn = self._run(R"""
+        exn = self._run(
+            R"""
         version 1.2
         workflow w {
             input {
@@ -151,10 +165,14 @@ class TestDirectoryIO(RunnerTestCase):
                 File missing = join_paths(d, "missing.txt")
             }
         }
-        """, {"d": os.path.join(self._dir, "d")}, expected_exception=WDL.Error.InputError)
+        """,
+            {"d": os.path.join(self._dir, "d")},
+            expected_exception=WDL.Error.InputError,
+        )
         assert getattr(exn, "job_id", None) == "output-missing"
 
-        exn = self._run(R"""
+        exn = self._run(
+            R"""
         version 1.2
         task t {
             input {
@@ -171,7 +189,10 @@ class TestDirectoryIO(RunnerTestCase):
                     missing = join_paths(d, "missing.txt")
             }
         }
-        """, {"d": os.path.join(self._dir, "d")}, expected_exception=WDL.Error.InputError)
+        """,
+            {"d": os.path.join(self._dir, "d")},
+            expected_exception=WDL.Error.InputError,
+        )
         assert getattr(exn, "job_id", None) == "call-t"
 
     def test_workflow_join_paths_relative_to_source_directory(self):
@@ -290,6 +311,68 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl)
         assert outp["out"] == "input\nprivate\ndirectory"
 
+    def test_workflow_call_input_relative_paths_relative_to_source_directory(self):
+        os.makedirs(os.path.join(self._dir, "data/subdir"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("input", file=outfile)
+        with open(os.path.join(self._dir, "data/subdir/inside.txt"), mode="w") as outfile:
+            print("directory", file=outfile)
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            call t {
+                input:
+                    input_file = "data/input.txt",
+                    input_dir = "data/subdir",
+                    missing_optional = "data/missing.txt"
+            }
+            output {
+                String out = t.out
+            }
+        }
+        task t {
+            input {
+                File input_file
+                Directory input_dir
+                File? missing_optional
+            }
+            command <<<
+                set -e
+                cat "~{input_file}" > out.txt
+                cat "~{input_dir}/inside.txt" >> out.txt
+                if [ -n "~{missing_optional}" ]; then exit 64; fi
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["out"] == "input\ndirectory"
+
+    def test_workflow_call_input_relative_paths_must_stay_within_source_directory(self):
+        exn = self._run(
+            R"""
+            version 1.2
+            workflow w {
+                call t {
+                    input:
+                        input_file = "../outside.txt"
+                }
+            }
+            task t {
+                input {
+                    File input_file
+                }
+                command {}
+            }
+            """,
+            expected_exception=WDL.Error.InputError,
+        )
+        assert "must reside within WDL source directory" in str(exn)
+        assert "../outside.txt" in str(exn)
+
     def test_workflow_relative_paths_not_source_relative_before_wdl_1_2(self):
         os.makedirs(os.path.join(self._dir, "data"))
         with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
@@ -326,7 +409,7 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl)
         assert outp["contents"] == "output"
 
-    def test_workflow_source_relative_values_preserved_until_io(self):
+    def test_workflow_source_relative_values_resolved_at_binding(self):
         os.makedirs(os.path.join(self._dir, "data"))
         with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
             print("input", file=outfile)
@@ -341,17 +424,102 @@ class TestDirectoryIO(RunnerTestCase):
                 String file_value = f
                 String map_key = keys(labels)[0]
                 String lookup = labels[f]
+                String lookup_relative = labels["data/input.txt"]
                 Boolean equal = f == same
+                Boolean equal_relative = f == "data/input.txt"
                 String contents = read_string(f)
             }
         }
         """
         outp = self._run(wdl)
-        assert outp["file_value"] == "data/input.txt"
-        assert outp["map_key"] == "data/input.txt"
+        assert outp["file_value"] == os.path.join(self._dir, "data/input.txt")
+        assert outp["map_key"] == os.path.join(self._dir, "data/input.txt")
         assert outp["lookup"] == "label"
+        assert outp["lookup_relative"] == "label"
         assert outp["equal"]
+        assert outp["equal_relative"]
         assert outp["contents"] == "input"
+
+    def test_workflow_source_relative_stdlib_path_arguments(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            outfile.write("Alice\nBob\n")
+        with open(os.path.join(self._dir, "data/other.txt"), mode="w") as outfile:
+            outfile.write("other\n")
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            Array[String] lines = read_lines("data/input.txt")
+            Float file_size = size("data/input.txt")
+            File f = "data/input.txt"
+            Map[File, String] labels = {"data/input.txt": "label"}
+            Array[File] files = ["data/input.txt"]
+            output {
+                Array[String] out_lines = lines
+                Float out_file_size = file_size
+                String lookup = labels["data/input.txt"]
+                Boolean has_key = contains_key(labels, "data/input.txt")
+                Boolean has_file = contains(files, "data/input.txt")
+                Boolean equal = f == "data/input.txt"
+                Boolean not_equal = f != "data/other.txt"
+            }
+        }
+        """
+        outp = self._run(wdl)
+        assert outp["out_lines"] == ["Alice", "Bob"]
+        assert outp["out_file_size"] == 10.0
+        assert outp["lookup"] == "label"
+        assert outp["has_key"]
+        assert outp["has_file"]
+        assert outp["equal"]
+        assert outp["not_equal"]
+
+    def test_workflow_source_relative_stdlib_rejects_escape(self):
+        with open(os.path.join(self._dir, "outside.txt"), mode="w") as outfile:
+            outfile.write("outside\n")
+
+        exn = self._run(
+            R"""
+            version 1.2
+            workflow w {
+                output {
+                    String contents = read_string("../outside.txt")
+                }
+            }
+            """,
+            expected_exception=WDL.Error.EvalError,
+        )
+        assert "must reside within WDL source directory" in str(exn)
+
+    def test_workflow_source_relative_stdlib_operator_rejects_escape(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            outfile.write("input\n")
+
+        cases = [
+            'labels["../outside.txt"] == "label"',
+            'contains_key(labels, "../outside.txt")',
+            'contains(files, "../outside.txt")',
+            'f == "../outside.txt"',
+        ]
+        for expr in cases:
+            exn = self._run(
+                R"""
+                version 1.2
+                workflow w {
+                    File f = "data/input.txt"
+                    Map[File, String] labels = {"data/input.txt": "label"}
+                    Array[File] files = ["data/input.txt"]
+                    output {
+                        Boolean bad = PLACEHOLDER
+                    }
+                }
+                """.replace("PLACEHOLDER", expr),
+                expected_exception=WDL.Error.InputError,
+            )
+            assert "must reside within WDL source directory" in str(exn), expr
+            assert "../outside.txt" in str(exn), expr
 
     def test_task_relative_paths_must_stay_within_source_directory(self):
         exn = self._run(
@@ -421,86 +589,61 @@ class TestDirectoryIO(RunnerTestCase):
             print("file", file=outfile)
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
 
-        v, paths = runtime_task._resolve_source_relative_decl_paths(
-            cfg, decls["f"], WDL.Value.File("data/file.txt"), "Task declaration"
-        )
+        def resolve(decl, value):
+            return runtime_task._resolve_source_relative_paths(
+                cfg,
+                runtime_task._source_directory(decl),
+                value,
+                decl.type,
+                "Task declaration",
+            )
+
+        v, paths = resolve(decls["f"], WDL.Value.File("data/file.txt"))
         assert v.value == os.path.join(self._dir, "data/file.txt")
         assert paths == {os.path.join(self._dir, "data/file.txt")}
 
-        v, paths = runtime_task._validate_source_relative_decl_paths(
-            cfg, decls["f"], WDL.Value.File("data/file.txt"), "Workflow declaration"
-        )
-        assert v.value == "data/file.txt"
-        assert paths == {os.path.join(self._dir, "data/file.txt")}
-
-        v, paths = runtime_task._resolve_source_relative_decl_paths(
-            cfg, decls["d"], WDL.Value.Directory("data/dir"), "Task declaration"
-        )
+        v, paths = resolve(decls["d"], WDL.Value.Directory("data/dir"))
         assert v.value == os.path.join(self._dir, "data/dir")
         assert paths == {os.path.join(self._dir, "data/dir/")}
 
         abs_file = os.path.join(self._dir, "data/file.txt")
-        v, paths = runtime_task._resolve_source_relative_decl_paths(
-            cfg, decls["f"], WDL.Value.File(abs_file), "Task declaration"
-        )
+        v, paths = resolve(decls["f"], WDL.Value.File(abs_file))
         assert v.value == abs_file
         assert paths == set()
 
-        v, paths = runtime_task._resolve_source_relative_decl_paths(
-            cfg,
-            decls["f"],
-            WDL.Value.File("https://example.com/data/file.txt"),
-            "Task declaration",
-        )
+        v, paths = resolve(decls["f"], WDL.Value.File("https://example.com/data/file.txt"))
         assert v.value == "https://example.com/data/file.txt"
         assert paths == set()
 
-        v, paths = runtime_task._resolve_source_relative_decl_paths(
-            cfg,
-            decls["d"],
-            WDL.Value.Directory("s3://example-bucket/data/dir/"),
-            "Task declaration",
-        )
+        v, paths = resolve(decls["d"], WDL.Value.Directory("s3://example-bucket/data/dir/"))
         assert v.value == "s3://example-bucket/data/dir/"
         assert paths == set()
 
-        v, paths = runtime_task._resolve_source_relative_decl_paths(
-            cfg, decls["opt"], WDL.Value.File("data/missing.txt"), "Task declaration"
-        )
-        assert isinstance(v, WDL.Value.Null)
-        assert paths == set()
-
-        v, paths = runtime_task._validate_source_relative_decl_paths(
-            cfg, decls["opt"], WDL.Value.File("data/missing.txt"), "Workflow declaration"
-        )
+        v, paths = resolve(decls["opt"], WDL.Value.File("data/missing.txt"))
         assert isinstance(v, WDL.Value.Null)
         assert paths == set()
 
         with self.assertRaisesRegex(WDL.Error.InputError, "path not found"):
-            runtime_task._resolve_source_relative_decl_paths(
-                cfg, decls["f"], WDL.Value.File("data/missing.txt"), "Task declaration"
-            )
+            resolve(decls["f"], WDL.Value.File("data/missing.txt"))
         with self.assertRaisesRegex(WDL.Error.InputError, "File path is not a file"):
-            runtime_task._resolve_source_relative_decl_paths(
-                cfg, decls["f"], WDL.Value.File("data/dir"), "Task declaration"
-            )
+            resolve(decls["f"], WDL.Value.File("data/dir"))
         with self.assertRaisesRegex(WDL.Error.InputError, "Directory path is not a directory"):
-            runtime_task._resolve_source_relative_decl_paths(
-                cfg, decls["d"], WDL.Value.Directory("data/file.txt"), "Task declaration"
-            )
+            resolve(decls["d"], WDL.Value.Directory("data/file.txt"))
         with self.assertRaisesRegex(WDL.Error.InputError, "requires a local WDL source file"):
             doc = WDL.parse_document("version 1.2\ntask t { File f command {} }")
-            runtime_task._resolve_source_relative_decl_paths(
+            runtime_task._resolve_source_relative_paths(
                 cfg,
-                doc.tasks[0].available_inputs["f"],
+                runtime_task._source_directory(doc.tasks[0].available_inputs["f"]),
                 WDL.Value.File("data/file.txt"),
+                doc.tasks[0].available_inputs["f"].type,
                 "Task declaration",
             )
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
-        v, paths = runtime_task._resolve_source_relative_decl_paths(
+        v, paths = runtime_task._resolve_source_relative_paths(
             cfg,
-            doc.tasks[0].available_inputs["d"],
+            runtime_task._source_directory(doc.tasks[0].available_inputs["d"]),
             WDL.Value.Directory("s3://example-bucket/data/dir/"),
+            doc.tasks[0].available_inputs["d"].type,
             "Task declaration",
         )
         assert v.value == "s3://example-bucket/data/dir/"
@@ -569,7 +712,7 @@ class TestDirectoryIO(RunnerTestCase):
         assert outp["downloaded_files"] == ["https://example.com/data/file.txt"]
         assert outp["downloaded_directories"] == ["s3://example-bucket/data/dir/"]
 
-    def test_workflow_source_relative_validate_vs_host_path(self):
+    def test_workflow_resolve_path_branches(self):
         os.makedirs(os.path.join(self._dir, "data/subdir"))
         with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
             print("input", file=outfile)
@@ -577,54 +720,37 @@ class TestDirectoryIO(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         file_host_path = os.path.join(self._dir, "data/input.txt")
         dir_host_path = os.path.join(self._dir, "data/subdir/")
-        source_directory = os.path.realpath(self._dir)
         allowlist = {file_host_path, dir_host_path}
 
         assert (
-            runtime_workflow._validate_allowed_path(
-                cfg,
-                allowlist,
-                "workflow declaration f",
-                WDL.Value.File("data/input.txt"),
-                source_directory=source_directory,
-            )
-            == "data/input.txt"
-        )
-        assert (
-            runtime_workflow._allowed_path_as_host_path(
+            runtime_workflow._resolve_workflow_path(
                 cfg,
                 allowlist,
                 "read_*() argument",
-                WDL.Value.File("data/input.txt"),
-                source_directory=source_directory,
+                WDL.Value.File(file_host_path),
             )
             == file_host_path
         )
         assert (
-            runtime_workflow._allowed_path_as_host_path(
+            runtime_workflow._resolve_workflow_path(
                 cfg,
                 allowlist,
                 "call input",
-                WDL.Value.Directory("data/subdir"),
-                source_directory=source_directory,
+                WDL.Value.Directory(dir_host_path),
             )
-            == os.path.join(self._dir, "data/subdir")
+            == dir_host_path
         )
 
         with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
-            runtime_workflow._allowed_path_as_host_path(
+            runtime_workflow._resolve_workflow_path(
                 cfg,
                 set(),
                 "read_*() argument",
-                WDL.Value.File("data/input.txt"),
-                source_directory=source_directory,
+                WDL.Value.File(file_host_path),
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
-            runtime_workflow._allowed_path_as_host_path(
-                cfg,
-                allowlist,
-                "read_*() argument",
-                WDL.Value.File("data/input.txt"),
+            runtime_workflow._resolve_workflow_path(
+                cfg, allowlist, "read_*() argument", WDL.Value.File("data/input.txt")
             )
 
     def test_basic_directory(self):
@@ -742,7 +868,8 @@ class TestDirectoryIO(RunnerTestCase):
         assert os.path.isfile(os.path.join(outp["d_out"][1], "baz"))
         assert os.path.isfile(os.path.join(outp["d_out"][1], "..", ".WDL_Directory"))
 
-        outp = self._run(R"""
+        outp = self._run(
+            R"""
             version development
             task t {
                 command {}
@@ -750,7 +877,9 @@ class TestDirectoryIO(RunnerTestCase):
                     Directory? d_out = "bogus/dirname"
                 }
             }
-            """, {})
+            """,
+            {},
+        )
         assert outp["d_out"] is None
 
     def test_output_input(self):
@@ -783,7 +912,8 @@ class TestDirectoryIO(RunnerTestCase):
         assert os.path.isdir(outp["dirs"][0])
 
     def test_errors(self):
-        self._run(R"""
+        self._run(
+            R"""
             version development
             task t {
                 command <<<
@@ -794,9 +924,13 @@ class TestDirectoryIO(RunnerTestCase):
                     Directory d_out = "outdir"
                 }
             }
-            """, {}, expected_exception=WDL.runtime.error.OutputError)
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
 
-        self._run(R"""
+        self._run(
+            R"""
             version development
             task t {
                 command <<<
@@ -809,9 +943,13 @@ class TestDirectoryIO(RunnerTestCase):
                     Directory d_out = "outdir/"
                 }
             }
-            """, {}, expected_exception=WDL.runtime.error.OutputError)
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
 
-        self._run(R"""
+        self._run(
+            R"""
             version development
             task t {
                 command <<<
@@ -825,9 +963,13 @@ class TestDirectoryIO(RunnerTestCase):
                     Directory d_out = "outdir"
                 }
             }
-            """, {}, expected_exception=WDL.runtime.error.OutputError)
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
 
-        self._run(R"""
+        self._run(
+            R"""
             version development
             task t {
                 command <<<
@@ -837,9 +979,13 @@ class TestDirectoryIO(RunnerTestCase):
                     Directory d_out = "outdir"
                 }
             }
-            """, {}, expected_exception=WDL.runtime.error.OutputError)
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
 
-        self._run(R"""
+        self._run(
+            R"""
             version development
             task t {
                 command <<<
@@ -849,11 +995,15 @@ class TestDirectoryIO(RunnerTestCase):
                     File f_out = "outdir"
                 }
             }
-            """, {}, expected_exception=WDL.runtime.error.OutputError)
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
 
         with open(os.path.join(self._dir, "foo.txt"), mode="w") as outfile:
             print("foo", file=outfile)
-        self._run(R"""
+        self._run(
+            R"""
             version development
             task t {
                 input {
@@ -866,10 +1016,13 @@ class TestDirectoryIO(RunnerTestCase):
                     Directory d_out = read_string("outdir")
                 }
             }
-            """, {"f": os.path.join(self._dir, "foo.txt")},
-                  expected_exception=WDL.runtime.error.OutputError)
+            """,
+            {"f": os.path.join(self._dir, "foo.txt")},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
 
-        self._run(R"""
+        self._run(
+            R"""
             version development
             task t {
                 input {
@@ -882,8 +1035,11 @@ class TestDirectoryIO(RunnerTestCase):
                     Directory d_out = read_string("outdir")
                 }
             }
-            """, {"f": os.path.join(self._dir, "foo.txt")},
-                  expected_exception=WDL.runtime.error.OutputError)
+            """,
+            {"f": os.path.join(self._dir, "foo.txt")},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
+
 
 class TestNoneLiteral(RunnerTestCase):
     def test_none_eval(self):
@@ -927,6 +1083,7 @@ class TestNoneLiteral(RunnerTestCase):
         assert not outp["b2"]
         assert outp["c"]["model"] is None
         assert outp["a2"] == [42]
+
 
 class TestCallAfter(RunnerTestCase):
     def test_call_after(self):
@@ -996,6 +1153,7 @@ class TestCallAfter(RunnerTestCase):
             }
             """)
 
+
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
         version 1.0
@@ -1013,31 +1171,58 @@ class TestDownload(RunnerTestCase):
         """
 
     def test_download_input_files(self):
-        self._run(self.count_wdl, {"files": [
-            "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt",
-            "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"
-        ]})
-        self._run(self.count_wdl, {"files": [
-            "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt",
-            "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/nonexistent12345.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"
-        ]}, expected_exception=WDL.runtime.DownloadFailed)
-        self._run(self.count_wdl, {"files": ["gs://8675309"]}, expected_exception=WDL.runtime.DownloadFailed)
+        self._run(
+            self.count_wdl,
+            {
+                "files": [
+                    "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt",
+                    "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
+                ]
+            },
+        )
+        self._run(
+            self.count_wdl,
+            {
+                "files": [
+                    "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt",
+                    "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/nonexistent12345.txt",
+                    "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
+                ]
+            },
+            expected_exception=WDL.runtime.DownloadFailed,
+        )
+        self._run(
+            self.count_wdl,
+            {"files": ["gs://8675309"]},
+            expected_exception=WDL.runtime.DownloadFailed,
+        )
 
     @log_capture()
     def test_download_cache1(self, capture):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
-        cfg.override({
-            "download_cache": {
-                "put": True,
-                "get": True,
-                "dir": os.path.join(self._dir, "cache"),
-                "disable_patterns": ["https://google.com/*"]
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "cache"),
+                    "disable_patterns": ["https://google.com/*"],
+                }
             }
-        })
-        inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
+        )
+        inp = {
+            "files": [
+                "https://google.com/robots.txt",
+                "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
+            ]
+        }
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
+        logs = [
+            str(record.msg)
+            for record in capture.records
+            if str(record.msg).startswith("processed input URIs")
+        ]
         self.assertTrue("downloaded: 2" in logs[0])
         # alyssa_ben.txt is cached on second run through (robots.txt not due to disable_patterns)
         self.assertTrue("downloaded: 1" in logs[1])
@@ -1046,18 +1231,29 @@ class TestDownload(RunnerTestCase):
     @log_capture()
     def test_download_cache2(self, capture):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
-        cfg.override({
-            "download_cache": {
-                "put": True,
-                "get": True,
-                "dir": os.path.join(self._dir, "cache2"),
-                "enable_patterns": ["https://raw.githubusercontent.com/chanzuckerberg/*"]
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "cache2"),
+                    "enable_patterns": ["https://raw.githubusercontent.com/chanzuckerberg/*"],
+                }
             }
-        })
-        inp = {"files": ["https://google.com/robots.txt", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt"]}
+        )
+        inp = {
+            "files": [
+                "https://google.com/robots.txt",
+                "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
+            ]
+        }
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
+        logs = [
+            str(record.msg)
+            for record in capture.records
+            if str(record.msg).startswith("processed input URIs")
+        ]
         self.assertTrue("downloaded: 2" in logs[0])
         # alyssa_ben.txt is cached on second run through
         self.assertTrue("downloaded: 1" in logs[1])
@@ -1066,17 +1262,28 @@ class TestDownload(RunnerTestCase):
     @log_capture()
     def test_download_cache3(self, capture):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
-        cfg.override({
-            "download_cache": {
-                "put": True,
-                "get": True,
-                "dir": os.path.join(self._dir, "cache"),
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "cache"),
+                }
             }
-        })
-        inp = {"files": ["s3://1000genomes/CHANGELOG", "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx"]}
+        )
+        inp = {
+            "files": [
+                "s3://1000genomes/CHANGELOG",
+                "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx",
+            ]
+        }
         self._run(self.count_wdl, inp, cfg=cfg)
         self._run(self.count_wdl, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("processed input URIs")]
+        logs = [
+            str(record.msg)
+            for record in capture.records
+            if str(record.msg).startswith("processed input URIs")
+        ]
         # cache isn't used for alyssa_ben.txt due to presence of query string
         self.assertTrue("downloaded: 2" in logs[0])
         self.assertTrue("downloaded: 1" in logs[1])
@@ -1085,24 +1292,38 @@ class TestDownload(RunnerTestCase):
     @log_capture()
     def test_download_cache4(self, capture):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
-        cfg.override({
-            "download_cache": {
-                "put": True,
-                "get": True,
-                "dir": os.path.join(self._dir, "cache4"),
-                "ignore_query": True
-            },
-            # test JSON logging:
-            "logging": { "json": True }
-        })
-        inp = {"files": ["https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx"]}
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "cache4"),
+                    "ignore_query": True,
+                },
+                # test JSON logging:
+                "logging": {"json": True},
+            }
+        )
+        inp = {
+            "files": [
+                "https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt?xxx"
+            ]
+        }
         self._run(self.count_wdl, inp, cfg=cfg)
-        logs = [str(record.msg) for record in capture.records if "processed input URIs" in str(record.msg)]
+        logs = [
+            str(record.msg)
+            for record in capture.records
+            if "processed input URIs" in str(record.msg)
+        ]
         n_logs = len(logs)
         assert "'downloaded': 1" in logs[0]
         self._run(self.count_wdl, inp, cfg=cfg)
         # cache used with ignore_query
-        logs = [str(record.msg) for record in capture.records if "processed input URIs" in str(record.msg)][n_logs:]
+        logs = [
+            str(record.msg)
+            for record in capture.records
+            if "processed input URIs" in str(record.msg)
+        ][n_logs:]
         assert "'downloaded': 0" in logs[0], logs[0]
         assert "'cached': 1" in logs[0]
 
@@ -1146,19 +1367,24 @@ class TestDownload(RunnerTestCase):
         }
         """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
-        cfg.override({
-            "download_cache": {
-                "put": True,
-                "get": True,
-                "dir": os.path.join(self._dir, "cache5"),
-                "disable_patterns": ["*://google.com/*"]
-            },
-            "logging": { "json": True }
-        })
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "cache5"),
+                    "disable_patterns": ["*://google.com/*"],
+                },
+                "logging": {"json": True},
+            }
+        )
         inp = {
-            "af1": ["s3://1000genomes/CHANGELOG", "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt"],
+            "af1": [
+                "s3://1000genomes/CHANGELOG",
+                "gs://gcp-public-data-landsat/LC08/01/044/034/LC08_L1GT_044034_20130330_20170310_01_T2/LC08_L1GT_044034_20130330_20170310_01_T2_MTL.txt",
+            ],
             "t.f2": "https://google.com/robots.txt",
-            "u.f1": "https://google.com/robots.txt"
+            "u.f1": "https://google.com/robots.txt",
         }
         self._run(wdl5, inp, cfg=cfg)
         for record in capture.records:
@@ -1217,25 +1443,29 @@ class TestDownload(RunnerTestCase):
 
         # cached
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
-        cfg.override({
-            "download_cache": {
-                "put": True,
-                "get": True,
-                "dir": os.path.join(self._dir, "cache6")
-            },
-            "logging": { "json": True }
-        })
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "cache6"),
+                },
+                "logging": {"json": True},
+            }
+        )
         self._run(wdl6, inp, cfg=cfg)
-        new_logs = [str(record.msg) for record in capture.records][len(logs):]
-        assert "'downloaded': 1" in next(msg for msg in new_logs if "processed input URIs" in msg), str(logs)
+        new_logs = [str(record.msg) for record in capture.records][len(logs) :]
+        assert "'downloaded': 1" in next(
+            msg for msg in new_logs if "processed input URIs" in msg
+        ), str(logs)
         logs += new_logs
         self._run(wdl6, inp, cfg=cfg)
-        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        new_logs = [str(record.msg) for record in capture.records][len(logs) :]
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
         outp = self._run(wdl6, inp, task="directory_files", cfg=cfg)
         self.assertEqual(len(outp["files"]), 2)
-        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        new_logs = [str(record.msg) for record in capture.records][len(logs) :]
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
 
@@ -1281,27 +1511,32 @@ class TestDownload(RunnerTestCase):
 
         # cached
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
-        cfg.override({
-            "download_cache": {
-                "put": True,
-                "get": True,
-                "dir": os.path.join(self._dir, "cache6")
-            },
-            "logging": { "json": True }
-        })
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "cache6"),
+                },
+                "logging": {"json": True},
+            }
+        )
         self._run(wdl6, inp, cfg=cfg)
-        new_logs = [str(record.msg) for record in capture.records][len(logs):]
-        assert "'downloaded': 1" in next(msg for msg in new_logs if "processed input URIs" in msg), str(logs)
+        new_logs = [str(record.msg) for record in capture.records][len(logs) :]
+        assert "'downloaded': 1" in next(
+            msg for msg in new_logs if "processed input URIs" in msg
+        ), str(logs)
         logs += new_logs
         self._run(wdl6, inp, cfg=cfg)
-        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        new_logs = [str(record.msg) for record in capture.records][len(logs) :]
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
         outp = self._run(wdl6, inp, task="directory_files", cfg=cfg)
         self.assertEqual(len(outp["files"]), 3)
-        new_logs = [str(record.msg) for record in capture.records][len(logs):]
+        new_logs = [str(record.msg) for record in capture.records][len(logs) :]
         assert next((msg for msg in new_logs if "found in download cache" in msg), False)
         logs += new_logs
+
 
 class RuntimeOverride(RunnerTestCase):
     def test_runtime_override(self):
@@ -1333,16 +1568,10 @@ class RuntimeOverride(RunnerTestCase):
             }
         }
         """
-        outp = self._run(wdl, {
-            "who": "Alice",
-            "tc.runtime.container": ["ubuntu:20.10"]
-        })
+        outp = self._run(wdl, {"who": "Alice", "tc.runtime.container": ["ubuntu:20.10"]})
         assert "20.10" in outp["tc.issue"]
 
-        outp = self._run(wdl, {
-            "who": "Alice",
-            "tc.requirements.container": ["ubuntu:24.04"]
-        })
+        outp = self._run(wdl, {"who": "Alice", "tc.requirements.container": ["ubuntu:24.04"]})
         assert "24.04" in outp["tc.issue"]
 
     def test_task_named_requirements(self):
@@ -1366,15 +1595,11 @@ class RuntimeOverride(RunnerTestCase):
             }
         }
         """
-        outp = self._run(wdl, {
-            "requirements.requirements": 42
-        })
+        outp = self._run(wdl, {"requirements.requirements": 42})
         assert outp["requirements.result"] == 42
 
         with self.assertRaises(WDL.Error.InputError):
-            outp = self._run(wdl, {
-                "requirements.requirements": "bogus"
-            })
+            outp = self._run(wdl, {"requirements.requirements": "bogus"})
 
 
 class MiscRegressionTests(RunnerTestCase):
@@ -1411,16 +1636,16 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["t.out"], ["Alice", "Alice"])
 
     def test_weird_filenames(self):
-        chars = [c for c in (chr(i) for i in range(1,256)) if c not in ('/')]
+        chars = [c for c in (chr(i) for i in range(1, 256)) if c not in ("/")]
         filenames = []
         for c in chars:
-            if c != '.':
+            if c != ".":
                 filenames.append(c)
-            filenames.append(c + ''.join(random.choices(chars,k=11)))
+            filenames.append(c + "".join(random.choices(chars, k=11)))
         assert filenames == list(sorted(filenames))
         if platform.system() == "Darwin":  # macOS is case-insensitive
             filenames = list(set(fn.lower() for fn in filenames))
-        filenames.append('ThisIs{{AVeryLongFilename }}abc...}}xzy1234567890!@{{నేనుÆды.test.ext')
+        filenames.append("ThisIs{{AVeryLongFilename }}abc...}}xzy1234567890!@{{నేనుÆды.test.ext")
 
         inputs = {"files": []}
         for fn in filenames:
@@ -1476,7 +1701,11 @@ class MiscRegressionTests(RunnerTestCase):
         outp = self._run(wdl, inputs)
         outp_filenames = list(sorted(os.path.basename(fn) for fn in outp["files_out"]))
         # glob will exclude dotfiles
-        expctd_filenames = list(bn for bn in sorted(os.path.basename(fn) for fn in inputs["files"]) if not bn.startswith("."))
+        expctd_filenames = list(
+            bn
+            for bn in sorted(os.path.basename(fn) for fn in inputs["files"])
+            if not bn.startswith(".")
+        )
         self.assertEqual(outp_filenames, expctd_filenames)
         euid = os.geteuid()
         for fn in outp["files_out"]:
@@ -1555,7 +1784,8 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["is_true"], True)
 
     def test_issue596(self):
-        self._run("""
+        self._run(
+            """
         task reference_prepare {
             input {
                 # You need to define either this...
@@ -1580,7 +1810,10 @@ class MiscRegressionTests(RunnerTestCase):
 
                 # do other things here
             >>>
-        }""", {}, expected_exception=WDL.Error.StaticTypeMismatch)
+        }""",
+            {},
+            expected_exception=WDL.Error.StaticTypeMismatch,
+        )
 
     def test_issue614(self):
         wdl = r"""
@@ -1646,7 +1879,7 @@ class MiscRegressionTests(RunnerTestCase):
         """
         self.assertEqual(len(outp["files"]), 2)
 
-    @unittest.expectedFailure # issue #623
+    @unittest.expectedFailure  # issue #623
     def test_output_symlink_to_input(self):
         wdl = r"""
         version 1.0
@@ -1755,6 +1988,7 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["out4"], [None, None])
         self.assertEqual(outp["out5"], [{}])
 
+
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()
     def test1(self, capture):
@@ -1791,13 +2025,20 @@ class TestInlineDockerfile(RunnerTestCase):
         t = time.time()  # to ensure the image is built anew on every test run
         self._run(wdl, {"t.apt_pkgs": ["samtools", "tabix"], "t.timestamp": t})
         self._run(wdl, {"t.apt_pkgs": ["samtools", "tabix"], "t.timestamp": t})
-        logs = [str(record.msg) for record in capture.records if str(record.msg).startswith("docker build cached")]
+        logs = [
+            str(record.msg)
+            for record in capture.records
+            if str(record.msg).startswith("docker build cached")
+        ]
         self.assertEqual(len(logs), 1)
-        self._run(wdl, {"t.apt_pkgs": ["bogusfake123"], "t.timestamp": t}, expected_exception=docker.errors.BuildError)
+        self._run(
+            wdl,
+            {"t.apt_pkgs": ["bogusfake123"], "t.timestamp": t},
+            expected_exception=docker.errors.BuildError,
+        )
 
 
 class TestAbbreviatedCallInput(RunnerTestCase):
-
     def test_docker(self):
         caller = R"""
         version 1.1
@@ -1932,7 +2173,9 @@ class TestPassthruEnv(RunnerTestCase):
         with open(os.path.join(self._dir, "Alice"), mode="w") as outfile:
             print("Alice", file=outfile)
         out = self._run(wdl, {"k1": "stringvalue"}, cfg=cfg)
-        self.assertEqual(out["out"], """stringvalue
+        self.assertEqual(
+            out["out"],
+            """stringvalue
 
 set123
 """,
@@ -1950,6 +2193,7 @@ passthru_test_success
 set123
 """,
         )
+
 
 class TestDockerNetwork(RunnerTestCase):
     @classmethod
@@ -1970,13 +2214,11 @@ class TestDockerNetwork(RunnerTestCase):
                 self.network_name, "overlay", ipam=ipam_config
             )
 
-
     @classmethod
     def tearDownClass(self):
         super().tearDownClass()
         self.network.remove()
         self.client.close()
-
 
     def test_network_default(self):
         wdl = """
@@ -1995,12 +2237,13 @@ class TestDockerNetwork(RunnerTestCase):
         """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         cfg.override(
-            {"task_runtime": {"defaults": {"docker_network": self.network_name}},
-             "docker_swarm": {"allow_networks": [self.network_name]}}
+            {
+                "task_runtime": {"defaults": {"docker_network": self.network_name}},
+                "docker_swarm": {"allow_networks": [self.network_name]},
+            }
         )
         out = self._run(wdl, {}, cfg=cfg)
         self.assertEqual(out["out"][:11], "192.168.99.")
-
 
     @log_capture()
     def test_network_explicit(self, capture):
@@ -2020,9 +2263,7 @@ class TestDockerNetwork(RunnerTestCase):
         }}
         """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override(
-            {"docker_swarm": {"allow_networks": [self.network_name]}}
-        )
+        cfg.override({"docker_swarm": {"allow_networks": [self.network_name]}})
         out = self._run(wdl, {}, cfg=cfg)
         self.assertEqual(out["out"][:11], "192.168.99.")
 
@@ -2031,7 +2272,6 @@ class TestDockerNetwork(RunnerTestCase):
         self.assertNotEqual(out["out"][:11], "192.168.99.")
         logs = "\n".join(str(record.msg) for record in capture.records)
         assert "runtime.docker_network ignored" in logs
-
 
     def test_network_host(self):
         wdl = """
@@ -2050,9 +2290,7 @@ class TestDockerNetwork(RunnerTestCase):
         }
         """
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        cfg.override(
-            {"docker_swarm": {"allow_networks": ["host"]}}
-        )
+        cfg.override({"docker_swarm": {"allow_networks": ["host"]}})
         self._run(wdl, {}, cfg=cfg)
 
 
@@ -2060,6 +2298,7 @@ class TestRelativeOutputPaths(RunnerTestCase):
     """
     More tests for this feature are in runner.t. This one is for basic coverage.
     """
+
     wdl = """
     version development
     workflow w {
@@ -2105,7 +2344,8 @@ class TestRelativeOutputPaths(RunnerTestCase):
 
 class TestEnvDecl(RunnerTestCase):
     def test_basic(self):
-        outp = self._run("""
+        outp = self._run(
+            """
             version 1.2
             workflow w {
                 scatter (who in ["Alyssa", "Ben"]) {
@@ -2129,13 +2369,16 @@ class TestEnvDecl(RunnerTestCase):
                     String message = read_string(stdout())
                 }
             }
-        """, {})
+        """,
+            {},
+        )
         assert outp["messages"] == ["Hello, Alyssa!", "Hello, Ben!"]
 
     def test_more(self):
         with open(os.path.join(self._dir, "alyssa.txt"), mode="w") as outfile:
             print("Alyssa", file=outfile)
-        outp = self._run("""
+        outp = self._run(
+            """
             version 1.2
             struct Person {
                 File name
@@ -2154,8 +2397,11 @@ class TestEnvDecl(RunnerTestCase):
                     String message = read_string(stdout())
                 }
             }
-        """, {"p": {"name": os.path.join(self._dir, "alyssa.txt"), "age": 42}})
+        """,
+            {"p": {"name": os.path.join(self._dir, "alyssa.txt"), "age": 42}},
+        )
         assert outp["message"] == "Hello, Alyssa!"
+
 
 class TestNestedInterpolations(RunnerTestCase):
     wdl = """
