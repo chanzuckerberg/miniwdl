@@ -250,16 +250,14 @@ class Base:
 
         This is the StdLib/operator counterpart to declaration binding and workflow-call-input
         binding. It applies only where a concrete File/Directory target type is known, then delegates
-        scalar path resolution to ``_resolve_source_relative_path``. That delegate is responsible
-        for containment and authorization checks: source-relative paths may not escape the WDL source
-        directory tree, and workflow/task runtimes must continue to enforce their input allowlist or
-        container mount boundaries.
+        scalar path resolution to ``_resolve_source_relative_path``. That delegate decides which WDL
+        versions need rewriting, and is responsible for containment and authorization checks:
+        source-relative paths may not escape the WDL source directory tree, and workflow/task runtimes
+        must continue to enforce their input allowlist or container mount boundaries.
 
         This is not a replacement for context-free ``Value.coerce()``.
         """
         value = value.coerce(desired_type)
-        if not wdl_version_geq(self.wdl_version, WDLVersion.V1_2):
-            return value
         if isinstance(value, Value.File):
             return Value.File(self._resolve_source_relative_path(value.value), value.expr)
         if isinstance(value, Value.Directory):

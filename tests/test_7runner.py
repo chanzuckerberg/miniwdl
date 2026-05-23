@@ -392,6 +392,34 @@ class TestDirectoryIO(RunnerTestCase):
         )
         assert "not expressly supplied" in str(exn)
 
+    def test_workflow_pre_1_2_relative_file_map_keys_follow_allow_any_input(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("input", file=outfile)
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"allow_any_input": True}})
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(self._dir)
+            outp = self._run(
+                R"""
+                version 1.1
+                workflow w {
+                    Map[File, Array[Int]] file_to_ints = {
+                        "data/input.txt": [0, 1, 2]
+                    }
+                    output {
+                        Array[Int] ints = file_to_ints["data/input.txt"]
+                    }
+                }
+                """,
+                cfg=cfg,
+            )
+        finally:
+            os.chdir(old_cwd)
+        assert outp["ints"] == [0, 1, 2]
+
     def test_workflow_output_relative_paths_relative_to_source_directory(self):
         os.makedirs(os.path.join(self._dir, "data"))
         with open(os.path.join(self._dir, "data/output.txt"), mode="w") as outfile:

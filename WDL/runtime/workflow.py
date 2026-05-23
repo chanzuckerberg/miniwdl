@@ -859,10 +859,13 @@ class _StdLib(StdLib.Base):
 
     def _resolve_source_relative_path(self, filename: str, directory: bool = False) -> str:
         """
-        Resolve a WDL 1.2 source-relative File/Directory StdLib/operator value in a workflow.
+        Resolve a File/Directory StdLib/operator value in a workflow.
 
-        Workflow-level source-relative paths resolve to host paths. Resolved paths are intentionally
-        added to the workflow allowlist as a side effect; non-source-relative values are preserved.
+        WDL 1.2 source-relative paths resolve against the workflow source directory, and are
+        intentionally added to the workflow allowlist as a side effect. Pre-1.2 relative paths don't
+        get source-directory semantics, but they still pass through the workflow path boundary for
+        compatibility with legacy ``allow_any_input`` workflows whose File/Directory values have been
+        resolved to host paths during declaration binding.
         """
         if (
             wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
@@ -874,6 +877,17 @@ class _StdLib(StdLib.Base):
             )
             self.state.fspath_allowlist.add(source_path + ("/" if directory else ""))
             return source_path
+        if not os.path.isabs(filename) and not downloadable(
+            self.cfg, filename, directory=directory
+        ):
+            ans = _resolve_workflow_path(
+                self.cfg,
+                self.state.fspath_allowlist,
+                "File/Directory StdLib argument",
+                Value.Directory(filename) if directory else Value.File(filename),
+            )
+            assert ans is not None
+            return ans
         return filename
 
     def _join_paths_default_directory(self) -> str:
