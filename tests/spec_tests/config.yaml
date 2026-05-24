@@ -7,6 +7,9 @@
 #   - some_other_example
 
 wdl-1.1:
+  # WDL 1.1 spec examples use relative File paths in places where the version doesn't define
+  # WDL-source-relative semantics. Allow legacy cwd-relative access for those examples only.
+  allow_any_input: true
   xfail:
     # Object:
     - test_object.wdl
@@ -19,8 +22,6 @@ wdl-1.1:
     - test_gpu_task.wdl    # hardware-dependent
 wdl-1.2:
   xfail:
-    # FIXME:
-    - relative_paths_context.wdl  # issue #869
     # Known spec deviations:
     - file_sizes_task.wdl       # expected output is malformed
     - one_mount_point_task.wdl  # issue #868

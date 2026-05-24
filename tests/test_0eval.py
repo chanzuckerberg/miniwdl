@@ -316,27 +316,27 @@ class TestEval(unittest.TestCase):
         )
 
         env = cons_env(
-            ("s", WDL.Value.String("hello.txt")),
-            ("f", WDL.Value.File("hello.txt")),
-            ("g", WDL.Value.File("goodbye.txt")),
-            ("d", WDL.Value.Directory("hello.txt")),
-            ("e", WDL.Value.Directory("goodbye.txt")),
+            ("s", WDL.Value.String("/hello.txt")),
+            ("f", WDL.Value.File("/hello.txt")),
+            ("g", WDL.Value.File("/goodbye.txt")),
+            ("d", WDL.Value.Directory("/hello.txt")),
+            ("e", WDL.Value.Directory("/goodbye.txt")),
             (
                 "strings",
                 WDL.Value.Array(
-                    WDL.Type.String(), [WDL.Value.String("hello.txt")]
+                    WDL.Type.String(), [WDL.Value.String("/hello.txt")]
                 ),
             ),
             (
                 "files",
                 WDL.Value.Array(
-                    WDL.Type.File(), [WDL.Value.File("hello.txt")]
+                    WDL.Type.File(), [WDL.Value.File("/hello.txt")]
                 ),
             ),
             (
                 "directories",
                 WDL.Value.Array(
-                    WDL.Type.Directory(), [WDL.Value.Directory("hello.txt")]
+                    WDL.Type.Directory(), [WDL.Value.Directory("/hello.txt")]
                 ),
             ),
         )

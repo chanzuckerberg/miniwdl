@@ -47,12 +47,16 @@ from .. import Env, Type, Value, Tree, StdLib, Error
 from .task import (
     run_local_task,
     _fspaths,
+    _resolve_source_relative_path,
+    _resolve_source_relative_paths,
+    _source_directory,
     link_outputs,
     _add_downloadable_defaults,
     _warn_output_basename_collisions,
 )
 from .download import able as downloadable, run_cached as download
 from .._util import (
+    WDLVersion,
     write_atomic,
     write_values_json,
     provision_run_dir,
@@ -61,6 +65,7 @@ from .._util import (
     compose_coroutines,
     pathsize,
     path_really_within,
+    wdl_version_geq,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -382,7 +387,7 @@ class StateMachine:
         if isinstance(job.node, WorkflowOutputs):
             return Value.rewrite_env_paths(
                 env,
-                lambda v: _normalize_allowed_path(cfg, self.fspath_allowlist, "workflow output", v),
+                lambda v: _resolve_workflow_path(cfg, self.fspath_allowlist, "workflow output", v),
             )
 
         if isinstance(job.node, Tree.Call):
@@ -400,7 +405,13 @@ class StateMachine:
             assert isinstance(job.node.callee, (Tree.Task, Tree.Workflow))
             callee_inputs = job.node.callee.available_inputs
             call_inputs = _postprocess_call_inputs(
-                cfg, self.fspath_allowlist, call_name, callee_inputs, call_inputs
+                cfg,
+                stdlib.wdl_version,
+                self.fspath_allowlist,
+                call_name,
+                callee_inputs,
+                call_inputs,
+                source_directory=_source_directory(self.workflow),
             )
             # issue CallInstructions
             self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))
@@ -657,20 +668,32 @@ def _eval_decl(
     """
     Evaluate one workflow declaration and check its File/Directory paths.
 
+    WDL 1.2 source-relative declaration paths are resolved to host paths and allowlisted here.
     Missing children of allowlisted input Directories are rewritten to Null before final type
     coercion, so only File?/Directory? declarations accept them.
+
+    ``allowlist`` is intentionally mutated only to add resolved source-relative declaration paths.
     """
     if decl.name in inputs:
         value = inputs[decl.name]
     elif decl.expr:
         value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
+        if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
+            value, source_paths = _resolve_source_relative_paths(
+                cfg,
+                _source_directory(decl),
+                value,
+                decl.type,
+                f"workflow declaration {decl.name}",
+            )
+            allowlist |= source_paths
     else:
         assert decl.type.optional
         value = Value.Null()
 
     value = Value.rewrite_paths(
         value,
-        lambda v: _validate_allowed_path(
+        lambda v: _resolve_workflow_path(
             cfg,
             allowlist,
             f"workflow declaration {decl.name}",
@@ -686,21 +709,32 @@ def _eval_decl(
 
 def _postprocess_call_inputs(
     cfg: config.Loader,
+    wdl_version: str,
     allowlist: Set[str],
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
+    source_directory: str = "",
 ) -> Env.Bindings[Value.Base]:
     """
-    Coerce call inputs, then check and normalize their File/Directory paths.
+    Coerce call inputs, then check their File/Directory paths for use as host paths.
 
     The first coercion exposes String paths as File/Directory values. After path checks may rewrite
     missing input Directory children to Null, the second coercion enforces optionality.
+
+    ``source_directory`` should be the local directory containing the workflow source file, or ""
+    when unavailable. WDL 1.2+ relative call-input paths are resolved against it before the
+    allowlist checks.
     """
     call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
+    if wdl_version_geq(wdl_version, WDLVersion.V1_2):
+        call_inputs, source_paths = _resolve_call_input_source_paths(
+            cfg, source_directory, call_name, callee_inputs, call_inputs
+        )
+        allowlist |= source_paths
     call_inputs = Value.rewrite_env_paths(
         call_inputs,
-        lambda v: _normalize_allowed_path(
+        lambda v: _resolve_workflow_path(
             cfg,
             allowlist,
             f"call {call_name} input",
@@ -734,6 +768,40 @@ def _coerce_call_inputs(
     return call_inputs.map(coerce_binding)
 
 
+def _resolve_call_input_source_paths(
+    cfg: config.Loader,
+    source_directory: str,
+    call_name: str,
+    callee_inputs: Env.Bindings[Tree.Decl],
+    call_inputs: Env.Bindings[Value.Base],
+) -> Tuple[Env.Bindings[Value.Base], Set[str]]:
+    """
+    Resolve WDL 1.2 source-relative paths supplied directly to call inputs.
+
+    The values are already coerced to callee input types. This second pass uses the caller workflow
+    source directory, not the callee declaration source directory, and returns the source paths to
+    add to the workflow allowlist. ``source_paths`` is mutated locally while walking bindings; no
+    arguments are mutated.
+    """
+    source_paths: Set[str] = set()
+
+    def resolve_binding(binding: Env.Binding[Value.Base]) -> Env.Binding[Value.Base]:
+        callee_decl = callee_inputs.get(binding.name)
+        if not callee_decl:
+            return binding
+        value, paths = _resolve_source_relative_paths(
+            cfg,
+            source_directory,
+            binding.value,
+            callee_decl.type.copy(optional=True) if callee_decl.expr else callee_decl.type,
+            f"call {call_name} input {binding.name}",
+        )
+        source_paths.update(paths)
+        return Env.Binding(binding.name, value, binding.info)
+
+    return call_inputs.map(resolve_binding), source_paths
+
+
 class _StdLib(StdLib.Base):
     "checks against & updates the file/directory allowlist for the read_* and write_* functions"
 
@@ -743,8 +811,8 @@ class _StdLib(StdLib.Base):
 
     def __init__(
         self,
-        wdl_version: str,
         cfg: config.Loader,
+        wdl_version: str,
         state: StateMachine,
         cache: CallCache,
         eval_context: Optional[StdLib.EvalContext] = None,
@@ -758,16 +826,73 @@ class _StdLib(StdLib.Base):
         self.state = state
         self.cache = cache
 
+    def _source_relative_host_path(self, filename: str, desc: str) -> str:
+        directory = filename.endswith("/")
+        value = Value.Directory(filename) if directory else Value.File(filename)
+        ans = _resolve_source_relative_path(
+            self.cfg, _source_directory(self.state.workflow), desc, value
+        )
+        if ans is None:
+            raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
+        return ans
+
     def _devirtualize_filename(self, filename: str) -> str:
-        if downloadable(self.cfg, filename):
+        directory = filename.endswith("/")
+        if downloadable(self.cfg, filename, directory=directory):
             cached = self.cache.get_download(filename)
             if cached:
                 return cached
-        ans = _normalize_allowed_path(
-            self.cfg, self.state.fspath_allowlist, "read_*() argument", Value.File(filename)
+        if (
+            wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
+            and not os.path.isabs(filename)
+            and not downloadable(self.cfg, filename, directory=directory)
+        ):
+            source_path = self._source_relative_host_path(filename, "read_*() argument")
+            self.state.fspath_allowlist.add(source_path + ("/" if directory else ""))
+            filename = source_path
+        ans = _resolve_workflow_path(
+            self.cfg,
+            self.state.fspath_allowlist,
+            "read_*() argument",
+            Value.Directory(filename) if directory else Value.File(filename),
         )
         assert ans is not None
         return ans
+
+    def _resolve_source_relative_path(self, filename: str) -> str:
+        """
+        Resolve a File/Directory StdLib/operator value in a workflow.
+
+        Directory paths are denoted by a trailing "/".
+        WDL 1.2 source-relative paths resolve against the workflow source directory, and are
+        intentionally added to the workflow allowlist as a side effect. Pre-1.2 relative paths don't
+        get source-directory semantics, but they still pass through the workflow path boundary for
+        compatibility with legacy ``allow_any_input`` workflows whose File/Directory values have been
+        resolved to host paths during declaration binding.
+        """
+        directory = filename.endswith("/")
+        if (
+            wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
+            and not os.path.isabs(filename)
+            and not downloadable(self.cfg, filename, directory=directory)
+        ):
+            source_path = self._source_relative_host_path(
+                filename, "File/Directory StdLib argument"
+            )
+            self.state.fspath_allowlist.add(source_path + ("/" if directory else ""))
+            return source_path
+        if not os.path.isabs(filename) and not downloadable(
+            self.cfg, filename, directory=directory
+        ):
+            ans = _resolve_workflow_path(
+                self.cfg,
+                self.state.fspath_allowlist,
+                "File/Directory StdLib argument",
+                Value.Directory(filename) if directory else Value.File(filename),
+            )
+            assert ans is not None
+            return ans
+        return filename
 
     def _join_paths_default_directory(self) -> str:
         source = self.state.workflow.pos.abspath
@@ -808,7 +933,7 @@ class _StdLib(StdLib.Base):
         return filename
 
 
-def _validate_allowed_path(
+def _resolve_workflow_path(
     cfg: config.Loader,
     allowlist: Set[str],
     desc: str,
@@ -816,37 +941,16 @@ def _validate_allowed_path(
     null_if_missing: bool = False,
 ) -> Optional[str]:
     """
-    Validate a workflow-level File/Directory path without changing its spelling.
-
-    This is for workflow declarations, where path values may still participate in ordinary WDL
-    equality/key operations before reaching an I/O boundary.
-    """
-    return _normalize_allowed_path(
-        cfg, allowlist, desc, v, null_if_missing=null_if_missing, normalize=False
-    )
-
-
-def _normalize_allowed_path(
-    cfg: config.Loader,
-    allowlist: Set[str],
-    desc: str,
-    v: Union[Value.File, Value.Directory],
-    null_if_missing: bool = False,
-    normalize: bool = True,
-) -> Optional[str]:
-    """
-    Return the path an I/O boundary should use for a workflow File/Directory value.
+    Check a workflow-level File/Directory path and return the host path needed for I/O.
 
     The path is permitted when it is already in the workflow allowlist, is a downloadable URI, is
     nested under an allowlisted input Directory, or is accepted by ``allow_any_input``. Local paths
     accepted through the latter two cases are checked for existence, expected File/Directory kind,
     and containment under the input Directory or configured root.
 
-    When ``normalize`` is true, local paths discovered through child-directory or ``allow_any_input``
-    checks are returned as absolute host paths. When false, the same checks run but the original WDL
-    spelling is returned; declaration evaluation uses that mode so path values can still compare
-    equal to later literals before being sent to an I/O boundary. If an otherwise-allowed child path
-    is missing, return None only for optional-path processing via ``null_if_missing``.
+    WDL 1.2 source-relative declaration/call-input paths are resolved and allowlisted before this
+    helper runs. If an otherwise-allowed child path is missing, return None only for optional-path
+    processing via ``null_if_missing``.
     """
     isdir = isinstance(v, Value.Directory)
     fspath = v.value.rstrip("/") + ("/" if isdir else "")
@@ -862,7 +966,7 @@ def _normalize_allowed_path(
             raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
         if not allowlisted_child_path:
             raise Error.InputError(f"{desc} uses nonexistent file/directory: {fspath}")
-        return allowlisted_child_path if normalize else v.value
+        return allowlisted_child_path
     if not cfg.get_bool("file_io", "allow_any_input"):
         raise Error.InputError(
             desc + " uses file/directory not expressly supplied with workflow inputs"
@@ -876,7 +980,7 @@ def _normalize_allowed_path(
         raise Error.InputError(
             f"{desc} {v.value} must reside within [file_io] root " + cfg["file_io"]["root"]
         )
-    return fspath if normalize else v.value
+    return fspath
 
 
 def _resolve_allowlisted_directory_child(
@@ -1164,7 +1268,7 @@ def _workflow_main_loop(
                 if terminating():
                     raise Terminated()
                 # schedule all runnable calls
-                stdlib = _StdLib(workflow.effective_wdl_version, cfg, state, cache)
+                stdlib = _StdLib(cfg, workflow.effective_wdl_version, state, cache)
                 next_call = state.step(cfg, stdlib)
                 while next_call:
                     call_dir = os.path.join(run_dir, next_call.id)

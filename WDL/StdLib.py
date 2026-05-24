@@ -68,7 +68,7 @@ class Base:
         self.eval_context = eval_context or EvalContext()
 
         # language built-ins
-        self._at = _At()
+        self._at = _At(self)
         self._land = _And()
         self._lor = _Or()
         self._negate = StaticFunction(
@@ -82,8 +82,8 @@ class Base:
         self._rem = StaticFunction(
             "_rem", [Type.Int(), Type.Int()], Type.Int(), lambda l, r: Value.Int(l.value % r.value)
         )
-        self._eqeq = _EqualityOperator()
-        self._neq = _EqualityOperator(negate=True)
+        self._eqeq = _EqualityOperator(self)
+        self._neq = _EqualityOperator(self, negate=True)
         self._lt = _ComparisonOperator("<", lambda l, r: l < r)
         self._lte = _ComparisonOperator("<=", lambda l, r: l <= r)
         self._gt = _ComparisonOperator(">", lambda l, r: l > r)
@@ -197,10 +197,10 @@ class Base:
             static([Type.String(), Type.String()], Type.Boolean())(matches)
             self._pow = _ExponentiationOperator()
             self.join_paths = _JoinPaths(self)
-            self.contains = _Contains()
+            self.contains = _Contains(self)
             self.chunk = _Chunk()
             self.values = _Values()
-            self.contains_key = _ContainsKey()
+            self.contains_key = _ContainsKey(self)
 
     def _read(self, parse: Callable[[str], Value.Base]) -> Callable[[Value.File], Value.Base]:
         "generate read_* function implementation based on parse"
@@ -213,12 +213,58 @@ class Base:
 
     def _devirtualize_filename(self, filename: str) -> str:
         """
-        'devirtualize' filename passed to a read_* function: return a filename that can be open()ed
-        on the local host. Subclasses may further wish to forbid access to files outside of a
-        designated directory or allowlist (by raising an exception)
+        Convert a File/Directory value to the local host path needed for direct I/O.
+
+        Directory paths are denoted by a trailing "/".
+        This is used by read_* and size(), where miniwdl itself opens or stats the path. Subclasses
+        may forbid paths outside a designated directory or allowlist by raising an exception.
+        Runtime subclasses may mutate their path allowlist/cache state as a side effect.
         """
-        # TODO: add directory: bool argument when we have stdlib functions that take Directory
         raise NotImplementedError()
+
+    def _resolve_source_relative_path(self, filename: str) -> str:
+        """
+        Resolve a WDL 1.2 source-relative File/Directory used by StdLib/operator logic.
+
+        Directory paths are denoted by a trailing "/".
+        This is not for direct file I/O; ``_devirtualize_filename`` handles read_* and size(). This
+        hook is for File/Directory values that appear in operations such as map lookup, contains(),
+        contains_key(), and equality. Runtime subclasses must reject source-relative paths that
+        resolve outside the WDL source directory tree, and must still enforce workflow input
+        allowlists or task container input mounts before returning a path usable by later runtime
+        logic.
+
+        The base implementation preserves absolute paths but refuses relative paths so missing
+        runtime policy can't accidentally fall back to the process current working directory. URI
+        detection is runtime-specific and intentionally left to subclasses.
+        """
+        if not os.path.isabs(filename):
+            raise NotImplementedError(
+                "source-relative File/Directory path resolution requires runtime context"
+            )
+        return filename
+
+    def _coerce_source_relative_path(
+        self, value: Value.Base, desired_type: Type.Base
+    ) -> Value.Base:
+        """
+        Coerce a StdLib/operator argument and resolve File/Directory paths within it.
+
+        StdLib functions and operators with an evaluated File/Directory argument, or a compound
+        argument containing File/Directory leaves, should use this when a concrete target type is
+        known. It handles source-relative paths at expression-evaluation boundaries; declaration
+        binding and workflow call-input binding are the other runtime points where this resolution
+        happens. Runtime subclasses perform the actual path resolution and authorization checks.
+        """
+        value = value.coerce(desired_type)
+
+        def rewrite_path(v: Union[Value.File, Value.Directory]) -> str:
+            filename = v.value
+            if isinstance(v, Value.Directory):
+                filename = filename.rstrip("/") + "/"
+            return self._resolve_source_relative_path(filename)
+
+        return Value.rewrite_paths(value, rewrite_path).coerce(desired_type)
 
     def _write(
         self, serialize: Callable[[Value.Base, IO[bytes]], None]
@@ -660,6 +706,10 @@ def _serialize_map(map: Value.Base, outfile: IO[bytes]) -> None:
 class _At(EagerFunction):
     # Special function for array access arr[index], returning the element type
     #                   or map access map[key], returning the value type
+    stdlib: Base
+
+    def __init__(self, stdlib: Base) -> None:
+        self.stdlib = stdlib
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         assert len(expr.arguments) == 2
@@ -697,7 +747,7 @@ class _At(EagerFunction):
             mty = expr.arguments[0].type
             mkey = rhs
             if isinstance(mty, Type.Map):
-                mkey = mkey.coerce(mty.item_type[0])
+                mkey = self.stdlib._coerce_source_relative_path(mkey, mty.item_type[0])
             ans = None
             for k, v in lhs.value:
                 if mkey == k:
@@ -904,11 +954,13 @@ class _InterpolationAddOperator(_AddOperator):
 
 class _EqualityOperator(EagerFunction):
     # Test for [in]equality of two values of suitable types
+    stdlib: Base
 
     negate: bool
     name: str
 
-    def __init__(self, negate: bool = False) -> None:
+    def __init__(self, stdlib: Base, negate: bool = False) -> None:
+        self.stdlib = stdlib
         self.negate = negate
         self.name = "!=" if negate else "=="
 
@@ -925,7 +977,15 @@ class _EqualityOperator(EagerFunction):
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
         assert len(arguments) == 2
-        ans = arguments[0] == arguments[1]  # Value.Base.__eq__()
+        left, right = arguments
+        left_type, right_type = expr.arguments[0].type, expr.arguments[1].type
+        if isinstance(left_type, (Type.File, Type.Directory)) and right_type.coerces(left_type):
+            left = self.stdlib._coerce_source_relative_path(left, left_type)
+            right = self.stdlib._coerce_source_relative_path(right, left_type)
+        elif isinstance(right_type, (Type.File, Type.Directory)) and left_type.coerces(right_type):
+            left = self.stdlib._coerce_source_relative_path(left, right_type)
+            right = self.stdlib._coerce_source_relative_path(right, right_type)
+        ans = left == right  # Value.Base.__eq__()
         return Value.Boolean(self.negate ^ ans)
 
 
@@ -1042,7 +1102,10 @@ class _Size(EagerFunction):
             assert isinstance(file, (Value.File, Value.Directory))
             # pathsize() defines Directory sizing for size(): recursively sum regular files under
             # the directory, excluding symlink entries encountered inside it.
-            ans.append(pathsize(self.stdlib._devirtualize_filename(file.value)))
+            filename = file.value
+            if isinstance(file, Value.Directory):
+                filename = filename.rstrip("/") + "/"
+            ans.append(pathsize(self.stdlib._devirtualize_filename(filename)))
             return file.value
 
         Value.rewrite_paths(paths_argument, collect)
@@ -1811,6 +1874,10 @@ class _AsMap(_CollectByKey):
 class _Contains(EagerFunction):
     # Boolean contains(Array[X], X)
     # Determine whether an array contains a specified value
+    stdlib: Base
+
+    def __init__(self, stdlib: Base) -> None:
+        self.stdlib = stdlib
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 2:
@@ -1855,6 +1922,11 @@ class _Contains(EagerFunction):
         arr = arguments[0]
         assert isinstance(arr, Value.Array)
         elem = arguments[1]
+        arr_ty = expr.arguments[0].type
+        if isinstance(arr_ty, Type.Array) and isinstance(
+            arr_ty.item_type, (Type.File, Type.Directory)
+        ):
+            elem = self.stdlib._coerce_source_relative_path(elem, arr_ty.item_type)
 
         # Use Value.__eq__ for proper equality comparison
         for item in arr.value:
@@ -1899,6 +1971,10 @@ class _ContainsKey(EagerFunction):
     # Boolean contains_key(Object, String)
     # Boolean contains_key(Map[String, Y]|Struct|Object, Array[String])
     # Tests whether a collection contains a given key (or nested key path)
+    stdlib: Base
+
+    def __init__(self, stdlib: Base) -> None:
+        self.stdlib = stdlib
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
         if len(expr.arguments) != 2:
@@ -2018,6 +2094,9 @@ class _ContainsKey(EagerFunction):
 
         # Simple key lookup
         if isinstance(coll, Value.Map):
+            coll_ty = expr.arguments[0].type
+            if isinstance(coll_ty, Type.Map):
+                key = self.stdlib._coerce_source_relative_path(key, coll_ty.item_type[0])
             # Check if key exists in map
             for k, v in coll.value:
                 if key == k:

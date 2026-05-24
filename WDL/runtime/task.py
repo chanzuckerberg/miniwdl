@@ -194,7 +194,12 @@ def run_local_task(  # type: ignore[return]
                 container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
                 # evaluate runtime fields
-                stdlib = InputStdLib(task.effective_wdl_version, logger, container)
+                stdlib = InputStdLib(
+                    task.effective_wdl_version,
+                    logger,
+                    container,
+                    source_directory=_source_directory(task),
+                )
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
@@ -437,7 +442,9 @@ def _eval_task_inputs(
 
     # evaluate each declaration in that order
     # note: the write_* functions call container.add_paths as a side-effect
-    stdlib = InputStdLib(task.effective_wdl_version, logger, container)
+    stdlib = InputStdLib(
+        task.effective_wdl_version, logger, container, source_directory=_source_directory(task)
+    )
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
         v = _eval_task_decl(
@@ -448,7 +455,7 @@ def _eval_task_inputs(
             lambda value: _postprocess_task_decl_paths(
                 decl,
                 value,
-                lambda w: _task_decl_input_directory_child_path(decl.name, w, container),
+                lambda w: _task_decl_path(task, decl.name, w, container),
                 lambda name: Error.InputError(
                     f"File/Directory path not found in task declaration {name}"
                 ),
@@ -514,6 +521,160 @@ def _postprocess_task_decl_paths(
         err = missing_error(decl.name)
         setattr(err, "job_id", decl.workflow_node_id)
         raise err
+
+
+def _task_decl_path(
+    task: Tree.Task,
+    decl_name: str,
+    v: Union[Value.File, Value.Directory],
+    container: "TaskContainer",
+) -> Optional[str]:
+    """
+    Resolve a task input/private declaration File/Directory path into the task container.
+
+    Paths built from already-localized input Directories are checked against their host backing
+    directories. Other relative paths are WDL 1.2 source-relative paths: resolve them under the WDL
+    source directory, mount them into the task container, and return the container path.
+
+    ``container`` is intentionally mutated when a source-relative path needs to be mounted; no other
+    arguments are mutated.
+    """
+    ans = _task_decl_input_directory_child_path(decl_name, v, container)
+    if ans is None or ans != v.value:
+        return ans
+
+    if not wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
+        return v.value
+
+    source_paths: Set[str] = set()
+    ans = _resolve_source_relative_path(
+        container.cfg, _source_directory(task), f"task declaration {decl_name}", v
+    )
+    if ans is None or ans == v.value:
+        return ans
+
+    source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
+    assert len(source_paths) == 1
+    source_path = next(iter(source_paths))
+    container.add_paths(source_paths)
+    return container.input_path_map[source_path]
+
+
+def _resolve_source_relative_path(
+    cfg: config.Loader,
+    source_directory: str,
+    desc: str,
+    v: Union[Value.File, Value.Directory],
+) -> Optional[str]:
+    """
+    Resolve one File/Directory path against a WDL source directory when needed.
+
+    ``source_directory`` is either "" or a local WDL source directory with trailing "/". Absolute
+    paths and downloadable URIs are returned unchanged. Relative paths require ``source_directory``,
+    are resolved with realpath, and must remain inside the source directory tree. Missing paths
+    return None so callers can rewrite optional File?/Directory? values to Null before final type
+    coercion.
+
+    This scalar helper has no side effects.
+    """
+    isdir = isinstance(v, Value.Directory)
+    if os.path.isabs(v.value) or downloadable(cfg, v.value, directory=isdir):
+        return v.value
+
+    if not source_directory:
+        raise Error.InputError(
+            "relative File/Directory path in "
+            + desc
+            + " requires a local WDL source file: "
+            + v.value
+        )
+
+    root = (
+        "/"
+        if cfg["file_io"].get_bool("copy_input_files")
+        else os.path.realpath(cfg["file_io"]["root"])
+    )
+    if not path_really_within(source_directory, root):
+        raise Error.InputError(
+            "WDL source directories with source-relative File & Directory inputs must be "
+            f"located within the configured `file_io.root' directory `{root}' unlike "
+            f"`{source_directory}'"
+        )
+
+    ans = os.path.realpath(
+        os.path.join(source_directory, v.value.rstrip("/") if isdir else v.value)
+    )
+    within = path_really_within(ans, source_directory)
+    if within and not path_really_within(ans, root):
+        raise Error.InputError(
+            "Source-relative File & Directory inputs must be located within the configured "
+            f"`file_io.root' directory `{root}' unlike `{ans}'"
+        )
+    if within and not os.path.exists(ans):
+        return None
+    if within and not (os.path.isdir(ans) if isdir else os.path.isfile(ans)):
+        kind = "Directory" if isdir else "File"
+        expected = "directory" if isdir else "file"
+        raise Error.InputError(f"{kind} path is not a {expected}: {v.value}")
+    if not within:
+        raise Error.InputError(
+            "File/Directory path in "
+            + desc
+            + f" must reside within WDL source directory {source_directory}: "
+            + v.value
+        )
+
+    return ans
+
+
+def _resolve_source_relative_paths(
+    cfg: config.Loader,
+    source_directory: str,
+    value: Value.Base,
+    desired_type: Type.Base,
+    desc: str,
+) -> Tuple[Value.Base, Set[str]]:
+    """
+    Coerce a value to a path-containing type and resolve each File/Directory path within it.
+
+    This recursively applies ``_resolve_source_relative_path`` to File/Directory leaves after
+    coercing ``value`` to ``desired_type``. It also collects each newly resolved local source path
+    in the returned set so callers can perform allowlist or container-mount side effects after
+    validation succeeds. No arguments are mutated.
+    """
+    source_paths: Set[str] = set()
+    value = value.coerce(desired_type)
+
+    def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
+        ans = _resolve_source_relative_path(cfg, source_directory, desc, v)
+        if ans is None:
+            return None
+        if ans != v.value:
+            source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
+        return ans
+
+    value = Value.rewrite_paths(
+        value,
+        rewrite_path,
+    )
+    try:
+        return value.coerce(desired_type), source_paths
+    except FileNotFoundError:
+        raise Error.InputError(f"File/Directory path not found in {desc}") from None
+
+
+def _source_directory(node: Tree.SourceNode) -> str:
+    """
+    Return the local directory containing a WDL source node, with trailing "/", or "".
+
+    Source-relative File/Directory declarations need an explicit local source directory. Parsed
+    buffers and other non-local source locations are represented as an empty string so callers can
+    produce a declaration-specific error only when a relative path actually needs resolution.
+    """
+    source = node.pos.abspath
+    if not source or source == "(buffer)" or not os.path.isabs(source):
+        return ""
+    return os.path.join(os.path.realpath(os.path.dirname(source)), "")
 
 
 def _task_decl_input_directory_child_path(
@@ -821,6 +982,7 @@ def _eval_task_command(
         task.effective_wdl_version,
         logger,
         container,
+        source_directory=_source_directory(task),
         eval_context=StdLib.EvalContext(placeholder_regex=placeholder_re),
     )
     assert isinstance(task.command, Expr.TaskCommand)
@@ -918,7 +1080,7 @@ def _postprocess_task_output_decl_paths(
     container: "TaskContainer",
 ) -> Value.Base:
     """
-    Log a task output value, then normalize missing File/Directory paths.
+    Log a task output value, then resolve missing File/Directory paths.
     """
     vj = json.dumps(value.json)
     logger.info(
@@ -1226,6 +1388,7 @@ class _StdLib(StdLib.Base):
     logger: logging.Logger
     container: "TaskContainer"
     inputs_only: bool  # if True then only permit access to input files
+    source_directory: str
 
     def __init__(
         self,
@@ -1233,6 +1396,7 @@ class _StdLib(StdLib.Base):
         logger: logging.Logger,
         container: "TaskContainer",
         inputs_only: bool,
+        source_directory: str = "",
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -1243,14 +1407,62 @@ class _StdLib(StdLib.Base):
         self.logger = logger
         self.container = container
         self.inputs_only = inputs_only
+        self.source_directory = source_directory
+
+    def _source_relative_host_path(self, filename: str, desc: str) -> str:
+        directory = filename.endswith("/")
+        value = Value.Directory(filename) if directory else Value.File(filename)
+        ans = _resolve_source_relative_path(self.container.cfg, self.source_directory, desc, value)
+        if ans is None:
+            raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
+        return ans
 
     def _devirtualize_filename(self, filename: str) -> str:
+        """
+        Return the host path for task StdLib direct file access.
+
+        Directory paths are denoted by a trailing "/".
+        Input/private evaluation may read WDL 1.2 source-relative paths directly from the host
+        source directory. Output evaluation keeps existing task-output semantics and resolves paths
+        only through the execution directory or already-localized inputs.
+        """
         # check allowability of reading this file, & map from in-container to host
+        directory = filename.endswith("/")
         ans = self.container.host_path(filename, inputs_only=self.inputs_only)
+        if (
+            ans is None
+            and self.inputs_only
+            and wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
+            and not os.path.isabs(filename)
+            and not downloadable(self.container.cfg, filename, directory=directory)
+        ):
+            ans = self._source_relative_host_path(filename, "read_*() argument")
         if ans is None:
             raise OutputError("function was passed non-existent file " + filename)
         self.logger.debug(_("read_", container=filename, host=ans))
         return ans
+
+    def _resolve_source_relative_path(self, filename: str) -> str:
+        """
+        Resolve a WDL 1.2 source-relative File/Directory StdLib/operator value for a task.
+
+        Directory paths are denoted by a trailing "/".
+        This is used during input/private evaluation, where source-relative paths are mounted into
+        the task container and returned as in-container paths. ``container`` is intentionally
+        mutated when a new source-relative path must be mounted.
+        """
+        directory = filename.endswith("/")
+        if (
+            not self.inputs_only
+            or not wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
+            or os.path.isabs(filename)
+            or downloadable(self.container.cfg, filename, directory=directory)
+        ):
+            return filename
+        source_path = self._source_relative_host_path(filename, "File/Directory StdLib argument")
+        source_path_key = source_path + ("/" if directory else "")
+        self.container.add_paths([source_path_key])
+        return self.container.input_path_map[source_path_key].rstrip("/")
 
     def _virtualize_filename(self, filename: str) -> str:
         # register new file with container input_path_map
@@ -1272,9 +1484,17 @@ class InputStdLib(_StdLib):
         wdl_version: str,
         logger: logging.Logger,
         container: "TaskContainer",
+        source_directory: str = "",
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
-        super().__init__(wdl_version, logger, container, True, eval_context=eval_context)
+        super().__init__(
+            wdl_version,
+            logger,
+            container,
+            True,
+            source_directory=source_directory,
+            eval_context=eval_context,
+        )
 
 
 class OutputStdLib(_StdLib):
