@@ -281,6 +281,10 @@ class Task(SourceNode):
     """:type: Dict[str,WDL.Expr.Base]
 
     ``runtime{}`` section, with keys and corresponding expressions to be evaluated"""
+    # Original task section keyword, either "runtime" or "requirements"
+    runtime_section_name: Optional[str]
+    runtime_section_pos: Optional[SourcePosition]
+    # Source position of the runtime/requirements section, if present
     requirements: Dict[str, Expr.Base]
     """:type: Dict[str,WDL.Expr.Base]
 
@@ -307,6 +311,8 @@ class Task(SourceNode):
         parameter_meta: Dict[str, Any],
         runtime: Dict[str, Expr.Base],
         meta: Dict[str, Any],
+        runtime_section_name: Optional[str] = None,
+        runtime_section_pos: Optional[SourcePosition] = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
@@ -316,6 +322,8 @@ class Task(SourceNode):
         self.outputs = outputs
         self.parameter_meta = parameter_meta
         self.runtime = runtime
+        self.runtime_section_name = runtime_section_name
+        self.runtime_section_pos = runtime_section_pos
         self.requirements = self.runtime
         self.meta = meta
         self.effective_wdl_version = "1.0"  # overridden by Document.__init__

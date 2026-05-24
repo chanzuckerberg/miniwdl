@@ -406,7 +406,11 @@ class _DocTransformer(_ExprTransformer):
             # if k in d:
             #    raise Error.MultipleDefinitions(self._sp(meta), "duplicate keys in runtime section")
             d[k] = v
-        return {"runtime": d}
+        return {
+            "runtime": d,
+            "runtime_section_name": "runtime",
+            "runtime_section_pos": self._sp(meta),
+        }
 
     def requirements_section(self, meta, items):
         d = dict()
@@ -417,7 +421,11 @@ class _DocTransformer(_ExprTransformer):
                     self._sp(meta), "duplicate keys in requirements section"
                 )
             d[k] = v
-        return {"runtime": d}
+        return {
+            "runtime": d,
+            "runtime_section_name": "requirements",
+            "runtime_section_pos": self._sp(meta),
+        }
 
     def hints_section(self, meta, items):
         return {"hints": items[0]}
@@ -453,6 +461,8 @@ class _DocTransformer(_ExprTransformer):
             d.get("parameter_meta", {}),
             d.get("runtime", {}),
             d.get("meta", {}),
+            d.get("runtime_section_name", None),
+            d.get("runtime_section_pos", None),
         )
 
     def tasks(self, meta, items):
