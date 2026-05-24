@@ -43,6 +43,137 @@ If your system has `ShellCheck <https://www.shellcheck.net/>`_ installed, ``mini
 
 The ``miniwdl check`` process succeeds (zero exit status code) so long as the WDL document can be parsed and type-checked, even if lint or ShellCheck warnings are reported. With ``--strict``, lint warnings as well as parse/type errors lead to a non-zero exit status.
 
+Pluggable Linting System
+-------------------------
+
+miniwdl includes a powerful pluggable linting system that allows you to extend the built-in linters with custom ones tailored to your needs.
+
+Linter Categories and Severities
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Linters are organized by **category** and **severity**:
+
+**Categories:**
+
+- ``STYLE``: Code formatting, naming conventions, cosmetic issues
+- ``SECURITY``: Security vulnerabilities, unsafe practices  
+- ``PERFORMANCE``: Performance issues, inefficient patterns
+- ``CORRECTNESS``: Logic errors, type mismatches
+- ``PORTABILITY``: Platform compatibility issues
+- ``BEST_PRACTICE``: Recommended coding practices
+- ``OTHER``: Miscellaneous issues
+
+**Severity Levels:**
+
+- ``MINOR``: Cosmetic issues, style violations
+- ``MODERATE``: Code quality issues, minor bugs
+- ``MAJOR``: Significant issues, potential bugs
+- ``CRITICAL``: Security vulnerabilities, serious bugs
+
+Custom Linters
+~~~~~~~~~~~~~~~
+
+You can add custom linters to enforce your own coding standards:
+
+.. code-block:: bash
+
+    # Add custom linters from a Python file
+    miniwdl check --additional-linters my_linters.py:MyLinter workflow.wdl
+
+    # Add multiple linters
+    miniwdl check --additional-linters my_linters.py:Linter1,my_linters.py:Linter2 workflow.wdl
+
+Linter Filtering
+~~~~~~~~~~~~~~~~
+
+Filter linters by category or disable specific ones:
+
+.. code-block:: bash
+
+    # Enable only specific categories
+    miniwdl check --enable-lint-categories STYLE,SECURITY workflow.wdl
+
+    # Disable specific categories
+    miniwdl check --disable-lint-categories PERFORMANCE,PORTABILITY workflow.wdl
+
+    # Disable specific linters
+    miniwdl check --disable-linters StringCoercion,FileCoercion workflow.wdl
+
+Exit Code Control
+~~~~~~~~~~~~~~~~~
+
+Control when miniwdl exits with an error based on lint severity:
+
+.. code-block:: bash
+
+    # Exit with error on MAJOR or CRITICAL findings
+    miniwdl check --exit-on-lint-severity MAJOR workflow.wdl
+
+    # Exit with error on any CRITICAL findings
+    miniwdl check --exit-on-lint-severity CRITICAL workflow.wdl
+
+List Available Linters
+~~~~~~~~~~~~~~~~~~~~~~~
+
+See all available linters with their categories and severities:
+
+.. code-block:: bash
+
+    miniwdl check --list-linters
+
+Configuration
+~~~~~~~~~~~~~
+
+The linting system can be configured through configuration files and environment variables:
+
+**Configuration file** (``.miniwdl.cfg``):
+
+.. code-block:: ini
+
+    [linting]
+    additional_linters = ["my_linters.py:StyleLinter", "security:SecurityLinter"]
+    disabled_linters = ["StringCoercion", "FileCoercion"]
+    enabled_categories = ["STYLE", "SECURITY", "PERFORMANCE"]
+    exit_on_severity = "MAJOR"
+
+**Environment variables:**
+
+.. code-block:: bash
+
+    export MINIWDL_ADDITIONAL_LINTERS="my_linters.py:MyLinter"
+    export MINIWDL_DISABLED_LINTERS="StringCoercion,FileCoercion"
+    export MINIWDL_EXIT_ON_LINT_SEVERITY="MAJOR"
+
+Creating Custom Linters
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Create your own linters by extending the ``Linter`` base class:
+
+.. code-block:: python
+
+    from WDL.Lint import Linter, LintSeverity, LintCategory
+
+    class TaskNamingLinter(Linter):
+        """Enforces snake_case naming for tasks"""
+        
+        category = LintCategory.STYLE
+        default_severity = LintSeverity.MINOR
+        
+        def task(self, obj):
+            if not obj.name.islower():
+                self.add(
+                    obj,
+                    f"Task name '{obj.name}' should be lowercase",
+                    obj.pos
+                )
+
+For detailed guides on creating and testing custom linters, see:
+
+- `Custom Linters Tutorial <custom_linters_tutorial.html>`_
+- `Common Linter Patterns <linter_patterns.html>`_
+- `Linter Testing Framework <linter_testing_framework.html>`_
+- `Linter Configuration Guide <linter_configuration.html>`_
+
 Suppressing warnings
 --------------------
 
