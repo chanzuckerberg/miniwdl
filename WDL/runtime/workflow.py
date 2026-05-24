@@ -37,16 +37,16 @@ import traceback
 import pickle
 import threading
 from concurrent import futures
-from typing import Optional, List, Callable, Tuple
+from typing import Optional, List, Callable, Tuple, Dict, Set, Union
 from contextlib import ExitStack
 from .. import Env, Value, Tree, Error
 from .task import run_local_task
 from ._io_helpers import (
     _add_downloadable_defaults,
-    _download_workflow_input_files,
     _warn_output_basename_collisions,
     link_outputs,
 )
+from .download import able as downloadable, run_cached as download
 from ._stdlib import WorkflowStdLib
 from ._workflow_state import StateMachine
 from .._util import (
@@ -56,6 +56,7 @@ from .._util import (
     TerminationSignalFlag,
     LoggingFileHandler,
     compose_coroutines,
+    pathsize,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
@@ -122,6 +123,111 @@ class _ThreadPools:
                     )
                 )
             return self._subworkflow_pools[call_depth].submit(*args, **kwargs)
+
+
+def _download_workflow_input_files(
+    cfg: config.Loader,
+    logger: logging.Logger,
+    logger_prefix: List[str],
+    run_dir: str,
+    inputs: Env.Bindings[Value.Base],
+    thread_pools: _ThreadPools,
+    cache: CallCache,
+) -> None:
+    """
+    Find all File & Directory input values that are downloadable URIs (including any nested within
+    compound values), and ensure the cache is "primed" with them. Workflow inputs are not modified:
+    future task input localization will resolve each URI from the cache.
+    """
+
+    # scan inputs for URIs
+    uris: Set[Tuple[str, bool]] = set()
+
+    def scan_uri(v: Union[Value.File, Value.Directory]) -> str:
+        nonlocal uris
+        directory = isinstance(v, Value.Directory)
+        uri = v.value
+        if (uri, directory) not in uris and downloadable(cfg, uri, directory=directory):
+            uris.add((uri, directory))
+        return uri
+
+    Value.rewrite_env_paths(inputs, scan_uri)
+    if not uris:
+        return
+    logger.notice(_("downloading input URIs", count=len(uris)))
+
+    # download them on the thread pool (but possibly further limiting concurrency)
+    download_concurrency = cfg.get_int("scheduler", "download_concurrency")
+    if download_concurrency <= 0:
+        download_concurrency = 999999
+    ops: Dict[futures.Future[Tuple[bool, str]], str] = {}
+    incomplete = len(uris)
+    outstanding: Set[futures.Future[Tuple[bool, str]]] = set()
+    downloaded_bytes = 0
+    cached_hits = 0
+    exn = None
+
+    while incomplete and not exn:
+        assert len(outstanding) <= incomplete
+
+        # top up thread pool's queue (up to download_concurrency)
+        while uris and len(outstanding) < download_concurrency:
+            (uri, directory) = uris.pop()
+            logger.info(
+                _(f"schedule input {'directory' if directory else 'file'} download", uri=uri)
+            )
+            future = thread_pools.submit_task(
+                download,
+                cfg,
+                logger,
+                cache,
+                uri,
+                directory=directory,
+                run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
+                logger_prefix=logger_prefix + [f"download{len(ops)}"],
+            )
+            ops[future] = uri
+            outstanding.add(future)
+        assert outstanding
+
+        # wait for one or more oustanding downloads to finish
+        just_finished, still_outstanding = futures.wait(
+            outstanding, return_when=futures.FIRST_COMPLETED
+        )
+        outstanding = still_outstanding
+        for future in just_finished:
+            # check results
+            try:
+                future_exn = future.exception()
+            except futures.CancelledError:
+                future_exn = Terminated()
+            if not future_exn:
+                uri = ops[future]
+                cached, filename = future.result()
+                if cached:
+                    cached_hits += 1
+                else:
+                    sz = pathsize(filename)
+                    logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
+                    downloaded_bytes += sz
+            elif not exn:
+                # cancel pending ops and signal running ones to abort
+                for outsfut in outstanding:
+                    outsfut.cancel()
+                os.kill(os.getpid(), signal.SIGUSR1)
+                exn = future_exn
+            incomplete -= 1
+
+    if exn:
+        raise exn
+    logger.notice(
+        _(
+            "processed input URIs",
+            cached=cached_hits,
+            downloaded=len(ops) - cached_hits,
+            downloaded_bytes=downloaded_bytes,
+        )
+    )
 
 
 def run_local_workflow(

@@ -19,6 +19,7 @@ from ._io_helpers import (
     _resolve_source_relative_paths,
     _resolve_workflow_path,
     _source_directory,
+    _warn_struct_extra,
 )
 
 
@@ -330,7 +331,9 @@ class StateMachine:
         if isinstance(job.node, Tree.Decl):
             # bind the value obtained either (i) from the workflow inputs or (ii) by evaluating
             # the expr
-            v = _eval_decl(cfg, self.inputs, self.fspath_allowlist, job.node, env, stdlib)
+            v = _eval_decl(
+                cfg, self.logger, self.inputs, self.fspath_allowlist, job.node, env, stdlib
+            )
             return Env.Bindings(Env.Binding(job.node.name, v))
 
         if isinstance(job.node, WorkflowOutputs):
@@ -608,6 +611,7 @@ def _gather(
 
 def _eval_decl(
     cfg: config.Loader,
+    logger: logging.Logger,
     inputs: Env.Bindings[Value.Base],
     allowlist: Set[str],
     decl: Tree.Decl,
@@ -640,6 +644,7 @@ def _eval_decl(
         assert decl.type.optional
         value = Value.Null()
 
+    _warn_struct_extra(logger, decl.name, value)
     value = Value.rewrite_paths(
         value,
         lambda v: _resolve_workflow_path(

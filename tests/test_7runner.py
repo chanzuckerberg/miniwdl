@@ -2101,6 +2101,30 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["out4"], [None, None])
         self.assertEqual(outp["out5"], [{}])
 
+    @log_capture()
+    def test_workflow_struct_extra_warning(self, capture):
+        wdl = r"""
+        version development
+        struct Sample {
+            String name
+        }
+        workflow w {
+            Sample sample = read_json(write_json({"name": "Alice", "extra": "ignored"}))
+            output {
+                String name = sample.name
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        self.assertEqual(outp["name"], "Alice")
+        logs = [
+            str(record.msg)
+            for record in capture.records
+            if "extraneous keys in struct initializer" in str(record.msg)
+        ]
+        self.assertEqual(len(logs), 1)
+        self.assertIn("extra", logs[0])
+
 
 class TestInlineDockerfile(RunnerTestCase):
     @log_capture()

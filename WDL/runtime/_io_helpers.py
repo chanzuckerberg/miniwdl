@@ -2,23 +2,20 @@
 Internal runtime File/Directory, input/download, and output-linking helpers.
 """
 
-import logging
 import math
 import os
 import shutil
-import signal
-from concurrent import futures
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+import logging
+from typing import Dict, Optional, Set, Tuple, Union
 
 import regex
 
 from .. import Env, Error, Expr, Type, Value, Tree
-from .._util import link_force, path_really_within, pathsize, symlink_force
+from .._util import link_force, path_really_within, symlink_force
 from .._util import StructuredLogMessage as _
 from . import config
 from .cache import CallCache
-from .download import able as downloadable, run_cached as download
-from .error import OutputError, Terminated
+from .download import able as downloadable
 
 
 def _source_directory(node: Tree.SourceNode) -> str:
@@ -236,172 +233,6 @@ def _resolve_allowlisted_directory_child(
             return True, os.path.abspath(fspath).rstrip("/")
         return True, ""
     return False, None
-
-
-def _download_task_input_files(
-    cfg: config.Loader,
-    logger: logging.Logger,
-    logger_prefix: List[str],
-    run_dir: str,
-    inputs: Env.Bindings[Value.Base],
-    cache: CallCache,
-) -> Env.Bindings[Value.Base]:
-    """
-    Find all File & Directory input values that are downloadable URIs (including any nested within
-    compound values). Download them to some location under run_dir and return a copy of the inputs
-    with the URI values replaced by the downloaded paths.
-    """
-
-    downloads = 0
-    download_bytes = 0
-    cached_hits = 0
-
-    def rewriter(v: Union[Value.Directory, Value.File]) -> str:
-        nonlocal downloads, download_bytes, cached_hits
-        directory = isinstance(v, Value.Directory)
-        uri = v.value
-        if downloadable(cfg, uri, directory=directory):
-            logger.info(_(f"download input {'directory' if directory else 'file'}", uri=uri))
-            cached, filename = download(
-                cfg,
-                logger,
-                cache,
-                uri,
-                directory=directory,
-                run_dir=os.path.join(run_dir, "download", str(downloads), "."),
-                logger_prefix=logger_prefix + [f"download{downloads}"],
-            )
-            if cached:
-                cached_hits += 1
-            else:
-                sz = pathsize(filename)
-                logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
-                downloads += 1
-                download_bytes += sz
-            return filename
-        return uri
-
-    ans = Value.rewrite_env_paths(inputs, rewriter)
-    if downloads or cached_hits:
-        logger.notice(
-            _(
-                "processed input URIs",
-                downloaded=downloads,
-                downloaded_bytes=download_bytes,
-                cached=cached_hits,
-            )
-        )
-    return ans
-
-
-def _download_workflow_input_files(
-    cfg: config.Loader,
-    logger: logging.Logger,
-    logger_prefix: List[str],
-    run_dir: str,
-    inputs: Env.Bindings[Value.Base],
-    thread_pools: Any,
-    cache: CallCache,
-) -> None:
-    """
-    Find all File & Directory input values that are downloadable URIs (including any nested within
-    compound values), and ensure the cache is "primed" with them, performing any needed download
-    tasks on thread_pool. The inputs are not modified, but the CallCache will be ready to quickly
-    produce a local filename corresponding to any URI therein, because it's either stored in the
-    persistent download cache (if enabled), or downloaded to the current/parent run directory and
-    transiently memoized.
-    """
-
-    # scan inputs for URIs
-    uris = set()
-
-    def scan_uri(v: Union[Value.File, Value.Directory]) -> str:
-        nonlocal uris
-        directory = isinstance(v, Value.Directory)
-        uri = v.value
-        if uri not in uris and downloadable(cfg, uri, directory=directory):
-            uris.add((uri, directory))
-        return uri
-
-    Value.rewrite_env_paths(inputs, scan_uri)
-    if not uris:
-        return
-    logger.notice(_("downloading input URIs", count=len(uris)))
-
-    # download them on the thread pool (but possibly further limiting concurrency)
-    download_concurrency = cfg.get_int("scheduler", "download_concurrency")
-    if download_concurrency <= 0:
-        download_concurrency = 999999
-    ops: Dict[futures.Future[Tuple[bool, str]], str] = {}  # pylint: disable=unsubscriptable-object
-    incomplete = len(uris)
-    outstanding: Set[futures.Future[Tuple[bool, str]]] = (  # pylint: disable=unsubscriptable-object
-        set()
-    )
-    downloaded_bytes = 0
-    cached_hits = 0
-    exn = None
-
-    while incomplete and not exn:
-        assert len(outstanding) <= incomplete
-
-        # top up thread pool's queue (up to download_concurrency)
-        while uris and len(outstanding) < download_concurrency:
-            (uri, directory) = uris.pop()
-            logger.info(
-                _(f"schedule input {'directory' if directory else 'file'} download", uri=uri)
-            )
-            future = thread_pools.submit_task(
-                download,
-                cfg,
-                logger,
-                cache,
-                uri,
-                directory=directory,
-                run_dir=os.path.join(run_dir, "download", str(len(ops)), "."),
-                logger_prefix=logger_prefix + [f"download{len(ops)}"],
-            )
-            ops[future] = uri
-            outstanding.add(future)
-        assert outstanding
-
-        # wait for one or more oustanding downloads to finish
-        just_finished, still_outstanding = futures.wait(
-            outstanding, return_when=futures.FIRST_COMPLETED
-        )
-        outstanding = still_outstanding
-        for future in just_finished:
-            # check results
-            try:
-                future_exn = future.exception()
-            except futures.CancelledError:
-                future_exn = Terminated()
-            if not future_exn:
-                uri = ops[future]
-                cached, filename = future.result()
-                if cached:
-                    cached_hits += 1
-                else:
-                    sz = pathsize(filename)
-                    logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
-                    downloaded_bytes += sz
-            elif not exn:
-                # cancel pending ops and signal running ones to abort
-                for outsfut in outstanding:
-                    outsfut.cancel()
-                os.kill(os.getpid(), signal.SIGUSR1)
-                exn = future_exn
-            incomplete -= 1
-
-    if exn:
-        raise exn
-    logger.notice(
-        _(
-            "processed input URIs",
-            cached=cached_hits,
-            downloaded=len(ops) - cached_hits,
-            downloaded_bytes=downloaded_bytes,
-        )
-    )
 
 
 def _add_downloadable_defaults(
@@ -624,20 +455,25 @@ def _warn_output_basename_collisions(
         )
 
 
-def _check_directory(host_path: str, output_name: str) -> None:
+def _warn_struct_extra(
+    logger: logging.Logger, decl_name: str, v: Value.Base, warned_keys: Optional[Set[str]] = None
+) -> None:
     """
-    traverse output directory to check that all symlinks are relative & resolve inside the dir
+    Log notices about extraneous keys found in struct initialization from JSON/Map/Object.
     """
-
-    def raiser(exc: OSError):
-        raise exc
-
-    for root, subdirs, files in os.walk(host_path, onerror=raiser, followlinks=False):
-        for fn in files:
-            fn = os.path.join(root, fn)
-            if os.path.islink(fn) and (
-                not os.path.exists(fn)
-                or os.path.isabs(os.readlink(fn))
-                or not path_really_within(fn, host_path)
-            ):
-                raise OutputError(f"Directory in output {output_name} contains unusable symlink")
+    if warned_keys is None:
+        warned_keys = set()
+    if isinstance(v, Value.Struct) and v.extra:
+        extra_keys = set(k for k in v.extra if not k.startswith("#"))
+        if extra_keys - warned_keys:
+            logger.notice(
+                _(
+                    "extraneous keys in struct initializer",
+                    decl=decl_name,
+                    struct=str(v.type),
+                    extra_keys=list(extra_keys),
+                )
+            )
+            warned_keys.update(extra_keys)
+    for ch in v.children:
+        _warn_struct_extra(logger, decl_name, ch, warned_keys)

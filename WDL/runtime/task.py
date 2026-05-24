@@ -34,6 +34,8 @@ from .._util import (
     chmod_R_plus,
     LoggingFileHandler,
     compose_coroutines,
+    path_really_within,
+    pathsize,
     rmtree_atomic,
     wdl_version_geq,
 )
@@ -42,12 +44,12 @@ from . import config, _statusbar
 from .cache import CallCache, new as new_call_cache
 from ._io_helpers import (
     _add_downloadable_defaults,
-    _check_directory,
-    _download_task_input_files,
+    _warn_struct_extra,
     _warn_output_basename_collisions,
     link_outputs,
 )
 from ._io_helpers import _fspaths, _resolve_source_relative_path, _source_directory
+from .download import able as downloadable, run_cached as download
 from ._stdlib import TaskInputStdLib, TaskOutputStdLib
 from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
 
@@ -381,6 +383,62 @@ def _eval_task_inputs(
         container_env = container_env.bind(decl.name, v)
 
     return container_env
+
+
+def _download_task_input_files(
+    cfg: config.Loader,
+    logger: logging.Logger,
+    logger_prefix: List[str],
+    run_dir: str,
+    inputs: Env.Bindings[Value.Base],
+    cache: CallCache,
+) -> Env.Bindings[Value.Base]:
+    """
+    Find all File & Directory input values that are downloadable URIs (including any nested within
+    compound values). Download them to some location under run_dir and return a copy of the inputs
+    with the URI values replaced by the downloaded paths.
+    """
+
+    downloads = 0
+    download_bytes = 0
+    cached_hits = 0
+
+    def rewriter(v: Union[Value.Directory, Value.File]) -> str:
+        nonlocal downloads, download_bytes, cached_hits
+        directory = isinstance(v, Value.Directory)
+        uri = v.value
+        if downloadable(cfg, uri, directory=directory):
+            logger.info(_(f"download input {'directory' if directory else 'file'}", uri=uri))
+            cached, filename = download(
+                cfg,
+                logger,
+                cache,
+                uri,
+                directory=directory,
+                run_dir=os.path.join(run_dir, "download", str(downloads), "."),
+                logger_prefix=logger_prefix + [f"download{downloads}"],
+            )
+            if cached:
+                cached_hits += 1
+            else:
+                sz = pathsize(filename)
+                logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
+                downloads += 1
+                download_bytes += sz
+            return filename
+        return uri
+
+    ans = Value.rewrite_env_paths(inputs, rewriter)
+    if downloads or cached_hits:
+        logger.notice(
+            _(
+                "processed input URIs",
+                downloaded=downloads,
+                downloaded_bytes=download_bytes,
+                cached=cached_hits,
+            )
+        )
+    return ans
 
 
 def _task_decl_eval_order(decls: Iterable[Tree.Decl]) -> List[Tree.Decl]:
@@ -910,28 +968,23 @@ def _task_output_host_path(
     return host_path
 
 
-def _warn_struct_extra(
-    logger: logging.Logger, decl_name: str, v: Value.Base, warned_keys: Optional[Set[str]] = None
-) -> None:
+def _check_directory(host_path: str, output_name: str) -> None:
     """
-    Log notices about extraneous keys found in struct initialization from JSON/Map/Object
+    Traverse an output directory to check that all symlinks are relative & resolve inside the dir.
     """
-    if warned_keys is None:
-        warned_keys = set()
-    if isinstance(v, Value.Struct) and v.extra:
-        extra_keys = set(k for k in v.extra if not k.startswith("#"))
-        if extra_keys - warned_keys:
-            logger.notice(
-                _(
-                    "extraneous keys in struct initializer",
-                    decl=decl_name,
-                    struct=str(v.type),
-                    extra_keys=list(extra_keys),
-                )
-            )
-            warned_keys.update(extra_keys)
-    for ch in v.children:
-        _warn_struct_extra(logger, decl_name, ch, warned_keys)
+
+    def raiser(exc: OSError):
+        raise exc
+
+    for root, subdirs, files in os.walk(host_path, onerror=raiser, followlinks=False):
+        for fn in files:
+            fn = os.path.join(root, fn)
+            if os.path.islink(fn) and (
+                not os.path.exists(fn)
+                or os.path.isabs(os.readlink(fn))
+                or not path_really_within(fn, host_path)
+            ):
+                raise OutputError(f"Directory in output {output_name} contains unusable symlink")
 
 
 def _delete_work(
