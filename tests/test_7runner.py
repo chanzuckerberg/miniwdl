@@ -520,6 +520,21 @@ class TestDirectoryIO(RunnerTestCase):
         )
         assert "must reside within WDL source directory" in str(exn)
 
+    def test_workflow_source_relative_stdlib_missing_file(self):
+        exn = self._run(
+            R"""
+            version 1.2
+            workflow w {
+                output {
+                    String contents = read_string("data/missing.txt")
+                }
+            }
+            """,
+            expected_exception=WDL.Error.EvalError,
+        )
+        assert "File/Directory path not found in read_*() argument" in str(exn)
+        assert "data/missing.txt" in str(exn)
+
     def test_workflow_source_relative_stdlib_operator_rejects_escape(self):
         os.makedirs(os.path.join(self._dir, "data"))
         with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:

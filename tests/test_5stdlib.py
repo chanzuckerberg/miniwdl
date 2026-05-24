@@ -452,6 +452,11 @@ class TestStdLib(unittest.TestCase):
 
     def test_join_paths_runtime_context_required(self):
         stdlib = WDL.StdLib.Base("1.2")
+        with self.assertRaisesRegex(
+            NotImplementedError, "source-relative File/Directory path resolution requires runtime context"
+        ):
+            stdlib._resolve_source_relative_path("relative.txt")
+
         expr = WDL.parse_expr('join_paths(["relative", "path"])', version="1.2").infer_type(
             WDL.Env.Bindings(), stdlib
         )
@@ -660,6 +665,20 @@ class TestStdLib(unittest.TestCase):
             expected_exception=WDL.Error.EvalError,
         )
         self.assertIn("must reside within WDL source directory", str(exn))
+
+    def test_task_source_relative_stdlib_missing_file(self):
+        exn = self._test_task_file(
+            R"""
+            version 1.2
+            task t {
+                String contents = read_string("data/missing.txt")
+                command {}
+            }
+            """,
+            expected_exception=WDL.Error.EvalError,
+        )
+        self.assertIn("File/Directory path not found in read_*() argument", str(exn))
+        self.assertIn("data/missing.txt", str(exn))
 
     def test_task_source_relative_stdlib_operator_rejects_escape(self):
         os.makedirs(os.path.join(self._dir, "data"))
