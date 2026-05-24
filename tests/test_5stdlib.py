@@ -1,11 +1,12 @@
-from math import exp
 import unittest
 import logging
 import tempfile
 import os
 import json
-import docker
 from .context import WDL
+import WDL.runtime._io_helpers
+import WDL.runtime._stdlib
+import WDL.runtime._workflow_state
 
 
 class TestStdLib(unittest.TestCase):
@@ -478,10 +479,10 @@ class TestStdLib(unittest.TestCase):
         )
         doc.typecheck()
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        state = WDL.runtime.workflow.StateMachine(
+        state = WDL.runtime._workflow_state.StateMachine(
             self.id(), self._dir, doc.workflow, WDL.Env.Bindings()
         )
-        stdlib = WDL.runtime.workflow._StdLib(cfg, "1.2", state, None)
+        stdlib = WDL.runtime._stdlib.WorkflowStdLib(cfg, "1.2", state, None)
         with self.assertRaisesRegex(
             NotImplementedError, "relative path resolution requires WDL source"
         ):
@@ -504,7 +505,7 @@ class TestStdLib(unittest.TestCase):
         os.symlink(outside_dir, os.path.join(input_dir, "owned_dir"))
 
         allowlist = {input_dir + "/"}
-        resolve_workflow_path = WDL.runtime.workflow._resolve_workflow_path
+        resolve_workflow_path = WDL.runtime._io_helpers._resolve_workflow_path
 
         self.assertEqual(
             resolve_workflow_path(
@@ -583,7 +584,7 @@ class TestStdLib(unittest.TestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
         setattr(cfg, "_downloaders", ({}, {"foo": object()}))
         allowlist = {"foo://bucket/input/"}
-        resolve_workflow_path = WDL.runtime.workflow._resolve_workflow_path
+        resolve_workflow_path = WDL.runtime._io_helpers._resolve_workflow_path
 
         self.assertEqual(
             resolve_workflow_path(

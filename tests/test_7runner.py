@@ -10,7 +10,7 @@ import platform
 from testfixtures import log_capture
 from .context import WDL
 from WDL.runtime import task as runtime_task
-from WDL.runtime import workflow as runtime_workflow
+from WDL.runtime import _io_helpers as runtime_io_helpers
 from unittest.mock import patch
 
 
@@ -683,9 +683,9 @@ class TestDirectoryIO(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
 
         def resolve(decl, value):
-            return runtime_task._resolve_source_relative_paths(
+            return runtime_io_helpers._resolve_source_relative_paths(
                 cfg,
-                runtime_task._source_directory(decl),
+                runtime_io_helpers._source_directory(decl),
                 value,
                 decl.type,
                 "Task declaration",
@@ -724,9 +724,9 @@ class TestDirectoryIO(RunnerTestCase):
             resolve(decls["d"], WDL.Value.Directory("data/file.txt"))
         with self.assertRaisesRegex(WDL.Error.InputError, "requires a local WDL source file"):
             doc = WDL.parse_document("version 1.2\ntask t { File f command {} }")
-            runtime_task._resolve_source_relative_paths(
+            runtime_io_helpers._resolve_source_relative_paths(
                 cfg,
-                runtime_task._source_directory(doc.tasks[0].available_inputs["f"]),
+                runtime_io_helpers._source_directory(doc.tasks[0].available_inputs["f"]),
                 WDL.Value.File("data/file.txt"),
                 doc.tasks[0].available_inputs["f"].type,
                 "Task declaration",
@@ -736,25 +736,25 @@ class TestDirectoryIO(RunnerTestCase):
         os.makedirs(outside_root)
         cfg_outside_root.override({"file_io": {"root": outside_root}})
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
-            runtime_task._resolve_source_relative_paths(
+            runtime_io_helpers._resolve_source_relative_paths(
                 cfg_outside_root,
-                runtime_task._source_directory(decls["f"]),
+                runtime_io_helpers._source_directory(decls["f"]),
                 WDL.Value.File("data/file.txt"),
                 decls["f"].type,
                 "Task declaration",
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
-            runtime_task._resolve_source_relative_paths(
+            runtime_io_helpers._resolve_source_relative_paths(
                 cfg_outside_root,
-                runtime_task._source_directory(decls["d"]),
+                runtime_io_helpers._source_directory(decls["d"]),
                 WDL.Value.Directory("data/dir"),
                 decls["d"].type,
                 "Task declaration",
             )
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
-        v, paths = runtime_task._resolve_source_relative_paths(
+        v, paths = runtime_io_helpers._resolve_source_relative_paths(
             cfg,
-            runtime_task._source_directory(doc.tasks[0].available_inputs["d"]),
+            runtime_io_helpers._source_directory(doc.tasks[0].available_inputs["d"]),
             WDL.Value.Directory("s3://example-bucket/data/dir/"),
             doc.tasks[0].available_inputs["d"].type,
             "Task declaration",
@@ -836,7 +836,7 @@ class TestDirectoryIO(RunnerTestCase):
         allowlist = {file_host_path, dir_host_path}
 
         assert (
-            runtime_workflow._resolve_workflow_path(
+            runtime_io_helpers._resolve_workflow_path(
                 cfg,
                 allowlist,
                 "read_*() argument",
@@ -845,7 +845,7 @@ class TestDirectoryIO(RunnerTestCase):
             == file_host_path
         )
         assert (
-            runtime_workflow._resolve_workflow_path(
+            runtime_io_helpers._resolve_workflow_path(
                 cfg,
                 allowlist,
                 "call input",
@@ -855,14 +855,14 @@ class TestDirectoryIO(RunnerTestCase):
         )
 
         with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
-            runtime_workflow._resolve_workflow_path(
+            runtime_io_helpers._resolve_workflow_path(
                 cfg,
                 set(),
                 "read_*() argument",
                 WDL.Value.File(file_host_path),
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
-            runtime_workflow._resolve_workflow_path(
+            runtime_io_helpers._resolve_workflow_path(
                 cfg, allowlist, "read_*() argument", WDL.Value.File("data/input.txt")
             )
 
