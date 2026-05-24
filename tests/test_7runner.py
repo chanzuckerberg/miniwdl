@@ -743,6 +743,14 @@ class TestDirectoryIO(RunnerTestCase):
                 decls["f"].type,
                 "Task declaration",
             )
+        with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
+            runtime_task._resolve_source_relative_paths(
+                cfg_outside_root,
+                runtime_task._source_directory(decls["d"]),
+                WDL.Value.Directory("data/dir"),
+                decls["d"].type,
+                "Task declaration",
+            )
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
         v, paths = runtime_task._resolve_source_relative_paths(
             cfg,
