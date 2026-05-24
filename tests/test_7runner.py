@@ -10,7 +10,7 @@ import platform
 from testfixtures import log_capture
 from .context import WDL
 from WDL.runtime import task as runtime_task
-from WDL.runtime import workflow as runtime_workflow
+from WDL.runtime import _io_helpers as runtime_io_helpers
 from unittest.mock import patch
 
 
@@ -683,9 +683,9 @@ class TestDirectoryIO(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
 
         def resolve(decl, value):
-            return runtime_task._resolve_source_relative_paths(
+            return runtime_io_helpers._resolve_source_relative_paths(
                 cfg,
-                runtime_task._source_directory(decl),
+                runtime_io_helpers._source_directory(decl),
                 value,
                 decl.type,
                 "Task declaration",
@@ -724,9 +724,9 @@ class TestDirectoryIO(RunnerTestCase):
             resolve(decls["d"], WDL.Value.Directory("data/file.txt"))
         with self.assertRaisesRegex(WDL.Error.InputError, "requires a local WDL source file"):
             doc = WDL.parse_document("version 1.2\ntask t { File f command {} }")
-            runtime_task._resolve_source_relative_paths(
+            runtime_io_helpers._resolve_source_relative_paths(
                 cfg,
-                runtime_task._source_directory(doc.tasks[0].available_inputs["f"]),
+                runtime_io_helpers._source_directory(doc.tasks[0].available_inputs["f"]),
                 WDL.Value.File("data/file.txt"),
                 doc.tasks[0].available_inputs["f"].type,
                 "Task declaration",
@@ -736,25 +736,25 @@ class TestDirectoryIO(RunnerTestCase):
         os.makedirs(outside_root)
         cfg_outside_root.override({"file_io": {"root": outside_root}})
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
-            runtime_task._resolve_source_relative_paths(
+            runtime_io_helpers._resolve_source_relative_paths(
                 cfg_outside_root,
-                runtime_task._source_directory(decls["f"]),
+                runtime_io_helpers._source_directory(decls["f"]),
                 WDL.Value.File("data/file.txt"),
                 decls["f"].type,
                 "Task declaration",
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
-            runtime_task._resolve_source_relative_paths(
+            runtime_io_helpers._resolve_source_relative_paths(
                 cfg_outside_root,
-                runtime_task._source_directory(decls["d"]),
+                runtime_io_helpers._source_directory(decls["d"]),
                 WDL.Value.Directory("data/dir"),
                 decls["d"].type,
                 "Task declaration",
             )
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
-        v, paths = runtime_task._resolve_source_relative_paths(
+        v, paths = runtime_io_helpers._resolve_source_relative_paths(
             cfg,
-            runtime_task._source_directory(doc.tasks[0].available_inputs["d"]),
+            runtime_io_helpers._source_directory(doc.tasks[0].available_inputs["d"]),
             WDL.Value.Directory("s3://example-bucket/data/dir/"),
             doc.tasks[0].available_inputs["d"].type,
             "Task declaration",
@@ -762,7 +762,7 @@ class TestDirectoryIO(RunnerTestCase):
         assert v.value == "s3://example-bucket/data/dir/"
         assert paths == set()
 
-    def test_task_decl_path_source_relative_version_gate(self):
+    def test_resolve_task_decl_path_into_container_source_relative_version_gate(self):
         class FakeContainer:
             container_dir = "/mnt/miniwdl_task_container"
 
@@ -800,14 +800,19 @@ class TestDirectoryIO(RunnerTestCase):
         container = FakeContainer(WDL.runtime.config.Loader(logging.getLogger(self.id())))
         task.effective_wdl_version = "1.1"
         assert (
-            runtime_task._task_decl_path(task, "f", WDL.Value.File("data.txt"), container)
+            runtime_task._resolve_task_decl_path_into_container(
+                task, "f", WDL.Value.File("data.txt"), container
+            )
             == "data.txt"
         )
         assert container.added_paths == set()
 
         task.effective_wdl_version = "1.2"
-        assert runtime_task._task_decl_path(task, "f", WDL.Value.File("data.txt"), container) == (
-            "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
+        assert (
+            runtime_task._resolve_task_decl_path_into_container(
+                task, "f", WDL.Value.File("data.txt"), container
+            )
+            == "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
         )
         assert container.added_paths == {os.path.join(self._dir, "data.txt")}
 
@@ -836,7 +841,7 @@ class TestDirectoryIO(RunnerTestCase):
         allowlist = {file_host_path, dir_host_path}
 
         assert (
-            runtime_workflow._resolve_workflow_path(
+            runtime_io_helpers._resolve_workflow_path(
                 cfg,
                 allowlist,
                 "read_*() argument",
@@ -845,7 +850,7 @@ class TestDirectoryIO(RunnerTestCase):
             == file_host_path
         )
         assert (
-            runtime_workflow._resolve_workflow_path(
+            runtime_io_helpers._resolve_workflow_path(
                 cfg,
                 allowlist,
                 "call input",
@@ -855,14 +860,14 @@ class TestDirectoryIO(RunnerTestCase):
         )
 
         with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
-            runtime_workflow._resolve_workflow_path(
+            runtime_io_helpers._resolve_workflow_path(
                 cfg,
                 set(),
                 "read_*() argument",
                 WDL.Value.File(file_host_path),
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "not expressly supplied"):
-            runtime_workflow._resolve_workflow_path(
+            runtime_io_helpers._resolve_workflow_path(
                 cfg, allowlist, "read_*() argument", WDL.Value.File("data/input.txt")
             )
 
@@ -2100,6 +2105,30 @@ class MiscRegressionTests(RunnerTestCase):
         self.assertEqual(outp["out3"], [{}])
         self.assertEqual(outp["out4"], [None, None])
         self.assertEqual(outp["out5"], [{}])
+
+    @log_capture()
+    def test_workflow_struct_extra_warning(self, capture):
+        wdl = r"""
+        version development
+        struct Sample {
+            String name
+        }
+        workflow w {
+            Sample sample = read_json(write_json({"name": "Alice", "extra": "ignored"}))
+            output {
+                String name = sample.name
+            }
+        }
+        """
+        outp = self._run(wdl, {})
+        self.assertEqual(outp["name"], "Alice")
+        logs = [
+            str(record.msg)
+            for record in capture.records
+            if "extraneous keys in struct initializer" in str(record.msg)
+        ]
+        self.assertEqual(len(logs), 1)
+        self.assertIn("extra", logs[0])
 
 
 class TestInlineDockerfile(RunnerTestCase):

@@ -3,13 +3,10 @@ Local task runner
 """
 
 import logging
-import math
 import os
 import json
 import traceback
-import glob
 import threading
-import shutil
 import regex
 from typing import (
     Tuple,
@@ -35,19 +32,25 @@ from .._util import (
     provision_run_dir,
     TerminationSignalFlag,
     chmod_R_plus,
-    path_really_within,
     LoggingFileHandler,
     compose_coroutines,
+    path_really_within,
     pathsize,
-    link_force,
-    symlink_force,
     rmtree_atomic,
     wdl_version_geq,
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
-from .download import able as downloadable, run_cached as download
 from .cache import CallCache, new as new_call_cache
+from ._io_helpers import (
+    _add_downloadable_defaults,
+    _warn_struct_extra,
+    _warn_output_basename_collisions,
+    link_outputs,
+)
+from ._io_helpers import _fspaths, _resolve_source_relative_path, _source_directory
+from .download import able as downloadable, run_cached as download
+from ._stdlib import TaskInputStdLib, TaskOutputStdLib
 from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
 
 if TYPE_CHECKING:  # otherwise-delayed heavy imports
@@ -176,7 +179,7 @@ def run_local_task(  # type: ignore[return]
                 inputs = recv["inputs"]
 
                 # download input files, if needed
-                posix_inputs = _download_input_files(
+                posix_inputs = _download_task_input_files(
                     cfg,
                     logger,
                     logger_prefix,
@@ -194,7 +197,7 @@ def run_local_task(  # type: ignore[return]
                 container_env = _eval_task_inputs(logger, task, posix_inputs, container)
 
                 # evaluate runtime fields
-                stdlib = InputStdLib(
+                stdlib = TaskInputStdLib(
                     task.effective_wdl_version,
                     logger,
                     container,
@@ -302,92 +305,6 @@ def run_local_task(  # type: ignore[return]
             raise wrapper from exn
 
 
-def _download_input_files(
-    cfg: config.Loader,
-    logger: logging.Logger,
-    logger_prefix: List[str],
-    run_dir: str,
-    inputs: Env.Bindings[Value.Base],
-    cache: CallCache,
-) -> Env.Bindings[Value.Base]:
-    """
-    Find all File & Directory input values that are downloadable URIs (including any nested within
-    compound values). Download them to some location under run_dir and return a copy of the inputs
-    with the URI values replaced by the downloaded paths.
-    """
-
-    downloads = 0
-    download_bytes = 0
-    cached_hits = 0
-
-    def rewriter(v: Union[Value.Directory, Value.File]) -> str:
-        nonlocal downloads, download_bytes, cached_hits
-        directory = isinstance(v, Value.Directory)
-        uri = v.value
-        if downloadable(cfg, uri, directory=directory):
-            logger.info(_(f"download input {'directory' if directory else 'file'}", uri=uri))
-            cached, filename = download(
-                cfg,
-                logger,
-                cache,
-                uri,
-                directory=directory,
-                run_dir=os.path.join(run_dir, "download", str(downloads), "."),
-                logger_prefix=logger_prefix + [f"download{downloads}"],
-            )
-            if cached:
-                cached_hits += 1
-            else:
-                sz = pathsize(filename)
-                logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
-                downloads += 1
-                download_bytes += sz
-            return filename
-        return uri
-
-    ans = Value.rewrite_env_paths(inputs, rewriter)
-    if downloads or cached_hits:
-        logger.notice(
-            _(
-                "processed input URIs",
-                downloaded=downloads,
-                downloaded_bytes=download_bytes,
-                cached=cached_hits,
-            )
-        )
-    return ans
-
-
-def _add_downloadable_defaults(
-    cfg: config.Loader, available_inputs: Env.Bindings[Tree.Decl], inputs: Env.Bindings[Value.Base]
-) -> Env.Bindings[Value.Base]:
-    """
-    Look for available File/Directory inputs that default to a string constant appearing to be a
-    downloadable URI. For each one, add a binding for that default to the user-supplied inputs (if
-    not already overridden in them).
-
-    This is to trigger download of the default URIs even though we otherwise don't evaluate input
-    declarations until after processing downloads.
-    """
-    ans = inputs
-    for b in available_inputs:
-        if (
-            isinstance(b.value.type, (Type.File, Type.Directory))
-            and b.name not in ans
-            and isinstance(b.value.expr, Expr.String)
-        ):
-            directory = isinstance(b.value.type, Type.Directory)
-            maybe_uri = b.value.expr.literal
-            if maybe_uri and downloadable(cfg, maybe_uri.value, directory=directory):
-                v = (
-                    Value.Directory(maybe_uri.value, b.value.expr)
-                    if directory
-                    else Value.File(maybe_uri.value, b.value.expr)
-                )
-                ans = ans.bind(b.name, v)
-    return ans
-
-
 def _eval_task_inputs(
     logger: logging.Logger,
     task: Tree.Task,
@@ -442,7 +359,7 @@ def _eval_task_inputs(
 
     # evaluate each declaration in that order
     # note: the write_* functions call container.add_paths as a side-effect
-    stdlib = InputStdLib(
+    stdlib = TaskInputStdLib(
         task.effective_wdl_version, logger, container, source_directory=_source_directory(task)
     )
     for decl in decls_to_eval:
@@ -455,7 +372,7 @@ def _eval_task_inputs(
             lambda value: _postprocess_task_decl_paths(
                 decl,
                 value,
-                lambda w: _task_decl_path(task, decl.name, w, container),
+                lambda w: _resolve_task_decl_path_into_container(task, decl.name, w, container),
                 lambda name: Error.InputError(
                     f"File/Directory path not found in task declaration {name}"
                 ),
@@ -466,6 +383,62 @@ def _eval_task_inputs(
         container_env = container_env.bind(decl.name, v)
 
     return container_env
+
+
+def _download_task_input_files(
+    cfg: config.Loader,
+    logger: logging.Logger,
+    logger_prefix: List[str],
+    run_dir: str,
+    inputs: Env.Bindings[Value.Base],
+    cache: CallCache,
+) -> Env.Bindings[Value.Base]:
+    """
+    Find all File & Directory input values that are downloadable URIs (including any nested within
+    compound values). Download them to some location under run_dir and return a copy of the inputs
+    with the URI values replaced by the downloaded paths.
+    """
+
+    downloads = 0
+    download_bytes = 0
+    cached_hits = 0
+
+    def rewriter(v: Union[Value.Directory, Value.File]) -> str:
+        nonlocal downloads, download_bytes, cached_hits
+        directory = isinstance(v, Value.Directory)
+        uri = v.value
+        if downloadable(cfg, uri, directory=directory):
+            logger.info(_(f"download input {'directory' if directory else 'file'}", uri=uri))
+            cached, filename = download(
+                cfg,
+                logger,
+                cache,
+                uri,
+                directory=directory,
+                run_dir=os.path.join(run_dir, "download", str(downloads), "."),
+                logger_prefix=logger_prefix + [f"download{downloads}"],
+            )
+            if cached:
+                cached_hits += 1
+            else:
+                sz = pathsize(filename)
+                logger.info(_("downloaded input", uri=uri, path=filename, bytes=sz))
+                downloads += 1
+                download_bytes += sz
+            return filename
+        return uri
+
+    ans = Value.rewrite_env_paths(inputs, rewriter)
+    if downloads or cached_hits:
+        logger.notice(
+            _(
+                "processed input URIs",
+                downloaded=downloads,
+                downloaded_bytes=download_bytes,
+                cached=cached_hits,
+            )
+        )
+    return ans
 
 
 def _task_decl_eval_order(decls: Iterable[Tree.Decl]) -> List[Tree.Decl]:
@@ -523,7 +496,7 @@ def _postprocess_task_decl_paths(
         raise err
 
 
-def _task_decl_path(
+def _resolve_task_decl_path_into_container(
     task: Tree.Task,
     decl_name: str,
     v: Union[Value.File, Value.Directory],
@@ -560,123 +533,6 @@ def _task_decl_path(
     return container.input_path_map[source_path]
 
 
-def _resolve_source_relative_path(
-    cfg: config.Loader,
-    source_directory: str,
-    desc: str,
-    v: Union[Value.File, Value.Directory],
-) -> Optional[str]:
-    """
-    Resolve one File/Directory path against a WDL source directory when needed.
-
-    ``source_directory`` is either "" or a local WDL source directory with trailing "/". Absolute
-    paths and downloadable URIs are returned unchanged. Relative paths require ``source_directory``,
-    are resolved with realpath, and must remain inside the source directory tree. Missing paths
-    return None so callers can rewrite optional File?/Directory? values to Null before final type
-    coercion.
-
-    This scalar helper has no side effects.
-    """
-    isdir = isinstance(v, Value.Directory)
-    if os.path.isabs(v.value) or downloadable(cfg, v.value, directory=isdir):
-        return v.value
-
-    if not source_directory:
-        raise Error.InputError(
-            "relative File/Directory path in "
-            + desc
-            + " requires a local WDL source file: "
-            + v.value
-        )
-
-    root = (
-        "/"
-        if cfg["file_io"].get_bool("copy_input_files")
-        else os.path.realpath(cfg["file_io"]["root"])
-    )
-    if not path_really_within(source_directory, root):
-        raise Error.InputError(
-            "WDL source directories with source-relative File & Directory inputs must be "
-            f"located within the configured `file_io.root' directory `{root}' unlike "
-            f"`{source_directory}'"
-        )
-
-    ans = os.path.realpath(
-        os.path.join(source_directory, v.value.rstrip("/") if isdir else v.value)
-    )
-    within = path_really_within(ans, source_directory)
-    if within and not path_really_within(ans, root):
-        raise Error.InputError(
-            "Source-relative File & Directory inputs must be located within the configured "
-            f"`file_io.root' directory `{root}' unlike `{ans}'"
-        )
-    if within and not os.path.exists(ans):
-        return None
-    if within and not (os.path.isdir(ans) if isdir else os.path.isfile(ans)):
-        kind = "Directory" if isdir else "File"
-        expected = "directory" if isdir else "file"
-        raise Error.InputError(f"{kind} path is not a {expected}: {v.value}")
-    if not within:
-        raise Error.InputError(
-            "File/Directory path in "
-            + desc
-            + f" must reside within WDL source directory {source_directory}: "
-            + v.value
-        )
-
-    return ans
-
-
-def _resolve_source_relative_paths(
-    cfg: config.Loader,
-    source_directory: str,
-    value: Value.Base,
-    desired_type: Type.Base,
-    desc: str,
-) -> Tuple[Value.Base, Set[str]]:
-    """
-    Coerce a value to a path-containing type and resolve each File/Directory path within it.
-
-    This recursively applies ``_resolve_source_relative_path`` to File/Directory leaves after
-    coercing ``value`` to ``desired_type``. It also collects each newly resolved local source path
-    in the returned set so callers can perform allowlist or container-mount side effects after
-    validation succeeds. No arguments are mutated.
-    """
-    source_paths: Set[str] = set()
-    value = value.coerce(desired_type)
-
-    def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
-        ans = _resolve_source_relative_path(cfg, source_directory, desc, v)
-        if ans is None:
-            return None
-        if ans != v.value:
-            source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
-        return ans
-
-    value = Value.rewrite_paths(
-        value,
-        rewrite_path,
-    )
-    try:
-        return value.coerce(desired_type), source_paths
-    except FileNotFoundError:
-        raise Error.InputError(f"File/Directory path not found in {desc}") from None
-
-
-def _source_directory(node: Tree.SourceNode) -> str:
-    """
-    Return the local directory containing a WDL source node, with trailing "/", or "".
-
-    Source-relative File/Directory declarations need an explicit local source directory. Parsed
-    buffers and other non-local source locations are represented as an empty string so callers can
-    produce a declaration-specific error only when a relative path actually needs resolution.
-    """
-    source = node.pos.abspath
-    if not source or source == "(buffer)" or not os.path.isabs(source):
-        return ""
-    return os.path.join(os.path.realpath(os.path.dirname(source)), "")
-
-
 def _task_decl_input_directory_child_path(
     decl_name: str, v: Union[Value.File, Value.Directory], container: "TaskContainer"
 ) -> Optional[str]:
@@ -706,27 +562,6 @@ def _task_decl_input_directory_child_path(
     raise Error.InputError(
         f"task declaration {decl_name} uses file/directory with the wrong type: " + v.value
     )
-
-
-def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
-    """
-    Get the unique paths of all File & Directory values in the environment. Directory paths will
-    have a trailing '/'.
-    """
-    ans = set()
-
-    def collector(v: Value.Base) -> None:
-        if isinstance(v, Value.File):
-            assert not v.value.endswith("/")
-            ans.add(v.value)
-        elif isinstance(v, Value.Directory):
-            ans.add(v.value.rstrip("/") + "/")
-        for ch in v.children:
-            collector(ch)
-
-    for b in env:
-        collector(b.value)
-    return ans
 
 
 def _warn_input_basename_collisions(logger: logging.Logger, container: "TaskContainer") -> None:
@@ -978,7 +813,7 @@ def _eval_task_command(
     old_command_dedent = cfg["task_runtime"].get_bool("old_command_dedent")
     # pylint: disable=E1101
     placeholder_re = regex.compile(cfg["task_runtime"]["placeholder_regex"], flags=regex.POSIX)
-    command_stdlib = InputStdLib(
+    command_stdlib = TaskInputStdLib(
         task.effective_wdl_version,
         logger,
         container,
@@ -1043,7 +878,7 @@ def _eval_task_outputs(
                     )
                 )
 
-    stdlib = OutputStdLib(task.effective_wdl_version, logger, container)
+    stdlib = TaskOutputStdLib(task.effective_wdl_version, logger, container)
     outputs: Env.Bindings[Value.Base] = Env.Bindings()
 
     # evaluate output declarations in dependency order
@@ -1135,7 +970,7 @@ def _task_output_host_path(
 
 def _check_directory(host_path: str, output_name: str) -> None:
     """
-    traverse output directory to check that all symlinks are relative & resolve inside the dir
+    Traverse an output directory to check that all symlinks are relative & resolve inside the dir.
     """
 
     def raiser(exc: OSError):
@@ -1150,220 +985,6 @@ def _check_directory(host_path: str, output_name: str) -> None:
                 or not path_really_within(fn, host_path)
             ):
                 raise OutputError(f"Directory in output {output_name} contains unusable symlink")
-
-
-def _warn_struct_extra(
-    logger: logging.Logger, decl_name: str, v: Value.Base, warned_keys: Optional[Set[str]] = None
-) -> None:
-    """
-    Log notices about extraneous keys found in struct initialization from JSON/Map/Object
-    """
-    if warned_keys is None:
-        warned_keys = set()
-    if isinstance(v, Value.Struct) and v.extra:
-        extra_keys = set(k for k in v.extra if not k.startswith("#"))
-        if extra_keys - warned_keys:
-            logger.notice(
-                _(
-                    "extraneous keys in struct initializer",
-                    decl=decl_name,
-                    struct=str(v.type),
-                    extra_keys=list(extra_keys),
-                )
-            )
-            warned_keys.update(extra_keys)
-    for ch in v.children:
-        _warn_struct_extra(logger, decl_name, ch, warned_keys)
-
-
-def link_outputs(
-    cache: CallCache,
-    outputs: Env.Bindings[Value.Base],
-    run_dir: str,
-    hardlinks: bool = False,
-    use_relative_output_paths: bool = False,
-) -> Env.Bindings[Value.Base]:
-    """
-    Following a successful run, the output files may be scattered throughout a complex directory
-    tree used for execution. To help navigating this, generate a subdirectory of the run directory
-    containing nicely organized symlinks to the output files, and rewrite File values in the
-    outputs env to use these symlinks.
-    """
-
-    def link1(target: str, link: str, directory: bool) -> None:
-        if hardlinks:
-            # TODO: what if target is an input from a different filesystem?
-            if directory:
-                shutil.copytree(target, link, symlinks=True, copy_function=link_force)
-            else:
-                link_force(target, link)
-        else:
-            symlink_force(target, link)
-
-    def map_paths(v: Value.Base, dn: str) -> Value.Base:
-        if isinstance(v, (Value.File, Value.Directory)):
-            target = (
-                v.value
-                if os.path.exists(v.value)
-                else cache.get_download(v.value, isinstance(v, Value.Directory))
-            )
-            if target:
-                target = os.path.realpath(target)
-                assert os.path.exists(target)
-                if not hardlinks and path_really_within(target, os.path.dirname(run_dir)):
-                    # make symlink relative
-                    target = os.path.relpath(target, start=os.path.realpath(dn))
-                link = os.path.join(dn, os.path.basename(v.value.rstrip("/")))
-                os.makedirs(dn, exist_ok=False)
-                link1(target, link, isinstance(v, Value.Directory))
-                # Drop a dotfile alongside Directory outputs, to inform a program crawling the out/
-                # directory without reference to the output types or JSON for whatever reason. It
-                # might otherwise have trouble distinguishing Directory outputs among the
-                # structured subdirectories we create for compound types.
-                if isinstance(v, Value.Directory):
-                    with open(os.path.join(dn, ".WDL_Directory"), "w") as _dotfile:
-                        pass
-                v.value = link
-        # recurse into compound values
-        elif isinstance(v, Value.Array) and v.value:
-            d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
-            for i in range(len(v.value)):
-                v.value[i] = map_paths(v.value[i], os.path.join(dn, str(i).rjust(d, "0")))
-        elif isinstance(v, Value.Map) and v.value:
-            # create a subdirectory for each key, as long as the key names seem to make reasonable
-            # path components; otherwise, treat the dict as a list of its values
-            keys_ok = (
-                sum(
-                    1
-                    for b in v.value
-                    if regex.fullmatch("[-_a-zA-Z0-9][-_a-zA-Z0-9.]*", str(b[0]).strip("'\""))
-                    is None
-                )
-                == 0
-            )
-            d = int(math.ceil(math.log10(len(v.value))))
-            for i, b in enumerate(v.value):
-                v.value[i] = (
-                    b[0],
-                    map_paths(
-                        b[1],
-                        os.path.join(
-                            dn, str(b[0]).strip("'\"") if keys_ok else str(i).rjust(d, "0")
-                        ),
-                    ),
-                )
-        elif isinstance(v, Value.Pair):
-            v.value = (
-                map_paths(v.value[0], os.path.join(dn, "left")),
-                map_paths(v.value[1], os.path.join(dn, "right")),
-            )
-        elif isinstance(v, Value.Struct):
-            for key in v.value:
-                v.value[key] = map_paths(v.value[key], os.path.join(dn, key))
-        return v
-
-    os.makedirs(os.path.join(run_dir, "out"), exist_ok=False)
-
-    if use_relative_output_paths:
-        return link_outputs_relative(link1, cache, outputs, run_dir, hardlinks=hardlinks)
-
-    return outputs.map(
-        lambda binding: Env.Binding(
-            binding.name,
-            map_paths(
-                Value.rewrite_paths(binding.value, lambda v: v.value),  # nop to deep copy
-                os.path.join(run_dir, "out", binding.name),
-            ),
-        )
-    )
-
-
-def link_outputs_relative(
-    link1: Callable[[str, str, bool], None],
-    cache: CallCache,
-    outputs: Env.Bindings[Value.Base],
-    run_dir: str,
-    hardlinks: bool = False,
-) -> Env.Bindings[Value.Base]:
-    """
-    link_outputs with [file_io] use_relative_output_paths = true. We organize the links to reflect
-    the generated files' paths relative to their task working directory.
-    """
-    link_destinations: Dict[str, str] = dict()
-
-    def map_path_relative(v: Union[Value.File, Value.Directory]) -> str:
-        target = (
-            v.value
-            if os.path.exists(v.value)
-            else cache.get_download(v.value, isinstance(v, Value.Directory))
-        )
-        if target:
-            real_target = os.path.realpath(target)
-            rel_link = None
-            if path_really_within(target, os.path.join(run_dir, "work")):
-                # target was generated by current task; use its path relative to the task work dir
-                if not os.path.basename(run_dir).startswith("download-"):  # except download tasks
-                    rel_link = os.path.relpath(
-                        real_target, os.path.realpath(os.path.join(run_dir, "work"))
-                    )
-            else:
-                # target is an out/ link generated by a call in the current workflow OR a cached
-                # run; use the link's path relative to that out/ dir, which by induction should
-                # equal its path relative to the original work/ dir.
-                # we need heuristic to find the out/ dir in a task/workflow run directory, since the
-                # user's cwd or the task-generated relative path might coincidentally have
-                # something named 'out'.
-                p = None
-                for p in reversed([m.span()[0] for m in regex.finditer("/out(?=/)", target)]):
-                    if p and (
-                        os.path.isfile(os.path.join(target[:p], "task.log"))
-                        or os.path.isfile(os.path.join(target[:p], "workflow.log"))
-                    ):
-                        break
-                    p = None
-                if p and p + 5 < len(target):
-                    rel_link = os.path.relpath(target, target[: p + 5])
-            # if neither of the above cases applies, then fall back to just the target basename
-            rel_link = rel_link or os.path.basename(target)
-            abs_link = os.path.join(os.path.join(run_dir, "out"), rel_link)
-            if link_destinations.get(abs_link, real_target) != real_target:
-                raise FileExistsError(
-                    "Output filename collision; to allow this, set"
-                    " [file_io] use_relative_output_paths = false. Affected path: " + abs_link
-                )
-            os.makedirs(os.path.dirname(abs_link), exist_ok=True)
-            link1(real_target, abs_link, isinstance(v, Value.Directory))
-            link_destinations[abs_link] = real_target
-            return abs_link
-        return v.value
-
-    return Value.rewrite_env_paths(outputs, map_path_relative)
-
-
-def _warn_output_basename_collisions(
-    logger: logging.Logger, outputs: Env.Bindings[Value.Base]
-) -> None:
-    targets_by_basename: Dict[str, Set[str]] = {}
-
-    def walker(v: Union[Value.File, Value.Directory]) -> str:
-        target = v.value
-        if os.path.exists(target):
-            target = os.path.realpath(target)
-        basename = os.path.basename(target)
-        targets_by_basename.setdefault(basename, set()).add(target)
-        return v.value
-
-    Value.rewrite_env_paths(outputs, walker)
-
-    collisions = [bn for bn, targets in targets_by_basename.items() if len(targets) > 1]
-    if collisions:
-        logger.warning(
-            _(
-                "multiple output files share the same basename; while miniwdl supports this,"
-                " consider modifying WDL to ensure distinct output basenames",
-                basenames=collisions,
-            )
-        )
 
 
 def _delete_work(
@@ -1382,180 +1003,3 @@ def _delete_work(
             )
             return
         container.delete_work(logger, delete_streams=not success)
-
-
-class _StdLib(StdLib.Base):
-    logger: logging.Logger
-    container: "TaskContainer"
-    inputs_only: bool  # if True then only permit access to input files
-    source_directory: str
-
-    def __init__(
-        self,
-        wdl_version: str,
-        logger: logging.Logger,
-        container: "TaskContainer",
-        inputs_only: bool,
-        source_directory: str = "",
-        eval_context: Optional[StdLib.EvalContext] = None,
-    ) -> None:
-        super().__init__(
-            wdl_version,
-            write_dir=os.path.join(container.host_dir, "write_"),
-            eval_context=eval_context,
-        )
-        self.logger = logger
-        self.container = container
-        self.inputs_only = inputs_only
-        self.source_directory = source_directory
-
-    def _source_relative_host_path(self, filename: str, desc: str) -> str:
-        directory = filename.endswith("/")
-        value = Value.Directory(filename) if directory else Value.File(filename)
-        ans = _resolve_source_relative_path(self.container.cfg, self.source_directory, desc, value)
-        if ans is None:
-            raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
-        return ans
-
-    def _devirtualize_filename(self, filename: str) -> str:
-        """
-        Return the host path for task StdLib direct file access.
-
-        Directory paths are denoted by a trailing "/".
-        Input/private evaluation may read WDL 1.2 source-relative paths directly from the host
-        source directory. Output evaluation keeps existing task-output semantics and resolves paths
-        only through the execution directory or already-localized inputs.
-        """
-        # check allowability of reading this file, & map from in-container to host
-        directory = filename.endswith("/")
-        ans = self.container.host_path(filename, inputs_only=self.inputs_only)
-        if (
-            ans is None
-            and self.inputs_only
-            and wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
-            and not os.path.isabs(filename)
-            and not downloadable(self.container.cfg, filename, directory=directory)
-        ):
-            ans = self._source_relative_host_path(filename, "read_*() argument")
-        if ans is None:
-            raise OutputError("function was passed non-existent file " + filename)
-        self.logger.debug(_("read_", container=filename, host=ans))
-        return ans
-
-    def _resolve_source_relative_path(self, filename: str) -> str:
-        """
-        Resolve a WDL 1.2 source-relative File/Directory StdLib/operator value for a task.
-
-        Directory paths are denoted by a trailing "/".
-        This is used during input/private evaluation, where source-relative paths are mounted into
-        the task container and returned as in-container paths. ``container`` is intentionally
-        mutated when a new source-relative path must be mounted.
-        """
-        directory = filename.endswith("/")
-        if (
-            not self.inputs_only
-            or not wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
-            or os.path.isabs(filename)
-            or downloadable(self.container.cfg, filename, directory=directory)
-        ):
-            return filename
-        source_path = self._source_relative_host_path(filename, "File/Directory StdLib argument")
-        source_path_key = source_path + ("/" if directory else "")
-        self.container.add_paths([source_path_key])
-        return self.container.input_path_map[source_path_key].rstrip("/")
-
-    def _virtualize_filename(self, filename: str) -> str:
-        # register new file with container input_path_map
-        self.container.add_paths([filename])
-        self.logger.debug(
-            _("write_", host=filename, container=self.container.input_path_map[filename])
-        )
-        self.logger.info(_("wrote", file=self.container.input_path_map[filename]))
-        return self.container.input_path_map[filename]
-
-    def _join_paths_default_directory(self) -> str:
-        return os.path.join(self.container.container_dir, "work")
-
-
-class InputStdLib(_StdLib):
-    # StdLib for evaluation of task inputs and command
-    def __init__(
-        self,
-        wdl_version: str,
-        logger: logging.Logger,
-        container: "TaskContainer",
-        source_directory: str = "",
-        eval_context: Optional[StdLib.EvalContext] = None,
-    ) -> None:
-        super().__init__(
-            wdl_version,
-            logger,
-            container,
-            True,
-            source_directory=source_directory,
-            eval_context=eval_context,
-        )
-
-
-class OutputStdLib(_StdLib):
-    # StdLib for evaluation of task outputs
-    def __init__(
-        self,
-        wdl_version: str,
-        logger: logging.Logger,
-        container: "TaskContainer",
-        eval_context: Optional[StdLib.EvalContext] = None,
-    ) -> None:
-        super().__init__(wdl_version, logger, container, False, eval_context=eval_context)
-
-        setattr(
-            self,
-            "stdout",
-            StdLib.StaticFunction(
-                "stdout",
-                [],
-                Type.File(),
-                lambda: Value.File(os.path.join(self.container.container_dir, "stdout.txt")),
-            ),
-        )
-        setattr(
-            self,
-            "stderr",
-            StdLib.StaticFunction(
-                "stderr",
-                [],
-                Type.File(),
-                lambda: Value.File(os.path.join(self.container.container_dir, "stderr.txt")),
-            ),
-        )
-
-        def _glob(pattern: Value.String, lib: OutputStdLib = self) -> Value.Array:
-            pat = pattern.coerce(Type.String()).value
-            if not pat:
-                raise OutputError("empty glob() pattern")
-            assert isinstance(pat, str)
-            if pat[0] == "/":
-                raise OutputError("glob() pattern must be relative to task working directory")
-            if pat.startswith("..") or "/.." in pat:
-                raise OutputError("glob() pattern must not use .. uplevels")
-            if pat.startswith("./"):
-                pat = pat[2:]
-            # glob the host directory
-            pat = os.path.join(lib.container.host_work_dir(), pat)
-            host_files = sorted(fn for fn in glob.glob(pat) if os.path.isfile(fn))
-            # convert the host filenames to in-container filenames
-            container_files = []
-            for hf in host_files:
-                dstrip = lib.container.host_work_dir()
-                dstrip += "" if dstrip.endswith("/") else "/"
-                assert hf.startswith(dstrip)
-                container_files.append(
-                    os.path.join(lib.container.container_dir, "work", hf[len(dstrip) :])
-                )
-            return Value.Array(Type.File(), [Value.File(fn) for fn in container_files])
-
-        setattr(
-            self,
-            "glob",
-            StdLib.StaticFunction("glob", [Type.String()], Type.Array(Type.File()), _glob),
-        )
