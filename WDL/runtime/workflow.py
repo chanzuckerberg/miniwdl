@@ -70,7 +70,15 @@ from .._util import (
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .cache import CallCache, new as new_call_cache
-from .error import RunFailed, Terminated, error_json
+from .error import (
+    CommandFailed,
+    DownloadFailed,
+    Interrupted,
+    OutputError,
+    RunFailed,
+    Terminated,
+    error_json,
+)
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -1303,10 +1311,11 @@ def _workflow_main_loop(
                 # no more calls to launch right now; wait for an outstanding call to finish
                 future = next(futures.as_completed(call_futures), None)
                 if future:
-                    __, outputs = future.result()
-                    call_id = call_futures[future]
+                    call_id = call_futures.pop(future)
+                    call_node = state.jobs[call_id].node
+                    assert isinstance(call_node, Tree.Call)
+                    outputs = _resolve_call_future_outputs(future, call_id, call_node, logger)
                     state.call_finished(call_id, outputs)
-                    call_futures.pop(future)
                 else:
                     assert state.outputs is not None
 
@@ -1371,6 +1380,74 @@ def _workflow_main_loop(
         for key in call_futures:
             key.cancel()
         raise wrapper from exn
+
+
+def _resolve_call_future_outputs(
+    future: futures.Future, call_id: str, call_node: Tree.Call, logger: logging.Logger
+) -> Env.Bindings[Value.Base]:
+    """Return the completed call's outputs, or null outputs for tolerated ``call?`` failures.
+
+    Ordinary calls and non-tolerated ``call?`` failures propagate their exception unchanged. When a
+    ``CallTry`` fails for an execution-layer reason classified by ``_tolerated_call_failure``, log
+    the root tolerated error and synthesize null bindings for all callee outputs so the workflow can
+    proceed.
+    """
+    try:
+        __, outputs = future.result()
+        return outputs
+    except Exception as exn:
+        if not isinstance(call_node, Tree.CallTry):
+            raise
+        tol_err = _tolerated_call_failure(exn)
+        if not tol_err:
+            raise
+        logger.warning(
+            _(
+                "call? tolerated failure",
+                job=call_id,
+                error=tol_err.__class__.__name__,
+                message=str(tol_err),
+                dir=getattr(exn, "run_dir", None),
+            )
+        )
+        return _null_call_outputs(call_node)
+
+
+def _exception_chain(exn: BaseException) -> Iterable[BaseException]:
+    visited = set()
+    while exn and id(exn) not in visited:
+        visited.add(id(exn))
+        yield exn
+        exn = exn.__cause__ or exn.__context__  # type: ignore
+
+
+def _tolerated_call_failure(exn: BaseException) -> Optional[BaseException]:
+    """Classify failures that a ``call?`` can downgrade to null outputs.
+
+    These are failures from running, downloading inputs for, or scheduling the callee, including
+    the same failures wrapped through nested subworkflow ``RunFailed`` exceptions. WDL logic errors
+    stay fatal because they indicate invalid expressions, invalid inputs, or invalid outputs rather
+    than an unsuccessful attempt to execute the call. Returns the most relevant cause to log when
+    the failure is tolerated, or ``None`` when the failure must propagate.
+    """
+    for cause in _exception_chain(exn):
+        if isinstance(cause, (Error.EvalError, Error.InputError, OutputError, Terminated)):
+            return None
+        if isinstance(cause, (CommandFailed, DownloadFailed, Interrupted)):
+            return cause
+        if isinstance(cause, Error.RuntimeError) and not isinstance(cause, RunFailed):
+            return cause
+        if cause.__class__.__name__ == "BuildError":
+            return cause
+    return None
+
+
+def _null_call_outputs(call_node: Tree.Call) -> Env.Bindings[Value.Base]:
+    ans: Env.Bindings[Value.Base] = Env.Bindings()
+    assert call_node.callee
+    for outp in reversed(list(call_node.callee.effective_outputs)):
+        ans = ans.bind(outp.name, Value.Null())
+    return ans
 
 
 def _download_input_files(
