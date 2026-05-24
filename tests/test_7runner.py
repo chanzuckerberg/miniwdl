@@ -612,6 +612,56 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl, {"f": "data.txt"})
         assert outp["s"] == "data.txt"
 
+    def test_workflow_source_relative_paths_must_stay_within_file_io_root(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("input", file=outfile)
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        root = os.path.join(self._dir, "root")
+        os.makedirs(root)
+        cfg.override({"file_io": {"root": root}})
+
+        exn = self._run(
+            R"""
+            version 1.2
+            workflow w {
+                File f = "data/input.txt"
+                output {
+                    String s = f
+                }
+            }
+            """,
+            cfg=cfg,
+            expected_exception=WDL.Error.InputError,
+        )
+        assert "configured `file_io.root' directory" in str(exn)
+        assert "WDL source directories" in str(exn)
+
+    def test_workflow_source_relative_paths_may_leave_file_io_root_when_copying_inputs(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
+            print("input", file=outfile)
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        root = os.path.join(self._dir, "root")
+        os.makedirs(root)
+        cfg.override({"file_io": {"root": root, "copy_input_files": True}})
+
+        outp = self._run(
+            R"""
+            version 1.2
+            workflow w {
+                File f = "data/input.txt"
+                output {
+                    String s = f
+                }
+            }
+            """,
+            cfg=cfg,
+        )
+        assert outp["s"] == os.path.join(self._dir, "data/input.txt")
+
     def test_source_relative_path_resolution_branches(self):
         with open(os.path.join(self._dir, "task.wdl"), mode="w") as outfile:
             outfile.write(
@@ -679,6 +729,18 @@ class TestDirectoryIO(RunnerTestCase):
                 runtime_task._source_directory(doc.tasks[0].available_inputs["f"]),
                 WDL.Value.File("data/file.txt"),
                 doc.tasks[0].available_inputs["f"].type,
+                "Task declaration",
+            )
+        cfg_outside_root = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        outside_root = os.path.join(self._dir, "root")
+        os.makedirs(outside_root)
+        cfg_outside_root.override({"file_io": {"root": outside_root}})
+        with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
+            runtime_task._resolve_source_relative_paths(
+                cfg_outside_root,
+                runtime_task._source_directory(decls["f"]),
+                WDL.Value.File("data/file.txt"),
+                decls["f"].type,
                 "Task declaration",
             )
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")

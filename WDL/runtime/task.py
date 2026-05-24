@@ -589,10 +589,27 @@ def _resolve_source_relative_path(
             + v.value
         )
 
+    root = (
+        "/"
+        if cfg["file_io"].get_bool("copy_input_files")
+        else os.path.realpath(cfg["file_io"]["root"])
+    )
+    if not path_really_within(source_directory, root):
+        raise Error.InputError(
+            "WDL source directories with source-relative File & Directory inputs must be "
+            f"located within the configured `file_io.root' directory `{root}' unlike "
+            f"`{source_directory}'"
+        )
+
     ans = os.path.realpath(
         os.path.join(source_directory, v.value.rstrip("/") if isdir else v.value)
     )
     within = path_really_within(ans, source_directory)
+    if within and not path_really_within(ans, root):
+        raise Error.InputError(
+            "Source-relative File & Directory inputs must be located within the configured "
+            f"`file_io.root' directory `{root}' unlike `{ans}'"
+        )
     if within and not os.path.exists(ans):
         return None
     if within and not (os.path.isdir(ans) if isdir else os.path.isfile(ans)):
