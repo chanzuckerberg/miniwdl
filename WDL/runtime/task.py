@@ -372,7 +372,7 @@ def _eval_task_inputs(
             lambda value: _postprocess_task_decl_paths(
                 decl,
                 value,
-                lambda w: _task_decl_path(task, decl.name, w, container),
+                lambda w: _resolve_task_decl_path_into_container(task, decl.name, w, container),
                 lambda name: Error.InputError(
                     f"File/Directory path not found in task declaration {name}"
                 ),
@@ -496,7 +496,7 @@ def _postprocess_task_decl_paths(
         raise err
 
 
-def _task_decl_path(
+def _resolve_task_decl_path_into_container(
     task: Tree.Task,
     decl_name: str,
     v: Union[Value.File, Value.Directory],

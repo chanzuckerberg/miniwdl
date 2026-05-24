@@ -762,7 +762,7 @@ class TestDirectoryIO(RunnerTestCase):
         assert v.value == "s3://example-bucket/data/dir/"
         assert paths == set()
 
-    def test_task_decl_path_source_relative_version_gate(self):
+    def test_resolve_task_decl_path_into_container_source_relative_version_gate(self):
         class FakeContainer:
             container_dir = "/mnt/miniwdl_task_container"
 
@@ -800,14 +800,19 @@ class TestDirectoryIO(RunnerTestCase):
         container = FakeContainer(WDL.runtime.config.Loader(logging.getLogger(self.id())))
         task.effective_wdl_version = "1.1"
         assert (
-            runtime_task._task_decl_path(task, "f", WDL.Value.File("data.txt"), container)
+            runtime_task._resolve_task_decl_path_into_container(
+                task, "f", WDL.Value.File("data.txt"), container
+            )
             == "data.txt"
         )
         assert container.added_paths == set()
 
         task.effective_wdl_version = "1.2"
-        assert runtime_task._task_decl_path(task, "f", WDL.Value.File("data.txt"), container) == (
-            "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
+        assert (
+            runtime_task._resolve_task_decl_path_into_container(
+                task, "f", WDL.Value.File("data.txt"), container
+            )
+            == "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
         )
         assert container.added_paths == {os.path.join(self._dir, "data.txt")}
 
