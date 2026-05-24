@@ -1964,10 +1964,10 @@ def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_ty
 
     # setup
     class _StdLib(StdLib.Base):
-        def _devirtualize_filename(self, filename: str, directory: bool = False) -> str:
+        def _devirtualize_filename(self, filename: str) -> str:
             return filename
 
-        def _resolve_source_relative_path(self, filename: str, directory: bool = False) -> str:
+        def _resolve_source_relative_path(self, filename: str) -> str:
             return filename
 
         def _virtualize_filename(self, filename: str) -> str:

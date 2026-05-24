@@ -107,7 +107,7 @@ class TestStdLib(unittest.TestCase):
 
     def test_read_tsv_unit_branches(self):
         class LocalStdLib(WDL.StdLib.Base):
-            def _devirtualize_filename(self, filename: str, directory: bool = False) -> str:
+            def _devirtualize_filename(self, filename: str) -> str:
                 return filename
 
             def _virtualize_filename(self, filename: str) -> str:
@@ -453,7 +453,8 @@ class TestStdLib(unittest.TestCase):
     def test_join_paths_runtime_context_required(self):
         stdlib = WDL.StdLib.Base("1.2")
         with self.assertRaisesRegex(
-            NotImplementedError, "source-relative File/Directory path resolution requires runtime context"
+            NotImplementedError,
+            "source-relative File/Directory path resolution requires runtime context",
         ):
             stdlib._resolve_source_relative_path("relative.txt")
 
@@ -1808,7 +1809,7 @@ class TestStdLib(unittest.TestCase):
 
     def test_write_tsv_unit_branches(self):
         class LocalStdLib(WDL.StdLib.Base):
-            def _devirtualize_filename(self, filename: str, directory: bool = False) -> str:
+            def _devirtualize_filename(self, filename: str) -> str:
                 return filename
 
             def _virtualize_filename(self, filename: str) -> str:
@@ -1851,7 +1852,7 @@ class TestStdLib(unittest.TestCase):
 
     def test_write_tsv_headers(self):
         class LocalStdLib(WDL.StdLib.Base):
-            def _devirtualize_filename(self, filename: str, directory: bool = False) -> str:
+            def _devirtualize_filename(self, filename: str) -> str:
                 return filename
 
             def _virtualize_filename(self, filename: str) -> str:

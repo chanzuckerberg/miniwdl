@@ -28,6 +28,9 @@ cfg = YAML(typ="safe").load(CONFIG_FILE.read_text(encoding="utf-8")) or {}
 # version-specific xfail and skip lists
 VERSION_XFAIL = {ver: set(data.get("xfail", [])) for ver, data in cfg.items()}
 VERSION_SKIP = {ver: set(data.get("skip", [])) for ver, data in cfg.items()}
+VERSION_ALLOW_ANY_INPUT = {
+    ver: bool(data.get("allow_any_input", False)) for ver, data in cfg.items()
+}
 
 
 def parse_spec_resources(text):
@@ -210,7 +213,7 @@ def test_spec_conformance(tmp_path, case, monkeypatch):
     # run
     cmd_env = os.environ.copy()
     cmd_env["PYTHONPATH"] = SPEC_BASE.parent.as_posix() + ":" + cmd_env.get("PYTHONPATH", "")
-    if case["version"] < "wdl-1.2":
+    if VERSION_ALLOW_ANY_INPUT.get(case["version"], False):
         cmd_env["MINIWDL__FILE_IO__ALLOW_ANY_INPUT"] = "true"
 
     try:

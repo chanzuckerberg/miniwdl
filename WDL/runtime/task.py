@@ -1409,24 +1409,26 @@ class _StdLib(StdLib.Base):
         self.inputs_only = inputs_only
         self.source_directory = source_directory
 
-    def _source_relative_host_path(self, filename: str, directory: bool, desc: str) -> str:
+    def _source_relative_host_path(self, filename: str, desc: str) -> str:
+        directory = filename.endswith("/")
         value = Value.Directory(filename) if directory else Value.File(filename)
         ans = _resolve_source_relative_path(self.container.cfg, self.source_directory, desc, value)
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         return ans
 
-    def _devirtualize_filename(self, filename: str, directory: bool = False) -> str:
+    def _devirtualize_filename(self, filename: str) -> str:
         """
         Return the host path for task StdLib direct file access.
 
+        Directory paths are denoted by a trailing "/".
         Input/private evaluation may read WDL 1.2 source-relative paths directly from the host
         source directory. Output evaluation keeps existing task-output semantics and resolves paths
         only through the execution directory or already-localized inputs.
         """
         # check allowability of reading this file, & map from in-container to host
-        container_filename = filename.rstrip("/") + ("/" if directory else "")
-        ans = self.container.host_path(container_filename, inputs_only=self.inputs_only)
+        directory = filename.endswith("/")
+        ans = self.container.host_path(filename, inputs_only=self.inputs_only)
         if (
             ans is None
             and self.inputs_only
@@ -1434,20 +1436,22 @@ class _StdLib(StdLib.Base):
             and not os.path.isabs(filename)
             and not downloadable(self.container.cfg, filename, directory=directory)
         ):
-            ans = self._source_relative_host_path(filename, directory, "read_*() argument")
+            ans = self._source_relative_host_path(filename, "read_*() argument")
         if ans is None:
             raise OutputError("function was passed non-existent file " + filename)
         self.logger.debug(_("read_", container=filename, host=ans))
         return ans
 
-    def _resolve_source_relative_path(self, filename: str, directory: bool = False) -> str:
+    def _resolve_source_relative_path(self, filename: str) -> str:
         """
         Resolve a WDL 1.2 source-relative File/Directory StdLib/operator value for a task.
 
+        Directory paths are denoted by a trailing "/".
         This is used during input/private evaluation, where source-relative paths are mounted into
         the task container and returned as in-container paths. ``container`` is intentionally
         mutated when a new source-relative path must be mounted.
         """
+        directory = filename.endswith("/")
         if (
             not self.inputs_only
             or not wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
@@ -1455,9 +1459,7 @@ class _StdLib(StdLib.Base):
             or downloadable(self.container.cfg, filename, directory=directory)
         ):
             return filename
-        source_path = self._source_relative_host_path(
-            filename, directory, "File/Directory StdLib argument"
-        )
+        source_path = self._source_relative_host_path(filename, "File/Directory StdLib argument")
         source_path_key = source_path + ("/" if directory else "")
         self.container.add_paths([source_path_key])
         return self.container.input_path_map[source_path_key].rstrip("/")

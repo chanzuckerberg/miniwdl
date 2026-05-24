@@ -211,20 +211,22 @@ class Base:
 
         return f
 
-    def _devirtualize_filename(self, filename: str, directory: bool = False) -> str:
+    def _devirtualize_filename(self, filename: str) -> str:
         """
         Convert a File/Directory value to the local host path needed for direct I/O.
 
+        Directory paths are denoted by a trailing "/".
         This is used by read_* and size(), where miniwdl itself opens or stats the path. Subclasses
         may forbid paths outside a designated directory or allowlist by raising an exception.
         Runtime subclasses may mutate their path allowlist/cache state as a side effect.
         """
         raise NotImplementedError()
 
-    def _resolve_source_relative_path(self, filename: str, directory: bool = False) -> str:
+    def _resolve_source_relative_path(self, filename: str) -> str:
         """
         Resolve a WDL 1.2 source-relative File/Directory used by StdLib/operator logic.
 
+        Directory paths are denoted by a trailing "/".
         This is not for direct file I/O; ``_devirtualize_filename`` handles read_* and size(). This
         hook is for File/Directory values that appear in operations such as map lookup, contains(),
         contains_key(), and equality. Runtime subclasses must reject source-relative paths that
@@ -246,25 +248,23 @@ class Base:
         self, value: Value.Base, desired_type: Type.Base
     ) -> Value.Base:
         """
-        Coerce one value to File/Directory and resolve source-relative paths when applicable.
+        Coerce a StdLib/operator argument and resolve File/Directory paths within it.
 
-        This is the StdLib/operator counterpart to declaration binding and workflow-call-input
-        binding. It applies only where a concrete File/Directory target type is known, then delegates
-        scalar path resolution to ``_resolve_source_relative_path``. That delegate decides which WDL
-        versions need rewriting, and is responsible for containment and authorization checks:
-        source-relative paths may not escape the WDL source directory tree, and workflow/task runtimes
-        must continue to enforce their input allowlist or container mount boundaries.
-
-        This is not a replacement for context-free ``Value.coerce()``.
+        StdLib functions and operators with an evaluated File/Directory argument, or a compound
+        argument containing File/Directory leaves, should use this when a concrete target type is
+        known. It handles source-relative paths at expression-evaluation boundaries; declaration
+        binding and workflow call-input binding are the other runtime points where this resolution
+        happens. Runtime subclasses perform the actual path resolution and authorization checks.
         """
         value = value.coerce(desired_type)
-        if isinstance(value, Value.File):
-            return Value.File(self._resolve_source_relative_path(value.value), value.expr)
-        if isinstance(value, Value.Directory):
-            return Value.Directory(
-                self._resolve_source_relative_path(value.value, directory=True), value.expr
-            )
-        return value
+
+        def rewrite_path(v: Union[Value.File, Value.Directory]) -> str:
+            filename = v.value
+            if isinstance(v, Value.Directory):
+                filename = filename.rstrip("/") + "/"
+            return self._resolve_source_relative_path(filename)
+
+        return Value.rewrite_paths(value, rewrite_path).coerce(desired_type)
 
     def _write(
         self, serialize: Callable[[Value.Base, IO[bytes]], None]
@@ -1102,13 +1102,10 @@ class _Size(EagerFunction):
             assert isinstance(file, (Value.File, Value.Directory))
             # pathsize() defines Directory sizing for size(): recursively sum regular files under
             # the directory, excluding symlink entries encountered inside it.
-            ans.append(
-                pathsize(
-                    self.stdlib._devirtualize_filename(
-                        file.value, directory=isinstance(file, Value.Directory)
-                    )
-                )
-            )
+            filename = file.value
+            if isinstance(file, Value.Directory):
+                filename = filename.rstrip("/") + "/"
+            ans.append(pathsize(self.stdlib._devirtualize_filename(filename)))
             return file.value
 
         Value.rewrite_paths(paths_argument, collect)

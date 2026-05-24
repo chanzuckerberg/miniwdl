@@ -826,7 +826,8 @@ class _StdLib(StdLib.Base):
         self.state = state
         self.cache = cache
 
-    def _source_relative_host_path(self, filename: str, directory: bool, desc: str) -> str:
+    def _source_relative_host_path(self, filename: str, desc: str) -> str:
+        directory = filename.endswith("/")
         value = Value.Directory(filename) if directory else Value.File(filename)
         ans = _resolve_source_relative_path(
             self.cfg, _source_directory(self.state.workflow), desc, value
@@ -835,7 +836,8 @@ class _StdLib(StdLib.Base):
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         return ans
 
-    def _devirtualize_filename(self, filename: str, directory: bool = False) -> str:
+    def _devirtualize_filename(self, filename: str) -> str:
+        directory = filename.endswith("/")
         if downloadable(self.cfg, filename, directory=directory):
             cached = self.cache.get_download(filename)
             if cached:
@@ -845,7 +847,7 @@ class _StdLib(StdLib.Base):
             and not os.path.isabs(filename)
             and not downloadable(self.cfg, filename, directory=directory)
         ):
-            source_path = self._source_relative_host_path(filename, directory, "read_*() argument")
+            source_path = self._source_relative_host_path(filename, "read_*() argument")
             self.state.fspath_allowlist.add(source_path + ("/" if directory else ""))
             filename = source_path
         ans = _resolve_workflow_path(
@@ -857,23 +859,25 @@ class _StdLib(StdLib.Base):
         assert ans is not None
         return ans
 
-    def _resolve_source_relative_path(self, filename: str, directory: bool = False) -> str:
+    def _resolve_source_relative_path(self, filename: str) -> str:
         """
         Resolve a File/Directory StdLib/operator value in a workflow.
 
+        Directory paths are denoted by a trailing "/".
         WDL 1.2 source-relative paths resolve against the workflow source directory, and are
         intentionally added to the workflow allowlist as a side effect. Pre-1.2 relative paths don't
         get source-directory semantics, but they still pass through the workflow path boundary for
         compatibility with legacy ``allow_any_input`` workflows whose File/Directory values have been
         resolved to host paths during declaration binding.
         """
+        directory = filename.endswith("/")
         if (
             wdl_version_geq(self.wdl_version, WDLVersion.V1_2)
             and not os.path.isabs(filename)
             and not downloadable(self.cfg, filename, directory=directory)
         ):
             source_path = self._source_relative_host_path(
-                filename, directory, "File/Directory StdLib argument"
+                filename, "File/Directory StdLib argument"
             )
             self.state.fspath_allowlist.add(source_path + ("/" if directory else ""))
             return source_path
