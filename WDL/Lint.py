@@ -1289,6 +1289,28 @@ class UnboundDeclaration(Linter):
 
 @a_linter
 class Deprecated(Linter):
+    def task(self, obj: Tree.Task) -> Any:
+        if not wdl_version_geq(obj.effective_wdl_version, WDLVersion.V1_2):
+            return
+        if obj.runtime_section_name == "runtime":
+            self.add(
+                obj,
+                "use task requirements/hints sections instead of runtime section [WDL >= 1.2]",
+                obj.runtime_section_pos,
+            )
+        if "docker" in obj.runtime:
+            self.add(
+                obj,
+                "use container instead of docker runtime/requirements attribute [WDL >= 1.2]",
+                obj.runtime["docker"].pos,
+            )
+        if "returnCodes" in obj.runtime:
+            self.add(
+                obj,
+                "use return_codes instead of returnCodes runtime/requirements attribute [WDL >= 1.2]",
+                obj.runtime["returnCodes"].pos,
+            )
+
     def expr(self, obj: Expr.Base) -> Any:
         if (
             isinstance(obj, Expr.Placeholder)
