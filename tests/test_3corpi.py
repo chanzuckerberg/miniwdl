@@ -596,16 +596,14 @@ class TestZip(unittest.TestCase):
             meta = {"foo": "bar"}
             main_wdl = os.path.basename(doc.pos.abspath)
             zip_fn = os.path.join(testdir, main_wdl + ".zip")
-            additional_files = [__file__]
             WDL.Zip.build(
                 doc, zip_fn, logging.getLogger("miniwdl_zip_test"), meta=meta,
-                inputs=inputs, additional_files=additional_files
+                inputs=inputs
             )
 
             source_dir, main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             assert not inputs or inputs_file
             WDL.load(os.path.join(source_dir, main_wdl))
-            self.assertTrue(os.path.isfile(os.path.join(source_dir, os.path.basename(__file__))))
 
             # cover misc code paths through WDL.Zip.unpack()
             WDL.load(cleanup.enter_context(WDL.Zip.unpack(source_dir)).main_wdl)
@@ -644,6 +642,135 @@ class TestZip(unittest.TestCase):
                 path=["test_corpi/broadinstitute/viral-ngs/pipes/WDL/workflows/tasks"],
             ),
         )
+
+    def test_additional_files_source_relative(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(os.path.join(src, "data/glob"))
+            os.makedirs(os.path.join(src, "data/dir"))
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text(
+                "version 1.2\nworkflow w { File f = \"data/input.txt\" }\n"
+            )
+            pathlib.Path(os.path.join(src, "data/input.txt")).write_text("input\n")
+            pathlib.Path(os.path.join(src, "data/glob/a.txt")).write_text("a\n")
+            pathlib.Path(os.path.join(src, "data/glob/b.txt")).write_text("b\n")
+            pathlib.Path(os.path.join(src, "data/dir/c.txt")).write_text("c\n")
+            os.symlink("input.txt", os.path.join(src, "data/link.txt"))
+
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            WDL.Zip.build(
+                doc,
+                zip_fn,
+                logging.getLogger("miniwdl_zip_test"),
+                additional_files=[
+                    os.path.join(src, "data/input.txt"),
+                    os.path.join(src, "data/glob/*.txt"),
+                    os.path.join(src, "data/dir"),
+                    os.path.join(src, "data/link.txt"),
+                ],
+            )
+
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            for relpath in [
+                "data/input.txt",
+                "data/glob/a.txt",
+                "data/glob/b.txt",
+                "data/dir/c.txt",
+                "data/link.txt",
+            ]:
+                self.assertTrue(os.path.isfile(os.path.join(source_dir, relpath)), relpath)
+            self.assertEqual(
+                pathlib.Path(os.path.join(source_dir, "data/link.txt")).read_text(), "input\n"
+            )
+
+    def test_additional_files_outside_import(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            main_dir = os.path.join(testdir, "main")
+            lib_dir = os.path.join(testdir, "lib")
+            os.makedirs(main_dir)
+            os.makedirs(os.path.join(lib_dir, "data"))
+            pathlib.Path(os.path.join(main_dir, "main.wdl")).write_text(
+                "version 1.2\nimport \"../lib/lib.wdl\"\nworkflow w {}\n"
+            )
+            pathlib.Path(os.path.join(lib_dir, "lib.wdl")).write_text(
+                "version 1.2\ntask t { File f = \"data/ref.txt\" command {} }\n"
+            )
+            pathlib.Path(os.path.join(lib_dir, "data/ref.txt")).write_text("ref\n")
+
+            doc = WDL.load(os.path.join(main_dir, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            WDL.Zip.build(
+                doc,
+                zip_fn,
+                logging.getLogger("miniwdl_zip_test"),
+                additional_files=[os.path.join(lib_dir, "data/ref.txt")],
+            )
+
+            source_dir, main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            WDL.load(main_wdl)
+            self.assertTrue(
+                os.path.isfile(os.path.join(source_dir, "__outside_wdl/lib/data/ref.txt"))
+            )
+
+    def test_additional_files_errors(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(os.path.join(src, "data"))
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
+            pathlib.Path(os.path.join(src, "data/input.txt")).write_text("input\n")
+            pathlib.Path(os.path.join(testdir, "outside.txt")).write_text("outside\n")
+            os.symlink(
+                os.path.join(testdir, "outside.txt"), os.path.join(src, "data/bad_link.txt")
+            )
+
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            logger = logging.getLogger("miniwdl_zip_test")
+            zip_fn = os.path.join(testdir, "source.zip")
+            with self.assertRaisesRegex(WDL.Error.InputError, "overwrites existing path"):
+                WDL.Zip.build(
+                    doc, zip_fn, logger, additional_files=[os.path.join(src, "main.wdl")]
+                )
+            with self.assertRaisesRegex(WDL.Error.InputError, "matched nothing"):
+                WDL.Zip.build(
+                    doc, zip_fn, logger, additional_files=[os.path.join(src, "data/*.missing")]
+                )
+            with self.assertRaisesRegex(WDL.Error.InputError, "WDL source directory"):
+                WDL.Zip.build(
+                    doc,
+                    zip_fn,
+                    logger,
+                    additional_files=[os.path.join(testdir, "outside.txt")],
+                )
+            with self.assertRaisesRegex(WDL.Error.InputError, "WDL source directory"):
+                WDL.Zip.build(
+                    doc,
+                    zip_fn,
+                    logger,
+                    additional_files=[os.path.join(src, "data/bad_link.txt")],
+                )
+
+    def test_unpack_tempdir_parent(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(src)
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"))
+
+            parent = os.path.join(testdir, "extract")
+            os.makedirs(parent)
+            unpacked = cleanup.enter_context(WDL.Zip.unpack(zip_fn, tempdir_parent=parent))
+            self.assertTrue(unpacked.dir.startswith(parent))
+            with self.assertRaisesRegex(WDL.Error.InputError, "TMPDIR"):
+                cleanup.enter_context(
+                    WDL.Zip.unpack(zip_fn, tempdir_parent=os.path.join(testdir, "missing"))
+                )
 
     def test_reproducible_zip(self):
         self._reproducible_test("zip")

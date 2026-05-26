@@ -685,7 +685,7 @@ class TestDirectoryIO(RunnerTestCase):
         def resolve(decl, value):
             return runtime_io_helpers._resolve_source_relative_paths(
                 cfg,
-                runtime_io_helpers._source_directory(decl),
+                decl.source_dir,
                 value,
                 decl.type,
                 "Task declaration",
@@ -726,7 +726,7 @@ class TestDirectoryIO(RunnerTestCase):
             doc = WDL.parse_document("version 1.2\ntask t { File f command {} }")
             runtime_io_helpers._resolve_source_relative_paths(
                 cfg,
-                runtime_io_helpers._source_directory(doc.tasks[0].available_inputs["f"]),
+                doc.tasks[0].available_inputs["f"].source_dir,
                 WDL.Value.File("data/file.txt"),
                 doc.tasks[0].available_inputs["f"].type,
                 "Task declaration",
@@ -738,7 +738,7 @@ class TestDirectoryIO(RunnerTestCase):
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
             runtime_io_helpers._resolve_source_relative_paths(
                 cfg_outside_root,
-                runtime_io_helpers._source_directory(decls["f"]),
+                decls["f"].source_dir,
                 WDL.Value.File("data/file.txt"),
                 decls["f"].type,
                 "Task declaration",
@@ -746,7 +746,7 @@ class TestDirectoryIO(RunnerTestCase):
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
             runtime_io_helpers._resolve_source_relative_paths(
                 cfg_outside_root,
-                runtime_io_helpers._source_directory(decls["d"]),
+                decls["d"].source_dir,
                 WDL.Value.Directory("data/dir"),
                 decls["d"].type,
                 "Task declaration",
@@ -754,7 +754,7 @@ class TestDirectoryIO(RunnerTestCase):
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
         v, paths = runtime_io_helpers._resolve_source_relative_paths(
             cfg,
-            runtime_io_helpers._source_directory(doc.tasks[0].available_inputs["d"]),
+            doc.tasks[0].available_inputs["d"].source_dir,
             WDL.Value.Directory("s3://example-bucket/data/dir/"),
             doc.tasks[0].available_inputs["d"].type,
             "Task declaration",

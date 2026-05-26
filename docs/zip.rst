@@ -10,6 +10,11 @@
 
 Optionally, you can also include a JSON file with default workflow inputs. Any command-line arguments provided at runtime would be merged into (override) these defaults.
 
+Use ``--additional``/``--add`` to include source-relative input files or directories needed by
+WDL 1.2 ``File``/``Directory`` declarations. Additional paths may be files, directories, or glob
+patterns; they're stored in the archive at the same location relative to the WDL source file
+directory. Added paths must resolve safely within one of the packaged WDL source directories.
+
 The ZIP file will include a MANIFEST.json identifying the top-level WDL and inputs JSON, if present. The manifest format follows `that of Amazon Genomics CLI <https://aws.github.io/amazon-genomics-cli/docs/concepts/workflows/#manifestjson-structure>`_.
 
 Command line

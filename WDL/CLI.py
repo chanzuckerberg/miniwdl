@@ -734,7 +734,7 @@ def runner(
             sys.exit(2)
 
         # unpack zip & manifest, if applicable
-        uri, manifest_input_file = unpack_source_zip(logger, cleanup, uri)
+        uri, manifest_input_file = unpack_source_zip(logger, cleanup, uri, cfg["file_io"]["root"])
         if manifest_input_file:
             if input_file:
                 logger.warning("specified --input file replacing source zip's")
@@ -865,7 +865,7 @@ def runner(
     return outputs_json
 
 
-def unpack_source_zip(logger, cleanup, uri):
+def unpack_source_zip(logger, cleanup, uri, file_io_root=None):
     # preprocess a source zip given to `miniwdl run`
     source_zip = uri
     if os.path.isdir(uri):
@@ -887,7 +887,12 @@ def unpack_source_zip(logger, cleanup, uri):
             logger.notice(_("downloading source zip", uri=uri, zip=source_zip))
             request.urlretrieve(uri, filename=source_zip)
 
-    unpacked = cleanup.enter_context(Zip.unpack(source_zip))
+    tempdir_parent = None
+    if file_io_root:
+        root = os.path.realpath(file_io_root)
+        if not path_really_within(tempfile.gettempdir(), root):
+            tempdir_parent = root
+    unpacked = cleanup.enter_context(Zip.unpack(source_zip, tempdir_parent=tempdir_parent))
     logger.notice(
         _(
             "opened source zip",
@@ -2029,9 +2034,10 @@ def fill_zip_subparser(subparsers):
     zip_parser.add_argument(
         "-a",
         "--additional",
+        "--add",
         metavar="FILE",
-        help="Additional files to include in the zip. Files will be included "
-        "in the zip root. Can be supplied multiple times.",
+        help="Additional files, directories, or glob patterns to include in the zip. "
+        "Files will be included relative to WDL source files. Can be supplied multiple times.",
         action="append",
         dest="additional_files",
     )

@@ -48,7 +48,7 @@ from ._io_helpers import (
     _warn_output_basename_collisions,
     link_outputs,
 )
-from ._io_helpers import _fspaths, _resolve_source_relative_path, _source_directory
+from ._io_helpers import _fspaths, _resolve_source_relative_path
 from .download import able as downloadable, run_cached as download
 from ._stdlib import TaskInputStdLib, TaskOutputStdLib
 from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
@@ -201,7 +201,7 @@ def run_local_task(  # type: ignore[return]
                     task.effective_wdl_version,
                     logger,
                     container,
-                    source_directory=_source_directory(task),
+                    source_dir=task.source_dir,
                 )
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
@@ -360,7 +360,7 @@ def _eval_task_inputs(
     # evaluate each declaration in that order
     # note: the write_* functions call container.add_paths as a side-effect
     stdlib = TaskInputStdLib(
-        task.effective_wdl_version, logger, container, source_directory=_source_directory(task)
+        task.effective_wdl_version, logger, container, source_dir=task.source_dir
     )
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
@@ -521,7 +521,7 @@ def _resolve_task_decl_path_into_container(
 
     source_paths: Set[str] = set()
     ans = _resolve_source_relative_path(
-        container.cfg, _source_directory(task), f"task declaration {decl_name}", v
+        container.cfg, task.source_dir, f"task declaration {decl_name}", v
     )
     if ans is None or ans == v.value:
         return ans
@@ -817,7 +817,7 @@ def _eval_task_command(
         task.effective_wdl_version,
         logger,
         container,
-        source_directory=_source_directory(task),
+        source_dir=task.source_dir,
         eval_context=StdLib.EvalContext(placeholder_regex=placeholder_re),
     )
     assert isinstance(task.command, Expr.TaskCommand)

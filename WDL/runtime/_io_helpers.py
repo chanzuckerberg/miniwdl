@@ -18,20 +18,6 @@ from .cache import CallCache
 from .download import able as downloadable
 
 
-def _source_directory(node: Tree.SourceNode) -> str:
-    """
-    Return the local directory containing a WDL source node, with trailing "/", or "".
-
-    Source-relative File/Directory declarations need an explicit local source directory. Parsed
-    buffers and other non-local source locations are represented as an empty string so callers can
-    produce a declaration-specific error only when a relative path actually needs resolution.
-    """
-    source = node.pos.abspath
-    if not source or source == "(buffer)" or not os.path.isabs(source):
-        return ""
-    return os.path.join(os.path.realpath(os.path.dirname(source)), "")
-
-
 def _resolve_source_relative_path(
     cfg: config.Loader,
     source_directory: str,

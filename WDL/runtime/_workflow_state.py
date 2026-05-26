@@ -18,7 +18,6 @@ from ._io_helpers import (
     _fspaths,
     _resolve_source_relative_paths,
     _resolve_workflow_path,
-    _source_directory,
     _warn_struct_extra,
 )
 
@@ -363,7 +362,7 @@ class StateMachine:
                 call_name,
                 callee_inputs,
                 call_inputs,
-                source_directory=_source_directory(self.workflow),
+                source_dir=self.workflow.source_dir,
             )
             # issue CallInstructions
             self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))
@@ -634,7 +633,7 @@ def _eval_decl(
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
             value, source_paths = _resolve_source_relative_paths(
                 cfg,
-                _source_directory(decl),
+                decl.source_dir,
                 value,
                 decl.type,
                 f"workflow declaration {decl.name}",
@@ -668,7 +667,7 @@ def _postprocess_call_inputs(
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
-    source_directory: str = "",
+    source_dir: str = "",
 ) -> Env.Bindings[Value.Base]:
     """
     Coerce call inputs, then check their File/Directory paths for use as host paths.
@@ -676,14 +675,14 @@ def _postprocess_call_inputs(
     The first coercion exposes String paths as File/Directory values. After path checks may rewrite
     missing input Directory children to Null, the second coercion enforces optionality.
 
-    ``source_directory`` should be the local directory containing the workflow source file, or ""
+    ``source_dir`` should be the local directory containing the workflow source file, or ""
     when unavailable. WDL 1.2+ relative call-input paths are resolved against it before the
     allowlist checks.
     """
     call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
     if wdl_version_geq(wdl_version, WDLVersion.V1_2):
         call_inputs, source_paths = _resolve_call_input_source_paths(
-            cfg, source_directory, call_name, callee_inputs, call_inputs
+            cfg, source_dir, call_name, callee_inputs, call_inputs
         )
         allowlist |= source_paths
     call_inputs = Value.rewrite_env_paths(
@@ -724,7 +723,7 @@ def _coerce_call_inputs(
 
 def _resolve_call_input_source_paths(
     cfg: config.Loader,
-    source_directory: str,
+    source_dir: str,
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
@@ -745,7 +744,7 @@ def _resolve_call_input_source_paths(
             return binding
         value, paths = _resolve_source_relative_paths(
             cfg,
-            source_directory,
+            source_dir,
             binding.value,
             callee_decl.type.copy(optional=True) if callee_decl.expr else callee_decl.type,
             f"call {call_name} input {binding.name}",
