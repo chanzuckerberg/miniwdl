@@ -14,7 +14,7 @@ from .. import Env, Error, Expr, Type, Value, Tree
 from .._util import link_force, path_really_within, symlink_force
 from .._util import StructuredLogMessage as _
 from . import config
-from .cache import CallCache
+from .cache import CallCache, PathDependencies
 from .download import able as downloadable
 
 
@@ -105,6 +105,7 @@ def _resolve_source_relative_paths(
     value: Value.Base,
     desired_type: Type.Base,
     desc: str,
+    path_dependencies: Optional[PathDependencies] = None,
 ) -> Tuple[Value.Base, Set[str]]:
     """
     Coerce a value to a path-containing type and resolve each File/Directory path within it.
@@ -120,9 +121,17 @@ def _resolve_source_relative_paths(
     def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
         ans = _resolve_source_relative_path(cfg, source_directory, desc, v)
         if ans is None:
+            if path_dependencies:
+                path_dependencies.add(
+                    _source_relative_dependency_path(source_directory, v),
+                    absent=True,
+                )
             return None
         if ans != v.value:
-            source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
+            source_path = ans + ("/" if isinstance(v, Value.Directory) else "")
+            source_paths.add(source_path)
+            if path_dependencies:
+                path_dependencies.add(source_path)
         return ans
 
     value = Value.rewrite_paths(
@@ -133,6 +142,22 @@ def _resolve_source_relative_paths(
         return value.coerce(desired_type), source_paths
     except FileNotFoundError:
         raise Error.InputError(f"File/Directory path not found in {desc}") from None
+
+
+def _source_relative_dependency_path(
+    source_directory: str, v: Union[Value.File, Value.Directory]
+) -> str:
+    """
+    Format the absolute path corresponding to a source-relative value for cache dependencies.
+
+    Only call after ``_resolve_source_relative_path`` has established that the path is a valid
+    source-relative path except for being absent.
+    """
+    isdir = isinstance(v, Value.Directory)
+    ans = os.path.realpath(
+        os.path.join(source_directory, v.value.rstrip("/") if isdir else v.value)
+    )
+    return ans + ("/" if isdir else "")
 
 
 def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:

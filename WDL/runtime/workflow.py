@@ -60,7 +60,7 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
-from .cache import CallCache, new as new_call_cache
+from .cache import CallCache, PathDependencies, call_cache_key, new as new_call_cache
 from .error import RunFailed, Terminated, error_json
 
 
@@ -299,8 +299,9 @@ def run_local_workflow(
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
         # query call cache
-        cache_key = f"{workflow.name}/{workflow.digest}/{Value.digest_env(inputs)}"
-        cached = cache.get(cache_key, inputs, workflow.effective_outputs)
+        cache_inputs = inputs
+        cache_key = call_cache_key(workflow.name, workflow.digest, cache_inputs)
+        cached = cache.get(cache_key, cache_inputs, workflow.effective_outputs)
         if cached is not None:
             for outp in workflow.effective_outputs:
                 v = cached[outp.name]
@@ -348,7 +349,7 @@ def run_local_workflow(
 
         try:
             # run workflow state machine
-            outputs = _workflow_main_loop(
+            outputs, path_dependencies = _workflow_main_loop(
                 cfg,
                 workflow,
                 inputs,
@@ -370,7 +371,14 @@ def run_local_workflow(
                 os.kill(os.getpid(), signal.SIGUSR1)
             raise
 
-        cache.put(cache_key, outputs, run_dir=run_dir)
+        cache.put(
+            cache_key,
+            outputs,
+            run_dir=run_dir,
+            inputs=cache_inputs,
+            additional_paths=path_dependencies.additional_paths,
+            absent_paths=path_dependencies.absent_paths,
+        )
 
     return (run_dir, outputs)
 
@@ -387,7 +395,7 @@ def _workflow_main_loop(
     cache: CallCache,
     terminating: Callable[[], bool],
     _test_pickle: bool,
-) -> Env.Bindings[Value.Base]:
+) -> Tuple[Env.Bindings[Value.Base], PathDependencies]:
     assert isinstance(cfg, config.Loader)
     call_futures = {}
     try:
@@ -455,13 +463,17 @@ def _workflow_main_loop(
                         )
                     else:
                         assert False
-                    call_futures[future] = next_call.id
+                    child_key = call_cache_key(
+                        next_call.callee.name, next_call.callee.digest, next_call.inputs
+                    )
+                    call_futures[future] = (next_call.id, child_key)
                     next_call = state.step(cfg, stdlib)
                 # no more calls to launch right now; wait for an outstanding call to finish
                 future = next(futures.as_completed(call_futures), None)
                 if future:
                     __, outputs = future.result()
-                    call_id = call_futures[future]
+                    call_id, child_key = call_futures[future]
+                    state.path_dependencies.update(cache.get_dependencies(child_key))
                     state.call_finished(call_id, outputs)
                     call_futures.pop(future)
                 else:
@@ -487,7 +499,7 @@ def _workflow_main_loop(
                 outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
             )
             logger.notice("done")
-            return outputs
+            return outputs, state.path_dependencies
     except Exception as exn:
         tbtxt = traceback.format_exc()
         logger.debug(tbtxt)

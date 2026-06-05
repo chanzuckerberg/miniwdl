@@ -7,8 +7,10 @@ referenced therein, and updates their access timestamps (atime).
 import json
 import os
 import logging
+import hashlib
+import base64
 from pathlib import Path
-from typing import Dict, Optional, Union, Any
+from typing import Dict, Optional, Union, Any, Iterable, Set
 from contextlib import AbstractContextManager, suppress
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
@@ -25,6 +27,62 @@ from .._util import (
     bump_atime,
 )
 
+CALL_CACHE_VERSION = 2
+
+
+class PathDependencies:
+    """
+    Local filesystem paths that a cache entry depends on beyond its explicit inputs/outputs.
+
+    Directory paths use miniwdl's existing trailing-slash convention.
+    """
+
+    additional_paths: Set[str]
+    absent_paths: Set[str]
+
+    def __init__(
+        self,
+        additional_paths: Optional[Iterable[str]] = None,
+        absent_paths: Optional[Iterable[str]] = None,
+    ) -> None:
+        self.additional_paths = set(additional_paths or [])
+        self.absent_paths = set(absent_paths or [])
+
+    def copy(self) -> "PathDependencies":
+        return PathDependencies(self.additional_paths, self.absent_paths)
+
+    def update(self, other: "PathDependencies") -> None:
+        self.additional_paths.update(other.additional_paths)
+        self.absent_paths.update(other.absent_paths)
+
+    def add(self, path: str, directory: bool = False, absent: bool = False) -> None:
+        if directory:
+            path = path.rstrip("/") + "/"
+        (self.absent_paths if absent else self.additional_paths).add(path)
+
+
+def input_digest(inputs: Env.Bindings[Value.Base]) -> str:
+    """
+    Digest the call-cache input envelope. Versioning this digest moves new cache formats to new
+    filenames, so older miniwdl versions won't encounter entries they can't validate correctly.
+    """
+    from .. import values_to_json
+
+    key_json = json.dumps(
+        {
+            "miniwdlCallCacheVersion": CALL_CACHE_VERSION,
+            "inputs": values_to_json(inputs),
+        },
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    sha256 = hashlib.sha256(key_json.encode("utf-8")).digest()
+    return base64.b32encode(sha256[:20]).decode().lower()
+
+
+def call_cache_key(name: str, digest: str, inputs: Env.Bindings[Value.Base]) -> str:
+    return f"{name}/{digest}/{input_digest(inputs)}"
+
 
 class CallCache(AbstractContextManager):
     _cfg: config.Loader
@@ -38,6 +96,7 @@ class CallCache(AbstractContextManager):
     # runs; we just want to remember them for potential reuse later in the current run.
     _workflow_downloads: Dict[str, str]
     _workflow_directory_downloads: Dict[str, str]
+    _entry_dependencies: Dict[str, PathDependencies]
     _lock: Lock
 
     def __init__(self, cfg: config.Loader, logger: logging.Logger):
@@ -46,6 +105,7 @@ class CallCache(AbstractContextManager):
         self._flocker = FlockHolder(self._logger)
         self._workflow_downloads = {}
         self._workflow_directory_downloads = {}
+        self._entry_dependencies = {}
         self._lock = Lock()
         self._download_cache_dir = cfg["download_cache"]["dir"]
         self._download_cache_dir = (
@@ -89,14 +149,31 @@ class CallCache(AbstractContextManager):
 
         cache = None
         run_dir = None
+        dependencies = PathDependencies()
         try:
             with open(file_path, "rb") as file_reader:
-                outputs = json.loads(file_reader.read())
-                if "miniwdlCallCacheVersion" in outputs:
-                    # envelope: previously, there was none and file contained exactly the outputs.
-                    run_dir = outputs.get("dir", None)
-                    outputs = outputs["outputs"]
-                cache = values_from_json(outputs, output_types)
+                envelope = json.loads(file_reader.read())
+                if not (
+                    isinstance(envelope, dict)
+                    and envelope.get("miniwdlCallCacheVersion") == CALL_CACHE_VERSION
+                ):
+                    self._logger.info(
+                        _(
+                            "call cache entry present, but unsupported version",
+                            cache_file=file_path,
+                            version=(
+                                envelope.get("miniwdlCallCacheVersion", None)
+                                if isinstance(envelope, dict)
+                                else None
+                            ),
+                        )
+                    )
+                    return None
+                run_dir = envelope.get("dir", None)
+                dependencies = PathDependencies(
+                    envelope.get("additionalPaths", []), envelope.get("absentPaths", [])
+                )
+                cache = values_from_json(envelope["outputs"], output_types)
         except FileNotFoundError:
             self._logger.info(_("call cache miss", cache_file=file_path))
         except Exception as exn:
@@ -113,9 +190,12 @@ class CallCache(AbstractContextManager):
             )
             # check that no files/directories referenced by the inputs & cached outputs are newer
             # than the cache file itself
-            if _check_files_coherence(
-                self._cfg, self._logger, file_path, inputs
-            ) and _check_files_coherence(self._cfg, self._logger, file_path, cache):
+            if (
+                _check_files_coherence(self._cfg, self._logger, file_path, inputs)
+                and _check_files_coherence(self._cfg, self._logger, file_path, cache)
+                and _check_path_dependencies_coherence(self._logger, file_path, dependencies)
+            ):
+                self._entry_dependencies[key] = dependencies.copy()
                 return cache
             else:
                 # otherwise, clean it up
@@ -132,17 +212,29 @@ class CallCache(AbstractContextManager):
         return None
 
     def put(
-        self, key: str, outputs: Env.Bindings[Value.Base], run_dir: Optional[str] = None
+        self,
+        key: str,
+        outputs: Env.Bindings[Value.Base],
+        run_dir: Optional[str] = None,
+        *,
+        inputs: Optional[Env.Bindings[Value.Base]] = None,
+        additional_paths: Optional[Iterable[str]] = None,
+        absent_paths: Optional[Iterable[str]] = None,
     ) -> None:
         """
         Store call outputs for future reuse
         """
         from .. import values_to_json
 
+        inputs = inputs or Env.Bindings()
+        dependencies = PathDependencies(additional_paths, absent_paths)
         if self._cfg["call_cache"].get_bool("put"):
             envelope = {
-                "miniwdlCallCacheVersion": 1,
+                "miniwdlCallCacheVersion": CALL_CACHE_VERSION,
+                "inputs": values_to_json(inputs),
                 "outputs": values_to_json(outputs),
+                "additionalPaths": sorted(dependencies.additional_paths),
+                "absentPaths": sorted(dependencies.absent_paths),
             }
             if run_dir:
                 envelope["dir"] = run_dir
@@ -150,6 +242,13 @@ class CallCache(AbstractContextManager):
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             write_atomic(json.dumps(envelope, indent=2), filename)
             self._logger.info(_("call cache insert", cache_file=filename))
+        self._entry_dependencies[key] = dependencies.copy()
+
+    def get_dependencies(self, key: str) -> PathDependencies:
+        """
+        Retrieve dependency paths remembered for a v2 cache hit/insert during this process.
+        """
+        return self._entry_dependencies.get(key, PathDependencies()).copy()
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up folder structure based on URI instead of opaque digests)
@@ -385,6 +484,73 @@ def _check_files_coherence(
 
     try:
         Value.rewrite_env_paths(values, check_one)
+        return True
+    except StopIteration:
+        return False
+
+
+def _check_path_dependencies_coherence(
+    logger: logging.Logger, cache_file: str, dependencies: PathDependencies
+) -> bool:
+    """
+    Verify additional present/absent local path dependencies recorded in a v2 cache envelope.
+    """
+
+    def mtime(path: str) -> float:
+        return max(
+            os.stat(path, follow_symlinks=False).st_mtime_ns,
+            os.stat(path, follow_symlinks=True).st_mtime_ns,
+        )
+
+    def check_present(path: str) -> None:
+        isdir = path.endswith("/")
+        path_strip = path.rstrip("/") or "/"
+
+        def on_walk_error(exc: OSError) -> None:
+            raise exc
+
+        try:
+            if isdir:
+                if not os.path.isdir(path_strip):
+                    raise StopIteration
+            elif not os.path.isfile(path_strip):
+                raise StopIteration
+            if mtime(path_strip) > cache_file_mtime:
+                raise StopIteration
+            if isdir:
+                for root, subdirs, subfiles in os.walk(
+                    path_strip, onerror=on_walk_error, followlinks=False
+                ):
+                    for subdir in subdirs:
+                        if mtime(os.path.join(root, subdir)) > cache_file_mtime:
+                            raise StopIteration
+                    for fn in subfiles:
+                        if mtime(os.path.join(root, fn)) > cache_file_mtime:
+                            raise StopIteration
+        except (FileNotFoundError, NotADirectoryError, StopIteration):
+            logger.warning(
+                _(
+                    "cache entry invalid due to deleted or modified additional path",
+                    cache_file=cache_file,
+                    changed=path,
+                )
+            )
+            raise StopIteration
+
+    cache_file_mtime = mtime(cache_file)
+    try:
+        for path in dependencies.additional_paths:
+            check_present(path)
+        for path in dependencies.absent_paths:
+            if os.path.exists(path.rstrip("/") or "/"):
+                logger.warning(
+                    _(
+                        "cache entry invalid due to created additional path",
+                        cache_file=cache_file,
+                        changed=path,
+                    )
+                )
+                raise StopIteration
         return True
     except StopIteration:
         return False

@@ -12,7 +12,7 @@ from .. import Env, Error, StdLib, Type, Value
 from .._util import WDLVersion, wdl_version_geq
 from .._util import StructuredLogMessage as _
 from . import config
-from .cache import CallCache
+from .cache import CallCache, PathDependencies, input_digest
 from .download import able as downloadable
 from .error import OutputError
 from ._io_helpers import _resolve_source_relative_path, _resolve_workflow_path, _source_directory
@@ -27,6 +27,7 @@ class TaskStdLib(StdLib.Base):
     container: "TaskContainer"
     inputs_only: bool  # if True then only permit access to input files
     source_directory: str
+    path_dependencies: PathDependencies
 
     def __init__(
         self,
@@ -35,6 +36,7 @@ class TaskStdLib(StdLib.Base):
         container: "TaskContainer",
         inputs_only: bool,
         source_directory: str = "",
+        path_dependencies: Optional[PathDependencies] = None,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -46,6 +48,7 @@ class TaskStdLib(StdLib.Base):
         self.container = container
         self.inputs_only = inputs_only
         self.source_directory = source_directory
+        self.path_dependencies = path_dependencies or PathDependencies()
 
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
@@ -53,6 +56,8 @@ class TaskStdLib(StdLib.Base):
         ans = _resolve_source_relative_path(self.container.cfg, self.source_directory, desc, value)
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
+        if ans != filename:
+            self.path_dependencies.add(ans, directory=directory)
         return ans
 
     def _devirtualize_filename(self, filename: str) -> str:
@@ -123,6 +128,7 @@ class TaskInputStdLib(TaskStdLib):
         logger: logging.Logger,
         container: "TaskContainer",
         source_directory: str = "",
+        path_dependencies: Optional[PathDependencies] = None,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -131,6 +137,7 @@ class TaskInputStdLib(TaskStdLib):
             container,
             True,
             source_directory=source_directory,
+            path_dependencies=path_dependencies,
             eval_context=eval_context,
         )
 
@@ -231,6 +238,8 @@ class WorkflowStdLib(StdLib.Base):
         )
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
+        if ans != filename:
+            self.state.path_dependencies.add(ans, directory=directory)
         return ans
 
     def _devirtualize_filename(self, filename: str) -> str:
@@ -311,7 +320,7 @@ class WorkflowStdLib(StdLib.Base):
                 hasher.update(chunk)
         cache_in: Env.Bindings[Value.Base] = Env.Bindings()
         cache_in = cache_in.bind("file_sha256", Value.String(hasher.hexdigest()))
-        cache_key = "write_/" + Value.digest_env(cache_in)
+        cache_key = "write_/" + input_digest(cache_in)
         cache_out_types: Env.Bindings[Type.Base] = Env.Bindings()
         cache_out_types = cache_out_types.bind("file", Type.File())
         cache_out = self.cache.get(cache_key, cache_in, cache_out_types)
@@ -323,6 +332,7 @@ class WorkflowStdLib(StdLib.Base):
                 cache_key,
                 Env.Bindings(Env.Binding("file", Value.File(filename))),
                 run_dir=self.state.run_dir,
+                inputs=cache_in,
             )
 
         # whichever path we took: allow-list the filename
