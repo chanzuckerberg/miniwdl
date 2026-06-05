@@ -795,6 +795,14 @@ class TestZip(unittest.TestCase):
             }
             wdls = {doc.pos.abspath: doc}
             self.assertEqual(WDL.Zip._additional_source_dirs(zip_paths, wdls), [(src, "")])
+            missing_doc_abspath = os.path.join(src, "missing.wdl")
+            fake_missing_doc = type("FakeMissingDoc", (), {"source_dir": src + os.sep})()
+            self.assertEqual(
+                WDL.Zip._additional_source_dirs(
+                    {missing_doc_abspath: "missing.wdl"}, {missing_doc_abspath: fake_missing_doc}
+                ),
+                [],
+            )
             buffer_doc = WDL.parse_document("version 1.2\nworkflow w {}\n")
             self.assertEqual(
                 WDL.Zip._additional_source_dirs(
@@ -830,6 +838,12 @@ class TestZip(unittest.TestCase):
             )
             self.assertEqual(
                 pathlib.Path(os.path.join(staging, "data/other.txt")).read_text(), "other\n"
+            )
+            self.assertEqual(
+                WDL.Zip._additional_dest(
+                    os.path.join(src, "data/input.txt"), [(outside, "outside"), (src, "")]
+                ),
+                os.path.normpath("data/input.txt"),
             )
 
             src2 = os.path.join(testdir, "src2")
