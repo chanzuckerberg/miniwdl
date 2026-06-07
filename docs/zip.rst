@@ -8,14 +8,10 @@
    $ miniwdl zip path/to/my.wdl
    $ miniwdl run my.wdl.zip input1=value1 ...
 
-Optionally, you can also include a JSON file with default workflow inputs. Any command-line arguments provided at runtime would be merged into (override) these defaults.
+Optionally, you can also include a JSON file with default workflow inputs. Any command-line arguments provided at runtime would be merged into (override) these defaults. The ZIP file will include a MANIFEST.json identifying the top-level WDL and inputs JSON, if present.
 
-Use ``--additional``/``--add`` to include source-relative input files or directories needed by
-WDL 1.2 ``File``/``Directory`` declarations. Additional paths may be files, directories, or glob
-patterns; they're stored in the archive at the same location relative to the WDL source file
-directory. Added paths must resolve safely within one of the packaged WDL source directories.
-
-The ZIP file will include a MANIFEST.json identifying the top-level WDL and inputs JSON, if present. The manifest format follows `that of Amazon Genomics CLI <https://aws.github.io/amazon-genomics-cli/docs/concepts/workflows/#manifestjson-structure>`_.
+Use ``--additional``/``--add`` to include other files, directories, or glob
+patterns; they'll be stored in the ZIP at the same relative location to the WDL source files. Importantly, make sure to add any files/directories used as WDL 1.2 source-relative inputs, which aren't automatically included.
 
 Command line
 ------------
