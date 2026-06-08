@@ -48,7 +48,7 @@ workflow w {
 }
 EOF
 
-plan tests 11
+plan tests 19
 
 $miniwdl zip -o outer.wdl.zip foo/bas/outer.wdl --input ' {"w.who": "Alice"}' --debug
 is "$?" "0" "build zip"
@@ -69,6 +69,46 @@ is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Bob!" "run zip output 2"
 $miniwdl run outer.wdl.zip -i '{"w.who": "Carol"}' | tee out
 is "$?" "0" "run zip with input override file"
 is "$(jq -r '.outputs["w.hello.message"]' out)" "Hello, Carol!" "run zip output 3"
+
+# WDL 1.2 source-relative inputs packaged with --add
+mkdir -p source_rel/src/data/glob root/runs root/tmp root/runs_tmpdir
+cat << 'EOF' > source_rel/src/main.wdl
+version 1.2
+workflow w {
+    File f = "data/input.txt"
+    Array[File] gs = ["data/glob/a.txt", "data/glob/b.txt"]
+    output {
+        String s = read_string(f)
+        String g = read_string(gs[1])
+    }
+}
+EOF
+echo "zip input" > source_rel/src/data/input.txt
+echo "glob a" > source_rel/src/data/glob/a.txt
+echo "glob b" > source_rel/src/data/glob/b.txt
+$miniwdl zip -o root/source_rel.zip source_rel/src/main.wdl --add 'source_rel/src/data/**/*.txt' --debug
+is "$?" "0" "build source-relative zip with --add glob"
+mkdir __extract_source_rel
+env -C __extract_source_rel unzip ../root/source_rel.zip
+is "$(cat __extract_source_rel/data/input.txt)" "zip input" "source-relative zip preserves additional path"
+cat << EOF > root.cfg
+[file_io]
+root = $DN/root
+EOF
+MINIWDL_CFG=$DN/root.cfg $miniwdl run root/source_rel.zip --dir root/runs | tee out_source_rel
+is "$?" "0" "run source-relative zip with extraction fallback under file_io.root"
+is "$(jq -r '.outputs["w.s"] + "|" + .outputs["w.g"]' out_source_rel)" "zip input|glob b" "run source-relative zip output"
+TMPDIR=$DN/root/tmp MINIWDL_CFG=$DN/root.cfg $miniwdl run root/source_rel.zip --dir root/runs_tmpdir | tee out_source_rel_tmpdir
+is "$?" "0" "run source-relative zip with TMPDIR under file_io.root"
+is "$(jq -r '.outputs["w.s"]' out_source_rel_tmpdir)" "zip input" "run source-relative zip TMPDIR output"
+touch badroot
+cat << EOF > badroot.cfg
+[file_io]
+root = $DN/badroot
+EOF
+MINIWDL_CFG=$DN/badroot.cfg $miniwdl run root/source_rel.zip --dir badroot/runs > badroot.out 2> badroot.err
+isnt "$?" "0" "source zip extraction fails when file_io.root cannot hold tempdir"
+like "$(cat badroot.err)" "TMPDIR" "source zip extraction failure recommends TMPDIR"
 
 # issue #610 regression test
 mkdir -p issue610/wdl/tasks

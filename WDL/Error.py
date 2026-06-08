@@ -9,6 +9,7 @@ from typing import (
     Dict,
     NamedTuple,
 )
+import os
 from functools import total_ordering
 from contextlib import contextmanager
 
@@ -98,6 +99,21 @@ class SourceNode:
 
     def __init__(self, pos: SourcePosition) -> None:
         self.pos = pos
+
+    @property
+    def source_dir(self) -> str:
+        """
+        Local directory containing this source node, with trailing "/", or "".
+
+        Source-relative File/Directory paths need an explicit local source directory. Parsed
+        buffers, remote URIs, and other non-local source locations are represented as an empty
+        string so callers can produce context-specific errors only when relative path resolution is
+        actually needed.
+        """
+        source = self.pos.abspath
+        if not source or source == "(buffer)" or not os.path.isabs(source):
+            return ""
+        return os.path.join(os.path.realpath(os.path.dirname(source)), "")
 
     def __lt__(self, rhs: "SourceNode") -> bool:
         return isinstance(rhs, SourceNode) and (
