@@ -41,14 +41,14 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
-from .cache import CallCache, PathDependencies, call_cache_key, new as new_call_cache
+from .cache import CallCache, CacheAdditionalPaths, call_cache_key, new as new_call_cache
 from ._io_helpers import (
     _add_downloadable_defaults,
     _warn_struct_extra,
     _warn_output_basename_collisions,
     link_outputs,
 )
-from ._io_helpers import _fspaths, _resolve_source_relative_path, _source_directory
+from ._io_helpers import _fspaths, _resolve_source_relative_path
 from .download import able as downloadable, run_cached as download
 from ._stdlib import TaskInputStdLib, TaskOutputStdLib
 from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
@@ -192,12 +192,12 @@ def run_local_task(  # type: ignore[return]
                 # create TaskContainer according to configuration
                 container = new_task_container(cfg, logger, run_id, run_dir)
                 maybe_container = container
-                path_dependencies = PathDependencies()
+                additional_paths = CacheAdditionalPaths()
 
                 # evaluate input/postinput declarations, including mapping from host to
                 # in-container file paths
                 container_env = _eval_task_inputs(
-                    logger, task, posix_inputs, container, path_dependencies
+                    logger, task, posix_inputs, container, additional_paths
                 )
 
                 # evaluate runtime fields
@@ -205,8 +205,8 @@ def run_local_task(  # type: ignore[return]
                     task.effective_wdl_version,
                     logger,
                     container,
-                    source_directory=_source_directory(task),
-                    path_dependencies=path_dependencies,
+                    source_dir=task.source_dir,
+                    additional_paths=additional_paths,
                 )
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
@@ -225,7 +225,7 @@ def run_local_task(  # type: ignore[return]
                     container,
                     container_env,
                     terminating,
-                    path_dependencies,
+                    additional_paths,
                 )
 
                 # bind output declarations to task runtime info with the final return code
@@ -275,8 +275,8 @@ def run_local_task(  # type: ignore[return]
                         outputs,
                         run_dir=run_dir,
                         inputs=cache_inputs,
-                        additional_paths=path_dependencies.additional_paths,
-                        absent_paths=path_dependencies.absent_paths,
+                        additional_paths=additional_paths.additional_paths,
+                        absent_paths=additional_paths.absent_paths,
                     )
                 return (run_dir, outputs)
         except Exception as exn:
@@ -323,7 +323,7 @@ def _eval_task_inputs(
     task: Tree.Task,
     posix_inputs: Env.Bindings[Value.Base],
     container: "TaskContainer",
-    path_dependencies: PathDependencies,
+    additional_paths: CacheAdditionalPaths,
 ) -> Env.Bindings[Value.Base]:
     # Preprocess inputs: if None value is supplied for an input declared with a default but without
     # the ? type quantifier, remove the binding entirely so that the default will be used. In
@@ -377,8 +377,8 @@ def _eval_task_inputs(
         task.effective_wdl_version,
         logger,
         container,
-        source_directory=_source_directory(task),
-        path_dependencies=path_dependencies,
+        source_dir=task.source_dir,
+        additional_paths=additional_paths,
     )
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
@@ -391,7 +391,7 @@ def _eval_task_inputs(
                 decl,
                 value,
                 lambda w: _resolve_task_decl_path_into_container(
-                    task, decl.name, w, container, path_dependencies
+                    task, decl.name, w, container, additional_paths
                 ),
                 lambda name: Error.InputError(
                     f"File/Directory path not found in task declaration {name}"
@@ -521,7 +521,7 @@ def _resolve_task_decl_path_into_container(
     decl_name: str,
     v: Union[Value.File, Value.Directory],
     container: "TaskContainer",
-    path_dependencies: Optional[PathDependencies] = None,
+    additional_paths: Optional[CacheAdditionalPaths] = None,
 ) -> Optional[str]:
     """
     Resolve a task input/private declaration File/Directory path into the task container.
@@ -542,20 +542,18 @@ def _resolve_task_decl_path_into_container(
 
     source_paths: Set[str] = set()
     ans = _resolve_source_relative_path(
-        container.cfg, _source_directory(task), f"task declaration {decl_name}", v
+        container.cfg, task.source_dir, f"task declaration {decl_name}", v
     )
     if ans is None:
-        if path_dependencies:
-            path_dependencies.add(
-                os.path.realpath(
-                    os.path.join(
-                        _source_directory(task),
-                        v.value.rstrip("/") if isinstance(v, Value.Directory) else v.value,
-                    )
-                ),
-                directory=isinstance(v, Value.Directory),
-                absent=True,
+        if additional_paths:
+            isdir = isinstance(v, Value.Directory)
+            source_path = os.path.realpath(
+                os.path.join(
+                    task.source_dir,
+                    v.value.rstrip("/") if isdir else v.value,
+                )
             )
+            additional_paths.add(source_path + ("/" if isdir else ""), absent=True)
         return None
     if ans == v.value:
         return ans
@@ -563,8 +561,8 @@ def _resolve_task_decl_path_into_container(
     source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
     assert len(source_paths) == 1
     source_path = next(iter(source_paths))
-    if path_dependencies:
-        path_dependencies.add(source_path)
+    if additional_paths:
+        additional_paths.add(source_path)
     container.add_paths(source_paths)
     return container.input_path_map[source_path]
 
@@ -713,7 +711,7 @@ def _try_task(
     container: "TaskContainer",
     container_env: Env.Bindings[Value.Base],
     terminating: Callable[[], bool],
-    path_dependencies: PathDependencies,
+    additional_paths: CacheAdditionalPaths,
 ) -> "TaskContainer":
     """
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
@@ -743,7 +741,7 @@ def _try_task(
                 container,
                 container_env,
                 attempt=container.try_counter - 1,
-                path_dependencies=path_dependencies,
+                additional_paths=additional_paths,
             )
             if container.try_counter == 1:
                 assert retries == 0 and interruptions == 0 and not plugin_changed_command
@@ -834,7 +832,7 @@ def _eval_task_command(
     container: "TaskContainer",
     container_env: Env.Bindings[Value.Base],
     attempt: int,
-    path_dependencies: PathDependencies,
+    additional_paths: CacheAdditionalPaths,
 ) -> str:
     """
     Evaluate the task command expression. In WDL 1.2, this may occur multiple times if retrying and
@@ -856,8 +854,8 @@ def _eval_task_command(
         task.effective_wdl_version,
         logger,
         container,
-        source_directory=_source_directory(task),
-        path_dependencies=path_dependencies,
+        source_dir=task.source_dir,
+        additional_paths=additional_paths,
         eval_context=StdLib.EvalContext(placeholder_regex=placeholder_re),
     )
     assert isinstance(task.command, Expr.TaskCommand)

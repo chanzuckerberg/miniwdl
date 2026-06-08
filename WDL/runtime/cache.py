@@ -30,9 +30,9 @@ from .._util import (
 CALL_CACHE_VERSION = 2
 
 
-class PathDependencies:
+class CacheAdditionalPaths:
     """
-    Local filesystem paths that a cache entry depends on beyond its explicit inputs/outputs.
+    Local filesystem paths recorded in a cache entry beyond its explicit inputs/outputs.
 
     Directory paths use miniwdl's existing trailing-slash convention.
     """
@@ -48,16 +48,14 @@ class PathDependencies:
         self.additional_paths = set(additional_paths or [])
         self.absent_paths = set(absent_paths or [])
 
-    def copy(self) -> "PathDependencies":
-        return PathDependencies(self.additional_paths, self.absent_paths)
+    def copy(self) -> "CacheAdditionalPaths":
+        return CacheAdditionalPaths(self.additional_paths, self.absent_paths)
 
-    def update(self, other: "PathDependencies") -> None:
+    def update(self, other: "CacheAdditionalPaths") -> None:
         self.additional_paths.update(other.additional_paths)
         self.absent_paths.update(other.absent_paths)
 
-    def add(self, path: str, directory: bool = False, absent: bool = False) -> None:
-        if directory:
-            path = path.rstrip("/") + "/"
+    def add(self, path: str, absent: bool = False) -> None:
         (self.absent_paths if absent else self.additional_paths).add(path)
 
 
@@ -96,7 +94,7 @@ class CallCache(AbstractContextManager):
     # runs; we just want to remember them for potential reuse later in the current run.
     _workflow_downloads: Dict[str, str]
     _workflow_directory_downloads: Dict[str, str]
-    _entry_dependencies: Dict[str, PathDependencies]
+    _entry_additional_paths: Dict[str, CacheAdditionalPaths]
     _lock: Lock
 
     def __init__(self, cfg: config.Loader, logger: logging.Logger):
@@ -105,7 +103,7 @@ class CallCache(AbstractContextManager):
         self._flocker = FlockHolder(self._logger)
         self._workflow_downloads = {}
         self._workflow_directory_downloads = {}
-        self._entry_dependencies = {}
+        self._entry_additional_paths = {}
         self._lock = Lock()
         self._download_cache_dir = cfg["download_cache"]["dir"]
         self._download_cache_dir = (
@@ -149,7 +147,7 @@ class CallCache(AbstractContextManager):
 
         cache = None
         run_dir = None
-        dependencies = PathDependencies()
+        cache_paths = CacheAdditionalPaths()
         try:
             with open(file_path, "rb") as file_reader:
                 envelope = json.loads(file_reader.read())
@@ -170,7 +168,7 @@ class CallCache(AbstractContextManager):
                     )
                     return None
                 run_dir = envelope.get("dir", None)
-                dependencies = PathDependencies(
+                cache_paths = CacheAdditionalPaths(
                     envelope.get("additionalPaths", []), envelope.get("absentPaths", [])
                 )
                 cache = values_from_json(envelope["outputs"], output_types)
@@ -193,9 +191,9 @@ class CallCache(AbstractContextManager):
             if (
                 _check_files_coherence(self._cfg, self._logger, file_path, inputs)
                 and _check_files_coherence(self._cfg, self._logger, file_path, cache)
-                and _check_path_dependencies_coherence(self._logger, file_path, dependencies)
+                and _check_additional_paths_coherence(self._logger, file_path, cache_paths)
             ):
-                self._entry_dependencies[key] = dependencies.copy()
+                self._entry_additional_paths[key] = cache_paths.copy()
                 return cache
             else:
                 # otherwise, clean it up
@@ -227,14 +225,14 @@ class CallCache(AbstractContextManager):
         from .. import values_to_json
 
         inputs = inputs or Env.Bindings()
-        dependencies = PathDependencies(additional_paths, absent_paths)
+        cache_paths = CacheAdditionalPaths(additional_paths, absent_paths)
         if self._cfg["call_cache"].get_bool("put"):
             envelope = {
                 "miniwdlCallCacheVersion": CALL_CACHE_VERSION,
                 "inputs": values_to_json(inputs),
                 "outputs": values_to_json(outputs),
-                "additionalPaths": sorted(dependencies.additional_paths),
-                "absentPaths": sorted(dependencies.absent_paths),
+                "additionalPaths": sorted(cache_paths.additional_paths),
+                "absentPaths": sorted(cache_paths.absent_paths),
             }
             if run_dir:
                 envelope["dir"] = run_dir
@@ -242,13 +240,13 @@ class CallCache(AbstractContextManager):
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             write_atomic(json.dumps(envelope, indent=2), filename)
             self._logger.info(_("call cache insert", cache_file=filename))
-        self._entry_dependencies[key] = dependencies.copy()
+        self._entry_additional_paths[key] = cache_paths.copy()
 
-    def get_dependencies(self, key: str) -> PathDependencies:
+    def get_additional_paths(self, key: str) -> CacheAdditionalPaths:
         """
-        Retrieve dependency paths remembered for a v2 cache hit/insert during this process.
+        Retrieve additional paths remembered for a v2 cache hit/insert during this process.
         """
-        return self._entry_dependencies.get(key, PathDependencies()).copy()
+        return self._entry_additional_paths.get(key, CacheAdditionalPaths()).copy()
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up folder structure based on URI instead of opaque digests)
@@ -489,11 +487,11 @@ def _check_files_coherence(
         return False
 
 
-def _check_path_dependencies_coherence(
-    logger: logging.Logger, cache_file: str, dependencies: PathDependencies
+def _check_additional_paths_coherence(
+    logger: logging.Logger, cache_file: str, cache_paths: CacheAdditionalPaths
 ) -> bool:
     """
-    Verify additional present/absent local path dependencies recorded in a v2 cache envelope.
+    Verify additional present/absent local paths recorded in a v2 cache envelope.
     """
 
     def mtime(path: str) -> float:
@@ -539,9 +537,9 @@ def _check_path_dependencies_coherence(
 
     cache_file_mtime = mtime(cache_file)
     try:
-        for path in dependencies.additional_paths:
+        for path in cache_paths.additional_paths:
             check_present(path)
-        for path in dependencies.absent_paths:
+        for path in cache_paths.absent_paths:
             if os.path.exists(path.rstrip("/") or "/"):
                 logger.warning(
                     _(

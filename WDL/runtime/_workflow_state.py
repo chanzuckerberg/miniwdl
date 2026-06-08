@@ -18,10 +18,9 @@ from ._io_helpers import (
     _fspaths,
     _resolve_source_relative_paths,
     _resolve_workflow_path,
-    _source_directory,
     _warn_struct_extra,
 )
-from .cache import PathDependencies
+from .cache import CacheAdditionalPaths
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -103,7 +102,7 @@ class StateMachine:
     # is allowed to access. (Unless [file_io] allow_any_input = true)
     fspath_allowlist: Set[str]
     # Source-relative paths observed while evaluating workflow expressions and child calls.
-    path_dependencies: PathDependencies
+    additional_paths: CacheAdditionalPaths
     # TODO: factor out WorkflowState interface?
 
     def __init__(
@@ -126,7 +125,7 @@ class StateMachine:
         self.running = set()
         self.waiting = set()
         self.fspath_allowlist = _fspaths(inputs)
-        self.path_dependencies = PathDependencies()
+        self.additional_paths = CacheAdditionalPaths()
 
         from .. import values_to_json
 
@@ -340,7 +339,7 @@ class StateMachine:
                 self.logger,
                 self.inputs,
                 self.fspath_allowlist,
-                self.path_dependencies,
+                self.additional_paths,
                 job.node,
                 env,
                 stdlib,
@@ -371,11 +370,11 @@ class StateMachine:
                 cfg,
                 stdlib.wdl_version,
                 self.fspath_allowlist,
-                self.path_dependencies,
+                self.additional_paths,
                 call_name,
                 callee_inputs,
                 call_inputs,
-                source_directory=_source_directory(self.workflow),
+                source_dir=self.workflow.source_dir,
             )
             # issue CallInstructions
             self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))
@@ -626,7 +625,7 @@ def _eval_decl(
     logger: logging.Logger,
     inputs: Env.Bindings[Value.Base],
     allowlist: Set[str],
-    path_dependencies: PathDependencies,
+    additional_paths: CacheAdditionalPaths,
     decl: Tree.Decl,
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
@@ -647,11 +646,11 @@ def _eval_decl(
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
             value, source_paths = _resolve_source_relative_paths(
                 cfg,
-                _source_directory(decl),
+                decl.source_dir,
                 value,
                 decl.type,
                 f"workflow declaration {decl.name}",
-                path_dependencies=path_dependencies,
+                additional_paths=additional_paths,
             )
             allowlist |= source_paths
     else:
@@ -679,11 +678,11 @@ def _postprocess_call_inputs(
     cfg: config.Loader,
     wdl_version: str,
     allowlist: Set[str],
-    path_dependencies: PathDependencies,
+    additional_paths: CacheAdditionalPaths,
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
-    source_directory: str = "",
+    source_dir: str = "",
 ) -> Env.Bindings[Value.Base]:
     """
     Coerce call inputs, then check their File/Directory paths for use as host paths.
@@ -691,7 +690,7 @@ def _postprocess_call_inputs(
     The first coercion exposes String paths as File/Directory values. After path checks may rewrite
     missing input Directory children to Null, the second coercion enforces optionality.
 
-    ``source_directory`` should be the local directory containing the workflow source file, or ""
+    ``source_dir`` should be the local directory containing the workflow source file, or ""
     when unavailable. WDL 1.2+ relative call-input paths are resolved against it before the
     allowlist checks.
     """
@@ -699,11 +698,11 @@ def _postprocess_call_inputs(
     if wdl_version_geq(wdl_version, WDLVersion.V1_2):
         call_inputs, source_paths = _resolve_call_input_source_paths(
             cfg,
-            source_directory,
+            source_dir,
             call_name,
             callee_inputs,
             call_inputs,
-            path_dependencies=path_dependencies,
+            additional_paths=additional_paths,
         )
         allowlist |= source_paths
     call_inputs = Value.rewrite_env_paths(
@@ -744,11 +743,11 @@ def _coerce_call_inputs(
 
 def _resolve_call_input_source_paths(
     cfg: config.Loader,
-    source_directory: str,
+    source_dir: str,
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
-    path_dependencies: Optional[PathDependencies] = None,
+    additional_paths: Optional[CacheAdditionalPaths] = None,
 ) -> Tuple[Env.Bindings[Value.Base], Set[str]]:
     """
     Resolve WDL 1.2 source-relative paths supplied directly to call inputs.
@@ -766,11 +765,11 @@ def _resolve_call_input_source_paths(
             return binding
         value, paths = _resolve_source_relative_paths(
             cfg,
-            source_directory,
+            source_dir,
             binding.value,
             callee_decl.type.copy(optional=True) if callee_decl.expr else callee_decl.type,
             f"call {call_name} input {binding.name}",
-            path_dependencies=path_dependencies,
+            additional_paths=additional_paths,
         )
         source_paths.update(paths)
         return Env.Binding(binding.name, value, binding.info)

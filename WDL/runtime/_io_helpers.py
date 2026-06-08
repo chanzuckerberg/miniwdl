@@ -14,22 +14,8 @@ from .. import Env, Error, Expr, Type, Value, Tree
 from .._util import link_force, path_really_within, symlink_force
 from .._util import StructuredLogMessage as _
 from . import config
-from .cache import CallCache, PathDependencies
+from .cache import CallCache, CacheAdditionalPaths
 from .download import able as downloadable
-
-
-def _source_directory(node: Tree.SourceNode) -> str:
-    """
-    Return the local directory containing a WDL source node, with trailing "/", or "".
-
-    Source-relative File/Directory declarations need an explicit local source directory. Parsed
-    buffers and other non-local source locations are represented as an empty string so callers can
-    produce a declaration-specific error only when a relative path actually needs resolution.
-    """
-    source = node.pos.abspath
-    if not source or source == "(buffer)" or not os.path.isabs(source):
-        return ""
-    return os.path.join(os.path.realpath(os.path.dirname(source)), "")
 
 
 def _resolve_source_relative_path(
@@ -105,7 +91,7 @@ def _resolve_source_relative_paths(
     value: Value.Base,
     desired_type: Type.Base,
     desc: str,
-    path_dependencies: Optional[PathDependencies] = None,
+    additional_paths: Optional[CacheAdditionalPaths] = None,
 ) -> Tuple[Value.Base, Set[str]]:
     """
     Coerce a value to a path-containing type and resolve each File/Directory path within it.
@@ -121,8 +107,8 @@ def _resolve_source_relative_paths(
     def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
         ans = _resolve_source_relative_path(cfg, source_directory, desc, v)
         if ans is None:
-            if path_dependencies:
-                path_dependencies.add(
+            if additional_paths:
+                additional_paths.add(
                     _source_relative_dependency_path(source_directory, v),
                     absent=True,
                 )
@@ -130,8 +116,8 @@ def _resolve_source_relative_paths(
         if ans != v.value:
             source_path = ans + ("/" if isinstance(v, Value.Directory) else "")
             source_paths.add(source_path)
-            if path_dependencies:
-                path_dependencies.add(source_path)
+            if additional_paths:
+                additional_paths.add(source_path)
         return ans
 
     value = Value.rewrite_paths(
@@ -148,7 +134,7 @@ def _source_relative_dependency_path(
     source_directory: str, v: Union[Value.File, Value.Directory]
 ) -> str:
     """
-    Format the absolute path corresponding to a source-relative value for cache dependencies.
+    Format the absolute path corresponding to a source-relative value for the cache manifest.
 
     Only call after ``_resolve_source_relative_path`` has established that the path is a valid
     source-relative path except for being absent.

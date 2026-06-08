@@ -12,10 +12,10 @@ from .. import Env, Error, StdLib, Type, Value
 from .._util import WDLVersion, wdl_version_geq
 from .._util import StructuredLogMessage as _
 from . import config
-from .cache import CallCache, PathDependencies, input_digest
+from .cache import CallCache, CacheAdditionalPaths, input_digest
 from .download import able as downloadable
 from .error import OutputError
-from ._io_helpers import _resolve_source_relative_path, _resolve_workflow_path, _source_directory
+from ._io_helpers import _resolve_source_relative_path, _resolve_workflow_path
 
 if TYPE_CHECKING:
     from .task_container import TaskContainer
@@ -26,8 +26,8 @@ class TaskStdLib(StdLib.Base):
     logger: logging.Logger
     container: "TaskContainer"
     inputs_only: bool  # if True then only permit access to input files
-    source_directory: str
-    path_dependencies: PathDependencies
+    source_dir: str
+    additional_paths: CacheAdditionalPaths
 
     def __init__(
         self,
@@ -35,8 +35,8 @@ class TaskStdLib(StdLib.Base):
         logger: logging.Logger,
         container: "TaskContainer",
         inputs_only: bool,
-        source_directory: str = "",
-        path_dependencies: Optional[PathDependencies] = None,
+        source_dir: str = "",
+        additional_paths: Optional[CacheAdditionalPaths] = None,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -47,17 +47,17 @@ class TaskStdLib(StdLib.Base):
         self.logger = logger
         self.container = container
         self.inputs_only = inputs_only
-        self.source_directory = source_directory
-        self.path_dependencies = path_dependencies or PathDependencies()
+        self.source_dir = source_dir
+        self.additional_paths = additional_paths or CacheAdditionalPaths()
 
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
         value = Value.Directory(filename) if directory else Value.File(filename)
-        ans = _resolve_source_relative_path(self.container.cfg, self.source_directory, desc, value)
+        ans = _resolve_source_relative_path(self.container.cfg, self.source_dir, desc, value)
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         if ans != filename:
-            self.path_dependencies.add(ans, directory=directory)
+            self.additional_paths.add(ans + ("/" if directory else ""))
         return ans
 
     def _devirtualize_filename(self, filename: str) -> str:
@@ -127,8 +127,8 @@ class TaskInputStdLib(TaskStdLib):
         wdl_version: str,
         logger: logging.Logger,
         container: "TaskContainer",
-        source_directory: str = "",
-        path_dependencies: Optional[PathDependencies] = None,
+        source_dir: str = "",
+        additional_paths: Optional[CacheAdditionalPaths] = None,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -136,8 +136,8 @@ class TaskInputStdLib(TaskStdLib):
             logger,
             container,
             True,
-            source_directory=source_directory,
-            path_dependencies=path_dependencies,
+            source_dir=source_dir,
+            additional_paths=additional_paths,
             eval_context=eval_context,
         )
 
@@ -233,13 +233,11 @@ class WorkflowStdLib(StdLib.Base):
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
         value = Value.Directory(filename) if directory else Value.File(filename)
-        ans = _resolve_source_relative_path(
-            self.cfg, _source_directory(self.state.workflow), desc, value
-        )
+        ans = _resolve_source_relative_path(self.cfg, self.state.workflow.source_dir, desc, value)
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         if ans != filename:
-            self.state.path_dependencies.add(ans, directory=directory)
+            self.state.additional_paths.add(ans + ("/" if directory else ""))
         return ans
 
     def _devirtualize_filename(self, filename: str) -> str:

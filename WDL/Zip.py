@@ -7,6 +7,7 @@ Routines for packaging a WDL source file, with all imported source files, into a
 import io
 import os
 import json
+import glob
 import pathlib
 import shutil
 import logging
@@ -14,7 +15,7 @@ import tarfile
 import tempfile
 import contextlib
 import zipfile
-from typing import List, Dict, Optional, Any, Iterator, NamedTuple, Tuple
+from typing import List, Dict, Optional, Any, Iterator, NamedTuple, Tuple, Set
 
 from . import Tree, Error
 from ._util import path_really_within
@@ -39,7 +40,7 @@ def build(
 
     with contextlib.ExitStack() as cleanup:
         # write WDL source code to temp directory
-        dir_to_zip = build_source_dir(cleanup, top_doc, logger)
+        dir_to_zip, zip_paths, wdls = _build_source_dir(cleanup, top_doc, logger)
 
         # add MANIFEST.json; schema roughly following Amazon Genomics CLI's:
         #  https://aws.github.io/amazon-genomics-cli/docs/concepts/workflows/#multi-file-workflows
@@ -54,12 +55,7 @@ def build(
             json.dump(manifest, manifest_file, indent=2)
         logger.debug("manifest = " + json.dumps(manifest))
         if additional_files:
-            logger.debug(f"Additional files: {additional_files}")
-            for file in additional_files:
-                dest_path = os.path.join(dir_to_zip, os.path.basename(file))
-                if os.path.exists(dest_path):
-                    raise FileExistsError(f"Additional file overwrites existing path: {dest_path}")
-                shutil.copy(file, dest_path)
+            add_additional_files(dir_to_zip, additional_files, zip_paths, wdls, logger)
 
         # zip the temp directory (into another temp directory)
         spool_dir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
@@ -78,6 +74,20 @@ def build(
 def build_source_dir(
     cleanup: contextlib.ExitStack, top_doc: Tree.Document, logger: logging.Logger
 ) -> str:
+    zip_dir, _zip_paths, _wdls = _build_source_dir(cleanup, top_doc, logger)
+    return zip_dir
+
+
+def _build_source_dir(
+    cleanup: contextlib.ExitStack, top_doc: Tree.Document, logger: logging.Logger
+) -> Tuple[str, Dict[str, str], Dict[str, Tree.Document]]:
+    """
+    Stage rewritten WDL source files and return the path mapping used to do it.
+
+    ``build_source_dir()`` historically returned only the staging directory. The additional-file
+    path logic needs the same original-source to archive-path mapping, so this internal variant
+    returns all three pieces while preserving the public helper above.
+    """
     # directory of main WDL file (possibly URI)
     main_dir = os.path.dirname(top_doc.pos.abspath).rstrip("/") + "/"
 
@@ -106,7 +116,7 @@ def build_source_dir(
             for line in source_lines:
                 print(line, file=outfile)
 
-    return zip_dir
+    return zip_dir, zip_paths, wdls
 
 
 def build_zip_paths(
@@ -172,6 +182,166 @@ def rewrite_imports(
     return source_lines
 
 
+def add_additional_files(
+    zip_dir: str,
+    additional_files: List[str],
+    zip_paths: Dict[str, str],
+    wdls: Dict[str, Tree.Document],
+    logger: logging.Logger,
+) -> None:
+    """
+    Add files/directories to an archive staging directory, preserving paths relative to WDL source
+    directories represented in ``zip_paths``.
+
+    Examples:
+
+    * ``/proj/data/ref.fa`` -> ``data/ref.fa`` (when ``/proj/main.wdl`` is archived as
+      ``main.wdl``)
+    * ``/shared/lib/data/ref.fa`` -> ``__outside_wdl/lib/data/ref.fa`` (when
+      ``/shared/lib/tasks.wdl`` is rewritten under ``__outside_wdl/lib/tasks.wdl``)
+    """
+    logger.debug(f"Additional files: {additional_files}")
+    source_dirs = _additional_source_dirs(zip_paths, wdls)
+    if not source_dirs:
+        raise Error.InputError("Additional files require local WDL source files")
+
+    copied: Dict[str, str] = {}
+    for pattern in additional_files:
+        # Leave non-glob paths literal so we can report "not found" rather than "matched nothing".
+        matches = glob.glob(pattern, recursive=True) if glob.has_magic(pattern) else [pattern]
+        matches = sorted(matches)
+        if not matches:
+            raise Error.InputError("Additional file pattern matched nothing: " + pattern)
+        for match in matches:
+            if not os.path.lexists(match):
+                raise Error.InputError("Additional file not found: " + match)
+            for src, dest in _additional_files_from_path(match, source_dirs):
+                if dest in copied:
+                    # Overlapping globs may name the same source file twice; that's harmless.
+                    # A different realpath landing at the same archive path is a real collision.
+                    if copied[dest] == os.path.realpath(src):
+                        continue
+                    raise Error.InputError("Additional file overwrites existing path: " + dest)
+                dest_path = os.path.join(zip_dir, dest)
+                if os.path.exists(dest_path) or os.path.lexists(dest_path):
+                    raise Error.InputError("Additional file overwrites existing path: " + dest)
+                if not path_really_within(dest_path, zip_dir):
+                    raise Error.InputError("Invalid additional file destination: " + dest)
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                shutil.copyfile(src, dest_path)
+                copied[dest] = os.path.realpath(src)
+                logger.info(f"{dest} <= {src}")
+
+
+def _additional_source_dirs(
+    zip_paths: Dict[str, str], wdls: Dict[str, Tree.Document]
+) -> List[Tuple[str, str]]:
+    """
+    Pair each local WDL source directory with its corresponding archive directory.
+
+    Additional files are accepted only when they resolve under one of these directories. Sorting by
+    longest source directory first makes nested imports win over their parents, which is needed to
+    preserve the source-relative meaning of WDL 1.2 paths after import rewrites.
+
+    Examples:
+
+    * ``/proj/tasks/t.wdl`` -> ``tasks`` (nested local import directory wins over ``/proj``)
+    * ``/proj/main.wdl`` -> ``""`` (top-level source directory maps to the archive root)
+    * ``/shared/lib/t.wdl`` -> ``__outside_wdl/lib`` (outside import keeps its rewritten prefix)
+    """
+    ans: Dict[str, str] = {}
+    for abspath, zip_path in zip_paths.items():
+        if abspath in wdls:
+            source_dir = wdls[abspath].source_dir.rstrip("/")
+            if not source_dir or not os.path.isfile(abspath):
+                continue
+            archive_dir = os.path.dirname(zip_path)
+            # Different archive paths for one source directory would make it impossible to know
+            # where non-WDL neighbors from that directory should go.
+            if source_dir in ans and ans[source_dir] != archive_dir:
+                raise Error.InputError(
+                    "Cannot place additional files relative to ambiguous WDL source directory: "
+                    + source_dir
+                )
+            ans[source_dir] = archive_dir
+    return sorted(ans.items(), key=lambda item: len(item[0]), reverse=True)
+
+
+def _additional_files_from_path(
+    path: str, source_dirs: List[Tuple[str, str]]
+) -> Iterator[Tuple[str, str]]:
+    """
+    Expand one matched additional path into concrete file/archive-path pairs.
+
+    Directories are walked recursively, following symlinks only after each directory entry passes
+    ``_additional_dest()``. ``visited_dirs`` prevents symlink loops from cycling indefinitely while
+    still allowing safe symlinks to contribute the file contents they point to.
+
+    Examples:
+
+    * ``/proj/data/a.txt`` -> ``data/a.txt`` (file found while walking ``/proj/data``)
+    * ``/proj/data/sub/b.txt`` -> ``data/sub/b.txt`` (recursive directory contents are kept)
+    * ``/proj/data/latest.txt`` -> ``data/latest.txt`` (safe symlink content is copied)
+    """
+    path = os.path.abspath(path)
+    _additional_dest(path, source_dirs)  # validate the requested path, including symlink target
+    if os.path.isdir(path):
+        visited_dirs: Set[str] = set()
+        for dirpath, dirnames, filenames in os.walk(path, followlinks=True):
+            # Re-check every walked directory because os.walk follows symlinks when asked.
+            _additional_dest(dirpath, source_dirs)
+            real_dirpath = os.path.realpath(dirpath)
+            if real_dirpath in visited_dirs:
+                dirnames[:] = []
+                continue
+            visited_dirs.add(real_dirpath)
+            for dirname in list(dirnames):
+                dirname_path = os.path.join(dirpath, dirname)
+                try:
+                    # Reject a directory symlink before os.walk descends into it.
+                    _additional_dest(dirname_path, source_dirs)
+                except Error.InputError:
+                    raise Error.InputError(
+                        "Additional directory contains unsafe symlink or path: " + dirname_path
+                    ) from None
+                if os.path.realpath(dirname_path) in visited_dirs:
+                    # Avoid loops like data/back -> .., even when the target is otherwise safe.
+                    dirnames.remove(dirname)
+            for filename in sorted(filenames):
+                filename_path = os.path.join(dirpath, filename)
+                yield filename_path, _additional_dest(filename_path, source_dirs)
+    else:
+        yield path, _additional_dest(path, source_dirs)
+
+
+def _additional_dest(path: str, source_dirs: List[Tuple[str, str]]) -> str:
+    """
+    Compute the archive path for one additional file or directory after safety checks.
+
+    The lexical path and its realpath target must both remain inside the selected source directory.
+    This permits ordinary in-tree symlinks while rejecting symlinks that would package files from
+    outside the WDL source tree.
+
+    Examples:
+
+    * ``/proj/data/a.txt`` -> ``data/a.txt`` (source dir ``/proj`` maps to archive root)
+    * ``/shared/lib/data/a.txt`` -> ``__outside_wdl/lib/data/a.txt`` (source dir
+      ``/shared/lib`` maps to ``__outside_wdl/lib``)
+    * ``/proj/data/secret -> /etc/passwd`` -> rejected (symlink target escapes ``/proj``)
+    """
+    if not (os.path.isfile(path) or os.path.isdir(path)):
+        raise Error.InputError("Additional path is neither a file nor a directory: " + path)
+    for source_dir, archive_dir in source_dirs:
+        relpath = os.path.relpath(os.path.abspath(path), source_dir)
+        if relpath.startswith(".." + os.sep) or relpath == "..":
+            continue
+        if path_really_within(path, source_dir) and path_really_within(
+            os.path.realpath(path), source_dir
+        ):
+            return os.path.normpath(os.path.join(archive_dir, relpath))
+    raise Error.InputError("Additional path must reside within a WDL source directory: " + path)
+
+
 def create_reproducible_archive(zip_dir: str, output_path: str, format: str):
     # write zip/tar archive with internal filenames lexicographically-ordered and all timestamps
     # set to an arbitrary constant
@@ -225,7 +395,7 @@ input JSON file (if any). The source directory prefixes the latter paths.
 
 
 @contextlib.contextmanager
-def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
+def unpack(archive_fn: str, tempdir_parent: Optional[str] = None) -> Iterator[UnpackedZip]:
     """
     Open a context with the WDL source archive unpacked into a temp directory, yielding
     `UnpackedZip`. The temp directory will be deleted on context exit.
@@ -244,7 +414,19 @@ def unpack(archive_fn: str) -> Iterator[UnpackedZip]:
         if os.path.basename(archive_fn) == "MANIFEST.json":
             manifest_fn = archive_fn
         else:
-            dn = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_"))
+            try:
+                dn = cleanup.enter_context(
+                    tempfile.TemporaryDirectory(prefix="miniwdl_run_zip_", dir=tempdir_parent)
+                )
+            except OSError as exn:
+                msg = "Unable to create temporary directory for unpacking source archive"
+                if tempdir_parent:
+                    msg += (
+                        " under "
+                        + tempdir_parent
+                        + "; set TMPDIR to a writable directory under file_io.root"
+                    )
+                raise Error.InputError(msg) from exn
             try:
                 shutil.unpack_archive(archive_fn, dn)
             except Exception:

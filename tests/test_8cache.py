@@ -514,7 +514,11 @@ Int count = 12
                 with open(os.path.join(self._dir, "data", name), "w") as outfile:
                     outfile.write(value)
                 self._run(wdl, {}, cfg=self.cfg)
-            self.assertEqual(mock.call_count, 4)
+                self.assertEqual(mock.call_count, 1)
+
+                self._run(wdl, {}, cfg=self.cfg)
+                self.assertEqual(mock.call_count, 1)
+                mock.reset_mock()
 
     def test_cache_not_used_when_absent_source_relative_path_appears(self):
         os.makedirs(os.path.join(self._dir, "data"))
