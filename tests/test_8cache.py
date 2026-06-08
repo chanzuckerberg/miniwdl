@@ -259,6 +259,65 @@ Int count = 12
 
         self.assertIsNone(cache.get(key, WDL.Env.Bindings(), WDL.Env.Bindings()))
 
+    def test_direct_additional_paths_coherence(self):
+        cache = CallCache(cfg=self.cfg, logger=self.logger)
+        inputs = WDL.Env.Bindings()
+        outputs = WDL.Env.Bindings().bind("out", WDL.Value.String("ok"))
+        output_types = WDL.Env.Bindings().bind("out", WDL.Type.String())
+        present_file = os.path.join(self._dir, "present.txt")
+        present_dir = os.path.join(self._dir, "present_dir")
+        present_dir_manifest = present_dir + "/"
+        nested_file = os.path.join(present_dir, "nested.txt")
+        absent_file = os.path.join(self._dir, "absent.txt")
+        absent_dir = os.path.join(self._dir, "absent_dir")
+        absent_dir_manifest = absent_dir + "/"
+        with open(present_file, "w") as outfile:
+            outfile.write("present\n")
+        os.makedirs(present_dir)
+        with open(nested_file, "w") as outfile:
+            outfile.write("nested\n")
+        old_mtime = time.time() - 10
+        for path in [present_file, present_dir, nested_file]:
+            os.utime(path, (old_mtime, old_mtime))
+
+        key1 = "direct/additional/" + input_digest(inputs)
+        cache.put(
+            key1,
+            outputs,
+            inputs=inputs,
+            additional_paths=[present_file, present_dir_manifest],
+            absent_paths=[absent_file, absent_dir_manifest],
+        )
+        self.assertEqual(
+            WDL.values_to_json(cache.get(key1, inputs, output_types)), WDL.values_to_json(outputs)
+        )
+        cache_paths = cache.get_additional_paths(key1)
+        self.assertEqual(cache_paths.additional_paths, {present_file, present_dir_manifest})
+        self.assertEqual(cache_paths.absent_paths, {absent_file, absent_dir_manifest})
+
+        time.sleep(0.1)
+        os.utime(nested_file)
+        self.assertIsNone(cache.get(key1, inputs, output_types))
+
+        key2 = "direct/absent/" + input_digest(inputs)
+        cache.put(
+            key2,
+            outputs,
+            inputs=inputs,
+            additional_paths=[present_file],
+            absent_paths=[absent_file, absent_dir_manifest],
+        )
+        self.assertEqual(
+            WDL.values_to_json(cache.get(key2, inputs, output_types)), WDL.values_to_json(outputs)
+        )
+        with open(absent_file, "w") as outfile:
+            outfile.write("appeared\n")
+        self.assertIsNone(cache.get(key2, inputs, output_types))
+
+        key3 = "direct/kind/" + input_digest(inputs)
+        cache.put(key3, outputs, inputs=inputs, additional_paths=[present_file + "/"])
+        self.assertIsNone(cache.get(key3, inputs, output_types))
+
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""
