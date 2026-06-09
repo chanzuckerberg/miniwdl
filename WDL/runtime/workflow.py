@@ -60,7 +60,7 @@ from .._util import (
 )
 from .._util import StructuredLogMessage as _
 from . import config, _statusbar
-from .cache import CallCache, CacheAdditionalPaths, call_cache_key, new as new_call_cache
+from .cache import CallCache, CallCacheAddPaths, call_cache_key, new as new_call_cache
 from .error import RunFailed, Terminated, error_json
 
 
@@ -349,7 +349,7 @@ def run_local_workflow(
 
         try:
             # run workflow state machine
-            outputs, additional_paths = _workflow_main_loop(
+            outputs, add_paths = _workflow_main_loop(
                 cfg,
                 workflow,
                 inputs,
@@ -376,8 +376,7 @@ def run_local_workflow(
             outputs,
             run_dir=run_dir,
             inputs=cache_inputs,
-            additional_paths=additional_paths.additional_paths,
-            absent_paths=additional_paths.absent_paths,
+            add_paths=add_paths,
         )
 
     return (run_dir, outputs)
@@ -395,7 +394,7 @@ def _workflow_main_loop(
     cache: CallCache,
     terminating: Callable[[], bool],
     _test_pickle: bool,
-) -> Tuple[Env.Bindings[Value.Base], CacheAdditionalPaths]:
+) -> Tuple[Env.Bindings[Value.Base], CallCacheAddPaths]:
     assert isinstance(cfg, config.Loader)
     call_futures = {}
     try:
@@ -473,7 +472,10 @@ def _workflow_main_loop(
                 if future:
                     __, outputs = future.result()
                     call_id, child_key = call_futures[future]
-                    state.additional_paths.update(cache.get_additional_paths(child_key))
+                    # Fold child task/subworkflow manifests into the parent workflow manifest.
+                    # This makes a workflow cache hit sensitive to source-relative paths used
+                    # inside its calls, even when the workflow itself doesn't read those files.
+                    state.add_paths.update(cache.get_add_paths(child_key))
                     state.call_finished(call_id, outputs)
                     call_futures.pop(future)
                 else:
@@ -499,7 +501,7 @@ def _workflow_main_loop(
                 outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
             )
             logger.notice("done")
-            return outputs, state.additional_paths
+            return outputs, state.add_paths
     except Exception as exn:
         tbtxt = traceback.format_exc()
         logger.debug(tbtxt)

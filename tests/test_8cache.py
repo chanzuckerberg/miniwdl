@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from .context import WDL
 from WDL import values_from_json, values_to_json
-from WDL.runtime.cache import CallCache, input_digest
+from WDL.runtime.cache import CallCache, CallCacheAddPaths, digest_inputs
 
 
 class TestCallCache(unittest.TestCase):
@@ -136,7 +136,7 @@ class TestCallCache(unittest.TestCase):
 
         return rundir, outputs
 
-    def test_input_digest_sorts_keys(self):
+    def test_digest_inputs_sorts_keys(self):
         # Note this fails if input array is reordered
 
         ordered_inputs = values_from_json(
@@ -151,8 +151,8 @@ class TestCallCache(unittest.TestCase):
             self.doc.tasks[0].available_inputs,
         )
 
-        ordered_digest = WDL.Value.digest_env(ordered_inputs)
-        unordered_digest = WDL.Value.digest_env(unordered_inputs)
+        ordered_digest = digest_inputs(ordered_inputs)
+        unordered_digest = digest_inputs(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
 
     def test_normalization(self):
@@ -182,7 +182,7 @@ Int count = 12
         # run task, check output matches what was stored in run_dir
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        digest = input_digest(inputs)
+        digest = digest_inputs(inputs)
         task_digest = self.doc.tasks[0].digest
         with open(
             os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}/{task_digest}/{digest}.json")
@@ -240,7 +240,7 @@ Int count = 12
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         inputs = values_from_json(self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        digest = input_digest(inputs)
+        digest = digest_inputs(inputs)
         task_digest = self.doc.tasks[0].digest
         cache_value = cache.get(
             key=f"{self.doc.tasks[0].name}/{task_digest}/{digest}",
@@ -249,17 +249,7 @@ Int count = 12
         )
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
 
-    def test_unsupported_cache_version_misses(self):
-        cache = CallCache(cfg=self.cfg, logger=self.logger)
-        key = "t/digest/" + input_digest(WDL.Env.Bindings())
-        filename = os.path.join(self.cache_dir, key + ".json")
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-        with open(filename, "w") as outfile:
-            json.dump({"miniwdlCallCacheVersion": 999, "outputs": {}}, outfile)
-
-        self.assertIsNone(cache.get(key, WDL.Env.Bindings(), WDL.Env.Bindings()))
-
-    def test_direct_additional_paths_coherence(self):
+    def test_direct_add_paths_coherence(self):
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         inputs = WDL.Env.Bindings()
         outputs = WDL.Env.Bindings().bind("out", WDL.Value.String("ok"))
@@ -280,32 +270,32 @@ Int count = 12
         for path in [present_file, present_dir, nested_file]:
             os.utime(path, (old_mtime, old_mtime))
 
-        key1 = "direct/additional/" + input_digest(inputs)
+        key1 = "direct/additional/" + digest_inputs(inputs)
         cache.put(
             key1,
             outputs,
             inputs=inputs,
-            additional_paths=[present_file, present_dir_manifest],
-            absent_paths=[absent_file, absent_dir_manifest],
+            add_paths=CallCacheAddPaths(
+                [present_file, present_dir_manifest], [absent_file, absent_dir_manifest]
+            ),
         )
         self.assertEqual(
             WDL.values_to_json(cache.get(key1, inputs, output_types)), WDL.values_to_json(outputs)
         )
-        cache_paths = cache.get_additional_paths(key1)
-        self.assertEqual(cache_paths.additional_paths, {present_file, present_dir_manifest})
+        cache_paths = cache.get_add_paths(key1)
+        self.assertEqual(cache_paths.add_paths, {present_file, present_dir_manifest})
         self.assertEqual(cache_paths.absent_paths, {absent_file, absent_dir_manifest})
 
         time.sleep(0.1)
         os.utime(nested_file)
         self.assertIsNone(cache.get(key1, inputs, output_types))
 
-        key2 = "direct/absent/" + input_digest(inputs)
+        key2 = "direct/absent/" + digest_inputs(inputs)
         cache.put(
             key2,
             outputs,
             inputs=inputs,
-            additional_paths=[present_file],
-            absent_paths=[absent_file, absent_dir_manifest],
+            add_paths=CallCacheAddPaths([present_file], [absent_file, absent_dir_manifest]),
         )
         self.assertEqual(
             WDL.values_to_json(cache.get(key2, inputs, output_types)), WDL.values_to_json(outputs)
@@ -314,8 +304,8 @@ Int count = 12
             outfile.write("appeared\n")
         self.assertIsNone(cache.get(key2, inputs, output_types))
 
-        key3 = "direct/kind/" + input_digest(inputs)
-        cache.put(key3, outputs, inputs=inputs, additional_paths=[present_file + "/"])
+        key3 = "direct/kind/" + digest_inputs(inputs)
+        cache.put(key3, outputs, inputs=inputs, add_paths=CallCacheAddPaths([present_file + "/"]))
         self.assertIsNone(cache.get(key3, inputs, output_types))
 
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):

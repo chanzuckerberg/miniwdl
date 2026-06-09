@@ -12,7 +12,7 @@ from .. import Env, Error, StdLib, Type, Value
 from .._util import WDLVersion, wdl_version_geq
 from .._util import StructuredLogMessage as _
 from . import config
-from .cache import CallCache, CacheAdditionalPaths, input_digest
+from .cache import CallCache, CallCacheAddPaths, digest_inputs
 from .download import able as downloadable
 from .error import OutputError
 from ._io_helpers import _resolve_source_relative_path, _resolve_workflow_path
@@ -27,7 +27,7 @@ class TaskStdLib(StdLib.Base):
     container: "TaskContainer"
     inputs_only: bool  # if True then only permit access to input files
     source_dir: str
-    additional_paths: CacheAdditionalPaths
+    add_paths: CallCacheAddPaths
 
     def __init__(
         self,
@@ -35,8 +35,9 @@ class TaskStdLib(StdLib.Base):
         logger: logging.Logger,
         container: "TaskContainer",
         inputs_only: bool,
+        *,
         source_dir: str = "",
-        additional_paths: Optional[CacheAdditionalPaths] = None,
+        add_paths: Optional[CallCacheAddPaths] = None,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -48,7 +49,7 @@ class TaskStdLib(StdLib.Base):
         self.container = container
         self.inputs_only = inputs_only
         self.source_dir = source_dir
-        self.additional_paths = additional_paths or CacheAdditionalPaths()
+        self.add_paths = add_paths or CallCacheAddPaths()
 
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
@@ -57,7 +58,7 @@ class TaskStdLib(StdLib.Base):
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         if ans != filename:
-            self.additional_paths.add(ans + ("/" if directory else ""))
+            self.add_paths.add(ans + ("/" if directory else ""))
         return ans
 
     def _devirtualize_filename(self, filename: str) -> str:
@@ -127,8 +128,9 @@ class TaskInputStdLib(TaskStdLib):
         wdl_version: str,
         logger: logging.Logger,
         container: "TaskContainer",
+        *,
         source_dir: str = "",
-        additional_paths: Optional[CacheAdditionalPaths] = None,
+        add_paths: Optional[CallCacheAddPaths] = None,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -137,7 +139,7 @@ class TaskInputStdLib(TaskStdLib):
             container,
             True,
             source_dir=source_dir,
-            additional_paths=additional_paths,
+            add_paths=add_paths,
             eval_context=eval_context,
         )
 
@@ -149,6 +151,7 @@ class TaskOutputStdLib(TaskStdLib):
         wdl_version: str,
         logger: logging.Logger,
         container: "TaskContainer",
+        *,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(wdl_version, logger, container, False, eval_context=eval_context)
@@ -219,6 +222,7 @@ class WorkflowStdLib(StdLib.Base):
         wdl_version: str,
         state: "StateMachine",
         cache: CallCache,
+        *,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -237,7 +241,9 @@ class WorkflowStdLib(StdLib.Base):
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         if ans != filename:
-            self.state.additional_paths.add(ans + ("/" if directory else ""))
+            # Workflow stdlib/operator path use can affect cached workflow outputs without
+            # appearing among declared inputs, so remember it alongside the cache entry.
+            self.state.add_paths.add(ans + ("/" if directory else ""))
         return ans
 
     def _devirtualize_filename(self, filename: str) -> str:
@@ -318,7 +324,7 @@ class WorkflowStdLib(StdLib.Base):
                 hasher.update(chunk)
         cache_in: Env.Bindings[Value.Base] = Env.Bindings()
         cache_in = cache_in.bind("file_sha256", Value.String(hasher.hexdigest()))
-        cache_key = "write_/" + input_digest(cache_in)
+        cache_key = "write_/" + digest_inputs(cache_in)
         cache_out_types: Env.Bindings[Type.Base] = Env.Bindings()
         cache_out_types = cache_out_types.bind("file", Type.File())
         cache_out = self.cache.get(cache_key, cache_in, cache_out_types)

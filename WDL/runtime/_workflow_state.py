@@ -20,7 +20,7 @@ from ._io_helpers import (
     _resolve_workflow_path,
     _warn_struct_extra,
 )
-from .cache import CacheAdditionalPaths
+from .cache import CallCacheAddPaths
 
 
 class WorkflowOutputs(Tree.WorkflowNode):
@@ -102,7 +102,9 @@ class StateMachine:
     # is allowed to access. (Unless [file_io] allow_any_input = true)
     fspath_allowlist: Set[str]
     # Source-relative paths observed while evaluating workflow expressions and child calls.
-    additional_paths: CacheAdditionalPaths
+    # These are persisted as CallCache add_paths, not used as the workflow's live file-access
+    # policy; fspath_allowlist remains responsible for that.
+    add_paths: CallCacheAddPaths
     # TODO: factor out WorkflowState interface?
 
     def __init__(
@@ -125,7 +127,7 @@ class StateMachine:
         self.running = set()
         self.waiting = set()
         self.fspath_allowlist = _fspaths(inputs)
-        self.additional_paths = CacheAdditionalPaths()
+        self.add_paths = CallCacheAddPaths()
 
         from .. import values_to_json
 
@@ -339,7 +341,7 @@ class StateMachine:
                 self.logger,
                 self.inputs,
                 self.fspath_allowlist,
-                self.additional_paths,
+                self.add_paths,
                 job.node,
                 env,
                 stdlib,
@@ -370,7 +372,7 @@ class StateMachine:
                 cfg,
                 stdlib.wdl_version,
                 self.fspath_allowlist,
-                self.additional_paths,
+                self.add_paths,
                 call_name,
                 callee_inputs,
                 call_inputs,
@@ -625,7 +627,7 @@ def _eval_decl(
     logger: logging.Logger,
     inputs: Env.Bindings[Value.Base],
     allowlist: Set[str],
-    additional_paths: CacheAdditionalPaths,
+    add_paths: CallCacheAddPaths,
     decl: Tree.Decl,
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
@@ -644,13 +646,15 @@ def _eval_decl(
     elif decl.expr:
         value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
+            # Source-relative workflow declaration paths become both runtime-allowlisted paths
+            # and cache-manifest dependencies.
             value, source_paths = _resolve_source_relative_paths(
                 cfg,
                 decl.source_dir,
                 value,
                 decl.type,
                 f"workflow declaration {decl.name}",
-                additional_paths=additional_paths,
+                add_paths=add_paths,
             )
             allowlist |= source_paths
     else:
@@ -678,7 +682,7 @@ def _postprocess_call_inputs(
     cfg: config.Loader,
     wdl_version: str,
     allowlist: Set[str],
-    additional_paths: CacheAdditionalPaths,
+    add_paths: CallCacheAddPaths,
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
@@ -696,13 +700,15 @@ def _postprocess_call_inputs(
     """
     call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
     if wdl_version_geq(wdl_version, WDLVersion.V1_2):
+        # Call-input expressions are evaluated in the caller workflow context, so their
+        # source-relative paths belong to the parent workflow cache manifest.
         call_inputs, source_paths = _resolve_call_input_source_paths(
             cfg,
             source_dir,
             call_name,
             callee_inputs,
             call_inputs,
-            additional_paths=additional_paths,
+            add_paths=add_paths,
         )
         allowlist |= source_paths
     call_inputs = Value.rewrite_env_paths(
@@ -747,7 +753,7 @@ def _resolve_call_input_source_paths(
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
-    additional_paths: Optional[CacheAdditionalPaths] = None,
+    add_paths: Optional[CallCacheAddPaths] = None,
 ) -> Tuple[Env.Bindings[Value.Base], Set[str]]:
     """
     Resolve WDL 1.2 source-relative paths supplied directly to call inputs.
@@ -769,7 +775,7 @@ def _resolve_call_input_source_paths(
             binding.value,
             callee_decl.type.copy(optional=True) if callee_decl.expr else callee_decl.type,
             f"call {call_name} input {binding.name}",
-            additional_paths=additional_paths,
+            add_paths=add_paths,
         )
         source_paths.update(paths)
         return Env.Binding(binding.name, value, binding.info)

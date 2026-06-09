@@ -14,7 +14,7 @@ from .. import Env, Error, Expr, Type, Value, Tree
 from .._util import link_force, path_really_within, symlink_force
 from .._util import StructuredLogMessage as _
 from . import config
-from .cache import CallCache, CacheAdditionalPaths
+from .cache import CallCache, CallCacheAddPaths
 from .download import able as downloadable
 
 
@@ -91,7 +91,7 @@ def _resolve_source_relative_paths(
     value: Value.Base,
     desired_type: Type.Base,
     desc: str,
-    additional_paths: Optional[CacheAdditionalPaths] = None,
+    add_paths: Optional[CallCacheAddPaths] = None,
 ) -> Tuple[Value.Base, Set[str]]:
     """
     Coerce a value to a path-containing type and resolve each File/Directory path within it.
@@ -107,8 +107,10 @@ def _resolve_source_relative_paths(
     def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
         ans = _resolve_source_relative_path(cfg, source_directory, desc, v)
         if ans is None:
-            if additional_paths:
-                additional_paths.add(
+            if add_paths:
+                # Optional missing source-relative paths can affect cache correctness: a later
+                # creation should invalidate an entry that previously evaluated them to None.
+                add_paths.add(
                     _source_relative_dependency_path(source_directory, v),
                     absent=True,
                 )
@@ -116,8 +118,10 @@ def _resolve_source_relative_paths(
         if ans != v.value:
             source_path = ans + ("/" if isinstance(v, Value.Directory) else "")
             source_paths.add(source_path)
-            if additional_paths:
-                additional_paths.add(source_path)
+            if add_paths:
+                # Record the exact present source-relative dependency for the call-cache manifest;
+                # callers still use source_paths separately for allowlist/container side effects.
+                add_paths.add(source_path)
         return ans
 
     value = Value.rewrite_paths(

@@ -30,36 +30,36 @@ from .._util import (
 CALL_CACHE_VERSION = 2
 
 
-class CacheAdditionalPaths:
+class CallCacheAddPaths:
     """
     Local filesystem paths recorded in a cache entry beyond its explicit inputs/outputs.
 
     Directory paths use miniwdl's existing trailing-slash convention.
     """
 
-    additional_paths: Set[str]
+    add_paths: Set[str]
     absent_paths: Set[str]
 
     def __init__(
         self,
-        additional_paths: Optional[Iterable[str]] = None,
+        add_paths: Optional[Iterable[str]] = None,
         absent_paths: Optional[Iterable[str]] = None,
     ) -> None:
-        self.additional_paths = set(additional_paths or [])
+        self.add_paths = set(add_paths or [])
         self.absent_paths = set(absent_paths or [])
 
-    def copy(self) -> "CacheAdditionalPaths":
-        return CacheAdditionalPaths(self.additional_paths, self.absent_paths)
+    def copy(self) -> "CallCacheAddPaths":
+        return CallCacheAddPaths(self.add_paths, self.absent_paths)
 
-    def update(self, other: "CacheAdditionalPaths") -> None:
-        self.additional_paths.update(other.additional_paths)
+    def update(self, other: "CallCacheAddPaths") -> None:
+        self.add_paths.update(other.add_paths)
         self.absent_paths.update(other.absent_paths)
 
     def add(self, path: str, absent: bool = False) -> None:
-        (self.absent_paths if absent else self.additional_paths).add(path)
+        (self.absent_paths if absent else self.add_paths).add(path)
 
 
-def input_digest(inputs: Env.Bindings[Value.Base]) -> str:
+def digest_inputs(inputs: Env.Bindings[Value.Base]) -> str:
     """
     Digest the call-cache input envelope. Versioning this digest moves new cache formats to new
     filenames, so older miniwdl versions won't encounter entries they can't validate correctly.
@@ -79,7 +79,7 @@ def input_digest(inputs: Env.Bindings[Value.Base]) -> str:
 
 
 def call_cache_key(name: str, digest: str, inputs: Env.Bindings[Value.Base]) -> str:
-    return f"{name}/{digest}/{input_digest(inputs)}"
+    return f"{name}/{digest}/{digest_inputs(inputs)}"
 
 
 class CallCache(AbstractContextManager):
@@ -94,7 +94,7 @@ class CallCache(AbstractContextManager):
     # runs; we just want to remember them for potential reuse later in the current run.
     _workflow_downloads: Dict[str, str]
     _workflow_directory_downloads: Dict[str, str]
-    _entry_additional_paths: Dict[str, CacheAdditionalPaths]
+    _entry_add_paths: Dict[str, CallCacheAddPaths]
     _lock: Lock
 
     def __init__(self, cfg: config.Loader, logger: logging.Logger):
@@ -103,7 +103,7 @@ class CallCache(AbstractContextManager):
         self._flocker = FlockHolder(self._logger)
         self._workflow_downloads = {}
         self._workflow_directory_downloads = {}
-        self._entry_additional_paths = {}
+        self._entry_add_paths = {}
         self._lock = Lock()
         self._download_cache_dir = cfg["download_cache"]["dir"]
         self._download_cache_dir = (
@@ -147,28 +147,12 @@ class CallCache(AbstractContextManager):
 
         cache = None
         run_dir = None
-        cache_paths = CacheAdditionalPaths()
+        cache_paths = CallCacheAddPaths()
         try:
             with open(file_path, "rb") as file_reader:
                 envelope = json.loads(file_reader.read())
-                if not (
-                    isinstance(envelope, dict)
-                    and envelope.get("miniwdlCallCacheVersion") == CALL_CACHE_VERSION
-                ):
-                    self._logger.info(
-                        _(
-                            "call cache entry present, but unsupported version",
-                            cache_file=file_path,
-                            version=(
-                                envelope.get("miniwdlCallCacheVersion", None)
-                                if isinstance(envelope, dict)
-                                else None
-                            ),
-                        )
-                    )
-                    return None
                 run_dir = envelope.get("dir", None)
-                cache_paths = CacheAdditionalPaths(
+                cache_paths = CallCacheAddPaths(
                     envelope.get("additionalPaths", []), envelope.get("absentPaths", [])
                 )
                 cache = values_from_json(envelope["outputs"], output_types)
@@ -191,9 +175,9 @@ class CallCache(AbstractContextManager):
             if (
                 _check_files_coherence(self._cfg, self._logger, file_path, inputs)
                 and _check_files_coherence(self._cfg, self._logger, file_path, cache)
-                and _check_additional_paths_coherence(self._logger, file_path, cache_paths)
+                and _check_add_paths_coherence(self._logger, file_path, cache_paths)
             ):
-                self._entry_additional_paths[key] = cache_paths.copy()
+                self._entry_add_paths[key] = cache_paths.copy()
                 return cache
             else:
                 # otherwise, clean it up
@@ -216,8 +200,7 @@ class CallCache(AbstractContextManager):
         run_dir: Optional[str] = None,
         *,
         inputs: Optional[Env.Bindings[Value.Base]] = None,
-        additional_paths: Optional[Iterable[str]] = None,
-        absent_paths: Optional[Iterable[str]] = None,
+        add_paths: Optional[CallCacheAddPaths] = None,
     ) -> None:
         """
         Store call outputs for future reuse
@@ -225,13 +208,13 @@ class CallCache(AbstractContextManager):
         from .. import values_to_json
 
         inputs = inputs or Env.Bindings()
-        cache_paths = CacheAdditionalPaths(additional_paths, absent_paths)
+        cache_paths = add_paths.copy() if add_paths else CallCacheAddPaths()
         if self._cfg["call_cache"].get_bool("put"):
             envelope = {
                 "miniwdlCallCacheVersion": CALL_CACHE_VERSION,
                 "inputs": values_to_json(inputs),
                 "outputs": values_to_json(outputs),
-                "additionalPaths": sorted(cache_paths.additional_paths),
+                "additionalPaths": sorted(cache_paths.add_paths),
                 "absentPaths": sorted(cache_paths.absent_paths),
             }
             if run_dir:
@@ -240,13 +223,13 @@ class CallCache(AbstractContextManager):
             Path(filename).parent.mkdir(parents=True, exist_ok=True)
             write_atomic(json.dumps(envelope, indent=2), filename)
             self._logger.info(_("call cache insert", cache_file=filename))
-        self._entry_additional_paths[key] = cache_paths.copy()
+        self._entry_add_paths[key] = cache_paths.copy()
 
-    def get_additional_paths(self, key: str) -> CacheAdditionalPaths:
+    def get_add_paths(self, key: str) -> CallCacheAddPaths:
         """
         Retrieve additional paths remembered for a v2 cache hit/insert during this process.
         """
-        return self._entry_additional_paths.get(key, CacheAdditionalPaths()).copy()
+        return self._entry_add_paths.get(key, CallCacheAddPaths()).copy()
 
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up folder structure based on URI instead of opaque digests)
@@ -487,8 +470,8 @@ def _check_files_coherence(
         return False
 
 
-def _check_additional_paths_coherence(
-    logger: logging.Logger, cache_file: str, cache_paths: CacheAdditionalPaths
+def _check_add_paths_coherence(
+    logger: logging.Logger, cache_file: str, cache_paths: CallCacheAddPaths
 ) -> bool:
     """
     Verify additional present/absent local paths recorded in a v2 cache envelope.
@@ -537,7 +520,7 @@ def _check_additional_paths_coherence(
 
     cache_file_mtime = mtime(cache_file)
     try:
-        for path in cache_paths.additional_paths:
+        for path in cache_paths.add_paths:
             check_present(path)
         for path in cache_paths.absent_paths:
             if os.path.exists(path.rstrip("/") or "/"):
