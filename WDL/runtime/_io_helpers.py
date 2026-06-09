@@ -91,7 +91,7 @@ def _resolve_source_relative_paths(
     value: Value.Base,
     desired_type: Type.Base,
     desc: str,
-    add_paths: Optional[CallCacheAddPaths] = None,
+    add_paths: CallCacheAddPaths,
 ) -> Tuple[Value.Base, Set[str]]:
     """
     Coerce a value to a path-containing type and resolve each File/Directory path within it.
@@ -99,7 +99,8 @@ def _resolve_source_relative_paths(
     This recursively applies ``_resolve_source_relative_path`` to File/Directory leaves after
     coercing ``value`` to ``desired_type``. It also collects each newly resolved local source path
     in the returned set so callers can perform allowlist or container-mount side effects after
-    validation succeeds. No arguments are mutated.
+    validation succeeds. ``add_paths`` is updated with present and optional-absent paths for cache
+    coherence.
     """
     source_paths: Set[str] = set()
     value = value.coerce(desired_type)
@@ -107,21 +108,19 @@ def _resolve_source_relative_paths(
     def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
         ans = _resolve_source_relative_path(cfg, source_directory, desc, v)
         if ans is None:
-            if add_paths:
-                # Optional missing source-relative paths can affect cache correctness: a later
-                # creation should invalidate an entry that previously evaluated them to None.
-                add_paths.add(
-                    _source_relative_dependency_path(source_directory, v),
-                    absent=True,
-                )
+            # Optional missing source-relative paths can affect cache correctness: a later
+            # creation should invalidate an entry that previously evaluated them to None.
+            add_paths.add(
+                _source_relative_dependency_path(source_directory, v),
+                absent=True,
+            )
             return None
         if ans != v.value:
             source_path = ans + ("/" if isinstance(v, Value.Directory) else "")
             source_paths.add(source_path)
-            if add_paths:
-                # Record the exact present source-relative dependency for the call-cache manifest;
-                # callers still use source_paths separately for allowlist/container side effects.
-                add_paths.add(source_path)
+            # Record the exact present source-relative dependency for the call-cache manifest;
+            # callers still use source_paths separately for allowlist/container side effects.
+            add_paths.add(source_path)
         return ans
 
     value = Value.rewrite_paths(
@@ -140,8 +139,8 @@ def _source_relative_dependency_path(
     """
     Format the absolute path corresponding to a source-relative value for the cache manifest.
 
-    Only call after ``_resolve_source_relative_path`` has established that the path is a valid
-    source-relative path except for being absent.
+    Used for optional missing paths after ``_resolve_source_relative_path`` has established that
+    the path is a valid source-relative path except for being absent.
     """
     isdir = isinstance(v, Value.Directory)
     ans = os.path.realpath(

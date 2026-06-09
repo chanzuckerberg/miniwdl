@@ -337,6 +337,7 @@ class WorkflowStdLib(StdLib.Base):
                 Env.Bindings(Env.Binding("file", Value.File(filename))),
                 run_dir=self.state.run_dir,
                 inputs=cache_in,
+                add_paths=CallCacheAddPaths(),
             )
 
         # whichever path we took: allow-list the filename

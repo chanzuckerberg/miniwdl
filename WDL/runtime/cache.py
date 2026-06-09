@@ -10,7 +10,7 @@ import logging
 import hashlib
 import base64
 from pathlib import Path
-from typing import Dict, Optional, Union, Any, Iterable, Set
+from typing import Dict, Optional, Union, Any, Iterable, Iterator, Set
 from contextlib import AbstractContextManager, suppress
 from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
@@ -199,16 +199,16 @@ class CallCache(AbstractContextManager):
         outputs: Env.Bindings[Value.Base],
         run_dir: Optional[str] = None,
         *,
-        inputs: Optional[Env.Bindings[Value.Base]] = None,
-        add_paths: Optional[CallCacheAddPaths] = None,
+        inputs: Env.Bindings[Value.Base],
+        add_paths: CallCacheAddPaths,
     ) -> None:
         """
-        Store call outputs for future reuse
+        Store call outputs for future reuse. V2 callers must provide the exact inputs used for the
+        key digest and the additional-path manifest, even when the manifest is empty.
         """
         from .. import values_to_json
 
-        inputs = inputs or Env.Bindings()
-        cache_paths = add_paths.copy() if add_paths else CallCacheAddPaths()
+        cache_paths = add_paths.copy()
         if self._cfg["call_cache"].get_bool("put"):
             envelope = {
                 "miniwdlCallCacheVersion": CALL_CACHE_VERSION,
@@ -424,35 +424,14 @@ def _check_files_coherence(
     """
     from .download import able as downloadable
 
-    def mtime(path: str) -> float:
-        # max mtime of hardlink & symlink pointing to it (if applicable)
-        return max(
-            os.stat(path, follow_symlinks=False).st_mtime_ns,
-            os.stat(path, follow_symlinks=True).st_mtime_ns,
-        )
-
-    def raiser(exc):
-        raise exc
-
-    cache_file_mtime = mtime(cache_file)
+    cache_file_mtime = _effective_mtime(cache_file)
 
     def check_one(v: Union[Value.File, Value.Directory]):
         assert isinstance(v, (Value.File, Value.Directory))
         if not downloadable(cfg, v.value):
             try:
-                if mtime(v.value) > cache_file_mtime:
+                if _path_mtime_after(v.value, cache_file_mtime, isinstance(v, Value.Directory)):
                     raise StopIteration
-                if isinstance(v, Value.Directory):
-                    # check everything in directory
-                    for root, subdirs, subfiles in os.walk(
-                        v.value, onerror=raiser, followlinks=False
-                    ):
-                        for subdir in subdirs:
-                            if mtime(os.path.join(root, subdir)) > cache_file_mtime:
-                                raise StopIteration
-                        for fn in subfiles:
-                            if mtime(os.path.join(root, fn)) > cache_file_mtime:
-                                raise StopIteration
             except (FileNotFoundError, NotADirectoryError, StopIteration):
                 logger.warning(
                     _(
@@ -470,6 +449,36 @@ def _check_files_coherence(
         return False
 
 
+def _effective_mtime(path: str) -> float:
+    """
+    Get the effective mtime used for cache freshness checks, considering both a symlink and its
+    referent when applicable.
+    """
+    return max(
+        os.stat(path, follow_symlinks=False).st_mtime_ns,
+        os.stat(path, follow_symlinks=True).st_mtime_ns,
+    )
+
+
+def _iter_directory_contents(path: str) -> Iterator[str]:
+    def on_walk_error(exc: OSError) -> None:
+        raise exc
+
+    for root, subdirs, subfiles in os.walk(path, onerror=on_walk_error, followlinks=False):
+        for subdir in subdirs:
+            yield os.path.join(root, subdir)
+        for fn in subfiles:
+            yield os.path.join(root, fn)
+
+
+def _path_mtime_after(path: str, cutoff_mtime: float, directory: bool) -> bool:
+    if _effective_mtime(path) > cutoff_mtime:
+        return True
+    return directory and any(
+        _effective_mtime(child) > cutoff_mtime for child in _iter_directory_contents(path)
+    )
+
+
 def _check_add_paths_coherence(
     logger: logging.Logger, cache_file: str, cache_paths: CallCacheAddPaths
 ) -> bool:
@@ -477,18 +486,9 @@ def _check_add_paths_coherence(
     Verify additional present/absent local paths recorded in a v2 cache envelope.
     """
 
-    def mtime(path: str) -> float:
-        return max(
-            os.stat(path, follow_symlinks=False).st_mtime_ns,
-            os.stat(path, follow_symlinks=True).st_mtime_ns,
-        )
-
     def check_present(path: str) -> None:
         isdir = path.endswith("/")
         path_strip = path.rstrip("/") or "/"
-
-        def on_walk_error(exc: OSError) -> None:
-            raise exc
 
         try:
             if isdir:
@@ -496,18 +496,8 @@ def _check_add_paths_coherence(
                     raise StopIteration
             elif not os.path.isfile(path_strip):
                 raise StopIteration
-            if mtime(path_strip) > cache_file_mtime:
+            if _path_mtime_after(path_strip, cache_file_mtime, isdir):
                 raise StopIteration
-            if isdir:
-                for root, subdirs, subfiles in os.walk(
-                    path_strip, onerror=on_walk_error, followlinks=False
-                ):
-                    for subdir in subdirs:
-                        if mtime(os.path.join(root, subdir)) > cache_file_mtime:
-                            raise StopIteration
-                    for fn in subfiles:
-                        if mtime(os.path.join(root, fn)) > cache_file_mtime:
-                            raise StopIteration
         except (FileNotFoundError, NotADirectoryError, StopIteration):
             logger.warning(
                 _(
@@ -518,7 +508,7 @@ def _check_add_paths_coherence(
             )
             raise StopIteration
 
-    cache_file_mtime = mtime(cache_file)
+    cache_file_mtime = _effective_mtime(cache_file)
     try:
         for path in cache_paths.add_paths:
             check_present(path)

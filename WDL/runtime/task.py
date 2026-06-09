@@ -48,7 +48,11 @@ from ._io_helpers import (
     _warn_output_basename_collisions,
     link_outputs,
 )
-from ._io_helpers import _fspaths, _resolve_source_relative_path
+from ._io_helpers import (
+    _fspaths,
+    _resolve_source_relative_path,
+    _source_relative_dependency_path,
+)
 from .download import able as downloadable, run_cached as download
 from ._stdlib import TaskInputStdLib, TaskOutputStdLib
 from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
@@ -521,17 +525,15 @@ def _resolve_task_decl_path_into_container(
     decl_name: str,
     v: Union[Value.File, Value.Directory],
     container: "TaskContainer",
-    add_paths: Optional[CallCacheAddPaths] = None,
+    add_paths: CallCacheAddPaths,
 ) -> Optional[str]:
     """
     Resolve a task input/private declaration File/Directory path into the task container.
 
     Paths built from already-localized input Directories are checked against their host backing
     directories. Other relative paths are WDL 1.2 source-relative paths: resolve them under the WDL
-    source directory, mount them into the task container, and return the container path.
-
-    ``container`` is intentionally mutated when a source-relative path needs to be mounted; no other
-    arguments are mutated.
+    source directory, record them in ``add_paths``, mount them into the task container, and return
+    the container path.
     """
     ans = _task_decl_input_directory_child_path(decl_name, v, container)
     if ans is None or ans != v.value:
@@ -545,15 +547,7 @@ def _resolve_task_decl_path_into_container(
         container.cfg, task.source_dir, f"task declaration {decl_name}", v
     )
     if ans is None:
-        if add_paths:
-            isdir = isinstance(v, Value.Directory)
-            source_path = os.path.realpath(
-                os.path.join(
-                    task.source_dir,
-                    v.value.rstrip("/") if isdir else v.value,
-                )
-            )
-            add_paths.add(source_path + ("/" if isdir else ""), absent=True)
+        add_paths.add(_source_relative_dependency_path(task.source_dir, v), absent=True)
         return None
     if ans == v.value:
         return ans
@@ -561,10 +555,9 @@ def _resolve_task_decl_path_into_container(
     source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
     assert len(source_paths) == 1
     source_path = next(iter(source_paths))
-    if add_paths:
-        # A declaration default/private value can affect task behavior even though it isn't an
-        # explicit input. Remember it in the call-cache manifest so mtime changes invalidate hits.
-        add_paths.add(source_path)
+    # A declaration default/private value can affect task behavior even though it isn't an explicit
+    # input. Remember it in the call-cache manifest so mtime changes invalidate hits.
+    add_paths.add(source_path)
     container.add_paths(source_paths)
     return container.input_path_map[source_path]
 

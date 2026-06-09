@@ -37,7 +37,7 @@ import traceback
 import pickle
 import threading
 from concurrent import futures
-from typing import Optional, List, Callable, Tuple, Dict, Set, Union
+from typing import Optional, List, Callable, Tuple, Dict, NamedTuple, Set, Union
 from contextlib import ExitStack
 from .. import Env, Value, Tree, Error
 from .task import run_local_task
@@ -62,6 +62,11 @@ from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .cache import CallCache, CallCacheAddPaths, call_cache_key, new as new_call_cache
 from .error import RunFailed, Terminated, error_json
+
+
+class WorkflowMainLoopResult(NamedTuple):
+    outputs: Env.Bindings[Value.Base]
+    add_paths: CallCacheAddPaths
 
 
 class _ThreadPools:
@@ -349,7 +354,7 @@ def run_local_workflow(
 
         try:
             # run workflow state machine
-            outputs, add_paths = _workflow_main_loop(
+            main_loop_result = _workflow_main_loop(
                 cfg,
                 workflow,
                 inputs,
@@ -362,6 +367,8 @@ def run_local_workflow(
                 terminating,
                 _test_pickle,
             )
+            outputs = main_loop_result.outputs
+            add_paths = main_loop_result.add_paths
         except:
             _statusbar.abort()
             if not _run_id_stack and cfg["scheduler"].get_bool("fail_fast"):
@@ -394,7 +401,7 @@ def _workflow_main_loop(
     cache: CallCache,
     terminating: Callable[[], bool],
     _test_pickle: bool,
-) -> Tuple[Env.Bindings[Value.Base], CallCacheAddPaths]:
+) -> WorkflowMainLoopResult:
     assert isinstance(cfg, config.Loader)
     call_futures = {}
     try:
@@ -501,7 +508,7 @@ def _workflow_main_loop(
                 outputs, os.path.join(run_dir, "outputs.json"), namespace=workflow.name
             )
             logger.notice("done")
-            return outputs, state.add_paths
+            return WorkflowMainLoopResult(outputs, state.add_paths)
     except Exception as exn:
         tbtxt = traceback.format_exc()
         logger.debug(tbtxt)

@@ -753,15 +753,15 @@ def _resolve_call_input_source_paths(
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
-    add_paths: Optional[CallCacheAddPaths] = None,
+    add_paths: CallCacheAddPaths,
 ) -> Tuple[Env.Bindings[Value.Base], Set[str]]:
     """
     Resolve WDL 1.2 source-relative paths supplied directly to call inputs.
 
     The values are already coerced to callee input types. This second pass uses the caller workflow
     source directory, not the callee declaration source directory, and returns the source paths to
-    add to the workflow allowlist. ``source_paths`` is mutated locally while walking bindings; no
-    arguments are mutated.
+    add to the workflow allowlist. ``add_paths`` is also updated for the parent workflow cache
+    manifest.
     """
     source_paths: Set[str] = set()
 
