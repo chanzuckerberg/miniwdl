@@ -213,7 +213,7 @@ def run_local_task(  # type: ignore[return]
                     logger,
                     container,
                     source_dir=task.source_dir,
-                    add_paths=cache_add_paths,
+                    cache_add_paths=cache_add_paths,
                 )
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
@@ -384,7 +384,7 @@ def _eval_task_inputs(
         logger,
         container,
         source_dir=task.source_dir,
-        add_paths=cache_add_paths,
+        cache_add_paths=cache_add_paths,
     )
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
@@ -852,7 +852,7 @@ def _eval_task_command(
         logger,
         container,
         source_dir=task.source_dir,
-        add_paths=cache_add_paths,
+        cache_add_paths=cache_add_paths,
         eval_context=StdLib.EvalContext(placeholder_regex=placeholder_re),
     )
     assert isinstance(task.command, Expr.TaskCommand)

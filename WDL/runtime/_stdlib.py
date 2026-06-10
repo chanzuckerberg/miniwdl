@@ -27,7 +27,7 @@ class TaskStdLib(StdLib.Base):
     container: "TaskContainer"
     inputs_only: bool  # if True then only permit access to input files
     source_dir: str
-    add_paths: CallCacheAddPaths
+    cache_add_paths: CallCacheAddPaths
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class TaskStdLib(StdLib.Base):
         inputs_only: bool,
         *,
         source_dir: str = "",
-        add_paths: Optional[CallCacheAddPaths] = None,
+        cache_add_paths: Optional[CallCacheAddPaths] = None,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -49,7 +49,7 @@ class TaskStdLib(StdLib.Base):
         self.container = container
         self.inputs_only = inputs_only
         self.source_dir = source_dir
-        self.add_paths = add_paths or CallCacheAddPaths()
+        self.cache_add_paths = cache_add_paths or CallCacheAddPaths()
 
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
@@ -58,7 +58,7 @@ class TaskStdLib(StdLib.Base):
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         if ans != filename:
-            self.add_paths.add(ans + ("/" if directory else ""))
+            self.cache_add_paths.add(ans + ("/" if directory else ""))
         return ans
 
     def _devirtualize_filename(self, filename: str) -> str:
@@ -130,7 +130,7 @@ class TaskInputStdLib(TaskStdLib):
         container: "TaskContainer",
         *,
         source_dir: str = "",
-        add_paths: Optional[CallCacheAddPaths] = None,
+        cache_add_paths: Optional[CallCacheAddPaths] = None,
         eval_context: Optional[StdLib.EvalContext] = None,
     ) -> None:
         super().__init__(
@@ -139,7 +139,7 @@ class TaskInputStdLib(TaskStdLib):
             container,
             True,
             source_dir=source_dir,
-            add_paths=add_paths,
+            cache_add_paths=cache_add_paths,
             eval_context=eval_context,
         )
 

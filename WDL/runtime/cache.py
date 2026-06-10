@@ -163,6 +163,8 @@ class CallCache(AbstractContextManager):
         try:
             with open(file_path, "rb") as file_reader:
                 envelope = json.loads(file_reader.read())
+                # This should only fail after manual cache-file tampering/corruption because the
+                # call-cache version is already mixed into the key filename.
                 assert envelope.get("miniwdlCallCacheVersion") == CALL_CACHE_VERSION
                 run_dir = envelope.get("dir", None)
                 cache_paths = CallCacheAddPaths(
