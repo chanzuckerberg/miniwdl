@@ -11,6 +11,7 @@ from testfixtures import log_capture
 from .context import WDL
 from WDL.runtime import task as runtime_task
 from WDL.runtime import _io_helpers as runtime_io_helpers
+from WDL.runtime.cache import CallCacheAddPaths
 from unittest.mock import patch
 
 
@@ -683,12 +684,14 @@ class TestDirectoryIO(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
 
         def resolve(decl, value):
+            cache_add_paths = CallCacheAddPaths()
             return runtime_io_helpers._resolve_source_relative_paths(
                 cfg,
                 decl.source_dir,
                 value,
                 decl.type,
                 "Task declaration",
+                cache_add_paths=cache_add_paths,
             )
 
         v, paths = resolve(decls["f"], WDL.Value.File("data/file.txt"))
@@ -712,9 +715,18 @@ class TestDirectoryIO(RunnerTestCase):
         assert v.value == "s3://example-bucket/data/dir/"
         assert paths == set()
 
-        v, paths = resolve(decls["opt"], WDL.Value.File("data/missing.txt"))
+        cache_add_paths = CallCacheAddPaths()
+        v, paths = runtime_io_helpers._resolve_source_relative_paths(
+            cfg,
+            decls["opt"].source_dir,
+            WDL.Value.File("data/missing.txt"),
+            decls["opt"].type,
+            "Task declaration",
+            cache_add_paths=cache_add_paths,
+        )
         assert isinstance(v, WDL.Value.Null)
         assert paths == set()
+        assert cache_add_paths.absent_paths == {os.path.join(self._dir, "data/missing.txt")}
 
         with self.assertRaisesRegex(WDL.Error.InputError, "path not found"):
             resolve(decls["f"], WDL.Value.File("data/missing.txt"))
@@ -730,6 +742,7 @@ class TestDirectoryIO(RunnerTestCase):
                 WDL.Value.File("data/file.txt"),
                 doc.tasks[0].available_inputs["f"].type,
                 "Task declaration",
+                cache_add_paths=CallCacheAddPaths(),
             )
         cfg_outside_root = WDL.runtime.config.Loader(logging.getLogger(self.id()))
         outside_root = os.path.join(self._dir, "root")
@@ -742,6 +755,7 @@ class TestDirectoryIO(RunnerTestCase):
                 WDL.Value.File("data/file.txt"),
                 decls["f"].type,
                 "Task declaration",
+                cache_add_paths=CallCacheAddPaths(),
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
             runtime_io_helpers._resolve_source_relative_paths(
@@ -750,6 +764,7 @@ class TestDirectoryIO(RunnerTestCase):
                 WDL.Value.Directory("data/dir"),
                 decls["d"].type,
                 "Task declaration",
+                cache_add_paths=CallCacheAddPaths(),
             )
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
         v, paths = runtime_io_helpers._resolve_source_relative_paths(
@@ -758,6 +773,7 @@ class TestDirectoryIO(RunnerTestCase):
             WDL.Value.Directory("s3://example-bucket/data/dir/"),
             doc.tasks[0].available_inputs["d"].type,
             "Task declaration",
+            cache_add_paths=CallCacheAddPaths(),
         )
         assert v.value == "s3://example-bucket/data/dir/"
         assert paths == set()
@@ -801,20 +817,22 @@ class TestDirectoryIO(RunnerTestCase):
         task.effective_wdl_version = "1.1"
         assert (
             runtime_task._resolve_task_decl_path_into_container(
-                task, "f", WDL.Value.File("data.txt"), container
+                task, "f", WDL.Value.File("data.txt"), container, CallCacheAddPaths()
             )
             == "data.txt"
         )
         assert container.added_paths == set()
 
         task.effective_wdl_version = "1.2"
+        cache_add_paths = CallCacheAddPaths()
         assert (
             runtime_task._resolve_task_decl_path_into_container(
-                task, "f", WDL.Value.File("data.txt"), container
+                task, "f", WDL.Value.File("data.txt"), container, cache_add_paths
             )
             == "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
         )
         assert container.added_paths == {os.path.join(self._dir, "data.txt")}
+        assert cache_add_paths.add_paths == {os.path.join(self._dir, "data.txt")}
 
     def test_workflow_uri_declarations_not_source_relative(self):
         wdl = R"""
