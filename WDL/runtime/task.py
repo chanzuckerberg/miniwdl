@@ -51,7 +51,7 @@ from ._io_helpers import (
 from ._io_helpers import (
     _fspaths,
     _resolve_source_relative_path,
-    _source_relative_dependency_path,
+    _source_relative_cache_add_path,
 )
 from .download import able as downloadable, run_cached as download
 from ._stdlib import TaskInputStdLib, TaskOutputStdLib
@@ -199,11 +199,13 @@ def run_local_task(  # type: ignore[return]
                 # Manifest source-relative paths observed while evaluating task declarations,
                 # runtime/requirements expressions, and command placeholders. This is separate
                 # from TaskContainer's localized input map; it is persisted to the call cache.
-                add_paths = CallCacheAddPaths()
+                cache_add_paths = CallCacheAddPaths()
 
                 # evaluate input/postinput declarations, including mapping from host to
                 # in-container file paths
-                container_env = _eval_task_inputs(logger, task, posix_inputs, container, add_paths)
+                container_env = _eval_task_inputs(
+                    logger, task, posix_inputs, container, cache_add_paths
+                )
 
                 # evaluate runtime fields
                 stdlib = TaskInputStdLib(
@@ -211,7 +213,7 @@ def run_local_task(  # type: ignore[return]
                     logger,
                     container,
                     source_dir=task.source_dir,
-                    add_paths=add_paths,
+                    add_paths=cache_add_paths,
                 )
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
@@ -230,7 +232,7 @@ def run_local_task(  # type: ignore[return]
                     container,
                     container_env,
                     terminating,
-                    add_paths,
+                    cache_add_paths,
                 )
 
                 # bind output declarations to task runtime info with the final return code
@@ -280,7 +282,7 @@ def run_local_task(  # type: ignore[return]
                         outputs,
                         run_dir=run_dir,
                         inputs=cache_inputs,
-                        add_paths=add_paths,
+                        add_paths=cache_add_paths,
                     )
                 return (run_dir, outputs)
         except Exception as exn:
@@ -327,7 +329,7 @@ def _eval_task_inputs(
     task: Tree.Task,
     posix_inputs: Env.Bindings[Value.Base],
     container: "TaskContainer",
-    add_paths: CallCacheAddPaths,
+    cache_add_paths: CallCacheAddPaths,
 ) -> Env.Bindings[Value.Base]:
     # Preprocess inputs: if None value is supplied for an input declared with a default but without
     # the ? type quantifier, remove the binding entirely so that the default will be used. In
@@ -382,7 +384,7 @@ def _eval_task_inputs(
         logger,
         container,
         source_dir=task.source_dir,
-        add_paths=add_paths,
+        add_paths=cache_add_paths,
     )
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
@@ -395,7 +397,7 @@ def _eval_task_inputs(
                 decl,
                 value,
                 lambda w: _resolve_task_decl_path_into_container(
-                    task, decl.name, w, container, add_paths
+                    task, decl.name, w, container, cache_add_paths
                 ),
                 lambda name: Error.InputError(
                     f"File/Directory path not found in task declaration {name}"
@@ -525,15 +527,15 @@ def _resolve_task_decl_path_into_container(
     decl_name: str,
     v: Union[Value.File, Value.Directory],
     container: "TaskContainer",
-    add_paths: CallCacheAddPaths,
+    cache_add_paths: CallCacheAddPaths,
 ) -> Optional[str]:
     """
     Resolve a task input/private declaration File/Directory path into the task container.
 
     Paths built from already-localized input Directories are checked against their host backing
     directories. Other relative paths are WDL 1.2 source-relative paths: resolve them under the WDL
-    source directory, record them in ``add_paths``, mount them into the task container, and return
-    the container path.
+    source directory, record them in ``cache_add_paths``, mount them into the task container, and
+    return the container path.
     """
     ans = _task_decl_input_directory_child_path(decl_name, v, container)
     if ans is None or ans != v.value:
@@ -547,7 +549,7 @@ def _resolve_task_decl_path_into_container(
         container.cfg, task.source_dir, f"task declaration {decl_name}", v
     )
     if ans is None:
-        add_paths.add(_source_relative_dependency_path(task.source_dir, v), absent=True)
+        cache_add_paths.add(_source_relative_cache_add_path(task.source_dir, v), absent=True)
         return None
     if ans == v.value:
         return ans
@@ -557,7 +559,7 @@ def _resolve_task_decl_path_into_container(
     source_path = next(iter(source_paths))
     # A declaration default/private value can affect task behavior even though it isn't an explicit
     # input. Remember it in the call-cache manifest so mtime changes invalidate hits.
-    add_paths.add(source_path)
+    cache_add_paths.add(source_path)
     container.add_paths(source_paths)
     return container.input_path_map[source_path]
 
@@ -706,7 +708,7 @@ def _try_task(
     container: "TaskContainer",
     container_env: Env.Bindings[Value.Base],
     terminating: Callable[[], bool],
-    add_paths: CallCacheAddPaths,
+    cache_add_paths: CallCacheAddPaths,
 ) -> "TaskContainer":
     """
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
@@ -736,7 +738,7 @@ def _try_task(
                 container,
                 container_env,
                 attempt=container.try_counter - 1,
-                add_paths=add_paths,
+                cache_add_paths=cache_add_paths,
             )
             if container.try_counter == 1:
                 assert retries == 0 and interruptions == 0 and not plugin_changed_command
@@ -827,7 +829,7 @@ def _eval_task_command(
     container: "TaskContainer",
     container_env: Env.Bindings[Value.Base],
     attempt: int,
-    add_paths: CallCacheAddPaths,
+    cache_add_paths: CallCacheAddPaths,
 ) -> str:
     """
     Evaluate the task command expression. In WDL 1.2, this may occur multiple times if retrying and
@@ -850,7 +852,7 @@ def _eval_task_command(
         logger,
         container,
         source_dir=task.source_dir,
-        add_paths=add_paths,
+        add_paths=cache_add_paths,
         eval_context=StdLib.EvalContext(placeholder_regex=placeholder_re),
     )
     assert isinstance(task.command, Expr.TaskCommand)

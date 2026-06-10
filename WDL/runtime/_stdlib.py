@@ -243,7 +243,7 @@ class WorkflowStdLib(StdLib.Base):
         if ans != filename:
             # Workflow stdlib/operator path use can affect cached workflow outputs without
             # appearing among declared inputs, so remember it alongside the cache entry.
-            self.state.add_paths.add(ans + ("/" if directory else ""))
+            self.state.cache_add_paths.add(ans + ("/" if directory else ""))
         return ans
 
     def _devirtualize_filename(self, filename: str) -> str:

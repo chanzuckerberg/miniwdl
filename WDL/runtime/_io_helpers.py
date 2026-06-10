@@ -91,7 +91,7 @@ def _resolve_source_relative_paths(
     value: Value.Base,
     desired_type: Type.Base,
     desc: str,
-    add_paths: CallCacheAddPaths,
+    cache_add_paths: CallCacheAddPaths,
 ) -> Tuple[Value.Base, Set[str]]:
     """
     Coerce a value to a path-containing type and resolve each File/Directory path within it.
@@ -99,8 +99,8 @@ def _resolve_source_relative_paths(
     This recursively applies ``_resolve_source_relative_path`` to File/Directory leaves after
     coercing ``value`` to ``desired_type``. It also collects each newly resolved local source path
     in the returned set so callers can perform allowlist or container-mount side effects after
-    validation succeeds. ``add_paths`` is updated with present and optional-absent paths for cache
-    coherence.
+    validation succeeds. ``cache_add_paths`` is updated with present and optional-absent paths for
+    cache coherence.
     """
     source_paths: Set[str] = set()
     value = value.coerce(desired_type)
@@ -110,8 +110,8 @@ def _resolve_source_relative_paths(
         if ans is None:
             # Optional missing source-relative paths can affect cache correctness: a later
             # creation should invalidate an entry that previously evaluated them to None.
-            add_paths.add(
-                _source_relative_dependency_path(source_directory, v),
+            cache_add_paths.add(
+                _source_relative_cache_add_path(source_directory, v),
                 absent=True,
             )
             return None
@@ -120,7 +120,7 @@ def _resolve_source_relative_paths(
             source_paths.add(source_path)
             # Record the exact present source-relative dependency for the call-cache manifest;
             # callers still use source_paths separately for allowlist/container side effects.
-            add_paths.add(source_path)
+            cache_add_paths.add(source_path)
         return ans
 
     value = Value.rewrite_paths(
@@ -133,7 +133,7 @@ def _resolve_source_relative_paths(
         raise Error.InputError(f"File/Directory path not found in {desc}") from None
 
 
-def _source_relative_dependency_path(
+def _source_relative_cache_add_path(
     source_directory: str, v: Union[Value.File, Value.Directory]
 ) -> str:
     """

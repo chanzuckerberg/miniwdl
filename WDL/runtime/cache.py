@@ -34,7 +34,19 @@ class CallCacheAddPaths:
     """
     Local filesystem paths recorded in a cache entry beyond its explicit inputs/outputs.
 
-    Directory paths use miniwdl's existing trailing-slash convention.
+    Call-cache keys already include declared inputs, and cache hits validate input/output File and
+    Directory mtimes. This manifest covers additional local paths that can affect a call result
+    without appearing as explicit input or output values.
+
+    The general purpose is future-proofing: if runtime evaluation observes any host path that
+    should participate in cache coherence, it can be recorded here without changing the key shape.
+    The current concrete use is WDL 1.2 source-relative paths whose filenames may be assembled
+    dynamically while evaluating task/workflow declarations, runtime/requirements expressions,
+    command placeholders, stdlib/operator path arguments, and call-input bindings. Present paths go
+    in ``add_paths``; optional source-relative paths that resolve to ``None`` go in
+    ``absent_paths`` so creating them later invalidates the entry.
+
+    Directory paths use miniwdl's existing trailing-slash convention in both sets.
     """
 
     add_paths: Set[str]
@@ -151,6 +163,7 @@ class CallCache(AbstractContextManager):
         try:
             with open(file_path, "rb") as file_reader:
                 envelope = json.loads(file_reader.read())
+                assert envelope.get("miniwdlCallCacheVersion") == CALL_CACHE_VERSION
                 run_dir = envelope.get("dir", None)
                 cache_paths = CallCacheAddPaths(
                     envelope.get("additionalPaths", []), envelope.get("absentPaths", [])

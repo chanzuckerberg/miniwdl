@@ -104,7 +104,7 @@ class StateMachine:
     # Source-relative paths observed while evaluating workflow expressions and child calls.
     # These are persisted as CallCache add_paths, not used as the workflow's live file-access
     # policy; fspath_allowlist remains responsible for that.
-    add_paths: CallCacheAddPaths
+    cache_add_paths: CallCacheAddPaths
     # TODO: factor out WorkflowState interface?
 
     def __init__(
@@ -127,7 +127,7 @@ class StateMachine:
         self.running = set()
         self.waiting = set()
         self.fspath_allowlist = _fspaths(inputs)
-        self.add_paths = CallCacheAddPaths()
+        self.cache_add_paths = CallCacheAddPaths()
 
         from .. import values_to_json
 
@@ -341,7 +341,7 @@ class StateMachine:
                 self.logger,
                 self.inputs,
                 self.fspath_allowlist,
-                self.add_paths,
+                self.cache_add_paths,
                 job.node,
                 env,
                 stdlib,
@@ -372,7 +372,7 @@ class StateMachine:
                 cfg,
                 stdlib.wdl_version,
                 self.fspath_allowlist,
-                self.add_paths,
+                self.cache_add_paths,
                 call_name,
                 callee_inputs,
                 call_inputs,
@@ -627,7 +627,7 @@ def _eval_decl(
     logger: logging.Logger,
     inputs: Env.Bindings[Value.Base],
     allowlist: Set[str],
-    add_paths: CallCacheAddPaths,
+    cache_add_paths: CallCacheAddPaths,
     decl: Tree.Decl,
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
@@ -654,7 +654,7 @@ def _eval_decl(
                 value,
                 decl.type,
                 f"workflow declaration {decl.name}",
-                add_paths=add_paths,
+                cache_add_paths=cache_add_paths,
             )
             allowlist |= source_paths
     else:
@@ -682,7 +682,7 @@ def _postprocess_call_inputs(
     cfg: config.Loader,
     wdl_version: str,
     allowlist: Set[str],
-    add_paths: CallCacheAddPaths,
+    cache_add_paths: CallCacheAddPaths,
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
@@ -708,7 +708,7 @@ def _postprocess_call_inputs(
             call_name,
             callee_inputs,
             call_inputs,
-            add_paths=add_paths,
+            cache_add_paths=cache_add_paths,
         )
         allowlist |= source_paths
     call_inputs = Value.rewrite_env_paths(
@@ -753,15 +753,15 @@ def _resolve_call_input_source_paths(
     call_name: str,
     callee_inputs: Env.Bindings[Tree.Decl],
     call_inputs: Env.Bindings[Value.Base],
-    add_paths: CallCacheAddPaths,
+    cache_add_paths: CallCacheAddPaths,
 ) -> Tuple[Env.Bindings[Value.Base], Set[str]]:
     """
     Resolve WDL 1.2 source-relative paths supplied directly to call inputs.
 
     The values are already coerced to callee input types. This second pass uses the caller workflow
     source directory, not the callee declaration source directory, and returns the source paths to
-    add to the workflow allowlist. ``add_paths`` is also updated for the parent workflow cache
-    manifest.
+    add to the workflow allowlist. ``cache_add_paths`` is also updated for the parent workflow
+    cache manifest.
     """
     source_paths: Set[str] = set()
 
@@ -775,7 +775,7 @@ def _resolve_call_input_source_paths(
             binding.value,
             callee_decl.type.copy(optional=True) if callee_decl.expr else callee_decl.type,
             f"call {call_name} input {binding.name}",
-            add_paths=add_paths,
+            cache_add_paths=cache_add_paths,
         )
         source_paths.update(paths)
         return Env.Binding(binding.name, value, binding.info)
