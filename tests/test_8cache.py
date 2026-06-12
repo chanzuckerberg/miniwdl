@@ -825,6 +825,69 @@ Int count = 12
             self._run(wdl, {}, cfg=self.cfg)
             self.assertEqual(mock.call_count, 1)
 
+    def test_workflow_write_cache_source_relative_path_coherence(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        source_file = os.path.join(self._dir, "data", "wf.txt")
+        with open(source_file, "w") as outfile:
+            outfile.write("one\n")
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            File written = write_lines([read_string("data/wf.txt")])
+            call t {
+                input:
+                f = written
+            }
+            output {
+                String out = t.out
+            }
+        }
+        task t {
+            input {
+                File f
+            }
+            command <<<
+                cat "~{f}" > out.txt
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+        self._run(wdl, {}, cfg=self.cfg)
+        wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
+        tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch("WDL.runtime.workflow._workflow_main_loop", wmock), patch(
+            "WDL.runtime.task._try_task", tmock
+        ):
+            # Cached workflow hit bypasses both write_* evaluation and the child task.
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 0)
+            self.assertEqual(tmock.call_count, 0)
+
+            # Content change invalidates the workflow cache; write_* produces different bytes,
+            # so the child task input changes and the child task must rerun too.
+            time.sleep(0.1)
+            with open(source_file, "w") as outfile:
+                outfile.write("two\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 1)
+            self.assertEqual(tmock.call_count, 1)
+
+            # Rewriting the same source-relative content invalidates the workflow cache by mtime,
+            # but the write_* content cache returns the same File, so the child task cache hits.
+            time.sleep(0.1)
+            with open(source_file, "w") as outfile:
+                outfile.write("two\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 2)
+            self.assertEqual(tmock.call_count, 1)
+
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 2)
+            self.assertEqual(tmock.call_count, 1)
+
     def test_workflow_cache_not_used_when_child_source_relative_path_changes(self):
         os.makedirs(os.path.join(self._dir, "data"))
         with open(os.path.join(self._dir, "data", "task.txt"), "w") as outfile:
