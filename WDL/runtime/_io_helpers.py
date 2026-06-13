@@ -6,7 +6,7 @@ import math
 import os
 import shutil
 import logging
-from typing import Dict, Optional, Set, Tuple, Union
+from typing import Dict, NamedTuple, Optional, Set, Tuple, Union
 
 import regex
 
@@ -18,7 +18,7 @@ from .cache import CallCache, CallCacheAddPaths
 from .download import able as downloadable
 
 
-def _resolve_source_relative_path(
+def _resolve_source_relative_path_raw(
     cfg: config.Loader,
     source_directory: str,
     desc: str,
@@ -85,48 +85,88 @@ def _resolve_source_relative_path(
     return ans
 
 
+class SourceRelativePathResolved(NamedTuple):
+    """
+    Result of resolving one File/Directory value against a WDL source directory.
+
+    ``value`` is the rewritten File/Directory value, or None for an optional missing path.
+    ``source_path`` is the absolute present path with the Directory trailing-slash convention,
+    suitable for workflow allowlists, task container mounts, and CallCacheAddPaths.add().
+    ``absent_path`` is the absolute missing path to record with ``absent=True``.
+    """
+
+    value: Optional[str]
+    source_path: Optional[str] = None
+    absent_path: Optional[str] = None
+
+
+class SourceRelativePathsResolved(NamedTuple):
+    """
+    Result of resolving File/Directory leaves within a compound value.
+    """
+
+    value: Value.Base
+    source_paths: Set[str]
+    cache_add_paths: CallCacheAddPaths
+
+
+def _resolve_source_relative_path(
+    cfg: config.Loader,
+    source_directory: str,
+    desc: str,
+    v: Union[Value.File, Value.Directory],
+) -> SourceRelativePathResolved:
+    """
+    Resolve one File/Directory path and report any cache_add_path it implies.
+    """
+    ans = _resolve_source_relative_path_raw(cfg, source_directory, desc, v)
+    if ans is None:
+        return SourceRelativePathResolved(
+            None, absent_path=_source_relative_cache_add_path(source_directory, v)
+        )
+    if ans == v.value:
+        return SourceRelativePathResolved(ans)
+    source_path = ans + ("/" if isinstance(v, Value.Directory) else "")
+    return SourceRelativePathResolved(ans, source_path=source_path)
+
+
 def _resolve_source_relative_paths(
     cfg: config.Loader,
     source_directory: str,
     value: Value.Base,
     desired_type: Type.Base,
     desc: str,
-    cache_add_paths: CallCacheAddPaths,
-) -> Tuple[Value.Base, Set[str]]:
+) -> SourceRelativePathsResolved:
     """
     Coerce a value to a path-containing type and resolve any source-relative paths within.
 
-    This recursively applies ``_resolve_source_relative_path`` to File/Directory leaves after
-    coercing ``value`` to ``desired_type``. It also collects each newly resolved path in the
-    returned set so callers can perform allowlist or container-mount side effects after validation
-    succeeds. ``cache_add_paths`` is updated with both present and optional-absent paths for cache
-    coherence.
+    This recursively applies ``_resolve_source_relative_path_raw`` to File/Directory leaves after
+    coercing ``value`` to ``desired_type``. It returns both newly resolved present paths, so callers
+    can perform allowlist or container-mount side effects after validation succeeds, and a
+    CallCacheAddPaths with both present and optional-absent cache_add_paths for cache coherence.
     """
     source_paths: Set[str] = set()
+    cache_add_paths = CallCacheAddPaths()
     value = value.coerce(desired_type)
 
     def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
-        ans = _resolve_source_relative_path(cfg, source_directory, desc, v)
-        if ans is None:
-            # Remember source-relative paths that are optional and absent; when we later validate a
-            # cache entry, we need to verify that such paths remain absent.
-            cache_add_paths.add(
-                _source_relative_cache_add_path(source_directory, v),
-                absent=True,
-            )
+        result = _resolve_source_relative_path(cfg, source_directory, desc, v)
+        if result.absent_path:
+            cache_add_paths.add(result.absent_path, absent=True)
             return None
-        if ans != v.value:
-            source_path = ans + ("/" if isinstance(v, Value.Directory) else "")
-            source_paths.add(source_path)
-            cache_add_paths.add(source_path)
-        return ans
+        if result.source_path:
+            source_paths.add(result.source_path)
+            cache_add_paths.add(result.source_path)
+        return result.value
 
     value = Value.rewrite_paths(
         value,
         rewrite_path,
     )
     try:
-        return value.coerce(desired_type), source_paths
+        return SourceRelativePathsResolved(
+            value.coerce(desired_type), source_paths, cache_add_paths
+        )
     except FileNotFoundError:
         raise Error.InputError(f"File/Directory path not found in {desc}") from None
 
@@ -135,9 +175,9 @@ def _source_relative_cache_add_path(
     source_directory: str, v: Union[Value.File, Value.Directory]
 ) -> str:
     """
-    Format the absolute path corresponding to a source-relative value for the cache manifest.
+    Format the absolute path corresponding to a source-relative value as a cache_add_path.
 
-    Used for optional missing paths after ``_resolve_source_relative_path`` has established that
+    Used for optional missing paths after ``_resolve_source_relative_path_raw`` has established that
     the path is a valid source-relative path except for being absent.
     """
     isdir = isinstance(v, Value.Directory)

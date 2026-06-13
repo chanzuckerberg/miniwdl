@@ -14,7 +14,6 @@ from typing import (
     Dict,
     Optional,
     Callable,
-    Set,
     Any,
     Union,
     TYPE_CHECKING,
@@ -51,7 +50,6 @@ from ._io_helpers import (
 from ._io_helpers import (
     _fspaths,
     _resolve_source_relative_path,
-    _source_relative_cache_add_path,
 )
 from .download import able as downloadable, run_cached as download
 from ._stdlib import TaskInputStdLib, TaskOutputStdLib
@@ -545,22 +543,19 @@ def _resolve_task_decl_path_into_container(
     if not wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
         return v.value
 
-    source_paths: Set[str] = set()
-    ans = _resolve_source_relative_path(
+    result = _resolve_source_relative_path(
         container.cfg, task.source_dir, f"task declaration {decl_name}", v
     )
-    if ans is None:
-        cache_add_paths.add(_source_relative_cache_add_path(task.source_dir, v), absent=True)
+    if result.absent_path:
+        cache_add_paths.add(result.absent_path, absent=True)
         return None
-    if ans == v.value:
-        return ans
+    assert result.value is not None
+    if not result.source_path:
+        return result.value
 
-    source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
-    assert len(source_paths) == 1
-    source_path = next(iter(source_paths))
-    cache_add_paths.add(source_path)
-    container.add_paths(source_paths)
-    return container.input_path_map[source_path]
+    cache_add_paths.add(result.source_path)
+    container.add_paths({result.source_path})
+    return container.input_path_map[result.source_path]
 
 
 def _task_decl_input_directory_child_path(

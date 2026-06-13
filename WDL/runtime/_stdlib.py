@@ -54,12 +54,12 @@ class TaskStdLib(StdLib.Base):
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
         value = Value.Directory(filename) if directory else Value.File(filename)
-        ans = _resolve_source_relative_path(self.container.cfg, self.source_dir, desc, value)
-        if ans is None:
+        result = _resolve_source_relative_path(self.container.cfg, self.source_dir, desc, value)
+        if result.value is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
-        if ans != filename:
-            self.cache_add_paths.add(ans + ("/" if directory else ""))
-        return ans
+        if result.source_path:
+            self.cache_add_paths.add(result.source_path)
+        return result.value
 
     def _devirtualize_filename(self, filename: str) -> str:
         """
@@ -237,14 +237,16 @@ class WorkflowStdLib(StdLib.Base):
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
         value = Value.Directory(filename) if directory else Value.File(filename)
-        ans = _resolve_source_relative_path(self.cfg, self.state.workflow.source_dir, desc, value)
-        if ans is None:
+        result = _resolve_source_relative_path(
+            self.cfg, self.state.workflow.source_dir, desc, value
+        )
+        if result.value is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
-        if ans != filename:
+        if result.source_path:
             # Remember resolved source-relative paths for cache coherence (since they won't appear
             # in the run inputs, but can affect workflow outputs).
-            self.state.cache_add_paths.add(ans + ("/" if directory else ""))
-        return ans
+            self.state.cache_add_paths.add(result.source_path)
+        return result.value
 
     def _devirtualize_filename(self, filename: str) -> str:
         directory = filename.endswith("/")

@@ -648,15 +648,16 @@ def _eval_decl(
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
             # Source-relative paths in workflow decls become both runtime-allowlisted paths and
             # CallCache additional paths.
-            value, source_paths = _resolve_source_relative_paths(
+            resolved = _resolve_source_relative_paths(
                 cfg,
                 decl.source_dir,
                 value,
                 decl.type,
                 f"workflow declaration {decl.name}",
-                cache_add_paths=cache_add_paths,
             )
-            allowlist |= source_paths
+            value = resolved.value
+            allowlist |= resolved.source_paths
+            cache_add_paths.update(resolved.cache_add_paths)
     else:
         assert decl.type.optional
         value = Value.Null()
@@ -700,7 +701,7 @@ def _postprocess_call_inputs(
     """
     call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
     if wdl_version_geq(wdl_version, WDLVersion.V1_2):
-        call_inputs, source_paths = _resolve_call_input_source_paths(
+        call_inputs, source_paths = _resolve_call_input_source_relative_paths(
             cfg,
             source_dir,
             call_name,
@@ -747,7 +748,7 @@ def _coerce_call_inputs(
     return call_inputs.map(coerce_binding)
 
 
-def _resolve_call_input_source_paths(
+def _resolve_call_input_source_relative_paths(
     cfg: config.Loader,
     source_dir: str,
     call_name: str,
@@ -769,15 +770,15 @@ def _resolve_call_input_source_paths(
         callee_decl = callee_inputs.get(binding.name)
         if not callee_decl:
             return binding
-        value, paths = _resolve_source_relative_paths(
+        resolved = _resolve_source_relative_paths(
             cfg,
             source_dir,
             binding.value,
             callee_decl.type.copy(optional=True) if callee_decl.expr else callee_decl.type,
             f"call {call_name} input {binding.name}",
-            cache_add_paths=cache_add_paths,
         )
-        source_paths.update(paths)
-        return Env.Binding(binding.name, value, binding.info)
+        source_paths.update(resolved.source_paths)
+        cache_add_paths.update(resolved.cache_add_paths)
+        return Env.Binding(binding.name, resolved.value, binding.info)
 
     return call_inputs.map(resolve_binding), source_paths
