@@ -646,8 +646,8 @@ def _eval_decl(
     elif decl.expr:
         value = decl.expr.eval(env, stdlib=stdlib).coerce(decl.type)
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
-            # Source-relative workflow declaration paths become both runtime-allowlisted paths
-            # and cache-manifest dependencies.
+            # Source-relative paths in workflow decls become both runtime-allowlisted paths and
+            # CallCache additional paths.
             value, source_paths = _resolve_source_relative_paths(
                 cfg,
                 decl.source_dir,
@@ -700,8 +700,6 @@ def _postprocess_call_inputs(
     """
     call_inputs = _coerce_call_inputs(callee_inputs, call_inputs)
     if wdl_version_geq(wdl_version, WDLVersion.V1_2):
-        # Call-input expressions are evaluated in the caller workflow context, so their
-        # source-relative paths belong to the parent workflow cache manifest.
         call_inputs, source_paths = _resolve_call_input_source_paths(
             cfg,
             source_dir,
@@ -711,6 +709,8 @@ def _postprocess_call_inputs(
             cache_add_paths=cache_add_paths,
         )
         allowlist |= source_paths
+        # Call-input expressions are evaluated in the caller workflow context, so their
+        # source-relative paths belong to the workflow cache_add_paths.
     call_inputs = Value.rewrite_env_paths(
         call_inputs,
         lambda v: _resolve_workflow_path(

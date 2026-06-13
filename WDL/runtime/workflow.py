@@ -479,9 +479,9 @@ def _workflow_main_loop(
                 if future:
                     __, outputs = future.result()
                     call_id, child_key = call_futures[future]
-                    # Fold child task/subworkflow manifests into the parent workflow manifest.
+                    # Fold child task/subworkflow add_paths into the parent workflow add_paths.
                     # This makes a workflow cache hit sensitive to source-relative paths used
-                    # inside its calls, even when the workflow itself doesn't read those files.
+                    # inside its calls, even when the parent workflow doesn't read those files.
                     state.cache_add_paths.update(cache.get_add_paths(child_key))
                     state.call_finished(call_id, outputs)
                     call_futures.pop(future)

@@ -196,9 +196,10 @@ def run_local_task(  # type: ignore[return]
                 # create TaskContainer according to configuration
                 container = new_task_container(cfg, logger, run_id, run_dir)
                 maybe_container = container
-                # Manifest source-relative paths observed while evaluating task declarations,
-                # runtime/requirements expressions, and command placeholders. This is separate
-                # from TaskContainer's localized input map; it is persisted to the call cache.
+                # Record source-relative paths observed while evaluating task expressions
+                # (excluding outputs, in which relative paths resolve in the task working
+                # directory). This is for cache coherence, separate from TaskContainer's
+                # localized input map.
                 cache_add_paths = CallCacheAddPaths()
 
                 # evaluate input/postinput declarations, including mapping from host to
@@ -557,8 +558,6 @@ def _resolve_task_decl_path_into_container(
     source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
     assert len(source_paths) == 1
     source_path = next(iter(source_paths))
-    # A declaration default/private value can affect task behavior even though it isn't an explicit
-    # input. Remember it in the call-cache manifest so mtime changes invalidate hits.
     cache_add_paths.add(source_path)
     container.add_paths(source_paths)
     return container.input_path_map[source_path]

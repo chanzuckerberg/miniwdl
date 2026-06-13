@@ -241,8 +241,8 @@ class WorkflowStdLib(StdLib.Base):
         if ans is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         if ans != filename:
-            # Workflow stdlib/operator path use can affect cached workflow outputs without
-            # appearing among declared inputs, so remember it alongside the cache entry.
+            # Remember resolved source-relative paths for cache coherence (since they won't appear
+            # in the run inputs, but can affect workflow outputs).
             self.state.cache_add_paths.add(ans + ("/" if directory else ""))
         return ans
 

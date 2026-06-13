@@ -68,6 +68,9 @@ class CallCacheAddPaths:
         self.absent_paths.update(other.absent_paths)
 
     def add(self, path: str, absent: bool = False) -> None:
+        assert os.path.isabs(path.rstrip("/") or "/"), (
+            "CallCacheAddPath given unresolved relative path"
+        )
         (self.absent_paths if absent else self.add_paths).add(path)
 
 
@@ -163,8 +166,7 @@ class CallCache(AbstractContextManager):
         try:
             with open(file_path, "rb") as file_reader:
                 envelope = json.loads(file_reader.read())
-                # This should only fail after manual cache-file tampering/corruption because the
-                # call-cache version is already mixed into the key filename.
+                # should never fail because the version is mixed into the cache key:
                 assert envelope.get("miniwdlCallCacheVersion") == CALL_CACHE_VERSION
                 run_dir = envelope.get("dir", None)
                 cache_paths = CallCacheAddPaths(
