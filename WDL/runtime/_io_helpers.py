@@ -18,12 +18,37 @@ from .cache import CallCache, CallCacheAddPaths
 from .download import able as downloadable
 
 
+class SourceRelativePathResolved(NamedTuple):
+    """
+    Result of resolving one File/Directory value against a WDL source directory.
+
+    ``value`` is the rewritten File/Directory value, or None for an optional missing path.
+    ``source_path`` is the absolute present path with the Directory trailing-slash convention,
+    suitable for workflow allowlists, task container mounts, and CallCacheAddPaths.add().
+    ``absent_path`` is the absolute missing path to record with ``absent=True``.
+    """
+
+    value: Optional[str]
+    source_path: Optional[str] = None
+    absent_path: Optional[str] = None
+
+
+class SourceRelativePathsResolved(NamedTuple):
+    """
+    Result of resolving File/Directory leaves within a compound value.
+    """
+
+    value: Value.Base
+    source_paths: Set[str]
+    cache_add_paths: CallCacheAddPaths
+
+
 def resolve_source_relative_path(
     cfg: config.Loader,
     source_directory: str,
     desc: str,
     v: Union[Value.File, Value.Directory],
-) -> "SourceRelativePathResolved":
+) -> SourceRelativePathResolved:
     """
     Resolve one File/Directory path and report any cache_add_path it implies.
 
@@ -84,31 +109,6 @@ def resolve_source_relative_path(
 
     source_path = ans + ("/" if isdir else "")
     return SourceRelativePathResolved(ans, source_path=source_path)
-
-
-class SourceRelativePathResolved(NamedTuple):
-    """
-    Result of resolving one File/Directory value against a WDL source directory.
-
-    ``value`` is the rewritten File/Directory value, or None for an optional missing path.
-    ``source_path`` is the absolute present path with the Directory trailing-slash convention,
-    suitable for workflow allowlists, task container mounts, and CallCacheAddPaths.add().
-    ``absent_path`` is the absolute missing path to record with ``absent=True``.
-    """
-
-    value: Optional[str]
-    source_path: Optional[str] = None
-    absent_path: Optional[str] = None
-
-
-class SourceRelativePathsResolved(NamedTuple):
-    """
-    Result of resolving File/Directory leaves within a compound value.
-    """
-
-    value: Value.Base
-    source_paths: Set[str]
-    cache_add_paths: CallCacheAddPaths
 
 
 def resolve_source_relative_paths(
