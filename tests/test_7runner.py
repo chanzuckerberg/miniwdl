@@ -684,7 +684,7 @@ class TestDirectoryIO(RunnerTestCase):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
 
         def resolve(decl, value):
-            return runtime_io_helpers._resolve_source_relative_paths(
+            return runtime_io_helpers.resolve_source_relative_paths(
                 cfg,
                 decl.source_dir,
                 value,
@@ -718,7 +718,7 @@ class TestDirectoryIO(RunnerTestCase):
         assert resolved.source_paths == set()
         assert resolved.cache_add_paths.add_paths == set()
 
-        resolved = runtime_io_helpers._resolve_source_relative_paths(
+        resolved = runtime_io_helpers.resolve_source_relative_paths(
             cfg,
             decls["opt"].source_dir,
             WDL.Value.File("data/missing.txt"),
@@ -739,7 +739,7 @@ class TestDirectoryIO(RunnerTestCase):
             resolve(decls["d"], WDL.Value.Directory("data/file.txt"))
         with self.assertRaisesRegex(WDL.Error.InputError, "requires a local WDL source file"):
             doc = WDL.parse_document("version 1.2\ntask t { File f command {} }")
-            runtime_io_helpers._resolve_source_relative_paths(
+            runtime_io_helpers.resolve_source_relative_paths(
                 cfg,
                 doc.tasks[0].available_inputs["f"].source_dir,
                 WDL.Value.File("data/file.txt"),
@@ -751,7 +751,7 @@ class TestDirectoryIO(RunnerTestCase):
         os.makedirs(outside_root)
         cfg_outside_root.override({"file_io": {"root": outside_root}})
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
-            runtime_io_helpers._resolve_source_relative_paths(
+            runtime_io_helpers.resolve_source_relative_paths(
                 cfg_outside_root,
                 decls["f"].source_dir,
                 WDL.Value.File("data/file.txt"),
@@ -759,7 +759,7 @@ class TestDirectoryIO(RunnerTestCase):
                 "Task declaration",
             )
         with self.assertRaisesRegex(WDL.Error.InputError, "configured `file_io.root' directory"):
-            runtime_io_helpers._resolve_source_relative_paths(
+            runtime_io_helpers.resolve_source_relative_paths(
                 cfg_outside_root,
                 decls["d"].source_dir,
                 WDL.Value.Directory("data/dir"),
@@ -767,7 +767,7 @@ class TestDirectoryIO(RunnerTestCase):
                 "Task declaration",
             )
         doc = WDL.parse_document("version 1.2\ntask t { Directory d command {} }")
-        resolved = runtime_io_helpers._resolve_source_relative_paths(
+        resolved = runtime_io_helpers.resolve_source_relative_paths(
             cfg,
             doc.tasks[0].available_inputs["d"].source_dir,
             WDL.Value.Directory("s3://example-bucket/data/dir/"),

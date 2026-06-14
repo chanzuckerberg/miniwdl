@@ -15,7 +15,7 @@ from . import config
 from .cache import CallCache, CallCacheAddPaths, digest_inputs
 from .download import able as downloadable
 from .error import OutputError
-from ._io_helpers import _resolve_source_relative_path, _resolve_workflow_path
+from ._io_helpers import resolve_source_relative_path, _resolve_workflow_path
 
 if TYPE_CHECKING:
     from .task_container import TaskContainer
@@ -54,7 +54,7 @@ class TaskStdLib(StdLib.Base):
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
         value = Value.Directory(filename) if directory else Value.File(filename)
-        result = _resolve_source_relative_path(self.container.cfg, self.source_dir, desc, value)
+        result = resolve_source_relative_path(self.container.cfg, self.source_dir, desc, value)
         if result.value is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         if result.source_path:
@@ -237,9 +237,7 @@ class WorkflowStdLib(StdLib.Base):
     def _source_relative_host_path(self, filename: str, desc: str) -> str:
         directory = filename.endswith("/")
         value = Value.Directory(filename) if directory else Value.File(filename)
-        result = _resolve_source_relative_path(
-            self.cfg, self.state.workflow.source_dir, desc, value
-        )
+        result = resolve_source_relative_path(self.cfg, self.state.workflow.source_dir, desc, value)
         if result.value is None:
             raise Error.InputError(f"File/Directory path not found in {desc}: {filename}")
         if result.source_path:

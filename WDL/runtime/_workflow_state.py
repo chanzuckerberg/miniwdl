@@ -16,7 +16,7 @@ from .._util import StructuredLogMessage as _
 from . import config
 from ._io_helpers import (
     _fspaths,
-    _resolve_source_relative_paths,
+    resolve_source_relative_paths,
     _resolve_workflow_path,
     _warn_struct_extra,
 )
@@ -648,7 +648,7 @@ def _eval_decl(
         if wdl_version_geq(stdlib.wdl_version, WDLVersion.V1_2):
             # Source-relative paths in workflow decls become both runtime-allowlisted paths and
             # CallCache additional paths.
-            resolved = _resolve_source_relative_paths(
+            resolved = resolve_source_relative_paths(
                 cfg,
                 decl.source_dir,
                 value,
@@ -770,7 +770,7 @@ def _resolve_call_input_source_relative_paths(
         callee_decl = callee_inputs.get(binding.name)
         if not callee_decl:
             return binding
-        resolved = _resolve_source_relative_paths(
+        resolved = resolve_source_relative_paths(
             cfg,
             source_dir,
             binding.value,

@@ -49,7 +49,7 @@ from ._io_helpers import (
 )
 from ._io_helpers import (
     _fspaths,
-    _resolve_source_relative_path,
+    resolve_source_relative_path,
 )
 from .download import able as downloadable, run_cached as download
 from ._stdlib import TaskInputStdLib, TaskOutputStdLib
@@ -543,7 +543,7 @@ def _resolve_task_decl_path_into_container(
     if not wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
         return v.value
 
-    result = _resolve_source_relative_path(
+    result = resolve_source_relative_path(
         container.cfg, task.source_dir, f"task declaration {decl_name}", v
     )
     if result.absent_path:
