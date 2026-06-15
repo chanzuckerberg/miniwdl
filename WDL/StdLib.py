@@ -61,7 +61,7 @@ class Base:
     eval_context: EvalContext
 
     def __init__(
-        self, wdl_version: str, write_dir: str = "", eval_context: Optional[EvalContext] = None
+        self, wdl_version: str, write_dir: str = "", *, eval_context: Optional[EvalContext] = None
     ):
         self.wdl_version = wdl_version
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()

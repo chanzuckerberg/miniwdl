@@ -6,7 +6,7 @@ import math
 import os
 import shutil
 import logging
-from typing import Dict, Optional, Set, Tuple, Union
+from typing import Dict, NamedTuple, Optional, Set, Tuple, Union
 
 import regex
 
@@ -14,30 +14,53 @@ from .. import Env, Error, Expr, Type, Value, Tree
 from .._util import link_force, path_really_within, symlink_force
 from .._util import StructuredLogMessage as _
 from . import config
-from .cache import CallCache
+from .cache import CallCache, CallCacheAddPaths
 from .download import able as downloadable
 
 
-def _resolve_source_relative_path(
+class SourceRelativePathResolved(NamedTuple):
+    """
+    Result of resolving one File/Directory value against a WDL source directory.
+
+    ``value`` is the rewritten File/Directory value, or None for an optional missing path.
+    ``source_path`` is the absolute present path with the Directory trailing-slash convention,
+    suitable for workflow allowlists, task container mounts, and CallCacheAddPaths.add().
+    ``absent_path`` is the absolute missing path to record with ``absent=True``.
+    """
+
+    value: Optional[str]
+    source_path: Optional[str] = None
+    absent_path: Optional[str] = None
+
+
+class SourceRelativePathsResolved(NamedTuple):
+    """
+    Result of resolving File/Directory leaves within a compound value.
+    """
+
+    value: Value.Base
+    source_paths: Set[str]
+    cache_add_paths: CallCacheAddPaths
+
+
+def resolve_source_relative_path(
     cfg: config.Loader,
     source_directory: str,
     desc: str,
     v: Union[Value.File, Value.Directory],
-) -> Optional[str]:
+) -> SourceRelativePathResolved:
     """
-    Resolve one File/Directory path against a WDL source directory when needed.
+    Resolve one File/Directory path and report any cache_add_path it implies.
 
     ``source_directory`` is either "" or a local WDL source directory with trailing "/". Absolute
     paths and downloadable URIs are returned unchanged. Relative paths require ``source_directory``,
     are resolved with realpath, and must remain inside the source directory tree. Missing paths
-    return None so callers can rewrite optional File?/Directory? values to Null before final type
-    coercion.
-
-    This scalar helper has no side effects.
+    return a result with ``value`` None so callers can rewrite optional File?/Directory? values to
+    Null before final type coercion.
     """
     isdir = isinstance(v, Value.Directory)
     if os.path.isabs(v.value) or downloadable(cfg, v.value, directory=isdir):
-        return v.value
+        return SourceRelativePathResolved(v.value)
 
     if not source_directory:
         raise Error.InputError(
@@ -69,7 +92,7 @@ def _resolve_source_relative_path(
             f"`file_io.root' directory `{root}' unlike `{ans}'"
         )
     if within and not os.path.exists(ans):
-        return None
+        return SourceRelativePathResolved(None, absent_path=ans + ("/" if isdir else ""))
     if within and not (os.path.isdir(ans) if isdir else os.path.isfile(ans)):
         kind = "Directory" if isdir else "File"
         expected = "directory" if isdir else "file"
@@ -82,41 +105,47 @@ def _resolve_source_relative_path(
             + v.value
         )
 
-    return ans
+    source_path = ans + ("/" if isdir else "")
+    return SourceRelativePathResolved(ans, source_path=source_path)
 
 
-def _resolve_source_relative_paths(
+def resolve_source_relative_paths(
     cfg: config.Loader,
     source_directory: str,
     value: Value.Base,
     desired_type: Type.Base,
     desc: str,
-) -> Tuple[Value.Base, Set[str]]:
+) -> SourceRelativePathsResolved:
     """
-    Coerce a value to a path-containing type and resolve each File/Directory path within it.
+    Coerce a value to a path-containing type and resolve any source-relative paths within.
 
-    This recursively applies ``_resolve_source_relative_path`` to File/Directory leaves after
-    coercing ``value`` to ``desired_type``. It also collects each newly resolved local source path
-    in the returned set so callers can perform allowlist or container-mount side effects after
-    validation succeeds. No arguments are mutated.
+    This recursively applies ``resolve_source_relative_path`` to File/Directory leaves after
+    coercing ``value`` to ``desired_type``. It returns both newly resolved present paths, so callers
+    can perform allowlist or container-mount side effects after validation succeeds, and a
+    CallCacheAddPaths with both present and optional-absent cache_add_paths for cache coherence.
     """
     source_paths: Set[str] = set()
+    cache_add_paths = CallCacheAddPaths()
     value = value.coerce(desired_type)
 
     def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
-        ans = _resolve_source_relative_path(cfg, source_directory, desc, v)
-        if ans is None:
+        result = resolve_source_relative_path(cfg, source_directory, desc, v)
+        if result.absent_path:
+            cache_add_paths.add(result.absent_path, absent=True)
             return None
-        if ans != v.value:
-            source_paths.add(ans + ("/" if isinstance(v, Value.Directory) else ""))
-        return ans
+        if result.source_path:
+            source_paths.add(result.source_path)
+            cache_add_paths.add(result.source_path)
+        return result.value
 
     value = Value.rewrite_paths(
         value,
         rewrite_path,
     )
     try:
-        return value.coerce(desired_type), source_paths
+        return SourceRelativePathsResolved(
+            value.coerce(desired_type), source_paths, cache_add_paths
+        )
     except FileNotFoundError:
         raise Error.InputError(f"File/Directory path not found in {desc}") from None
 

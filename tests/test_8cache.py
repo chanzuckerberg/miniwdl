@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import stat
-import random
 import shutil
 import tempfile
 import time
@@ -13,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from .context import WDL
 from WDL import values_from_json, values_to_json
-from WDL.runtime.cache import CallCache
+from WDL.runtime.cache import CallCache, CallCacheAddPaths, digest_inputs
 
 
 class TestCallCache(unittest.TestCase):
@@ -45,7 +44,7 @@ class TestCallCache(unittest.TestCase):
         "who": "Alyssa",
     }
     doc = WDL.parse_document(test_wdl)
-    cache_dir = '/tmp/cache/'
+    cache_dir = "/tmp/cache/"
     struct_task: str = R"""
             version 1.0
             struct Box {
@@ -87,16 +86,10 @@ class TestCallCache(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
+        logging.basicConfig(level=logging.DEBUG, format="%(name)s %(levelname)s %(message)s")
         cls.logger = logging.getLogger(cls.__name__)
         cls.cfg = WDL.runtime.config.Loader(cls.logger, [])
-        cls.cfg.override(
-            {"call_cache": {
-                "put": True,
-                "get": True,
-                "dir": cls.cache_dir
-            }
-        })
+        cls.cfg.override({"call_cache": {"put": True, "get": True, "dir": cls.cache_dir}})
 
     def setUp(self):
         """
@@ -124,8 +117,12 @@ class TestCallCache(unittest.TestCase):
             doc = WDL.load(wdlfn)
             target = doc.workflow or doc.tasks[0]
             if isinstance(inputs, dict):
-                inputs = WDL.values_from_json(inputs, target.available_inputs, target.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir)
+                inputs = WDL.values_from_json(
+                    inputs, target.available_inputs, target.required_inputs
+                )
+            rundir, outputs = WDL.runtime.run(
+                cfg, target, (inputs or WDL.Env.Bindings()), run_dir=self._dir
+            )
 
             self._rundir = rundir
         except Exception as exn:
@@ -139,25 +136,30 @@ class TestCallCache(unittest.TestCase):
 
         return rundir, outputs
 
-    def test_input_digest_sorts_keys(self):
+    def test_digest_inputs_sorts_keys(self):
         # Note this fails if input array is reordered
 
         ordered_inputs = values_from_json(
-            self.ordered_input_dict, self.doc.tasks[0].available_inputs)
+            self.ordered_input_dict, self.doc.tasks[0].available_inputs
+        )
         unordered_inputs = values_from_json(
             {
                 "where": {"places": {"SanFan": "b", "Minneapolis": "a"}},
                 "what": ["a", "ab", "b", "bc"],
-                "who": "Alyssa"
-            }, self.doc.tasks[0].available_inputs)
+                "who": "Alyssa",
+            },
+            self.doc.tasks[0].available_inputs,
+        )
 
-        ordered_digest = WDL.Value.digest_env(ordered_inputs)
-        unordered_digest = WDL.Value.digest_env(unordered_inputs)
+        ordered_digest = digest_inputs(ordered_inputs)
+        unordered_digest = digest_inputs(unordered_inputs)
         self.assertEqual(ordered_digest, unordered_digest)
 
     def test_normalization(self):
         desc = self.doc.tasks[0]._digest_source()
-        self.assertEqual(desc, R"""
+        self.assertEqual(
+            desc,
+            R"""
 version 1.0
 task hello_blank {
 input  {
@@ -173,19 +175,24 @@ output {
 Int count = 12
 }
 }
-        """.strip())
+        """.strip(),
+        )
 
     def test_task_input_cache_matches_output(self):
         # run task, check output matches what was stored in run_dir
-        cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
-        inputs = values_from_json(
-            self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        input_digest = WDL.Value.digest_env(inputs)
+        inputs = values_from_json(self.ordered_input_dict, self.doc.tasks[0].available_inputs)
+        digest = digest_inputs(inputs)
         task_digest = self.doc.tasks[0].digest
-        with open(os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}/{task_digest}/{input_digest}.json")) as f:
+        with open(
+            os.path.join(self.cache_dir, f"{self.doc.tasks[0].name}/{task_digest}/{digest}.json")
+        ) as f:
             read_data = json.loads(f.read())
+        self.assertEqual(read_data["miniwdlCallCacheVersion"], 2)
+        self.assertEqual(read_data["inputs"], WDL.values_to_json(inputs))
         self.assertEqual(read_data["outputs"], WDL.values_to_json(outputs))
+        self.assertEqual(read_data["additionalPaths"], [])
+        self.assertEqual(read_data["absentPaths"], [])
         self.assertTrue(os.path.isdir(read_data["dir"]))
 
     def test_cache_prevents_task_rerun(self):
@@ -194,7 +201,7 @@ Int count = 12
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
         # test mock is called
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
 
@@ -204,7 +211,7 @@ Int count = 12
         # test mock is not called once cache is available
         new_mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
-        with patch('WDL.runtime.task._try_task', new_mock):
+        with patch("WDL.runtime.task._try_task", new_mock):
             self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
 
         self.assertEqual(new_mock.call_count, 0)
@@ -214,7 +221,7 @@ Int count = 12
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
         # test mock is called
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(self.test_wdl, self.ordered_input_dict)
         self.assertEqual(mock.call_count, 1)
 
@@ -224,7 +231,7 @@ Int count = 12
         # test mock is not called once cache is available
         new_mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
-        with patch('WDL.runtime.task._try_task', new_mock):
+        with patch("WDL.runtime.task._try_task", new_mock):
             self._run(self.test_wdl, self.ordered_input_dict)
 
         self.assertEqual(new_mock.call_count, 1)
@@ -232,14 +239,78 @@ Int count = 12
     def test_get_cache_return_value_matches_outputs(self):
         cache = CallCache(cfg=self.cfg, logger=self.logger)
         rundir, outputs = self._run(self.test_wdl, self.ordered_input_dict, cfg=self.cfg)
-        inputs = values_from_json(
-            self.ordered_input_dict, self.doc.tasks[0].available_inputs)
-        input_digest = WDL.Value.digest_env(inputs)
+        inputs = values_from_json(self.ordered_input_dict, self.doc.tasks[0].available_inputs)
+        digest = digest_inputs(inputs)
         task_digest = self.doc.tasks[0].digest
-        cache_value = cache.get(key=f"{self.doc.tasks[0].name}/{task_digest}/{input_digest}",
-                                output_types=self.doc.tasks[0].effective_outputs,
-                                inputs=inputs)
+        cache_value = cache.get(
+            key=f"{self.doc.tasks[0].name}/{task_digest}/{digest}",
+            output_types=self.doc.tasks[0].effective_outputs,
+            inputs=inputs,
+        )
         self.assertEqual(values_to_json(outputs), values_to_json(cache_value))
+
+    def test_direct_add_paths_coherence(self):
+        cache = CallCache(cfg=self.cfg, logger=self.logger)
+        inputs = WDL.Env.Bindings()
+        outputs = WDL.Env.Bindings().bind("out", WDL.Value.String("ok"))
+        output_types = WDL.Env.Bindings().bind("out", WDL.Type.String())
+        present_file = os.path.join(self._dir, "present.txt")
+        present_dir = os.path.join(self._dir, "present_dir")
+        present_dir_manifest = present_dir + "/"
+        nested_file = os.path.join(present_dir, "nested.txt")
+        absent_file = os.path.join(self._dir, "absent.txt")
+        absent_dir = os.path.join(self._dir, "absent_dir")
+        absent_dir_manifest = absent_dir + "/"
+        with open(present_file, "w") as outfile:
+            outfile.write("present\n")
+        os.makedirs(present_dir)
+        with open(nested_file, "w") as outfile:
+            outfile.write("nested\n")
+        old_mtime = time.time() - 10
+        for path in [present_file, present_dir, nested_file]:
+            os.utime(path, (old_mtime, old_mtime))
+
+        key1 = "direct/additional/" + digest_inputs(inputs)
+        cache.put(
+            key1,
+            outputs,
+            inputs=inputs,
+            add_paths=CallCacheAddPaths(
+                [present_file, present_dir_manifest], [absent_file, absent_dir_manifest]
+            ),
+        )
+        self.assertEqual(
+            WDL.values_to_json(cache.get(key1, inputs, output_types)), WDL.values_to_json(outputs)
+        )
+        cache_paths = cache.get_add_paths(key1)
+        self.assertEqual(cache_paths.add_paths, {present_file, present_dir_manifest})
+        self.assertEqual(cache_paths.absent_paths, {absent_file, absent_dir_manifest})
+
+        time.sleep(0.1)
+        os.utime(nested_file)
+        self.assertIsNone(cache.get(key1, inputs, output_types))
+
+        key2 = "direct/absent/" + digest_inputs(inputs)
+        cache.put(
+            key2,
+            outputs,
+            inputs=inputs,
+            add_paths=CallCacheAddPaths([present_file], [absent_file, absent_dir_manifest]),
+        )
+        self.assertEqual(
+            WDL.values_to_json(cache.get(key2, inputs, output_types)), WDL.values_to_json(outputs)
+        )
+        with open(absent_file, "w") as outfile:
+            outfile.write("appeared\n")
+        self.assertIsNone(cache.get(key2, inputs, output_types))
+
+        key3 = "direct/kind/" + digest_inputs(inputs)
+        cache.put(key3, outputs, inputs=inputs, add_paths=CallCacheAddPaths([present_file + "/"]))
+        self.assertIsNone(cache.get(key3, inputs, output_types))
+
+        key4 = "direct/kind2/" + digest_inputs(inputs)
+        cache.put(key4, outputs, inputs=inputs, add_paths=CallCacheAddPaths([present_dir]))
+        self.assertIsNone(cache.get(key4, inputs, output_types))
 
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
@@ -266,7 +337,7 @@ Int count = 12
         # test _try_task is called when task def changes (with same inputs)
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(new_test_wdl, self.ordered_input_dict, cfg=self.cfg)
 
         self.assertEqual(mock.call_count, 1)
@@ -296,7 +367,7 @@ Int count = 12
         # test _try_task is called when task def changes (with same inputs)
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(new_test_wdl, self.ordered_input_dict, cfg=self.cfg)
 
         self.assertEqual(mock.call_count, 1)
@@ -307,7 +378,7 @@ Int count = 12
         inputs = {"box": {"str": [os.path.join(self._dir, "randomFile.txt")]}}
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
         # test mock is called
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(self.struct_task, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
         # run for real
@@ -316,7 +387,7 @@ Int count = 12
         new_mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
         # test mock not called for cached tasks containing a struct
-        with patch('WDL.runtime.task._try_task', new_mock):
+        with patch("WDL.runtime.task._try_task", new_mock):
             self._run(self.struct_task, inputs, cfg=self.cfg)
         self.assertEqual(new_mock.call_count, 0)
 
@@ -326,7 +397,7 @@ Int count = 12
         # test mock is not called once cache is available
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
 
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
 
         self.assertEqual(mock.call_count, 0)
@@ -336,7 +407,7 @@ Int count = 12
             shutil.rmtree(x)
 
         # test mock is called now that cached file has been deleted
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
 
@@ -350,8 +421,7 @@ Int count = 12
 
         # check that mock is called now that output file is older than cache file
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
-        with patch('WDL.runtime.task._try_task', mock):
-
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
 
@@ -365,7 +435,7 @@ Int count = 12
 
         # check that mock is called now that output file is older than cache file
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(self.test_wdl_with_output_files, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
 
@@ -396,9 +466,9 @@ Int count = 12
                 """
 
         self._run(wdl, inputs, cfg=self.cfg)
-        #check cache used
+        # check cache used
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(wdl, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 0)
         # change time
@@ -406,7 +476,7 @@ Int count = 12
         for x in glob.glob(f"{self._dir}/*_return_file_array/work/files_out/file1"):
             os.utime(x)
         # check cache not used
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(wdl, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
 
@@ -435,9 +505,9 @@ Int count = 12
                 """
 
         self._run(wdl, inputs, cfg=self.cfg)
-        #check cache used
+        # check cache used
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(wdl, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 0)
         # change time on input file
@@ -445,9 +515,95 @@ Int count = 12
         for x in glob.glob(f"{self._dir}/butterfinger"):
             os.utime(x)
         # check cache not used
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(wdl, inputs, cfg=self.cfg)
         self.assertEqual(mock.call_count, 1)
+
+    def test_cache_not_used_when_task_source_relative_paths_change(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        for name, value in {
+            "input.txt": "input1\n",
+            "private.txt": "private1\n",
+            "cmd.txt": "cmd1\n",
+            "cpu.txt": "1\n",
+        }.items():
+            with open(os.path.join(self._dir, "data", name), "w") as outfile:
+                outfile.write(value)
+
+        wdl = R"""
+        version 1.2
+        task t {
+            input {
+                File input_file = "data/input.txt"
+            }
+            File private_file = "data/private.txt"
+            command <<<
+                set -e
+                cat "~{input_file}" > out.txt
+                cat "~{private_file}" >> out.txt
+                echo "~{read_string("data/cmd.txt")}" >> out.txt
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+            runtime {
+                cpu: read_int("data/cpu.txt")
+            }
+        }
+        """
+        self._run(wdl, {}, cfg=self.cfg)
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch("WDL.runtime.task._try_task", mock):
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 0)
+
+            for name, value in [
+                ("input.txt", "input2\n"),
+                ("private.txt", "private2\n"),
+                ("cmd.txt", "cmd2\n"),
+                ("cpu.txt", "2\n"),
+            ]:
+                time.sleep(0.1)
+                with open(os.path.join(self._dir, "data", name), "w") as outfile:
+                    outfile.write(value)
+                self._run(wdl, {}, cfg=self.cfg)
+                self.assertEqual(mock.call_count, 1)
+
+                self._run(wdl, {}, cfg=self.cfg)
+                self.assertEqual(mock.call_count, 1)
+                mock.reset_mock()
+
+    def test_cache_not_used_when_absent_source_relative_path_appears(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        wdl = R"""
+        version 1.2
+        task t {
+            input {
+                File? maybe = "data/missing.txt"
+            }
+            command <<<
+                if [ -n "~{maybe}" ]; then
+                    cat "~{maybe}" > out.txt
+                else
+                    echo missing > out.txt
+                fi
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+        self._run(wdl, {}, cfg=self.cfg)
+        mock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch("WDL.runtime.task._try_task", mock):
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 0)
+
+            time.sleep(0.1)
+            with open(os.path.join(self._dir, "data", "missing.txt"), "w") as outfile:
+                outfile.write("appeared\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 1)
 
     def test_directory_coherence(self):
         # test outputting files/subdirectories inside input Directory
@@ -477,7 +633,7 @@ Int count = 12
         WDL.Value.rewrite_env_files(outp[1], lambda fn: fn)  # game coverage of deprecated fn
 
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             # control
             self._run(wdl, inp, cfg=self.cfg)
             self.assertEqual(mock.call_count, 0)
@@ -581,7 +737,9 @@ Int count = 12
 
         # ensure digest is sensitive to changes in the struct type and called task (but not the
         # uncalled task, or comments/whitespace)
-        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("String? middle", "String? middle Int? age"))
+        doc2 = WDL.parse_document(
+            self.test_workflow_wdl.replace("String? middle", "String? middle Int? age")
+        )
         doc2.typecheck()
         self.assertNotEqual(doc.workflow.digest, doc2.workflow.digest)
 
@@ -589,15 +747,15 @@ Int count = 12
         doc2.typecheck()
         self.assertNotEqual(doc.workflow.digest, doc2.workflow.digest)
 
-        doc2 = WDL.parse_document(self.test_workflow_wdl.replace('i = 0', 'i = 1'))
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("i = 0", "i = 1"))
         doc2.typecheck()
         self.assertEqual(doc.workflow.digest, doc2.workflow.digest)
 
-        doc2 = WDL.parse_document(self.test_workflow_wdl.replace('# COMMENT', '#'))
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("# COMMENT", "#"))
         doc2.typecheck()
         self.assertEqual(doc.workflow.digest, doc2.workflow.digest)
 
-        doc2 = WDL.parse_document(self.test_workflow_wdl.replace('# COMMENT', '\n\n'))
+        doc2 = WDL.parse_document(self.test_workflow_wdl.replace("# COMMENT", "\n\n"))
         doc2.typecheck()
         self.assertEqual(doc.workflow.digest, doc2.workflow.digest)
 
@@ -606,20 +764,31 @@ Int count = 12
             print('{"first":"Alyssa","last":"Hacker"}', file=outfile)
         with open(os.path.join(self._dir, "ben.json"), mode="w") as outfile:
             print('{"first":"Ben","last":"Bitdiddle"}', file=outfile)
-        inp = {"people_json": [os.path.join(self._dir, "alyssa.json"), os.path.join(self._dir, "ben.json")]}
+        inp = {
+            "people_json": [
+                os.path.join(self._dir, "alyssa.json"),
+                os.path.join(self._dir, "ben.json"),
+            ]
+        }
         rundir1, outp = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
 
         wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
         tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
-        with patch('WDL.runtime.workflow._workflow_main_loop', wmock), patch('WDL.runtime.task._try_task', tmock):
+        with patch("WDL.runtime.workflow._workflow_main_loop", wmock), patch(
+            "WDL.runtime.task._try_task", tmock
+        ):
             # control
             rundir2, outp2 = self._run(self.test_workflow_wdl, inp, cfg=self.cfg)
             self.assertEqual(wmock.call_count, 0)
             self.assertEqual(tmock.call_count, 0)
             outp_inodes = set()
-            WDL.Value.rewrite_env_paths(outp, lambda p: outp_inodes.add(os.stat(p.value)[stat.ST_INO]))
+            WDL.Value.rewrite_env_paths(
+                outp, lambda p: outp_inodes.add(os.stat(p.value)[stat.ST_INO])
+            )
             outp2_inodes = set()
-            WDL.Value.rewrite_env_paths(outp2, lambda p: outp2_inodes.add(os.stat(p.value)[stat.ST_INO]))
+            WDL.Value.rewrite_env_paths(
+                outp2, lambda p: outp2_inodes.add(os.stat(p.value)[stat.ST_INO])
+            )
             self.assertEqual(outp_inodes, outp2_inodes)
 
             with open(os.path.join(rundir1, "outputs.json")) as outputs1:
@@ -633,6 +802,137 @@ Int count = 12
             self.assertEqual(wmock.call_count, 1)
             self.assertEqual(tmock.call_count, 3)  # reran Alyssa, cached Ben
             self.assertNotEqual(WDL.values_to_json(outp), WDL.values_to_json(outp2))
+
+    def test_workflow_cache_not_used_when_workflow_source_relative_path_changes(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data", "wf.txt"), "w") as outfile:
+            outfile.write("one\n")
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            String s = read_string("data/wf.txt")
+            output {
+                String out = s
+            }
+        }
+        """
+        self._run(wdl, {}, cfg=self.cfg)
+        mock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
+        with patch("WDL.runtime.workflow._workflow_main_loop", mock):
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 0)
+
+            time.sleep(0.1)
+            with open(os.path.join(self._dir, "data", "wf.txt"), "w") as outfile:
+                outfile.write("two\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(mock.call_count, 1)
+
+    def test_workflow_write_cache_source_relative_path_coherence(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        source_file = os.path.join(self._dir, "data", "wf.txt")
+        with open(source_file, "w") as outfile:
+            outfile.write("one\n")
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            File written = write_lines([read_string("data/wf.txt")])
+            call t {
+                input:
+                f = written
+            }
+            output {
+                String out = t.out
+            }
+        }
+        task t {
+            input {
+                File f
+            }
+            command <<<
+                cat "~{f}" > out.txt
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+        self._run(wdl, {}, cfg=self.cfg)
+        wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
+        tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch("WDL.runtime.workflow._workflow_main_loop", wmock), patch(
+            "WDL.runtime.task._try_task", tmock
+        ):
+            # Cached workflow hit bypasses both write_* evaluation and the child task.
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 0)
+            self.assertEqual(tmock.call_count, 0)
+
+            # Content change invalidates the workflow cache; write_* produces different bytes,
+            # so the child task input changes and the child task must rerun too.
+            time.sleep(0.1)
+            with open(source_file, "w") as outfile:
+                outfile.write("two\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 1)
+            self.assertEqual(tmock.call_count, 1)
+
+            # Rewriting the same source-relative content invalidates the workflow cache by mtime,
+            # but the write_* content cache returns the same File, so the child task cache hits.
+            time.sleep(0.1)
+            with open(source_file, "w") as outfile:
+                outfile.write("two\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 2)
+            self.assertEqual(tmock.call_count, 1)
+
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 2)
+            self.assertEqual(tmock.call_count, 1)
+
+    def test_workflow_cache_not_used_when_child_source_relative_path_changes(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        with open(os.path.join(self._dir, "data", "task.txt"), "w") as outfile:
+            outfile.write("one\n")
+
+        wdl = R"""
+        version 1.2
+        workflow w {
+            call t
+            output {
+                String out = t.out
+            }
+        }
+        task t {
+            input {
+                File f = "data/task.txt"
+            }
+            command <<<
+                cat "~{f}" > out.txt
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+        self._run(wdl, {}, cfg=self.cfg)
+        wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
+        tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch("WDL.runtime.workflow._workflow_main_loop", wmock), patch(
+            "WDL.runtime.task._try_task", tmock
+        ):
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 0)
+            self.assertEqual(tmock.call_count, 0)
+
+            time.sleep(0.1)
+            with open(os.path.join(self._dir, "data", "task.txt"), "w") as outfile:
+                outfile.write("two\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 1)
+            self.assertEqual(tmock.call_count, 1)
 
     def test_cache_of_task_with_empty_outputs(self):
         # regression test issue 715
@@ -652,8 +952,8 @@ Int count = 12
                 }
                 """
         self._run(wdl, {}, cfg=self.cfg)
-        #check cache used
+        # check cache used
         mock = MagicMock(side_effect=WDL.runtime.task._try_task)
-        with patch('WDL.runtime.task._try_task', mock):
+        with patch("WDL.runtime.task._try_task", mock):
             self._run(wdl, {}, cfg=self.cfg)
         self.assertEqual(mock.call_count, 0)

@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 99
+plan tests 111
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -472,6 +472,52 @@ $miniwdl run call_cache.wdl file_in=https://raw.githubusercontent.com/chanzucker
 is "$?" 0
 test -d _LAST/call-t1/work
 is "$?" "1" "call-t1 ran"
+
+mkdir -p source_relative_cache/data
+echo one > source_relative_cache/data/ref.txt
+cat << 'EOF' > source_relative_cache/cache_source_relative.wdl
+version 1.2
+workflow w {
+    call read_ref
+    output {
+        String out = read_ref.out
+    }
+}
+task read_ref {
+    input {
+        File f = "data/ref.txt"
+    }
+    command <<<
+        cat "~{f}" > out.txt
+    >>>
+    output {
+        String out = read_string("out.txt")
+    }
+}
+EOF
+$miniwdl run source_relative_cache/cache_source_relative.wdl
+is "$?" "0" "source-relative call cache first run"
+is "$(jq -r '.["w.out"]' _LAST/outputs.json)" "one" "source-relative call cache first output"
+task_cache_json=$(find "${MINIWDL__CALL_CACHE__DIR}/read_ref" -name '*.json' | sort | head -n1)
+test -f "$task_cache_json"
+is "$?" "0" "source-relative task cache entry written"
+is "$(jq '.miniwdlCallCacheVersion' "$task_cache_json")" "2" "source-relative task cache entry version"
+is "$(jq -r '.inputs | type' "$task_cache_json")" "object" "source-relative task cache stores inputs"
+is "$(jq -r --arg p "${DN}/source_relative_cache/data/ref.txt" '.additionalPaths | index($p) != null' "$task_cache_json")" "true" "source-relative task cache records additional path"
+$miniwdl run source_relative_cache/cache_source_relative.wdl
+is "$?" "0" "source-relative call cache second run"
+is "$(jq -r '.["w.out"]' _LAST/outputs.json)" "one" "source-relative call cache second output"
+test -d _LAST/call-read_ref/work
+is "$?" "1" "source-relative task was cached"
+sleep 1
+echo two > source_relative_cache/data/ref.txt
+$miniwdl run source_relative_cache/cache_source_relative.wdl
+is "$(jq -r '.["w.out"]' _LAST/outputs.json)" "two" "source-relative call cache invalidated by changed source file"
+test -d _LAST/call-read_ref/work
+is "$?" "0" "source-relative task reran after changed source file"
+$miniwdl run source_relative_cache/cache_source_relative.wdl
+test -d _LAST/call-read_ref/work
+is "$?" "1" "source-relative replaced cache entry was reused"
 
 # test "fail-slow"
 cat << 'EOF' > fail_slow.wdl
