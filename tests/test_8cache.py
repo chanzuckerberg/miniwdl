@@ -308,6 +308,10 @@ Int count = 12
         cache.put(key3, outputs, inputs=inputs, add_paths=CallCacheAddPaths([present_file + "/"]))
         self.assertIsNone(cache.get(key3, inputs, output_types))
 
+        key4 = "direct/kind2/" + digest_inputs(inputs)
+        cache.put(key4, outputs, inputs=inputs, add_paths=CallCacheAddPaths([present_dir]))
+        self.assertIsNone(cache.get(key4, inputs, output_types))
+
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""

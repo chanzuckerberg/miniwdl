@@ -92,9 +92,7 @@ def resolve_source_relative_path(
             f"`file_io.root' directory `{root}' unlike `{ans}'"
         )
     if within and not os.path.exists(ans):
-        return SourceRelativePathResolved(
-            None, absent_path=_source_relative_cache_add_path(source_directory, v)
-        )
+        return SourceRelativePathResolved(None, absent_path=ans + ("/" if isdir else ""))
     if within and not (os.path.isdir(ans) if isdir else os.path.isfile(ans)):
         kind = "Directory" if isdir else "File"
         expected = "directory" if isdir else "file"
@@ -150,22 +148,6 @@ def resolve_source_relative_paths(
         )
     except FileNotFoundError:
         raise Error.InputError(f"File/Directory path not found in {desc}") from None
-
-
-def _source_relative_cache_add_path(
-    source_directory: str, v: Union[Value.File, Value.Directory]
-) -> str:
-    """
-    Format the absolute path corresponding to a source-relative value as a cache_add_path.
-
-    Used for optional missing paths after ``resolve_source_relative_path`` has established that
-    the path is a valid source-relative path except for being absent.
-    """
-    isdir = isinstance(v, Value.Directory)
-    ans = os.path.realpath(
-        os.path.join(source_directory, v.value.rstrip("/") if isdir else v.value)
-    )
-    return ans + ("/" if isdir else "")
 
 
 def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
