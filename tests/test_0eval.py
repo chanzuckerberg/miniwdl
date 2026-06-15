@@ -494,6 +494,37 @@ class TestEval(unittest.TestCase):
             ('''"${true='1' true='0' f}"''', None, WDL.Error.MultipleDefinitions, env, "1.1")
         )
 
+    def test_directory_stringification(self):
+        d = WDL.Value.Directory("/tmp/source/")
+        self.assertEqual(d.value, "/tmp/source")
+        self.assertEqual(d.coerce(WDL.Type.String()).value, "/tmp/source")
+        self.assertEqual(d.json, "/tmp/source")
+        self.assertEqual(WDL.Value.Directory("relative/dir/").value, "relative/dir")
+        self.assertEqual(WDL.Value.Directory("/").coerce(WDL.Type.String()).value, "/")
+        self.assertEqual(WDL.Value.Directory("/").json, "/")
+        self.assertEqual(WDL.Value.Directory("").value, "")
+        rewritten = WDL.Value.rewrite_paths(d, lambda _: "/tmp/rewritten/")
+        self.assertIsInstance(rewritten, WDL.Value.Directory)
+        self.assertEqual(rewritten.value, "/tmp/rewritten")
+        rewritten_file = WDL.Value.rewrite_paths(WDL.Value.File("/tmp/file"), lambda _: "/tmp/other")
+        self.assertIsInstance(rewritten_file, WDL.Value.File)
+        self.assertEqual(rewritten_file.value, "/tmp/other")
+
+        env = cons_env(
+            ("d", d),
+            (
+                "dirs",
+                WDL.Value.Array(
+                    WDL.Type.Directory(),
+                    [WDL.Value.Directory("/tmp/source/"), WDL.Value.Directory("/tmp/other/")],
+                ),
+            ),
+        )
+        self._test_tuples(
+            ('"~{d}"', '"/tmp/source"', env, "1.2"),
+            ('"~{sep="," dirs}"', '"/tmp/source,/tmp/other"', env, "1.2"),
+        )
+
     def test_pair(self):
         env = cons_env(("p", WDL.Value.Pair(WDL.Type.Float(), WDL.Type.Float(),
                                             (WDL.Value.Float(3.14159), WDL.Value.Float(2.71828)))),

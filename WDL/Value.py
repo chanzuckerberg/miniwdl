@@ -189,6 +189,9 @@ class Directory(String):
     """``value`` has Python type ``str``"""
 
     def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+        # WDL 1.2 Path Canonicalization and Validation specifies that, for Directory values,
+        # trailing directory separators are removed. Preserve "/" itself as the filesystem root.
+        value = value.rstrip("/") or ("/" if value.startswith("/") else "")
         super().__init__(value, expr=expr, subtype=Type.Directory())
 
 
@@ -702,7 +705,10 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]])
             fw = f(w)
             if fw is None:
                 return Null(expr=w.expr)
-            w.value = fw
+            if isinstance(w, Directory):
+                w.value = Directory(fw, w.expr).value
+            else:
+                w.value = File(fw, w.expr).value
         # recursive descent into compound Values
         elif isinstance(w.value, list):
             value2: List[Any] = []
