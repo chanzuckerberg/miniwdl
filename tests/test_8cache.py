@@ -318,6 +318,35 @@ Int count = 12
         cache.put(key4, outputs, inputs=inputs, add_paths=CallCacheAddPaths([present_dir]))
         self.assertIsNone(cache.get(key4, inputs, output_types))
 
+    def test_directory_download_cache_normalizes_trailing_slash(self):
+        cfg = WDL.runtime.config.Loader(self.logger, [])
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "download_cache"),
+                }
+            }
+        )
+        uri_slash = "s3://bucket/path/prefix/"
+        uri_canonical = WDL.Value.Directory(uri_slash).value
+        self.assertEqual(uri_canonical, "s3://bucket/path/prefix")
+
+        with CallCache(cfg=cfg, logger=self.logger) as cache:
+            cache_path = cache.download_path(uri_slash, directory=True)
+            self.assertEqual(cache_path, cache.download_path(uri_canonical, directory=True))
+            self.assertNotEqual(cache_path, cache.download_path(uri_canonical, directory=False))
+
+            downloaded = os.path.join(self._dir, "downloaded")
+            os.makedirs(downloaded)
+            with open(os.path.join(downloaded, "file.txt"), "w") as outfile:
+                outfile.write("downloaded\n")
+
+            cached = cache.put_download(uri_slash, downloaded, directory=True)
+            self.assertEqual(cached, cache.get_download(uri_canonical, directory=True))
+            self.assertTrue(os.path.isdir(cached))
+
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""

@@ -193,7 +193,7 @@ def _resolve_workflow_path(
     isdir = isinstance(v, Value.Directory)
     fspath = v.value.rstrip("/") + ("/" if isdir else "")
     if fspath in allowlist or downloadable(cfg, fspath, directory=isdir):
-        return v.value
+        return fspath
     allowlisted_child, allowlisted_child_path = _resolve_allowlisted_directory_child(
         cfg, allowlist, fspath, isdir
     )
@@ -238,7 +238,7 @@ def _resolve_allowlisted_directory_child(
             continue
         if downloadable(cfg, parent, directory=True):
             if fspath.startswith(parent):
-                return True, fspath.rstrip("/") if isdir else fspath
+                return True, fspath
             continue
         if not path_really_within(fspath, parent):
             continue

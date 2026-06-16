@@ -714,7 +714,7 @@ class TestDirectoryIO(RunnerTestCase):
         assert resolved.cache_add_paths.add_paths == set()
 
         resolved = resolve(decls["d"], WDL.Value.Directory("s3://example-bucket/data/dir/"))
-        assert resolved.value.value == "s3://example-bucket/data/dir/"
+        assert resolved.value.value == "s3://example-bucket/data/dir"
         assert resolved.source_paths == set()
         assert resolved.cache_add_paths.add_paths == set()
 
@@ -774,7 +774,7 @@ class TestDirectoryIO(RunnerTestCase):
             doc.tasks[0].available_inputs["d"].type,
             "Task declaration",
         )
-        assert resolved.value.value == "s3://example-bucket/data/dir/"
+        assert resolved.value.value == "s3://example-bucket/data/dir"
         assert resolved.source_paths == set()
         assert resolved.cache_add_paths.add_paths == set()
 
@@ -846,7 +846,7 @@ class TestDirectoryIO(RunnerTestCase):
         """
         outp = self._run(wdl)
         assert outp["downloaded_files"] == ["https://example.com/data/file.txt"]
-        assert outp["downloaded_directories"] == ["s3://example-bucket/data/dir/"]
+        assert outp["downloaded_directories"] == ["s3://example-bucket/data/dir"]
 
     def test_workflow_resolve_path_branches(self):
         os.makedirs(os.path.join(self._dir, "data/subdir"))
