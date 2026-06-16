@@ -136,6 +136,12 @@ class TestCallCache(unittest.TestCase):
 
         return rundir, outputs
 
+    def _workflow_cache_envelope(self, workflow_name: str):
+        filenames = glob.glob(os.path.join(self.cache_dir, workflow_name, "*", "*.json"))
+        self.assertEqual(len(filenames), 1, filenames)
+        with open(filenames[0]) as infile:
+            return json.load(infile)
+
     def test_digest_inputs_sorts_keys(self):
         # Note this fails if input array is reordered
 
@@ -933,6 +939,144 @@ Int count = 12
             self._run(wdl, {}, cfg=self.cfg)
             self.assertEqual(wmock.call_count, 1)
             self.assertEqual(tmock.call_count, 1)
+
+    def test_workflow_cache_includes_child_add_paths(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        present_path = os.path.join(self._dir, "data", "present.txt")
+        absent_path = os.path.join(self._dir, "data", "missing.txt")
+        with open(present_path, "w") as outfile:
+            outfile.write("present\n")
+
+        wdl = R"""
+        version 1.2
+        workflow parent {
+            call child
+            output {
+                String out = child.out
+            }
+        }
+        task child {
+            input {
+                File present = "data/present.txt"
+                File? maybe = "data/missing.txt"
+            }
+            command <<<
+                cat "~{present}" > out.txt
+                if [ -n "~{maybe}" ]; then
+                    cat "~{maybe}" >> out.txt
+                else
+                    echo missing >> out.txt
+                fi
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+        self._run(wdl, {}, cfg=self.cfg)
+        envelope = self._workflow_cache_envelope("parent")
+        self.assertIn(present_path, envelope["additionalPaths"])
+        self.assertIn(absent_path, envelope["absentPaths"])
+
+        wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
+        tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch("WDL.runtime.workflow._workflow_main_loop", wmock), patch(
+            "WDL.runtime.task._try_task", tmock
+        ):
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 0)
+            self.assertEqual(tmock.call_count, 0)
+
+            time.sleep(0.1)
+            with open(absent_path, "w") as outfile:
+                outfile.write("appeared\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 1)
+            self.assertEqual(tmock.call_count, 1)
+
+            envelope = self._workflow_cache_envelope("parent")
+            self.assertIn(present_path, envelope["additionalPaths"])
+            self.assertIn(absent_path, envelope["additionalPaths"])
+            self.assertNotIn(absent_path, envelope["absentPaths"])
+
+            time.sleep(0.1)
+            with open(present_path, "w") as outfile:
+                outfile.write("changed\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 2)
+            self.assertEqual(tmock.call_count, 2)
+
+    def test_workflow_cache_includes_subworkflow_add_paths(self):
+        os.makedirs(os.path.join(self._dir, "data"))
+        present_path = os.path.join(self._dir, "data", "present.txt")
+        absent_path = os.path.join(self._dir, "data", "missing.txt")
+        with open(present_path, "w") as outfile:
+            outfile.write("present\n")
+
+        with open(os.path.join(self._dir, "child.wdl"), "w") as outfile:
+            outfile.write(
+                R"""
+        version 1.2
+        workflow child_workflow {
+            call child_task
+            output {
+                String out = child_task.out
+            }
+        }
+        task child_task {
+            input {
+                File present = "data/present.txt"
+                File? maybe = "data/missing.txt"
+            }
+            command <<<
+                cat "~{present}" > out.txt
+                if [ -n "~{maybe}" ]; then
+                    cat "~{maybe}" >> out.txt
+                else
+                    echo missing >> out.txt
+                fi
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """
+            )
+        wdl = R"""
+        version 1.2
+        import "child.wdl" as child
+        workflow parent {
+            call child.child_workflow
+            output {
+                String out = child_workflow.out
+            }
+        }
+        """
+        self._run(wdl, {}, cfg=self.cfg)
+        envelope = self._workflow_cache_envelope("parent")
+        self.assertIn(present_path, envelope["additionalPaths"])
+        self.assertIn(absent_path, envelope["absentPaths"])
+
+        wmock = MagicMock(side_effect=WDL.runtime.workflow._workflow_main_loop)
+        tmock = MagicMock(side_effect=WDL.runtime.task._try_task)
+        with patch("WDL.runtime.workflow._workflow_main_loop", wmock), patch(
+            "WDL.runtime.task._try_task", tmock
+        ):
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 0)
+            self.assertEqual(tmock.call_count, 0)
+
+            time.sleep(0.1)
+            with open(absent_path, "w") as outfile:
+                outfile.write("appeared\n")
+            self._run(wdl, {}, cfg=self.cfg)
+            self.assertEqual(wmock.call_count, 2)
+            self.assertEqual(tmock.call_count, 1)
+
+            envelope = self._workflow_cache_envelope("parent")
+            self.assertIn(present_path, envelope["additionalPaths"])
+            self.assertIn(absent_path, envelope["additionalPaths"])
+            self.assertNotIn(absent_path, envelope["absentPaths"])
 
     def test_cache_of_task_with_empty_outputs(self):
         # regression test issue 715
