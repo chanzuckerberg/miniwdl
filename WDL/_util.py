@@ -691,6 +691,48 @@ def path_really_within(lhs: str, rhs: str) -> bool:
 
 
 @export
+class SourceRelativePathKind(IntEnum):
+    """
+    Static classification of a possible WDL source-relative File/Directory path.
+    """
+
+    UNAVAILABLE = 0
+    ABSOLUTE = 1
+    ESCAPES = 2
+    MISSING = 3
+    OK = 4
+    WRONG_KIND = 5
+
+
+@export
+def source_relative_path_kind(
+    source_dir: str, path: str, directory: bool = False
+) -> SourceRelativePathKind:
+    """
+    Best-effort classification of a path literal relative to a WDL source directory.
+
+    ``source_dir`` should be the local directory containing the WDL source file, with or without a
+    trailing separator. The helper deliberately doesn't know about runtime configuration, download
+    plugins, AST nodes, or optional WDL types; callers should apply those policies separately.
+    """
+    if os.path.isabs(path):
+        return SourceRelativePathKind.ABSOLUTE
+    if not source_dir:
+        return SourceRelativePathKind.UNAVAILABLE
+
+    expected_path = path.rstrip("/") if directory else path
+    target = os.path.realpath(os.path.join(source_dir, expected_path))
+    if not path_really_within(target, source_dir):
+        return SourceRelativePathKind.ESCAPES
+    if not os.path.exists(target):
+        return SourceRelativePathKind.MISSING
+    expected_kind = os.path.isdir(target) if directory else os.path.isfile(target)
+    if expected_kind:
+        return SourceRelativePathKind.OK
+    return SourceRelativePathKind.WRONG_KIND
+
+
+@export
 def chmod_R_plus(path: str, file_bits: int = 0, dir_bits: int = 0) -> None:
     """
     recursive chmod to add permission bits (possibly different for files and subdirectiores)

@@ -1,4 +1,18 @@
-import unittest, unittest.mock, tempfile, os, glob, json, urllib, urllib.request, logging, shutil, contextlib, pathlib, hashlib, time
+import unittest
+import unittest.mock
+import tempfile
+import os
+import glob
+import json
+import urllib
+import urllib.request
+import logging
+import shutil
+import contextlib
+import pathlib
+import hashlib
+import time
+import textwrap
 from .context import WDL
 import WDL.Lint
 
@@ -29,6 +43,99 @@ class Lint(unittest.TestCase):
                     )
                 )
         self.assertEqual(len(lint), 2)
+
+    def _file_coercion_lints(self, source, files=()):
+        with tempfile.TemporaryDirectory(prefix="miniwdl_lint_test_") as testdir:
+            src = os.path.join(testdir, "src")
+            os.makedirs(src)
+            for relpath, contents in files:
+                path = os.path.join(src, relpath)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                if contents is None:
+                    os.makedirs(path)
+                else:
+                    pathlib.Path(path).write_text(contents)
+            wdl = os.path.join(src, "test.wdl")
+            pathlib.Path(wdl).write_text(textwrap.dedent(source))
+
+            doc = WDL.load(wdl)
+            WDL.Lint._shellcheck_available = False
+            WDL.Lint.lint(doc, descend_imports=False)
+            return [
+                message
+                for _pos, lint_class, message, suppressed in WDL.Lint.collect(doc)
+                if lint_class == "FileCoercion" and not suppressed
+            ]
+
+    def test_file_coercion_wdl12_source_relative_decl(self):
+        lint = self._file_coercion_lints(
+            """
+            version 1.2
+            workflow w {
+                File existing_file = "data/input.txt"
+                Directory existing_dir = "data/subdir"
+                File computed = "data/" + "input.txt"
+                File? missing_optional = "data/missing_optional.txt"
+                File missing_required = "data/missing_required.txt"
+                File absolute = "/__miniwdl_missing_input.txt"
+                File uri = "s3://bucket/input.txt"
+                File wrong_file = "data/subdir"
+                Directory wrong_dir = "data/input.txt"
+                Array[File] files = ["data/input.txt"]
+                Array[File] bad_files = ["data/missing_array.txt"]
+                Map[File, String] labels = {"data/input.txt": "ok"}
+                Map[File, String] bad_labels = {"data/missing_map.txt": "bad"}
+            }
+            """,
+            files=[("data/input.txt", "input\n"), ("data/subdir", None)],
+        )
+
+        def lint_decl(message):
+            return message.split(" = ")[0]
+
+        self.assertEqual(
+            {
+                "File missing_required",
+                "File absolute",
+                "File uri",
+                "File wrong_file",
+                "Directory wrong_dir",
+                "Array[File] bad_files",
+                "Map[File,String] bad_labels",
+            },
+            {lint_decl(msg) for msg in lint},
+        )
+
+    def test_file_coercion_wdl11_relative_decl_unchanged(self):
+        lint = self._file_coercion_lints(
+            """
+            version 1.1
+            workflow w {
+                File existing_file = "data/input.txt"
+            }
+            """,
+            files=[("data/input.txt", "input\n")],
+        )
+        self.assertEqual(["File existing_file = :String:"], lint)
+
+    def test_file_coercion_wdl12_buffer_relative_literal(self):
+        doc = WDL.parse_document(
+            """
+            version 1.2
+            workflow w {
+                File relative = "data/input.txt"
+            }
+            """
+        )
+        doc.typecheck()
+        WDL.Lint._shellcheck_available = False
+        WDL.Lint.lint(doc, descend_imports=False)
+        lint = [
+            message
+            for _pos, lint_class, message, suppressed in WDL.Lint.collect(doc)
+            if lint_class == "FileCoercion" and not suppressed
+        ]
+        self.assertEqual([], lint)
 
 
 async def read_source(uri, path, importer_uri):

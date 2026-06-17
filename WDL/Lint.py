@@ -35,7 +35,7 @@ import random
 import shutil
 from typing import Any, Optional, Union
 import regex
-from . import Error, Type, Env, Expr, Tree, StdLib, Walker, _util
+from . import Error, Type, Env, Expr, Tree, StdLib, Value, Walker, _util
 from ._util import WDLVersion, wdl_version_geq, wdl_version_ord
 
 
@@ -231,6 +231,73 @@ def _parent_executable(obj: Error.SourceNode) -> Optional[Union[Tree.Task, Tree.
     return None
 
 
+def _file_coercion_literal_status(
+    to_type: Type.Base, expr: Expr.Base, source_dir: str
+) -> Optional[_util.SourceRelativePathKind]:
+    if not isinstance(to_type, (Type.File, Type.Directory)):
+        return None
+    if isinstance(expr.type, (Type.Any, Type.File, Type.Directory)):
+        return None
+    if not isinstance(expr.type, Type.String):
+        return _util.SourceRelativePathKind.WRONG_KIND
+    literal = expr.literal
+    if not isinstance(literal, Value.String):
+        return None
+    if "://" in literal.value:
+        return _util.SourceRelativePathKind.ABSOLUTE
+    return _util.source_relative_path_kind(
+        source_dir, literal.value, directory=isinstance(to_type, Type.Directory)
+    )
+
+
+def _file_coercion_decl_suspicious(to_type: Type.Base, expr: Expr.Base, source_dir: str) -> bool:
+    status = _file_coercion_literal_status(to_type, expr, source_dir)
+    if status is not None:
+        return status in (
+            _util.SourceRelativePathKind.ABSOLUTE,
+            _util.SourceRelativePathKind.ESCAPES,
+            _util.SourceRelativePathKind.WRONG_KIND,
+        ) or (status == _util.SourceRelativePathKind.MISSING and not to_type.optional)
+
+    if isinstance(to_type, Type.Array):
+        if isinstance(expr, Expr.Array):
+            return any(
+                _file_coercion_decl_suspicious(to_type.item_type, item, source_dir)
+                for item in expr.items
+            )
+        return False
+
+    if isinstance(to_type, Type.Map):
+        if isinstance(expr, Expr.Map):
+            key_type, value_type = to_type.item_type
+            return any(
+                _file_coercion_decl_suspicious(key_type, key, source_dir)
+                or _file_coercion_decl_suspicious(value_type, value, source_dir)
+                for key, value in expr.items
+            )
+        return False
+
+    if isinstance(to_type, Type.Pair):
+        if isinstance(expr, Expr.Pair):
+            return _file_coercion_decl_suspicious(
+                to_type.left_type, expr.left, source_dir
+            ) or _file_coercion_decl_suspicious(to_type.right_type, expr.right, source_dir)
+        return False
+
+    if (
+        isinstance(to_type, Type.StructInstance)
+        and to_type.members
+        and isinstance(expr, Expr.Struct)
+    ):
+        return any(
+            name in to_type.members
+            and _file_coercion_decl_suspicious(to_type.members[name], member, source_dir)
+            for name, member in expr.members.items()
+        )
+
+    return False
+
+
 @a_linter
 class StringCoercion(Linter):
     # String declaration with non-String rhs expression
@@ -387,7 +454,13 @@ class FileCoercion(Linter):
                     " provide default URI in inputs JSON file",
                 )
             else:
-                self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+                allowed = wdl_version_geq(
+                    _find_doc(obj).effective_wdl_version, WDLVersion.V1_2
+                ) and not _file_coercion_decl_suspicious(obj.type, obj.expr, obj.source_dir)
+                if not allowed:
+                    self.add(
+                        obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
+                    )
 
     def expr(self, obj: Expr.Base) -> Any:
         super().expr(obj)
