@@ -1,0 +1,1 @@
+This WDL 1.2 example uses source-relative File and Directory defaults.

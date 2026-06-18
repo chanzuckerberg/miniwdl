@@ -200,7 +200,8 @@ def _compound_coercion(
     if (
         isinstance(to_type, Type.StructInstance)
         and to_type.members
-        and isinstance(from_type, Type.Object)
+        and isinstance(from_type, (Type.Object, Type.StructInstance))
+        and from_type.members
     ):
         for field, field_type in from_type.members.items():
             if _compound_coercion(to_type.members[field], field_type, **kwargs):
@@ -234,6 +235,10 @@ def _parent_executable(obj: Error.SourceNode) -> Optional[Union[Tree.Task, Tree.
 def _file_coercion_literal_status(
     to_type: Type.Base, expr: Expr.Base, source_dir: str
 ) -> Optional[_util.SourceRelativePathKind]:
+    """
+    Classify a single expression leaf that would be coerced to File/Directory, if static evidence
+    is specific enough to decide.
+    """
     if not isinstance(to_type, (Type.File, Type.Directory)):
         return None
     if isinstance(expr.type, (Type.Any, Type.File, Type.Directory)):
@@ -245,12 +250,19 @@ def _file_coercion_literal_status(
         return None
     if "://" in literal.value:
         return _util.SourceRelativePathKind.ABSOLUTE
-    return _util.source_relative_path_kind(
+    return _util.guess_source_relative_path_kind(
         source_dir, literal.value, directory=isinstance(to_type, Type.Directory)
     )
 
 
 def _file_coercion_decl_suspicious(to_type: Type.Base, expr: Expr.Base, source_dir: str) -> bool:
+    """
+    Decide whether a WDL 1.2+ declaration initializer still deserves FileCoercion lint.
+
+    Unknown/computed String expressions are treated as plausible source-relative paths. Literal
+    compound expressions are inspected recursively so clearly bad File/Directory leaves are still
+    reported.
+    """
     status = _file_coercion_literal_status(to_type, expr, source_dir)
     if status is not None:
         return status in (
@@ -442,7 +454,10 @@ class FileCoercion(Linter):
     # exception: when rhs looks like a URI constant (typically a default reference database)
     def decl(self, obj: Tree.Decl) -> Any:
         super().decl(obj)
-        if obj.expr and _compound_coercion(obj.type, obj.expr.type, (Type.File, Type.Directory)):
+        if not obj.expr:
+            return
+        wdl_1_2 = wdl_version_geq(_find_doc(obj).effective_wdl_version, WDLVersion.V1_2)
+        if _compound_coercion(obj.type, obj.expr.type, (Type.File, Type.Directory)):
             if (
                 isinstance(obj.expr, Expr.String)
                 and obj.expr.literal
@@ -454,13 +469,15 @@ class FileCoercion(Linter):
                     " provide default URI in inputs JSON file",
                 )
             else:
-                allowed = wdl_version_geq(
-                    _find_doc(obj).effective_wdl_version, WDLVersion.V1_2
-                ) and not _file_coercion_decl_suspicious(obj.type, obj.expr, obj.source_dir)
+                allowed = wdl_1_2 and not _file_coercion_decl_suspicious(
+                    obj.type, obj.expr, obj.source_dir
+                )
                 if not allowed:
                     self.add(
                         obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
                     )
+        elif wdl_1_2 and _file_coercion_decl_suspicious(obj.type, obj.expr, obj.source_dir):
+            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
 
     def expr(self, obj: Expr.Base) -> Any:
         super().expr(obj)

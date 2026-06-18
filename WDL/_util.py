@@ -705,15 +705,17 @@ class SourceRelativePathKind(IntEnum):
 
 
 @export
-def source_relative_path_kind(
+def guess_source_relative_path_kind(
     source_dir: str, path: str, directory: bool = False
 ) -> SourceRelativePathKind:
     """
-    Best-effort classification of a path literal relative to a WDL source directory.
+    Infer how a path literal relates to a WDL source directory, using local filesystem evidence.
 
     ``source_dir`` should be the local directory containing the WDL source file, with or without a
-    trailing separator. The helper deliberately doesn't know about runtime configuration, download
-    plugins, AST nodes, or optional WDL types; callers should apply those policies separately.
+    trailing separator. This is necessarily heuristic because static analysis sees only a literal
+    string and the local filesystem at check time; runtime configuration, download plugins,
+    generated paths, optional WDL types, and future filesystem changes can all affect whether the
+    path will actually be usable. Callers should apply those policies separately.
     """
     if os.path.isabs(path):
         return SourceRelativePathKind.ABSOLUTE

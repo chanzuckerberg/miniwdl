@@ -15,6 +15,7 @@ import time
 import textwrap
 from .context import WDL
 import WDL.Lint
+import WDL._util
 
 
 class Lint(unittest.TestCase):
@@ -71,23 +72,37 @@ class Lint(unittest.TestCase):
         lint = self._file_coercion_lints(
             """
             version 1.2
+            struct FileBox {
+                File f
+            }
             workflow w {
                 File existing_file = "data/input.txt"
                 Directory existing_dir = "data/subdir"
                 File computed = "data/" + "input.txt"
                 File? missing_optional = "data/missing_optional.txt"
                 File missing_required = "data/missing_required.txt"
+                File escape = "../outside.txt"
                 File absolute = "/__miniwdl_missing_input.txt"
                 File uri = "s3://bucket/input.txt"
                 File wrong_file = "data/subdir"
                 Directory wrong_dir = "data/input.txt"
                 Array[File] files = ["data/input.txt"]
                 Array[File] bad_files = ["data/missing_array.txt"]
+                Array[String] string_files = ["data/missing_unknown.txt"]
+                Array[File] files_from_var = string_files
                 Map[File, String] labels = {"data/input.txt": "ok"}
                 Map[File, String] bad_labels = {"data/missing_map.txt": "bad"}
+                Map[String, String] string_labels = {"data/missing_unknown.txt": "ok"}
+                Map[File, String] labels_from_var = string_labels
+                Pair[File, String] file_pair = ("data/input.txt", "ok")
+                Pair[File, String] bad_file_pair = ("data/missing_pair.txt", "bad")
+                Pair[String, String] string_pair = ("data/missing_unknown.txt", "ok")
+                Pair[File, String] pair_from_var = string_pair
+                FileBox file_box = FileBox { f: "data/input.txt" }
+                FileBox bad_file_box = FileBox { f: "data/missing_struct.txt" }
             }
             """,
-            files=[("data/input.txt", "input\n"), ("data/subdir", None)],
+            files=[("data/input.txt", "input\n"), ("data/subdir", None), ("../outside.txt", "x")],
         )
 
         def lint_decl(message):
@@ -96,12 +111,15 @@ class Lint(unittest.TestCase):
         self.assertEqual(
             {
                 "File missing_required",
+                "File escape",
                 "File absolute",
                 "File uri",
                 "File wrong_file",
                 "Directory wrong_dir",
                 "Array[File] bad_files",
                 "Map[File,String] bad_labels",
+                "Pair[File,String] bad_file_pair",
+                "FileBox bad_file_box",
             },
             {lint_decl(msg) for msg in lint},
         )
@@ -136,6 +154,24 @@ class Lint(unittest.TestCase):
             if lint_class == "FileCoercion" and not suppressed
         ]
         self.assertEqual([], lint)
+
+    def test_guess_source_relative_path_kind_branches(self):
+        with tempfile.TemporaryDirectory(prefix="miniwdl_lint_path_kind_") as testdir:
+            src = os.path.join(testdir, "src")
+            os.makedirs(os.path.join(src, "data", "subdir"))
+            pathlib.Path(os.path.join(src, "data/input.txt")).write_text("input\n")
+            pathlib.Path(os.path.join(testdir, "outside.txt")).write_text("outside\n")
+
+            kind = WDL._util.SourceRelativePathKind
+            guess = WDL._util.guess_source_relative_path_kind
+            self.assertEqual(kind.ABSOLUTE, guess(src, "/tmp/input.txt"))
+            self.assertEqual(kind.UNAVAILABLE, guess("", "data/input.txt"))
+            self.assertEqual(kind.ESCAPES, guess(src, "../outside.txt"))
+            self.assertEqual(kind.MISSING, guess(src, "data/missing.txt"))
+            self.assertEqual(kind.OK, guess(src, "data/input.txt"))
+            self.assertEqual(kind.OK, guess(src, "data/subdir/", directory=True))
+            self.assertEqual(kind.WRONG_KIND, guess(src, "data/subdir"))
+            self.assertEqual(kind.WRONG_KIND, guess(src, "data/input.txt", directory=True))
 
 
 async def read_source(uri, path, importer_uri):
@@ -488,9 +524,8 @@ class ENCODE_WGBS(unittest.TestCase):
         "OptionalCoercion": 3,
         "FileCoercion": 3,
         "StringCoercion": 2,
-        "UnnecessaryQuantifier": 1,
-        "MissingVersion": 52,
         "UnnecessaryQuantifier": 10,
+        "MissingVersion": 52,
         "UnexpectedRuntimeValue": 1,
     },
     check_quant=False,
@@ -504,9 +539,9 @@ class dxWDL(unittest.TestCase):
     expected_lint={
         "_suppressions": 8,
         "UnusedImport": 4,
-        "NameCollision": 27,
+        "NameCollision": 29,
         "StringCoercion": 7,
-        "FileCoercion": 3,
+        "FileCoercion": 5,
         "NonemptyCoercion": 1,
         "UnnecessaryQuantifier": 5,
         "UnusedDeclaration": 4,
@@ -531,9 +566,9 @@ class Contrived(unittest.TestCase):
     expected_lint={
         "_suppressions": 16,
         "UnusedImport": 6,
-        "NameCollision": 43,
+        "NameCollision": 45,
         "StringCoercion": 13,
-        "FileCoercion": 5,
+        "FileCoercion": 7,
         "OptionalCoercion": 10,
         "NonemptyCoercion": 2,
         "UnnecessaryQuantifier": 9,
