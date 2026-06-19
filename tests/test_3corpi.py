@@ -15,7 +15,6 @@ import time
 import textwrap
 from .context import WDL
 import WDL.Lint
-import WDL._util
 
 
 class Lint(unittest.TestCase):
@@ -78,6 +77,7 @@ class Lint(unittest.TestCase):
             workflow w {
                 File existing_file = "data/input.txt"
                 Directory existing_dir = "data/subdir"
+                Directory existing_dir_slash = "data/subdir/"
                 File computed = "data/" + "input.txt"
                 File? missing_optional = "data/missing_optional.txt"
                 File missing_required = "data/missing_required.txt"
@@ -154,24 +154,6 @@ class Lint(unittest.TestCase):
             if lint_class == "FileCoercion" and not suppressed
         ]
         self.assertEqual([], lint)
-
-    def test_guess_source_relative_path_kind_branches(self):
-        with tempfile.TemporaryDirectory(prefix="miniwdl_lint_path_kind_") as testdir:
-            src = os.path.join(testdir, "src")
-            os.makedirs(os.path.join(src, "data", "subdir"))
-            pathlib.Path(os.path.join(src, "data/input.txt")).write_text("input\n")
-            pathlib.Path(os.path.join(testdir, "outside.txt")).write_text("outside\n")
-
-            kind = WDL._util.SourceRelativePathKind
-            guess = WDL._util.guess_source_relative_path_kind
-            self.assertEqual(kind.ABSOLUTE, guess(src, "/tmp/input.txt"))
-            self.assertEqual(kind.UNAVAILABLE, guess("", "data/input.txt"))
-            self.assertEqual(kind.ESCAPES, guess(src, "../outside.txt"))
-            self.assertEqual(kind.MISSING, guess(src, "data/missing.txt"))
-            self.assertEqual(kind.OK, guess(src, "data/input.txt"))
-            self.assertEqual(kind.OK, guess(src, "data/subdir/", directory=True))
-            self.assertEqual(kind.WRONG_KIND, guess(src, "data/subdir"))
-            self.assertEqual(kind.WRONG_KIND, guess(src, "data/input.txt", directory=True))
 
 
 async def read_source(uri, path, importer_uri):

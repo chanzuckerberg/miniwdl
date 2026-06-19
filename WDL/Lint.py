@@ -33,6 +33,7 @@ import json
 import os
 import random
 import shutil
+from enum import IntEnum
 from typing import Any, Optional, Union
 import regex
 from . import Error, Type, Env, Expr, Tree, StdLib, Value, Walker, _util
@@ -232,26 +233,69 @@ def _parent_executable(obj: Error.SourceNode) -> Optional[Union[Tree.Task, Tree.
     return None
 
 
+class _SourceRelativePathKind(IntEnum):
+    """
+    Static classification of a WDL 1.2 source-relative File/Directory path literal.
+    """
+
+    UNAVAILABLE = 0
+    ABSOLUTE = 1
+    ESCAPES = 2
+    MISSING = 3
+    OK = 4
+    WRONG_KIND = 5
+
+
+def _source_relative_path_kind(
+    source_dir: str, path: str, directory: bool = False
+) -> _SourceRelativePathKind:
+    """
+    Classify one string literal against a local WDL source directory.
+
+    This is intentionally exact for its narrow input domain: a literal path string and the current
+    local filesystem. The uncertain cases are handled by callers before reaching here, because WDL
+    1.2 source-relative paths can also be computed by arbitrary expressions whose values lint can't
+    know statically.
+    """
+    if os.path.isabs(path):
+        return _SourceRelativePathKind.ABSOLUTE
+    if not source_dir:
+        return _SourceRelativePathKind.UNAVAILABLE
+
+    expected_path = path.rstrip("/") if directory else path
+    target = os.path.realpath(os.path.join(source_dir, expected_path))
+    if not _util.path_really_within(target, source_dir):
+        return _SourceRelativePathKind.ESCAPES
+    if not os.path.exists(target):
+        return _SourceRelativePathKind.MISSING
+    expected_kind = os.path.isdir(target) if directory else os.path.isfile(target)
+    if expected_kind:
+        return _SourceRelativePathKind.OK
+    return _SourceRelativePathKind.WRONG_KIND
+
+
 def _file_coercion_literal_status(
     to_type: Type.Base, expr: Expr.Base, source_dir: str
-) -> Optional[_util.SourceRelativePathKind]:
+) -> Optional[_SourceRelativePathKind]:
     """
-    Classify a single expression leaf that would be coerced to File/Directory, if static evidence
-    is specific enough to decide.
+    Classify a single expression leaf that would be coerced to File/Directory.
+
+    Non-literal String expressions return None: they may evaluate to WDL 1.2 source-relative paths,
+    but lint doesn't evaluate them, so the declaration-level rule treats them as plausible.
     """
     if not isinstance(to_type, (Type.File, Type.Directory)):
         return None
     if isinstance(expr.type, (Type.Any, Type.File, Type.Directory)):
         return None
     if not isinstance(expr.type, Type.String):
-        return _util.SourceRelativePathKind.WRONG_KIND
+        return _SourceRelativePathKind.WRONG_KIND
     literal = expr.literal
     if not isinstance(literal, Value.String):
         return None
     if "://" in literal.value:
-        return _util.SourceRelativePathKind.ABSOLUTE
-    return _util.guess_source_relative_path_kind(
-        source_dir, literal.value, directory=isinstance(to_type, Type.Directory)
+        return _SourceRelativePathKind.ABSOLUTE
+    return _source_relative_path_kind(
+        source_dir, literal.value, isinstance(to_type, Type.Directory)
     )
 
 
@@ -259,17 +303,18 @@ def _file_coercion_decl_suspicious(to_type: Type.Base, expr: Expr.Base, source_d
     """
     Decide whether a WDL 1.2+ declaration initializer still deserves FileCoercion lint.
 
-    Unknown/computed String expressions are treated as plausible source-relative paths. Literal
-    compound expressions are inspected recursively so clearly bad File/Directory leaves are still
-    reported.
+    This is where the "guessing" happens: unknown/computed String expressions are treated as
+    plausible source-relative paths because arbitrary WDL expressions can build valid paths at
+    runtime. Literal compound expressions are inspected recursively so clearly bad File/Directory
+    leaves are still reported.
     """
     status = _file_coercion_literal_status(to_type, expr, source_dir)
     if status is not None:
         return status in (
-            _util.SourceRelativePathKind.ABSOLUTE,
-            _util.SourceRelativePathKind.ESCAPES,
-            _util.SourceRelativePathKind.WRONG_KIND,
-        ) or (status == _util.SourceRelativePathKind.MISSING and not to_type.optional)
+            _SourceRelativePathKind.ABSOLUTE,
+            _SourceRelativePathKind.ESCAPES,
+            _SourceRelativePathKind.WRONG_KIND,
+        ) or (status == _SourceRelativePathKind.MISSING and not to_type.optional)
 
     if isinstance(to_type, Type.Array):
         if isinstance(expr, Expr.Array):
