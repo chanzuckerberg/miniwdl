@@ -239,7 +239,8 @@ def run_local_task(  # type: ignore[return]
                     assert container.try_counter >= 1
                     assert container.last_exit_code is not None
                     container.update_task_runtime_info_struct(
-                        task_type=task.task_runtime_info_struct_type(include_return_code=True),
+                        task,
+                        output_section=True,
                         attempt=Value.Int(container.try_counter - 1),
                         return_code=Value.Int(container.last_exit_code),
                     )

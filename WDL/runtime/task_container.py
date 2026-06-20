@@ -392,7 +392,11 @@ class TaskContainer(ABC):
                 value.type.check(member_type.copy(optional=False))
 
     def update_task_runtime_info_struct(
-        self, task_type: Optional[Type.StructInstance] = None, **updates: Value.Base
+        self,
+        task: Optional["Tree.Task"] = None,
+        *,
+        output_section: bool = False,
+        **updates: Value.Base,
     ) -> None:
         """
         Replace the task-scoped runtime info struct with a checked copy containing updates.
@@ -400,7 +404,12 @@ class TaskContainer(ABC):
         assert self.task_runtime_info_struct is not None
         task_value = self.task_runtime_info_struct
         assert isinstance(task_value.type, Type.StructInstance)
-        task_type = task_type or task_value.type
+        if output_section:
+            assert task is not None
+            task_type = task.task_runtime_info_struct_type(output_section=True)
+        else:
+            assert task is None
+            task_type = task_value.type
         values = dict(task_value.value)
         values.update(updates)
         self.task_runtime_info_struct = Value.Struct(

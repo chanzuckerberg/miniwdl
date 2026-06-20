@@ -331,9 +331,7 @@ class Task(SourceNode):
         # TODO: if the input section exists, then all postinputs decls must be
         #       bound
 
-    def task_runtime_info_struct_type(
-        self, *, include_return_code: bool = False
-    ) -> Type.StructInstance:
+    def task_runtime_info_struct_type(self, *, output_section: bool = False) -> Type.StructInstance:
         """
         Build the synthetic task runtime info struct type (WDL 1.2+).
         """
@@ -364,7 +362,7 @@ class Task(SourceNode):
             "parameter_meta": parameter_meta_ty,
             # TODO: add task.ext (Object) for engine-specific runtime info.
         }
-        if include_return_code:
+        if output_section:
             task_ty.members["return_code"] = Type.Int()
         return task_ty
 
@@ -493,7 +491,7 @@ class Task(SourceNode):
                 )
                 output_env = _add_struct_instance_to_type_env(
                     "task",
-                    self.task_runtime_info_struct_type(include_return_code=True),
+                    self.task_runtime_info_struct_type(output_section=True),
                     type_env,
                     ctx=task_ctx,
                 )
