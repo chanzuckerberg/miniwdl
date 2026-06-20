@@ -43,7 +43,7 @@ def _canonicalize_local_path(value: str, *, directory: bool) -> str:
     if not value:
         return "/" if directory and original_value.startswith("/") else ""
     if os.path.isabs(value):
-        return os.path.realpath(value)
+        return os.path.normpath(value)
     return posixpath.normpath(value)
 
 

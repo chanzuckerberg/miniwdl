@@ -1,4 +1,4 @@
-import unittest, inspect, json, random, os, tempfile
+import unittest, inspect, json, random
 from .context import WDL
 
 class TestEval(unittest.TestCase):
@@ -511,18 +511,6 @@ class TestEval(unittest.TestCase):
         self.assertEqual(WDL.Value.File("/tmp/./source/../source/file.txt").value, "/tmp/source/file.txt")
         self.assertEqual(WDL.Value.File("relative/./dir/../file.txt").value, "relative/file.txt")
         self.assertEqual(WDL.Value.File("s3://example-bucket/data/../data/file.txt").value, "s3://example-bucket/data/../data/file.txt")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            target_file = os.path.join(tmpdir, "target.txt")
-            with open(target_file, mode="w") as outfile:
-                outfile.write("target")
-            link_file = os.path.join(tmpdir, "link.txt")
-            os.symlink(target_file, link_file)
-            self.assertEqual(WDL.Value.File(link_file).value, os.path.realpath(target_file))
-            target_dir = os.path.join(tmpdir, "target_dir")
-            os.makedirs(target_dir)
-            link_dir = os.path.join(tmpdir, "link_dir")
-            os.symlink(target_dir, link_dir)
-            self.assertEqual(WDL.Value.Directory(link_dir).value, os.path.realpath(target_dir))
         rewritten = WDL.Value.rewrite_paths(d, lambda _: "/tmp/rewritten/")
         self.assertIsInstance(rewritten, WDL.Value.Directory)
         self.assertEqual(rewritten.value, "/tmp/rewritten")
