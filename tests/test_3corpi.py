@@ -88,6 +88,7 @@ class Lint(unittest.TestCase):
                 Directory wrong_dir = "data/input.txt"
                 Array[File] files = ["data/input.txt"]
                 Array[File] bad_files = ["data/missing_array.txt"]
+                Array[File] uri_files = ["s3://bucket/input.txt"]
                 Array[String] string_files = ["data/missing_unknown.txt"]
                 Array[File] files_from_var = string_files
                 Map[File, String] labels = {"data/input.txt": "ok"}
@@ -117,6 +118,7 @@ class Lint(unittest.TestCase):
                 "File wrong_file",
                 "Directory wrong_dir",
                 "Array[File] bad_files",
+                "Array[File] uri_files",
                 "Map[File,String] bad_labels",
                 "Pair[File,String] bad_file_pair",
                 "FileBox bad_file_box",
