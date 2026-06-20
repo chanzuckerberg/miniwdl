@@ -1047,6 +1047,16 @@ class TestDirectoryIO(RunnerTestCase):
         assert len(outp["dirs"]) == 1
         assert os.path.isdir(outp["dirs"][0])
 
+    def test_check_directory_rejects_file(self):
+        file_path = os.path.join(self._dir, "outdir")
+        with open(file_path, mode="w") as outfile:
+            print("not a directory", file=outfile)
+
+        with self.assertRaisesRegex(
+            WDL.runtime.error.OutputError, "Directory task output d_out is not a directory"
+        ):
+            runtime_task._check_directory(file_path, "d_out")
+
     def test_errors(self):
         self._run(
             R"""
