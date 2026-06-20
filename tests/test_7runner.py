@@ -2627,7 +2627,7 @@ class TestTaskRuntimeInfo(RunnerTestCase):
                 Float cpu = task.cpu
                 Int mem = task.memory
                 Int attempt = task.attempt
-                Int? rc = task.return_code
+                Int rc = task.return_code
             }
             requirements {
                 container: "ubuntu:20.04"

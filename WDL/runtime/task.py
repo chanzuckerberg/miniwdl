@@ -237,13 +237,11 @@ def run_local_task(  # type: ignore[return]
                 # bind output declarations to task runtime info with the final return code
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
                     assert container.try_counter >= 1
+                    assert container.last_exit_code is not None
                     container.update_task_runtime_info_struct(
+                        task_type=task.task_runtime_info_struct_type(include_return_code=True),
                         attempt=Value.Int(container.try_counter - 1),
-                        return_code=(
-                            Value.Int(container.last_exit_code)
-                            if container.last_exit_code is not None
-                            else Value.Null()
-                        ),
+                        return_code=Value.Int(container.last_exit_code),
                     )
                     assert container.task_runtime_info_struct is not None
                     container_env = container_env.bind("task", container.task_runtime_info_struct)
@@ -834,7 +832,6 @@ def _eval_task_command(
     if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
         container.update_task_runtime_info_struct(
             attempt=Value.Int(attempt),
-            return_code=Value.Null(),
         )
         assert container.task_runtime_info_struct is not None
         command_env = command_env.bind("task", container.task_runtime_info_struct)

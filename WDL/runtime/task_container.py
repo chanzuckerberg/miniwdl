@@ -365,7 +365,6 @@ class TaskContainer(ABC):
             "attempt": max(0, self.try_counter - 1),
             # NOTE: end_time is always None; spec distinguishes None vs 0 vs positive deadline.
             "end_time": None,
-            "return_code": None,
             "meta": Expr._meta_value_to_json(task.meta),
             "parameter_meta": Expr._meta_value_to_json(task.parameter_meta),
         }
@@ -387,20 +386,25 @@ class TaskContainer(ABC):
         assert set(task_value.value) == set(task_type.members)
         for key, value in task_value.value.items():
             member_type = task_type.members[key]
-            assert isinstance(value, Value.Null) or value.type == member_type.copy(optional=False)
-            assert not isinstance(value, Value.Null) or member_type.optional
+            if isinstance(value, Value.Null):
+                assert member_type.optional
+            else:
+                value.type.check(member_type.copy(optional=False))
 
-    def update_task_runtime_info_struct(self, **updates: Value.Base) -> None:
+    def update_task_runtime_info_struct(
+        self, task_type: Optional[Type.StructInstance] = None, **updates: Value.Base
+    ) -> None:
         """
         Replace the task-scoped runtime info struct with a checked copy containing updates.
         """
         assert self.task_runtime_info_struct is not None
         task_value = self.task_runtime_info_struct
         assert isinstance(task_value.type, Type.StructInstance)
+        task_type = task_type or task_value.type
         values = dict(task_value.value)
         values.update(updates)
         self.task_runtime_info_struct = Value.Struct(
-            task_value.type,
+            task_type,
             values,
             extra=set(task_value.extra),
         )
