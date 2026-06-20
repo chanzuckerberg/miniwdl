@@ -1070,6 +1070,22 @@ class TestDirectoryIO(RunnerTestCase):
             version development
             task t {
                 command <<<
+                    touch outdir
+                >>>
+                output {
+                    Directory? d_out = "outdir"
+                }
+            }
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
+
+        self._run(
+            R"""
+            version development
+            task t {
+                command <<<
                     touch secret
                     mkdir outdir
                     ln -s ../secret outdir/owned
@@ -1129,6 +1145,22 @@ class TestDirectoryIO(RunnerTestCase):
                 >>>
                 output {
                     File f_out = "outdir"
+                }
+            }
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
+
+        self._run(
+            R"""
+            version development
+            task t {
+                command <<<
+                    mkdir outdir
+                >>>
+                output {
+                    File? f_out = "outdir"
                 }
             }
             """,
