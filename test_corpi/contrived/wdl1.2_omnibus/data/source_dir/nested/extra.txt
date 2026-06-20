@@ -1,0 +1,1 @@
+Nested content reached through join_paths(Directory, Array[String]).

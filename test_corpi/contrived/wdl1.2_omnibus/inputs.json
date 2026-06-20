@@ -1,0 +1,15 @@
+{
+  "wdl12_omnibus.greeting": "hello from inputs.json",
+  "wdl12_omnibus.maybe_suffix": "from-json",
+  "wdl12_omnibus.terms": ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"],
+  "wdl12_omnibus.sample": {
+    "id": "sample-json",
+    "label": "sample supplied by inputs.json",
+    "annotations": {
+      "species": "synthetic",
+      "platform": "miniwdl",
+      "purpose": "wdl-1.2-demo",
+      "source": "inputs-json"
+    }
+  }
+}

@@ -1,4 +1,18 @@
-import unittest, unittest.mock, tempfile, os, glob, json, urllib, urllib.request, logging, shutil, contextlib, pathlib, hashlib, time
+import unittest
+import unittest.mock
+import tempfile
+import os
+import glob
+import json
+import urllib
+import urllib.request
+import logging
+import shutil
+import contextlib
+import pathlib
+import hashlib
+import time
+import textwrap
 from .context import WDL
 import WDL.Lint
 
@@ -29,6 +43,119 @@ class Lint(unittest.TestCase):
                     )
                 )
         self.assertEqual(len(lint), 2)
+
+    def _file_coercion_lints(self, source, files=()):
+        with tempfile.TemporaryDirectory(prefix="miniwdl_lint_test_") as testdir:
+            src = os.path.join(testdir, "src")
+            os.makedirs(src)
+            for relpath, contents in files:
+                path = os.path.join(src, relpath)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                if contents is None:
+                    os.makedirs(path)
+                else:
+                    pathlib.Path(path).write_text(contents)
+            wdl = os.path.join(src, "test.wdl")
+            pathlib.Path(wdl).write_text(textwrap.dedent(source))
+
+            doc = WDL.load(wdl)
+            WDL.Lint._shellcheck_available = False
+            WDL.Lint.lint(doc, descend_imports=False)
+            return [
+                message
+                for _pos, lint_class, message, suppressed in WDL.Lint.collect(doc)
+                if lint_class == "FileCoercion" and not suppressed
+            ]
+
+    def test_file_coercion_wdl12_source_relative_decl(self):
+        lint = self._file_coercion_lints(
+            """
+            version 1.2
+            struct FileBox {
+                File f
+            }
+            workflow w {
+                File existing_file = "data/input.txt"
+                Directory existing_dir = "data/subdir"
+                Directory existing_dir_slash = "data/subdir/"
+                File computed = "data/" + "input.txt"
+                File? missing_optional = "data/missing_optional.txt"
+                File missing_required = "data/missing_required.txt"
+                File escape = "../outside.txt"
+                File absolute = "/__miniwdl_missing_input.txt"
+                File uri = "s3://bucket/input.txt"
+                File wrong_file = "data/subdir"
+                Directory wrong_dir = "data/input.txt"
+                Array[File] files = ["data/input.txt"]
+                Array[File] bad_files = ["data/missing_array.txt"]
+                Array[File] uri_files = ["s3://bucket/input.txt"]
+                Array[String] string_files = ["data/missing_unknown.txt"]
+                Array[File] files_from_var = string_files
+                Map[File, String] labels = {"data/input.txt": "ok"}
+                Map[File, String] bad_labels = {"data/missing_map.txt": "bad"}
+                Map[String, String] string_labels = {"data/missing_unknown.txt": "ok"}
+                Map[File, String] labels_from_var = string_labels
+                Pair[File, String] file_pair = ("data/input.txt", "ok")
+                Pair[File, String] bad_file_pair = ("data/missing_pair.txt", "bad")
+                Pair[String, String] string_pair = ("data/missing_unknown.txt", "ok")
+                Pair[File, String] pair_from_var = string_pair
+                FileBox file_box = FileBox { f: "data/input.txt" }
+                FileBox bad_file_box = FileBox { f: "data/missing_struct.txt" }
+            }
+            """,
+            files=[("data/input.txt", "input\n"), ("data/subdir", None), ("../outside.txt", "x")],
+        )
+
+        def lint_decl(message):
+            return message.split(" = ")[0]
+
+        self.assertEqual(
+            {
+                "File missing_required",
+                "File escape",
+                "File absolute",
+                "File uri",
+                "File wrong_file",
+                "Directory wrong_dir",
+                "Array[File] bad_files",
+                "Array[File] uri_files",
+                "Map[File,String] bad_labels",
+                "Pair[File,String] bad_file_pair",
+                "FileBox bad_file_box",
+            },
+            {lint_decl(msg) for msg in lint},
+        )
+
+    def test_file_coercion_wdl11_relative_decl_unchanged(self):
+        lint = self._file_coercion_lints(
+            """
+            version 1.1
+            workflow w {
+                File existing_file = "data/input.txt"
+            }
+            """,
+            files=[("data/input.txt", "input\n")],
+        )
+        self.assertEqual(["File existing_file = :String:"], lint)
+
+    def test_file_coercion_wdl12_buffer_relative_literal(self):
+        doc = WDL.parse_document(
+            """
+            version 1.2
+            workflow w {
+                File relative = "data/input.txt"
+            }
+            """
+        )
+        doc.typecheck()
+        WDL.Lint._shellcheck_available = False
+        WDL.Lint.lint(doc, descend_imports=False)
+        lint = [
+            message
+            for _pos, lint_class, message, suppressed in WDL.Lint.collect(doc)
+            if lint_class == "FileCoercion" and not suppressed
+        ]
+        self.assertEqual([], lint)
 
 
 async def read_source(uri, path, importer_uri):
@@ -381,9 +508,8 @@ class ENCODE_WGBS(unittest.TestCase):
         "OptionalCoercion": 3,
         "FileCoercion": 3,
         "StringCoercion": 2,
-        "UnnecessaryQuantifier": 1,
-        "MissingVersion": 52,
         "UnnecessaryQuantifier": 10,
+        "MissingVersion": 52,
         "UnexpectedRuntimeValue": 1,
     },
     check_quant=False,
@@ -397,9 +523,9 @@ class dxWDL(unittest.TestCase):
     expected_lint={
         "_suppressions": 8,
         "UnusedImport": 4,
-        "NameCollision": 27,
+        "NameCollision": 29,
         "StringCoercion": 7,
-        "FileCoercion": 3,
+        "FileCoercion": 5,
         "NonemptyCoercion": 1,
         "UnnecessaryQuantifier": 5,
         "UnusedDeclaration": 4,
@@ -424,9 +550,9 @@ class Contrived(unittest.TestCase):
     expected_lint={
         "_suppressions": 16,
         "UnusedImport": 6,
-        "NameCollision": 43,
+        "NameCollision": 45,
         "StringCoercion": 13,
-        "FileCoercion": 5,
+        "FileCoercion": 7,
         "OptionalCoercion": 10,
         "NonemptyCoercion": 2,
         "UnnecessaryQuantifier": 9,
