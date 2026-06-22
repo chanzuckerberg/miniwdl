@@ -347,6 +347,8 @@ class TestEval(unittest.TestCase):
             ("s == d", "true", env),
             ("d == s", "true", env),
             ("s != e", "true", env),
+            ('"/hello/../hello.txt" == f', "true", env),
+            ('"/hello/../hello.txt" == d', "true", env),
             ("strings == files", "(Ln 1, Col 1) Cannot compare Array[String]+ and Array[File]+", WDL.Error.IncompatibleOperand, env),
             ("strings == directories", "(Ln 1, Col 1) Cannot compare Array[String]+ and Array[Directory]+", WDL.Error.IncompatibleOperand, env),
         )
@@ -500,9 +502,15 @@ class TestEval(unittest.TestCase):
         self.assertEqual(d.coerce(WDL.Type.String()).value, "/tmp/source")
         self.assertEqual(d.json, "/tmp/source")
         self.assertEqual(WDL.Value.Directory("relative/dir/").value, "relative/dir")
+        self.assertEqual(WDL.Value.Directory("/tmp/./source/../source/").value, "/tmp/source")
+        self.assertEqual(WDL.Value.Directory("relative/./dir/../dir/").value, "relative/dir")
         self.assertEqual(WDL.Value.Directory("/").coerce(WDL.Type.String()).value, "/")
         self.assertEqual(WDL.Value.Directory("/").json, "/")
         self.assertEqual(WDL.Value.Directory("").value, "")
+        self.assertEqual(WDL.Value.Directory("s3://example-bucket/data/dir/").value, "s3://example-bucket/data/dir")
+        self.assertEqual(WDL.Value.File("/tmp/./source/../source/file.txt").value, "/tmp/source/file.txt")
+        self.assertEqual(WDL.Value.File("relative/./dir/../file.txt").value, "relative/file.txt")
+        self.assertEqual(WDL.Value.File("s3://example-bucket/data/../data/file.txt").value, "s3://example-bucket/data/../data/file.txt")
         rewritten = WDL.Value.rewrite_paths(d, lambda _: "/tmp/rewritten/")
         self.assertIsInstance(rewritten, WDL.Value.Directory)
         self.assertEqual(rewritten.value, "/tmp/rewritten")

@@ -13,6 +13,8 @@ import copy
 import base64
 import hashlib
 import itertools
+import os
+import posixpath
 import threading
 from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set, TYPE_CHECKING
@@ -24,6 +26,25 @@ if TYPE_CHECKING:
 
 _STRUCT_ID_COUNTER = itertools.count()
 _STRUCT_ID_LOCK = threading.Lock()
+
+
+def _canonicalize_local_path(value: str, *, directory: bool) -> str:
+    """
+    Apply WDL 1.2 path canonicalization for local File/Directory values.
+
+    Runtime context is still needed to resolve source-relative paths to absolute paths and validate
+    existence/kind. Do not normalize URI-like values here because posixpath.normpath("s3://bucket/key")
+    collapses the URI separator.
+    """
+    if "://" in value:
+        return value.rstrip("/") if directory else value
+    original_value = value
+    value = value.rstrip("/") if directory else value
+    if not value:
+        return "/" if directory and original_value.startswith("/") else ""
+    if os.path.isabs(value):
+        return os.path.normpath(value)
+    return posixpath.normpath(value)
 
 
 def _struct_type_fresh_id() -> int:
@@ -180,9 +201,10 @@ class File(String):
     """``value`` has Python type ``str``"""
 
     def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
-        super().__init__(value, expr=expr, subtype=Type.File())
         if value != value.rstrip("/"):
             raise Error.InputError("WDL.Value.File invalid path: " + value)
+        value = _canonicalize_local_path(value, directory=False)
+        super().__init__(value, expr=expr, subtype=Type.File())
 
 
 class Directory(String):
@@ -191,7 +213,7 @@ class Directory(String):
     def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
         # WDL 1.2 Path Canonicalization and Validation specifies that, for Directory values,
         # trailing directory separators are removed. Preserve "/" itself as the filesystem root.
-        value = value.rstrip("/") or ("/" if value.startswith("/") else "")
+        value = _canonicalize_local_path(value, directory=True)
         super().__init__(value, expr=expr, subtype=Type.Directory())
 
 
