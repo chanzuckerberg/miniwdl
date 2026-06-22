@@ -19,6 +19,7 @@ from typing import (
     TYPE_CHECKING,
     Generator,
     Iterable,
+    NamedTuple,
 )
 from contextlib import ExitStack, suppress
 from collections import Counter
@@ -57,6 +58,12 @@ from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
 
 if TYPE_CHECKING:  # otherwise-delayed heavy imports
     from .task_container import TaskContainer
+
+
+class _TaskDeclPathResolved(NamedTuple):
+    value: Optional[str]
+    missing_path: Optional[str] = None
+
 
 TaskPluginCoroutine = Generator[Dict[str, Any], Dict[str, Any], None]
 
@@ -398,8 +405,9 @@ def _eval_task_inputs(
                 lambda w: _resolve_task_decl_path_into_container(
                     task, decl.name, w, container, cache_add_paths
                 ),
-                lambda name: Error.InputError(
+                lambda name, missing_path: Error.InputError(
                     f"File/Directory path not found in task declaration {name}"
+                    + (f": {missing_path}" if missing_path else "")
                 ),
             ),
         )
@@ -505,20 +513,33 @@ def _eval_task_decl(
 def _postprocess_task_decl_paths(
     decl: Tree.Decl,
     value: Value.Base,
-    missing_path: Callable[[Union[Value.File, Value.Directory]], Optional[str]],
-    missing_error: Callable[[str], Error.RuntimeError],
+    resolve_path: Callable[[Union[Value.File, Value.Directory]], _TaskDeclPathResolved],
+    missing_error: Callable[[str, Optional[str]], Error.RuntimeError],
 ) -> Value.Base:
     """
     Replace non-existent File/Directory paths with None (Value.Null), then coerce to the
     declaration type (which may raise if the declaration is non-optional).
     """
-    value = Value.rewrite_paths(value, missing_path)
+    first_missing_path: Optional[str] = None
+
+    def rewrite_missing_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
+        nonlocal first_missing_path
+        resolved = resolve_path(v)
+        if resolved.value is None and not first_missing_path:
+            first_missing_path = resolved.missing_path or _task_decl_path_value(v)
+        return resolved.value
+
+    value = Value.rewrite_paths(value, rewrite_missing_path)
     try:
         return value.coerce(decl.type)
     except FileNotFoundError:  # from Value.Null.coerce(File|Directory)
-        err = missing_error(decl.name)
+        err = missing_error(decl.name, first_missing_path)
         setattr(err, "job_id", decl.workflow_node_id)
         raise err
+
+
+def _task_decl_path_value(v: Union[Value.File, Value.Directory]) -> str:
+    return v.value.rstrip("/") + ("/" if isinstance(v, Value.Directory) else "")
 
 
 def _resolve_task_decl_path_into_container(
@@ -527,7 +548,7 @@ def _resolve_task_decl_path_into_container(
     v: Union[Value.File, Value.Directory],
     container: "TaskContainer",
     cache_add_paths: CallCacheAddPaths,
-) -> Optional[str]:
+) -> _TaskDeclPathResolved:
     """
     Resolve a task input/private declaration File/Directory path into the task container.
 
@@ -537,25 +558,27 @@ def _resolve_task_decl_path_into_container(
     return the container path.
     """
     ans = _task_decl_input_directory_child_path(decl_name, v, container)
-    if ans is None or ans != v.value:
-        return ans
+    if ans is None:
+        return _TaskDeclPathResolved(None, _task_decl_path_value(v))
+    if ans != v.value:
+        return _TaskDeclPathResolved(ans)
 
     if not wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
-        return v.value
+        return _TaskDeclPathResolved(v.value)
 
     result = resolve_source_relative_path(
         container.cfg, task.source_dir, f"task declaration {decl_name}", v
     )
     if result.absent_path:
         cache_add_paths.add(result.absent_path, absent=True)
-        return None
+        return _TaskDeclPathResolved(None, result.absent_path)
     assert result.value is not None
     if not result.source_path:
-        return result.value
+        return _TaskDeclPathResolved(result.value)
 
     cache_add_paths.add(result.source_path)
     container.add_paths({result.source_path})
-    return container.input_path_map[result.source_path]
+    return _TaskDeclPathResolved(container.input_path_map[result.source_path])
 
 
 def _task_decl_input_directory_child_path(
@@ -953,8 +976,12 @@ def _postprocess_task_output_decl_paths(
     return _postprocess_task_decl_paths(
         decl,
         value,
-        lambda v: _task_output_missing_path(v, container),
-        lambda name: OutputError("File/Directory path not found in task output " + name),
+        lambda v: _TaskDeclPathResolved(_task_output_missing_path(v, container)),
+        lambda name, missing_path: OutputError(
+            "File/Directory path not found in task output "
+            + name
+            + (f": {missing_path}" if missing_path else "")
+        ),
     )
 
 
