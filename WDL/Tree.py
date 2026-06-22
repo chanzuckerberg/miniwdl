@@ -331,7 +331,7 @@ class Task(SourceNode):
         # TODO: if the input section exists, then all postinputs decls must be
         #       bound
 
-    def task_runtime_info_struct_type(self) -> Type.StructInstance:
+    def task_runtime_info_struct_type(self, *, output_section: bool = False) -> Type.StructInstance:
         """
         Build the synthetic task runtime info struct type (WDL 1.2+).
         """
@@ -358,11 +358,12 @@ class Task(SourceNode):
             "disks": Type.Map((Type.String(), Type.Int())),
             "attempt": Type.Int(),
             "end_time": Type.Int(optional=True),
-            "return_code": Type.Int(optional=True),
             "meta": meta_ty,
             "parameter_meta": parameter_meta_ty,
             # TODO: add task.ext (Object) for engine-specific runtime info.
         }
+        if output_section:
+            task_ty.members["return_code"] = Type.Int()
         return task_ty
 
     @property
@@ -478,22 +479,26 @@ class Task(SourceNode):
                 )  # .typecheck()
                 # (At this stage we don't care about the overall expression type, just that it
                 #  typechecks internally.)
-            # Use a separate environment for command/output typechecking, where WDL 1.2+
-            # exposes the task runtime info struct. Keep type_env unchanged so it documents
-            # that inputs, postinputs, and runtime expressions can't depend on task.*.
-            body_env = type_env
+            # Use separate environments for command/output typechecking, where WDL 1.2+ exposes
+            # the task runtime info struct. Keep type_env unchanged so it documents that inputs,
+            # postinputs, and runtime expressions can't depend on task.*.
+            command_env = type_env
+            output_env = type_env
             if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_2):
-                # Add task-scoped runtime info for typechecking task command & outputs (WDL 1.2+)
-                # NOTE: spec doesn't explicitly limit scope; we currently expose task runtime info
-                # only in command/output to avoid circularity with requirements and declarations.
                 task_ctx = Decl(self.pos, Type.Any(), "task", id_prefix="task")
-                body_env = _add_struct_instance_to_type_env(
+                command_env = _add_struct_instance_to_type_env(
                     "task", self.task_runtime_info_struct_type(), type_env, ctx=task_ctx
+                )
+                output_env = _add_struct_instance_to_type_env(
+                    "task",
+                    self.task_runtime_info_struct_type(output_section=True),
+                    type_env,
+                    ctx=task_ctx,
                 )
             # Typecheck the command (string)
             errors.try1(
                 lambda: self.command.infer_type(
-                    body_env, stdlib, check_quant=check_quant, struct_types=struct_types
+                    command_env, stdlib, check_quant=check_quant, struct_types=struct_types
                 ).typecheck(Type.String())
             )
             for b in self.available_inputs:
@@ -501,16 +506,18 @@ class Task(SourceNode):
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(
-                    (lambda decl: lambda: decl.add_to_type_env(struct_types, body_env))(decl)
+                    (lambda decl: lambda: decl.add_to_type_env(struct_types, output_env))(decl)
                 )
                 if type_env2:
-                    body_env = type_env2
+                    output_env = type_env2
             errors.maybe_raise()
             # Typecheck the output expressions
             stdlib = StdLib.TaskOutputs(self.effective_wdl_version)
             for decl in self.outputs:
                 errors.try1(
-                    lambda: decl.typecheck(body_env, stdlib, struct_types, check_quant=check_quant)
+                    lambda: decl.typecheck(
+                        output_env, stdlib, struct_types, check_quant=check_quant
+                    )
                 )
                 errors.try1(lambda: _check_serializable_map_keys(decl.type, decl.name, decl))
 

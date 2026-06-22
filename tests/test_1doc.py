@@ -661,6 +661,7 @@ task compare_md5sum {
             }
             output {
                 String o = task.name
+                Int rc = task.return_code
             }
             requirements {
                 cpu: 1
@@ -684,6 +685,23 @@ task compare_md5sum {
         }
         """
         with self.assertRaises(WDL.Error.UnknownIdentifier):
+            WDL.parse_document(doc).typecheck()
+
+        doc = r"""
+        version 1.2
+        task t {
+            input {
+                String s
+            }
+            command {
+                echo "~{task.return_code}"
+            }
+            output {
+                String o = "x"
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.NoSuchMember):
             WDL.parse_document(doc).typecheck()
 
         doc = r"""
