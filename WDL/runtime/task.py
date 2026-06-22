@@ -244,13 +244,12 @@ def run_local_task(  # type: ignore[return]
                 # bind output declarations to task runtime info with the final return code
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
                     assert container.try_counter >= 1
+                    assert container.last_exit_code is not None
                     container.update_task_runtime_info_struct(
+                        task,
+                        output_section=True,
                         attempt=Value.Int(container.try_counter - 1),
-                        return_code=(
-                            Value.Int(container.last_exit_code)
-                            if container.last_exit_code is not None
-                            else Value.Null()
-                        ),
+                        return_code=Value.Int(container.last_exit_code),
                     )
                     assert container.task_runtime_info_struct is not None
                     container_env = container_env.bind("task", container.task_runtime_info_struct)
@@ -857,7 +856,6 @@ def _eval_task_command(
     if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
         container.update_task_runtime_info_struct(
             attempt=Value.Int(attempt),
-            return_code=Value.Null(),
         )
         assert container.task_runtime_info_struct is not None
         command_env = command_env.bind("task", container.task_runtime_info_struct)
@@ -976,7 +974,7 @@ def _postprocess_task_output_decl_paths(
     return _postprocess_task_decl_paths(
         decl,
         value,
-        lambda v: _TaskDeclPathResolved(_task_output_missing_path(v, container)),
+        lambda v: _TaskDeclPathResolved(_task_output_missing_path(decl.name, v, container)),
         lambda name, missing_path: OutputError(
             "File/Directory path not found in task output "
             + name
@@ -986,18 +984,31 @@ def _postprocess_task_output_decl_paths(
 
 
 def _task_output_missing_path(
+    output_name: str,
     v: Union[Value.File, Value.Directory],
     container: "TaskContainer",
 ) -> Optional[str]:
     """
     Return None for a task output File/Directory path missing from the container.
+
+    A present path of the wrong kind is an output error, even for optional outputs.
     """
     container_path = v.value
-    if isinstance(v, Value.Directory) and not container_path.endswith("/"):
-        container_path += "/"
-    if container.host_path(container_path) is None:
+    if isinstance(v, Value.Directory):
+        if not container_path.endswith("/"):
+            container_path += "/"
+        if container.host_path(container_path) is not None:
+            return v.value
+        file_path = v.value.rstrip("/")
+        if file_path and container.host_path(file_path) is not None:
+            raise OutputError(f"Directory task output {output_name} is not a directory: {v.value}")
         return None
-    return v.value
+
+    if container.host_path(container_path) is not None:
+        return v.value
+    if container.host_path(container_path + "/") is not None:
+        raise OutputError(f"File task output {output_name} is not a file: {v.value}")
+    return None
 
 
 def _task_output_host_path(
@@ -1028,6 +1039,8 @@ def _check_directory(host_path: str, output_name: str) -> None:
     """
     Traverse an output directory to check that all symlinks are relative & resolve inside the dir.
     """
+    if not os.path.isdir(host_path):
+        raise OutputError(f"Directory task output {output_name} is not a directory: {host_path}")
 
     def raiser(exc: OSError):
         raise exc

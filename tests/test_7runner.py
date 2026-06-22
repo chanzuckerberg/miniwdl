@@ -1091,6 +1091,16 @@ class TestDirectoryIO(RunnerTestCase):
         assert len(outp["dirs"]) == 1
         assert os.path.isdir(outp["dirs"][0])
 
+    def test_check_directory_rejects_file(self):
+        file_path = os.path.join(self._dir, "outdir")
+        with open(file_path, mode="w") as outfile:
+            print("not a directory", file=outfile)
+
+        with self.assertRaisesRegex(
+            WDL.runtime.error.OutputError, "Directory task output d_out is not a directory"
+        ):
+            runtime_task._check_directory(file_path, "d_out")
+
     def test_errors(self):
         self._run(
             R"""
@@ -1102,6 +1112,22 @@ class TestDirectoryIO(RunnerTestCase):
                 >>>
                 output {
                     Directory d_out = "outdir"
+                }
+            }
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
+
+        self._run(
+            R"""
+            version development
+            task t {
+                command <<<
+                    touch outdir
+                >>>
+                output {
+                    Directory? d_out = "outdir"
                 }
             }
             """,
@@ -1173,6 +1199,22 @@ class TestDirectoryIO(RunnerTestCase):
                 >>>
                 output {
                     File f_out = "outdir"
+                }
+            }
+            """,
+            {},
+            expected_exception=WDL.runtime.error.OutputError,
+        )
+
+        self._run(
+            R"""
+            version development
+            task t {
+                command <<<
+                    mkdir outdir
+                >>>
+                output {
+                    File? f_out = "outdir"
                 }
             }
             """,
@@ -2671,7 +2713,7 @@ class TestTaskRuntimeInfo(RunnerTestCase):
                 Float cpu = task.cpu
                 Int mem = task.memory
                 Int attempt = task.attempt
-                Int? rc = task.return_code
+                Int rc = task.return_code
             }
             requirements {
                 container: "ubuntu:20.04"

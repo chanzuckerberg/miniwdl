@@ -601,7 +601,7 @@ def _check_struct_members(
 ) -> None:
     # shared routine for checking Map or Object type coercion, with useful error messages
     rhs_members = rhs.members
-    assert rhs_members
+    assert rhs_members is not None
     rhs_keys = set(rhs_members.keys())
     self_keys = set(self_members.keys())
 
