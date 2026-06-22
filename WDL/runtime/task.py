@@ -951,24 +951,37 @@ def _postprocess_task_output_decl_paths(
     return _postprocess_task_decl_paths(
         decl,
         value,
-        lambda v: _task_output_missing_path(v, container),
+        lambda v: _task_output_missing_path(decl.name, v, container),
         lambda name: OutputError("File/Directory path not found in task output " + name),
     )
 
 
 def _task_output_missing_path(
+    output_name: str,
     v: Union[Value.File, Value.Directory],
     container: "TaskContainer",
 ) -> Optional[str]:
     """
     Return None for a task output File/Directory path missing from the container.
+
+    A present path of the wrong kind is an output error, even for optional outputs.
     """
     container_path = v.value
-    if isinstance(v, Value.Directory) and not container_path.endswith("/"):
-        container_path += "/"
-    if container.host_path(container_path) is None:
+    if isinstance(v, Value.Directory):
+        if not container_path.endswith("/"):
+            container_path += "/"
+        if container.host_path(container_path) is not None:
+            return v.value
+        file_path = v.value.rstrip("/")
+        if file_path and container.host_path(file_path) is not None:
+            raise OutputError(f"Directory task output {output_name} is not a directory: {v.value}")
         return None
-    return v.value
+
+    if container.host_path(container_path) is not None:
+        return v.value
+    if container.host_path(container_path + "/") is not None:
+        raise OutputError(f"File task output {output_name} is not a file: {v.value}")
+    return None
 
 
 def _task_output_host_path(
@@ -999,6 +1012,8 @@ def _check_directory(host_path: str, output_name: str) -> None:
     """
     Traverse an output directory to check that all symlinks are relative & resolve inside the dir.
     """
+    if not os.path.isdir(host_path):
+        raise OutputError(f"Directory task output {output_name} is not a directory: {host_path}")
 
     def raiser(exc: OSError):
         raise exc
