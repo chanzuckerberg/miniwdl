@@ -859,22 +859,20 @@ class TestDirectoryIO(RunnerTestCase):
 
         container = FakeContainer(WDL.runtime.config.Loader(logging.getLogger(self.id())))
         task.effective_wdl_version = "1.1"
-        assert (
-            runtime_task._resolve_task_decl_path_into_container(
-                task, "f", WDL.Value.File("data.txt"), container, CallCacheAddPaths()
-            )
-            == "data.txt"
+        resolved = runtime_task._resolve_task_decl_path_into_container(
+            task, "f", WDL.Value.File("data.txt"), container, CallCacheAddPaths()
         )
+        assert resolved.value == "data.txt"
+        assert resolved.missing_path is None
         assert container.added_paths == set()
 
         task.effective_wdl_version = "1.2"
         cache_add_paths = CallCacheAddPaths()
-        assert (
-            runtime_task._resolve_task_decl_path_into_container(
-                task, "f", WDL.Value.File("data.txt"), container, cache_add_paths
-            )
-            == "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
+        resolved = runtime_task._resolve_task_decl_path_into_container(
+            task, "f", WDL.Value.File("data.txt"), container, cache_add_paths
         )
+        assert resolved.value == "/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/data.txt"
+        assert resolved.missing_path is None
         assert container.added_paths == {os.path.join(self._dir, "data.txt")}
         assert cache_add_paths.add_paths == {os.path.join(self._dir, "data.txt")}
 
