@@ -6,7 +6,7 @@ setup(
     description='miniwdl plugin for progressive upload of task output files to Amazon S3',
     author='Wid L. Hacker',
     py_modules=["miniwdl_s3_progressive_upload"],
-    python_requires='>=3.6',
+    python_requires='>=3.10',
     setup_requires=['reentry'],
     install_requires=["boto3"],
     reentry_register=True,

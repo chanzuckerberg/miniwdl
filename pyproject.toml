@@ -7,7 +7,7 @@ name = "miniwdl"
 dynamic = ["version"]
 description = "Workflow Description Language (WDL) local runner & developer toolkit"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "CZI", email = "security@chanzuckerberg.com"}
@@ -22,12 +22,10 @@ classifiers = [
     "Topic :: Software Development :: Interpreters"
 ]
 dependencies = [
-    "importlib-metadata>=3.10.1",
     "regex>=2020.4.4",
     "xdg>=5.0.0",
     "docker>=3.4.0",
-    "ruamel.yaml~=0.18; python_version<'3.9'",
-    "ruamel.yaml~=0.19; python_version>='3.9'",
+    "ruamel.yaml~=0.19",
     "argcomplete>=3,<4",
     "pygtail~=0.14",
     "coloredlogs>=15,<16",

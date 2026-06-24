@@ -1663,7 +1663,7 @@ class _Keys(EagerFunction):
             )
         elif isinstance(arg, Value.Struct):
             # For structs, return keys in the order they appear in the struct definition.
-            # The struct type's members dict maintains insertion order (Python 3.7+).
+            # The struct type's members dict maintains insertion order.
             #
             # Note: We return ALL keys including optional members, even if they are set to None.
             # This is consistent with the spec's distinction (for contains_key) between "presence"
