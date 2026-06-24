@@ -196,6 +196,33 @@ class TestDirectoryIO(RunnerTestCase):
         )
         assert getattr(exn, "job_id", None) == "call-t"
 
+        exn = self._run(
+            R"""
+        version 1.2
+        task t {
+            input {
+                Directory d
+            }
+            File missing = join_paths(d, "missing.txt")
+            command {}
+        }
+        workflow w {
+            input {
+                Directory d
+            }
+            call t {
+                input:
+                    d = d
+            }
+        }
+        """,
+            {"d": os.path.join(self._dir, "d")},
+            expected_exception=WDL.Error.InputError,
+        )
+        assert "File/Directory path not found in task declaration missing" in str(exn)
+        assert "missing.txt" in str(exn)
+        assert getattr(exn, "job_id", None) == "decl-missing"
+
     def test_workflow_join_paths_relative_to_source_directory(self):
         wdl = R"""
         version 1.2

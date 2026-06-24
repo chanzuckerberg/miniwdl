@@ -192,6 +192,15 @@ class TestStdLib(unittest.TestCase):
         self.assertIn('read_tsv(): file has duplicate column name "name"', str(exn.exception))
         self.assertIn(duplicate, str(exn.exception))
 
+        empty_header = os.path.join(self._dir, "empty_header.tsv")
+        with open(empty_header, "w") as outfile:
+            outfile.write("name\t\nAlice\t3\n")
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(empty_header)))
+        with self.assertRaises(WDL.Error.InputError) as exn:
+            expr.eval(WDL.Env.Bindings(), stdlib)
+        self.assertIn("read_tsv(): file has an empty column name", str(exn.exception))
+        self.assertIn(empty_header, str(exn.exception))
+
         three_column = os.path.join(self._dir, "three_column.tsv")
         with open(three_column, "w") as outfile:
             outfile.write("name\tcount\textra\nAlice\t3\tGATTACA\n")
