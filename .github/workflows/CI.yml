@@ -73,6 +73,12 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
     - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: build wheel
+      run: |
+        python3 -m pip install --user build
+        python3 -m build --wheel --outdir wheelhouse
     - name: docker build
       run: |
         # overwriting Dockerfile!
@@ -80,25 +86,23 @@ jobs:
           FROM ubuntu:22.04
           ENV LC_ALL C.UTF-8
           ENV LANG C.UTF-8
-          RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-pip git-core
+          RUN apt-get -qq update && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y python3-pip
 
           RUN useradd -ms /bin/bash -u 1337 wdler
           USER wdler
           WORKDIR /home/wdler
-          RUN mkdir miniwdl
 
           ENV PATH $PATH:/home/wdler/.local/bin
-          RUN python3 -m pip install --user --upgrade pip
-          COPY . /home/wdler/miniwdl
-          RUN cd miniwdl && python3 -m pip install --user .
+          COPY wheelhouse/*.whl /home/wdler/
+          RUN python3 -m pip install --user *.whl
 
           CMD miniwdl run_self_test
         EOF
-        docker build -t miniwdl_focal_self_test .
+        docker build -t miniwdl_jammy_self_test .
     - name: miniwdl run_self_test
       run: |
         docker run \
           --group-add $(stat -c %g /var/run/docker.sock) -v /var/run/docker.sock:/var/run/docker.sock \
           -v /tmp:/tmp \
           -e AWS_EC2_METADATA_DISABLED=true \
-          miniwdl_focal_self_test
+          miniwdl_jammy_self_test
