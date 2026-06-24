@@ -88,9 +88,8 @@ jobs:
           RUN mkdir miniwdl
 
           ENV PATH $PATH:/home/wdler/.local/bin
-          RUN python3 -m pip install --user --upgrade pip
-          COPY . /home/wdler/miniwdl
-          RUN cd miniwdl && python3 -m pip install --user .
+          COPY --chown=wdler:wdler . /home/wdler/miniwdl
+          RUN cd miniwdl && pip3 install --user .
 
           CMD miniwdl run_self_test
         EOF
