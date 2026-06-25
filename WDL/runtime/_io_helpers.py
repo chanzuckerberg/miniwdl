@@ -147,7 +147,9 @@ def resolve_source_relative_paths(
             value.coerce(desired_type), source_paths, cache_add_paths
         )
     except FileNotFoundError:
-        raise Error.InputError(f"File/Directory path not found in {desc}") from None
+        missing_path = next(iter(cache_add_paths.absent_paths), None)
+        path_detail = f": {missing_path}" if missing_path else ""
+        raise Error.InputError(f"File/Directory path not found in {desc}{path_detail}") from None
 
 
 def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:

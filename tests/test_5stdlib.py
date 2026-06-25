@@ -187,8 +187,34 @@ class TestStdLib(unittest.TestCase):
         with open(duplicate, "w") as outfile:
             outfile.write("name\tname\nAlice\t3\n")
         expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(duplicate)))
-        with self.assertRaises(WDL.Error.InputError):
+        with self.assertRaises(WDL.Error.InputError) as exn:
             expr.eval(WDL.Env.Bindings(), stdlib)
+        self.assertIn('read_tsv(): file has duplicate column name "name"', str(exn.exception))
+        self.assertIn(duplicate, str(exn.exception))
+
+        empty_header = os.path.join(self._dir, "empty_header.tsv")
+        with open(empty_header, "w") as outfile:
+            outfile.write("name\t\nAlice\t3\n")
+        expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(empty_header)))
+        with self.assertRaises(WDL.Error.InputError) as exn:
+            expr.eval(WDL.Env.Bindings(), stdlib)
+        self.assertIn("read_tsv(): file has an empty column name", str(exn.exception))
+        self.assertIn(empty_header, str(exn.exception))
+
+        three_column = os.path.join(self._dir, "three_column.tsv")
+        with open(three_column, "w") as outfile:
+            outfile.write("name\tcount\textra\nAlice\t3\tGATTACA\n")
+        expr, stdlib = infer(
+            'read_tsv({}, true, ["name", "count"])'.format(json.dumps(three_column))
+        )
+        with self.assertRaises(WDL.Error.InputError) as exn:
+            expr.eval(WDL.Env.Bindings(), stdlib)
+        self.assertIn(
+            "read_tsv(): file header has 3 columns, but 2 column names were specified",
+            str(exn.exception),
+        )
+        self.assertIn(three_column, str(exn.exception))
+        self.assertNotIn("ragged", str(exn.exception))
 
         expr, stdlib = infer("read_tsv({}, true)".format(json.dumps(table)))
         parse_tsv_objects = WDL.StdLib._parse_tsv_objects
@@ -1793,7 +1819,7 @@ class TestStdLib(unittest.TestCase):
             expected_exception=WDL.Error.StaticTypeMismatch,
         )
 
-        self._test_task(
+        exn = self._test_task(
             R"""
         version 1.2
         task test {
@@ -1807,6 +1833,8 @@ class TestStdLib(unittest.TestCase):
         """,
             expected_exception=WDL.Error.InputError,
         )
+        self.assertIn('read_tsv(): file has duplicate column name "name"', str(exn))
+        self.assertIn("samples.tsv", str(exn))
 
     def test_write_tsv_unit_branches(self):
         class LocalStdLib(WDL.StdLib.Base):
