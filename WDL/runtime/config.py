@@ -367,7 +367,7 @@ def _parse_list(v: str) -> List[Any]:
 
 
 def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":  # type: ignore # noqa: F821
-    import importlib_metadata  # delayed heavy import
+    from importlib import metadata as importlib_metadata  # delayed heavy import
 
     return {
         "file_download": [
@@ -429,7 +429,7 @@ def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":  # typ
 
 
 def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
-    import importlib_metadata  # delayed heavy import
+    from importlib import metadata as importlib_metadata  # delayed heavy import
 
     defaults = default_plugins()
 
