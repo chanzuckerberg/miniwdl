@@ -33,9 +33,9 @@ When miniwdl creates a new timestamp-named subdirectory for a run, it also creat
 
 The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/blob/main/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
 
-## Task runtime attributes
+## Task requirements attributes
 
-The default local scheduler observes these task `runtime {}` attributes:
+The default local scheduler observes these task `requirements {}` attributes (formerly `runtime {}` prior to WDL 1.2):
 
 * `docker`/`container` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:20.04`)
 * `cpu` (Int): container reserves, and is throttled to, this many CPUs
@@ -44,8 +44,8 @@ The default local scheduler observes these task `runtime {}` attributes:
 * `memory` (Int/String): container reserves this many bytes of memory, or string with unit such as "8 GiB"
   * Automatically rounds down to all host memory, if less
   * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
-* `maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first)
-* `return_codes`/`returnCodes` (Int/Array[Int]/`"*"`): consider the given non-zero exit code(s) to indicate command success. In WDL 1.2, `return_codes` is preferred and `returnCodes` is an alias; WDL 1.1 uses `returnCodes`.
+* `max_retries`/`maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first). In WDL 1.2+, `max_retries` is preferred and `maxRetries` is an alias; older WDL code uses `maxRetries`.
+* `return_codes`/`returnCodes` (Int/Array[Int]/`"*"`): consider the given non-zero exit code(s) to indicate command success. In WDL 1.2+, `return_codes` is preferred and `returnCodes` is an alias; older WDL code `returnCodes`.
 * `docker_network` (String): name of a docker network to which to attach container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
 * `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
@@ -152,7 +152,7 @@ Please review [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/mai
 
 ## Using NVIDIA GPU
 
-While `miniwdl` itself ignores GPU directives in a task’s `runtime` / `requirements` block, most scenarios with a local NVIDIA GPU will work with these steps:
+While `miniwdl` itself ignores GPU directives in a task’s  `requirements`/`runtime` block, most scenarios with a local NVIDIA GPU will work with these steps:
 
 1. Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 2. Edit `/etc/docker/daemon.json` to add the top-level key `"default-runtime":"nvidia"`
@@ -162,22 +162,19 @@ While `miniwdl` itself ignores GPU directives in a task’s `runtime` / `require
 
 * The host then uses the NVIDIA runtime for all containers, which could (but doesn't usually) cause a conflict for certain Docker images.
 * The GPU isn't considered for task scheduling, so intensive workloads may need GPU task parallelism constrained by *either*:
-  * Reserving most of the host’s `cpu` or `memory` in each GPU-using task’s `runtime`/`requirements`.
+  * Reserving most of the host’s `cpu` or `memory` in each GPU-using task’s `requirements`/`runtime`.
   * Setting the configuration `[scheduler] task_concurrency = 1` (affecting all tasks, GPU-using or not).
 
 ## WDL interoperability
 
-The runner supports versions 1.1, 1.0, and draft-2 of the [WDL specification](https://github.com/openwdl/wdl), with known errata:
+The runner supports versions 1.2, 1.1, 1.0, and draft-2 of the [WDL specification](https://github.com/openwdl/wdl), with known errata:
 
 * `Object` type is unsupported except for initializing WDL 1.0+ `struct` types, which should be used instead.
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
 * Task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
-* The following task runtime values are ignored: `disks` `gpu`
-* Rejects certain name collisions that Cromwell admits (spec-ambiguous), such as between:
-  * scatter variable and prior declaration
-  * output declaration and prior non-output declaration
-  * task and workflow in the same WDL file
+* The following task runtime/requirements values are ignored: `disks` `fpga` `gpu` (but see GPU section above)
+* WDL 1.2 task/workflow `hints` sections are parsed but ignored, including `allow_nested_inputs`
 
 Please [file an issue](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Ainterop) for any other incompatibilities observed.
 
-Additionally, miniwdl's `version development` strives to implement [features and changes pending](https://github.com/openwdl/wdl/pulls?q=is%3Apr+is%3Aclosed) for the next specification release (best-effort & potentially unstable). The `Directory` type is a salient current example.
+Additionally, miniwdl's `version development` strives to implement [features and changes pending](https://github.com/openwdl/wdl/pulls?q=is%3Apr+is%3Aclosed) for the next specification release (best-effort & potentially unstable).
