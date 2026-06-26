@@ -1475,3 +1475,41 @@ class TestSwarmMiscConfigUidGid(unittest.TestCase):
                 _resources, user, groups = container.misc_config(logger)
                 self.assertIsNone(user)
                 self.assertEqual(groups, ["0"])
+
+
+class TestHostInputPath(unittest.TestCase):
+    """
+    host_input_path() must track the per-attempt host work dir (work, work2, ...). Inputs are bind-
+    mounted/copied inside the working directory, whose host location changes on each retry while its
+    in-container mount path stays fixed at {container_dir}/work. A regression here only surfaces at
+    the Docker level on macOS (virtiofs refuses to create the missing mount point), since Linux runc
+    silently creates it -- so this unit test guards the behavior on all platforms.
+    """
+
+    def _make_container(self, try_counter):
+        from WDL.runtime.backend.docker_swarm import SwarmContainer
+
+        container = SwarmContainer.__new__(SwarmContainer)
+        container.container_dir = "/mnt/miniwdl_task_container"
+        container.host_dir = "/host/run"
+        container.try_counter = try_counter
+        return container
+
+    def test_first_attempt(self):
+        container = self._make_container(try_counter=1)
+        self.assertEqual(
+            container.host_input_path("/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/in.txt"),
+            "/host/run/work/_miniwdl_inputs/0/in.txt",
+        )
+
+    def test_retry_attempt(self):
+        container = self._make_container(try_counter=2)
+        self.assertEqual(
+            container.host_input_path("/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/in.txt"),
+            "/host/run/work2/_miniwdl_inputs/0/in.txt",
+        )
+        # directory inputs (trailing slash) rebase the same way
+        self.assertEqual(
+            container.host_input_path("/mnt/miniwdl_task_container/work/_miniwdl_inputs/0/d/"),
+            "/host/run/work2/_miniwdl_inputs/0/d",
+        )

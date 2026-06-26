@@ -168,9 +168,7 @@ class SubprocessBase(TaskContainer):
         if self._bind_input_files:
             for host_path, container_path in self.input_path_map.items():
                 assert (not container_path.endswith("/")) or os.path.isdir(host_path.rstrip("/"))
-                host_mount_point = os.path.join(
-                    self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
-                )
+                host_mount_point = self.host_input_path(container_path)
                 if not os.path.exists(host_mount_point):
                     self.touch_mount_point(
                         host_mount_point + ("/" if container_path.endswith("/") else "")

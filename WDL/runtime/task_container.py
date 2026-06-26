@@ -205,9 +205,7 @@ class TaskContainer(ABC):
         # called once per task run (attempt)
         for host_path, container_path in self.input_path_map.items():
             assert container_path.startswith(self.container_dir)
-            host_copy_path = os.path.join(
-                self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
-            )
+            host_copy_path = self.host_input_path(container_path)
 
             logger.info(_("copy host input file", input=host_path, copy=host_copy_path))
             os.makedirs(os.path.dirname(host_copy_path), exist_ok=True)
@@ -626,6 +624,18 @@ class TaskContainer(ABC):
         return os.path.join(
             self.host_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
         )
+
+    def host_input_path(self, container_path: str) -> str:
+        """
+        Host-side path for an input file/directory mount point (or copy target) given its in-
+        container path. Inputs live inside the working directory, which is bind-mounted at the fixed
+        container path ``{container_dir}/work`` but resides on the host under ``host_work_dir()``
+        (``work``, ``work2``, ... across retry attempts). Rebasing onto ``host_work_dir()`` — rather
+        than naively stripping ``container_dir`` and assuming ``work`` — keeps mount points and
+        copies in the correct per-attempt directory on retries.
+        """
+        rel = os.path.relpath(container_path.rstrip("/"), os.path.join(self.container_dir, "work"))
+        return os.path.join(self.host_work_dir(), rel)
 
     def host_stdout_txt(self):
         return os.path.join(
