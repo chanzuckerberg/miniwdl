@@ -109,11 +109,16 @@ class SourceNode:
         buffers, remote URIs, and other non-local source locations are represented as an empty
         string so callers can produce context-specific errors only when relative path resolution is
         actually needed.
+
+        The directory is normalized but symlinks are intentionally preserved (abspath, not
+        realpath): if the user reached the WDL through a symlinked path, that's presumed deliberate
+        and is kept in resolved File/Directory values. Symlink resolution is applied only where it's
+        a security boundary (see ``path_really_within`` usage in source-relative path resolution).
         """
         source = self.pos.abspath
         if not source or source == "(buffer)" or not os.path.isabs(source):
             return ""
-        return os.path.join(os.path.realpath(os.path.dirname(source)), "")
+        return os.path.join(os.path.abspath(os.path.dirname(source)), "")
 
     def __lt__(self, rhs: "SourceNode") -> bool:
         return isinstance(rhs, SourceNode) and (

@@ -564,7 +564,8 @@ class TestDirectoryIO(RunnerTestCase):
         assert "data/missing.txt" in str(exn)
 
     def test_workflow_source_relative_default_missing_path_message(self):
-        missing = os.path.realpath(os.path.join(self._dir, "data", "seed.txt"))
+        # resolved source-relative paths preserve symlinks (no realpath), including in error messages
+        missing = os.path.join(self._dir, "data", "seed.txt")
         exn = self._run(
             R"""
             version 1.2
@@ -593,7 +594,8 @@ class TestDirectoryIO(RunnerTestCase):
                 }
                 """
             )
-        missing = os.path.realpath(os.path.join(task_dir, "data", "seed.txt"))
+        # resolved source-relative paths preserve symlinks (no realpath), including in error messages
+        missing = os.path.join(task_dir, "data", "seed.txt")
         exn = self._run(
             R"""
             version 1.2
