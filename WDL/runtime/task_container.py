@@ -205,7 +205,7 @@ class TaskContainer(ABC):
         # called once per task run (attempt)
         for host_path, container_path in self.input_path_map.items():
             assert container_path.startswith(self.container_dir)
-            host_copy_path = self._container_work_path_host(container_path.rstrip("/"))
+            host_copy_path = self.host_work_path(container_path.rstrip("/"))
 
             logger.info(_("copy host input file", input=host_path, copy=host_copy_path))
             os.makedirs(os.path.dirname(host_copy_path), exist_ok=True)
@@ -625,7 +625,7 @@ class TaskContainer(ABC):
             self.host_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
         )
 
-    def _container_work_path_host(self, container_path: str) -> str:
+    def host_work_path(self, container_path: str) -> str:
         """
         Map a path under the fixed in-container work directory to the current host work directory.
 
