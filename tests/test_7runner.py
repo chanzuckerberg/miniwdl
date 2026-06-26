@@ -2643,50 +2643,6 @@ class TestNestedInterpolations(RunnerTestCase):
 
 
 class TestTaskRuntimeInfo(RunnerTestCase):
-    def test_max_retries_alias_normalization(self):
-        wdl = r"""
-        version 1.2
-
-        task t {
-            command <<<
-            exit 1
-            >>>
-            output {
-            }
-            requirements {
-                max_retries: 3
-            }
-        }
-        """
-        doc = WDL.parse_document(wdl)
-        doc.typecheck()
-        task = doc.tasks[0]
-        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
-        stdlib = WDL.StdLib.Base(task.effective_wdl_version)
-
-        class FakeContainer:
-            seen_runtime_values = {}
-            runtime_values = {}
-
-            def process_runtime(self, logger, runtime_values):
-                self.seen_runtime_values = runtime_values
-                self.runtime_values = {"maxRetries": runtime_values["maxRetries"].value}
-
-        container = FakeContainer()
-        runtime_task._eval_task_runtime(
-            cfg,
-            logging.getLogger(self.id()),
-            "unit",
-            task,
-            WDL.Env.Bindings(),
-            container,
-            WDL.Env.Bindings(),
-            stdlib,
-        )
-        self.assertIn("maxRetries", container.seen_runtime_values)
-        self.assertNotIn("max_retries", container.seen_runtime_values)
-        self.assertEqual(container.seen_runtime_values["maxRetries"].value, 3)
-
     def test_task_scoped_info(self):
         wdl = r"""
         version 1.2
@@ -2755,7 +2711,7 @@ class TestTaskRuntimeInfo(RunnerTestCase):
                 Int output_attempt = task.attempt
             }
             requirements {
-                max_retries: 1
+                maxRetries: 1
             }
         }
         """

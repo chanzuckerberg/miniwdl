@@ -1323,7 +1323,7 @@ class UnknownRuntimeKey(Linter):
     def task(self, obj: Tree.Task) -> Any:
         known_keys = self.known_keys
         if wdl_version_geq(obj.effective_wdl_version, WDLVersion.V1_2):
-            known_keys = known_keys | {"return_codes", "max_retries"}
+            known_keys = known_keys | {"return_codes"}
         for k in obj.runtime:
             if k not in known_keys:
                 self.add(obj, "unknown entry in task runtime section: " + k, obj.runtime[k].pos)
