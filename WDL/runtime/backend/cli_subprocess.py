@@ -146,6 +146,8 @@ class SubprocessBase(TaskContainer):
 
     def reset(self, logger: logging.Logger) -> None:
         super().reset(logger)
+        # copy_input_files() disables input bind mounts for the current attempt. A retry has a new
+        # host work dir, so it must either copy the inputs again or bind them while preparing mounts.
         self._bind_input_files = True
 
     def prepare_mounts(self) -> List[Tuple[str, str, bool]]:

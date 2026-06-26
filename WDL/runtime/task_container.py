@@ -628,6 +628,10 @@ class TaskContainer(ABC):
     def _container_work_path_host(self, container_path: str) -> str:
         """
         Map a path under the fixed in-container work directory to the current host work directory.
+
+        The container always sees ``{container_dir}/work``, but retries advance the host-side
+        backing directory from ``work`` to ``work2`` and so on. Relativize the container path to
+        ``{container_dir}/work`` and append that relative path to the current ``host_work_dir()``.
         """
         container_work_dir = os.path.join(self.container_dir, "work")
         container_path_strip = container_path.rstrip("/")
