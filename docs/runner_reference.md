@@ -44,7 +44,7 @@ The default local scheduler observes these task `runtime {}` attributes:
 * `memory` (Int/String): container reserves this many bytes of memory, or string with unit such as "8 GiB"
   * Automatically rounds down to all host memory, if less
   * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
-* `maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first)
+* `max_retries`/`maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first). In WDL 1.2+, `max_retries` is preferred and `maxRetries` is an alias; older WDL code uses `maxRetries`.
 * `return_codes`/`returnCodes` (Int/Array[Int]/`"*"`): consider the given non-zero exit code(s) to indicate command success. In WDL 1.2, `return_codes` is preferred and `returnCodes` is an alias; WDL 1.1 uses `returnCodes`.
 * `docker_network` (String): name of a docker network to which to attach container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
 * `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
