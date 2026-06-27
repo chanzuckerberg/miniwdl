@@ -1097,7 +1097,12 @@ class TestZip(unittest.TestCase):
 
     def test_cli_unpack_source_zip_tempdir_selection(self):
         with contextlib.ExitStack() as cleanup:
-            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            # realpath() because unpack_source_zip() resolves file_io_root with realpath to choose
+            # the unpack tempdir; on macOS the system temp dir is under symlinks (/tmp, /var ->
+            # /private/...) so the unpacked paths would otherwise not match the lexical testdir.
+            testdir = os.path.realpath(
+                cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            )
             src = os.path.join(testdir, "src")
             os.makedirs(src)
             pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
