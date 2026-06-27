@@ -205,9 +205,7 @@ class TaskContainer(ABC):
         # called once per task run (attempt)
         for host_path, container_path in self.input_path_map.items():
             assert container_path.startswith(self.container_dir)
-            host_copy_path = os.path.join(
-                self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
-            )
+            host_copy_path = self.host_work_path(container_path.rstrip("/"))
 
             logger.info(_("copy host input file", input=host_path, copy=host_copy_path))
             os.makedirs(os.path.dirname(host_copy_path), exist_ok=True)
@@ -626,6 +624,29 @@ class TaskContainer(ABC):
         return os.path.join(
             self.host_dir, f"work{self.try_counter if self.try_counter > 1 else ''}"
         )
+
+    def host_work_path(self, container_path: str) -> str:
+        """
+        Map a path under the fixed in-container work directory to the current host work directory.
+
+        The container always sees ``{container_dir}/work``, but retries advance the host-side
+        backing directory from ``work`` to ``work2`` and so on. Relativize the container path to
+        ``{container_dir}/work`` and append that relative path to the current ``host_work_dir()``.
+        """
+        container_work_dir = os.path.join(self.container_dir, "work")
+        container_path_strip = container_path.rstrip("/")
+        container_relpath = os.path.relpath(container_path_strip, container_work_dir)
+        assert container_relpath == "." or not (
+            container_relpath == ".." or container_relpath.startswith("../")
+        )
+        ans = (
+            self.host_work_dir()
+            if container_relpath == "."
+            else os.path.join(self.host_work_dir(), container_relpath)
+        )
+        if container_path.endswith("/") and not ans.endswith("/"):
+            ans += "/"
+        return ans
 
     def host_stdout_txt(self):
         return os.path.join(

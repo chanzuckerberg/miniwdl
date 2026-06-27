@@ -2,6 +2,7 @@ import unittest
 import logging
 import tempfile
 import os
+import shutil
 import docker
 import signal
 import time
@@ -9,6 +10,8 @@ import json
 import platform
 import multiprocessing
 from .context import WDL
+from WDL.runtime.backend.cli_subprocess import SubprocessBase
+from WDL.runtime.task_container import TaskContainer
 from testfixtures import log_capture
 
 class TestTaskRunner(unittest.TestCase):
@@ -1411,6 +1414,120 @@ class TestConfigLoader(unittest.TestCase):
         cfg.plugin_defaults({"file_io": {"copy_input_files": True}, "x": {"y":"z"}})
         self.assertEqual(cfg["file_io"]["copy_input_files"], "false")
         self.assertEqual(cfg.get("x","y"), "z")
+
+
+class TestTaskContainerRetryPaths(unittest.TestCase):
+    class TaskContainerForTest(TaskContainer):
+        @classmethod
+        def global_init(cls, cfg, logger):
+            pass
+
+        @classmethod
+        def detect_resource_limits(cls, cfg, logger):
+            return {"cpu": 1, "mem_bytes": 1}
+
+        def _run(self, logger, terminating, command):
+            return 0
+
+    class SubprocessContainerForTest(SubprocessBase):
+        @classmethod
+        def global_init(cls, cfg, logger):
+            pass
+
+        @property
+        def cli_name(self):
+            return "test"
+
+        def _run_invocation(self, logger, cleanup, image):
+            return []
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp(prefix="miniwdl_test_retry_paths_")
+        self._logger = logging.getLogger(self.id())
+        self._cfg = WDL.runtime.config.Loader(self._logger, [])
+        self._input_file = os.path.join(self._dir, "input.txt")
+        with open(self._input_file, "w") as outfile:
+            outfile.write("hello\n")
+        self._input_dir = os.path.join(self._dir, "input_dir")
+        os.makedirs(self._input_dir)
+        with open(os.path.join(self._input_dir, "nested.txt"), "w") as outfile:
+            outfile.write("nested\n")
+
+    def tearDown(self):
+        shutil.rmtree(self._dir)
+
+    def _container(self, cls):
+        ans = cls(self._cfg, "test-run", os.path.join(self._dir, "run"))
+        ans.add_paths([self._input_file])
+        return ans
+
+    def _container_with_directory_input(self, cls):
+        ans = cls(self._cfg, "test-run", os.path.join(self._dir, "run"))
+        ans.add_paths([self._input_dir + "/"])
+        return ans
+
+    def _assert_input_path(self, container, work_dir):
+        self.assertTrue(
+            os.path.isfile(
+                os.path.join(container.host_dir, work_dir, "_miniwdl_inputs", "0", "input.txt")
+            )
+        )
+
+    def test_copy_input_files_retry_uses_current_host_work_dir(self):
+        container = self._container(self.TaskContainerForTest)
+
+        for work_dir in ("work", "work2", "work3"):
+            container.copy_input_files(self._logger)
+            self._assert_input_path(container, work_dir)
+            container.reset(self._logger)
+
+    def test_copy_input_directory_retry_uses_current_host_work_dir(self):
+        container = self._container_with_directory_input(self.TaskContainerForTest)
+
+        for work_dir in ("work", "work2", "work3"):
+            container.copy_input_files(self._logger)
+            self.assertTrue(
+                os.path.isfile(
+                    os.path.join(
+                        container.host_dir,
+                        work_dir,
+                        "_miniwdl_inputs",
+                        "0",
+                        "input_dir",
+                        "nested.txt",
+                    )
+                )
+            )
+            container.reset(self._logger)
+
+    def test_subprocess_mount_placeholders_retry_use_current_host_work_dir(self):
+        container = self._container(self.SubprocessContainerForTest)
+
+        for work_dir in ("work", "work2", "work3"):
+            container.prepare_mounts()
+            self._assert_input_path(container, work_dir)
+            container.reset(self._logger)
+
+    def test_subprocess_copy_input_files_can_retry_after_reset(self):
+        container = self._container(self.SubprocessContainerForTest)
+
+        for work_dir in ("work", "work2", "work3"):
+            container.copy_input_files(self._logger)
+            self._assert_input_path(container, work_dir)
+            self.assertFalse(container._bind_input_files)
+            container.reset(self._logger)
+            self.assertTrue(container._bind_input_files)
+
+    def test_swarm_reset_restores_input_binds(self):
+        from WDL.runtime.backend.docker_swarm import SwarmContainer
+
+        container = SwarmContainer(self._cfg, "test-run", os.path.join(self._dir, "run"))
+        container.add_paths([self._input_file])
+        container.copy_input_files(self._logger)
+        self.assertFalse(container._bind_input_files)
+
+        container.reset(self._logger)
+        self.assertTrue(container._bind_input_files)
 
 
 class TestSwarmMiscConfigUidGid(unittest.TestCase):

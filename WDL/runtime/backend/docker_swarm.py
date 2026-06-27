@@ -166,6 +166,12 @@ class SwarmContainer(TaskContainer):
         # them individually
         self._bind_input_files = False
 
+    def reset(self, logger: logging.Logger) -> None:
+        super().reset(logger)
+        # copy_input_files() disables input bind mounts for the current attempt. A retry has a new
+        # host work dir, so it must either copy the inputs again or bind them while preparing mounts.
+        self._bind_input_files = True
+
     def _run(self, logger: logging.Logger, terminating: Callable[[], bool], command: str) -> int:
         self._observed_states = set()
         with open(os.path.join(self.host_dir, "command"), "w") as outfile:
@@ -367,9 +373,7 @@ class SwarmContainer(TaskContainer):
                     )
                     perm_warn = False
                 assert (not container_path.endswith("/")) or stat.S_ISDIR(st.st_mode)
-                host_mount_point = os.path.join(
-                    self.host_dir, os.path.relpath(container_path.rstrip("/"), self.container_dir)
-                )
+                host_mount_point = self.host_work_path(container_path)
                 if not os.path.exists(host_mount_point):
                     self.touch_mount_point(
                         host_mount_point + ("/" if container_path.endswith("/") else "")
