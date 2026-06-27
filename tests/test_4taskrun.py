@@ -1397,16 +1397,33 @@ class TestConfigLoader(unittest.TestCase):
             made_up = 42
             """, file=tmp)
             tmp.flush()
-            os.environ["MINIWDL_CFG"] = tmp.name
-            os.environ["MINIWDL__SCHEDULER__TASK_CONCURRENCY"] = "4"
-            os.environ["MINIWDL__BOGUS__OPTION"] = "42"
-            cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
-            cfg.override({"bogus": {"option2": "42"}})
-            self.assertEqual(cfg["scheduler"].get_int("task_concurrency"), 4)
-            self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
-            cfg.log_all()
-            cfg.log_unused_options()
-            self.assertTrue(os.path.isabs(cfg["file_io"]["expansion"]))
+        # Set environment for this test, restoring it (and removing the temp config) afterward so
+        # copy_input_files=true and the MINIWDL__* overrides don't leak into other tests. Under
+        # pytest-xdist a worker runs many tests in one process, where a leaked MINIWDL_CFG made
+        # other tests' Loaders pick up copy_input_files=true (e.g. test_7runner source-relative).
+        self.addCleanup(os.unlink, tmp.name)
+
+        def _restore(key, prev):
+            if prev is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = prev
+
+        for key, val in {
+            "MINIWDL_CFG": tmp.name,
+            "MINIWDL__SCHEDULER__TASK_CONCURRENCY": "4",
+            "MINIWDL__BOGUS__OPTION": "42",
+        }.items():
+            self.addCleanup(_restore, key, os.environ.get(key))
+            os.environ[key] = val
+
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        cfg.override({"bogus": {"option2": "42"}})
+        self.assertEqual(cfg["scheduler"].get_int("task_concurrency"), 4)
+        self.assertEqual(cfg["file_io"].get_bool("copy_input_files"), True)
+        cfg.log_all()
+        cfg.log_unused_options()
+        self.assertTrue(os.path.isabs(cfg["file_io"]["expansion"]))
 
     def test_plugin_defaults(self):
         cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
