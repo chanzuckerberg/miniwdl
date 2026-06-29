@@ -1,0 +1,10 @@
+# setuptools-scm seeds the sdist with every tracked file, including files in
+# initialized submodules. Keep runtime sources, top-level project metadata,
+# and reasonably small documentation/examples; exclude development-only trees.
+# Tests are omitted because they are not usable without test_corpi and spec.
+prune .github
+prune spec
+prune stubs
+prune test_corpi
+prune tests
+prune tools_image
