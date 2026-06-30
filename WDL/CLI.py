@@ -1383,48 +1383,60 @@ def run_self_test(**kwargs):
         os.makedirs(dn, exist_ok=True)
     else:
         dn = tempfile.mkdtemp(prefix="miniwdl_run_self_test_")
+    with open(os.path.join(dn, "names.txt"), "w") as outfile:
+        print("Alyssa P. Hacker", file=outfile)
+        print("Ben Bitdiddle", file=outfile)
     with open(os.path.join(dn, "test.wdl"), "w") as outfile:
         outfile.write(
-            r"""
-            version 1.0
-            workflow hello_caller {
-                input {
-                    File who
-                }
-                scatter (name in read_lines(who)) {
-                    call hello {
-                        input:
-                            who = write_lines([name])
+            textwrap.dedent(
+                r"""
+                version 1.2
+
+                workflow hello_caller {
+                    input {
+                        File names = "names.txt"
+                        Directory reference_data
                     }
-                    if (defined(hello.message)) {
-                        String msg = read_string(select_first([hello.message]))
+
+                    scatter (name in read_lines(names)) {
+                        call hello { input: name, reference_data }
+                    }
+
+                    output {
+                        Array[String] messages = hello.message
+                        Array[Directory] message_directories = hello.message_directory
+                        Array[Int] reference_file_counts = hello.reference_file_count
                     }
                 }
-                output {
-                    Array[String] messages = select_all(msg)
-                    Array[File] message_files = select_all(hello.message)
+
+                task hello {
+                    input {
+                        env String name
+                        Directory reference_data
+                    }
+                    env String greeting = "Hello"
+
+                    command <<<
+                        set -euo pipefail
+                        find "~{reference_data}" -type f > reference_files
+                        mkdir "$name"
+                        printf '%s, %s!\n' "$greeting" "$name" \
+                            | tee "$name/message.txt" >&2
+                    >>>
+
+                    output {
+                        String message = read_string(name + "/message.txt")
+                        Directory message_directory = name
+                        Int reference_file_count = length(read_lines("reference_files"))
+                    }
+
+                    requirements {
+                        container: "ubuntu:22.04"
+                        memory: "1 GiB"
+                    }
                 }
-            }
-            task hello {
-                input {
-                    File who
-                }
-                command {
-                    if grep -qv ^\# "${who}" ; then
-                        name="$(cat ${who})"
-                        mkdir messages
-                        echo "Hello, $name!" | tee "messages/$name.txt" 1>&2
-                    fi
-                }
-                output {
-                    File? message = select_first(flatten([glob("messages/*.txt"), ["nonexistent"]]))
-                }
-                runtime {
-                    docker: "ubuntu:18.04"
-                    memory: "1G"
-                }
-            }
-            """
+                """
+            )
         )
 
     check(uri=[os.path.join(dn, "test.wdl")])
@@ -1432,7 +1444,7 @@ def run_self_test(**kwargs):
     argv = [
         "run",
         os.path.join(dn, "test.wdl"),
-        "who=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
+        "reference_data=s3://1000genomes/phase3/integrated_sv_map/supporting/breakpoints/",
         "--dir",
         dn if dn not in [".", "./"] else os.getcwd(),
         "--no-cache",
@@ -1448,27 +1460,33 @@ def run_self_test(**kwargs):
     if kwargs["log_json"]:
         argv.append("--log-json")
     try:
-        outputs = main(argv)["outputs"]  # pylint: disable=E1136
-        assert len(outputs["hello_caller.messages"]) == 2
-        assert outputs["hello_caller.messages"][0].rstrip() == "Hello, Alyssa P. Hacker!"
-        assert outputs["hello_caller.messages"][1].rstrip() == "Hello, Ben Bitdiddle!"
-    except BaseException as exn:
-        if not (isinstance(exn, SystemExit) and getattr(exn, "code") == 0):
-            atexit.register(
-                lambda: print(
-                    "* Hint: ensure Docker is installed & running"
-                    + (
-                        ", and user has permission to control it per\n"
-                        "  https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
-                        if platform.system() != "Darwin"
-                        else "; and on macOS override the environment variable TMPDIR=/tmp/"
-                    )
-                    + "\n* To request help at https://github.com/chanzuckerberg/miniwdl/issues\n"
-                    "  attach the log file " + os.path.join(dn, "miniwdl_run_self_test.log"),
-                    file=sys.stderr,
+        run_args = vars(create_arg_parser().parse_args(argv))
+        assert run_args.pop("command") == "run"
+        outputs = runner(**run_args)["outputs"]
+        names = ("Alyssa P. Hacker", "Ben Bitdiddle")
+        assert outputs["hello_caller.messages"] == [f"Hello, {name}!" for name in names]
+        assert outputs["hello_caller.reference_file_counts"] == [2, 2]
+        message_directories = outputs["hello_caller.message_directories"]
+        assert len(message_directories) == 2
+        for name, directory in zip(names, message_directories):
+            with open(os.path.join(directory, "message.txt")) as infile:
+                assert infile.read().rstrip() == f"Hello, {name}!"
+    except BaseException:
+        atexit.register(
+            lambda: print(
+                "* Hint: ensure Docker is installed & running"
+                + (
+                    ", and user has permission to control it per\n"
+                    "  https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user"
+                    if platform.system() != "Darwin"
+                    else "; and on macOS override the environment variable TMPDIR=/tmp/"
                 )
+                + "\n* To request help at https://github.com/chanzuckerberg/miniwdl/issues\n"
+                "  attach the log file " + os.path.join(dn, "miniwdl_run_self_test.log"),
+                file=sys.stderr,
             )
-            raise exn
+        )
+        raise
 
     miniwdl_version = pkg_version()
     if miniwdl_version:
