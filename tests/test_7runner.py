@@ -72,6 +72,19 @@ class RunnerTestCase(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
 
+class TestRunSelfTest(unittest.TestCase):
+    def test_validates_runner_outputs(self):
+        with tempfile.TemporaryDirectory() as dn:
+            with patch.object(
+                WDL.CLI,
+                "runner",
+                return_value={"outputs": {"hello_caller.messages": []}},
+            ) as runner_mock, patch.object(WDL.CLI.atexit, "register"):
+                with self.assertRaises(AssertionError):
+                    WDL.CLI.run_self_test(dir=dn, as_me=False, cfg=None, log_json=False)
+            runner_mock.assert_called_once()
+
+
 class TestDirectoryIO(RunnerTestCase):
     def test_coercion(self):
         assert WDL.Type.Directory().coerces(WDL.Type.String())
