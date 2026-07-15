@@ -35,9 +35,10 @@ import json
 import signal
 import traceback
 import pickle
+import queue
 import threading
 from concurrent import futures
-from typing import Optional, List, Callable, Tuple, Dict, NamedTuple, Set, Union
+from typing import Optional, List, Callable, Tuple, Dict, NamedTuple, Set, Union, TYPE_CHECKING
 from contextlib import ExitStack
 from .. import Env, Value, Tree, Error
 from .task import run_local_task
@@ -62,6 +63,13 @@ from .._util import StructuredLogMessage as _
 from . import config, _statusbar
 from .cache import CallCache, CallCacheAddPaths, call_cache_key, new as new_call_cache
 from .error import RunFailed, Terminated, error_json
+
+
+if TYPE_CHECKING:
+    _CallFuture = futures.Future[Tuple[str, Env.Bindings[Value.Base]]]
+else:
+    # concurrent.futures.Future isn't runtime-subscriptable on Python 3.8
+    _CallFuture = futures.Future
 
 
 class WorkflowMainLoopResult(NamedTuple):
@@ -403,7 +411,8 @@ def _workflow_main_loop(
     _test_pickle: bool,
 ) -> WorkflowMainLoopResult:
     assert isinstance(cfg, config.Loader)
-    call_futures = {}
+    call_futures: Dict[_CallFuture, Tuple[str, str]] = {}
+    completed_futures: queue.SimpleQueue[_CallFuture] = queue.SimpleQueue()
     try:
         # start plugin coroutines and process inputs through them
         with compose_coroutines(
@@ -473,18 +482,22 @@ def _workflow_main_loop(
                         next_call.callee.name, next_call.callee.digest, next_call.inputs
                     )
                     call_futures[future] = (next_call.id, child_key)
+                    future.add_done_callback(completed_futures.put)
                     next_call = state.step(cfg, stdlib)
                 # no more calls to launch right now; wait for an outstanding call to finish
-                future = next(futures.as_completed(call_futures), None)
-                if future:
+                while call_futures:
+                    future = completed_futures.get()
+                    call_info = call_futures.pop(future, None)
+                    if call_info is None:
+                        continue
                     __, outputs = future.result()
-                    call_id, child_key = call_futures[future]
+                    call_id, child_key = call_info
                     # Fold child task/subworkflow add_paths into the parent workflow add_paths.
                     # This makes a workflow cache hit sensitive to source-relative paths used
                     # inside its calls, even when the parent workflow doesn't read those files.
                     state.cache_add_paths.update(cache.get_add_paths(child_key))
                     state.call_finished(call_id, outputs)
-                    call_futures.pop(future)
+                    break
                 else:
                     assert state.outputs is not None
 
