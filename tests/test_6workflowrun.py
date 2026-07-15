@@ -7,6 +7,36 @@ import sys
 import pytest
 from .context import WDL
 
+
+class _CountingSet(set):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.iterations = 0
+
+    def __iter__(self):
+        self.iterations += 1
+        return super().__iter__()
+
+
+class TestWorkflowState(unittest.TestCase):
+    def test_runnable_batch_reused(self):
+        state = WDL.runtime._workflow_state.StateMachine.__new__(
+            WDL.runtime._workflow_state.StateMachine
+        )
+        state.jobs = {
+            job_id: WDL.runtime._workflow_state._Job(job_id, None, set(), [])
+            for job_id in ("call-a", "call-b")
+        }
+        state.finished = set()
+        state.running = set()
+        state.waiting = _CountingSet(state.jobs)
+        state.runnable = []
+        state._do_job = lambda cfg, stdlib, job: state.CallInstructions(job.id, None, None)
+
+        self.assertEqual(state.step(None, None).id, "call-a")
+        self.assertEqual(state.step(None, None).id, "call-b")
+        self.assertEqual(state.waiting.iterations, 1)
+
 class TestWorkflowRunner(unittest.TestCase):
 
     @classmethod
