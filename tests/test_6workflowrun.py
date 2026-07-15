@@ -38,6 +38,34 @@ class TestWorkflowState(unittest.TestCase):
         self.assertEqual(state.step(None, None).id, "call-b")
         self.assertEqual(state.waiting.iterations, 1)
 
+    def test_disabled_log_payloads_lazy(self):
+        doc = WDL.parse_document(
+            """
+            version 1.0
+            workflow main { call nop }
+            task nop { command {} }
+            """
+        )
+        doc.typecheck()
+        logger = logging.getLogger(self.id())
+        logger.setLevel(WDL._util.NOTICE_LEVEL)
+        cfg = WDL.runtime.config.Loader(logger, [])
+        state = WDL.runtime._workflow_state.StateMachine(
+            self.id(), "/tmp", doc.workflow, WDL.Env.Bindings()
+        )
+        state._logger = logger
+
+        def unexpected_payload(_env):
+            raise AssertionError("disabled log payload constructed")
+
+        state.values_to_json = unexpected_payload
+        stdlib = WDL.runtime._stdlib.WorkflowStdLib(cfg, "1.0", state, None)
+        call = state.step(cfg, stdlib)
+        self.assertIsNotNone(call)
+        state.call_finished(call.id, WDL.Env.Bindings())
+        while state.outputs is None:
+            self.assertIsNone(state.step(cfg, stdlib))
+
 class TestWorkflowRunner(unittest.TestCase):
 
     @classmethod
