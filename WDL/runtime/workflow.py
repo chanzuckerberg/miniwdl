@@ -442,13 +442,14 @@ def _workflow_main_loop(
 
             # run workflow state machine to completion
             state = StateMachine(".".join(logger_id), run_dir, workflow, inputs)
+            stdlib = WorkflowStdLib(cfg, workflow.effective_wdl_version, state, cache)
             while state.outputs is None:
                 if _test_pickle:
                     state = pickle.loads(pickle.dumps(state))
+                    stdlib = WorkflowStdLib(cfg, workflow.effective_wdl_version, state, cache)
                 if terminating():
                     raise Terminated()
                 # schedule all runnable calls
-                stdlib = WorkflowStdLib(cfg, workflow.effective_wdl_version, state, cache)
                 next_call = state.step(cfg, stdlib)
                 while next_call:
                     call_dir = os.path.join(run_dir, next_call.id)

@@ -77,7 +77,14 @@ class TestWorkflowRunner(unittest.TestCase):
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
 
-    def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
+    def _test_workflow(
+        self,
+        wdl: str,
+        inputs=None,
+        expected_exception: Exception = None,
+        cfg=None,
+        _test_pickle=True,
+    ):
         sys.setrecursionlimit(200)  # set artificially low in unit tests to detect excessive recursion (issue #239)
         logger = logging.getLogger(self.id())
         cfg = cfg or WDL.runtime.config.Loader(logger, [])
@@ -89,7 +96,13 @@ class TestWorkflowRunner(unittest.TestCase):
             assert len(doc.workflow.required_inputs.subtract(doc.workflow.available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
+            rundir, outputs = WDL.runtime.run(
+                cfg,
+                doc.workflow,
+                (inputs or WDL.Env.Bindings()),
+                run_dir=self._dir,
+                _test_pickle=_test_pickle,
+            )
             self._rundir = rundir
         except WDL.runtime.RunFailed as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
@@ -340,6 +353,52 @@ class TestWorkflowRunner(unittest.TestCase):
                 """
             )
         self.assertEqual(outputs["ys"], [1, 2, 3, 4])
+
+    def test_workflow_stdlib_reuse(self):
+        with open(os.path.join(self._dir, "sub.wdl"), "w") as outfile:
+            outfile.write(
+                """
+                version 1.0
+                workflow sub {
+                    input { Int x }
+                    output { Int y = x + 1 }
+                }
+                """
+            )
+
+        instances = []
+        original_stdlib = WDL.runtime.workflow.WorkflowStdLib
+
+        class CountingWorkflowStdLib(original_stdlib):
+            def __init__(self, cfg, wdl_version, state, cache):
+                super().__init__(cfg, wdl_version, state, cache)
+                instances.append((state.workflow.name, state, self._write_dir))
+
+        wdl = """
+            version 1.0
+            import "sub.wdl" as lib
+            workflow main {
+                scatter (i in range(2)) {
+                    call lib.sub { input: x = i }
+                }
+                output { Array[Int] ys = sub.y }
+            }
+            """
+        with patch("WDL.runtime.workflow.WorkflowStdLib", CountingWorkflowStdLib):
+            outputs = self._test_workflow(wdl, _test_pickle=False)
+        self.assertEqual(outputs["ys"], [1, 2])
+        parent_instances = [instance for instance in instances if instance[0] == "main"]
+        self.assertEqual(len(parent_instances), 1)
+
+        instances.clear()
+        with patch("WDL.runtime.workflow.WorkflowStdLib", CountingWorkflowStdLib):
+            outputs = self._test_workflow(wdl, _test_pickle=True)
+        self.assertEqual(outputs["ys"], [1, 2])
+        parent_instances = [instance for instance in instances if instance[0] == "main"]
+        self.assertGreater(len(parent_instances), 1)
+        self.assertEqual(len({id(instance[1]) for instance in parent_instances}), len(parent_instances))
+        for _, state, write_dir in parent_instances:
+            self.assertEqual(write_dir, os.path.join(state.run_dir, "write_"))
 
     def test_scatter_tags(self):
         outputs = self._test_workflow("""
