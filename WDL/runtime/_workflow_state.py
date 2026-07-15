@@ -259,14 +259,15 @@ class StateMachine:
                 return res
 
             # otherwise, record the outputs, mark the job finished, and move on to the next job
-            envlog = self.values_to_json(res)
-            self.logger.info(
-                _(
-                    "visit",
-                    node=job.id,
-                    values=envlog if len(json.dumps(envlog)) < 4096 else "(((large)))",
+            if self.logger.isEnabledFor(logging.INFO):
+                envlog = self.values_to_json(res)
+                self.logger.info(
+                    _(
+                        "visit",
+                        node=job.id,
+                        values=envlog if len(json.dumps(envlog)) < 4096 else "(((large)))",
+                    )
                 )
-            )
             self.job_outputs[job.id] = res
             self.running.remove(job.id)
             self.finished.add(job.id)
@@ -276,15 +277,16 @@ class StateMachine:
         Deliver notice of a job's successful completion, along with its outputs
         """
         assert job_id in self.running
-        outlog = self.values_to_json(outputs)
         self.logger.notice(_("finish", job=job_id))
-        self.logger.info(
-            _(
-                "output",
-                job=job_id,
-                values=outlog if len(json.dumps(outlog)) < 4096 else "(((large)))",
+        if self.logger.isEnabledFor(logging.INFO):
+            outlog = self.values_to_json(outputs)
+            self.logger.info(
+                _(
+                    "output",
+                    job=job_id,
+                    values=outlog if len(json.dumps(outlog)) < 4096 else "(((large)))",
+                )
             )
-        )
         call_node = self.jobs[job_id].node
         assert isinstance(call_node, Tree.Call)
         self.job_outputs[job_id] = outputs.wrap_namespace(call_node.name)
@@ -293,7 +295,8 @@ class StateMachine:
         self.running.remove(job_id)
 
     def _schedule(self, job: _Job) -> None:
-        self.logger.debug(_("schedule", node=job.id, dependencies=list(job.dependencies)))
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.debug(_("schedule", node=job.id, dependencies=list(job.dependencies)))
         assert job.id not in self.jobs
         self.jobs[job.id] = job
         self.waiting.add(job.id)
@@ -312,14 +315,15 @@ class StateMachine:
         for p in job.scatter_stack:
             scatter_vars = Env.Bindings(p[1], scatter_vars)
         env = Env.merge(scatter_vars, *(self.job_outputs[dep] for dep in job.dependencies))
-        envlog = self.values_to_json(env)
-        self.logger.debug(
-            _(
-                "env",
-                node=job.id,
-                values=envlog if len(json.dumps(envlog)) < 4096 else "(((large)))",
+        if self.logger.isEnabledFor(logging.DEBUG):
+            envlog = self.values_to_json(env)
+            self.logger.debug(
+                _(
+                    "env",
+                    node=job.id,
+                    values=envlog if len(json.dumps(envlog)) < 4096 else "(((large)))",
+                )
             )
-        )
 
         if isinstance(job.node, (Tree.Scatter, Tree.Conditional)):
             for newjob in _scatter(
@@ -381,14 +385,15 @@ class StateMachine:
             )
             # issue CallInstructions
             self.logger.notice(_("ready", job=job.id, callee=job.node.callee.name))
-            inplog = self.values_to_json(call_inputs)
-            self.logger.info(
-                _(
-                    "input",
-                    job=job.id,
-                    values=inplog if len(json.dumps(inplog)) < 4096 else "(((large)))",
+            if self.logger.isEnabledFor(logging.INFO):
+                inplog = self.values_to_json(call_inputs)
+                self.logger.info(
+                    _(
+                        "input",
+                        job=job.id,
+                        values=inplog if len(json.dumps(inplog)) < 4096 else "(((large)))",
+                    )
                 )
-            )
 
             return StateMachine.CallInstructions(
                 id=job.id, callee=job.node.callee, inputs=call_inputs
