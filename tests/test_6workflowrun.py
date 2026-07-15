@@ -4,6 +4,7 @@ import tempfile
 import os
 import time
 import sys
+from unittest.mock import patch
 import pytest
 from .context import WDL
 
@@ -262,6 +263,55 @@ class TestWorkflowRunner(unittest.TestCase):
             {"left": 3, "right": 0},
             {"left": 3, "right": 1}
         ])
+
+    def test_scattered_subworkflow_future_completion(self):
+        with open(os.path.join(self._dir, "sub.wdl"), "w") as outfile:
+            outfile.write(
+                """
+                version 1.0
+                workflow sub {
+                    input { Int x }
+                    output { Int y = x + 1 }
+                }
+                """
+            )
+        original_add_done_callback = (
+            WDL.runtime.workflow.futures.Future.add_done_callback
+        )
+        original_run_local_workflow = WDL.runtime.workflow.run_local_workflow
+
+        def add_done_callback_twice(future, callback):
+            original_add_done_callback(future, callback)
+            original_add_done_callback(future, callback)
+
+        def staggered_run_local_workflow(cfg, workflow, inputs, *args, **kwargs):
+            if inputs["x"].value:
+                time.sleep(0.05)
+            return original_run_local_workflow(cfg, workflow, inputs, *args, **kwargs)
+
+        with patch(
+            "WDL.runtime.workflow.futures.as_completed",
+            side_effect=AssertionError("workflow loop should use completion callbacks"),
+        ), patch.object(
+            WDL.runtime.workflow.futures.Future,
+            "add_done_callback",
+            add_done_callback_twice,
+        ), patch(
+            "WDL.runtime.workflow.run_local_workflow", staggered_run_local_workflow
+        ):
+            outputs = self._test_workflow(
+                """
+                version 1.0
+                import "sub.wdl" as lib
+                workflow main {
+                    scatter (i in range(4)) {
+                        call lib.sub { input: x = i }
+                    }
+                    output { Array[Int] ys = sub.y }
+                }
+                """
+            )
+        self.assertEqual(outputs["ys"], [1, 2, 3, 4])
 
     def test_scatter_tags(self):
         outputs = self._test_workflow("""
