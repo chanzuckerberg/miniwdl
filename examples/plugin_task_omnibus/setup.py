@@ -6,7 +6,7 @@ setup(
     description='miniwdl task runtime plugin (omnibus example)',
     author='Wid L. Hacker',
     py_modules=["miniwdl_task_omnibus_example"],
-    python_requires='>=3.6',
+    python_requires='>=3.10',
     setup_requires=['reentry'],
     install_requires=["boto3"],
     reentry_register=True,

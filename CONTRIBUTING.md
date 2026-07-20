@@ -18,6 +18,8 @@ To set up your Linux development environment,
 
 Generally, `python3 -m WDL ...` invokes the equivalent of the `miniwdl ...` entry point for the local source tree. Another option is to `pip3 install .` to install the `miniwdl` entry point with the current code revision.
 
+Published PyPI wheels and conda packages install without this source-build step. Installing from a local source tree uses `pyproject.toml` build isolation and may fail with old distro packaging tools, e.g. stock Ubuntu 22.04 `python3-pip` can combine its system `setuptools` with a newer `setuptools_scm` and fail during build metadata. If `pip3 install .` or `pip3 install '.[dev]'` fails in `setuptools_scm` while building from source, use a virtual environment with current packaging tools, or first run `python3 -m pip install --user --upgrade pip` and then retry with `python3 -m pip`.
+
 The Makefile has a few typical flows:
 
 - `make` or `make test` runs the full test suite with code coverage report (takes several minutes)

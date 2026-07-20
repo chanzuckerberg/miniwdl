@@ -305,7 +305,7 @@ class StructuredLogMessage:
     message: str
     kwargs: Dict[str, Any]
 
-    # from https://docs.python.org/3.8/howto/logging-cookbook.html#implementing-structured-logging
+    # from https://docs.python.org/3/howto/logging-cookbook.html#implementing-structured-logging
     def __init__(self, _message: str, **kwargs) -> None:
         self.message = _message
         self.kwargs = kwargs

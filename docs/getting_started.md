@@ -14,7 +14,7 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 Requirements:
 
 1. GNU/Linux or [macOS (specific steps required)](https://github.com/chanzuckerberg/miniwdl/issues/145)
-2. Python 3.8 or higher
+2. Python 3.10 or higher
 3. [Docker Engine](https://docs.docker.com/install/) 17 or higher (if unable, see [alternate container runtimes](https://miniwdl.readthedocs.io/en/latest/runner_backends.html))
 4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
 

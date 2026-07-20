@@ -6,7 +6,7 @@ setup(
     description='miniwdl task plugin to log container cpu/mem usage',
     author='Wid L. Hacker',
     py_modules=["miniwdl_log_task_usage"],
-    python_requires='>=3.6',
+    python_requires='>=3.10',
     setup_requires=['reentry'],
     install_requires=['miniwdl'],
     reentry_register=True,

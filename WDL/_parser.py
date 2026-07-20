@@ -1,14 +1,14 @@
 import inspect
 import threading
 import regex
-from typing import List, Optional, Set, Tuple, Any, Union
+from typing import Dict, List, Optional, Set, Tuple, Any, Union
 import lark
 from .Error import SourcePosition
 from . import Error, Tree, Type, Expr, _grammar
 from ._util import WDLVersion, wdl_version_geq
 
 # memoize Lark parsers constructed for version & start symbol
-_lark_cache = {}
+_lark_cache: Dict[Tuple[str, str], lark.Lark] = {}
 _lark_comments_buffer: List[lark.Token] = []
 _lark_lock = threading.Lock()
 

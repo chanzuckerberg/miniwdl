@@ -142,7 +142,7 @@ class PipVersionAction(Action):
         else:
             print("miniwdl version unknown")
 
-        import importlib_metadata
+        from importlib import metadata as importlib_metadata
 
         for group in runtime.config.default_plugins().keys():
             group = f"miniwdl.plugin.{group}"
@@ -2201,7 +2201,7 @@ def _type_to_input_template(ty: Type.Base):
 
 
 def pkg_version(pkg="miniwdl"):
-    import importlib_metadata
+    from importlib import metadata as importlib_metadata
 
     try:
         return importlib_metadata.version(pkg)
