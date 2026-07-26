@@ -201,6 +201,95 @@ class TestTaskRunner(unittest.TestCase):
         }
         """, {"who": "Alyssa"})
 
+    def test_input_executable_bit(self):
+        # Regression test: the executable (chmod +x) bit on host input files should be preserved
+        # inside the task container -- for both top-level File inputs and files nested within a
+        # Directory input -- and this should hold whether inputs are bind-mounted (default) or
+        # copied (copy_input_files). Non-executable inputs must NOT gain an executable bit
+        # (negative controls), ensuring we're preserving the host mode rather than blanket-chmodding.
+
+        # top-level File inputs
+        exec_file = os.path.join(self._dir, "exec_file.sh")
+        with open(exec_file, "w") as outfile:
+            outfile.write("#!/bin/sh\necho -n executed\n")
+        os.chmod(exec_file, 0o755)
+        plain_file = os.path.join(self._dir, "plain_file.sh")
+        with open(plain_file, "w") as outfile:
+            outfile.write("#!/bin/sh\necho -n nope\n")
+        os.chmod(plain_file, 0o644)
+
+        # files nested within a Directory input
+        indir = os.path.join(self._dir, "indir")
+        os.makedirs(indir)
+        exec_in_dir = os.path.join(indir, "exec_in_dir.sh")
+        with open(exec_in_dir, "w") as outfile:
+            outfile.write("#!/bin/sh\necho -n executed_in_dir\n")
+        os.chmod(exec_in_dir, 0o755)
+        plain_in_dir = os.path.join(indir, "plain_in_dir.sh")
+        with open(plain_in_dir, "w") as outfile:
+            outfile.write("#!/bin/sh\necho -n nope\n")
+        os.chmod(plain_in_dir, 0o644)
+
+        # We assert on the exact mode bits (via `stat`) and on real execution outcomes rather than
+        # the shell `-x` test: the container runs as root by default, and for root `[ -x FILE ]`
+        # reports true even for a non-executable regular file, so it's useless as a negative
+        # control. Direct execution, on the other hand, is enforced by execve() regardless of uid --
+        # an executable input runs, a non-executable one gets "Permission denied".
+        wdl = R"""
+        version 1.2
+        task check_exec_bits {
+            input {
+                File exec_file
+                File plain_file
+                Directory indir
+            }
+            command <<<
+                set -uo pipefail
+                {
+                    printf 'exec_file_mode\t%s\n' "$(stat -c %a "~{exec_file}")"
+                    printf 'plain_file_mode\t%s\n' "$(stat -c %a "~{plain_file}")"
+                    printf 'exec_in_dir_mode\t%s\n' "$(stat -c %a "~{indir}/exec_in_dir.sh")"
+                    printf 'plain_in_dir_mode\t%s\n' "$(stat -c %a "~{indir}/plain_in_dir.sh")"
+                    # positive controls: executable inputs actually run (relies on preserved +x)
+                    printf 'exec_file_run\t%s\n' "$("~{exec_file}")"
+                    printf 'exec_in_dir_run\t%s\n' "$("~{indir}/exec_in_dir.sh")"
+                    # negative controls: non-executable inputs must NOT be runnable
+                    if "~{plain_file}" >/dev/null 2>&1; then r=RAN; else r=DENIED; fi
+                    printf 'plain_file_run\t%s\n' "$r"
+                    if "~{indir}/plain_in_dir.sh" >/dev/null 2>&1; then r=RAN; else r=DENIED; fi
+                    printf 'plain_in_dir_run\t%s\n' "$r"
+                } > result.txt
+            >>>
+            output {
+                Map[String,String] result = read_map("result.txt")
+            }
+        }
+        """
+        inputs = {"exec_file": exec_file, "plain_file": plain_file, "indir": indir}
+
+        def check(result):
+            # executable inputs keep their execute bits and actually execute. We check the execute
+            # triad by mask rather than the exact mode, because copy_input_files additionally OR's
+            # in group rw (0o755 -> 0o775) without touching the execute bits.
+            self.assertEqual(int(result["exec_file_mode"], 8) & 0o111, 0o111)
+            self.assertEqual(int(result["exec_in_dir_mode"], 8) & 0o111, 0o111)
+            self.assertEqual(result["exec_file_run"], "executed")
+            self.assertEqual(result["exec_in_dir_run"], "executed_in_dir")
+            # non-executable inputs do NOT gain +x and are not runnable (negative controls);
+            # copy_input_files may add group rw, so only assert the executable digit stays 0
+            self.assertEqual(int(result["plain_file_mode"], 8) & 0o111, 0)
+            self.assertEqual(int(result["plain_in_dir_mode"], 8) & 0o111, 0)
+            self.assertEqual(result["plain_file_run"], "DENIED")
+            self.assertEqual(result["plain_in_dir_run"], "DENIED")
+
+        # default (bind-mount) mode
+        check(self._test_task(wdl, inputs)["result"])
+
+        # copy_input_files mode
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"copy_input_files": True}})
+        check(self._test_task(wdl, inputs, cfg=cfg)["result"])
+
     def test_hello_file(self):
         with open(os.path.join(self._dir, "alyssa.txt"), "w") as outfile:
             outfile.write("Alyssa")

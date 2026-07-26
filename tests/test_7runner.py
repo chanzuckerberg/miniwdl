@@ -235,6 +235,86 @@ class TestDirectoryIO(RunnerTestCase):
         outp = self._run(wdl)
         assert outp["path"] == os.path.join(self._dir, "subdir", "alice.txt")
 
+    def test_source_relative_paths_preserve_executable_bit(self):
+        # Regression test: executable (chmod +x) bits on source-relative File/Directory inputs
+        # should be preserved inside the task container, just like explicitly-provided inputs
+        # (see tests/test_4taskrun.py::test_input_executable_bit). Source-relative resolution
+        # currently feeds the same mount/copy machinery, but pin the behavior in case that changes.
+        #
+        # As in the sibling test, we assert on exact mode bits (stat) and real execution outcomes
+        # rather than the shell `-x` test: the container runs as root by default, for which
+        # `[ -x FILE ]` is true even for a non-executable regular file. execve() enforces the bit.
+        os.makedirs(os.path.join(self._dir, "data/bin"))
+        exec_file = os.path.join(self._dir, "data/exec.sh")
+        with open(exec_file, "w") as outfile:
+            outfile.write("#!/bin/sh\necho -n executed\n")
+        os.chmod(exec_file, 0o755)
+        plain_file = os.path.join(self._dir, "data/plain.sh")
+        with open(plain_file, "w") as outfile:
+            outfile.write("#!/bin/sh\necho -n nope\n")
+        os.chmod(plain_file, 0o644)
+        exec_in_dir = os.path.join(self._dir, "data/bin/exec_in_dir.sh")
+        with open(exec_in_dir, "w") as outfile:
+            outfile.write("#!/bin/sh\necho -n executed_in_dir\n")
+        os.chmod(exec_in_dir, 0o755)
+        plain_in_dir = os.path.join(self._dir, "data/bin/plain_in_dir.sh")
+        with open(plain_in_dir, "w") as outfile:
+            outfile.write("#!/bin/sh\necho -n nope\n")
+        os.chmod(plain_in_dir, 0o644)
+
+        wdl = R"""
+        version 1.2
+        task check_exec_bits {
+            input {
+                # source-relative File & Directory inputs (resolved against the WDL's directory)
+                File exec_file = "data/exec.sh"
+                File plain_file = "data/plain.sh"
+                Directory bindir = "data/bin"
+            }
+            command <<<
+                set -uo pipefail
+                {
+                    printf 'exec_file_mode\t%s\n' "$(stat -c %a "~{exec_file}")"
+                    printf 'plain_file_mode\t%s\n' "$(stat -c %a "~{plain_file}")"
+                    printf 'exec_in_dir_mode\t%s\n' "$(stat -c %a "~{bindir}/exec_in_dir.sh")"
+                    printf 'plain_in_dir_mode\t%s\n' "$(stat -c %a "~{bindir}/plain_in_dir.sh")"
+                    # positive controls: executable inputs actually run (relies on preserved +x)
+                    printf 'exec_file_run\t%s\n' "$("~{exec_file}")"
+                    printf 'exec_in_dir_run\t%s\n' "$("~{bindir}/exec_in_dir.sh")"
+                    # negative controls: non-executable inputs must NOT be runnable
+                    if "~{plain_file}" >/dev/null 2>&1; then r=RAN; else r=DENIED; fi
+                    printf 'plain_file_run\t%s\n' "$r"
+                    if "~{bindir}/plain_in_dir.sh" >/dev/null 2>&1; then r=RAN; else r=DENIED; fi
+                    printf 'plain_in_dir_run\t%s\n' "$r"
+                } > out.txt
+            >>>
+            output {
+                Map[String,String] result = read_map("out.txt")
+            }
+        }
+        """
+
+        def check(result):
+            # executable inputs keep their execute bits and actually execute; copy_input_files
+            # additionally OR's in group rw (0o755 -> 0o775) without touching the execute bits.
+            self.assertEqual(int(result["exec_file_mode"], 8) & 0o111, 0o111)
+            self.assertEqual(int(result["exec_in_dir_mode"], 8) & 0o111, 0o111)
+            self.assertEqual(result["exec_file_run"], "executed")
+            self.assertEqual(result["exec_in_dir_run"], "executed_in_dir")
+            # non-executable inputs do NOT gain +x and are not runnable (negative controls)
+            self.assertEqual(int(result["plain_file_mode"], 8) & 0o111, 0)
+            self.assertEqual(int(result["plain_in_dir_mode"], 8) & 0o111, 0)
+            self.assertEqual(result["plain_file_run"], "DENIED")
+            self.assertEqual(result["plain_in_dir_run"], "DENIED")
+
+        # default (bind-mount) mode
+        check(self._run(wdl)["result"])
+
+        # copy_input_files mode
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"file_io": {"copy_input_files": True}})
+        check(self._run(wdl, cfg=cfg)["result"])
+
     def test_task_relative_paths_relative_to_source_directory(self):
         os.makedirs(os.path.join(self._dir, "data/subdir"))
         with open(os.path.join(self._dir, "data/input.txt"), mode="w") as outfile:
