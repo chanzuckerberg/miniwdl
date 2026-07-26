@@ -53,10 +53,14 @@ def resolve_source_relative_path(
     Resolve one File/Directory path and report any cache_add_path it implies.
 
     ``source_directory`` is either "" or a local WDL source directory with trailing "/". Absolute
-    paths and downloadable URIs are returned unchanged. Relative paths require ``source_directory``,
-    are resolved with realpath, and must remain inside the source directory tree. Missing paths
-    return a result with ``value`` None so callers can rewrite optional File?/Directory? values to
-    Null before final type coercion.
+    paths and downloadable URIs are returned unchanged. Relative paths require ``source_directory``
+    and must remain inside the source directory tree. Missing paths return a result with ``value``
+    None so callers can rewrite optional File?/Directory? values to Null before final type coercion.
+
+    The resolved path preserves symlinks (it's only normpath-joined onto ``source_directory``, which
+    itself preserves symlinks): a user who reached the WDL through a symlinked path keeps that path
+    in the resolved value. Symlink resolution via ``path_really_within`` is applied only for the
+    containment/security checks below, never baked into the returned value.
     """
     isdir = isinstance(v, Value.Directory)
     if os.path.isabs(v.value) or downloadable(cfg, v.value, directory=isdir):
@@ -82,7 +86,10 @@ def resolve_source_relative_path(
             f"`{source_directory}'"
         )
 
-    ans = os.path.realpath(
+    # Symlink-preserving join (normpath, not realpath). path_really_within() below still resolves
+    # symlinks for the containment checks, so an in-tree or escaping symlink target is handled
+    # safely without canonicalizing the user's path out of the value we return/allowlist/cache.
+    ans = os.path.normpath(
         os.path.join(source_directory, v.value.rstrip("/") if isdir else v.value)
     )
     within = path_really_within(ans, source_directory)
@@ -105,6 +112,9 @@ def resolve_source_relative_path(
             + v.value
         )
 
+    # The returned value and source_path go into both the resolved workflow value and the
+    # allowlist; they must share this symlink-preserving form so later `fspath in allowlist`
+    # membership tests (see _resolve_workflow_path) match exactly.
     source_path = ans + ("/" if isdir else "")
     return SourceRelativePathResolved(ans, source_path=source_path)
 
@@ -128,6 +138,10 @@ def resolve_source_relative_paths(
     cache_add_paths = CallCacheAddPaths()
     value = value.coerce(desired_type)
 
+    # These paths are recorded verbatim (symlink-preserving) in the cache's additionalPaths. Two
+    # distinct symlinks to the same underlying file therefore count as distinct cache dependencies
+    # and won't dedupe to one entry; that's an acceptable edge case since file content digests still
+    # match and coherence only relies on each recorded path's existence/mtime.
     def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
         result = resolve_source_relative_path(cfg, source_directory, desc, v)
         if result.absent_path:
@@ -147,7 +161,9 @@ def resolve_source_relative_paths(
             value.coerce(desired_type), source_paths, cache_add_paths
         )
     except FileNotFoundError:
-        raise Error.InputError(f"File/Directory path not found in {desc}") from None
+        missing_path = next(iter(cache_add_paths.absent_paths), None)
+        path_detail = f": {missing_path}" if missing_path else ""
+        raise Error.InputError(f"File/Directory path not found in {desc}{path_detail}") from None
 
 
 def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:

@@ -318,9 +318,9 @@ def _additional_dest(path: str, source_dirs: List[Tuple[str, str]]) -> str:
     """
     Compute the archive path for one additional file or directory after safety checks.
 
-    The lexical path and its realpath target must both remain inside the selected source directory.
-    This permits ordinary in-tree symlinks while rejecting symlinks that would package files from
-    outside the WDL source tree.
+    The path and its realpath target must both remain inside the selected source directory. This
+    permits ordinary in-tree symlinks while rejecting symlinks that would package files from outside
+    the WDL source tree.
 
     Examples:
 
@@ -331,13 +331,16 @@ def _additional_dest(path: str, source_dirs: List[Tuple[str, str]]) -> str:
     """
     if not (os.path.isfile(path) or os.path.isdir(path)):
         raise Error.InputError("Additional path is neither a file nor a directory: " + path)
+    # Resolve symlinks in the parent directory (e.g. macOS /tmp -> /private/tmp) so the containment
+    # check lines up with the realpath-canonicalized source directories, while keeping the leaf name
+    # so safe in-tree symlinks retain their own archive path.
+    real_path = os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
     for source_dir, archive_dir in source_dirs:
-        relpath = os.path.relpath(os.path.abspath(path), source_dir)
+        relpath = os.path.relpath(real_path, os.path.realpath(source_dir))
         if relpath.startswith(".." + os.sep) or relpath == "..":
             continue
-        if path_really_within(path, source_dir) and path_really_within(
-            os.path.realpath(path), source_dir
-        ):
+        # path_really_within additionally rejects symlinks whose target escapes the source tree.
+        if path_really_within(path, source_dir):
             return os.path.normpath(os.path.join(archive_dir, relpath))
     raise Error.InputError("Additional path must reside within a WDL source directory: " + path)
 

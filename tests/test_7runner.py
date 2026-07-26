@@ -196,6 +196,33 @@ class TestDirectoryIO(RunnerTestCase):
         )
         assert getattr(exn, "job_id", None) == "call-t"
 
+        exn = self._run(
+            R"""
+        version 1.2
+        task t {
+            input {
+                Directory d
+            }
+            File missing = join_paths(d, "missing.txt")
+            command {}
+        }
+        workflow w {
+            input {
+                Directory d
+            }
+            call t {
+                input:
+                    d = d
+            }
+        }
+        """,
+            {"d": os.path.join(self._dir, "d")},
+            expected_exception=WDL.Error.InputError,
+        )
+        assert "File/Directory path not found in task declaration missing" in str(exn)
+        assert "missing.txt" in str(exn)
+        assert getattr(exn, "job_id", None) == "decl-missing"
+
     def test_workflow_join_paths_relative_to_source_directory(self):
         wdl = R"""
         version 1.2
@@ -535,6 +562,52 @@ class TestDirectoryIO(RunnerTestCase):
         )
         assert "File/Directory path not found in read_*() argument" in str(exn)
         assert "data/missing.txt" in str(exn)
+
+    def test_workflow_source_relative_default_missing_path_message(self):
+        # resolved source-relative paths preserve symlinks (no realpath), including in error messages
+        missing = os.path.join(self._dir, "data", "seed.txt")
+        exn = self._run(
+            R"""
+            version 1.2
+            workflow w {
+                File seed_file = "data/seed.txt"
+                output {
+                    String ok = "ok"
+                }
+            }
+            """,
+            expected_exception=WDL.Error.InputError,
+        )
+        assert "File/Directory path not found in workflow declaration seed_file" in str(exn)
+        assert missing in str(exn)
+
+    def test_imported_task_source_relative_default_missing_path_message(self):
+        task_dir = os.path.join(self._dir, "tasks")
+        os.makedirs(task_dir)
+        with open(os.path.join(task_dir, "task.wdl"), mode="w") as outfile:
+            outfile.write(
+                R"""
+                version 1.2
+                task t {
+                    File seed_file = "data/seed.txt"
+                    command {}
+                }
+                """
+            )
+        # resolved source-relative paths preserve symlinks (no realpath), including in error messages
+        missing = os.path.join(task_dir, "data", "seed.txt")
+        exn = self._run(
+            R"""
+            version 1.2
+            import "tasks/task.wdl" as tasks
+            workflow w {
+                call tasks.t
+            }
+            """,
+            expected_exception=WDL.Error.InputError,
+        )
+        assert "File/Directory path not found in task declaration seed_file" in str(exn)
+        assert missing in str(exn)
 
     def test_workflow_source_relative_stdlib_operator_rejects_escape(self):
         os.makedirs(os.path.join(self._dir, "data"))
@@ -2643,6 +2716,50 @@ class TestNestedInterpolations(RunnerTestCase):
 
 
 class TestTaskRuntimeInfo(RunnerTestCase):
+    def test_max_retries_alias_normalization(self):
+        wdl = r"""
+        version 1.2
+
+        task t {
+            command <<<
+            exit 1
+            >>>
+            output {
+            }
+            requirements {
+                max_retries: 3
+            }
+        }
+        """
+        doc = WDL.parse_document(wdl)
+        doc.typecheck()
+        task = doc.tasks[0]
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        stdlib = WDL.StdLib.Base(task.effective_wdl_version)
+
+        class FakeContainer:
+            seen_runtime_values = {}
+            runtime_values = {}
+
+            def process_runtime(self, logger, runtime_values):
+                self.seen_runtime_values = runtime_values
+                self.runtime_values = {"maxRetries": runtime_values["maxRetries"].value}
+
+        container = FakeContainer()
+        runtime_task._eval_task_runtime(
+            cfg,
+            logging.getLogger(self.id()),
+            "unit",
+            task,
+            WDL.Env.Bindings(),
+            container,
+            WDL.Env.Bindings(),
+            stdlib,
+        )
+        self.assertIn("maxRetries", container.seen_runtime_values)
+        self.assertNotIn("max_retries", container.seen_runtime_values)
+        self.assertEqual(container.seen_runtime_values["maxRetries"].value, 3)
+
     def test_task_scoped_info(self):
         wdl = r"""
         version 1.2
@@ -2711,7 +2828,7 @@ class TestTaskRuntimeInfo(RunnerTestCase):
                 Int output_attempt = task.attempt
             }
             requirements {
-                maxRetries: 1
+                max_retries: 1
             }
         }
         """

@@ -458,6 +458,7 @@ def _parse_tsv_objects(
     header: bool = True,
     keys: Optional[List[Value.Base]] = None,
     function_name: str = "read_objects",
+    filename: Optional[str] = None,
 ) -> Value.Array:
     strmat = _parse_tsv(s)
     if keys is None:
@@ -466,13 +467,29 @@ def _parse_tsv_objects(
         keys = strmat.value[0].value
         rows = strmat.value[1:]
     else:
+        if header and strmat.value and len(strmat.value[0].value) != len(keys):
+            raise Error.InputError(
+                f"{function_name}(): file header has {len(strmat.value[0].value)} columns, "
+                f"but {len(keys)} column names were specified"
+                + (f": {filename}" if filename else "")
+            )
         rows = strmat.value[1:] if header else strmat.value
     assert all(isinstance(key, Value.String) for key in keys)
     if not keys and not rows:
         return Value.Array(Type.Map((Type.String(), Type.String())), [])
-    literal_keys = set(key.value for key in keys if key.value)
-    if len(literal_keys) < len(keys):
-        raise Error.InputError(f"{function_name}(): file has empty or duplicate column names")
+    literal_keys = set()
+    for key in keys:
+        if not key.value:
+            raise Error.InputError(
+                f"{function_name}(): file has an empty column name"
+                + (f": {filename}" if filename else "")
+            )
+        if key.value in literal_keys:
+            raise Error.InputError(
+                f'{function_name}(): file has duplicate column name "{key.value}"'
+                + (f": {filename}" if filename else "")
+            )
+        literal_keys.add(key.value)
     maps: List[Value.Base] = []
     for row in rows:
         if len(row.value) != len(keys):
@@ -1160,7 +1177,7 @@ class _ReadTsv(EagerFunction):
         header = arguments[1].coerce(Type.Boolean())
         assert isinstance(header, Value.Boolean)
         if len(arguments) == 2:
-            return _parse_tsv_objects(contents, function_name="read_tsv")
+            return _parse_tsv_objects(contents, function_name="read_tsv", filename=file.value)
         keys = arguments[2].coerce(Type.Array(Type.String()))
         assert isinstance(keys, Value.Array)
         return _parse_tsv_objects(
@@ -1168,6 +1185,7 @@ class _ReadTsv(EagerFunction):
             header=header.value,
             keys=[key.coerce(Type.String()) for key in keys.value],
             function_name="read_tsv",
+            filename=file.value,
         )
 
 

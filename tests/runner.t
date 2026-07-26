@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 111
+plan tests 115
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -23,6 +23,33 @@ DN=$(mktemp -d "${TMPDIR}/miniwdl_runner_tests_XXXXXX")
 DN=$(realpath "$DN")
 cd $DN
 echo "$DN"
+
+# Regression: the run/source directory reached through a symlink (e.g. macOS /tmp,/var ->
+# /private/...; or any user-created symlink) must not break input mounting or path handling. DN is
+# realpath'd above, so create an explicit symlink to exercise the symlinked case on all platforms.
+ln -s "$DN" "${DN}.link"
+$miniwdl run_self_test --dir "${DN}.link/self_test"
+is "$?" "0" "run_self_test through symlinked directory"
+
+# Regression: a source-relative File input resolved through a symlinked source directory must
+# succeed and preserve the symlinked path in the value (rather than realpath-canonicalizing it).
+mkdir -p "${DN}/srcreal/data"
+echo -n "Alyssa" > "${DN}/srcreal/data/name.txt"
+ln -s "${DN}/srcreal" "${DN}/srclink"
+cat << 'EOF' > "${DN}/srcreal/srcrel.wdl"
+version 1.2
+workflow w {
+    File f = "data/name.txt"
+    output {
+        String p = f
+        String contents = read_string(f)
+    }
+}
+EOF
+$miniwdl run --dir "${DN}/srclink/run" "${DN}/srclink/srcrel.wdl" | tee stdout
+is "$?" "0" "run source-relative input through symlinked source dir"
+is "$(jq -r '.outputs["w.contents"]' stdout)" "Alyssa" "read source-relative file through symlink"
+is "$(jq -r '.outputs["w.p"]' stdout)" "${DN}/srclink/data/name.txt" "source-relative path preserves symlink"
 
 cat << 'EOF' > do_nothing.wdl
 version 1.0
