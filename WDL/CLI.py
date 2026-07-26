@@ -1394,7 +1394,11 @@ def run_self_test(**kwargs):
 
                 workflow hello_caller {
                     input {
+                        # default resolved relative to this WDL source file (source-relative input path)
                         File names = "names.txt"
+                        # supplied as a URI to exercise File download
+                        File remote_names
+                        # supplied as a URI to exercise Directory download
                         Directory reference_data
                     }
 
@@ -1406,6 +1410,8 @@ def run_self_test(**kwargs):
                         Array[String] messages = hello.message
                         Array[Directory] message_directories = hello.message_directory
                         Array[Int] reference_file_counts = hello.reference_file_count
+                        # remote_names is alyssa_ben.txt: a "#" header line plus the two names
+                        Int remote_names_lines = length(read_lines(remote_names))
                     }
                 }
 
@@ -1444,6 +1450,7 @@ def run_self_test(**kwargs):
     argv = [
         "run",
         os.path.join(dn, "test.wdl"),
+        "remote_names=https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/tests/alyssa_ben.txt",
         "reference_data=s3://1000genomes/phase3/integrated_sv_map/supporting/breakpoints/",
         "--dir",
         dn if dn not in [".", "./"] else os.getcwd(),
@@ -1466,6 +1473,7 @@ def run_self_test(**kwargs):
         names = ("Alyssa P. Hacker", "Ben Bitdiddle")
         assert outputs["hello_caller.messages"] == [f"Hello, {name}!" for name in names]
         assert outputs["hello_caller.reference_file_counts"] == [2, 2]
+        assert outputs["hello_caller.remote_names_lines"] == 3
         message_directories = outputs["hello_caller.message_directories"]
         assert len(message_directories) == 2
         for name, directory in zip(names, message_directories):
