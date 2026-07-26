@@ -39,7 +39,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff",
+    "ruff~=0.15.0",  # 0.16 changed the default rule set drastically; revisit before unpinning
     "mypy",
     "pytest",
     "testfixtures",
