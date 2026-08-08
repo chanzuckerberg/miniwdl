@@ -314,10 +314,16 @@ def prepare_aws_credentials(
         import boto3  # type: ignore
 
         try:
-            b3creds = boto3.session.Session().get_credentials()
-            host_aws_credentials["AWS_ACCESS_KEY_ID"] = b3creds.access_key
-            host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
-            host_aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
+            session = boto3.session.Session()
+            b3creds = session.get_credentials()
+
+            if b3creds:
+                host_aws_credentials["AWS_ACCESS_KEY_ID"] = b3creds.access_key
+                host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
+                host_aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
+
+                s3 = session.client("s3")
+                host_aws_credentials["AWS_ENDPOINT_URL"] = s3.meta.endpoint_url
         except Exception:
             pass
 
