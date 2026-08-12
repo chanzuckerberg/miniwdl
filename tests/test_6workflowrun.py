@@ -393,7 +393,7 @@ class TestWorkflowRunner(unittest.TestCase):
         outputs = self._test_workflow("""
         version 1.1
 
-        workflow regress {
+        workflow select_all_leading_none {
             scatter (i in range(3)) {
                 if (i > 0) {
                     Pair[String, Int] p = ("sample~{i}", i)
