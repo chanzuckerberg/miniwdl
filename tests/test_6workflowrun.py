@@ -389,6 +389,25 @@ class TestWorkflowRunner(unittest.TestCase):
         """)
         self.assertEqual(outputs, {"out": [[0, 1], None, [4, 5]]})
 
+    def test_select_all_scatter_leading_none(self):
+        outputs = self._test_workflow("""
+        version 1.1
+
+        workflow regress {
+            scatter (i in range(3)) {
+                if (i > 0) {
+                    Pair[String, Int] p = ("sample~{i}", i)
+                }
+            }
+            output {
+                Map[String, Int] m = as_map(select_all(p))
+                Map[String, Array[Int]] c = collect_by_key(select_all(p))
+            }
+        }
+        """)
+        self.assertEqual(outputs["m"], {"sample1": 1, "sample2": 2})
+        self.assertEqual(outputs["c"], {"sample1": [1], "sample2": [2]})
+
     def test_io(self):
         txt = """
         version 1.0
