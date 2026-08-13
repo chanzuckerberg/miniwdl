@@ -278,6 +278,10 @@ def run_local_task(  # type: ignore[return]
                 chmod_R_plus(run_dir, file_bits=0o660, dir_bits=0o770)
                 _warn_output_basename_collisions(logger, outputs)
 
+                # delete download folder if requested
+                if cfg["file_io"].get_bool("delete_downloads"):
+                    _delete_downloads(run_dir)
+
                 # write outputs.json
                 write_values_json(
                     outputs, os.path.join(run_dir, "outputs.json"), namespace=task.name
@@ -1098,3 +1102,8 @@ def _delete_work(
             )
             return
         container.delete_work(logger, delete_streams=not success)
+
+def _delete_downloads(run_dir: str) -> None:
+    download_dir = os.path.join(run_dir, "download")
+    if os.path.isdir(download_dir):
+        rmtree_atomic(download_dir)
