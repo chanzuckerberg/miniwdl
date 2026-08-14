@@ -1269,12 +1269,12 @@ class _SelectAll(EagerFunction):
         return Type.Array(arg0ty.item_type.copy(optional=False))
 
     def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+        return_type = self.infer_type(expr)
+        assert isinstance(return_type, Type.Array)
         arr = arguments[0].coerce(Type.Array(Type.Any()))
         assert isinstance(arr, Value.Array)
-        arrty = arr.type
-        assert isinstance(arrty, Type.Array)
         return Value.Array(
-            arrty.item_type.copy(optional=False),
+            return_type.item_type,
             [arg for arg in arr.value if not isinstance(arg, Value.Null)],
         )
 
