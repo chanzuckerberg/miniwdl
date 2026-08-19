@@ -3003,3 +3003,11 @@ class TestAwsCredentials(unittest.TestCase):
         # boto3 finds no credentials at all: don't write any into the script (nor fail)
         script = self._prepare()
         assert script is None or "AWS_ACCESS_KEY_ID" not in script
+
+    def test_broken_aws_config(self):
+        # a broken host AWS configuration shouldn't fail the run outright, since public S3 URIs can
+        # still be downloaded with --no-sign-request; but it should be logged, not silently ignored
+        with self.assertLogs(self._logger, level="WARNING") as logs:
+            script = self._prepare(config_file="this is not valid ini {{{")
+        assert any("unable to load host AWS credentials" in line for line in logs.output)
+        assert script is None or "AWS_ACCESS_KEY_ID" not in script

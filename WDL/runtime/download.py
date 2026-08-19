@@ -330,6 +330,8 @@ def prepare_aws_credentials(
     if cfg["download_awscli"].get_bool("host_credentials"):
         import boto3  # type: ignore
 
+        from .error import error_json
+
         try:
             session = boto3.session.Session()
             b3creds = session.get_credentials()
@@ -345,8 +347,12 @@ def prepare_aws_credentials(
                     logger.getChild("awscli_downloader").info(
                         _("detected non-AWS S3 endpoint", endpoint_url=s3_endpoint_url)
                     )
-        except Exception:
-            pass
+        except Exception as exn:
+            # best-effort: the run may still succeed using public S3 URIs, for which the downloader
+            # falls back to --no-sign-request
+            downloader_logger = logger.getChild("awscli_downloader")
+            downloader_logger.debug(traceback.format_exc())
+            downloader_logger.warning(_("unable to load host AWS credentials", **error_json(exn)))
 
     if host_aws_credentials:
         # write credentials to temp file that'll self-destruct afterwards
@@ -364,7 +370,11 @@ def prepare_aws_credentials(
         print(host_aws_credentials_str, file=aws_credentials_file, flush=True)
         # make file group-readable to ensure it'll be usable if the docker image runs as non-root
         os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
-        logger.getChild("awscli_downloader").info("loaded host AWS credentials")
+        logger.getChild("awscli_downloader").info(
+            "loaded host AWS credentials"
+            if "AWS_ACCESS_KEY_ID" in host_aws_credentials
+            else "no host AWS credentials loaded; only passing through AWS_EC2_METADATA_DISABLED"
+        )
         return aws_credentials_file.name
     else:
         logger.getChild("awscli_downloader").info(
