@@ -7,12 +7,15 @@ import shutil
 import time
 import docker
 import platform
+import textwrap
 from testfixtures import log_capture
 from .context import WDL
 from WDL.runtime import task as runtime_task
 from WDL.runtime import _io_helpers as runtime_io_helpers
+from WDL.runtime import download as runtime_download
 from WDL.runtime.cache import CallCacheAddPaths
 from unittest.mock import patch
+from contextlib import ExitStack
 
 
 class RunnerTestCase(unittest.TestCase):
@@ -2928,3 +2931,75 @@ class TestTaskRuntimeInfo(RunnerTestCase):
         outp = self._run(wdl, {})
         assert outp["command_attempt"] == 1
         assert outp["output_attempt"] == 1
+
+
+class TestAwsCredentials(unittest.TestCase):
+    """
+    Unit tests for prepare_aws_credentials()'s reading of the host AWS configuration, especially
+    detection of an S3-compatible endpoint on a non-AWS host (which shouldn't disturb the endpoint
+    resolution awscli does for itself when talking to AWS S3 proper).
+    """
+
+    EXAMPLE_CREDENTIALS = """
+    [default]
+    aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+    aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    """
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp(prefix=f"miniwdl_test_{self.id()}_")
+        self._logger = logging.getLogger(self.id())
+
+    def tearDown(self):
+        shutil.rmtree(self._dir)
+
+    def _prepare(self, config_file="", credentials_file=""):
+        # write out the AWS config & credentials files the host is to appear to have, then return
+        # the contents of the credentials script prepare_aws_credentials() generates for the
+        # downloader task (or None if it declines to generate one)
+        env = {k: v for (k, v) in os.environ.items() if not k.startswith("AWS_")}
+        for name, contents in (("config", config_file), ("credentials", credentials_file)):
+            fn = os.path.join(self._dir, name)
+            with open(fn, "w") as outfile:
+                print(textwrap.dedent(contents), file=outfile)
+            env[f"AWS_{'CONFIG' if name == 'config' else 'SHARED_CREDENTIALS'}_FILE"] = fn
+        env["AWS_EC2_METADATA_DISABLED"] = "true"  # keep the test off the network
+        cfg = WDL.runtime.config.Loader(self._logger, [])
+        cfg.override({"download_awscli": {"host_credentials": True}})
+        with patch.dict(os.environ, env, clear=True), ExitStack() as cleanup:
+            filename = runtime_download.prepare_aws_credentials(cfg, self._logger, cleanup)
+            if not filename:
+                return None
+            with open(filename) as infile:
+                return infile.read()
+
+    def test_aws_endpoint(self):
+        # the endpoint resolves to AWS S3, so it shouldn't be propagated to the downloader task
+        script = self._prepare(
+            config_file="""
+            [default]
+            region = us-east-2
+            """,
+            credentials_file=self.EXAMPLE_CREDENTIALS,
+        )
+        assert "export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE" in script
+        assert "AWS_ENDPOINT_URL" not in script
+
+    def test_nonaws_endpoint(self):
+        script = self._prepare(
+            config_file="""
+            [default]
+            region = us-east-2
+            endpoint_url = https://s3.example.org:9000
+            """,
+            credentials_file=self.EXAMPLE_CREDENTIALS,
+        )
+        assert "export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE" in script
+        assert "export AWS_ENDPOINT_URL_S3=https://s3.example.org:9000" in script
+        # scoped to S3 rather than overriding the endpoint for every AWS service
+        assert "export AWS_ENDPOINT_URL=" not in script
+
+    def test_no_credentials(self):
+        # boto3 finds no credentials at all: don't write any into the script (nor fail)
+        script = self._prepare()
+        assert script is None or "AWS_ACCESS_KEY_ID" not in script

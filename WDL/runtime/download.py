@@ -23,6 +23,7 @@ import tempfile
 import hashlib
 import shlex
 from contextlib import ExitStack
+from urllib.parse import urlparse
 from typing import Optional, Generator, Dict, Any, Tuple, Callable
 from . import config
 from .cache import CallCache
@@ -302,6 +303,22 @@ def awscli_directory_downloader(
     yield recv
 
 
+def _detect_nonaws_s3_endpoint_url(session: Any) -> Optional[str]:
+    """
+    Given a boto3 session, detect an S3 endpoint URL configured on the miniwdl host (e.g.
+    endpoint_url in ~/.aws/config) for S3-compatible storage on a non-AWS endpoint.
+
+    Returns None if the session resolves to AWS S3 itself, in which case we leave the endpoint unset
+    for awscli in the downloader task, letting it resolve the appropriate regional endpoint for each
+    bucket (which an explicit endpoint URL would override).
+    """
+    endpoint_url = session.client("s3").meta.endpoint_url
+    hostname = urlparse(endpoint_url).hostname if endpoint_url else None
+    if not hostname or hostname.endswith((".amazonaws.com", ".amazonaws.com.cn")):
+        return None
+    return endpoint_url
+
+
 def prepare_aws_credentials(
     cfg: config.Loader, logger: logging.Logger, cleanup: ExitStack
 ) -> Optional[str]:
@@ -322,8 +339,12 @@ def prepare_aws_credentials(
                 host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
                 host_aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
 
-                s3 = session.client("s3")
-                host_aws_credentials["AWS_ENDPOINT_URL"] = s3.meta.endpoint_url
+                s3_endpoint_url = _detect_nonaws_s3_endpoint_url(session)
+                if s3_endpoint_url:
+                    host_aws_credentials["AWS_ENDPOINT_URL_S3"] = s3_endpoint_url
+                    logger.getChild("awscli_downloader").info(
+                        _("detected non-AWS S3 endpoint", endpoint_url=s3_endpoint_url)
+                    )
         except Exception:
             pass
 
