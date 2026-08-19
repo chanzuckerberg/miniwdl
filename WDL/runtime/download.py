@@ -26,6 +26,7 @@ from contextlib import ExitStack
 from urllib.parse import urlparse
 from typing import Optional, Generator, Dict, Any, Tuple, Callable
 from . import config
+from .error import error_json
 from .cache import CallCache
 from .._util import compose_coroutines
 from .._util import StructuredLogMessage as _
@@ -80,7 +81,7 @@ def run(
     useful in particular.
     """
 
-    from .error import RunFailed, DownloadFailed, Terminated, error_json
+    from .error import RunFailed, DownloadFailed, Terminated
     from .task import run_local_task
     from .. import parse_document, values_from_json, values_to_json, Walker
 
@@ -329,8 +330,6 @@ def prepare_aws_credentials(
     # get AWS credentials from boto3 (unless prevented by configuration)
     if cfg["download_awscli"].get_bool("host_credentials"):
         import boto3  # type: ignore
-
-        from .error import error_json
 
         try:
             session = boto3.session.Session()
