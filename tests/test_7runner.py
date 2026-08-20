@@ -3004,6 +3004,19 @@ class TestAwsCredentials(unittest.TestCase):
         script = self._prepare()
         assert script is None or "AWS_ACCESS_KEY_ID" not in script
 
+    def test_nonaws_endpoint_without_credentials(self):
+        # the endpoint isn't a credential: it's needed for the downloader's --no-sign-request retry
+        # to reach public objects on the S3-compatible host
+        script = self._prepare(
+            config_file="""
+            [default]
+            region = us-east-2
+            endpoint_url = https://s3.example.org:9000
+            """
+        )
+        assert "export AWS_ENDPOINT_URL_S3=https://s3.example.org:9000" in script
+        assert "AWS_ACCESS_KEY_ID" not in script
+
     def test_broken_aws_config(self):
         # a broken host AWS configuration shouldn't fail the run outright, since public S3 URIs can
         # still be downloaded with --no-sign-request; but it should be logged, not silently ignored

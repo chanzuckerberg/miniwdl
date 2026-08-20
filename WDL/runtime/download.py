@@ -340,12 +340,14 @@ def prepare_aws_credentials(
                 host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
                 host_aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
 
-                s3_endpoint_url = _detect_nonaws_s3_endpoint_url(session)
-                if s3_endpoint_url:
-                    host_aws_credentials["AWS_ENDPOINT_URL_S3"] = s3_endpoint_url
-                    logger.getChild("awscli_downloader").info(
-                        _("detected non-AWS S3 endpoint", endpoint_url=s3_endpoint_url)
-                    )
+            # the endpoint is orthogonal to the credentials: propagate it even without any, so that
+            # the downloader's --no-sign-request retry can still reach public objects there
+            s3_endpoint_url = _detect_nonaws_s3_endpoint_url(session)
+            if s3_endpoint_url:
+                host_aws_credentials["AWS_ENDPOINT_URL_S3"] = s3_endpoint_url
+                logger.getChild("awscli_downloader").info(
+                    _("detected non-AWS S3 endpoint", endpoint_url=s3_endpoint_url)
+                )
         except Exception as exn:
             # best-effort: the run may still succeed using public S3 URIs, for which the downloader
             # falls back to --no-sign-request
@@ -370,9 +372,14 @@ def prepare_aws_credentials(
         # make file group-readable to ensure it'll be usable if the docker image runs as non-root
         os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
         logger.getChild("awscli_downloader").info(
-            "loaded host AWS credentials"
-            if "AWS_ACCESS_KEY_ID" in host_aws_credentials
-            else "no host AWS credentials loaded; only passing through AWS_EC2_METADATA_DISABLED"
+            _(
+                (
+                    "loaded host AWS credentials"
+                    if "AWS_ACCESS_KEY_ID" in host_aws_credentials
+                    else "no host AWS credentials loaded"
+                ),
+                task_environment=sorted(host_aws_credentials.keys()),
+            )
         )
         return aws_credentials_file.name
     else:
