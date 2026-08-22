@@ -422,3 +422,40 @@ class InputError(RuntimeError):
     """Error reading an input value/file"""
 
     pass
+
+
+def _extend_value_path(exn: RuntimeError, segment: str) -> None:
+    """
+    Prepend a path segment to the ``(in <path>)`` breadcrumb on ``exn``, and rewrite its message
+    accordingly.
+
+    Used while building WDL values from JSON (or coercing them), where the failure is detected deep
+    inside a nested value but only the innermost frame knows the reason, and only the outer frames
+    know where it lives. Each frame prepends its own segment on the way out, so the final message
+    names both. Segments carry their own punctuation (``.member``, ``[0]``) and are concatenated,
+    with the outermost segment forming the root.
+
+    Only ``args[0]`` is rewritten: the CLI reports errors with ``die(exn.args[0])``, so detail that
+    lives solely in ``__cause__`` never reaches the user.
+    """
+    path = getattr(exn, "_wdl_value_path", None)
+    if path is None:
+        # first annotation: remember the message without any breadcrumb, so that repeated
+        # annotation extends the path instead of appending a second "(in ...)"
+        path = []
+        exn._wdl_value_base_message = exn.args[0] if exn.args else ""  # type: ignore[attr-defined]
+    path.insert(0, segment)
+    exn._wdl_value_path = path  # type: ignore[attr-defined]
+    message = exn._wdl_value_base_message  # type: ignore[attr-defined]
+    rendered = "".join(path)
+    # the outermost segment is the root (an input name or struct member), so it takes no separator
+    rendered = rendered[1:] if rendered.startswith(".") else rendered
+    exn.args = (f"{message} (in {rendered})",) + tuple(exn.args[1:])
+
+
+def _has_value_path(exn: RuntimeError) -> bool:
+    """
+    Whether ``exn`` already carries a breadcrumb, i.e. some inner frame has described the failure
+    and an enclosing frame need only extend the path rather than re-frame the message.
+    """
+    return getattr(exn, "_wdl_value_path", None) is not None

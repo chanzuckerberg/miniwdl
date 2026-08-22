@@ -727,6 +727,95 @@ class TestValue(unittest.TestCase):
             {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}
         )
 
+    def test_json_error_paths(self):
+        # issue #825: a failure deep inside a JSON input should report the reason, and where
+        doc = WDL.parse_document("""
+        version 1.0
+        struct Sample {
+            String sample_id
+            Int coverage
+            Array[File] reads
+            String? note
+        }
+        struct Family {
+            String family_id
+            Array[Sample] samples
+        }
+        workflow Wrap {
+            input {
+                Array[Family] families
+            }
+        }
+        """)
+        doc.typecheck()
+        available = doc.workflow.available_inputs
+
+        def err(families):
+            with self.assertRaises(WDL.Error.InputError) as ctx:
+                WDL.values_from_json({"families": families}, available)
+            return str(ctx.exception)
+
+        def family(*samples):
+            return [{"family_id": "f1", "samples": list(samples)}]
+
+        ok = {"sample_id": "s1", "coverage": 30, "reads": ["/a.bam"]}
+
+        # missing required member: named, and located
+        msg = err(family({"sample_id": "s1", "reads": ["/a.bam"]}))
+        self.assertIn("omits required field(s): coverage", msg)
+        self.assertIn("(in families[0].samples[0])", msg)
+
+        # every missing member is named, not just the first
+        msg = err(family({"reads": ["/a.bam"]}))
+        self.assertIn("omits required field(s): sample_id, coverage", msg)
+
+        # a misspelled member shows up as both missing and unknown -- the issue's actual mistake
+        msg = err(family({"sample_id": "s1", "reads": ["/a.bam"], "covrage": 30}))
+        self.assertIn("omits required field(s): coverage", msg)
+        self.assertIn("unknown field(s): covrage", msg)
+
+        # wrong scalar type: innermost reason survives, rather than being replaced
+        msg = err(family({"sample_id": "s1", "coverage": "not-an-int", "reads": ["/a.bam"]}))
+        self.assertIn("couldn't construct Int from", msg)
+        self.assertIn("(in families[0].samples[0].coverage)", msg)
+
+        # failure inside a nested array is indexed
+        msg = err(family({"sample_id": "s1", "coverage": 30, "reads": ["/a.bam", 17]}))
+        self.assertIn("(in families[0].samples[0].reads[1])", msg)
+
+        # a bad element that isn't the first one is located precisely
+        msg = err(family(ok, {"sample_id": "s2", "reads": ["/b.bam"]}))
+        self.assertIn("(in families[0].samples[1])", msg)
+
+        # the path is noted once, not once per level of nesting
+        self.assertEqual(msg.count("(in "), 1)
+
+        # optional members may be omitted or null without complaint
+        WDL.values_from_json({"families": family(ok, dict(ok, note=None))}, available)
+
+    def test_json_error_paths_map_and_pair(self):
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            WDL.Value.from_json(
+                WDL.Type.Map((WDL.Type.String(), WDL.Type.Int())), {"cats": 42, "dogs": "many"}
+            )
+        self.assertIn('(in ["dogs"])', str(ctx.exception))
+
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            WDL.Value.from_json(
+                WDL.Type.Array(WDL.Type.Pair(WDL.Type.String(), WDL.Type.Int())),
+                [{"left": "a", "right": 0}, {"left": "b", "right": "c"}],
+            )
+        self.assertIn("(in [1].right)", str(ctx.exception))
+
+    def test_json_error_value_abbreviated(self):
+        # the path locates the problem, so a huge value shouldn't be dumped in full
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            WDL.Value.from_json(WDL.Type.Int(), ["x" * 1000])
+        msg = str(ctx.exception)
+        self.assertIn("couldn't construct Int from", msg)
+        self.assertLess(len(msg), 300)
+        self.assertTrue(msg.endswith("..."))
+
     def test_env_json(self):
         doc = WDL.parse_document(R"""
         version 1.0

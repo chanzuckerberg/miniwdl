@@ -8,7 +8,6 @@ documents. Simply ``import WDL`` once miniwdl has been installed.
 * `Codelabs <https://miniwdl.readthedocs.io/en/latest/WDL.html#python-codelabs>`_ on using this package
 """
 
-import sys
 import os
 from typing import List, Optional, Callable, Dict, Any, Awaitable, Union
 from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker
@@ -286,9 +285,9 @@ def values_from_json(
                     assert False  # just a sanity test of Value.from_json
                 ans = ans.bind(key2, v)
             except Error.InputError as exn:
-                raise Error.InputError(exn.args[0] + f" (in {key})").with_traceback(
-                    sys.exc_info()[2]
-                )
+                # note the input this value came from, as the root of any path noted within it
+                Error._extend_value_path(exn, key)
+                raise
     if required:
         missing = required.subtract(ans)
         if missing:
