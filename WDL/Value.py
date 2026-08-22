@@ -508,16 +508,16 @@ class Struct(Base):
                 except Error.RuntimeError as exc:
                     # some coercions that typecheck could still fail, e.g. String to Int; note the
                     # offending member, taking care not to obscure it if the struct is nested
-                    msg = ""
-                    if exc.args:
-                        if "member of struct" in exc.args[0]:
-                            raise
-                        msg = ": " + exc.args[0]
+                    if Error._has_value_path(exc):
+                        # an inner member already described the failure; just extend its path
+                        Error._extend_value_path(exc, f".{k}")
+                        raise
+                    msg = ": " + exc.args[0] if exc.args else ""
                     msg = (
                         "runtime type mismatch initializing "
                         f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
                     ) + msg
-                    self._eval_error(msg)
+                    self._eval_error(msg, path_segment=f".{k}")
         return Struct(desired_type, members, expr=self.expr, extra=extra)
 
     def _coerce_to_map(self, desired_type: Type.Map) -> Map:
@@ -548,15 +548,18 @@ class Struct(Base):
                 entries.append((map_key, map_value))
         return Map(desired_type.item_type, entries)
 
-    def _eval_error(self, msg: str) -> None:
-        raise (
+    def _eval_error(self, msg: str, path_segment: Optional[str] = None) -> None:
+        exn = (
             Error.EvalError(
                 self.expr,
                 msg,
             )
             if self.expr
             else Error.RuntimeError(msg)
-        ) from None
+        )
+        if path_segment is not None:
+            Error._extend_value_path(exn, path_segment)
+        raise exn from None
 
     def __str__(self) -> Any:
         return "{" + ", ".join(f"{k}: {str(v)}" for k, v in self.value.items()) + "}"
@@ -600,7 +603,10 @@ def from_json(type: Type.Base, value: Any) -> Base:
     if isinstance(type, (Type.String, Type.Any)) and isinstance(value, str):
         return String(value)
     if isinstance(type, Type.Array) and isinstance(value, list):
-        return Array(type.item_type, [from_json(type.item_type, item) for item in value])
+        return Array(
+            type.item_type,
+            [_from_json_at(type.item_type, item, f"[{i}]") for i, item in enumerate(value)],
+        )
     if (
         isinstance(type, Type.Pair)
         and isinstance(value, dict)
@@ -611,8 +617,8 @@ def from_json(type: Type.Base, value: Any) -> Base:
             type.left_type,
             type.right_type,
             (
-                from_json(type.left_type, lowercased_value["left"]),
-                from_json(type.right_type, lowercased_value["right"]),
+                _from_json_at(type.left_type, lowercased_value["left"], ".left"),
+                _from_json_at(type.right_type, lowercased_value["right"], ".right"),
             ),
         )
     if (
@@ -623,18 +629,28 @@ def from_json(type: Type.Base, value: Any) -> Base:
         items = []
         for k, v in value.items():
             assert isinstance(k, str)
-            items.append((String(k).coerce(type.item_type[0]), from_json(type.item_type[1], v)))
+            items.append(
+                (
+                    String(k).coerce(type.item_type[0]),
+                    _from_json_at(type.item_type[1], v, f"[{json.dumps(k)}]"),
+                )
+            )
         return Map(type.item_type, items)
     if (
         isinstance(type, Type.StructInstance)
         and isinstance(value, dict)
         and type.members is not None
     ):
-        for k, ty in type.members.items():
-            if k not in value and not ty.optional:
-                raise Error.InputError(
-                    f"initializer for struct {str(type)} omits required field(s)"
-                )
+        missing = [k for k, ty in type.members.items() if k not in value and not ty.optional]
+        if missing:
+            msg = (
+                f"initializer for struct {str(type)} omits required field(s): {', '.join(missing)}"
+            )
+            unknown = [k for k in value if k not in type.members]
+            if unknown:
+                # often the actual mistake is a misspelled field name, which this diagnoses
+                msg += f"; unknown field(s): {', '.join(unknown)}"
+            raise Error.InputError(msg)
         members = {}
         extra = set()
         for k, v in value.items():
@@ -642,17 +658,33 @@ def from_json(type: Type.Base, value: Any) -> Base:
             if k not in type.members:
                 extra.add(k)
             else:
-                try:
-                    members[k] = from_json(type.members[k], v)
-                except Error.InputError:
-                    raise Error.InputError(
-                        f"couldn't initialize struct {str(type)} {type.members[k]} {k} from {json.dumps(v)}"
-                    ) from None
+                members[k] = _from_json_at(type.members[k], v, f".{k}")
         # Struct.__init__ will populate null for any omitted optional members
         return Struct(type, members, extra=extra)
     if type.optional and value is None:
         return Null()
-    raise Error.InputError(f"couldn't construct {str(type)} from {json.dumps(value)}")
+    raise Error.InputError(f"couldn't construct {str(type)} from {_abbreviate_json(value)}")
+
+
+def _from_json_at(type: Type.Base, value: Any, segment: str) -> Base:
+    """
+    from_json() on a component of an enclosing value, noting the component's location on any error
+    so that the innermost reason is reported alongside the full path to it.
+    """
+    try:
+        return from_json(type, value)
+    except Error.InputError as exn:
+        Error._extend_value_path(exn, segment)
+        raise
+
+
+def _abbreviate_json(value: Any, limit: int = 160) -> str:
+    """
+    Render a JSON value for an error message, truncating it if long. The path reported alongside
+    identifies the location precisely, so a huge blob adds nothing but noise.
+    """
+    ans = json.dumps(value)
+    return ans if len(ans) <= limit else ans[:limit] + "..."
 
 
 def _infer_from_json(
