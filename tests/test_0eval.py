@@ -793,6 +793,23 @@ class TestValue(unittest.TestCase):
         # optional members may be omitted or null without complaint
         WDL.values_from_json({"families": family(ok, dict(ok, note=None))}, available)
 
+    def test_json_error_path_rendering(self):
+        # the location renders via str(); args[0] stays the message as raised, so that code
+        # composing an inner message into an outer one doesn't duplicate the "(in ...)" suffix
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            WDL.Value.from_json(
+                WDL.Type.Array(WDL.Type.Array(WDL.Type.Int())), [[1, 2], [3, "four"]]
+            )
+        exn = ctx.exception
+        self.assertEqual(exn.args[0], 'couldn\'t construct Int from "four"')
+        self.assertEqual(str(exn), 'couldn\'t construct Int from "four" (in [1][1])')
+        self.assertEqual(exn.value_path, ["[1]", "[1]"])
+
+        # an error that never passed through a nested value renders unchanged
+        plain = WDL.Error.InputError("no location here")
+        self.assertEqual(str(plain), "no location here")
+        self.assertEqual(plain.value_path, [])
+
     def test_json_error_paths_map_and_pair(self):
         with self.assertRaises(WDL.Error.InputError) as ctx:
             WDL.Value.from_json(
