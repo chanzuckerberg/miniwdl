@@ -23,8 +23,10 @@ import tempfile
 import hashlib
 import shlex
 from contextlib import ExitStack
+from urllib.parse import urlparse
 from typing import Optional, Generator, Dict, Any, Tuple, Callable
 from . import config
+from .error import error_json
 from .cache import CallCache
 from .._util import compose_coroutines
 from .._util import StructuredLogMessage as _
@@ -79,7 +81,7 @@ def run(
     useful in particular.
     """
 
-    from .error import RunFailed, DownloadFailed, Terminated, error_json
+    from .error import RunFailed, DownloadFailed, Terminated
     from .task import run_local_task
     from .. import parse_document, values_from_json, values_to_json, Walker
 
@@ -302,6 +304,22 @@ def awscli_directory_downloader(
     yield recv
 
 
+def _detect_nonaws_s3_endpoint_url(session: Any) -> Optional[str]:
+    """
+    Given a boto3 session, detect an S3 endpoint URL configured on the miniwdl host (e.g.
+    endpoint_url in ~/.aws/config) for S3-compatible storage on a non-AWS endpoint.
+
+    Returns None if the session resolves to AWS S3 itself, in which case we leave the endpoint unset
+    for awscli in the downloader task, letting it resolve the appropriate regional endpoint for each
+    bucket (which an explicit endpoint URL would override).
+    """
+    endpoint_url = session.client("s3").meta.endpoint_url
+    hostname = urlparse(endpoint_url).hostname if endpoint_url else None
+    if not hostname or hostname.endswith((".amazonaws.com", ".amazonaws.com.cn")):
+        return None
+    return endpoint_url
+
+
 def prepare_aws_credentials(
     cfg: config.Loader, logger: logging.Logger, cleanup: ExitStack
 ) -> Optional[str]:
@@ -314,12 +332,28 @@ def prepare_aws_credentials(
         import boto3  # type: ignore
 
         try:
-            b3creds = boto3.session.Session().get_credentials()
-            host_aws_credentials["AWS_ACCESS_KEY_ID"] = b3creds.access_key
-            host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
-            host_aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
-        except Exception:
-            pass
+            session = boto3.session.Session()
+            b3creds = session.get_credentials()
+
+            if b3creds:
+                host_aws_credentials["AWS_ACCESS_KEY_ID"] = b3creds.access_key
+                host_aws_credentials["AWS_SECRET_ACCESS_KEY"] = b3creds.secret_key
+                host_aws_credentials["AWS_SESSION_TOKEN"] = b3creds.token
+
+            # the endpoint is orthogonal to the credentials: propagate it even without any, so that
+            # the downloader's --no-sign-request retry can still reach public objects there
+            s3_endpoint_url = _detect_nonaws_s3_endpoint_url(session)
+            if s3_endpoint_url:
+                host_aws_credentials["AWS_ENDPOINT_URL_S3"] = s3_endpoint_url
+                logger.getChild("awscli_downloader").info(
+                    _("detected non-AWS S3 endpoint", endpoint_url=s3_endpoint_url)
+                )
+        except Exception as exn:
+            # best-effort: the run may still succeed using public S3 URIs, for which the downloader
+            # falls back to --no-sign-request
+            downloader_logger = logger.getChild("awscli_downloader")
+            downloader_logger.debug(traceback.format_exc())
+            downloader_logger.warning(_("unable to load host AWS credentials", **error_json(exn)))
 
     if host_aws_credentials:
         # write credentials to temp file that'll self-destruct afterwards
@@ -337,7 +371,16 @@ def prepare_aws_credentials(
         print(host_aws_credentials_str, file=aws_credentials_file, flush=True)
         # make file group-readable to ensure it'll be usable if the docker image runs as non-root
         os.chmod(aws_credentials_file.name, os.stat(aws_credentials_file.name).st_mode | 0o40)
-        logger.getChild("awscli_downloader").info("loaded host AWS credentials")
+        logger.getChild("awscli_downloader").info(
+            _(
+                (
+                    "loaded host AWS credentials"
+                    if "AWS_ACCESS_KEY_ID" in host_aws_credentials
+                    else "no host AWS credentials loaded"
+                ),
+                task_environment=sorted(host_aws_credentials.keys()),
+            )
+        )
         return aws_credentials_file.name
     else:
         logger.getChild("awscli_downloader").info(
