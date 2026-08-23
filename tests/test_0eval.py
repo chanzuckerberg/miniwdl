@@ -808,7 +808,14 @@ class TestValue(unittest.TestCase):
         # an error that never passed through a nested value renders unchanged
         plain = WDL.Error.InputError("no location here")
         self.assertEqual(str(plain), "no location here")
-        self.assertEqual(plain.value_path, [])
+        self.assertIsNone(plain.value_path)
+
+        # the class-level default is immutable, so locating one error can't leak into any other
+        located = WDL.Error.InputError("located")
+        WDL.Error._extend_value_path(located, ".x")
+        self.assertEqual(located.value_path, [".x"])
+        self.assertIsNone(WDL.Error.InputError("fresh").value_path)
+        self.assertIsNone(WDL.Error.RuntimeError.value_path)
 
     def test_json_error_paths_map_and_pair(self):
         with self.assertRaises(WDL.Error.InputError) as ctx:

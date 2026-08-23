@@ -381,11 +381,12 @@ class RuntimeError(Exception):
     Backend-specific information about an error (for example, pointer to a centralized log system)
     """
 
-    value_path: List[str] = []
+    value_path: Optional[List[str]] = None
     """
     Location of the error within a nested value being built or coerced, e.g. the path from a
-    workflow input to the offending item of JSON. Rendered by ``__str__()`` as an ``(in ...)``
-    suffix; see :func:`_extend_value_path`. The class-level default is never mutated in place.
+    workflow input to the offending item of JSON; None if the error has no such location. Rendered
+    by ``__str__()`` as an ``(in ...)`` suffix; see :func:`_extend_value_path`. The default is a
+    class attribute, so it's left immutable and :func:`_extend_value_path` rebinds instead.
     """
 
     def __init__(self, *args, more_info: Optional[Dict[str, Any]] = None, **kwargs) -> None:
@@ -453,8 +454,8 @@ def _extend_value_path(exn: RuntimeError, segment: str) -> None:
     message into a new outer one should therefore read ``args[0]``, while code that reports an
     error to the user should use ``str()`` to pick up the location.
     """
-    # rebind rather than mutate: the empty default lives on the class, shared by all instances
-    exn.value_path = [segment] + exn.value_path
+    # rebind rather than mutate: the None default lives on the class, shared by all instances
+    exn.value_path = [segment] + (exn.value_path or [])
 
 
 def _has_value_path(exn: RuntimeError) -> bool:
