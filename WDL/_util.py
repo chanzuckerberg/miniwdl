@@ -489,51 +489,83 @@ def configure_logger(
 
 @export
 @contextmanager
-def PygtailLogger(
+def TailLogger(
     logger: logging.Logger,
     filename: str,
     callback: Optional[Callable[[str], None]] = None,
     level: int = VERBOSE_LEVEL,
 ) -> Iterator[Callable[[], None]]:
     """
-    Helper for streaming task stderr into logger using pygtail. Context manager yielding a function
-    which reads the latest lines from the file and writes them into logger at verbose level. This
-    function also runs automatically on context exit.
+    Helper for streaming an append-only log file (e.g. task stderr.txt) into a logger. Context
+    manager yielding a function which reads any newly-appended complete lines from the file and
+    passes each to ``callback`` (default: log at ``level``). The function is also called
+    automatically on context exit.
 
-    Stops if it sees a line greater than 4KB, in case writer goes haywire.
+    Only whole newline-terminated lines are emitted; a trailing partial line is buffered until the
+    writer completes it. Stops (with a warning) if a single line exceeds 4 KiB, in case the writer
+    goes haywire.
     """
-    from pygtail import Pygtail  # delayed heavy import
-
-    pygtail = None
-    if logger.isEnabledFor(level):
-        pygtail = Pygtail(filename, full_lines=True)
+    max_line = 4096
     logger2 = logger.getChild("stderr")
 
     def default_callback(line: str) -> None:
-        assert len(line) <= 4096, "line > 4KB"
         logger2.log(level, line.rstrip())
 
-    callback = callback or default_callback
+    cb = callback or default_callback
+    enabled = logger.isEnabledFor(level)
+
+    state: Dict[str, Any] = {"fh": None, "buf": "", "stopped": False}
 
     def poll() -> None:
-        nonlocal pygtail
-        if pygtail:
-            try:
-                for line in pygtail:
-                    callback(line)
-            except Exception as exn:
-                # cf. https://github.com/bgreenlee/pygtail/issues/48
-                logger.warning(
-                    StructuredLogMessage(
-                        "log stream is incomplete", filename=filename, error=str(exn)
-                    )
+        if state["stopped"] or not enabled:
+            return
+        try:
+            if state["fh"] is None:
+                if not os.path.exists(filename):
+                    return
+                state["fh"] = open(filename, "r", encoding="utf-8", errors="replace")
+            fh = state["fh"]
+            while True:
+                chunk = fh.read(65536)
+                if not chunk:
+                    break
+                state["buf"] += chunk
+            buf = state["buf"]
+            start = 0
+            while True:
+                nl = buf.find("\n", start)
+                if nl < 0:
+                    break
+                line = buf[start : nl + 1]
+                if len(line) > max_line:
+                    raise RuntimeError(f"log line exceeds {max_line} bytes")
+                cb(line)
+                start = nl + 1
+            state["buf"] = buf[start:]
+            if len(state["buf"]) > max_line:
+                raise RuntimeError(f"log line exceeds {max_line} bytes")
+        except Exception as exn:
+            logger.warning(
+                StructuredLogMessage(
+                    "log stream is incomplete", filename=filename, error=str(exn)
                 )
-                pygtail = None
+            )
+            state["stopped"] = True
+            if state["fh"] is not None:
+                try:
+                    state["fh"].close()
+                finally:
+                    state["fh"] = None
 
     try:
         yield poll
     finally:
-        poll()
+        try:
+            poll()
+        finally:
+            if state["fh"] is not None:
+                state["fh"].close()
+                state["fh"] = None
 
 
 _terminating: Optional[bool] = None

@@ -26,7 +26,7 @@ from .._util import (
     TerminationSignalFlag,
     path_really_within,
     rmtree_atomic,
-    PygtailLogger,
+    TailLogger,
     parse_byte_size,
 )
 from .._util import StructuredLogMessage as _
@@ -678,7 +678,7 @@ class TaskContainer(ABC):
         call the function periodically while container is running, and close the context once
         done/failed.
         """
-        return PygtailLogger(
+        return TailLogger(
             logger,
             self.host_stderr_txt(),
             callback=self.stderr_callback,

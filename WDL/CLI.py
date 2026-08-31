@@ -778,7 +778,7 @@ def runner(
 
         # debug logging
         versionlog = {"python": sys.version, "uname": " ".join(os.uname())}
-        for pkg in ["miniwdl", "docker", "lark", "argcomplete", "pygtail"]:
+        for pkg in ["miniwdl", "docker", "lark", "argcomplete"]:
             pkver = pkg_version(pkg)
             versionlog[pkg] = str(pkver) if pkver else "UNKNOWN"
         logger.debug(_("package versions", **versionlog))

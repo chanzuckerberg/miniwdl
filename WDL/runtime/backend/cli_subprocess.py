@@ -10,7 +10,7 @@ import multiprocessing
 from typing import Callable, List, Tuple, Dict, Optional, Set
 from abc import abstractmethod, abstractproperty
 from contextlib import ExitStack
-from ..._util import PygtailLogger
+from ..._util import TailLogger
 from ..._util import StructuredLogMessage as _
 from .. import config
 from ..error import Terminated, DownloadFailed
@@ -72,7 +72,7 @@ class SubprocessBase(TaskContainer):
             cli_logger = logger.getChild(self.cli_name)
             poll_stderr = cleanup.enter_context(self.poll_stderr_context(logger))
             poll_cli_log = cleanup.enter_context(
-                PygtailLogger(
+                TailLogger(
                     logger,
                     cli_log_filename,
                     lambda msg: cli_logger.info(msg.rstrip()),

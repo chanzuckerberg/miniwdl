@@ -29,7 +29,6 @@ dependencies = [
     "ruamel.yaml~=0.18; python_version<'3.9'",
     "ruamel.yaml~=0.19; python_version>='3.9'",
     "argcomplete>=3,<4",
-    "pygtail~=0.14",
     "coloredlogs>=15,<16",
     "python-json-logger>=3.1,<5",
     "lark~=1.3",
