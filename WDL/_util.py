@@ -562,9 +562,7 @@ def TailLogger(
                 raise RuntimeError(f"log line exceeds {max_line} bytes")
         except Exception as exn:
             logger.warning(
-                StructuredLogMessage(
-                    "log stream is incomplete", filename=filename, error=str(exn)
-                )
+                StructuredLogMessage("log stream is incomplete", filename=filename, error=str(exn))
             )
             state["stopped"] = True
             if state["fh"] is not None:
