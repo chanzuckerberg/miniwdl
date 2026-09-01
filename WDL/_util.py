@@ -2,6 +2,7 @@
 
 import sys
 import os
+import codecs
 import json
 import logging
 import signal
@@ -487,6 +488,9 @@ def configure_logger(
                 sys.stderr.write(ANSI.SHOW_CURSOR)  # un-hide cursor
 
 
+_TAIL_CHUNK_BYTES = 65536
+
+
 @export
 @contextmanager
 def TailLogger(
@@ -504,6 +508,13 @@ def TailLogger(
     Only whole newline-terminated lines are emitted; a trailing partial line is buffered until the
     writer completes it. Stops (with a warning) if a single line exceeds 4 KiB, in case the writer
     goes haywire.
+
+    The file is read in binary and decoded incrementally as UTF-8 (invalid bytes are replaced with
+    U+FFFD). This correctly handles a multi-byte character whose bytes are only partially written
+    (or partially read) at poll time: the incomplete tail is held by the decoder and completed on a
+    later poll, rather than being corrupted by decoding a torn byte sequence. A multi-byte sequence
+    that is never completed (e.g. because the writer died) is simply dropped along with the rest of
+    its unterminated line, consistent with how any other trailing partial line is handled.
     """
     max_line = 4096
     logger2 = logger.getChild("stderr")
@@ -514,7 +525,12 @@ def TailLogger(
     cb = callback or default_callback
     enabled = logger.isEnabledFor(level)
 
-    state: Dict[str, Any] = {"fh": None, "buf": "", "stopped": False}
+    state: Dict[str, Any] = {
+        "fh": None,
+        "decoder": codecs.getincrementaldecoder("utf-8")(errors="replace"),
+        "buf": "",
+        "stopped": False,
+    }
 
     def poll() -> None:
         if state["stopped"] or not enabled:
@@ -523,13 +539,13 @@ def TailLogger(
             if state["fh"] is None:
                 if not os.path.exists(filename):
                     return
-                state["fh"] = open(filename, "r", encoding="utf-8", errors="replace")
+                state["fh"] = open(filename, "rb")
             fh = state["fh"]
             while True:
-                chunk = fh.read(65536)
+                chunk = fh.read(_TAIL_CHUNK_BYTES)
                 if not chunk:
                     break
-                state["buf"] += chunk
+                state["buf"] += state["decoder"].decode(chunk, final=False)
             buf = state["buf"]
             start = 0
             while True:
