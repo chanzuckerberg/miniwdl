@@ -1,3 +1,4 @@
+import codecs
 import logging
 import os
 import subprocess
@@ -10,7 +11,15 @@ import unittest
 from unittest.mock import patch
 
 import WDL._util as _util
-from WDL._util import TailLogger, VERBOSE_LEVEL, _tail_emit_lines, _TAIL_MAX_LINE
+from WDL._util import (
+    TailLogger,
+    VERBOSE_LEVEL,
+    _tail_emit_lines,
+    _tail_close,
+    _TailStream,
+    _TAIL_MAX_LINE,
+    _TAIL_STOPPED,
+)
 
 
 class TestTailLogger(unittest.TestCase):
@@ -344,6 +353,28 @@ class TestTailLogger(unittest.TestCase):
             self._append("dddd\neeee\nffff\n")
             poll()
         self.assertEqual(seen, ["aaaa\n", "bbbb\n", "eeee\n", "ffff\n"])
+
+    def test_poll_after_context_exit_is_inert(self):
+        # the caller still holds the yielded closure after the context exits. once we've closed the
+        # file we're done with it -- polling again must not reopen it and replay from the top.
+        logger = self._make_logger()
+        seen = []
+        with TailLogger(logger, self.path, callback=seen.append) as poll:
+            self._append("one\n")
+        self.assertEqual(seen, ["one\n"])
+        poll()
+        self._append("two\n")
+        poll()
+        self.assertEqual(seen, ["one\n"])
+
+    def test_tail_close_is_terminal_and_idempotent(self):
+        fh = open(self.path, "rb")
+        state = _TailStream(fh, codecs.getincrementaldecoder("utf-8")(errors="replace"))
+        self.assertEqual(state.leftover, "")
+        self.assertIs(_tail_close(state), _TAIL_STOPPED)
+        self.assertTrue(fh.closed)
+        self.assertIs(_tail_close(_TAIL_STOPPED), _TAIL_STOPPED)  # terminal state is a fixed point
+        self.assertIs(_tail_close(None), _TAIL_STOPPED)  # never opened: nothing to close
 
     def test_pygtail_logger_alias(self):
         # deprecated alias for the pre-v1.15 name, imported by out-of-tree container backends

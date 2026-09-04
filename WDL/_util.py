@@ -16,10 +16,12 @@ import decimal
 from time import sleep
 from datetime import datetime
 from enum import IntEnum
-from contextlib import contextmanager, AbstractContextManager
+from contextlib import contextmanager, suppress, AbstractContextManager
 from typing import (
     Tuple,
     Dict,
+    Union,
+    NamedTuple,
     BinaryIO,
     Set,
     Iterator,
@@ -500,6 +502,34 @@ _TAIL_MAX_LINE = 4096
 _TAIL_EOL = re.compile(r"\r\n|\r|\n")
 
 
+class _TailStream(NamedTuple):
+    """The open log file, its incremental UTF-8 decoder, and the partial trailing line to carry
+    into the next poll."""
+
+    fh: BinaryIO
+    decoder: codecs.IncrementalDecoder
+    leftover: str = ""
+
+
+class _TailStopped:
+    """We gave up on the file after an error, closed it, and won't read it again."""
+
+
+_TAIL_STOPPED = _TailStopped()
+
+# Tailing is in one of three states: not opened yet (None -- each poll retries, since the writer
+# may not have created the file), streaming, or stopped.
+_TailState = Union[None, _TailStream, _TailStopped]
+
+
+def _tail_close(state: _TailState) -> _TailStopped:
+    """Close the file if it's open and return the terminal state. The only way to stop."""
+    if isinstance(state, _TailStream):
+        with suppress(Exception):  # a failure closing a read handle isn't actionable
+            state.fh.close()
+    return _TAIL_STOPPED
+
+
 def _tail_emit_lines(buf: str, final: bool, emit: Callable[[str], None]) -> str:
     r"""
     Feed each complete line in ``buf`` to ``emit``, normalized to a single trailing \n, and return
@@ -558,39 +588,34 @@ def TailLogger(
     cb = callback or default_callback
     enabled = logger.isEnabledFor(level)
 
-    fh: Optional[BinaryIO] = None
-    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
-    leftover = ""
-    stopped = False
+    state: _TailState = None
 
     def drain(final: bool) -> None:
-        nonlocal fh, leftover, stopped
-        if stopped or not enabled:
+        nonlocal state
+        if isinstance(state, _TailStopped) or not enabled:
             return
         try:
-            if fh is None:
+            if state is None:
                 try:
-                    fh = open(filename, "rb")
+                    state = _TailStream(
+                        open(filename, "rb"),
+                        codecs.getincrementaldecoder("utf-8")(errors="replace"),
+                    )
                 except FileNotFoundError:
                     return  # writer hasn't created it (yet); try again on the next poll
-            # local alias so that mypy carries the None-narrowing of `fh` into the lambda below
-            stream = fh
-            for chunk in iter(lambda: stream.read(_TAIL_CHUNK_BYTES), b""):
+            fh, decoder, leftover = state
+            for chunk in iter(lambda: fh.read(_TAIL_CHUNK_BYTES), b""):
                 leftover = _tail_emit_lines(leftover + decoder.decode(chunk), False, cb)
                 if len(leftover) > _TAIL_MAX_LINE:
                     raise RuntimeError(f"unterminated log line exceeds {_TAIL_MAX_LINE} characters")
             if final:
                 leftover = _tail_emit_lines(leftover, True, cb)
+            state = state._replace(leftover=leftover)
         except Exception as exn:
             logger.warning(
                 StructuredLogMessage("log stream is incomplete", filename=filename, error=str(exn))
             )
-            stopped = True
-            if fh is not None:
-                try:
-                    fh.close()
-                finally:
-                    fh = None
+            state = _tail_close(state)
 
     def poll() -> None:
         drain(False)
@@ -601,9 +626,7 @@ def TailLogger(
         try:
             drain(True)
         finally:
-            if fh is not None:
-                fh.close()
-                fh = None
+            state = _tail_close(state)
 
 
 # Deprecated alias for the name used before miniwdl v1.15; out-of-tree container backends import
