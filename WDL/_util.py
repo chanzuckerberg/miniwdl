@@ -20,6 +20,7 @@ from contextlib import contextmanager, AbstractContextManager
 from typing import (
     Tuple,
     Dict,
+    BinaryIO,
     Set,
     Iterator,
     List,
@@ -490,12 +491,33 @@ def configure_logger(
 
 
 _TAIL_CHUNK_BYTES = 65536
+_TAIL_MAX_LINE = 4096
 
 # Line terminators recognized when tailing a log file. As with python's universal newlines (which
 # the previous implementation got for free by reading the file in text mode), a lone \r also
 # terminates a line -- otherwise a CLI tool's \r-delimited progress bar would read as one
 # ever-growing line, and trip the oversized-line guard below.
 _TAIL_EOL = re.compile(r"\r\n|\r|\n")
+
+
+def _tail_emit_lines(buf: str, final: bool, emit: Callable[[str], None]) -> str:
+    r"""
+    Feed each complete line in ``buf`` to ``emit``, normalized to a single trailing \n, and return
+    the leftover partial line for the caller to carry into the next call. Holds no state of its
+    own, and emits as it scans rather than accumulating. Raises if a line exceeds _TAIL_MAX_LINE.
+
+    Unless ``final``, a \r at the very end of ``buf`` is left in the leftover rather than taken as
+    a terminator, since the writer may yet complete it into \r\n.
+    """
+    start = 0
+    while True:
+        eol = _TAIL_EOL.search(buf, start)
+        if not eol or (not final and eol.group() == "\r" and eol.end() == len(buf)):
+            return buf[start:]
+        if eol.start() - start >= _TAIL_MAX_LINE:
+            raise RuntimeError(f"log line exceeds {_TAIL_MAX_LINE} characters")
+        emit(buf[start : eol.start()] + "\n")
+        start = eol.end()
 
 
 @export
@@ -506,7 +528,7 @@ def TailLogger(
     callback: Optional[Callable[[str], None]] = None,
     level: int = VERBOSE_LEVEL,
 ) -> Iterator[Callable[[], None]]:
-    """
+    r"""
     Helper for streaming an append-only log file (e.g. task stderr.txt) into a logger. Context
     manager yielding a function which reads any newly-appended complete lines from the file and
     passes each to ``callback`` (default: log at ``level``). The function is also called
@@ -528,7 +550,6 @@ def TailLogger(
     reading the next, so that a large backlog (a task that wrote a lot of stderr since the previous
     poll) streams through in constant memory instead of being buffered whole.
     """
-    max_line = 4096
     logger2 = logger.getChild("stderr")
 
     def default_callback(line: str) -> None:
@@ -537,72 +558,52 @@ def TailLogger(
     cb = callback or default_callback
     enabled = logger.isEnabledFor(level)
 
-    state: Dict[str, Any] = {
-        "fh": None,
-        "decoder": codecs.getincrementaldecoder("utf-8")(errors="replace"),
-        "buf": "",
-        "stopped": False,
-    }
+    fh: Optional[BinaryIO] = None
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    leftover = ""
+    stopped = False
 
-    def flush_lines(final: bool) -> None:
-        # emit each complete line in the buffer, leaving behind any trailing partial line
-        buf = state["buf"]
-        start = 0
-        while True:
-            eol = _TAIL_EOL.search(buf, start)
-            if not eol:
-                break
-            if eol.group() == "\r" and eol.end() == len(buf) and not final:
-                # ambiguous: could be a lone \r, or the first half of a \r\n whose \n the writer
-                # hasn't gotten to yet. hold it back until we know which.
-                break
-            line = buf[start : eol.start()] + "\n"
-            if len(line) > max_line:
-                raise RuntimeError(f"log line exceeds {max_line} characters")
-            cb(line)
-            start = eol.end()
-        state["buf"] = buf[start:]
-
-    def poll(final: bool = False) -> None:
-        if state["stopped"] or not enabled:
+    def drain(final: bool) -> None:
+        nonlocal fh, leftover, stopped
+        if stopped or not enabled:
             return
         try:
-            if state["fh"] is None:
+            if fh is None:
                 try:
-                    state["fh"] = open(filename, "rb")
+                    fh = open(filename, "rb")
                 except FileNotFoundError:
                     return  # writer hasn't created it (yet); try again on the next poll
-            fh = state["fh"]
-            while True:
-                chunk = fh.read(_TAIL_CHUNK_BYTES)
-                if not chunk:
-                    break
-                state["buf"] += state["decoder"].decode(chunk, final=False)
-                flush_lines(False)
-                if len(state["buf"]) > max_line:
-                    raise RuntimeError(f"unterminated log line exceeds {max_line} characters")
+            # local alias so that mypy carries the None-narrowing of `fh` into the lambda below
+            stream = fh
+            for chunk in iter(lambda: stream.read(_TAIL_CHUNK_BYTES), b""):
+                leftover = _tail_emit_lines(leftover + decoder.decode(chunk), False, cb)
+                if len(leftover) > _TAIL_MAX_LINE:
+                    raise RuntimeError(f"unterminated log line exceeds {_TAIL_MAX_LINE} characters")
             if final:
-                flush_lines(True)
+                leftover = _tail_emit_lines(leftover, True, cb)
         except Exception as exn:
             logger.warning(
                 StructuredLogMessage("log stream is incomplete", filename=filename, error=str(exn))
             )
-            state["stopped"] = True
-            if state["fh"] is not None:
+            stopped = True
+            if fh is not None:
                 try:
-                    state["fh"].close()
+                    fh.close()
                 finally:
-                    state["fh"] = None
+                    fh = None
+
+    def poll() -> None:
+        drain(False)
 
     try:
         yield poll
     finally:
         try:
-            poll(final=True)
+            drain(True)
         finally:
-            if state["fh"] is not None:
-                state["fh"].close()
-                state["fh"] = None
+            if fh is not None:
+                fh.close()
+                fh = None
 
 
 # Deprecated alias for the name used before miniwdl v1.15; out-of-tree container backends import

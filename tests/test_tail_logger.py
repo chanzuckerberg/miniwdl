@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 import WDL._util as _util
-from WDL._util import TailLogger, VERBOSE_LEVEL
+from WDL._util import TailLogger, VERBOSE_LEVEL, _tail_emit_lines, _TAIL_MAX_LINE
 
 
 class TestTailLogger(unittest.TestCase):
@@ -348,6 +348,54 @@ class TestTailLogger(unittest.TestCase):
     def test_pygtail_logger_alias(self):
         # deprecated alias for the pre-v1.15 name, imported by out-of-tree container backends
         self.assertIs(_util.PygtailLogger, TailLogger)
+
+
+class TestTailEmitLines(unittest.TestCase):
+    """Unit tests for the line-splitting core, independent of any file I/O."""
+
+    @staticmethod
+    def _split(buf, final):
+        lines = []
+        leftover = _tail_emit_lines(buf, final, lines.append)
+        return lines, leftover
+
+    def test_terminators(self):
+        cases = [
+            ("", ([], "")),
+            ("a\nb\n", (["a\n", "b\n"], "")),
+            ("a\nb", (["a\n"], "b")),  # trailing partial retained
+            ("a\r\nb\r\n", (["a\n", "b\n"], "")),
+            ("a\rb\rc\n", (["a\n", "b\n", "c\n"], "")),
+            ("\n\n", (["\n", "\n"], "")),  # empty lines preserved
+            ("a\r\n", (["a\n"], "")),  # complete \r\n at the end is not ambiguous
+        ]
+        for buf, expected in cases:
+            with self.subTest(buf=buf):
+                self.assertEqual(self._split(buf, False), expected)
+
+    def test_max_line_boundary(self):
+        # the guard counts the line including its normalized trailing \n, so content of
+        # _TAIL_MAX_LINE - 1 is the longest that passes
+        ok = "z" * (_TAIL_MAX_LINE - 1)
+        self.assertEqual(self._split(ok + "\n", False), ([ok + "\n"], ""))
+        with self.assertRaises(RuntimeError):
+            self._split("z" * _TAIL_MAX_LINE + "\n", False)
+
+    def test_trailing_cr_held_unless_final(self):
+        self.assertEqual(self._split("a\rb\r", False), (["a\n"], "b\r"))
+        self.assertEqual(self._split("a\rb\r", True), (["a\n", "b\n"], ""))
+
+    def test_chunking_invariant(self):
+        # splitting the same text at any point and feeding it in two calls yields the same lines
+        text = "one\rtwo\r\nthree\nfour\r\n"
+        whole, rest = self._split(text, True)
+        self.assertEqual(rest, "")
+        for i in range(len(text) + 1):
+            with self.subTest(split_at=i):
+                first, leftover = self._split(text[:i], False)
+                second, leftover = self._split(leftover + text[i:], True)
+                self.assertEqual(first + second, whole)
+                self.assertEqual(leftover, "")
 
 
 if __name__ == "__main__":
