@@ -2,6 +2,7 @@
 
 import sys
 import os
+import re
 import codecs
 import json
 import logging
@@ -490,6 +491,12 @@ def configure_logger(
 
 _TAIL_CHUNK_BYTES = 65536
 
+# Line terminators recognized when tailing a log file. As with python's universal newlines (which
+# the previous implementation got for free by reading the file in text mode), a lone \r also
+# terminates a line -- otherwise a CLI tool's \r-delimited progress bar would read as one
+# ever-growing line, and trip the oversized-line guard below.
+_TAIL_EOL = re.compile(r"\r\n|\r|\n")
+
 
 @export
 @contextmanager
@@ -503,11 +510,12 @@ def TailLogger(
     Helper for streaming an append-only log file (e.g. task stderr.txt) into a logger. Context
     manager yielding a function which reads any newly-appended complete lines from the file and
     passes each to ``callback`` (default: log at ``level``). The function is also called
-    automatically on context exit.
+    automatically on context exit. It isn't thread-safe: call it from one thread only.
 
-    Only whole newline-terminated lines are emitted; a trailing partial line is buffered until the
-    writer completes it. Stops (with a warning) if a single line exceeds 4 KiB, in case the writer
-    goes haywire.
+    Only whole terminated lines are emitted; a trailing partial line is buffered until the writer
+    completes it. Lines may be terminated by \n, \r\n, or \r, and are passed to ``callback``
+    normalized to a single trailing \n. Stops (with a warning) if an unterminated line exceeds
+    4 KiB, in case the writer goes haywire.
 
     The file is read in binary and decoded incrementally as UTF-8 (invalid bytes are replaced with
     U+FFFD). This correctly handles a multi-byte character whose bytes are only partially written
@@ -515,6 +523,10 @@ def TailLogger(
     later poll, rather than being corrupted by decoding a torn byte sequence. A multi-byte sequence
     that is never completed (e.g. because the writer died) is simply dropped along with the rest of
     its unterminated line, consistent with how any other trailing partial line is handled.
+
+    Each poll reads the file in bounded chunks, emitting the complete lines from each chunk before
+    reading the next, so that a large backlog (a task that wrote a lot of stderr since the previous
+    poll) streams through in constant memory instead of being buffered whole.
     """
     max_line = 4096
     logger2 = logger.getChild("stderr")
@@ -532,34 +544,45 @@ def TailLogger(
         "stopped": False,
     }
 
-    def poll() -> None:
+    def flush_lines(final: bool) -> None:
+        # emit each complete line in the buffer, leaving behind any trailing partial line
+        buf = state["buf"]
+        start = 0
+        while True:
+            eol = _TAIL_EOL.search(buf, start)
+            if not eol:
+                break
+            if eol.group() == "\r" and eol.end() == len(buf) and not final:
+                # ambiguous: could be a lone \r, or the first half of a \r\n whose \n the writer
+                # hasn't gotten to yet. hold it back until we know which.
+                break
+            line = buf[start : eol.start()] + "\n"
+            if len(line) > max_line:
+                raise RuntimeError(f"log line exceeds {max_line} characters")
+            cb(line)
+            start = eol.end()
+        state["buf"] = buf[start:]
+
+    def poll(final: bool = False) -> None:
         if state["stopped"] or not enabled:
             return
         try:
             if state["fh"] is None:
-                if not os.path.exists(filename):
-                    return
-                state["fh"] = open(filename, "rb")
+                try:
+                    state["fh"] = open(filename, "rb")
+                except FileNotFoundError:
+                    return  # writer hasn't created it (yet); try again on the next poll
             fh = state["fh"]
             while True:
                 chunk = fh.read(_TAIL_CHUNK_BYTES)
                 if not chunk:
                     break
                 state["buf"] += state["decoder"].decode(chunk, final=False)
-            buf = state["buf"]
-            start = 0
-            while True:
-                nl = buf.find("\n", start)
-                if nl < 0:
-                    break
-                line = buf[start : nl + 1]
-                if len(line) > max_line:
-                    raise RuntimeError(f"log line exceeds {max_line} bytes")
-                cb(line)
-                start = nl + 1
-            state["buf"] = buf[start:]
-            if len(state["buf"]) > max_line:
-                raise RuntimeError(f"log line exceeds {max_line} bytes")
+                flush_lines(False)
+                if len(state["buf"]) > max_line:
+                    raise RuntimeError(f"unterminated log line exceeds {max_line} characters")
+            if final:
+                flush_lines(True)
         except Exception as exn:
             logger.warning(
                 StructuredLogMessage("log stream is incomplete", filename=filename, error=str(exn))
@@ -575,11 +598,17 @@ def TailLogger(
         yield poll
     finally:
         try:
-            poll()
+            poll(final=True)
         finally:
             if state["fh"] is not None:
                 state["fh"].close()
                 state["fh"] = None
+
+
+# Deprecated alias for the name used before miniwdl v1.15; out-of-tree container backends import
+# it from here.
+PygtailLogger = TailLogger
+__all__.append("PygtailLogger")
 
 
 _terminating: Optional[bool] = None

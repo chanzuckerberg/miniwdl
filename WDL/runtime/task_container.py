@@ -495,7 +495,6 @@ class TaskContainer(ABC):
         if delete_streams:
             to_delete.append(self.host_stdout_txt())
             to_delete.append(self.host_stderr_txt())
-            to_delete.append(self.host_stderr_txt() + ".offset")
         deleted = []
         for p in to_delete:
             if os.path.isdir(p):
