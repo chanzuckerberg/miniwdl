@@ -2642,7 +2642,7 @@ class TestStruct(unittest.TestCase):
             self.assertTrue(isinstance(ctx.exception.exceptions[i], WDL.Error.StaticTypeMismatch))
         self.assertEqual(str(ctx.exception.exceptions[1]),
             "Expected Person instead of object(age : Boolean, name : String);"
-            " type mismatch using Boolean to initialize Int age member of struct Person")
+            " type mismatch using 'Boolean' to initialize 'Int' member 'age' of struct 'Person'")
 
         doc = r"""
         version 1.0

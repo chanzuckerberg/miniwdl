@@ -846,7 +846,7 @@ class Struct(Base):
                     self,
                     struct_type,
                     object_type,
-                    f"no such member '{member}' in struct {self.struct_type_name}",
+                    f"no such member '{member}' in struct '{self.struct_type_name}'",
                 )
 
         return struct_type

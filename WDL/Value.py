@@ -191,7 +191,7 @@ class String(Base):
             if isinstance(desired_type, Type.Float):
                 return Float(float(self.value), self.expr)
         except ValueError as exn:
-            msg = f"coercing String to {desired_type}: {exn}"
+            msg = f"coercing String to '{desired_type}': {exn}"
             raise Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg)
         return super().coerce(desired_type)
 
@@ -347,7 +347,7 @@ class Map(Base):
                     # some coercions that typecheck could still fail, e.g. String to Int
                     msg = (
                         "runtime type mismatch initializing "
-                        f"{desired_type.members[ks]} {ks} member of struct {desired_type.type_name}"
+                        f"'{desired_type.members[ks]}' member '{ks}' of struct '{desired_type.type_name}'"
                     ) + ((": " + exc.args[0]) if exc.args else "")
                     raise (
                         Error.EvalError(
@@ -477,7 +477,7 @@ class Struct(Base):
         if isinstance(desired_type, Type.Map):
             return self._coerce_to_map(desired_type)
         if not isinstance(desired_type, (Type.Any, Type.Object)):
-            self._eval_error(f"cannot coerce struct to {desired_type}")
+            self._eval_error(f"cannot coerce struct to '{desired_type}'")
         # Object coercion is a no-op because we expect a further coercion to StructInstance to
         # follow in short order, providing the expected member types.
         return self
@@ -514,7 +514,7 @@ class Struct(Base):
                     msg = ": " + exc.args[0] if exc.args else ""
                     msg = (
                         "runtime type mismatch initializing "
-                        f"{desired_type.members[k]} member '{k}' of struct"
+                        f"'{desired_type.members[k]}' member '{k}' of struct"
                         f" '{desired_type.type_name}'"
                     ) + msg
                     self._eval_error(msg, value_path=[])
@@ -525,7 +525,7 @@ class Struct(Base):
         assert isinstance(self.type, Type.Object)
         key_type = desired_type.item_type[0]
         if not Type.String().coerces(key_type):
-            self._eval_error(f"cannot coerce struct member names to {desired_type} keys")
+            self._eval_error(f"cannot coerce struct member names to '{desired_type}' keys")
         value_type = desired_type.item_type[1]
         entries = []
         for k, v in self.value.items():
@@ -535,12 +535,12 @@ class Struct(Base):
                 try:
                     map_key = String(k).coerce(key_type)
                 except Error.RuntimeError:
-                    self._eval_error(f"cannot coerce member name '{k}' to {desired_type} key")
+                    self._eval_error(f"cannot coerce member name '{k}' to '{desired_type}' key")
                 if not self.type.members[k].coerces(value_type):
                     # no coercion to attempt, so the member's type is the whole explanation
                     self._eval_error(
                         f"cannot coerce member '{k}' of type '{self.type.members[k]}'"
-                        f" to {value_type} map value"
+                        f" to '{value_type}' map value"
                     )
                 try:
                     map_value = v.coerce(value_type)
@@ -548,7 +548,7 @@ class Struct(Base):
                     # the coercion typechecked but this value failed it: the reason lies within the
                     # member, so keep it (and any route into it) rather than reporting a type clash
                     self._eval_error(
-                        f"cannot coerce member '{k}' to {value_type} map value"
+                        f"cannot coerce member '{k}' to '{value_type}' map value"
                         + ((": " + exc.args[0]) if exc.args else ""),
                         value_path=exc.value_path or [],
                     )

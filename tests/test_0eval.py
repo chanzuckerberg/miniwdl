@@ -839,7 +839,7 @@ class TestValue(unittest.TestCase):
                 doc.workflow.available_inputs["o"].type
             )
         msg = str(ctx.exception)
-        self.assertIn("Int member 'count' of struct 'Inner'", msg)
+        self.assertIn("'Int' member 'count' of struct 'Inner'", msg)
         self.assertIn("(in mid.inner)", msg)
         self.assertEqual(msg.count("count"), 1)  # not repeated by the path
         self.assertEqual(ctx.exception.value_path, [".mid", ".inner"])
@@ -849,7 +849,7 @@ class TestValue(unittest.TestCase):
             WDL.Value._infer_from_json({"count": "abc"}).coerce(
                 doc.workflow.available_inputs["i"].type
             )
-        self.assertIn("Int member 'count' of struct 'Inner'", str(ctx.exception))
+        self.assertIn("'Int' member 'count' of struct 'Inner'", str(ctx.exception))
         self.assertNotIn("(in ", str(ctx.exception))
         self.assertEqual(ctx.exception.value_path, [])  # located, but no route
 
@@ -879,19 +879,19 @@ class TestValue(unittest.TestCase):
         exn = err({"ok": {"inner": {"count": 1}}, "bad": {"inner": {"count": "two"}}},
                   ai["mids"].type)
         msg = str(exn)
-        self.assertIn("cannot coerce member 'bad' to Mid map value", msg)
-        self.assertIn("Int member 'count' of struct 'Inner'", msg)
+        self.assertIn("cannot coerce member 'bad' to 'Mid' map value", msg)
+        self.assertIn("'Int' member 'count' of struct 'Inner'", msg)
         self.assertIn("invalid literal for int()", msg)
         self.assertIn("(in inner)", msg)
 
         # a scalar value type stays terse, but still carries the reason
         msg = str(err({"probands": 12, "controls": "eight"}, ai["counts"].type))
-        self.assertIn("cannot coerce member 'controls' to Int map value", msg)
+        self.assertIn("cannot coerce member 'controls' to 'Int' map value", msg)
         self.assertIn("invalid literal for int()", msg)
 
         # when there is no coercion to attempt, the member's type is the explanation
         msg = str(err({"ok": {"inner": {"count": 1}}, "bad": [1, 2, 3]}, ai["mids"].type))
-        self.assertIn("cannot coerce member 'bad' of type 'Array[Any]+' to Mid map value", msg)
+        self.assertIn("cannot coerce member 'bad' of type 'Array[Any]+' to 'Mid' map value", msg)
         self.assertNotIn("(in ", msg)
 
     def test_json_error_paths_map_and_pair(self):
