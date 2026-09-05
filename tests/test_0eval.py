@@ -817,6 +817,42 @@ class TestValue(unittest.TestCase):
         self.assertIsNone(WDL.Error.InputError("fresh").value_path)
         self.assertIsNone(WDL.Error.RuntimeError.value_path)
 
+    def test_struct_coercion_error_paths(self):
+        # runtime coercion (e.g. read_json() into a struct) names the offending member in the
+        # message, so the path contributes only the route to it -- each fact appearing once
+        doc = WDL.parse_document("""
+        version 1.0
+        struct Inner { Int count }
+        struct Mid { Inner inner }
+        struct Outer { Mid mid }
+        workflow w {
+            input {
+                Outer o
+                Inner i
+            }
+        }
+        """)
+        doc.typecheck()
+
+        with self.assertRaises(WDL.Error.RuntimeError) as ctx:
+            WDL.Value._infer_from_json({"mid": {"inner": {"count": "abc"}}}).coerce(
+                doc.workflow.available_inputs["o"].type
+            )
+        msg = str(ctx.exception)
+        self.assertIn("Int count member of struct Inner", msg)
+        self.assertIn("(in mid.inner)", msg)
+        self.assertEqual(msg.count("count"), 1)  # not repeated by the path
+        self.assertEqual(ctx.exception.value_path, [".mid", ".inner"])
+
+        # a failure with no enclosing struct needs no route, so no suffix is rendered
+        with self.assertRaises(WDL.Error.RuntimeError) as ctx:
+            WDL.Value._infer_from_json({"count": "abc"}).coerce(
+                doc.workflow.available_inputs["i"].type
+            )
+        self.assertIn("Int count member of struct Inner", str(ctx.exception))
+        self.assertNotIn("(in ", str(ctx.exception))
+        self.assertEqual(ctx.exception.value_path, [])  # located, but no route
+
     def test_json_error_paths_map_and_pair(self):
         with self.assertRaises(WDL.Error.InputError) as ctx:
             WDL.Value.from_json(

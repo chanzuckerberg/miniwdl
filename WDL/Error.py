@@ -458,9 +458,19 @@ def _extend_value_path(exn: RuntimeError, segment: str) -> None:
     exn.value_path = [segment] + (exn.value_path or [])
 
 
+def _mark_value_path(exn: RuntimeError) -> None:
+    """
+    Mark ``exn`` as already naming its own location within a nested value, without contributing a
+    segment. Enclosing frames then extend its path instead of re-framing the message, so that each
+    fact appears once: the message names the offending member, the path the route to it.
+    """
+    if exn.value_path is None:
+        exn.value_path = []
+
+
 def _has_value_path(exn: RuntimeError) -> bool:
     """
-    Whether ``exn`` is already located within a nested value, i.e. some inner frame has described
-    the failure and an enclosing frame need only extend the path rather than re-frame the message.
+    Whether ``exn`` already names a location within a nested value -- whether or not any route to
+    it has accumulated yet, so an empty path still counts.
     """
-    return bool(exn.value_path)
+    return exn.value_path is not None

@@ -517,7 +517,7 @@ class Struct(Base):
                         "runtime type mismatch initializing "
                         f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
                     ) + msg
-                    self._eval_error(msg, path_segment=f".{k}")
+                    self._eval_error(msg, locate=True)
         return Struct(desired_type, members, expr=self.expr, extra=extra)
 
     def _coerce_to_map(self, desired_type: Type.Map) -> Map:
@@ -548,7 +548,7 @@ class Struct(Base):
                 entries.append((map_key, map_value))
         return Map(desired_type.item_type, entries)
 
-    def _eval_error(self, msg: str, path_segment: Optional[str] = None) -> None:
+    def _eval_error(self, msg: str, locate: bool = False) -> None:
         exn = (
             Error.EvalError(
                 self.expr,
@@ -557,8 +557,9 @@ class Struct(Base):
             if self.expr
             else Error.RuntimeError(msg)
         )
-        if path_segment is not None:
-            Error._extend_value_path(exn, path_segment)
+        if locate:
+            # msg names the offending member, so enclosing structs should only add the route to it
+            Error._mark_value_path(exn)
         raise exn from None
 
     def __str__(self) -> Any:
