@@ -762,21 +762,21 @@ class TestValue(unittest.TestCase):
 
         # missing required member: named, and located
         msg = err(family({"sample_id": "s1", "reads": ["/a.bam"]}))
-        self.assertIn("omits required field(s): coverage", msg)
+        self.assertIn("omits required field(s): 'coverage'", msg)
         self.assertIn("(in families[0].samples[0])", msg)
 
         # every missing member is named, not just the first
         msg = err(family({"reads": ["/a.bam"]}))
-        self.assertIn("omits required field(s): sample_id, coverage", msg)
+        self.assertIn("omits required field(s): 'sample_id', 'coverage'", msg)
 
         # a misspelled member shows up as both missing and unknown -- the issue's actual mistake
         msg = err(family({"sample_id": "s1", "reads": ["/a.bam"], "covrage": 30}))
-        self.assertIn("omits required field(s): coverage", msg)
-        self.assertIn("unknown field(s): covrage", msg)
+        self.assertIn("omits required field(s): 'coverage'", msg)
+        self.assertIn("unknown field(s): 'covrage'", msg)
 
         # wrong scalar type: innermost reason survives, rather than being replaced
         msg = err(family({"sample_id": "s1", "coverage": "not-an-int", "reads": ["/a.bam"]}))
-        self.assertIn("couldn't construct Int from", msg)
+        self.assertIn("couldn't construct 'Int' from", msg)
         self.assertIn("(in families[0].samples[0].coverage)", msg)
 
         # failure inside a nested array is indexed
@@ -801,8 +801,8 @@ class TestValue(unittest.TestCase):
                 WDL.Type.Array(WDL.Type.Array(WDL.Type.Int())), [[1, 2], [3, "four"]]
             )
         exn = ctx.exception
-        self.assertEqual(exn.args[0], 'couldn\'t construct Int from "four"')
-        self.assertEqual(str(exn), 'couldn\'t construct Int from "four" (in [1][1])')
+        self.assertEqual(exn.args[0], 'couldn\'t construct \'Int\' from "four"')
+        self.assertEqual(str(exn), 'couldn\'t construct \'Int\' from "four" (in [1][1])')
         self.assertEqual(exn.value_path, ["[1]", "[1]"])
 
         # an error that never passed through a nested value renders unchanged
@@ -913,7 +913,7 @@ class TestValue(unittest.TestCase):
         with self.assertRaises(WDL.Error.InputError) as ctx:
             WDL.Value.from_json(WDL.Type.Int(), ["x" * 1000])
         msg = str(ctx.exception)
-        self.assertIn("couldn't construct Int from", msg)
+        self.assertIn("couldn't construct 'Int' from", msg)
         self.assertLess(len(msg), 300)
         self.assertTrue(msg.endswith("..."))
 

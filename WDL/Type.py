@@ -513,7 +513,7 @@ class StructInstance(Base):
             assert rhs_members is not None
             if set(rhs_members.keys()) != set(self_members.keys()):
                 raise TypeError(
-                    f"cannot initialize struct {self.type_name} from"
+                    f"cannot initialize struct '{self.type_name}' from"
                     " struct with a different set of members"
                 )
             return self._check_optional(rhs, check_quant)

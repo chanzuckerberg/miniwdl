@@ -120,7 +120,7 @@ class Base(ABC):
             return Array(desired_type.item_type, [self.coerce(desired_type.item_type)], self.expr)
         if desired_type and not self.type.coerces(desired_type):
             # owing to static type-checking, this path should arise only rarely e.g. read_json()
-            raise Error.InputError(f"cannot coerce {str(self.type)} to {str(desired_type)}")
+            raise Error.InputError(f"cannot coerce '{self.type}' to '{desired_type}'")
         return self
 
     def expect(self, desired_type: Optional[Type.Base] = None) -> "Base":
@@ -191,7 +191,7 @@ class String(Base):
             if isinstance(desired_type, Type.Float):
                 return Float(float(self.value), self.expr)
         except ValueError as exn:
-            msg = f"coercing String to '{desired_type}': {exn}"
+            msg = f"coercing 'String' to '{desired_type}': {exn}"
             raise Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg)
         return super().coerce(desired_type)
 
@@ -654,13 +654,13 @@ def from_json(type: Type.Base, value: Any) -> Base:
     ):
         missing = [k for k, ty in type.members.items() if k not in value and not ty.optional]
         if missing:
-            msg = (
-                f"initializer for struct {str(type)} omits required field(s): {', '.join(missing)}"
+            msg = f"initializer for struct '{type}' omits required field(s): " + ", ".join(
+                f"'{k}'" for k in missing
             )
             unknown = [k for k in value if k not in type.members]
             if unknown:
                 # often the actual mistake is a misspelled field name, which this diagnoses
-                msg += f"; unknown field(s): {', '.join(unknown)}"
+                msg += "; unknown field(s): " + ", ".join(f"'{k}'" for k in unknown)
             raise Error.InputError(msg)
         members = {}
         extra = set()
@@ -674,7 +674,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
         return Struct(type, members, extra=extra)
     if type.optional and value is None:
         return Null()
-    raise Error.InputError(f"couldn't construct {str(type)} from {_abbreviate_json(value)}")
+    raise Error.InputError(f"couldn't construct '{type}' from {_abbreviate_json(value)}")
 
 
 def _from_json_at(type: Type.Base, value: Any, segment: str) -> Base:
