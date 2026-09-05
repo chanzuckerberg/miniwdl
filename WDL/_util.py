@@ -629,7 +629,7 @@ def TailLogger(
             state = _tail_close(state)
 
 
-# Deprecated alias for the name used before miniwdl v1.15; out-of-tree container backends import
+# Deprecated alias for the name used before miniwdl v1.16; out-of-tree container backends import
 # it from here.
 PygtailLogger = TailLogger
 __all__.append("PygtailLogger")
