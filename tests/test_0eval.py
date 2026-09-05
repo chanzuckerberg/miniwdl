@@ -839,7 +839,7 @@ class TestValue(unittest.TestCase):
                 doc.workflow.available_inputs["o"].type
             )
         msg = str(ctx.exception)
-        self.assertIn("Int count member of struct Inner", msg)
+        self.assertIn("Int member 'count' of struct 'Inner'", msg)
         self.assertIn("(in mid.inner)", msg)
         self.assertEqual(msg.count("count"), 1)  # not repeated by the path
         self.assertEqual(ctx.exception.value_path, [".mid", ".inner"])
@@ -849,9 +849,50 @@ class TestValue(unittest.TestCase):
             WDL.Value._infer_from_json({"count": "abc"}).coerce(
                 doc.workflow.available_inputs["i"].type
             )
-        self.assertIn("Int count member of struct Inner", str(ctx.exception))
+        self.assertIn("Int member 'count' of struct 'Inner'", str(ctx.exception))
         self.assertNotIn("(in ", str(ctx.exception))
         self.assertEqual(ctx.exception.value_path, [])  # located, but no route
+
+    def test_map_coercion_error_paths(self):
+        # coercing an Object to a Map (e.g. Map[String,X] m = read_json(...)) used to swallow the
+        # reason via suppress(), reporting only a type clash
+        doc = WDL.parse_document("""
+        version 1.0
+        struct Inner { Int count }
+        struct Mid { Inner inner }
+        workflow w {
+            input {
+                Map[String, Mid] mids
+                Map[String, Int] counts
+            }
+        }
+        """)
+        doc.typecheck()
+        ai = doc.workflow.available_inputs
+
+        def err(j, ty):
+            with self.assertRaises(WDL.Error.RuntimeError) as ctx:
+                WDL.Value._infer_from_json(j).coerce(ty)
+            return ctx.exception
+
+        # a compound value type keeps the reason from within the member, and the route to it
+        exn = err({"ok": {"inner": {"count": 1}}, "bad": {"inner": {"count": "two"}}},
+                  ai["mids"].type)
+        msg = str(exn)
+        self.assertIn("cannot coerce member 'bad' to Mid map value", msg)
+        self.assertIn("Int member 'count' of struct 'Inner'", msg)
+        self.assertIn("invalid literal for int()", msg)
+        self.assertIn("(in inner)", msg)
+
+        # a scalar value type stays terse, but still carries the reason
+        msg = str(err({"probands": 12, "controls": "eight"}, ai["counts"].type))
+        self.assertIn("cannot coerce member 'controls' to Int map value", msg)
+        self.assertIn("invalid literal for int()", msg)
+
+        # when there is no coercion to attempt, the member's type is the explanation
+        msg = str(err({"ok": {"inner": {"count": 1}}, "bad": [1, 2, 3]}, ai["mids"].type))
+        self.assertIn("cannot coerce member 'bad' of type 'Array[Any]+' to Mid map value", msg)
+        self.assertNotIn("(in ", msg)
 
     def test_json_error_paths_map_and_pair(self):
         with self.assertRaises(WDL.Error.InputError) as ctx:

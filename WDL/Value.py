@@ -18,7 +18,6 @@ import posixpath
 import threading
 from abc import ABC
 from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set, TYPE_CHECKING
-from contextlib import suppress
 from . import Error, Type, Env
 
 if TYPE_CHECKING:
@@ -515,9 +514,10 @@ class Struct(Base):
                     msg = ": " + exc.args[0] if exc.args else ""
                     msg = (
                         "runtime type mismatch initializing "
-                        f"{desired_type.members[k]} {k} member of struct {desired_type.type_name}"
+                        f"{desired_type.members[k]} member '{k}' of struct"
+                        f" '{desired_type.type_name}'"
                     ) + msg
-                    self._eval_error(msg, locate=True)
+                    self._eval_error(msg, value_path=[])
         return Struct(desired_type, members, expr=self.expr, extra=extra)
 
     def _coerce_to_map(self, desired_type: Type.Map) -> Map:
@@ -535,20 +535,31 @@ class Struct(Base):
                 try:
                     map_key = String(k).coerce(key_type)
                 except Error.RuntimeError:
-                    self._eval_error(f"cannot coerce struct member name {k} to {desired_type} key")
-                if self.type.members[k].coerces(value_type):
-                    with suppress(Error.RuntimeError):
-                        map_value = v.coerce(value_type)
-                if map_value is None:
+                    self._eval_error(f"cannot coerce member name '{k}' to {desired_type} key")
+                if not self.type.members[k].coerces(value_type):
+                    # no coercion to attempt, so the member's type is the whole explanation
                     self._eval_error(
-                        "cannot coerce struct member"
-                        f" {self.type.members[k]} {k} to {value_type} map value"
+                        f"cannot coerce member '{k}' of type '{self.type.members[k]}'"
+                        f" to {value_type} map value"
+                    )
+                try:
+                    map_value = v.coerce(value_type)
+                except Error.RuntimeError as exc:
+                    # the coercion typechecked but this value failed it: the reason lies within the
+                    # member, so keep it (and any route into it) rather than reporting a type clash
+                    self._eval_error(
+                        f"cannot coerce member '{k}' to {value_type} map value"
+                        + ((": " + exc.args[0]) if exc.args else ""),
+                        value_path=exc.value_path or [],
                     )
                 assert map_key and map_value
                 entries.append((map_key, map_value))
         return Map(desired_type.item_type, entries)
 
-    def _eval_error(self, msg: str, locate: bool = False) -> None:
+    def _eval_error(self, msg: str, value_path: Optional[List[str]] = None) -> None:
+        # Pass value_path when msg names the member that failed, so that enclosing structs add only
+        # the route to it rather than re-framing: [] locates the error without contributing a
+        # segment, and a non-empty list carries a route inherited from within the member.
         exn = (
             Error.EvalError(
                 self.expr,
@@ -557,9 +568,8 @@ class Struct(Base):
             if self.expr
             else Error.RuntimeError(msg)
         )
-        if locate:
-            # msg names the offending member, so enclosing structs should only add the route to it
-            Error._mark_value_path(exn)
+        if value_path is not None:
+            exn.value_path = value_path
         raise exn from None
 
     def __str__(self) -> Any:
