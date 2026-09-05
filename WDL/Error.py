@@ -381,25 +381,9 @@ class RuntimeError(Exception):
     Backend-specific information about an error (for example, pointer to a centralized log system)
     """
 
-    value_path: Optional[List[str]] = None
-    """
-    Location of the error within a nested value being built or coerced, e.g. the path from a
-    workflow input to the offending item of JSON; None if the error has no such location. Rendered
-    by ``__str__()`` as an ``(in ...)`` suffix; see :func:`_extend_value_path`. The default is a
-    class attribute, so it's left immutable and :func:`_extend_value_path` rebinds instead.
-    """
-
     def __init__(self, *args, more_info: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.more_info = more_info if more_info else {}
-
-    def __str__(self) -> str:
-        ans = super().__str__()
-        if self.value_path:
-            rendered = "".join(self.value_path)
-            # the outermost segment is the root (an input name or struct member): no separator
-            ans += f" (in {rendered[1:] if rendered.startswith('.') else rendered})"
-        return ans
 
 
 class EvalError(RuntimeError):
@@ -442,25 +426,36 @@ class InputError(RuntimeError):
 
 def _extend_value_path(exn: RuntimeError, segment: str) -> None:
     """
-    Prepend a path segment to ``exn``'s location within a nested value.
+    Prepend a path segment to the ``(in <path>)`` breadcrumb on ``exn``, and rewrite its message
+    accordingly.
 
     Used while building WDL values from JSON (or coercing them), where the failure is detected deep
-    inside a nested value: only the innermost frame knows the reason, and only the enclosing frames
-    know where it lives. Each frame prepends its own segment on the way out, so that
-    ``str(exn)`` names both. Segments carry their own punctuation (``.member``, ``[0]``) and are
-    simply concatenated.
+    inside a nested value but only the innermost frame knows the reason, and only the outer frames
+    know where it lives. Each frame prepends its own segment on the way out, so the final message
+    names both. Segments carry their own punctuation (``.member``, ``[0]``) and are concatenated,
+    with the outermost segment forming the root.
 
-    ``exn.args`` is left alone, so it remains the message as raised. Code that composes an inner
-    message into a new outer one should therefore read ``args[0]``, while code that reports an
-    error to the user should use ``str()`` to pick up the location.
+    Only ``args[0]`` is rewritten: the CLI reports errors with ``die(exn.args[0])``, so detail that
+    lives solely in ``__cause__`` never reaches the user.
     """
-    # rebind rather than mutate: the None default lives on the class, shared by all instances
-    exn.value_path = [segment] + (exn.value_path or [])
+    path = getattr(exn, "_wdl_value_path", None)
+    if path is None:
+        # first annotation: remember the message without any breadcrumb, so that repeated
+        # annotation extends the path instead of appending a second "(in ...)"
+        path = []
+        exn._wdl_value_base_message = exn.args[0] if exn.args else ""  # type: ignore[attr-defined]
+    path.insert(0, segment)
+    exn._wdl_value_path = path  # type: ignore[attr-defined]
+    message = exn._wdl_value_base_message  # type: ignore[attr-defined]
+    rendered = "".join(path)
+    # the outermost segment is the root (an input name or struct member), so it takes no separator
+    rendered = rendered[1:] if rendered.startswith(".") else rendered
+    exn.args = (f"{message} (in {rendered})",) + tuple(exn.args[1:])
 
 
 def _has_value_path(exn: RuntimeError) -> bool:
     """
-    Whether ``exn`` already names a location within a nested value -- whether or not any route to
-    it has accumulated yet, so an empty path still counts.
+    Whether ``exn`` already carries a breadcrumb, i.e. some inner frame has described the failure
+    and an enclosing frame need only extend the path rather than re-frame the message.
     """
-    return exn.value_path is not None
+    return getattr(exn, "_wdl_value_path", None) is not None
