@@ -2795,7 +2795,7 @@ class TestStdLib(unittest.TestCase):
                 }
             }""")
         except Exception as exn:
-            self.assertTrue("to initialize Int count member of struct Sample" in str(exn))
+            self.assertTrue("to initialize 'Int' member 'count' of struct 'Sample'" in str(exn))
 
         # slightly simpler version covering a different exception handling path (#3)
         try:
@@ -2842,7 +2842,7 @@ class TestStdLib(unittest.TestCase):
             }""")
         except Exception as exn:
             self.assertTrue(
-                "runtime type mismatch initializing Int count member of struct Sample" in str(exn)
+                "runtime type mismatch initializing 'Int' member 'count' of struct 'Sample'" in str(exn)
             )
 
         # unifying arrays of structs with optional members

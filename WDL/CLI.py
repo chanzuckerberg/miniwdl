@@ -767,7 +767,7 @@ def runner(
             )
         except Error.InputError as exn:
             runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
-            die(exn.args[0])
+            die(str(exn))
         except Exception as exn:
             runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
             raise
@@ -1144,7 +1144,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         try:
             ans = values_from_json(input_json, available_inputs, namespace=namespace)
         except Error.InputError as exn:
-            raise Error.InputError("check JSON input; " + exn.args[0])
+            raise Error.InputError("check JSON input; " + str(exn))
 
         ans = Value.rewrite_env_paths(
             ans,
@@ -1669,7 +1669,7 @@ def localize(
                     ),
                 )
             except Error.InputError as exn:
-                die(exn.args[0])
+                die(str(exn))
 
             for b in input_env:
                 runtime.task._warn_struct_extra(logger, b.name, b.value)
@@ -2107,7 +2107,7 @@ def zip_wdl(
                     downloadable=lambda fn, is_dir: True,
                 )
             except Error.InputError as exn:
-                die(exn.args[0])
+                die(str(exn))
 
         # build archive
         meta = None
@@ -2176,7 +2176,7 @@ def input_template(
     try:
         exe = runner_exe(doc, task)
     except Error.InputError as exn:
-        die(exn.args[0])
+        die(str(exn))
     namespace = (exe.name + ".") if isinstance(exe, Workflow) and not no_namespace else ""
 
     # TODO: opt in to optional inputs (available_inputs). The tricky part is if the optional inputs

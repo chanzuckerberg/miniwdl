@@ -513,7 +513,7 @@ class StructInstance(Base):
             assert rhs_members is not None
             if set(rhs_members.keys()) != set(self_members.keys()):
                 raise TypeError(
-                    f"cannot initialize struct {self.type_name} from"
+                    f"cannot initialize struct '{self.type_name}' from"
                     " struct with a different set of members"
                 )
             return self._check_optional(rhs, check_quant)
@@ -608,8 +608,8 @@ def _check_struct_members(
     missing_keys = list(k for k in rhs_keys - self_keys if not rhs_members[k].optional)
     if missing_keys:
         raise TypeError(
-            "missing non-optional member(s) in struct "
-            f"{rhs.type_name}: {' '.join(sorted(missing_keys))}"
+            f"missing non-optional member(s) in struct '{rhs.type_name}': "
+            + ", ".join(f"'{k}'" for k in sorted(missing_keys))
         )
     for k in self_keys.intersection(rhs_keys):
         try:
@@ -618,8 +618,8 @@ def _check_struct_members(
             if len(exn.args):
                 raise
             raise TypeError(
-                f"type mismatch using {self_members[k]} to initialize "
-                f"{rhs_members[k]} {k} member of struct {rhs.type_name}"
+                f"type mismatch using '{self_members[k]}' to initialize "
+                f"'{rhs_members[k]}' member '{k}' of struct '{rhs.type_name}'"
             )
 
 

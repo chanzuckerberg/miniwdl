@@ -762,21 +762,21 @@ class TestValue(unittest.TestCase):
 
         # missing required member: named, and located
         msg = err(family({"sample_id": "s1", "reads": ["/a.bam"]}))
-        self.assertIn("omits required field(s): coverage", msg)
+        self.assertIn("omits required field(s): 'coverage'", msg)
         self.assertIn("(in families[0].samples[0])", msg)
 
         # every missing member is named, not just the first
         msg = err(family({"reads": ["/a.bam"]}))
-        self.assertIn("omits required field(s): sample_id, coverage", msg)
+        self.assertIn("omits required field(s): 'sample_id', 'coverage'", msg)
 
         # a misspelled member shows up as both missing and unknown -- the issue's actual mistake
         msg = err(family({"sample_id": "s1", "reads": ["/a.bam"], "covrage": 30}))
-        self.assertIn("omits required field(s): coverage", msg)
-        self.assertIn("unknown field(s): covrage", msg)
+        self.assertIn("omits required field(s): 'coverage'", msg)
+        self.assertIn("unknown field(s): 'covrage'", msg)
 
         # wrong scalar type: innermost reason survives, rather than being replaced
         msg = err(family({"sample_id": "s1", "coverage": "not-an-int", "reads": ["/a.bam"]}))
-        self.assertIn("couldn't construct Int from", msg)
+        self.assertIn("couldn't construct 'Int' from", msg)
         self.assertIn("(in families[0].samples[0].coverage)", msg)
 
         # failure inside a nested array is indexed
@@ -792,6 +792,107 @@ class TestValue(unittest.TestCase):
 
         # optional members may be omitted or null without complaint
         WDL.values_from_json({"families": family(ok, dict(ok, note=None))}, available)
+
+    def test_json_error_path_rendering(self):
+        # the location renders via str(); args[0] stays the message as raised, so that code
+        # composing an inner message into an outer one doesn't duplicate the "(in ...)" suffix
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            WDL.Value.from_json(
+                WDL.Type.Array(WDL.Type.Array(WDL.Type.Int())), [[1, 2], [3, "four"]]
+            )
+        exn = ctx.exception
+        self.assertEqual(exn.args[0], 'couldn\'t construct \'Int\' from "four"')
+        self.assertEqual(str(exn), 'couldn\'t construct \'Int\' from "four" (in [1][1])')
+        self.assertEqual(exn.value_path, ["[1]", "[1]"])
+
+        # an error that never passed through a nested value renders unchanged
+        plain = WDL.Error.InputError("no location here")
+        self.assertEqual(str(plain), "no location here")
+        self.assertIsNone(plain.value_path)
+
+        # the class-level default is immutable, so locating one error can't leak into any other
+        located = WDL.Error.InputError("located")
+        WDL.Error._extend_value_path(located, ".x")
+        self.assertEqual(located.value_path, [".x"])
+        self.assertIsNone(WDL.Error.InputError("fresh").value_path)
+        self.assertIsNone(WDL.Error.RuntimeError.value_path)
+
+    def test_struct_coercion_error_paths(self):
+        # runtime coercion (e.g. read_json() into a struct) names the offending member in the
+        # message, so the path contributes only the route to it -- each fact appearing once
+        doc = WDL.parse_document("""
+        version 1.0
+        struct Inner { Int count }
+        struct Mid { Inner inner }
+        struct Outer { Mid mid }
+        workflow w {
+            input {
+                Outer o
+                Inner i
+            }
+        }
+        """)
+        doc.typecheck()
+
+        with self.assertRaises(WDL.Error.RuntimeError) as ctx:
+            WDL.Value._infer_from_json({"mid": {"inner": {"count": "abc"}}}).coerce(
+                doc.workflow.available_inputs["o"].type
+            )
+        msg = str(ctx.exception)
+        self.assertIn("'Int' member 'count' of struct 'Inner'", msg)
+        self.assertIn("(in mid.inner)", msg)
+        self.assertEqual(msg.count("count"), 1)  # not repeated by the path
+        self.assertEqual(ctx.exception.value_path, [".mid", ".inner"])
+
+        # a failure with no enclosing struct needs no route, so no suffix is rendered
+        with self.assertRaises(WDL.Error.RuntimeError) as ctx:
+            WDL.Value._infer_from_json({"count": "abc"}).coerce(
+                doc.workflow.available_inputs["i"].type
+            )
+        self.assertIn("'Int' member 'count' of struct 'Inner'", str(ctx.exception))
+        self.assertNotIn("(in ", str(ctx.exception))
+        self.assertEqual(ctx.exception.value_path, [])  # located, but no route
+
+    def test_map_coercion_error_paths(self):
+        # coercing an Object to a Map (e.g. Map[String,X] m = read_json(...)) used to swallow the
+        # reason via suppress(), reporting only a type clash
+        doc = WDL.parse_document("""
+        version 1.0
+        struct Inner { Int count }
+        struct Mid { Inner inner }
+        workflow w {
+            input {
+                Map[String, Mid] mids
+                Map[String, Int] counts
+            }
+        }
+        """)
+        doc.typecheck()
+        ai = doc.workflow.available_inputs
+
+        def err(j, ty):
+            with self.assertRaises(WDL.Error.RuntimeError) as ctx:
+                WDL.Value._infer_from_json(j).coerce(ty)
+            return ctx.exception
+
+        # a compound value type keeps the reason from within the member, and the route to it
+        exn = err({"ok": {"inner": {"count": 1}}, "bad": {"inner": {"count": "two"}}},
+                  ai["mids"].type)
+        msg = str(exn)
+        self.assertIn("cannot coerce member 'bad' to 'Mid' map value", msg)
+        self.assertIn("'Int' member 'count' of struct 'Inner'", msg)
+        self.assertIn("invalid literal for int()", msg)
+        self.assertIn("(in inner)", msg)
+
+        # a scalar value type stays terse, but still carries the reason
+        msg = str(err({"probands": 12, "controls": "eight"}, ai["counts"].type))
+        self.assertIn("cannot coerce member 'controls' to 'Int' map value", msg)
+        self.assertIn("invalid literal for int()", msg)
+
+        # when there is no coercion to attempt, the member's type is the explanation
+        msg = str(err({"ok": {"inner": {"count": 1}}, "bad": [1, 2, 3]}, ai["mids"].type))
+        self.assertIn("cannot coerce member 'bad' of type 'Array[Any]+' to 'Mid' map value", msg)
+        self.assertNotIn("(in ", msg)
 
     def test_json_error_paths_map_and_pair(self):
         with self.assertRaises(WDL.Error.InputError) as ctx:
@@ -812,7 +913,7 @@ class TestValue(unittest.TestCase):
         with self.assertRaises(WDL.Error.InputError) as ctx:
             WDL.Value.from_json(WDL.Type.Int(), ["x" * 1000])
         msg = str(ctx.exception)
-        self.assertIn("couldn't construct Int from", msg)
+        self.assertIn("couldn't construct 'Int' from", msg)
         self.assertLess(len(msg), 300)
         self.assertTrue(msg.endswith("..."))
 
