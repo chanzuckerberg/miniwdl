@@ -548,10 +548,11 @@ class SwarmContainer(TaskContainer):
             return exit_code
         elif {state, status.get("DesiredState")}.intersection(
             {"rejected", "shutdown", "orphaned", "remove"}
-        ) or exit_code not in (None, 0):
+        ) or (exit_code is not None and exit_code < 0):
             # "rejected" state usually arises from nonexistent docker image.
             # if the worker assigned a task goes down, any of the following can manifest:
-            #   - exit_code=-1 with state running (or other non-terminal)
+            #   - exit_code=-1 (docker's sentinel for an unknown exit status) with state running,
+            #     or another non-terminal state
             #   - state shutdown, orphaned, remove
             #   - desired_state shutdown
             # also see GitHub issue #374
@@ -566,6 +567,11 @@ class SwarmContainer(TaskContainer):
                 + (f": {status['Err']}" if "Err" in status else "")
             )
 
+        # Otherwise the task hasn't finished, even if a container exit code is already visible: a
+        # positive exit code with a non-terminal state means the container exited but docker hasn't
+        # caught up yet, so keep polling until it settles into complete/failed (GitHub issue #902).
+        # (An exit code of zero tells us nothing, as docker reports ExitCode: 0 for tasks whose
+        # container is still running.)
         return None
 
     def chown(self, logger: logging.Logger, client: docker.DockerClient, success: bool) -> None:

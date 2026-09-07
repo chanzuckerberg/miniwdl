@@ -1698,3 +1698,80 @@ class TestSwarmMiscConfigUidGid(unittest.TestCase):
                 _resources, user, groups = container.misc_config(logger)
                 self.assertIsNone(user)
                 self.assertEqual(groups, ["0"])
+
+
+class TestSwarmPollService(unittest.TestCase):
+    """Test SwarmContainer.poll_service handling of task states & container exit codes."""
+
+    class FakeService:
+        short_id = "svc123"
+
+        def __init__(self, run_id, status):
+            self.attrs = {"Spec": {"Labels": {"miniwdl_run_id": run_id}}}
+            self._status = status
+
+        def reload(self):
+            pass
+
+        def tasks(self):
+            return [{"ID": "task456789abc", "NodeID": "node12345678", "Status": self._status}]
+
+    def _poll(self, container, **status):
+        return container.poll_service(
+            logging.getLogger(self.id()), self.FakeService(container.run_id, status)
+        )
+
+    def _container(self):
+        from WDL.runtime.backend.docker_swarm import SwarmContainer
+
+        container = SwarmContainer.__new__(SwarmContainer)
+        container.cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()))
+        container.run_id = "test-run"
+        container._observed_states = set()
+        return container
+
+    def test_running_without_exit(self):
+        """docker reports ExitCode 0 for running containers; that isn't an exit."""
+        container = self._container()
+        for _ in range(3):
+            self.assertIsNone(
+                self._poll(container, State="running", ContainerStatus={"PID": 42, "ExitCode": 0})
+            )
+
+    def test_exited(self):
+        container = self._container()
+        self.assertEqual(
+            self._poll(container, State="failed", ContainerStatus={"ExitCode": 42}), 42
+        )
+
+    def test_nonzero_exit_code_while_running(self):
+        """A nonzero exit code with a non-terminal state: wait for docker to catch up (issue #902)"""
+        container = self._container()
+        status = {"State": "running", "ContainerStatus": {"ExitCode": 42}}
+        for _ in range(3):
+            self.assertIsNone(self._poll(container, **status))
+        # docker settling into a terminal state yields the exit code
+        self.assertEqual(
+            self._poll(container, State="failed", ContainerStatus={"ExitCode": 42}), 42
+        )
+
+    def test_negative_exit_code_while_running(self):
+        """exit code -1 signals the worker node went down (issue #374)"""
+        container = self._container()
+        with self.assertRaises(WDL.runtime.error.Interrupted):
+            self._poll(container, State="running", ContainerStatus={"ExitCode": -1})
+
+    def test_desired_state_shutdown(self):
+        container = self._container()
+        with self.assertRaises(WDL.runtime.error.Interrupted):
+            self._poll(
+                container,
+                State="running",
+                DesiredState="shutdown",
+                ContainerStatus={"ExitCode": 0},
+            )
+
+    def test_rejected(self):
+        container = self._container()
+        with self.assertRaises(WDL.Error.RuntimeError):
+            self._poll(container, State="rejected", Err="No such image")
