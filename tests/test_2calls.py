@@ -499,6 +499,67 @@ class TestCalls(unittest.TestCase):
         with self.assertRaises(WDL.Error.MultipleDefinitions):
             doc.typecheck()
 
+    def test_incomplete_calls(self):
+        txt = r"""
+        version 1.1
+        task sum {
+            input {
+                Int x
+                Int y
+            }
+            command {}
+            output {
+                Int z = 42
+            }
+        }
+        workflow contrived {
+            call sum as s1 { input: x = 1, y = 2 }
+            scatter (i in [1,2]) {
+                if (true) {
+                    call sum as s2 { input: x = i }
+                }
+            }
+            call sum as s3
+            output {
+                Int z = s1.z
+            }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+        self.assertFalse(doc.workflow.complete_calls)
+        self.assertEqual([c.name for c in doc.workflow.incomplete_calls], ["s2", "s3"])
+
+        reasons = WDL.Tree._uncallable_reasons(doc.workflow)
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("call s2 missing required input(s) y", reasons[0])
+        self.assertIn("call s3 missing required input(s) x, y", reasons[0])
+
+        # complete calls, but no output section
+        txt = r"""
+        version 1.1
+        task sum {
+            input {
+                Int x
+                Int y
+            }
+            command {}
+            output {
+                Int z = 42
+            }
+        }
+        workflow contrived {
+            call sum as s1 { input: x = 1, y = 2 }
+        }
+        """
+        doc = WDL.parse_document(txt)
+        doc.typecheck()
+        self.assertTrue(doc.workflow.complete_calls)
+        self.assertFalse(list(doc.workflow.incomplete_calls))
+        self.assertEqual(
+            WDL.Tree._uncallable_reasons(doc.workflow), ["it lacks an output section"]
+        )
+
     def test_recursion(self):
         txt = r"""
         workflow self {
@@ -514,8 +575,12 @@ class TestCalls(unittest.TestCase):
 
     def test_io_propagation(self):
         # should not be able to call a workflow containing an incomplete call
-        with self.assertRaises(WDL.Error.UncallableWorkflow):
+        with self.assertRaises(WDL.Error.UncallableWorkflow) as ctx:
             WDL.load(os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete_call.wdl"))
+        # the error message should pinpoint the offending call(s) in the subworkflow (issue #744)
+        msg = str(ctx.exception)
+        self.assertIn("call add missing required input(s) x, y", msg)
+        self.assertIn("incomplete.wdl Ln 4 Col 5", msg)
 
         doc = WDL.load("file://" + os.path.join(os.path.dirname(__file__), "../test_corpi/contrived/incomplete.wdl"))
         self.assertEqual(len(doc.workflow.available_inputs), 4)
