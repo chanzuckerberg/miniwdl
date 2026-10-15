@@ -657,6 +657,11 @@ class TaskContainer(ABC):
             self.host_dir, f"stderr{self.try_counter if self.try_counter > 1 else ''}.txt"
         )
 
+    def host_cli_log_txt(self, cli_name: str) -> str:
+        return os.path.join(
+            self.host_dir, f"{cli_name}{self.try_counter if self.try_counter > 1 else ''}.log.txt"
+        )
+
     def touch_mount_point(self, host_path: str) -> None:
         """
         Implementation helper: touch a File or Directory mount point that might not already exist
