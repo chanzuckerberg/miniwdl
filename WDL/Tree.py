@@ -31,8 +31,7 @@ from typing import (
 )
 from abc import ABC, abstractmethod
 from .Error import SourcePosition, SourceNode
-from . import Type, Expr, Env, Error, StdLib, Value, _parser, _util
-from ._util import WDLVersion, wdl_version_geq
+from . import Type, Expr, Env, Error, StdLib, _parser, _util
 
 
 class StructTypeDef(SourceNode):
@@ -266,7 +265,7 @@ class Task(SourceNode):
     postinputs: List[Decl]
     """:type: List[WDL.Tree.Decl]
 
-    Private declarations outside of the ``input{}`` task section"""
+    Declarations outside of the ``input{}`` task section"""
     command: Expr.String
     ":type: WDL.Expr.String"
     outputs: List[Decl]
@@ -281,10 +280,6 @@ class Task(SourceNode):
     """:type: Dict[str,WDL.Expr.Base]
 
     ``runtime{}`` section, with keys and corresponding expressions to be evaluated"""
-    # Original task section keyword, either "runtime" or "requirements"
-    runtime_section_name: Optional[str]
-    runtime_section_pos: Optional[SourcePosition]
-    # Source position of the runtime/requirements section, if present
     requirements: Dict[str, Expr.Base]
     """:type: Dict[str,WDL.Expr.Base]
 
@@ -311,8 +306,6 @@ class Task(SourceNode):
         parameter_meta: Dict[str, Any],
         runtime: Dict[str, Expr.Base],
         meta: Dict[str, Any],
-        runtime_section_name: Optional[str] = None,
-        runtime_section_pos: Optional[SourcePosition] = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
@@ -322,49 +315,12 @@ class Task(SourceNode):
         self.outputs = outputs
         self.parameter_meta = parameter_meta
         self.runtime = runtime
-        self.runtime_section_name = runtime_section_name
-        self.runtime_section_pos = runtime_section_pos
         self.requirements = self.runtime
         self.meta = meta
         self.effective_wdl_version = "1.0"  # overridden by Document.__init__
         # TODO: enforce validity constraints on parameter_meta and runtime
         # TODO: if the input section exists, then all postinputs decls must be
         #       bound
-
-    def task_runtime_info_struct_type(self, *, output_section: bool = False) -> Type.StructInstance:
-        """
-        Build the synthetic task runtime info struct type (WDL 1.2+).
-        """
-
-        def meta_object_type(d: Dict[str, Any], name_prefix: str) -> Type.StructInstance:
-            meta_json = Expr._meta_value_to_json(d)
-            meta_value = Value._infer_from_json(
-                meta_json, struct_types=True, struct_prefix=f"__{name_prefix}"
-            )
-            assert isinstance(meta_value.type, Type.StructInstance)
-            return meta_value.type
-
-        meta_ty = meta_object_type(self.meta or {}, "task_meta")
-        parameter_meta_ty = meta_object_type(self.parameter_meta or {}, "task_parameter_meta")
-        task_ty = Type.StructInstance("__task")
-        task_ty.members = {
-            "name": Type.String(),
-            "id": Type.String(),
-            "container": Type.String(optional=True),
-            "cpu": Type.Float(),
-            "memory": Type.Int(),
-            "gpu": Type.Array(Type.String()),
-            "fpga": Type.Array(Type.String()),
-            "disks": Type.Map((Type.String(), Type.Int())),
-            "attempt": Type.Int(),
-            "end_time": Type.Int(optional=True),
-            "meta": meta_ty,
-            "parameter_meta": parameter_meta_ty,
-            # TODO: add task.ext (Object) for engine-specific runtime info.
-        }
-        if output_section:
-            task_ty.members["return_code"] = Type.Int()
-        return task_ty
 
     @property
     def available_inputs(self) -> Env.Bindings[Decl]:
@@ -379,10 +335,10 @@ class Task(SourceNode):
         """
         ans: Env.Bindings[Decl] = Env.Bindings()
 
-        if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_1):
+        if self.effective_wdl_version not in ("draft-2", "1.0"):
             # synthetic placeholder to expose runtime overrides
             ans = ans.bind("_runtime", Decl(self.pos, Type.Any(), "_runtime"))
-            if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_2):
+            if self.effective_wdl_version not in ("1.1",):
                 ans = ans.bind("_requirements", Decl(self.pos, Type.Any(), "_requirements"))
 
         for decl in reversed(self.inputs if self.inputs is not None else self.postinputs):
@@ -466,6 +422,14 @@ class Task(SourceNode):
                         type_env, stdlib, check_quant=check_quant, struct_types=struct_types
                     )
                 )
+            # Typecheck the command (string)
+            errors.try1(
+                lambda: self.command.infer_type(
+                    type_env, stdlib, check_quant=check_quant, struct_types=struct_types
+                ).typecheck(Type.String())
+            )
+            for b in self.available_inputs:
+                errors.try1(lambda: _check_serializable_map_keys(b.value.type, b.name, b.value))
             # Typecheck runtime expressions
             for _, runtime_expr in self.runtime.items():
                 errors.try1(
@@ -479,45 +443,19 @@ class Task(SourceNode):
                 )  # .typecheck()
                 # (At this stage we don't care about the overall expression type, just that it
                 #  typechecks internally.)
-            # Use separate environments for command/output typechecking, where WDL 1.2+ exposes
-            # the task runtime info struct. Keep type_env unchanged so it documents that inputs,
-            # postinputs, and runtime expressions can't depend on task.*.
-            command_env = type_env
-            output_env = type_env
-            if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_2):
-                task_ctx = Decl(self.pos, Type.Any(), "task", id_prefix="task")
-                command_env = _add_struct_instance_to_type_env(
-                    "task", self.task_runtime_info_struct_type(), type_env, ctx=task_ctx
-                )
-                output_env = _add_struct_instance_to_type_env(
-                    "task",
-                    self.task_runtime_info_struct_type(output_section=True),
-                    type_env,
-                    ctx=task_ctx,
-                )
-            # Typecheck the command (string)
-            errors.try1(
-                lambda: self.command.infer_type(
-                    command_env, stdlib, check_quant=check_quant, struct_types=struct_types
-                ).typecheck(Type.String())
-            )
-            for b in self.available_inputs:
-                errors.try1(lambda: _check_serializable_map_keys(b.value.type, b.name, b.value))
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(
-                    (lambda decl: lambda: decl.add_to_type_env(struct_types, output_env))(decl)
+                    (lambda decl: lambda: decl.add_to_type_env(struct_types, type_env))(decl)
                 )
                 if type_env2:
-                    output_env = type_env2
+                    type_env = type_env2
             errors.maybe_raise()
             # Typecheck the output expressions
             stdlib = StdLib.TaskOutputs(self.effective_wdl_version)
             for decl in self.outputs:
                 errors.try1(
-                    lambda: decl.typecheck(
-                        output_env, stdlib, struct_types, check_quant=check_quant
-                    )
+                    lambda: decl.typecheck(type_env, stdlib, struct_types, check_quant=check_quant)
                 )
                 errors.try1(lambda: _check_serializable_map_keys(decl.type, decl.name, decl))
 
@@ -641,9 +579,7 @@ class Call(WorkflowNode):
                 if callee_doc is doc:
                     raise Error.CircularDependencies(self)
                 if not wf.complete_calls or (wf.outputs is None and wf.effective_outputs):
-                    raise Error.UncallableWorkflow(
-                        self, ".".join(self.callee_id), _uncallable_reasons(wf)
-                    )
+                    raise Error.UncallableWorkflow(self, ".".join(self.callee_id))
                 self.callee = wf
             else:
                 for task in callee_doc.tasks:
@@ -775,6 +711,23 @@ class Call(WorkflowNode):
         yield from self._after_node_ids
         for expr in self.inputs.values():
             yield from _expr_workflow_node_dependencies(expr)
+
+
+class CallTry(Call):
+    """A call whose tolerated runtime failures produce null optional outputs"""
+
+    @property
+    def effective_outputs(self) -> Env.Bindings[Type.Base]:
+        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
+
+        Yields the effective outputs of the callee Task or Workflow, optionalized in a namespace
+        according to the call name.
+        """
+        ans: Env.Bindings[Type.Base] = Env.Bindings()
+        assert self.callee
+        for outp in reversed(list(self.callee.effective_outputs)):
+            ans = ans.bind(self.name + "." + outp.name, outp.value.copy(optional=True), self)
+        return ans
 
 
 class Gather(WorkflowNode):
@@ -1180,19 +1133,6 @@ class Workflow(SourceNode):
                     ans = ans.bind(b.name, b.value)
 
         return ans
-
-    @property
-    def incomplete_calls(self) -> Iterable["Call"]:
-        """:type: Iterable[WDL.Tree.Call]
-
-        Yields the calls in the workflow, including those nested within scatter and conditional
-        sections, which don't supply all of the callee's required inputs. Such inputs must instead
-        be supplied at workflow launch, which means the workflow can't be used as a subworkflow
-        (:attr:`complete_calls` is False).
-        """
-        for c in _calls(self):
-            if c.callee and next(iter(c.required_inputs), None) is not None:
-                yield c
 
     @property
     def effective_outputs(self) -> Env.Bindings[Type.Base]:
@@ -1719,29 +1659,6 @@ def _calls(element: Union[Workflow, WorkflowSection]) -> Generator[Call, None, N
             yield ch
         elif isinstance(ch, WorkflowSection):
             yield from _calls(ch)
-
-
-def _uncallable_reasons(wf: Workflow) -> List[str]:
-    # Explain why wf can't be used as a subworkflow, for Error.UncallableWorkflow
-    reasons = []
-    if wf.outputs is None and wf.effective_outputs:
-        reasons.append("it lacks an output section")
-    # list the offending calls last, since the list itself is delimited by semicolons
-    details = [
-        "({} Ln {} Col {}) call {} missing required input(s) {}".format(
-            c.pos.abspath,
-            c.pos.line,
-            c.pos.column,
-            c.name,
-            ", ".join(b.name[(len(c.name) + 1) :] for b in c.required_inputs),
-        )
-        for c in wf.incomplete_calls
-    ]
-    if details:
-        reasons.append("its own calls have missing required inputs: " + "; ".join(details))
-    elif not wf.complete_calls:
-        reasons.append("its own calls have missing required inputs")
-    return reasons
 
 
 def _resolve_calls(doc: Document) -> None:
