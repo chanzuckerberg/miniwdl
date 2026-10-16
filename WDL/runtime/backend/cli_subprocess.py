@@ -67,7 +67,7 @@ class SubprocessBase(TaskContainer):
             image = self._pull(logger, cleanup)
 
             # prepare loggers
-            cli_log_filename = os.path.join(self.host_dir, f"{self.cli_name}.log.txt")
+            cli_log_filename = self.host_cli_log_txt(self.cli_name)
             cli_log = cleanup.enter_context(open(cli_log_filename, "wb"))
             cli_logger = logger.getChild(self.cli_name)
             poll_stderr = cleanup.enter_context(self.poll_stderr_context(logger))

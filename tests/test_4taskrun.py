@@ -1624,6 +1624,17 @@ class TestTaskContainerRetryPaths(unittest.TestCase):
             container.reset(self._logger)
             self.assertTrue(container._bind_input_files)
 
+    def test_subprocess_cli_log_numbered_per_retry(self):
+        # https://github.com/chanzuckerberg/miniwdl/issues/787
+        container = self._container(self.SubprocessContainerForTest)
+
+        for log_name in ("test.log.txt", "test2.log.txt", "test3.log.txt"):
+            self.assertEqual(
+                container.host_cli_log_txt(container.cli_name),
+                os.path.join(container.host_dir, log_name),
+            )
+            container.reset(self._logger)
+
     def test_swarm_reset_restores_input_binds(self):
         from WDL.runtime.backend.docker_swarm import SwarmContainer
 
