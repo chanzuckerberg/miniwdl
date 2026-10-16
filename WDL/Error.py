@@ -263,13 +263,17 @@ class NoSuchInput(ValidationError):
 
 
 class UncallableWorkflow(ValidationError):
-    def __init__(self, node: SourceNode, name: str) -> None:
+    def __init__(self, node: SourceNode, name: str, reasons: Optional[List[str]] = None) -> None:
         super().__init__(
             node,
-            (
-                "Cannot call subworkflow {} because its own calls have missing required inputs, "
-                "and/or it lacks an output section"
-            ).format(name),
+            "Cannot call subworkflow {} because {}".format(
+                name,
+                " and ".join(reasons)
+                if reasons
+                else (
+                    "its own calls have missing required inputs, and/or it lacks an output section"
+                ),
+            ),
         )
 
 
