@@ -353,7 +353,7 @@ class Placeholder(Base):
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.String:
         ans = self._eval_impl(env, stdlib)
-        placeholder_regex = stdlib.eval_context.placeholder_regex
+        placeholder_regex: Optional[regex.Pattern] = getattr(stdlib, "_placeholder_regex", None)
         if placeholder_regex and not placeholder_regex.fullmatch(ans.value):
             raise Error.InputError(
                 "Task command placeholder value forbidden by configuration [task_runtime] placeholder_regex"
@@ -846,7 +846,7 @@ class Struct(Base):
                     self,
                     struct_type,
                     object_type,
-                    f"no such member '{member}' in struct '{self.struct_type_name}'",
+                    f"no such member '{member}' in struct {self.struct_type_name}",
                 )
 
         return struct_type
@@ -996,6 +996,7 @@ class Ident(Base):
             assert referee.__class__.__name__ in [
                 "Decl",
                 "Call",
+                "CallTry",
                 "Scatter",
                 "Gather",
             ], referee.__class__.__name__
@@ -1190,7 +1191,6 @@ def _add_parentheses(arguments, parent_operator):
     """
     arguments_out = []
     precedence = {
-        "_pow": 8,
         "_mul": 7,
         "_div": 7,
         "_rem": 7,
@@ -1242,7 +1242,6 @@ class Apply(Base):
     def __str__(self):
         arguments = _add_parentheses(self.arguments, self.function_name)
         infix = {
-            "_pow": "**",
             "_mul": "*",
             "_div": "/",
             "_rem": "%",
@@ -1285,24 +1284,3 @@ class Apply(Base):
         f = getattr(stdlib, self.function_name, None)
         assert isinstance(f, StdLib.Function)
         return f(self, env, stdlib)
-
-
-def _meta_value_to_json(v: Any) -> Any:
-    if isinstance(v, Int):
-        return v.value
-    if isinstance(v, Float):
-        return v.value
-    if isinstance(v, Boolean):
-        return v.value
-    if isinstance(v, Null):
-        return None
-    if isinstance(v, String):
-        literal = v.literal
-        if isinstance(literal, Value.String):
-            return literal.value
-        return str(v)
-    if isinstance(v, dict):
-        return {k: _meta_value_to_json(vv) for k, vv in v.items()}
-    if isinstance(v, list):
-        return [_meta_value_to_json(vv) for vv in v]
-    return v

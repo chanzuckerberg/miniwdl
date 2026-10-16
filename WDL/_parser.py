@@ -5,7 +5,6 @@ from typing import List, Optional, Set, Tuple, Any, Union
 import lark
 from .Error import SourcePosition
 from . import Error, Tree, Type, Expr, _grammar
-from ._util import WDLVersion, wdl_version_geq
 
 # memoize Lark parsers constructed for version & start symbol
 _lark_cache = {}
@@ -103,7 +102,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         assert parts[-1] in ['"', "'", ">>>"], parts[-1]
         if parts[0] == "<<<":
             wdl_version = getattr(self, "_version", None)
-            if wdl_version and not wdl_version_geq(wdl_version, WDLVersion.V1_2):
+            if wdl_version and wdl_version in ("draft-2", "1.0", "1.1"):
                 raise Error.SyntaxError(
                     self._sp(meta),
                     "<<< multi-line strings >>> are not supported in this WDL version",
@@ -192,7 +191,6 @@ for op in [
     "lor",
     "add",
     "sub",
-    "pow",
     "mul",
     "div",
     "rem",
@@ -237,9 +235,8 @@ class _DocTransformer(_ExprTransformer):
         self._version = version
         self._declared_version = declared_version
 
-    def _check_keyword(self, pos, name, *, allow_task: bool = False):
-        if name in self._keywords and not (allow_task and name == "task"):
-            assert self._version is not None
+    def _check_keyword(self, pos, name):
+        if name in self._keywords:
             raise Error.SyntaxError(
                 pos, "unexpected keyword {}".format(name), self._version, self._declared_version
             )
@@ -256,21 +253,13 @@ class _DocTransformer(_ExprTransformer):
 
     def left_name(self, meta, items) -> Expr.Base:
         ans = super().left_name(meta, items)
-        assert self._version is not None
-        allow_task = wdl_version_geq(self._version, WDLVersion.V1_2) and items[0] == "task"
-        self._check_keyword(ans.pos, items[0], allow_task=allow_task)
+        self._check_keyword(ans.pos, items[0])
         return ans
 
     def get_name(self, meta, items) -> Expr.Base:
         ans = super().get_name(meta, items)
         if items[1] not in ("left", "right"):
-            assert self._version is not None
-            allow_member = wdl_version_geq(self._version, WDLVersion.V1_2) and items[1] in (
-                "meta",
-                "parameter_meta",
-            )
-            if not allow_member:
-                self._check_keyword(ans.pos, items[1])
+            self._check_keyword(ans.pos, items[1])
         return ans
 
     def optional(self, meta, items):
@@ -309,8 +298,7 @@ class _DocTransformer(_ExprTransformer):
             "String": Type.String,
             "File": Type.File,
         }
-        assert self._version is not None
-        if wdl_version_geq(self._version, WDLVersion.V1_2):
+        if self._version not in ("draft-2", "1.0", "1.1"):
             atomic_types["Directory"] = Type.Directory
         if items[0].value in atomic_types:
             if param or param2:
@@ -406,11 +394,7 @@ class _DocTransformer(_ExprTransformer):
             # if k in d:
             #    raise Error.MultipleDefinitions(self._sp(meta), "duplicate keys in runtime section")
             d[k] = v
-        return {
-            "runtime": d,
-            "runtime_section_name": "runtime",
-            "runtime_section_pos": self._sp(meta),
-        }
+        return {"runtime": d}
 
     def requirements_section(self, meta, items):
         d = dict()
@@ -421,11 +405,7 @@ class _DocTransformer(_ExprTransformer):
                     self._sp(meta), "duplicate keys in requirements section"
                 )
             d[k] = v
-        return {
-            "runtime": d,
-            "runtime_section_name": "requirements",
-            "runtime_section_pos": self._sp(meta),
-        }
+        return {"runtime": d}
 
     def hints_section(self, meta, items):
         return {"hints": items[0]}
@@ -461,8 +441,6 @@ class _DocTransformer(_ExprTransformer):
             d.get("parameter_meta", {}),
             d.get("runtime", {}),
             d.get("meta", {}),
-            d.get("runtime_section_name", None),
-            d.get("runtime_section_pos", None),
         )
 
     def tasks(self, meta, items):
@@ -526,6 +504,53 @@ class _DocTransformer(_ExprTransformer):
             i += 1
         assert i == len(items) or isinstance(items[i], dict)
         return Tree.Call(
+            self._sp(meta),
+            items[0],
+            items[1].value,
+            items[i] if i < len(items) else dict(),
+            after=after,
+        )
+
+    def call_try(self, meta, items):
+        if self._version != "development":
+            raise Error.SyntaxError(
+                self._sp(meta),
+                "call? is only supported with version development",
+                self._version,
+                self._declared_version,
+            )
+        after = []
+        i = 1
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
+        return Tree.CallTry(
+            self._sp(meta), items[0], None, items[i] if i < len(items) else dict(), after=after
+        )
+
+    def call_try_as(self, meta, items):
+        if self._version != "development":
+            raise Error.SyntaxError(
+                self._sp(meta),
+                "call? is only supported with version development",
+                self._version,
+                self._declared_version,
+            )
+        self._check_keyword(self._sp(meta), items[1].value)
+        after = list()
+        i = 2
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
+        return Tree.CallTry(
             self._sp(meta),
             items[0],
             items[1].value,
