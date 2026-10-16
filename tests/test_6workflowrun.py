@@ -4,8 +4,67 @@ import tempfile
 import os
 import time
 import sys
+from unittest.mock import patch
 import pytest
 from .context import WDL
+
+
+class _CountingSet(set):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.iterations = 0
+
+    def __iter__(self):
+        self.iterations += 1
+        return super().__iter__()
+
+
+class TestWorkflowState(unittest.TestCase):
+    def test_runnable_batch_reused(self):
+        state = WDL.runtime._workflow_state.StateMachine.__new__(
+            WDL.runtime._workflow_state.StateMachine
+        )
+        state.jobs = {
+            job_id: WDL.runtime._workflow_state._Job(job_id, None, set(), [])
+            for job_id in ("call-a", "call-b")
+        }
+        state.finished = set()
+        state.running = set()
+        state.waiting = _CountingSet(state.jobs)
+        state.runnable = []
+        state._do_job = lambda cfg, stdlib, job: state.CallInstructions(job.id, None, None)
+
+        self.assertEqual(state.step(None, None).id, "call-a")
+        self.assertEqual(state.step(None, None).id, "call-b")
+        self.assertEqual(state.waiting.iterations, 1)
+
+    def test_disabled_log_payloads_lazy(self):
+        doc = WDL.parse_document(
+            """
+            version 1.0
+            workflow main { call nop }
+            task nop { command {} }
+            """
+        )
+        doc.typecheck()
+        logger = logging.getLogger(self.id())
+        logger.setLevel(WDL._util.NOTICE_LEVEL)
+        cfg = WDL.runtime.config.Loader(logger, [])
+        state = WDL.runtime._workflow_state.StateMachine(
+            self.id(), "/tmp", doc.workflow, WDL.Env.Bindings()
+        )
+        state._logger = logger
+
+        def unexpected_payload(_env):
+            raise AssertionError("disabled log payload constructed")
+
+        state.values_to_json = unexpected_payload
+        stdlib = WDL.runtime._stdlib.WorkflowStdLib(cfg, "1.0", state, None)
+        call = state.step(cfg, stdlib)
+        self.assertIsNotNone(call)
+        state.call_finished(call.id, WDL.Env.Bindings())
+        while state.outputs is None:
+            self.assertIsNone(state.step(cfg, stdlib))
 
 class TestWorkflowRunner(unittest.TestCase):
 
@@ -18,7 +77,14 @@ class TestWorkflowRunner(unittest.TestCase):
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
 
-    def _test_workflow(self, wdl:str, inputs = None, expected_exception: Exception = None, cfg = None):
+    def _test_workflow(
+        self,
+        wdl: str,
+        inputs=None,
+        expected_exception: Exception = None,
+        cfg=None,
+        _test_pickle=True,
+    ):
         sys.setrecursionlimit(200)  # set artificially low in unit tests to detect excessive recursion (issue #239)
         logger = logging.getLogger(self.id())
         cfg = cfg or WDL.runtime.config.Loader(logger, [])
@@ -30,7 +96,13 @@ class TestWorkflowRunner(unittest.TestCase):
             assert len(doc.workflow.required_inputs.subtract(doc.workflow.available_inputs)) == 0
             if isinstance(inputs, dict):
                 inputs = WDL.values_from_json(inputs, doc.workflow.available_inputs, doc.workflow.required_inputs)
-            rundir, outputs = WDL.runtime.run(cfg, doc.workflow, (inputs or WDL.Env.Bindings()), run_dir=self._dir, _test_pickle=True)
+            rundir, outputs = WDL.runtime.run(
+                cfg,
+                doc.workflow,
+                (inputs or WDL.Env.Bindings()),
+                run_dir=self._dir,
+                _test_pickle=_test_pickle,
+            )
             self._rundir = rundir
         except WDL.runtime.RunFailed as exn:
             while isinstance(exn, WDL.runtime.RunFailed):
@@ -233,6 +305,101 @@ class TestWorkflowRunner(unittest.TestCase):
             {"left": 3, "right": 1}
         ])
 
+    def test_scattered_subworkflow_future_completion(self):
+        with open(os.path.join(self._dir, "sub.wdl"), "w") as outfile:
+            outfile.write(
+                """
+                version 1.0
+                workflow sub {
+                    input { Int x }
+                    output { Int y = x + 1 }
+                }
+                """
+            )
+        original_add_done_callback = (
+            WDL.runtime.workflow.futures.Future.add_done_callback
+        )
+        original_run_local_workflow = WDL.runtime.workflow.run_local_workflow
+
+        def add_done_callback_twice(future, callback):
+            original_add_done_callback(future, callback)
+            original_add_done_callback(future, callback)
+
+        def staggered_run_local_workflow(cfg, workflow, inputs, *args, **kwargs):
+            if inputs["x"].value:
+                time.sleep(0.05)
+            return original_run_local_workflow(cfg, workflow, inputs, *args, **kwargs)
+
+        with patch(
+            "WDL.runtime.workflow.futures.as_completed",
+            side_effect=AssertionError("workflow loop should use completion callbacks"),
+        ), patch.object(
+            WDL.runtime.workflow.futures.Future,
+            "add_done_callback",
+            add_done_callback_twice,
+        ), patch(
+            "WDL.runtime.workflow.run_local_workflow", staggered_run_local_workflow
+        ):
+            outputs = self._test_workflow(
+                """
+                version 1.0
+                import "sub.wdl" as lib
+                workflow main {
+                    scatter (i in range(4)) {
+                        call lib.sub { input: x = i }
+                    }
+                    output { Array[Int] ys = sub.y }
+                }
+                """
+            )
+        self.assertEqual(outputs["ys"], [1, 2, 3, 4])
+
+    def test_workflow_stdlib_reuse(self):
+        with open(os.path.join(self._dir, "sub.wdl"), "w") as outfile:
+            outfile.write(
+                """
+                version 1.0
+                workflow sub {
+                    input { Int x }
+                    output { Int y = x + 1 }
+                }
+                """
+            )
+
+        instances = []
+        original_stdlib = WDL.runtime.workflow.WorkflowStdLib
+
+        class CountingWorkflowStdLib(original_stdlib):
+            def __init__(self, cfg, wdl_version, state, cache):
+                super().__init__(cfg, wdl_version, state, cache)
+                instances.append((state.workflow.name, state, self._write_dir))
+
+        wdl = """
+            version 1.0
+            import "sub.wdl" as lib
+            workflow main {
+                scatter (i in range(2)) {
+                    call lib.sub { input: x = i }
+                }
+                output { Array[Int] ys = sub.y }
+            }
+            """
+        with patch("WDL.runtime.workflow.WorkflowStdLib", CountingWorkflowStdLib):
+            outputs = self._test_workflow(wdl, _test_pickle=False)
+        self.assertEqual(outputs["ys"], [1, 2])
+        parent_instances = [instance for instance in instances if instance[0] == "main"]
+        self.assertEqual(len(parent_instances), 1)
+
+        instances.clear()
+        with patch("WDL.runtime.workflow.WorkflowStdLib", CountingWorkflowStdLib):
+            outputs = self._test_workflow(wdl, _test_pickle=True)
+        self.assertEqual(outputs["ys"], [1, 2])
+        parent_instances = [instance for instance in instances if instance[0] == "main"]
+        self.assertGreater(len(parent_instances), 1)
+        self.assertEqual(len({id(instance[1]) for instance in parent_instances}), len(parent_instances))
+        for _, state, write_dir in parent_instances:
+            self.assertEqual(write_dir, os.path.join(state.run_dir, "write_"))
+
     def test_scatter_tags(self):
         outputs = self._test_workflow("""
         version 1.0
@@ -388,6 +555,25 @@ class TestWorkflowRunner(unittest.TestCase):
         }
         """)
         self.assertEqual(outputs, {"out": [[0, 1], None, [4, 5]]})
+
+    def test_select_all_scatter_leading_none(self):
+        outputs = self._test_workflow("""
+        version 1.1
+
+        workflow select_all_leading_none {
+            scatter (i in range(3)) {
+                if (i > 0) {
+                    Pair[String, Int] p = ("sample~{i}", i)
+                }
+            }
+            output {
+                Map[String, Int] m = as_map(select_all(p))
+                Map[String, Array[Int]] c = collect_by_key(select_all(p))
+            }
+        }
+        """)
+        self.assertEqual(outputs["m"], {"sample1": 1, "sample2": 2})
+        self.assertEqual(outputs["c"], {"sample1": [1], "sample2": [2]})
 
     def test_io(self):
         txt = """
