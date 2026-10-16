@@ -68,6 +68,7 @@ task: "task" CNAME "{" task_section* command task_section* "}"
              | output_decls
              | meta_section
              | requirements_section
+             | runtime_section
              | hints_section
              | task_env_decl -> noninput_decl
 
@@ -90,8 +91,9 @@ meta_kv: CNAME ":" meta_value
            | "[" [meta_value ("," meta_value)*] ","? "]" -> meta_array
 !meta_section: ("meta" | "parameter_meta") meta_object
 
-// task requirements section (key-expression pairs); some mixing with vestigial (pre-1.2) "runtime" terminology
-requirements_section: ("requirements" | "runtime") "{" [runtime_kv (","? runtime_kv)*] "}"
+// task runtime/requirements section (key-expression pairs)
+requirements_section: "requirements" "{" [runtime_kv (","? runtime_kv)*] "}"
+runtime_section: "runtime" "{" [runtime_kv (","? runtime_kv)*] "}"
 runtime_kv: CNAME ":" expr
 
 // hints section
@@ -156,7 +158,10 @@ optional_nonempty: "+?"
             | expr_infix4 "%" expr_infix5 -> rem
             | expr_infix5
 
-?expr_infix5: expr_core
+?expr_infix5: expr_infix5 "**" expr_infix6 -> pow
+            | expr_infix6
+
+?expr_infix6: expr_core
 
 // expression core (everything but infix)
 ?expr_core: "(" expr ")"
