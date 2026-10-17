@@ -1,0 +1,64 @@
+name: alt_backends
+# Test the alternative container backends (podman, singularity, udocker), which take a while and
+# need extra setup on the runner. Run only on pushes to main (or on demand).
+on:
+  push:
+    branches:
+      - main
+      - alt-backends-ci
+  workflow_dispatch:
+
+jobs:
+
+  backend:
+    strategy:
+      fail-fast: false
+      matrix:
+        backend:
+          - podman
+          - singularity
+          - udocker
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Maximize build space
+      uses: AdityaGarg8/remove-unwanted-software@v5
+      with:
+        remove-dotnet: 'true'
+        remove-android: 'true'
+        remove-haskell: 'true'
+        remove-codeql: 'true'
+        remove-docker-images: 'true'
+    - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        submodules: recursive
+    - uses: actions/setup-python@v7
+      with:
+        python-version: '3.12'
+    - name: install miniwdl dependencies
+      run: |
+        python3 -m pip install .
+    - name: install podman
+      if: ${{ matrix.backend == 'podman' }}
+      run: |
+        # podman is preinstalled on GitHub-hosted Ubuntu runners; miniwdl defaults to running it
+        # with passwordless sudo, which the runners also provide.
+        sudo -n podman --version
+    - name: install singularity
+      if: ${{ matrix.backend == 'singularity' }}
+      run: |
+        # Apptainer (Singularity successor) from its PPA, which also provides the `singularity`
+        # command and an AppArmor profile permitting the unprivileged user namespaces it uses.
+        sudo add-apt-repository -y ppa:apptainer/ppa
+        sudo apt-get -qq update
+        sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y apptainer
+        singularity --version
+    - name: install udocker
+      if: ${{ matrix.backend == 'udocker' }}
+      run: |
+        python3 -m pip install udocker
+        udocker install
+        udocker --version
+    - name: prove -v tests/${{ matrix.backend }}.t
+      run: |
+        prove -v tests/${{ matrix.backend }}.t
