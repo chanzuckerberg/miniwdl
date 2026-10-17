@@ -186,7 +186,7 @@ class SwarmContainer(TaskContainer):
             image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
         else:
             image_tag = self.resolve_tag(
-                logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
+                logger, client, self.runtime_values.get("docker", "ubuntu:22.04")
             )
         mounts = self.prepare_mounts(logger)
         resources, user, groups = self.misc_config(logger)
