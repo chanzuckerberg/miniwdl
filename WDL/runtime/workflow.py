@@ -65,7 +65,6 @@ from .cache import CallCache, CallCacheAddPaths, call_cache_key, new as new_call
 from .error import RunFailed, Terminated, error_json
 
 
-# Python 3.9+ allows runtime subscription of concurrent.futures.Future
 _CallFuture = futures.Future[Tuple[str, Env.Bindings[Value.Base]]]
 
 
