@@ -1,3 +1,4 @@
+import glob
 import unittest
 import logging
 import tempfile
@@ -1688,3 +1689,107 @@ class TestWorkflowRunner(unittest.TestCase):
         self._test_workflow(
             ordinary_call_wdl, cfg=cfg, expected_exception=WDL.runtime.Interrupted
         )
+
+    def test_call_try_call_cache(self):
+        # Pin the interaction between call? and the call cache. Caching happens
+        # inside the task job: cache.get before execution, cache.put only at the
+        # end of the success path. call? tolerance happens one layer up, in the
+        # workflow's future resolution, synthesizing null outputs in workflow
+        # state only. Therefore a tolerated failure must leave NO cache entry
+        # (the call re-executes on rerun), while a successful call? caches like
+        # a plain call.
+        #
+        # Instrumentation: each task's command appends a line to a counter file
+        # in its own working directory (mounted read/write in the container)
+        # every time it actually executes; the host counts lines under each
+        # workflow run directory. The flaky task's fail/succeed switch is a
+        # sentinel file inside a Directory input: visible to the command (the
+        # directory is mounted read-only), but not part of the cache-keyed
+        # input values (keys digest the directory path, not its contents).
+        cache_dir = os.path.join(self._dir, "call_cache")
+        flaky_control = os.path.join(self._dir, "flaky_control")
+        os.makedirs(flaky_control)
+
+        logger = logging.getLogger(self.id())
+        cfg = WDL.runtime.config.Loader(logger, [])
+        cfg.override({"call_cache": {"put": True, "get": True, "dir": cache_dir}})
+
+        wdl = """
+        version development
+
+        workflow test_call_try_call_cache {
+            input {
+                Directory flaky_control
+            }
+
+            call? stable
+            call? flaky { input: control = flaky_control }
+
+            output {
+                String? stable_out = stable.out
+                String? flaky_out = flaky.out
+            }
+        }
+
+        task stable {
+            command <<<
+                echo run >> stable_counter.txt
+                echo "stable-ran" > stable_out.txt
+            >>>
+            output {
+                String out = read_string("stable_out.txt")
+            }
+        }
+
+        task flaky {
+            input {
+                Directory control
+            }
+            command <<<
+                echo run >> flaky_counter.txt
+                if [ -f "~{control}/go" ]; then
+                    echo "flaky-recovered" > flaky_out.txt
+                else
+                    exit 42
+                fi
+            >>>
+            output {
+                String out = read_string("flaky_out.txt")
+            }
+        }
+        """
+
+        def executions(counter_filename):
+            # count counter lines written during the most recent workflow run
+            ans = 0
+            for fn in glob.glob(
+                os.path.join(self._rundir, "**", counter_filename), recursive=True
+            ):
+                with open(fn) as infile:
+                    ans += sum(1 for _ in infile)
+            return ans
+
+        # run 1: no sentinel, so flaky's command fails and call? tolerates it;
+        # both tasks really execute
+        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control}, cfg=cfg)
+        self.assertEqual(outputs, {"stable_out": "stable-ran", "flaky_out": None})
+        self.assertEqual(executions("stable_counter.txt"), 1)
+        self.assertEqual(executions("flaky_counter.txt"), 1)
+
+        # plant the sentinel: flaky's command will succeed iff it runs again
+        with open(os.path.join(flaky_control, "go"), "w") as outfile:
+            outfile.write("go\n")
+
+        # run 2 (same cache dir & inputs): stable is served from the call cache
+        # (no re-execution), while flaky re-executes -- proving its tolerated
+        # run-1 failure left no cache entry -- and now succeeds
+        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control}, cfg=cfg)
+        self.assertEqual(outputs, {"stable_out": "stable-ran", "flaky_out": "flaky-recovered"})
+        self.assertEqual(executions("stable_counter.txt"), 0)
+        self.assertEqual(executions("flaky_counter.txt"), 1)
+
+        # run 3: flaky's run-2 success is cached too; neither task re-executes
+        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control}, cfg=cfg)
+        self.assertEqual(outputs, {"stable_out": "stable-ran", "flaky_out": "flaky-recovered"})
+        self.assertEqual(executions("stable_counter.txt"), 0)
+        self.assertEqual(executions("flaky_counter.txt"), 0)
