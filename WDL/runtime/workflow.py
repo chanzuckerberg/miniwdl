@@ -38,7 +38,7 @@ import pickle
 import queue
 import threading
 from concurrent import futures
-from typing import Optional, List, Callable, Tuple, Dict, NamedTuple, Set, Union, TYPE_CHECKING
+from typing import Optional, List, Callable, Tuple, Dict, NamedTuple, Set, Union
 from contextlib import ExitStack
 from .. import Env, Value, Tree, Error
 from .task import run_local_task
@@ -65,11 +65,7 @@ from .cache import CallCache, CallCacheAddPaths, call_cache_key, new as new_call
 from .error import RunFailed, Terminated, error_json
 
 
-if TYPE_CHECKING:
-    _CallFuture = futures.Future[Tuple[str, Env.Bindings[Value.Base]]]
-else:
-    # concurrent.futures.Future isn't runtime-subscriptable on Python 3.8
-    _CallFuture = futures.Future
+_CallFuture = futures.Future[Tuple[str, Env.Bindings[Value.Base]]]
 
 
 class WorkflowMainLoopResult(NamedTuple):
@@ -344,7 +340,7 @@ def run_local_workflow(
         # if we're the top-level workflow, provision thread pools
         if not _thread_pools:
             # delayed heavy imports -- load .task_container now to work around python issue41567
-            import importlib_metadata
+            from importlib import metadata as importlib_metadata
             from .task_container import new as _new_task_container  # noqa: F401
 
             assert not _run_id_stack
