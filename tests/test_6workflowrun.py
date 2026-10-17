@@ -1,3 +1,4 @@
+import glob
 import unittest
 import logging
 import tempfile
@@ -72,7 +73,7 @@ class TestWorkflowRunner(unittest.TestCase):
     def setUpClass(cls):
         logging.basicConfig(level=logging.DEBUG, format='%(name)s %(levelname)s %(message)s')
         logger = logging.getLogger(cls.__name__)
-        cfg = WDL.runtime.config.Loader(logger, [])
+        WDL.runtime.config.Loader(logger, [])
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_workflowrun_")
@@ -1435,3 +1436,360 @@ class TestWorkflowRunner(unittest.TestCase):
         for wdl in cases:
             with pytest.raises(WDL.Error.StaticTypeMismatch):
                 self._test_workflow(wdl)
+
+    def test_call_try_development_only(self):
+        self._test_workflow("""
+        version 1.2
+
+        workflow test_call_try_version {
+            call? ok
+        }
+
+        task ok {
+            command <<< true >>>
+        }
+        """, expected_exception=WDL.Error.SyntaxError)
+
+    def test_call_try_command_failure_outputs_null(self):
+        outputs = self._test_workflow("""
+        version development
+
+        workflow test_call_try {
+            call? fail
+
+            output {
+                String msg = select_first([fail.out, "fallback"])
+                Boolean absent = fail.out == None
+            }
+        }
+
+        task fail {
+            command <<<
+                exit 42
+            >>>
+            output {
+                String out = "unreached"
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"msg": "fallback", "absent": True})
+
+    def test_call_try_outputs_are_optional(self):
+        self._test_workflow("""
+        version development
+
+        workflow test_call_try_type {
+            call? ok
+            output {
+                Int x = ok.x
+            }
+        }
+
+        task ok {
+            command <<< true >>>
+            output {
+                Int x = 1
+            }
+        }
+        """, expected_exception=WDL.Error.StaticTypeMismatch)
+
+    def test_call_try_eval_error_not_suppressed(self):
+        self._test_workflow("""
+        version development
+
+        workflow test_call_try_eval_error {
+            call? ok {
+                input:
+                    x = 1/0
+            }
+        }
+
+        task ok {
+            input {
+                Int x
+            }
+            command <<< true >>>
+        }
+        """, expected_exception=WDL.Error.EvalError)
+
+    def test_call_try_output_error_not_suppressed(self):
+        self._test_workflow("""
+        version development
+
+        workflow test_call_try_output_error {
+            call? bad_output
+        }
+
+        task bad_output {
+            command <<< true >>>
+            output {
+                File x = "missing.txt"
+            }
+        }
+        """, expected_exception=WDL.runtime.OutputError)
+
+    def test_call_try_subworkflow_failure_outputs_null(self):
+        sub_wdl = os.path.join(self._dir, "call_try_subworkflow.wdl")
+        with open(sub_wdl, "w") as outfile:
+            outfile.write("""
+            version development
+
+            workflow sub {
+                call fail
+                output {
+                    String out = fail.out
+                }
+            }
+
+            task fail {
+                command <<<
+                    exit 42
+                >>>
+                output {
+                    String out = "unreached"
+                }
+            }
+            """)
+
+        outputs = self._test_workflow(f"""
+        version development
+
+        import "{sub_wdl}" as subdoc
+
+        workflow test_call_try_subworkflow {{
+            call? subdoc.sub
+
+            output {{
+                String msg = select_first([sub.out, "fallback"])
+            }}
+        }}
+        """)
+        self.assertEqual(outputs, {"msg": "fallback"})
+
+    def test_call_try_nested_subworkflow_failure_outputs_null(self):
+        leaf_wdl = os.path.join(self._dir, "call_try_leaf_subworkflow.wdl")
+        with open(leaf_wdl, "w") as outfile:
+            outfile.write("""
+            version development
+
+            workflow leaf {
+                call fail
+                output {
+                    String out = fail.out
+                }
+            }
+
+            task fail {
+                command <<<
+                    exit 42
+                >>>
+                output {
+                    String out = "unreached"
+                }
+            }
+            """)
+
+        middle_wdl = os.path.join(self._dir, "call_try_middle_subworkflow.wdl")
+        with open(middle_wdl, "w") as outfile:
+            outfile.write(f"""
+            version development
+
+            import "{leaf_wdl}" as leafdoc
+
+            workflow middle {{
+                call leafdoc.leaf
+                output {{
+                    String out = leaf.out
+                }}
+            }}
+            """)
+
+        outputs = self._test_workflow(f"""
+        version development
+
+        import "{middle_wdl}" as middoc
+
+        workflow test_call_try_nested_subworkflow {{
+            call? middoc.middle
+
+            output {{
+                String msg = select_first([middle.out, "fallback"])
+            }}
+        }}
+        """)
+        self.assertEqual(outputs, {"msg": "fallback"})
+
+    def test_call_try_scatter_shard_failure(self):
+        outputs = self._test_workflow("""
+        version development
+
+        workflow test_call_try_scatter {
+            scatter (i in [1, 2, 3]) {
+                call? flaky { input: x = i }
+            }
+
+            output {
+                Array[String?] outs = flaky.out
+                Array[String] kept = select_all(flaky.out)
+            }
+        }
+
+        task flaky {
+            input {
+                Int x
+            }
+            command <<<
+                if [ ~{x} -eq 2 ]; then
+                    exit 42
+                fi
+                echo "ok~{x}" > out.txt
+            >>>
+            output {
+                String out = read_string("out.txt")
+            }
+        }
+        """)
+        self.assertEqual(outputs, {"outs": ["ok1", None, "ok3"], "kept": ["ok1", "ok3"]})
+
+    def test_call_try_interrupted_outputs_null(self):
+        # _mock_interruptions makes the task runner raise Interrupted after the
+        # container finishes; with preemptible: 0 the interruption budget is
+        # already exhausted, so the Interrupted propagates to the workflow --
+        # where call? (but not an ordinary call) tolerates it.
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"_mock_interruptions": 1}})
+        wdl = """
+        version development
+
+        workflow test_call_try_interrupted {
+            call? ok
+
+            output {
+                String msg = select_first([ok.out, "fallback"])
+                Boolean absent = ok.out == None
+            }
+        }
+
+        task ok {
+            command <<< true >>>
+            output {
+                String out = "unreached"
+            }
+            runtime {
+                preemptible: 0
+            }
+        }
+        """
+        outputs = self._test_workflow(wdl, cfg=cfg)
+        self.assertEqual(outputs, {"msg": "fallback", "absent": True})
+
+        ordinary_call_wdl = wdl.replace("call? ok", "call ok").replace(
+            "test_call_try_interrupted", "test_call_interrupted"
+        )
+        self._test_workflow(
+            ordinary_call_wdl, cfg=cfg, expected_exception=WDL.runtime.Interrupted
+        )
+
+    def test_call_try_call_cache(self):
+        # Pin the interaction between call? and the call cache. Caching happens
+        # inside the task job: cache.get before execution, cache.put only at the
+        # end of the success path. call? tolerance happens one layer up, in the
+        # workflow's future resolution, synthesizing null outputs in workflow
+        # state only. Therefore a tolerated failure must leave NO cache entry
+        # (the call re-executes on rerun), while a successful call? caches like
+        # a plain call.
+        #
+        # Instrumentation: each task's command appends a line to a counter file
+        # in its own working directory (mounted read/write in the container)
+        # every time it actually executes; the host counts lines under each
+        # workflow run directory. The flaky task's fail/succeed switch is a
+        # sentinel file inside a Directory input: visible to the command (the
+        # directory is mounted read-only), but not part of the cache-keyed
+        # input values (keys digest the directory path, not its contents).
+        cache_dir = os.path.join(self._dir, "call_cache")
+        flaky_control = os.path.join(self._dir, "flaky_control")
+        os.makedirs(flaky_control)
+
+        logger = logging.getLogger(self.id())
+        cfg = WDL.runtime.config.Loader(logger, [])
+        cfg.override({"call_cache": {"put": True, "get": True, "dir": cache_dir}})
+
+        wdl = """
+        version development
+
+        workflow test_call_try_call_cache {
+            input {
+                Directory flaky_control
+            }
+
+            call? stable
+            call? flaky { input: control = flaky_control }
+
+            output {
+                String? stable_out = stable.out
+                String? flaky_out = flaky.out
+            }
+        }
+
+        task stable {
+            command <<<
+                echo run >> stable_counter.txt
+                echo "stable-ran" > stable_out.txt
+            >>>
+            output {
+                String out = read_string("stable_out.txt")
+            }
+        }
+
+        task flaky {
+            input {
+                Directory control
+            }
+            command <<<
+                echo run >> flaky_counter.txt
+                if [ -f "~{control}/go" ]; then
+                    echo "flaky-recovered" > flaky_out.txt
+                else
+                    exit 42
+                fi
+            >>>
+            output {
+                String out = read_string("flaky_out.txt")
+            }
+        }
+        """
+
+        def executions(counter_filename):
+            # count counter lines written during the most recent workflow run
+            ans = 0
+            for fn in glob.glob(
+                os.path.join(self._rundir, "**", counter_filename), recursive=True
+            ):
+                with open(fn) as infile:
+                    ans += sum(1 for _ in infile)
+            return ans
+
+        # run 1: no sentinel, so flaky's command fails and call? tolerates it;
+        # both tasks really execute
+        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control}, cfg=cfg)
+        self.assertEqual(outputs, {"stable_out": "stable-ran", "flaky_out": None})
+        self.assertEqual(executions("stable_counter.txt"), 1)
+        self.assertEqual(executions("flaky_counter.txt"), 1)
+
+        # plant the sentinel: flaky's command will succeed iff it runs again
+        with open(os.path.join(flaky_control, "go"), "w") as outfile:
+            outfile.write("go\n")
+
+        # run 2 (same cache dir & inputs): stable is served from the call cache
+        # (no re-execution), while flaky re-executes -- proving its tolerated
+        # run-1 failure left no cache entry -- and now succeeds
+        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control}, cfg=cfg)
+        self.assertEqual(outputs, {"stable_out": "stable-ran", "flaky_out": "flaky-recovered"})
+        self.assertEqual(executions("stable_counter.txt"), 0)
+        self.assertEqual(executions("flaky_counter.txt"), 1)
+
+        # run 3: flaky's run-2 success is cached too; neither task re-executes
+        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control}, cfg=cfg)
+        self.assertEqual(outputs, {"stable_out": "stable-ran", "flaky_out": "flaky-recovered"})
+        self.assertEqual(executions("stable_counter.txt"), 0)
+        self.assertEqual(executions("flaky_counter.txt"), 0)

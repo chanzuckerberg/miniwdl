@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 115
+plan tests 118
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -804,3 +804,84 @@ cat << 'EOF' > issue717.json
 EOF
 $miniwdl run issue717.wdl -i issue717.json
 is "$?" "0" "read exponential-notation values in JSON inputs (issue 717 regression)"
+
+# test experimental call?: top-level scatter over a subworkflow, tolerating a few
+# failing samples (stands in for scattering over e.g. 10000 samples where a small
+# fraction are expected to fail for various reasons). The process_sample subworkflow
+# absorbs failures at one of two layers, selected per-sample by its `tolerate` input:
+#   sample 11 (tolerate):  fails, absorbed INSIDE the subworkflow by its linear call?
+#   sample 14 (!tolerate): fails, subworkflow run itself fails; absorbed by the
+#                          scatter's call? to the subworkflow
+# The two paths are indistinguishable in the outputs -- null tag, fallback status --
+# the coverage difference is which layer absorbed the failure.
+cat << 'EOF' > call_try_lib.wdl
+version development
+
+task tag_sample {
+    input {
+        Int i
+    }
+
+    command <<<
+        if [ ~{i} -eq 11 ] || [ ~{i} -eq 14 ]; then
+            echo "sample ~{i} cannot be processed" >&2
+            exit 42
+        fi
+        echo "tag-~{i}"
+    >>>
+
+    output {
+        String tag = read_string(stdout())
+    }
+}
+
+workflow process_sample {
+    input {
+        Int i
+        Boolean tolerate
+    }
+
+    if (tolerate) {
+        call? tag_sample as f_try {
+            input: i = i
+        }
+    }
+    if (!tolerate) {
+        call tag_sample as f_strict {
+            input: i = i
+        }
+    }
+
+    # NB: not select_first([f_try.tag, f_strict.tag]) -- select_first errors on an
+    # all-null array, which is exactly the tolerated-failure case; the conditional
+    # propagates the null instead.
+    output {
+        String? tag = if tolerate then f_try.tag else f_strict.tag
+    }
+}
+EOF
+cat << 'EOF' > call_try_scatter.wdl
+version development
+
+import "call_try_lib.wdl" as lib
+
+workflow call_try_scatter {
+    Array[Int] samples = [10, 11, 12, 13, 14]
+
+    scatter (s in samples) {
+        call? lib.process_sample as sub {
+            input: i = s, tolerate = s % 2 == 1
+        }
+        String status = select_first([sub.tag, "failed"])
+    }
+
+    output {
+        Array[String?] tags = sub.tag
+        Array[String] statuses = status
+    }
+}
+EOF
+$miniwdl run call_try_scatter.wdl -o call_try_scatter_out.json
+is "$?" "0" "call_try scatter tolerates failing samples"
+is "$(jq -c '.outputs["call_try_scatter.tags"]' call_try_scatter_out.json)" '["tag-10",null,"tag-12","tag-13",null]' "call_try scatter tags have nulls at failed samples"
+is "$(jq -c '.outputs["call_try_scatter.statuses"]' call_try_scatter_out.json)" '["tag-10","failed","tag-12","tag-13","failed"]' "call_try scatter statuses fall back at failed samples"
