@@ -61,7 +61,7 @@ class TestTaskRunner(unittest.TestCase):
             }
         }
         """)
-        self.assertTrue("20.04" in outputs["issue"])
+        self.assertTrue("22.04" in outputs["issue"])
 
         outputs = self._test_task(R"""
         version 1.0
