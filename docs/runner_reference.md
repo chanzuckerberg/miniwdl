@@ -178,26 +178,3 @@ The runner supports versions 1.2, 1.1, 1.0, and draft-2 of the [WDL specificatio
 Please [file an issue](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Ainterop) for any other incompatibilities observed.
 
 Additionally, miniwdl's `version development` strives to implement [features and changes pending](https://github.com/openwdl/wdl/pulls?q=is%3Apr+is%3Aclosed) for the next specification release (best-effort & potentially unstable).
-
-### Experimental: failure-tolerant calls (`call?`)
-
-Under `version development` only, a call may be written with `call?` instead of `call`, using the same syntax otherwise (including `as` aliases and `after` dependencies):
-
-```
-call? best_effort_analysis as bea { input: sample = s }
-```
-
-A `call?` tolerates certain failures of the callee: instead of aborting the workflow, the call completes with all of its outputs set to `None` and execution continues. Consequently, the static type of every output of a `call?` is optional (`T?`) whether or not the call actually fails, and downstream expressions must handle the possibly-missing values explicitly — typically with `select_first([bea.result, default_value])` to substitute a fallback, `defined(bea.result)` to branch on success, or (for the gathered array of a scatter) `select_all(results)` to drop the failed shards.
-
-The same applies within scatters and subworkflows: each shard of a scattered `call?` is tolerated independently, so the gathered `Array[T?]` has `None` in the positions of failed shards while successful shards are unaffected; and an execution failure inside a subworkflow called with `call?` is tolerated the same way.
-
-**Which failures are tolerated.** `call?` tolerates failures arising from *executing* the callee, namely:
-
-* the task command exits unsuccessfully;
-* downloading the call's input files fails;
-* the call is interrupted — note an interruption only reaches this point after the task's `preemptible` retry attempts have been used up;
-* other container-backend errors while scheduling or running the call, including failure to build the task's container image.
-
-It never tolerates errors in the WDL program itself, which remain fatal as usual: expression evaluation errors (e.g. division by zero, out-of-bounds indexing), invalid call inputs, failure to evaluate the callee's declared outputs (e.g. a declared output file doesn't exist), and termination of the run by the user.
-
-**Caution.** A tolerated failure is recorded only as a `call? tolerated failure` warning in the workflow log (the failed call's run directory is preserved for inspection); otherwise the workflow proceeds and can complete "successfully" with `None` outputs standing in for the failed work. Use `call?` deliberately — for best-effort calls whose absence the rest of the pipeline is genuinely designed to handle — and not as a general substitute for handling task failures. (docs: document experimental failure-tolerant call?)

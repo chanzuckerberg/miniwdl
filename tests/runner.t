@@ -11,7 +11,7 @@ source tests/bash-tap/bash-tap-bootstrap
 export PYTHONPATH="$SOURCE_DIR:$PYTHONPATH"
 miniwdl="python3 -m WDL"
 
-plan tests 115
+plan tests 118
 
 $miniwdl run_self_test
 is "$?" "0" "run_self_test"
@@ -804,3 +804,32 @@ cat << 'EOF' > issue717.json
 EOF
 $miniwdl run issue717.wdl -i issue717.json
 is "$?" "0" "read exponential-notation values in JSON inputs (issue 717 regression)"
+
+# test experimental call? tolerating a failed task
+cat << 'EOF' > call_try.wdl
+version development
+
+workflow call_try {
+    call? always_fails as attempt
+
+    output {
+        String? failed_msg = attempt.msg
+        String chosen = select_first([attempt.msg, "fallback"])
+    }
+}
+
+task always_fails {
+    command <<<
+        echo "expected failure" >&2
+        exit 42
+    >>>
+
+    output {
+        String msg = read_string(stdout())
+    }
+}
+EOF
+$miniwdl run call_try.wdl -o call_try_out.json
+is "$?" "0" "call_try tolerates task failure"
+is "$(jq -r '.outputs["call_try.failed_msg"]' call_try_out.json)" "null" "call_try failed output is null"
+is "$(jq -r '.outputs["call_try.chosen"]' call_try_out.json)" "fallback" "call_try select_first fallback"
