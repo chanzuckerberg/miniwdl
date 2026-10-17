@@ -348,6 +348,14 @@ def prepare_aws_credentials(
                 logger.getChild("awscli_downloader").info(
                     _("detected non-AWS S3 endpoint", endpoint_url=s3_endpoint_url)
                 )
+
+            # likewise, propagate any region configured on the host session: awscli in the
+            # downloader task otherwise has no region at all (failing operations that require
+            # one) unless the bucket's region happens to match its built-in default resolution.
+            # Unlike an endpoint URL, a region doesn't pin resolution: awscli still follows
+            # S3's redirect to the bucket's actual region when they differ.
+            if session.region_name:
+                host_aws_credentials["AWS_DEFAULT_REGION"] = session.region_name
         except Exception as exn:
             # best-effort: the run may still succeed using public S3 URIs, for which the downloader
             # falls back to --no-sign-request

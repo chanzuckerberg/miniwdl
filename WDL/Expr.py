@@ -996,6 +996,7 @@ class Ident(Base):
             assert referee.__class__.__name__ in [
                 "Decl",
                 "Call",
+                "CallTry",
                 "Scatter",
                 "Gather",
             ], referee.__class__.__name__
