@@ -1,4 +1,4 @@
-FROM ubuntu:20.04 AS awscli_builder
+FROM ubuntu:22.04 AS awscli_builder
 RUN apt-get -qq update \
     && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y aria2 unzip
 # Add AWS CLI v2. We'd prefer to use AWS' official image, but it sets ENTRYPOINT which some
@@ -8,7 +8,7 @@ RUN mkdir /tmp/awscli && cd /tmp/awscli \
     && unzip -q awscli-*.zip \
     && aws/install --install-dir /opt/aws-cli --bin-dir /opt/aws-cli-bin
 
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 RUN apt-get -qq update \
     && DEBIAN_FRONTEND=noninteractive apt-get -qq install -y aria2 \
     && apt-get clean \

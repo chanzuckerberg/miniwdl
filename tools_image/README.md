@@ -7,7 +7,7 @@ For example, the image bundles [aria2c](https://aria2.github.io/), which miniwdl
 This image doesn't change often, so we build it manually with BuildKit/multi-stage Dockerfile optimization. First, authenticate your local `docker` CLI to GitHub Container Registry ([instructions](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry)) using a Personal Access Token with appropriate scope for the [miniwdl-ext organization](https://github.com/miniwdl-ext/), and then:
 
 ```
-docker pull ubuntu:20.04
+docker pull ubuntu:22.04
 docker build --no-cache -t miniwdl-tools:latest tools_image/
 TAG=$(docker inspect miniwdl-tools:latest | jq -r .[0].Id | tr ':' '_' \
       | xargs printf 'ghcr.io/miniwdl-ext/miniwdl-tools:Id_%s')
