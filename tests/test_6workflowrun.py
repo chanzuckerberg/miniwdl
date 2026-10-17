@@ -1703,12 +1703,32 @@ class TestWorkflowRunner(unittest.TestCase):
         # in its own working directory (mounted read/write in the container)
         # every time it actually executes; the host counts lines under each
         # workflow run directory. The flaky task's fail/succeed switch is a
-        # sentinel file inside a Directory input: visible to the command (the
-        # directory is mounted read-only), but not part of the cache-keyed
-        # input values (keys digest the directory path, not its contents).
+        # sentinel file inside its Directory input (mounted read-only): run 1
+        # passes a control directory without the sentinel, runs 2-3 pass one
+        # with it.
+        #
+        # The switch is staged as two distinct directories, never by mutating
+        # one directory in place between runs. run_local_workflow also caches
+        # at the workflow level (keyed by workflow name, digest, and inputs),
+        # and a call?-tolerated run completes successfully, so its outputs --
+        # flaky_out: None included -- are put into that cache after run 1. A
+        # rerun passing the same Directory would be served the cached outputs
+        # unless the cache coherence check notices the in-place mutation, and
+        # that check invalidates an entry only when some input path's mtime is
+        # strictly greater than the cache envelope's (WDL/runtime/cache.py).
+        # On a filesystem with coarse timestamp granularity, the plant can
+        # land in the envelope's own stamp tick and be invisible, so the rerun
+        # silently serves the stale tolerated result without executing
+        # anything (observed in CI). Passing a different directory changes the
+        # cache keys outright, exercising the task-cache behavior pinned below
+        # deterministically, with no reliance on timestamp ordering.
         cache_dir = os.path.join(self._dir, "call_cache")
         flaky_control = os.path.join(self._dir, "flaky_control")
         os.makedirs(flaky_control)
+        flaky_control_go = os.path.join(self._dir, "flaky_control_go")
+        os.makedirs(flaky_control_go)
+        with open(os.path.join(flaky_control_go, "go"), "w") as outfile:
+            outfile.write("go\n")
 
         logger = logging.getLogger(self.id())
         cfg = WDL.runtime.config.Loader(logger, [])
@@ -1776,20 +1796,17 @@ class TestWorkflowRunner(unittest.TestCase):
         self.assertEqual(executions("stable_counter.txt"), 1)
         self.assertEqual(executions("flaky_counter.txt"), 1)
 
-        # plant the sentinel: flaky's command will succeed iff it runs again
-        with open(os.path.join(flaky_control, "go"), "w") as outfile:
-            outfile.write("go\n")
-
-        # run 2 (same cache dir & inputs): stable is served from the call cache
-        # (no re-execution), while flaky re-executes -- proving its tolerated
-        # run-1 failure left no cache entry -- and now succeeds
-        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control}, cfg=cfg)
+        # run 2 (same cache dir; control directory with the sentinel): stable
+        # is served from the call cache (no re-execution), while flaky
+        # re-executes -- proving its tolerated run-1 failure left no cache
+        # entry -- and now succeeds
+        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control_go}, cfg=cfg)
         self.assertEqual(outputs, {"stable_out": "stable-ran", "flaky_out": "flaky-recovered"})
         self.assertEqual(executions("stable_counter.txt"), 0)
         self.assertEqual(executions("flaky_counter.txt"), 1)
 
         # run 3: flaky's run-2 success is cached too; neither task re-executes
-        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control}, cfg=cfg)
+        outputs = self._test_workflow(wdl, inputs={"flaky_control": flaky_control_go}, cfg=cfg)
         self.assertEqual(outputs, {"stable_out": "stable-ran", "flaky_out": "flaky-recovered"})
         self.assertEqual(executions("stable_counter.txt"), 0)
         self.assertEqual(executions("flaky_counter.txt"), 0)
