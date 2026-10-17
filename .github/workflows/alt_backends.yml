@@ -19,19 +19,15 @@ jobs:
           - singularity
           - udocker
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
-    - name: Maximize build space
-      uses: AdityaGarg8/remove-unwanted-software@v5
-      with:
-        remove-dotnet: 'true'
-        remove-android: 'true'
-        remove-haskell: 'true'
-        remove-codeql: 'true'
-        remove-docker-images: 'true'
     - uses: actions/checkout@v7
       with:
         fetch-depth: 0
-        submodules: recursive
+    - name: checkout bash-tap submodule
+      run: |
+        # (only submodule these tests need)
+        git submodule update --init --depth 1 tests/bash-tap
     - uses: actions/setup-python@v7
       with:
         python-version: '3.12'

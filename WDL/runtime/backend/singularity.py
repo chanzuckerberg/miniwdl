@@ -1,5 +1,6 @@
-# NOTE: this file is excluded from coverage analysis since alternate container backends may not be
-#       available in the CI environment. To test locally: prove -v tests/singularity.t
+# NOTE: this file is excluded from coverage analysis since alternate container backends aren't
+#       available in the main CI environment. They're tested separately by the alt_backends GitHub
+#       workflow (.github/workflows/alt_backends.yml). To test locally: prove -v tests/singularity.t
 import os
 import shlex
 import logging
