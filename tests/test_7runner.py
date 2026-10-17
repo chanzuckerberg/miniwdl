@@ -2935,9 +2935,10 @@ class TestTaskRuntimeInfo(RunnerTestCase):
 
 class TestAwsCredentials(unittest.TestCase):
     """
-    Unit tests for prepare_aws_credentials()'s reading of the host AWS configuration, especially
-    detection of an S3-compatible endpoint on a non-AWS host (which shouldn't disturb the endpoint
-    resolution awscli does for itself when talking to AWS S3 proper).
+    Unit tests for prepare_aws_credentials()'s reading of the host AWS configuration: which
+    credentials, region, and S3 endpoint settings it propagates into the downloader task (an
+    S3-compatible endpoint on a non-AWS host shouldn't disturb the endpoint resolution awscli
+    does for itself when talking to AWS S3 proper).
     """
 
     EXAMPLE_CREDENTIALS = """
@@ -3016,6 +3017,38 @@ class TestAwsCredentials(unittest.TestCase):
         )
         assert "export AWS_ENDPOINT_URL_S3=https://s3.example.org:9000" in script
         assert "AWS_ACCESS_KEY_ID" not in script
+
+    def test_aws_region(self):
+        # a region configured on the host session should be propagated for awscli in the
+        # downloader task, which otherwise has no region configured at all
+        script = self._prepare(
+            config_file="""
+            [default]
+            region = us-west-1
+            """,
+            credentials_file=self.EXAMPLE_CREDENTIALS,
+        )
+        assert "export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE" in script
+        assert "export AWS_DEFAULT_REGION=us-west-1" in script
+
+    def test_aws_region_without_credentials(self):
+        # like the endpoint, the region isn't a credential: the downloader may still need it
+        # (e.g. awscli requires a configured region even for --no-sign-request downloads)
+        script = self._prepare(
+            config_file="""
+            [default]
+            region = eu-central-1
+            """
+        )
+        assert "export AWS_DEFAULT_REGION=eu-central-1" in script
+        assert "AWS_ACCESS_KEY_ID" not in script
+
+    def test_no_aws_region(self):
+        # no region configured on the host session: nothing should be added for it
+        script = self._prepare(credentials_file=self.EXAMPLE_CREDENTIALS)
+        assert "export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE" in script
+        assert "AWS_DEFAULT_REGION" not in script
+        assert "AWS_REGION" not in script
 
     def test_broken_aws_config(self):
         # a broken host AWS configuration shouldn't fail the run outright, since public S3 URIs can

@@ -1,14 +1,14 @@
 import inspect
 import threading
 import regex
-from typing import List, Optional, Set, Tuple, Any, Union
+from typing import Dict, List, Optional, Set, Tuple, Any, Union
 import lark
 from .Error import SourcePosition
 from . import Error, Tree, Type, Expr, _grammar
 from ._util import WDLVersion, wdl_version_geq
 
 # memoize Lark parsers constructed for version & start symbol
-_lark_cache = {}
+_lark_cache: Dict[Tuple[str, str], lark.Lark] = {}
 _lark_comments_buffer: List[lark.Token] = []
 _lark_lock = threading.Lock()
 
@@ -526,6 +526,53 @@ class _DocTransformer(_ExprTransformer):
             i += 1
         assert i == len(items) or isinstance(items[i], dict)
         return Tree.Call(
+            self._sp(meta),
+            items[0],
+            items[1].value,
+            items[i] if i < len(items) else dict(),
+            after=after,
+        )
+
+    def call_try(self, meta, items):
+        if self._version != "development":
+            raise Error.SyntaxError(
+                self._sp(meta),
+                "call? is only supported with version development",
+                self._version,
+                self._declared_version,
+            )
+        after = []
+        i = 1
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
+        return Tree.CallTry(
+            self._sp(meta), items[0], None, items[i] if i < len(items) else dict(), after=after
+        )
+
+    def call_try_as(self, meta, items):
+        if self._version != "development":
+            raise Error.SyntaxError(
+                self._sp(meta),
+                "call? is only supported with version development",
+                self._version,
+                self._declared_version,
+            )
+        self._check_keyword(self._sp(meta), items[1].value)
+        after = list()
+        i = 2
+        while i < len(items):
+            if isinstance(items[i], lark.Token):
+                after.append(items[i].value)
+            else:
+                break
+            i += 1
+        assert i == len(items) or isinstance(items[i], dict)
+        return Tree.CallTry(
             self._sp(meta),
             items[0],
             items[1].value,
