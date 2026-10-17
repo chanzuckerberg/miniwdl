@@ -5,7 +5,6 @@ Feedback and contributions to miniwdl are welcome, via issues and pull requests 
 * [Online documentation](https://miniwdl.readthedocs.io/en/latest/) includes several "codelab" tutorials to start with
 * The [Project board](https://github.com/chanzuckerberg/miniwdl/projects/1) shows our current prioritization of [issues](https://github.com/chanzuckerberg/miniwdl/issues)
 * [Starter issues](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Astarter) are suitable entry points for new contributors
-* [Pull request template](https://github.com/chanzuckerberg/miniwdl/blob/main/.github/pull_request_template.md) includes a preparation checklist
 
 ## Development environment
 
