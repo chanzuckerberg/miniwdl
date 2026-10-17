@@ -114,10 +114,10 @@ class Linter(Walker.Base):
         return True
 
 
-_all_linters = []
+_all_linters: list[type[Linter]] = []
 
 
-def a_linter(cls):
+def a_linter(cls: type[Linter]) -> None:
     """
     Decorator for subclasses of ``Linter`` to register them for use
     """
