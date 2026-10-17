@@ -37,7 +37,7 @@ The miniwdl source repository includes several [example scripts](https://github.
 
 The default local scheduler observes these task `requirements {}` attributes (formerly `runtime {}` prior to WDL 1.2):
 
-* `docker`/`container` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:20.04`)
+* `docker`/`container` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:22.04`)
 * `cpu` (Int): container reserves, and is throttled to, this many CPUs
   * Automatically rounds down to all host CPUs, if fewer
   * Multiple tasks can run concurrently on the local host, if CPUs and memory are available to meet their total reservations, and the workflow dependencies allow
