@@ -1,5 +1,6 @@
 """
-Routines for packaging a WDL source file, with all imported source files, into a ZIP file.
+Routines for packaging a WDL source file, with all imported source files, into a ZIP (or tar)
+archive.
 
 *New in v1.5.0*
 """
@@ -37,6 +38,14 @@ def build(
 
     If imports are drawn from outside the main WDL's directory (or by URI), they'll be stored in a
     special subdirectory and import statements will be rewritten to match.
+
+    :param top_doc: the loaded main WDL document
+    :param archive: destination filename for the archive
+    :param inputs: default inputs to include in the archive (JSON-like dict), if any
+    :param meta: extra metadata to include in the manifest, if any
+    :param archive_format: ``"zip"`` or ``"tar"``
+    :param additional_files: other files, directories, or glob patterns to include, stored at the
+                             same location relative to the WDL source files
     """
 
     with contextlib.ExitStack() as cleanup:
@@ -392,22 +401,21 @@ def _write_no_mtime_tar(tar_archive: str, src_dest_list: list[tuple[pathlib.Path
 
 
 class UnpackedZip(NamedTuple):
+    """
+    Contextual value of :func:`WDL.Zip.unpack`: absolute paths of source directory, main WDL, and
+    default input JSON file (if any). The source directory prefixes the latter paths.
+    """
+
     dir: str
     main_wdl: str
     input_file: str | None
-
-
-"""
-Contextual value of `WDL.Zip.unpack()`: absolute paths of source directory, main WDL, and default
-input JSON file (if any). The source directory prefixes the latter paths.
-"""
 
 
 @contextlib.contextmanager
 def unpack(archive_fn: str, tempdir_parent: str | None = None) -> Iterator[UnpackedZip]:
     """
     Open a context with the WDL source archive unpacked into a temp directory, yielding
-    `UnpackedZip`. The temp directory will be deleted on context exit.
+    :class:`UnpackedZip`. The temp directory will be deleted on context exit.
 
     A path to the MANIFEST.json of an already-unpacked source archive may also be used, or a
     directory containing one. In this case, it is NOT deleted on context exit. ::

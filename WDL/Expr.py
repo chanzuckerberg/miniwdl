@@ -60,18 +60,18 @@ class Base(SourceNode, ABC):
         check_quant: bool = True,
         struct_types: Env.Bindings[dict[str, Type.Base]] | None = None,
     ) -> "Base":
-        """infer_type(self, type_env : Env.Bindings[Type.Base], stdlib : StdLib.Base) -> WDL.Expr.Base
-
+        """
         Infer the expression's type within the given type environment. Must be
         invoked exactly once prior to use of other methods.
 
         :param stdlib: a context-specific standard function library for typechecking
         :param check_quant:
-            when ``False``, disables static validation of the optional (?) type quantifier when `typecheck()` is called
+            when ``False``, disables static validation of the optional (?) type quantifier when ``typecheck()`` is called
             on this expression, so for example type ``T?`` can satisfy an expected type ``T``. Applies recursively to
             the type inference and checking of any sub-expressions.
+        :param struct_types: struct type definitions available in the document, if any
         :raise WDL.Error.StaticTypeMismatch: when the expression fails to type-check
-        :return: `self`
+        :return: ``self``
         """
         # Failure of this assertion indicates multiple invocations of
         # infer_type
@@ -101,7 +101,7 @@ class Base(SourceNode, ABC):
         ``expected``.
 
         :raise WDL.Error.StaticTypeMismatch:
-        :return: `self`
+        :return: ``self``
         """
         try:
             self.type.check(expected, self._check_quant)
@@ -1041,7 +1041,7 @@ class Get(Base):
     AST node representing access to a value by identifier (including namespaced
     ones), or accessing a member of a pair or struct as ``.member``.
 
-    The entaglement of these two cases is inherent in WDL. Consider the syntax
+    The entanglement of these two cases is inherent in WDL. Consider the syntax
     ``leftname.midname.rightname``. One interpretation is that ``leftname`` is
     an identifier for a struct value, and ``.midname.rightname`` represents a
     chain of struct member accesses. But another possibility is that
@@ -1057,7 +1057,7 @@ class Get(Base):
     ``Ident`` node. The ``Get`` node may specify a member name to access, but
     may not if the identifier is to be accessed directly. On the other hand,
     the expression inside a ``Get`` node need not be a simple identifier, e.g.
-    ``arr[1].memb.left`` is be represented as:
+    ``arr[1].memb.left`` is represented as:
     ``Get(Get(Apply("_at", Get(Ident("arr")), 1),"memb"),"left")``
     """
 

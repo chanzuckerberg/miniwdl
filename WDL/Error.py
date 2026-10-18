@@ -1,3 +1,8 @@
+"""
+Exception classes raised by the WDL parser, typechecker, and runtime, along with
+:class:`SourcePosition` and :class:`SourceNode` for locating errors in WDL source code
+"""
+
 import os
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
@@ -381,6 +386,8 @@ def multi_context() -> Generator[_MultiContext, None, None]:
 
 
 class RuntimeError(Exception):
+    """Base class for errors arising while running a WDL task or workflow"""
+
     more_info: dict[str, Any]
     """
     Backend-specific information about an error (for example, pointer to a centralized log system)
@@ -390,8 +397,8 @@ class RuntimeError(Exception):
     """
     Location of the error within a nested value being built or coerced, e.g. the path from a
     workflow input to the offending item of JSON; None if the error has no such location. Rendered
-    by ``__str__()`` as an ``(in ...)`` suffix; see :func:`_extend_value_path`. The default is a
-    class attribute, so it's left immutable and :func:`_extend_value_path` rebinds instead.
+    by ``__str__()`` as an ``(in ...)`` suffix; see ``_extend_value_path()``. The default is a
+    class attribute, so it's left immutable and ``_extend_value_path()`` rebinds instead.
     """
 
     def __init__(self, *args, more_info: dict[str, Any] | None = None, **kwargs) -> None:
