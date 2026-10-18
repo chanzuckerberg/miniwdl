@@ -57,6 +57,10 @@ class Base:
             ans = self.task(obj)
         elif isinstance(obj, Tree.StructTypeDef):
             ans = self.struct_typedef(obj)
+        elif isinstance(obj, Tree.HintsObject):
+            ans = self.hints_object(obj)
+        elif isinstance(obj, Tree.IOHints):
+            ans = self.io_hints(obj)
         elif isinstance(obj, Expr.Base):
             ans = self.expr(obj)
         else:
@@ -100,6 +104,12 @@ class Base:
         self._descend(obj)
 
     def struct_typedef(self, obj: Tree.StructTypeDef) -> Any:
+        self._descend(obj)
+
+    def hints_object(self, obj: Tree.HintsObject) -> Any:
+        self._descend(obj)
+
+    def io_hints(self, obj: Tree.IOHints) -> Any:
         self._descend(obj)
 
     def expr(self, obj: Expr.Base) -> Any:
@@ -156,6 +166,14 @@ class Multi(Base):
     def struct_typedef(self, obj: Tree.StructTypeDef) -> Any:
         for w in self._walkers:
             w.struct_typedef(obj)
+
+    def hints_object(self, obj: Tree.HintsObject) -> Any:
+        for w in self._walkers:
+            w.hints_object(obj)
+
+    def io_hints(self, obj: Tree.IOHints) -> Any:
+        for w in self._walkers:
+            w.io_hints(obj)
 
     def expr(self, obj: Expr.Base) -> Any:
         for w in self._walkers:

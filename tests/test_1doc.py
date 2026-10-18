@@ -615,7 +615,31 @@ task compare_md5sum {
         }
         """
         task = WDL.parse_tasks(txt, version="1.2")[0]
-        # TODO: test AST repr when implemented
+        self.assertEqual(set(task.hints), {"short_task", "inputs"})
+        short_task = task.hints["short_task"]
+        self.assertIsInstance(short_task, WDL.Expr.Boolean)
+        self.assertTrue(short_task.value)
+        inputs = task.hints["inputs"]
+        self.assertIsInstance(inputs, WDL.Tree.IOHints)
+        self.assertEqual(inputs.kind, "input")
+        files_hints = inputs.values["files"]
+        self.assertIsInstance(files_hints, WDL.Tree.HintsObject)
+        loc_opt = files_hints.values["localization_optional"]
+        self.assertIsInstance(loc_opt, WDL.Expr.Boolean)
+        self.assertTrue(loc_opt.value)
+        self.assertIsNotNone(task.hints_section_pos)
+
+        txt = """
+        task t {
+            command <<< true >>>
+            hints {
+                short_task: true,
+                short_task: false
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_tasks(txt, version="1.2")
 
         txt = """
         task t {
@@ -2707,7 +2731,44 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
-        # TODO: check hints AST once implemented
+        self.assertEqual(doc.workflow.hints, {"allow_nested_inputs": True})
+
+        doc = r"""version 1.2
+        workflow w {
+            input {
+                Array[String] names
+            }
+            hints {
+                allow_nested_inputs: true
+                labels: {"team": "genomics", "priority": 3}
+                retry_backoff_sec: [1, 2, 4]
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        self.assertEqual(
+            doc.workflow.hints,
+            {
+                "allow_nested_inputs": True,
+                "labels": {"team": "genomics", "priority": 3},
+                "retry_backoff_sec": [1, 2, 4],
+            },
+        )
+
+        # workflow hint values must be literals; expressions are not allowed
+        doc = r"""version 1.2
+        workflow w {
+            input {
+                Array[String] names
+            }
+            hints {
+                allow_nested_inputs: length(names) > 0
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(doc)
 
         doc = r"""version 1.2
         workflow w {

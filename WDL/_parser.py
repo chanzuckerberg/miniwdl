@@ -47,6 +47,94 @@ def to_float(x):
     return float(x)
 
 
+def _workflow_hint_expr_to_literal(
+    expr: Expr.Base, wdl_version: str | None, declared_version: str | None
+) -> Any:
+    # Constant-fold a literal expression into a plain JSON-like Python value.
+    # (Expr.Base.literal can't be used for composite literals here: the Array/Map/
+    # Struct implementations require type inference to have already run, but this
+    # conversion happens during parsing.)
+    if isinstance(expr, (Expr.Boolean, Expr.Int, Expr.Float)):
+        return expr.value
+    if isinstance(expr, Expr.Null):
+        return None
+    if isinstance(expr, Expr.String):
+        lit = expr.literal
+        if lit is not None:
+            return lit.value
+    elif isinstance(expr, Expr.Array):
+        return [
+            _workflow_hint_expr_to_literal(item, wdl_version, declared_version)
+            for item in expr.items
+        ]
+    elif isinstance(expr, Expr.Pair):
+        return [
+            _workflow_hint_expr_to_literal(expr.left, wdl_version, declared_version),
+            _workflow_hint_expr_to_literal(expr.right, wdl_version, declared_version),
+        ]
+    elif isinstance(expr, Expr.Map):
+        return {
+            _workflow_hint_map_key_to_literal(k, wdl_version, declared_version): (
+                _workflow_hint_expr_to_literal(v, wdl_version, declared_version)
+            )
+            for k, v in expr.items
+        }
+    elif isinstance(expr, Expr.Struct):
+        return {
+            k: _workflow_hint_expr_to_literal(v, wdl_version, declared_version)
+            for k, v in expr.members.items()
+        }
+    raise Error.SyntaxError(
+        expr.pos,
+        "workflow hint values must be literals; expressions are not allowed",
+        wdl_version or "",
+        declared_version,
+    )
+
+
+def _workflow_hint_map_key_to_literal(
+    expr: Expr.Base, wdl_version: str | None, declared_version: str | None
+) -> Any:
+    # A bare identifier in key position folds to its name, so {"team": "x"} and
+    # {team: "x"} are equivalent in a workflow hints object; any other literal
+    # key folds as usual. A key that is neither a plain name nor a literal
+    # scalar is an error.
+    if isinstance(expr, Expr.Get) and expr.member is None and isinstance(expr.expr, Expr._LeftName):
+        return str(expr.expr.name)
+    key = _workflow_hint_expr_to_literal(expr, wdl_version, declared_version)
+    if not isinstance(key, (str, int, float, bool)):
+        raise Error.SyntaxError(
+            expr.pos,
+            "workflow hint object keys must be names or literal values",
+            wdl_version or "",
+            declared_version,
+        )
+    return key
+
+
+def _workflow_hint_value_to_literal(
+    node: Any, wdl_version: str | None, declared_version: str | None
+) -> Any:
+    # Convert a parsed hints value (from the grammar productions shared by task and
+    # workflow hints sections) into a plain JSON-like value for Tree.Workflow.hints,
+    # enforcing the WDL 1.2 spec rule that workflow hint values must be literals
+    # (unlike task hints, expressions are not allowed).
+    if isinstance(node, Tree.HintsObject):
+        return {
+            k: _workflow_hint_value_to_literal(v, wdl_version, declared_version)
+            for k, v in node.values.items()
+        }
+    if isinstance(node, Tree.IOHints):
+        raise Error.SyntaxError(
+            node.pos,
+            "input/output blocks are not allowed in workflow hints",
+            wdl_version or "",
+            declared_version,
+        )
+    assert isinstance(node, Expr.Base)
+    return _workflow_hint_expr_to_literal(node, wdl_version, declared_version)
+
+
 class _SourcePositionTransformerMixin:
     def __init__(self, uri: str = "(buffer)", abspath: str = "(buffer)", *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -429,6 +517,37 @@ class _DocTransformer(_ExprTransformer):
             "runtime_section_pos": self._sp(meta),
         }
 
+    def hint_kv(self, meta, items):
+        return (items[0].value, items[1])
+
+    def io_hint_kv(self, meta, items):
+        # items: one or more CNAME tokens forming the (possibly dotted) key,
+        # followed by the value
+        return (".".join(tok.value for tok in items[:-1]), items[-1])
+
+    def io_hint(self, meta, items):
+        kind = next(
+            tok.value
+            for tok in items
+            if isinstance(tok, lark.Token) and tok.value in ("input", "output")
+        )
+        d = {}
+        for k, v in (item for item in items if isinstance(item, tuple)):
+            if k in d:
+                raise Error.MultipleDefinitions(
+                    self._sp(meta), "duplicate keys in hints input/output block"
+                )
+            d[k] = v
+        return Tree.IOHints(self._sp(meta), kind, d)
+
+    def hints_object(self, meta, items):
+        d = {}
+        for k, v in items:
+            if k in d:
+                raise Error.MultipleDefinitions(self._sp(meta), "duplicate keys in hints object")
+            d[k] = v
+        return Tree.HintsObject(self._sp(meta), d)
+
     def hints_section(self, meta, items):
         return {"hints": items[0]}
 
@@ -452,7 +571,8 @@ class _DocTransformer(_ExprTransformer):
                 assert "name" not in d
                 d["name"] = item.value
         self._check_keyword(self._sp(meta), d["name"])
-        # TODO: discarding d["hints"] for now (AST repr to be designed)
+        hints_obj = d.get("hints", None)
+        assert hints_obj is None or isinstance(hints_obj, Tree.HintsObject)
         return Tree.Task(
             self._sp(meta),
             d["name"],
@@ -465,6 +585,8 @@ class _DocTransformer(_ExprTransformer):
             d.get("meta", {}),
             d.get("runtime_section_name", None),
             d.get("runtime_section_pos", None),
+            hints=(hints_obj.values if hints_obj is not None else None),
+            hints_section_pos=(hints_obj.pos if hints_obj is not None else None),
         )
 
     def tasks(self, meta, items):
@@ -651,7 +773,12 @@ class _DocTransformer(_ExprTransformer):
             else:
                 assert False
         self._check_keyword(self._sp(meta), items[0].value)
-        # TODO: discarding hints_section for now (AST repr to be designed)
+        wf_hints: dict[str, Any] = {}
+        if hints_section is not None:
+            assert isinstance(hints_section, Tree.HintsObject)
+            wf_hints = _workflow_hint_value_to_literal(
+                hints_section, self._version, self._declared_version
+            )
         return Tree.Workflow(
             self._sp(meta),
             items[0].value,
@@ -662,6 +789,7 @@ class _DocTransformer(_ExprTransformer):
             meta_section or {},
             output_idents,
             output_idents_pos,
+            hints=wf_hints,
         )
 
     def struct(self, meta, items):
