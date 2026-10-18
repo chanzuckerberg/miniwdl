@@ -1,5 +1,6 @@
 import unittest
 import logging
+import json
 import tempfile
 import random
 import os
@@ -1386,6 +1387,128 @@ class TestDirectoryIO(RunnerTestCase):
             {"f": os.path.join(self._dir, "foo.txt")},
             expected_exception=WDL.runtime.error.OutputError,
         )
+
+    def _input_json_fixture(self):
+        # WDL + data files laid out under inputs/, for CLI.runner_input_json_file tests
+        os.makedirs(os.path.join(self._dir, "inputs", "data", "subdir"))
+        for fn in ["plain.txt", "a.txt", "b.txt", "inner.txt"]:
+            with open(os.path.join(self._dir, "inputs", "data", fn), mode="w") as outfile:
+                print(fn, file=outfile)
+        with open(os.path.join(self._dir, "main.wdl"), mode="w") as outfile:
+            outfile.write(
+                R"""
+                version 1.2
+                struct S {
+                    File f
+                    String s
+                }
+                workflow w {
+                    input {
+                        File plain
+                        Directory d
+                        Array[File] arr
+                        S st
+                        File remote
+                    }
+                    output {
+                        String o = plain
+                    }
+                }
+                """
+            )
+        return WDL.load(os.path.join(self._dir, "main.wdl")).workflow
+
+    def test_input_json_file_relative_paths(self):
+        # relative File & Directory inputs in an input JSON file resolve relative to
+        # the directory containing the JSON file (as the WDL spec suggests), not the
+        # process working directory
+        target = self._input_json_fixture()
+        payload = {
+            "w.plain": "data/plain.txt",
+            "w.d": "data/subdir",
+            "w.arr": ["data/a.txt", "data/b.txt"],
+            "w.st": {"f": "data/inner.txt", "s": "x"},
+            "w.remote": "s3://bucket/key.txt",
+        }
+        with open(os.path.join(self._dir, "inputs", "inputs.json"), mode="w") as outfile:
+            json.dump(payload, outfile)
+        with open(os.path.join(self._dir, "inputs", "inputs.yaml"), mode="w") as outfile:
+            outfile.write('w.plain: "data/plain.txt"\n')
+
+        # decoy working directory with a same-named data/plain.txt
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        with open(os.path.join(self._dir, "cwd", "data", "plain.txt"), mode="w") as outfile:
+            print("decoy", file=outfile)
+
+        downloadable = lambda fn, is_dir: "://" in fn
+        data_dir = os.path.join(self._dir, "inputs", "data")
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            for input_file in ["inputs.json", "inputs.yaml"]:
+                env = WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", input_file),
+                    downloadable,
+                    "/",
+                )
+                got = {b.name: b.value for b in env}
+                assert got["plain"].value == os.path.join(data_dir, "plain.txt")
+                if input_file.endswith(".json"):
+                    assert got["d"].value == os.path.join(data_dir, "subdir")
+                    assert [v.value for v in got["arr"].value] == [
+                        os.path.join(data_dir, "a.txt"),
+                        os.path.join(data_dir, "b.txt"),
+                    ]
+                    # File nested inside a struct value
+                    assert got["st"].value["f"].value == os.path.join(data_dir, "inner.txt")
+                    # downloadable (URL) values pass through untouched
+                    assert got["remote"].value == "s3://bucket/key.txt"
+        finally:
+            os.chdir(old_cwd)
+
+    def test_input_json_inline_relative_paths_use_cwd(self):
+        # inline JSON has no containing file, so relative inputs still resolve
+        # relative to the process working directory
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        with open(os.path.join(self._dir, "cwd", "data", "plain.txt"), mode="w") as outfile:
+            print("decoy", file=outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            env = WDL.CLI.runner_input_json_file(
+                target.available_inputs,
+                target.name,
+                '{"w.plain": "data/plain.txt"}',
+                None,
+                "/",
+            )
+        finally:
+            os.chdir(old_cwd)
+        got = {b.name: b.value for b in env}
+        assert got["plain"].value == os.path.join(self._dir, "cwd", "data", "plain.txt")
+
+    def test_input_json_file_relative_paths_within_root(self):
+        # the file_io.root containment check still applies after rebasing a relative
+        # input path onto the JSON file's directory
+        target = self._input_json_fixture()
+        with open(os.path.join(self._dir, "outside.txt"), mode="w") as outfile:
+            print("outside", file=outfile)
+        with open(os.path.join(self._dir, "inputs", "escape.json"), mode="w") as outfile:
+            json.dump({"w.plain": "../outside.txt"}, outfile)
+
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            WDL.CLI.runner_input_json_file(
+                target.available_inputs,
+                target.name,
+                os.path.join(self._dir, "inputs", "escape.json"),
+                None,
+                os.path.join(self._dir, "inputs"),
+            )
+        assert "file_io.root" in str(ctx.exception)
 
 
 class TestNoneLiteral(RunnerTestCase):

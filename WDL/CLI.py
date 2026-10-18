@@ -1136,12 +1136,19 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         from ruamel.yaml import YAML  # delayed heavy import
 
         input_json = None
+        input_dir = None
         if input_file[0] == "{":
             input_json = input_file
         elif input_file == "-":
             input_json = sys.stdin.read()
         else:
             input_json = asyncio.run(make_read_source(False)(input_file, [], None)).source_text
+            if not input_file.startswith(("http:", "https:")):
+                # inputs from a local JSON/YAML file: the WDL spec suggests resolving any
+                # relative File & Directory inputs relative to the directory containing
+                # that file (instead of the process working directory, which remains the
+                # basis for inline and stdin JSON)
+                input_dir = os.path.dirname(os.path.abspath(input_file))
         input_json = YAML(typ="safe", pure=True).load(input_json)
         if not isinstance(input_json, dict):
             raise Error.InputError("check JSON input; expected top-level object")
@@ -1153,7 +1160,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         ans = Value.rewrite_env_paths(
             ans,
             lambda v: validate_input_path(
-                v.value, isinstance(v, Value.Directory), downloadable, root
+                v.value, isinstance(v, Value.Directory), downloadable, root, input_dir
             ),
         )
 
@@ -1295,15 +1302,21 @@ def runner_input_value(s_value, ty, downloadable, root):
     )
 
 
-def validate_input_path(path, directory, downloadable, root):
+def validate_input_path(path, directory, downloadable, root, base_dir=None):
     """
     If the path is downloadable, return it back. Otherwise, return the absolute path after checking
     1. exists and is a file or directory (according to directory: bool)
     2. resides within root
     3. contains no symlinks pointing outside or to absolute paths
+
+    A relative path is resolved against base_dir, if supplied, instead of the process
+    working directory.
     """
     if downloadable and downloadable(path, directory):
         return path
+
+    if base_dir and not os.path.isabs(path):
+        path = os.path.join(base_dir, path)
 
     if not ((directory and os.path.isdir(path)) or (not directory and os.path.isfile(path))):
         raise Error.InputError(("Directory" if directory else "File") + " not found: " + path)
