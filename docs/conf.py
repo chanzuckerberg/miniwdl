@@ -54,9 +54,11 @@ inheritance_node_attrs = {"fontsize": 11, "shape": "box", "style": "rounded"}
 
 html_theme = "furo"
 html_title = "miniwdl"
-html_logo = "miniwdl-logo.png"
+html_static_path = ["_static"]
 html_theme_options = {
     "sidebar_hide_name": True,
+    "light_logo": "miniwdl-logo-light.png",
+    "dark_logo": "miniwdl-logo-dark.png",
     "source_repository": "https://github.com/chanzuckerberg/miniwdl/",
     "source_branch": "main",
     "source_directory": "docs/",

@@ -65,6 +65,12 @@ Then follow the :doc:`getting_started` tutorial. The documentation is organized 
    :hidden:
 
    WDL.rst
+
+.. toctree::
+   :caption: Python codelabs
+   :maxdepth: 2
+   :hidden:
+
    trace_identifiers.md
    wdlviz.md
    add_functions.md
