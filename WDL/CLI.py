@@ -1142,13 +1142,14 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         elif input_file == "-":
             input_json = sys.stdin.read()
         else:
-            input_json = asyncio.run(make_read_source(False)(input_file, [], None)).source_text
-            if not input_file.startswith(("http:", "https:")):
+            read_result = asyncio.run(make_read_source(False)(input_file, [], None))
+            input_json = read_result.source_text
+            if not read_result.abspath.startswith(("http:", "https:")):
                 # inputs from a local JSON/YAML file: the WDL spec suggests resolving any
                 # relative File & Directory inputs relative to the directory containing
                 # that file (instead of the process working directory, which remains the
                 # basis for inline and stdin JSON)
-                input_dir = os.path.dirname(os.path.abspath(input_file))
+                input_dir = os.path.dirname(read_result.abspath)
         input_json = YAML(typ="safe", pure=True).load(input_json)
         if not isinstance(input_json, dict):
             raise Error.InputError("check JSON input; expected top-level object")
@@ -1316,7 +1317,16 @@ def validate_input_path(path, directory, downloadable, root, base_dir=None):
         return path
 
     if base_dir and not os.path.isabs(path):
-        path = os.path.join(base_dir, path)
+        rebased_path = os.path.join(base_dir, path)
+        if not os.path.exists(rebased_path) and os.path.exists(path):
+            # the path exists relative to the process working directory, but not
+            # relative to the input file it came from -- flag the likely confusion
+            raise Error.InputError(
+                f"{path} not found relative to the input file's directory {base_dir} "
+                "(relative paths in an input file resolve against that file's directory, "
+                "not the working directory)"
+            )
+        path = rebased_path
 
     if not ((directory and os.path.isdir(path)) or (not directory and os.path.isfile(path))):
         raise Error.InputError(("Directory" if directory else "File") + " not found: " + path)

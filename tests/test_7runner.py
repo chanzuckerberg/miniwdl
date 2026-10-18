@@ -1489,7 +1489,11 @@ class TestDirectoryIO(RunnerTestCase):
         finally:
             os.chdir(old_cwd)
         got = {b.name: b.value for b in env}
-        assert got["plain"].value == os.path.join(self._dir, "cwd", "data", "plain.txt")
+        # (realpath: the process working directory may differ textually from
+        # self._dir through symlinks, e.g. /var -> /private/var on macOS)
+        assert os.path.realpath(got["plain"].value) == os.path.realpath(
+            os.path.join(self._dir, "cwd", "data", "plain.txt")
+        )
 
     def test_input_json_file_relative_paths_within_root(self):
         # the file_io.root containment check still applies after rebasing a relative
@@ -1509,6 +1513,32 @@ class TestDirectoryIO(RunnerTestCase):
                 os.path.join(self._dir, "inputs"),
             )
         assert "file_io.root" in str(ctx.exception)
+
+    def test_input_json_file_relative_path_migration_hint(self):
+        # a relative input that exists relative to the process working directory,
+        # but NOT relative to the input file's directory, elicits an error explaining
+        # the input-file resolution rule (instead of a bare "not found")
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        with open(os.path.join(self._dir, "cwd", "data", "only_cwd.txt"), mode="w") as outfile:
+            print("only_cwd", file=outfile)
+        with open(os.path.join(self._dir, "inputs", "hint.json"), mode="w") as outfile:
+            json.dump({"w.plain": "data/only_cwd.txt"}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with self.assertRaises(WDL.Error.InputError) as ctx:
+                WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", "hint.json"),
+                    None,
+                    "/",
+                )
+        finally:
+            os.chdir(old_cwd)
+        assert "not found relative to the input file's directory" in str(ctx.exception)
 
 
 class TestNoneLiteral(RunnerTestCase):
